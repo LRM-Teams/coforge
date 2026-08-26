@@ -120,9 +120,9 @@ subset remains monotonic and can be replayed in `seq` order. After commit, the
 backend may offer the delivery to an online workspace-daemon. The workspace
 child returns a durable-accept response only after it has inserted the delivery
 into its local durable inbox, or confirmed that the same `delivery_id` is
-already there. The protocol method and envelope remain deferred to separate
-wire approval. ACK therefore means **durably accepted by the local runtime**,
-not **Agent run completed** or handed to ACP.
+already there. The exact response method and envelope remain gated by the
+separate wire-protocol approval. ACK therefore means **durably accepted by the
+local runtime**, not **Agent run completed** or handed to ACP.
 
 The server accepts an ACK only when workspace, Agent, delivery ID, and sequence
 match, then sets `acked_at`. On reconnect or retry it resends unacknowledged rows
