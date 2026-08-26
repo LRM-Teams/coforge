@@ -19,6 +19,8 @@ CoForge MVP 使用 Caddy 作为唯一公网 edge、standalone Centrifugo OSS 作
 - `workspace-daemon` 仍按逻辑 Workspace 各自发起一条 WSS。`coforge-computer` 只管理本机 `coforge-daemon`，不成为远程 realtime endpoint。
 - Centrifugo↔Backend 最终选 HTTP 还是 gRPC、channel/rpc namespace、method、field、error、capability 和版本行为都不在本 ADR 中锁定；这些必须在身份、credential audience、binding 与 wire approval packet 通过后才能实现。
 
+Production 实现必须继续等待 LRM-1563 对 machine identity、Workspace–Computer binding、credential audience 与 exact versioned wire 的分别明确批准；本 ADR 或 spike 的 broad approval 不能替代该门禁。
+
 ### 在线视图与两副本边界
 
 - MVP 运行两个 Centrifugo 副本并共享 Redis engine。Redis broker 负责把任一副本的 publication fan-out 到持有目标连接的副本，Redis presence 让任一副本返回同一 hot online view。
@@ -40,6 +42,8 @@ CoForge MVP 使用 Caddy 作为唯一公网 edge、standalone Centrifugo OSS 作
 - PostgreSQL 上线门禁必须实际执行 logical backup、在全新 container + volume 中 restore、校验业务 fingerprint，并验证错误凭据/损坏备份 fail closed。仅保留原 volume 或重启容器不算恢复证据。
 - Redis 改为托管服务时只替换配置与 Secret，接受 hot state 重建，并在 drain/reconnect 后用 presence 与 canonical reconciliation 验证。PostgreSQL 改为托管服务必须走受控 backup/restore 或复制迁移、双侧校验和明确 cutover/rollback；不得把 endpoint 切换当作数据迁移。
 - Redis 8 官方版本提供 RSALv2、SSPLv1、AGPLv3 三种选择；LRM-1581 仅以未修改 image 的 AGPLv3 选项做 spike。production image/version/license 在法务与 license gate 记录前不得发布；若不批准，替换兼容 broker 需要新的架构决定和同等故障证据。
+
+Web 与 workspace-daemon 只依赖稳定的 Caddy public URL，不感知 Centrifugo node 或 Redis endpoint。LRM-1563 批准后的 Backend/Centrifugo adapter 必须固定并版本化所选 proxy/API schema；rolling window 只有在相邻版本明确兼容时才允许混跑，未知 major/capability 必须 fail closed。旧 custom gateway 从未成为 production 数据 owner，因此不需要双跑或数据迁移兼容层。
 
 ## 未选择的方案
 

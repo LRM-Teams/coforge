@@ -28,7 +28,7 @@ flowchart LR
     User -->|WSS| Caddy
     User -->|signed HTTPS upload| OSS[(Alibaba Cloud OSS<br/>private attachment bucket)]
     User -->|short-lived signed GET| Delivery[Opaque delivery URL<br/>Direct OSS or cdn.coforge.cn/files/]
-    Caddy --> Web[Web / backend<br/>Node · TanStack Start<br/>control plane]
+    Caddy --> Web[Web / Bun Backend<br/>Bun 1.4 · TanStack Start<br/>control plane]
     Caddy -->|WSS| Realtime[Centrifugo OSS ×2<br/>standalone transport]
     Web --> DB[(PostgreSQL Docker<br/>canonical durability)]
     Realtime <-->|HTTP/gRPC proxy · server API| Web
@@ -56,7 +56,7 @@ flowchart LR
     Realtime <-->|outbound WSS + RPC| WD2
 ```
 
-`Centrifugo ↔ Web/backend` 最终选择 HTTP 还是 gRPC、具体 method/field/error/version 均未定型；图中只固定职责、故障隔离与数据方向，不提前锁定业务 wire。
+`Centrifugo ↔ Web/backend` 最终选择 HTTP 还是 gRPC、具体 method/field/error/version 均未定型；图中只固定职责、故障隔离与数据方向，不提前锁定业务 wire。machine identity、Workspace–Computer binding、credential audience 与 exact production wire 必须由 LRM-1563 分别明确批准，批准前不得开始 production 实现。
 
 选型理由、失败/回滚边界、LRM-1581 固定证据与官方资料见 [ADR 0001](adr/0001-standalone-centrifugo-and-compose-data-services.md)。
 
@@ -110,7 +110,7 @@ Caddy 不理解 conversation、message、Agent 或 workspace 业务。
 - 接收并保存 Agent response/stream，再推送给会话参与者；
 - 通过 Centrifugo proxy/server API 执行连接授权、业务 RPC、publish 与必要的 disconnect，并在重启后从 PostgreSQL 已知 binding + Centrifugo presence 重建在线视图。
 
-初始实现使用 Node 24 LTS 与 TanStack Start，不使用 Next.js。前期保持模块化单体，只有出现清晰的扩缩容或故障隔离需求时才拆服务。
+初始实现使用 Bun 1.4 与 TanStack Start，不使用 Next.js。前期保持模块化单体，只有出现清晰的扩缩容或故障隔离需求时才拆服务。
 
 ### standalone Centrifugo OSS：实时传输面
 
@@ -299,11 +299,11 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 | Edge | Caddy 2.11.4 |
 | realtime transport | standalone Centrifugo OSS；LRM-1581 验证 v6.8.4 |
 | realtime hot state | Redis Official Image；LRM-1581 验证 8.2.6，production pin/license 待门禁 |
-| Web/backend | Node 24 LTS + TanStack Start |
+| Web/backend | Bun 1.4 + TanStack Start |
 | 本地 app/runtime | Bun 1.4 |
 | 数据库 | PostgreSQL Official Image；LRM-1581 验证 18.6 |
 
-开发工具和本地 runtime 的精确版本以 `mise.toml` 为准；Caddy/Centrifugo/Redis/PostgreSQL 的 production 版本由后续 Compose 配置按不可变 digest 固定。LRM-1581 的版本只证明组合可行，不自动批准 production pin。升级版本时必须同时更新相应配置、lock/evidence、CI 与本文，不能只改本机环境或使用 `latest`。
+开发工具、Web/backend 和本地 runtime 的精确版本以 `mise.toml` 为准；Caddy/Centrifugo/Redis/PostgreSQL 的 production 版本由后续 Compose 配置按不可变 digest 固定。LRM-1581 的版本只证明组合可行，不自动批准 production pin。升级版本时必须同时更新相应配置、lock/evidence、CI 与本文，不能只改本机环境或使用 `latest`。
 
 验证阶段采用轻量 [GitHub Flow](https://docs.github.com/en/get-started/using-github/github-flow)：短生命周期 feature branch → CR/PR → `main`，不维护长期 `dev` 分支，禁止直接向 `main` 提交或推送。规范性的决策门槛、评审、检查与合并规则统一由根目录 [`AGENTS.md`](../AGENTS.md) 维护。
 
@@ -345,12 +345,12 @@ daemon 到 cloud 在 Centrifugo client protocol 内承载 CoForge 自有、版�
 以下项目在实现锁定前必须写 ADR：
 
 1. Centrifugo client protocol 内的 CoForge payload encoding 与 schema generation；
-2. Centrifugo 到 Backend 使用 HTTP 或 gRPC、proxy/API 暴露范围、channel/namespace 映射与在线视图枚举；
+2. LRM-1563 批准的 machine identity、Workspace–Computer binding、credential audience，以及 Centrifugo 到 Backend 使用 HTTP 或 gRPC、proxy/API 暴露范围、channel/namespace 映射与在线视图枚举；
 3. SQLite schema、加密、保留与损坏恢复；
 4. `conversation_seq` 的并发分配；
 5. ACP capability mapping 与 cancellation；
 6. reconnect、drain deadline 与可测量恢复 SLO；
-7. 设备身份、密钥轮换与 workspace revoke。
+7. LRM-1563 约束下的设备身份、密钥轮换与 workspace revoke。
 
 ## 12. 首批故障验证
 

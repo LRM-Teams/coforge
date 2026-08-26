@@ -10,16 +10,16 @@ The project is in its architecture-validation phase.
 ## Architecture
 
 ```text
-Browser -> Caddy -> TanStack Start web/backend -> PostgreSQL
+Browser -> Caddy -> TanStack Start / Bun backend -> PostgreSQL
               \--> standalone Centrifugo <-WSS- workspace child
-                          |      ^
+                          |      |
                        Redis    | HTTP/gRPC proxy + server API
-                                +---- Bun backend
+                                +---- backend
 
 coforge-computer <-Unix socket-> coforge-daemon -> N workspace children -> ACP
 ```
 
-- Web/backend: TanStack Start on Node 24 LTS
+- Web/backend: TanStack Start with Bun 1.4 as the business-control runtime
 - Realtime transport: standalone Centrifugo OSS over WebSocket
 - Realtime hot state: self-hosted Redis Docker; never canonical durability
 - Canonical cloud state: self-hosted PostgreSQL Docker with backup/restore gates
