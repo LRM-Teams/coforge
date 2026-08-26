@@ -6,11 +6,11 @@
 
 适用范围：仓库结构、云端服务、本地进程、消息投递与开发工具链
 
-本文是 CoForge 当前架构的唯一规范来源。`architecture.html` 是便于阅读和分享的同内容版本；出现冲突时以本文为准。已确定的边界直接写在正文，仍需 ADR 的设计会明确标记为“提案”。
+本文是 CoForge 当前架构的唯一规范来源。已确定的边界直接写在正文，仍需 ADR 的设计会明确标记为“提案”。
 
 ## 1. 架构目标
 
-CoForge 让用户通过 Web 私聊或群聊多个 code agent，同时把 Agent 实际执行隔离在用户机器的 workspace 中。首个验证版本优先保证：
+CoForge 让用户通过 Web 私聊或群聊多个 code agent，同时把 Agent 实际执行隔离在用户机器上各自的 Agent workspace 目录中。首个验证版本优先保证：
 
 - 云端不直接进入用户机器，所有远程连接由本地主动发起；
 - 一个 workspace 的崩溃、卡死或内存泄漏不拖垮其他 workspace；
@@ -68,9 +68,11 @@ apps/
 | --- | --- | --- | --- |
 | `coforge-computer` | 独立 package | 独立 OS 进程 | 机器身份、安装升级、启动/停止和健康检查 coforge-daemon |
 | `coforge-daemon` | 独立 package | 独立 OS 进程 | 对齐期望/实际 workspace 集合，管理子进程生命周期和崩溃恢复 |
-| `workspace-daemon` | 不独立发布 | coforge-daemon 启动的子进程；一个实例对应一个 workspace | 维护该 workspace 的 WSS、投递边界、ACP adapter 和 Agent 生命周期 |
+| `workspace-daemon` | 不独立发布 | coforge-daemon 启动的常驻子进程；一个实例对应一个逻辑 workspace | 维护该 workspace 的 WSS、投递边界、ACP adapter 和 Agent 生命周期 |
 
 因此禁止新增 `apps/workspace-daemon`。需要隔离的是运行时进程，而不是第三个发布包。
+
+本文不加限定词的 `workspace` 指云端协作、成员、权限、conversation 与 Agent 的逻辑边界。每个 Agent 另有自己的文件系统 Agent workspace 目录，它不是第二个逻辑 workspace。文档必须用限定词区分两者；目录在代码和协议中的确切字段名留待实现前单独确认。
 
 `coforge-computer` 与 `coforge-daemon` 通过 Unix domain socket 通信。不得为了方便而给本地管理接口开放 TCP 监听端口。
 
@@ -123,20 +125,29 @@ PostgreSQL 的首要领域对象是：
 
 coforge-computer 是机器级 supervisor，不执行 workspace 内的 Agent 业务。它管理登录后的机器身份、安装/升级、coforge-daemon 的启动停止与健康检查。
 
+`machine_id` 是机器的稳定身份，跨 computer、daemon 与 workspace 子进程的重启和升级保持不变。它的具体签发方式、存储位置、唯一性范围与云端 computer 表结构由单独评审确定，本文不预先锁定。
+
 ### coforge-daemon
 
-coforge-daemon 管理一台机器上所有 workspace-daemon：
+coforge-daemon 管理一台机器上所有已绑定逻辑 workspace 的常驻 workspace-daemon：
 
 ```text
-coforge-daemon 1 ──管理──> N workspace-daemon
-workspace-daemon 1 <──绑定──> 1 workspace
+coforge-daemon 1 ──管理──> N 常驻 workspace-daemon
+workspace-daemon 1 <──绑定──> 1 逻辑 workspace
+workspace-daemon 1 ──管理──> N Agent ──各自拥有──> 1 Agent workspace 目录
 ```
 
-它负责期望状态与实际状态收敛、子进程创建/回收、崩溃恢复、资源治理和版本兼容，但不直接解析各家 Agent 的输出协议。
+一个逻辑 workspace 分配到这台机器后，coforge-daemon 为其维持一个 workspace-daemon。常驻表示该子进程在两条消息之间也保持运行；进程崩溃或升级后可以被替换，但新的进程仍使用同一个稳定 `workspace_id`，不会因此创建新的 Workspace。
+
+coforge-daemon 负责期望状态与实际状态收敛、子进程创建/回收、崩溃恢复、资源治理和版本兼容，但不直接解析各家 Agent 的输出协议。
+
+Computer 的云端在线状态由当前 workspace-daemon WSS 连接集合实时派生：该 Computer 至少有一个 workspace-daemon WSS 在线时，该 Computer 在线。具体连接如何关联稳定的服务端 Computer 记录由后续 binding 与认证设计确定；`online` 与 `last_seen_at` 不作为这项状态的持久化真相。
 
 ### workspace-daemon 与 ACP
 
-每个 workspace-daemon 是独立子进程，只能访问自己的 workspace 根目录和允许的环境变量。它通过 ACP 与 Codex、Claude Code、Pi 等 Agent runtime 通信，对上层暴露统一的启动、发送、中断、恢复、销毁和事件语义。
+每个 workspace-daemon 是独立子进程，只能管理同一个 `workspace_id` 下的 Agent。每个 Agent 拥有自己的文件系统 Agent workspace 目录；子进程只能访问这些已声明目录和允许的环境变量。workspace-daemon 通过 ACP 与 Codex、Claude Code、Pi 等 Agent runtime 通信，对上层暴露统一的启动、发送、中断、恢复、销毁和事件语义。
+
+一台 Computer 允许安装零个或多个 code-agent runtime。零 runtime 是有效机器状态，不阻止 computer 或 daemon 启动；安装并配置合适 runtime 前不能执行 Agent。
 
 Agent provider 的特殊逻辑必须留在 ACP adapter 边界内，不能泄漏到 realtime-gateway、Web/backend 或共享领域模型。
 
@@ -221,7 +232,7 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 - workspace 与 Agent 使用显式状态机，不用多个布尔值拼接生命周期；
 - 凭据不得进入仓库、日志、命令行参数或生成物；
 - Unix socket 使用最小文件权限并验证对端身份；
-- Agent 只能在声明的 workspace 根目录中运行；
+- Agent 只能在声明的 Agent workspace 目录中运行；
 - Caddy、gateway、backend 和本地进程都需要结构化日志和关联 id，但日志不得包含 secret；
 - validation 阶段先使用常规主机与托管 PostgreSQL，不引入 Kubernetes。
 - WebSocket 依附于 TCP，所属 gateway 进程死亡时一定会断开；保证目标是 committed message 不丢、自动重连、按序 replay 与重复抑制，而不是宣称连接永不断。
