@@ -213,6 +213,13 @@ The workflow also uploads that redacted history as a 90-day run artifact. A
 rollback that cannot be verified records `failed_rollback` and retains its
 pending recovery files for operator diagnosis.
 
+If an interruption audit itself cannot be appended, the controller exits 74,
+retains the staged evidence, and creates `pending-audit-write-failed`. Every
+successor operation then fails closed. Restore writable storage and escalate
+with the retained files; do not delete the marker or start another release
+until the missing interrupted outcome has been reconstructed in the JSONL
+history.
+
 Compose uses Docker's `local` logging driver with bounded rotation. Inspect
 runtime logs with `docker compose --project-name coforge-test logs gateway`;
 never add secrets to application environment variables or image layers.

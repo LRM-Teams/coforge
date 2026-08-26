@@ -47,6 +47,8 @@ next_state_file="$app_root/.release-state.next"
 next_image_file="$app_root/.current-image.next"
 next_previous_file="$app_root/.previous-image.next"
 next_pending_image_file="$app_root/.pending-image.next"
+pre_marker_active_file="$app_root/.pre-marker-active"
+pending_audit_failed_file="$app_root/pending-audit-write-failed"
 pre_marker_image=
 pre_marker_previous=bootstrap:empty
 pre_marker_source_commit=
@@ -143,7 +145,8 @@ clear_pending() {
     "$pending_prior_previous_image_file" "$pending_prior_previous_compose_file" \
     "$pending_previous_compose_file" "$pending_rollback_complete_file" \
     "$pending_failure_file" "$next_pending_image_file" \
-    "$rollback_compose_backup"
+    "$rollback_compose_backup" "$pre_marker_active_file" \
+    "$pending_audit_failed_file"
 }
 
 # Invoked by traps while sidecars are being staged. It must record immediately:
@@ -162,11 +165,19 @@ record_pre_marker_interruption() {
   if [[ "$previous_digest" != bootstrap:empty ]]; then
     previous_digest=${previous_digest##*@}
   fi
-  printf '{"source_commit":"%s","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"signal_%s=interrupted","final_observed_state":"unchanged","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"interrupted"}\n' \
+  if ! printf '{"source_commit":"%s","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"signal_%s=interrupted","final_observed_state":"unchanged","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"interrupted"}\n' \
     "$pre_marker_source_commit" "$image" "$image_digest" \
     "$pre_marker_workflow_run" "$previous_digest" "$signal" \
     "$pre_marker_executor" "$pre_marker_started_at" "$completed_at" \
-    >>"$history_file"
+    >>"$history_file"; then
+    if [[ -e "$pre_marker_active_file" ]]; then
+      mv -f "$pre_marker_active_file" "$pending_audit_failed_file"
+    else
+      : >"$pending_audit_failed_file"
+    fi
+    printf 'pre-marker interruption audit failed; recovery evidence retained\n' >&2
+    exit 74
+  fi
   clear_pending
   exit 130
 }
@@ -365,6 +376,10 @@ if ! flock --nonblock 9; then
   exit 75
 fi
 if [[ ! -e "$pending_image_file" ]]; then
+  if [[ -e "$pending_audit_failed_file" ]]; then
+    printf 'a pre-marker interruption audit failed; refusing to discard recovery evidence\n' >&2
+    exit 74
+  fi
   # A transaction is discoverable only after its marker is atomically
   # published. Under the host lock, sidecars without that marker can only be
   # remnants of an interrupted preparation and must not enter a successor.
@@ -819,6 +834,7 @@ if [[ "$release_image" == --rollback ]]; then
     trap 'record_pre_marker_interruption HUP' HUP
     trap 'record_pre_marker_interruption INT' INT
     trap 'record_pre_marker_interruption TERM' TERM
+    : >"$pre_marker_active_file"
     if [[ -n "$manual_from" ]]; then
       printf '%s\n' "$manual_from" >"$pending_manual_from_file"
     fi
@@ -840,6 +856,7 @@ if [[ "$release_image" == --rollback ]]; then
     fi
     printf '%s\n' "$manual_pending_image" >"$next_pending_image_file"
     mv -f "$next_pending_image_file" "$pending_image_file"
+    rm -f -- "$pre_marker_active_file"
     trap 'record_interruption HUP' HUP
     trap 'record_interruption INT' INT
     trap 'record_interruption TERM' TERM
@@ -918,6 +935,7 @@ if [[ "$defer_commit" == true ]]; then
   trap 'record_pre_marker_interruption HUP' HUP
   trap 'record_pre_marker_interruption INT' INT
   trap 'record_pre_marker_interruption TERM' TERM
+  : >"$pre_marker_active_file"
   if [[ "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
     printf '%s\n' "$previous_image" >"$pending_previous_image_file"
     if [[ -r "$current_compose_source" ]]; then
@@ -942,6 +960,7 @@ if [[ "$defer_commit" == true ]]; then
   printf '%s\n' "$transaction_owner" >"$pending_owner_file"
   printf '%s\n' "$release_image" >"$next_pending_image_file"
   mv -f "$next_pending_image_file" "$pending_image_file"
+  rm -f -- "$pre_marker_active_file"
   trap 'record_interruption HUP' HUP
   trap 'record_interruption INT' INT
   trap 'record_interruption TERM' TERM

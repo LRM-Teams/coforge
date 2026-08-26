@@ -131,6 +131,45 @@ if [[ -e "$test_root/manual-pre-marker-cancel/pending-image" ]] \
   exit 1
 fi
 
+mkdir -p "$test_root/pre-marker-audit-failure"
+printf 'release: current\n' >"$test_root/pre-marker-audit-failure/compose.yaml"
+printf 'release: candidate\n' >"$test_root/pre-marker-audit-failure/candidate.yaml"
+printf '%s\n' "$first_image" >"$test_root/pre-marker-audit-failure/current-image"
+mkdir "$test_root/pre-marker-audit-failure/release-history.jsonl"
+set +e
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  FAKE_CP_SIGNAL_DURING_PREPARE=true \
+  COFORGE_APP_ROOT="$test_root/pre-marker-audit-failure" \
+  COFORGE_CANDIDATE_COMPOSE="$test_root/pre-marker-audit-failure/candidate.yaml" \
+  COFORGE_DEFER_COMMIT=true \
+  COFORGE_SOURCE_COMMIT="$source_commit" \
+  COFORGE_WORKFLOW_RUN="$workflow_run" \
+  COFORGE_EXECUTOR=github-actions \
+  COFORGE_HEALTH_ATTEMPTS=1 \
+  "$release_script" "$second_image"
+audit_failure_status=$?
+set -e
+if [[ "$audit_failure_status" -ne 74 ]] \
+  || [[ ! -e "$test_root/pre-marker-audit-failure/pending-audit-write-failed" ]] \
+  || [[ ! -e "$test_root/pre-marker-audit-failure/pending-previous-image" ]] \
+  || [[ -e "$test_root/pre-marker-audit-failure/pending-image" ]]; then
+  printf 'pre-marker audit failure did not retain fail-closed recovery evidence\n' >&2
+  exit 1
+fi
+if PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/pre-marker-audit-failure" \
+  "$release_script" --current-image >/dev/null 2>&1; then
+  printf 'successor ignored a failed pre-marker audit\n' >&2
+  exit 1
+fi
+if [[ ! -e "$test_root/pre-marker-audit-failure/pending-audit-write-failed" ]] \
+  || [[ ! -e "$test_root/pre-marker-audit-failure/pending-previous-image" ]]; then
+  printf 'successor destroyed failed pre-marker audit evidence\n' >&2
+  exit 1
+fi
+
 mkdir -p "$test_root/config-validation"
 printf 'release: current\n' >"$test_root/config-validation/compose.yaml"
 printf 'release: invalid-candidate\n' >"$test_root/config-validation/candidate.yaml"
