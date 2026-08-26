@@ -36,7 +36,7 @@ for test deployment, exact-digest production promotion, and rollback rules.
 ```text
 apps/realtime-gateway   WSS transport and connection lifecycle
 apps/web                Web UI and backend control plane (scaffold pending)
-apps/coforge-computer   Machine-level supervisor (scaffold pending)
+apps/coforge-computer   Machine-level setup and supervisor
 apps/coforge-daemon     Workspace process manager (scaffold pending)
 database                PostgreSQL migrations
 docs                    Architecture, ADRs, and data-model documentation
@@ -60,10 +60,10 @@ mise run check
 mise run build
 ```
 
-GitHub Actions runs the same sequence for every pull request and every push to
-`main`. Dependency installation uses frozen-lockfile mode, so the first change
-that adds a Bun dependency must also commit its generated lockfile. Runtime
-versions continue to come from `mise.toml`.
+GitHub Actions runs separate Computer and realtime-gateway jobs for every pull
+request and every push to `main`, so failures stay attributable to one app.
+Dependency installation uses frozen-lockfile mode. Runtime versions continue
+to come from `mise.toml`.
 
 Run the current realtime-gateway skeleton:
 
