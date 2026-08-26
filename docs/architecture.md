@@ -108,7 +108,7 @@ Caddy 不理解 conversation、message、Agent 或 workspace 业务。
 - 每个目标 Agent 的 delivery ledger；
 - 普通业务 API、Web 页面和 PostgreSQL migration；
 - 接收并保存 Agent response/stream，再推送给会话参与者；
-- 通过 Centrifugo proxy/server API 执行连接授权、业务 RPC、publish 与必要的 disconnect，并在重启后从 PostgreSQL 已知 binding + Centrifugo presence 重建在线视图。
+- 通过 Centrifugo proxy/server API 执行连接授权、业务 RPC、publish 与必要的 disconnect，并在重启后以 PostgreSQL 已知 binding 为完整枚举边界、结合 Centrifugo presence 重建在线视图；presence 查询失败或响应无效时必须返回 unknown/error，不能把未知状态伪装成 offline。
 
 初始实现使用 Bun 1.4 与 TanStack Start，不使用 Next.js。前期保持模块化单体，只有出现清晰的扩缩容或故障隔离需求时才拆服务。
 
@@ -250,20 +250,20 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 ### 6.1 云端到 Agent
 
 1. backend 在同一事务内持久化 canonical message，并为每个目标 Agent 创建 delivery；
-2. backend 通过 Centrifugo server API 向已授权目标发布 `delivery.offer`；channel/subscription 映射与 payload schema 仍待 wire approval，Centrifugo 不读取 PostgreSQL；
+2. backend 通过 Centrifugo server API 向已授权目标发布 durable delivery offer；channel/subscription 映射、method name 与 payload schema 仍待 wire approval，Centrifugo 不读取 PostgreSQL；
 3. Centrifugo 经目标 workspace child 自己的 WSS 转发该 offer；
-4. workspace child 先按 `delivery_id` 写入本地 durable inbox，再返回 `delivery.accepted`；
+4. workspace child 先按 `delivery_id` 写入本地 durable inbox，再返回 durable-accept response；该响应的 method name 与 payload 同样待 wire approval；
 5. backend 校验 workspace、Agent、delivery id 与 sequence 后记录接管时间；
 6. child 按 Agent context 顺序交给 ACP；重连时由 backend 按原 sequence replay 未确认 delivery。
 
-`delivery.accepted` 只表示“本机已耐久接管”，不表示 Agent 已执行完成。ACK 丢失会触发相同 `delivery_id` 的重发，本地唯一约束把它变成幂等 no-op。
+durable-accept response 只表示“本机已耐久接管”，不表示 Agent 已执行完成。ACK 丢失会触发相同 `delivery_id` 的重发，本地唯一约束把它变成幂等 no-op。
 
 ### 6.2 Agent 到云端
 
 1. Agent 最终 response 先写入 workspace child 的 durable outbox，并生成稳定 `client_message_id`；
-2. child 经 WSS RPC 发送 `message.publish`；
+2. child 经 WSS application RPC 发送 canonical-response publish request；确切 method name 与 payload 待 wire approval；
 3. Centrifugo 把 RPC proxy 给 backend；backend 用 `(sender_participant_id, client_message_id)` 幂等提交 canonical response；
-4. backend 返回 `message.committed(client_message_id, message_id, conversation_seq)`；
+4. backend 返回包含稳定 `client_message_id`、`message_id` 与 `conversation_seq` 的 commit confirmation；确切 response method 与 envelope 待 wire approval；
 5. child 收到确认后标记本地 outbox 项已提交。断线时持续重试相同 `client_message_id`。
 
 共同语义：
@@ -346,7 +346,7 @@ daemon 到 cloud 在 Centrifugo client protocol 内承载 CoForge 自有、版�
 
 1. Centrifugo client protocol 内的 CoForge payload encoding 与 schema generation；
 2. LRM-1563 批准的 machine identity、Workspace–Computer binding、credential audience，以及 Centrifugo 到 Backend 使用 HTTP 或 gRPC、proxy/API 暴露范围、channel/namespace 映射与在线视图枚举；
-3. SQLite schema、加密、保留与损坏恢复；
+3. workspace-daemon durable spool 的实现、schema、加密、保留与损坏恢复；
 4. `conversation_seq` 的并发分配；
 5. ACP capability mapping 与 cancellation；
 6. reconnect、drain deadline 与可测量恢复 SLO；
@@ -354,7 +354,7 @@ daemon 到 cloud 在 Centrifugo client protocol 内承载 CoForge 自有、版�
 
 ## 12. 首批故障验证
 
-1. 重复 `delivery.offer` 在本地接管后最多进入 ACP 一次；
+1. 重复 durable delivery offer 在本地接管后最多进入 ACP 一次；
 2. workspace child 接管后崩溃，重启能从 local inbox 继续；
 3. Agent response 离线排队，重连后只形成一条 canonical message；
 4. Centrifugo 在 publish 中途死亡，重试不产生双写；

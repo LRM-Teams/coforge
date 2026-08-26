@@ -21,10 +21,17 @@ CoForge MVP 使用 Caddy 作为唯一公网 edge、standalone Centrifugo OSS 作
 
 Production 实现必须继续等待 LRM-1563 对 machine identity、Workspace–Computer binding、credential audience 与 exact versioned wire 的分别明确批准；本 ADR 或 spike 的 broad approval 不能替代该门禁。
 
+### Backend runtime 边界
+
+- Web/backend 使用 TanStack Start 与 Bun 1.4，替代早期文档中的 Node 24 baseline；Node 24 只保留为兼容性回退候选，不与 Bun 形成两套 production runtime。仓库已用 `mise.toml` 固定 Bun 并统一 install/test/check/build，选择 Bun 可减少开发与部署工具链分叉。
+- TanStack Start 官方仍标记为 Release Candidate，但声明 API feature-complete/stable，并提供 Bun hosting 与 production-server 指南；Bun 官方也明确列出仍不完整的 Node.js API。进入 production 前必须在固定依赖上验证 React 19、SSR/streaming、production build/server、graceful shutdown、PostgreSQL driver 与 Centrifugo proxy 的负载和错误路径；任何未覆盖的 Node compatibility 不能按“应当兼容”放行。
+- Bun 本身采用 MIT license，但其二进制包含按各自 license 分发的 linked components；TanStack Start 所在官方仓库采用 MIT license。依赖清单与 image 的实际 license 仍需随 production artifact 一起审计，不能从框架主 license 推导全部传递依赖都相同。
+- 当前 Web/backend 尚未形成 production 实现或数据，因此 Node→Bun 不需要数据库、wire 或流量迁移。若 implementation gate 前出现阻断性兼容问题，可在独立评审变更中恢复 Node runtime baseline 并重新构建不可变 artifact；一旦 production wire 或服务已经落地，runtime 回退必须验证相同 API/wire、graceful drain 与 PostgreSQL schema 兼容，不能把切换 image 当作已完成回滚。
+
 ### 在线视图与两副本边界
 
-- MVP 运行两个 Centrifugo 副本并共享 Redis engine。Redis broker 负责把任一副本的 publication fan-out 到持有目标连接的副本，Redis presence 让任一副本返回同一 hot online view。
-- Backend 重启不终止 Centrifugo 持有的既有 WSS；Backend 不可用期间需要业务判断的 RPC 必须显式失败，不能伪装成功。Backend 恢复后，以 PostgreSQL 中已知的 Workspace–Computer binding 集合为枚举边界，从 Centrifugo/Redis presence 重建完整在线视图。
+- MVP 运行两个 Centrifugo 副本并共享 Redis engine。Redis broker 负责把任一副本的 publication fan-out 到持有目标连接的副本，Redis presence 让任一副本查询共享的 hot online view；presence 是 eventually consistent 的短期视图，不是强一致真相。
+- Backend 重启不终止 Centrifugo 持有的既有 WSS；Backend 不可用期间需要业务判断的 RPC 必须显式失败，不能伪装成功。Backend 恢复后，以 PostgreSQL 中已知的 Workspace–Computer binding 集合为完整枚举边界，从 Centrifugo/Redis presence 重建在线视图；presence 查询失败、响应无效或无法覆盖枚举边界时必须返回 unknown/error，不能把未知 binding 伪装成 offline。
 - Centrifugo 副本、Caddy route 或客户端网络中断仍会断开对应 WSS。客户端必须重连并重新认证；无法完整 hot-recover 时，Backend 从 PostgreSQL canonical state 与 workspace-daemon durable spool 执行 reconciliation/replay。
 - `online` 与 `last_seen_at` 不是持久化真相。在线状态只从当前 Workspace–Computer binding 的已认证 workspace-daemon session 派生，不能由同一 Computer 在其他 Workspace 的连接代替。
 
@@ -69,6 +76,7 @@ LRM-1581 在固定行为 SHA 上独立通过 11/11 black-box cases、34 assertio
 ## 一手资料
 
 - Centrifugo 的 [server design](https://centrifugal.dev/docs/getting-started/design)、[HTTP/gRPC backend proxy](https://centrifugal.dev/docs/server/proxy)、[HTTP/gRPC server API](https://centrifugal.dev/docs/server/server_api)、[Redis engine 与多节点](https://centrifugal.dev/docs/server/engines)、[history/recovery 失败语义](https://centrifugal.dev/docs/server/history_and_recovery) 与 [Apache-2.0 repository](https://github.com/centrifugal/centrifugo)
+- Bun 的 [runtime](https://bun.com/docs/runtime)、[Node.js compatibility matrix](https://bun.com/docs/runtime/nodejs-compat) 与 [license/linked components](https://github.com/oven-sh/bun/blob/main/LICENSE.md)；TanStack Start 的 [maturity status](https://tanstack.com/start/latest/docs/framework/react/overview)、[Bun hosting guide](https://tanstack.com/start/latest/docs/framework/react/guide/hosting#bun) 与 [MIT license](https://github.com/TanStack/router/blob/main/LICENSE)
 - Caddy [`reverse_proxy`](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy) 的 WebSocket、health check 与 streaming/reload 行为
 - Docker Compose 的 [service/healthcheck](https://docs.docker.com/reference/compose-file/services/)、[internal network](https://docs.docker.com/compose/how-tos/networking/) 与 [named volume](https://docs.docker.com/reference/compose-file/volumes/) 契约
 - Docker Official Images：[Redis](https://hub.docker.com/_/redis) 与 [PostgreSQL](https://hub.docker.com/_/postgres)
