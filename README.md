@@ -51,12 +51,18 @@ mise install
 mise run install
 ```
 
-Run repository checks and production builds:
+Run tests first, then repository checks and production builds:
 
 ```bash
+mise run test
 mise run check
 mise run build
 ```
+
+GitHub Actions runs the same sequence for every pull request and every push to
+`main`. Dependency installation uses frozen-lockfile mode, so the first change
+that adds a Bun dependency must also commit its generated lockfile. Runtime
+versions continue to come from `mise.toml`.
 
 Run the current realtime-gateway skeleton:
 
@@ -76,6 +82,9 @@ narrow, use English Conventional Commit messages, rebase the latest
 `origin/main`, and run the short relevant checks before requesting review.
 During MVP, ordinary changes use one Agent review and target a 5–10 minute
 review-to-merge cycle; only broad or difficult-to-reverse decisions require
-Frank's explicit approval. Read
-[AGENTS.md](AGENTS.md) before making a technical choice or modifying architecture
-or package boundaries.
+Frank's explicit approval.
+
+Use test-driven development for behavioral changes: begin with a failing test,
+make the smallest implementation change that passes, then refactor with the
+suite green. Read [AGENTS.md](AGENTS.md) for the normative decision gates,
+review requirements, and architecture-change rules.
