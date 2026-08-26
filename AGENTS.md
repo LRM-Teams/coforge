@@ -6,7 +6,7 @@ These instructions apply to the entire repository.
 
 - Read [`docs/architecture.md`](docs/architecture.md) before changing package boundaries, process ownership, transport, delivery semantics, persistence, infrastructure, or runtime versions.
 - Treat that document as the canonical architecture source. Update it in the same change whenever an architectural decision changes.
-- `docs/architecture.html` is the human-readable companion. Keep it consistent with the canonical Markdown document when architecture changes.
+- Keep `docs/architecture.md` as the single maintained architecture source; do not create a duplicate HTML companion.
 - Do not turn an unresolved question into a repository convention. Raise it in `#coforge` and record the decision before implementation.
 
 ## Collaboration and delivery
@@ -47,4 +47,4 @@ These instructions apply to the entire repository.
 - Keep domain and protocol packages independent of UI frameworks, database clients, transport servers, and concrete Agent providers.
 - Validate external input at process and network boundaries. Version shared protocols explicitly.
 - Keep credentials out of source, logs, command arguments, fixtures, and generated artifacts.
-- Restrict Agent processes to their declared workspace roots and explicitly allowed environment variables.
+- Restrict Agent processes to their declared Agent workspace directories and explicitly allowed environment variables.
