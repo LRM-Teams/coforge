@@ -94,9 +94,32 @@ if [[ "${FAKE_CP_SIGNAL_DURING_PREPARE:-false}" == true ]] \
   kill -TERM "$PPID"
   kill -TERM "$$"
 fi
+if [[ "${FAKE_CP_KILL_DURING_PREPARE:-false}" == true ]] \
+  && [[ "$destination" == */pending-previous-compose.yaml ]]; then
+  kill -KILL "$PPID"
+  kill -KILL "$$"
+fi
 exec /bin/cp "$@"
 EOF
 chmod 0755 "$test_root/bin/cp"
+
+cat >"$test_root/bin/mv" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+source_path=${@: -2:1}
+destination=${!#}
+if [[ "${FAKE_SENTINEL_PROMOTION_FAIL:-false}" == true ]] \
+  && [[ "$source_path" == */.pre-marker-active ]] \
+  && [[ "$destination" == */pending-audit-write-failed ]]; then
+  exit 17
+fi
+/bin/mv "$@"
+if [[ "${FAKE_SIGNAL_AFTER_PENDING_MARKER:-false}" == true ]] \
+  && [[ "$destination" == */pending-image ]]; then
+  kill -TERM "$PPID"
+fi
+EOF
+chmod 0755 "$test_root/bin/mv"
 
 registry=ghcr.io/lrm-teams/coforge-realtime-gateway
 first_image="$registry@sha256:$(printf '1%.0s' {1..64})"
@@ -167,6 +190,97 @@ fi
 if [[ ! -e "$test_root/pre-marker-audit-failure/pending-audit-write-failed" ]] \
   || [[ ! -e "$test_root/pre-marker-audit-failure/pending-previous-image" ]]; then
   printf 'successor destroyed failed pre-marker audit evidence\n' >&2
+  exit 1
+fi
+
+mkdir -p "$test_root/dual-marker-audit-failure"
+printf 'release: current\n' >"$test_root/dual-marker-audit-failure/compose.yaml"
+printf 'release: candidate\n' >"$test_root/dual-marker-audit-failure/candidate.yaml"
+printf '%s\n' "$first_image" >"$test_root/dual-marker-audit-failure/current-image"
+mkdir "$test_root/dual-marker-audit-failure/release-history.jsonl"
+set +e
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  FAKE_SIGNAL_AFTER_PENDING_MARKER=true \
+  COFORGE_APP_ROOT="$test_root/dual-marker-audit-failure" \
+  COFORGE_CANDIDATE_COMPOSE="$test_root/dual-marker-audit-failure/candidate.yaml" \
+  COFORGE_DEFER_COMMIT=true \
+  COFORGE_SOURCE_COMMIT="$source_commit" \
+  COFORGE_WORKFLOW_RUN="$workflow_run" \
+  COFORGE_EXECUTOR=github-actions \
+  COFORGE_HEALTH_ATTEMPTS=1 \
+  "$release_script" "$second_image"
+dual_marker_status=$?
+set -e
+if [[ "$dual_marker_status" -ne 74 ]] \
+  || [[ ! -e "$test_root/dual-marker-audit-failure/pending-image" ]] \
+  || [[ ! -e "$test_root/dual-marker-audit-failure/pending-audit-write-failed" ]]; then
+  printf 'dual marker audit failure was not retained\n' >&2
+  exit 1
+fi
+if PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/dual-marker-audit-failure" \
+  "$release_script" --current-image >/dev/null 2>&1; then
+  printf 'successor bypassed a dual marker audit failure\n' >&2
+  exit 1
+fi
+
+mkdir -p "$test_root/hard-loss-active-sentinel"
+printf 'release: current\n' >"$test_root/hard-loss-active-sentinel/compose.yaml"
+printf 'release: candidate\n' >"$test_root/hard-loss-active-sentinel/candidate.yaml"
+printf '%s\n' "$first_image" >"$test_root/hard-loss-active-sentinel/current-image"
+set +e
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  FAKE_CP_KILL_DURING_PREPARE=true \
+  COFORGE_APP_ROOT="$test_root/hard-loss-active-sentinel" \
+  COFORGE_CANDIDATE_COMPOSE="$test_root/hard-loss-active-sentinel/candidate.yaml" \
+  COFORGE_DEFER_COMMIT=true \
+  COFORGE_SOURCE_COMMIT="$source_commit" \
+  COFORGE_WORKFLOW_RUN="$workflow_run" \
+  COFORGE_EXECUTOR=github-actions \
+  COFORGE_HEALTH_ATTEMPTS=1 \
+  "$release_script" "$second_image"
+hard_loss_status=$?
+set -e
+if [[ "$hard_loss_status" -ne 137 ]] \
+  || [[ ! -e "$test_root/hard-loss-active-sentinel/.pre-marker-active" ]] \
+  || [[ ! -e "$test_root/hard-loss-active-sentinel/pending-previous-image" ]]; then
+  printf 'hard loss did not retain active staging evidence\n' >&2
+  exit 1
+fi
+if PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/hard-loss-active-sentinel" \
+  "$release_script" --current-image >/dev/null 2>&1; then
+  printf 'successor cleared an active hard-loss sentinel\n' >&2
+  exit 1
+fi
+
+mkdir -p "$test_root/promotion-fallback"
+printf 'release: current\n' >"$test_root/promotion-fallback/compose.yaml"
+printf 'release: candidate\n' >"$test_root/promotion-fallback/candidate.yaml"
+printf '%s\n' "$first_image" >"$test_root/promotion-fallback/current-image"
+mkdir "$test_root/promotion-fallback/release-history.jsonl"
+set +e
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  FAKE_CP_SIGNAL_DURING_PREPARE=true \
+  FAKE_SENTINEL_PROMOTION_FAIL=true \
+  COFORGE_APP_ROOT="$test_root/promotion-fallback" \
+  COFORGE_CANDIDATE_COMPOSE="$test_root/promotion-fallback/candidate.yaml" \
+  COFORGE_DEFER_COMMIT=true \
+  COFORGE_SOURCE_COMMIT="$source_commit" \
+  COFORGE_WORKFLOW_RUN="$workflow_run" \
+  COFORGE_EXECUTOR=github-actions \
+  COFORGE_HEALTH_ATTEMPTS=1 \
+  "$release_script" "$second_image"
+promotion_fallback_status=$?
+set -e
+if [[ "$promotion_fallback_status" -ne 74 ]] \
+  || [[ ! -e "$test_root/promotion-fallback/pending-audit-write-failed" ]]; then
+  printf 'sentinel promotion fallback did not fail closed\n' >&2
   exit 1
 fi
 

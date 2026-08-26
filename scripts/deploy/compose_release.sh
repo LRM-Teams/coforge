@@ -170,10 +170,12 @@ record_pre_marker_interruption() {
     "$pre_marker_workflow_run" "$previous_digest" "$signal" \
     "$pre_marker_executor" "$pre_marker_started_at" "$completed_at" \
     >>"$history_file"; then
-    if [[ -e "$pre_marker_active_file" ]]; then
-      mv -f "$pre_marker_active_file" "$pending_audit_failed_file"
-    else
-      : >"$pending_audit_failed_file"
+    if [[ -e "$pre_marker_active_file" ]] \
+      && mv -f "$pre_marker_active_file" "$pending_audit_failed_file"; then
+      :
+    elif ! : >"$pending_audit_failed_file"; then
+      printf 'pre-marker audit failure marker could not be published; active evidence retained\n' >&2
+      exit 74
     fi
     printf 'pre-marker interruption audit failed; recovery evidence retained\n' >&2
     exit 74
@@ -375,11 +377,15 @@ if ! flock --nonblock 9; then
   printf 'another release operation holds the host lock\n' >&2
   exit 75
 fi
+if [[ -e "$pending_audit_failed_file" ]]; then
+  printf 'a pre-marker interruption audit failed; refusing to discard recovery evidence\n' >&2
+  exit 74
+fi
+if [[ -e "$pre_marker_active_file" ]]; then
+  printf 'an incomplete pre-marker transaction exists; refusing to discard recovery evidence\n' >&2
+  exit 74
+fi
 if [[ ! -e "$pending_image_file" ]]; then
-  if [[ -e "$pending_audit_failed_file" ]]; then
-    printf 'a pre-marker interruption audit failed; refusing to discard recovery evidence\n' >&2
-    exit 74
-  fi
   # A transaction is discoverable only after its marker is atomically
   # published. Under the host lock, sidecars without that marker can only be
   # remnants of an interrupted preparation and must not enter a successor.
@@ -856,10 +862,10 @@ if [[ "$release_image" == --rollback ]]; then
     fi
     printf '%s\n' "$manual_pending_image" >"$next_pending_image_file"
     mv -f "$next_pending_image_file" "$pending_image_file"
-    rm -f -- "$pre_marker_active_file"
     trap 'record_interruption HUP' HUP
     trap 'record_interruption INT' INT
     trap 'record_interruption TERM' TERM
+    rm -f -- "$pre_marker_active_file"
   fi
   if [[ ! "$release_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
     && [[ "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
@@ -960,10 +966,10 @@ if [[ "$defer_commit" == true ]]; then
   printf '%s\n' "$transaction_owner" >"$pending_owner_file"
   printf '%s\n' "$release_image" >"$next_pending_image_file"
   mv -f "$next_pending_image_file" "$pending_image_file"
-  rm -f -- "$pre_marker_active_file"
   trap 'record_interruption HUP' HUP
   trap 'record_interruption INT' INT
   trap 'record_interruption TERM' TERM
+  rm -f -- "$pre_marker_active_file"
 fi
 if [[ "$rollback" == false ]]; then
   export COFORGE_GATEWAY_IMAGE=$release_image

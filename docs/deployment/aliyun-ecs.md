@@ -218,7 +218,9 @@ retains the staged evidence, and creates `pending-audit-write-failed`. Every
 successor operation then fails closed. Restore writable storage and escalate
 with the retained files; do not delete the marker or start another release
 until the missing interrupted outcome has been reconstructed in the JSONL
-history.
+history. An `.pre-marker-active` sentinel left by hard process or host loss is
+handled by the same fail-closed rule and must be investigated rather than
+discarded.
 
 Compose uses Docker's `local` logging driver with bounded rotation. Inspect
 runtime logs with `docker compose --project-name coforge-test logs gateway`;
