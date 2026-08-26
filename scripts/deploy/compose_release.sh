@@ -1,0 +1,916 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+  printf 'usage: %s <immutable-image-reference|--commit|--commit-status|--rollback|--finalize-rollback|--record-interruption|--record-failed-rollback|--current-image|--previous-image>\n' "$0" >&2
+  exit 64
+fi
+
+deploy_uid=$(id -u)
+if [[ "$deploy_uid" -eq 0 ]]; then
+  printf 'deployment must run as a dedicated non-root user\n' >&2
+  exit 77
+fi
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-"/run/user/$deploy_uid"}
+export DOCKER_HOST=${DOCKER_HOST:-"unix://$XDG_RUNTIME_DIR/docker.sock"}
+
+app_root=${COFORGE_APP_ROOT:-"$HOME/.local/share/coforge/realtime-gateway"}
+project_name=${COFORGE_COMPOSE_PROJECT:-coforge-test}
+edge_bind_ip=${COFORGE_EDGE_BIND_IP:-127.0.0.1}
+health_url=${COFORGE_HEALTH_URL:-"http://$edge_bind_ip:18180/readyz"}
+health_attempts=${COFORGE_HEALTH_ATTEMPTS:-20}
+compose_file="$app_root/compose.yaml"
+candidate_compose_file=${COFORGE_CANDIDATE_COMPOSE:-"$compose_file"}
+previous_compose_file="$app_root/previous-compose.yaml"
+rollback_compose_backup="$app_root/.compose.before-rollback"
+current_image_file="$app_root/current-image"
+previous_image_file="$app_root/previous-image"
+pending_image_file="$app_root/pending-image"
+pending_previous_image_file="$app_root/pending-previous-image"
+pending_source_commit_file="$app_root/pending-source-commit"
+pending_workflow_run_file="$app_root/pending-workflow-run"
+pending_executor_file="$app_root/pending-executor"
+pending_started_at_file="$app_root/pending-started-at"
+pending_origin_file="$app_root/pending-origin"
+pending_owner_file="$app_root/pending-owner"
+pending_previous_compose_file="$app_root/pending-previous-compose.yaml"
+pending_prior_previous_image_file="$app_root/pending-prior-previous-image"
+pending_prior_previous_compose_file="$app_root/pending-prior-previous-compose.yaml"
+pending_rollback_complete_file="$app_root/pending-rollback-complete"
+pending_failure_file="$app_root/pending-failure-stage"
+history_file="$app_root/release-history.jsonl"
+state_file="$app_root/release-state"
+compose_store="$app_root/compose-generations"
+next_state_file="$app_root/.release-state.next"
+next_image_file="$app_root/.current-image.next"
+next_previous_file="$app_root/.previous-image.next"
+next_pending_image_file="$app_root/.pending-image.next"
+
+state_field() {
+  local field=$1
+  if [[ -r "$state_file" ]]; then
+    sed -n "${field}p" "$state_file"
+  fi
+}
+
+store_compose() {
+  local source=$1
+  local digest
+  if [[ ! -r "$source" ]]; then
+    printf 'none\n'
+    return
+  fi
+  digest=$(sha256sum "$source" | cut -d ' ' -f 1)
+  if [[ ! -e "$compose_store/$digest.yaml" ]]; then
+    install -m 0600 "$source" "$compose_store/$digest.yaml"
+  fi
+  printf '%s\n' "$digest"
+}
+
+write_release_state() {
+  local current=$1
+  local previous=$2
+  local current_compose_source=$3
+  local previous_compose_source=$4
+  local current_compose_digest previous_compose_digest
+  mkdir -p "$compose_store"
+  current_compose_digest=$(store_compose "$current_compose_source")
+  previous_compose_digest=$(store_compose "$previous_compose_source")
+  printf '%s\n%s\n%s\n%s\n' \
+    "$current" "$previous" "$current_compose_digest" "$previous_compose_digest" \
+    >"$next_state_file"
+  mv -f "$next_state_file" "$state_file"
+
+  # Compatibility views are non-authoritative; release-state is the single pointer.
+  if [[ "$current" == bootstrap:empty ]]; then
+    rm -f -- "$current_image_file"
+  else
+    printf '%s\n' "$current" >"$next_image_file"
+    mv -f "$next_image_file" "$current_image_file"
+  fi
+  if [[ "$previous" == bootstrap:empty ]]; then
+    rm -f -- "$previous_image_file" "$previous_compose_file"
+  else
+    printf '%s\n' "$previous" >"$next_previous_file"
+    mv -f "$next_previous_file" "$previous_image_file"
+    if [[ "$previous_compose_digest" != none ]]; then
+      cp -f "$compose_store/$previous_compose_digest.yaml" "$previous_compose_file"
+    fi
+  fi
+}
+
+clear_pending() {
+  rm -f -- "$pending_image_file" "$pending_previous_image_file" \
+    "$pending_source_commit_file" "$pending_workflow_run_file" \
+    "$pending_executor_file" "$pending_started_at_file" \
+    "$pending_origin_file" "$pending_owner_file" \
+    "$pending_prior_previous_image_file" "$pending_prior_previous_compose_file" \
+    "$pending_previous_compose_file" "$pending_rollback_complete_file" \
+    "$pending_failure_file" "$next_pending_image_file"
+}
+
+record_failed_preparation() {
+  local failure_stage=$1
+  local completed_at image image_digest previous_digest
+  completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  image=${release_image%@*}
+  image_digest=${release_image##*@}
+  if [[ "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    previous_digest=${previous_image##*@}
+  else
+    previous_digest=bootstrap:empty
+  fi
+  printf '{"source_commit":"%s","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"pre_mutation_%s=failed","final_observed_state":"unchanged","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"failed_preparation"}\n' \
+    "$source_commit" "$image" "$image_digest" "$workflow_run" \
+    "$previous_digest" "$failure_stage" "$executor" "$started_at" \
+    "$completed_at" >>"$history_file"
+  clear_pending
+}
+
+record_interruption() {
+  local signal=$1
+  local completed_at image image_digest previous_digest interrupted_image final_state
+  local source_commit workflow_run executor started_at
+  trap - ERR HUP INT TERM
+  completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  interrupted_image=$(cat "$pending_image_file" 2>/dev/null || true)
+  final_state=pending-recovery
+  if [[ ! "$interrupted_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
+    && [[ "${release_image:-}" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    interrupted_image=$release_image
+    final_state=unchanged
+  fi
+  source_commit=$(cat "$pending_source_commit_file" 2>/dev/null || true)
+  workflow_run=$(cat "$pending_workflow_run_file" 2>/dev/null || true)
+  executor=$(cat "$pending_executor_file" 2>/dev/null || true)
+  started_at=$(cat "$pending_started_at_file" 2>/dev/null || true)
+  image=${interrupted_image%@*}
+  image_digest=${interrupted_image##*@}
+  previous_digest=$(cat "$pending_previous_image_file" 2>/dev/null || true)
+  if [[ "$previous_digest" != bootstrap:empty ]]; then
+    previous_digest=${previous_digest##*@}
+  fi
+  printf '%s\n' interrupted >"$pending_failure_file"
+  printf '{"source_commit":"%s","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"signal_%s=interrupted","final_observed_state":"%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"interrupted"}\n' \
+    "$source_commit" "$image" "$image_digest" "$workflow_run" \
+    "$previous_digest" "$signal" "$final_state" "$executor" "$started_at" \
+    "$completed_at" >>"$history_file"
+  if [[ "$final_state" == unchanged ]]; then
+    clear_pending
+  fi
+  exit 130
+}
+
+record_orphaned_pending() {
+  local pending_image pending_previous source_commit workflow_run executor started_at
+  local completed_at image image_digest previous_digest
+  if [[ -e "$pending_failure_file" ]]; then
+    return 0
+  fi
+  pending_image=$(cat "$pending_image_file" 2>/dev/null || true)
+  pending_previous=$(cat "$pending_previous_image_file" 2>/dev/null || true)
+  source_commit=$(cat "$pending_source_commit_file" 2>/dev/null || true)
+  workflow_run=$(cat "$pending_workflow_run_file" 2>/dev/null || true)
+  executor=$(cat "$pending_executor_file" 2>/dev/null || true)
+  started_at=$(cat "$pending_started_at_file" 2>/dev/null || true)
+  if [[ ! "$pending_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
+    || [[ ! "$source_commit" =~ ^[0-9a-f]{40}$ ]] \
+    || [[ ! "$workflow_run" =~ ^https://github\.com/[A-Za-z0-9._/-]+/actions/runs/[0-9]+$ ]] \
+    || [[ ! "$executor" =~ ^[A-Za-z0-9._@/-]+$ ]] \
+    || [[ ! "$started_at" =~ ^[0-9TZ:.-]+$ ]]; then
+    printf 'orphaned pending release evidence is invalid\n' >&2
+    return 0
+  fi
+  if [[ "$pending_previous" == bootstrap:empty ]]; then
+    previous_digest=bootstrap:empty
+  elif [[ "$pending_previous" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    previous_digest=${pending_previous##*@}
+  else
+    printf 'orphaned pending previous release evidence is invalid\n' >&2
+    return 0
+  fi
+  completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  image=${pending_image%@*}
+  image_digest=${pending_image##*@}
+  printf 'interrupted\n' >"$pending_failure_file"
+  printf '{"source_commit":"%s","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"previous_job=interrupted","final_observed_state":"pending-recovery","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"interrupted"}\n' \
+    "$source_commit" "$image" "$image_digest" "$workflow_run" \
+    "$previous_digest" "$executor" "$started_at" "$completed_at" \
+    >>"$history_file"
+}
+
+record_standalone_rollback() {
+  local attempted_image=$1
+  local resulting_digest=$2
+  local health_result=$3
+  local outcome=${4:-rolled_back}
+  local completed_at image image_digest executor_name
+  completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  image=${attempted_image%@*}
+  image_digest=${attempted_image##*@}
+  executor_name=${COFORGE_EXECUTOR:-local}
+  if [[ ! "$executor_name" =~ ^[A-Za-z0-9._@/-]+$ ]]; then
+    executor_name=local
+  fi
+  printf '{"source_commit":null,"image":"%s","image_digest":"%s","environment":"test","workflow_run":null,"previous_digest":"%s","health_result":"%s","final_observed_state":"current_digest=%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"%s"}\n' \
+    "$image" "$image_digest" "$resulting_digest" "$health_result" \
+    "$resulting_digest" "$executor_name" "$completed_at" "$completed_at" "$outcome" \
+    >>"$history_file"
+}
+
+healthy_commit_recorded() {
+  local expected_image=$1
+  local expected_workflow_run=$2
+  local expected_digest=${expected_image##*@}
+  [[ -f "$history_file" ]] && [[ -r "$history_file" ]] || return 1
+  awk -v digest="$expected_digest" -v workflow="$expected_workflow_run" '
+    index($0, "\"image_digest\":\"" digest "\"") &&
+    index($0, "\"workflow_run\":\"" workflow "\"") &&
+    index($0, "\"outcome\":\"healthy\"") { found = 1 }
+    END { exit !found }
+  ' "$history_file"
+}
+
+require_pending_owner() {
+  local expected_owner supplied_owner
+  expected_owner=$(cat "$pending_owner_file" 2>/dev/null || true)
+  supplied_owner=${COFORGE_TRANSACTION_OWNER:-manual}
+  if [[ ! "$expected_owner" =~ ^[A-Za-z0-9._-]+$ ]] \
+    || [[ "$supplied_owner" != "$expected_owner" ]]; then
+    printf 'transaction owner does not match pending release\n' >&2
+    exit 73
+  fi
+}
+
+if [[ "$1" != --record-failed-rollback ]] && [[ "$1" != --record-interruption ]] \
+  && [[ "$1" != --commit-status ]] \
+  && [[ "$1" != --current-image ]] && [[ "$1" != --previous-image ]]; then
+  docker_security_options=$(docker info --format '{{json .SecurityOptions}}' 2>/dev/null || true)
+  if [[ "$docker_security_options" != *'"name=rootless"'* ]]; then
+    printf 'deployment requires a rootless Docker daemon\n' >&2
+    exit 77
+  fi
+fi
+
+if [[ ! "$edge_bind_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+  printf 'COFORGE_EDGE_BIND_IP must be a private or loopback IPv4 address\n' >&2
+  exit 64
+fi
+IFS=. read -r edge_o1 edge_o2 edge_o3 edge_o4 <<<"$edge_bind_ip"
+for edge_octet in "$edge_o1" "$edge_o2" "$edge_o3" "$edge_o4"; do
+  if ((10#$edge_octet > 255)); then
+    printf 'COFORGE_EDGE_BIND_IP must be a private or loopback IPv4 address\n' >&2
+    exit 64
+  fi
+done
+if ! ((10#$edge_o1 == 10 \
+  || 10#$edge_o1 == 127 \
+  || (10#$edge_o1 == 192 && 10#$edge_o2 == 168) \
+  || (10#$edge_o1 == 172 && 10#$edge_o2 >= 16 && 10#$edge_o2 <= 31))); then
+  printf 'COFORGE_EDGE_BIND_IP must be a private or loopback IPv4 address\n' >&2
+  exit 64
+fi
+
+case "$health_attempts" in
+  ''|*[!0-9]*|0)
+    printf 'COFORGE_HEALTH_ATTEMPTS must be a positive integer\n' >&2
+    exit 64
+    ;;
+esac
+
+if [[ "$1" != --commit ]] && [[ "$1" != --finalize-rollback ]] \
+  && [[ "$1" != --record-interruption ]] \
+  && [[ "$1" != --commit-status ]] \
+  && [[ "$1" != --current-image ]] && [[ "$1" != --previous-image ]] \
+  && [[ "$1" != --record-failed-rollback ]] \
+  && [[ ! -r "$candidate_compose_file" ]]; then
+  printf 'candidate compose file is not readable: %s\n' "$candidate_compose_file" >&2
+  exit 66
+fi
+
+mkdir -p "$app_root"
+exec 9>"$app_root/.release.lock"
+if ! flock --nonblock 9; then
+  printf 'another release operation holds the host lock\n' >&2
+  exit 75
+fi
+if [[ "$1" != --record-failed-rollback ]] && [[ "$1" != --record-interruption ]] \
+  && [[ -e "$pending_image_file" ]]; then
+  trap 'record_interruption HUP' HUP
+  trap 'record_interruption INT' INT
+  trap 'record_interruption TERM' TERM
+fi
+previous_image=$(state_field 1)
+recorded_previous_image=$(state_field 2)
+if [[ -z "$previous_image" ]]; then
+  previous_image=$(cat "$current_image_file" 2>/dev/null || true)
+fi
+if [[ -z "$recorded_previous_image" ]]; then
+  recorded_previous_image=$(cat "$previous_image_file" 2>/dev/null || true)
+fi
+release_image=$1
+rollback=false
+if [[ "$release_image" == --current-image ]]; then
+  if [[ "$previous_image" != bootstrap:empty ]]; then
+    printf '%s\n' "$previous_image"
+  fi
+  exit 0
+fi
+if [[ "$release_image" == --previous-image ]]; then
+  if [[ "$recorded_previous_image" != bootstrap:empty ]]; then
+    printf '%s\n' "$recorded_previous_image"
+  fi
+  exit 0
+fi
+if [[ "$release_image" == --record-interruption ]]; then
+  require_pending_owner
+  record_interruption workflow-cancelled
+fi
+if [[ "$release_image" == --commit-status ]]; then
+  expected_image=${COFORGE_EXPECTED_IMAGE:-}
+  expected_workflow_run=${COFORGE_WORKFLOW_RUN:-}
+  if [[ ! "$expected_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
+    || [[ ! "$expected_workflow_run" =~ ^https://github\.com/[A-Za-z0-9._/-]+/actions/runs/[0-9]+$ ]]; then
+    printf 'commit status requires valid expected image and workflow run evidence\n' >&2
+    exit 64
+  fi
+  if [[ "$previous_image" != "$expected_image" ]] \
+    || [[ -e "$pending_image_file" ]] \
+    || ! healthy_commit_recorded "$expected_image" "$expected_workflow_run"; then
+    printf 'release commit is not durably recorded\n' >&2
+    exit 1
+  fi
+  printf 'release commit is durably recorded\n'
+  exit 0
+fi
+if [[ "$release_image" == --commit ]]; then
+  require_pending_owner
+  if [[ "${COFORGE_PUBLIC_HEALTH_RESULT:-}" != passed ]] \
+    || [[ "${COFORGE_SHARED_INGRESS_HEALTH_RESULT:-}" != passed ]] \
+    || [[ "${COFORGE_WSS_HEALTH_RESULT:-}" != passed ]] \
+    || [[ "${COFORGE_TCP80_RESULT:-}" != passed ]] \
+    || [[ "${COFORGE_RUNNING_DIGEST_RESULT:-}" != passed ]]; then
+    printf 'commit requires passed public, shared-ingress, WSS, TCP/80-closed, and running-digest evidence\n' >&2
+    exit 65
+  fi
+  pending_image=$(cat "$pending_image_file" 2>/dev/null || true)
+  pending_previous_image=$(cat "$pending_previous_image_file" 2>/dev/null || true)
+  source_commit=$(cat "$pending_source_commit_file" 2>/dev/null || true)
+  workflow_run=$(cat "$pending_workflow_run_file" 2>/dev/null || true)
+  executor=$(cat "$pending_executor_file" 2>/dev/null || true)
+  started_at=$(cat "$pending_started_at_file" 2>/dev/null || true)
+  if [[ ! "$pending_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
+    || [[ ! "$source_commit" =~ ^[0-9a-f]{40}$ ]] \
+    || [[ ! "$workflow_run" =~ ^https://github\.com/[A-Za-z0-9._/-]+/actions/runs/[0-9]+$ ]] \
+    || [[ ! "$executor" =~ ^[A-Za-z0-9._@/-]+$ ]] \
+    || [[ ! "$started_at" =~ ^[0-9TZ:.-]+$ ]]; then
+    printf 'pending release evidence is missing or invalid\n' >&2
+    exit 65
+  fi
+  if [[ "$pending_previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    previous_digest=${pending_previous_image##*@}
+  elif [[ "$pending_previous_image" == bootstrap:empty ]]; then
+    previous_digest=bootstrap:empty
+  else
+    printf 'pending previous release evidence is invalid\n' >&2
+    exit 65
+  fi
+  write_release_state "$pending_image" "$pending_previous_image" \
+    "$compose_file" "$pending_previous_compose_file"
+  completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  image=${pending_image%@*}
+  image_digest=${pending_image##*@}
+  if ! healthy_commit_recorded "$pending_image" "$workflow_run"; then
+    printf '{"source_commit":"%s","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"container=passed;internal=passed;public_https=passed;wss_handshake=passed;shared_ingress=passed;tcp80_closed=passed;running_digest=passed","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"healthy"}\n' \
+      "$source_commit" "$image" "$image_digest" "$workflow_run" \
+      "$previous_digest" "$executor" "$started_at" "$completed_at" >>"$history_file"
+  fi
+  if [[ "${COFORGE_INTERNAL_TEST_MODE:-}" == compose-release-tests ]] \
+    && [[ "${COFORGE_TEST_FAIL_AFTER_COMMIT_AUDIT:-false}" == true ]]; then
+    printf 'injected failure after commit audit\n' >&2
+    exit 86
+  fi
+  rm -f -- "$pending_image_file" "$pending_previous_image_file" \
+    "$pending_source_commit_file" "$pending_workflow_run_file" \
+    "$pending_executor_file" "$pending_started_at_file" \
+    "$pending_origin_file" "$pending_owner_file" \
+    "$pending_prior_previous_image_file" "$pending_prior_previous_compose_file" \
+    "$pending_previous_compose_file" "$pending_rollback_complete_file" \
+    "$pending_failure_file"
+  printf 'image %s is healthy and committed\n' "$pending_image"
+  exit 0
+fi
+if [[ "$release_image" == --finalize-rollback ]]; then
+  require_pending_owner
+  pending_image=$(cat "$pending_image_file" 2>/dev/null || true)
+  pending_previous_image=$(cat "$pending_previous_image_file" 2>/dev/null || true)
+  source_commit=$(cat "$pending_source_commit_file" 2>/dev/null || true)
+  workflow_run=$(cat "$pending_workflow_run_file" 2>/dev/null || true)
+  executor=$(cat "$pending_executor_file" 2>/dev/null || true)
+  started_at=$(cat "$pending_started_at_file" 2>/dev/null || true)
+  pending_origin=$(cat "$pending_origin_file" 2>/dev/null || true)
+  pending_prior_previous_image=$(cat "$pending_prior_previous_image_file" 2>/dev/null || true)
+  failure_stage=$(cat "$pending_failure_file" 2>/dev/null || true)
+  if [[ ! -e "$pending_rollback_complete_file" ]] \
+    || [[ ! "$pending_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
+    || [[ ! "$executor" =~ ^[A-Za-z0-9._@/-]+$ ]] \
+    || [[ ! "$started_at" =~ ^[0-9TZ:.-]+$ ]] \
+    || [[ ! "$pending_origin" =~ ^(release|manual)$ ]] \
+    || [[ ! "$failure_stage" =~ ^(internal|external|interrupted|manual)$ ]]; then
+    printf 'completed rollback evidence is missing or invalid (complete=%s image=%s source=%s run=%s executor=%s started=%s stage=%s)\n' \
+      "$([[ -e "$pending_rollback_complete_file" ]] && printf yes || printf no)" \
+      "$pending_image" "$source_commit" "$workflow_run" "$executor" \
+      "$started_at" "$failure_stage" >&2
+    exit 65
+  fi
+  if [[ "$pending_origin" == release ]] \
+    && { [[ ! "$source_commit" =~ ^[0-9a-f]{40}$ ]] \
+      || [[ ! "$workflow_run" =~ ^https://github\.com/[A-Za-z0-9._/-]+/actions/runs/[0-9]+$ ]]; }; then
+    printf 'release rollback provenance is missing or invalid\n' >&2
+    exit 65
+  fi
+  if [[ "$pending_origin" == manual ]] \
+    && { [[ "$source_commit" != manual ]] || [[ "$workflow_run" != manual ]]; }; then
+    printf 'manual rollback provenance is missing or invalid\n' >&2
+    exit 65
+  fi
+  if [[ "$pending_previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    previous_digest=${pending_previous_image##*@}
+  elif [[ "$pending_previous_image" == bootstrap:empty ]]; then
+    previous_digest=bootstrap:empty
+  else
+    printf 'pending previous release evidence is invalid\n' >&2
+    exit 65
+  fi
+  if [[ "${COFORGE_SHARED_INGRESS_HEALTH_RESULT:-}" != passed ]]; then
+    printf 'rollback finalization requires passed shared-ingress evidence\n' >&2
+    exit 65
+  fi
+  if [[ "${COFORGE_TCP80_RESULT:-}" != passed ]]; then
+    printf 'rollback finalization requires passed TCP/80-closed evidence\n' >&2
+    exit 65
+  fi
+  if [[ "$pending_previous_image" == bootstrap:empty ]]; then
+    if [[ "${COFORGE_PUBLIC_HEALTH_RESULT:-}" != not-applicable ]] \
+      || [[ "${COFORGE_WSS_HEALTH_RESULT:-}" != not-applicable ]] \
+      || [[ "${COFORGE_RUNNING_DIGEST_RESULT:-}" != not-applicable ]]; then
+      printf 'empty-state rollback requires explicit not-applicable public, WSS, and running-digest evidence\n' >&2
+      exit 65
+    fi
+  elif [[ "${COFORGE_PUBLIC_HEALTH_RESULT:-}" != passed ]] \
+    || [[ "${COFORGE_WSS_HEALTH_RESULT:-}" != passed ]] \
+    || [[ "${COFORGE_RUNNING_DIGEST_RESULT:-}" != passed ]]; then
+    printf 'rollback finalization requires passed public, WSS, and running-digest evidence\n' >&2
+    exit 65
+  fi
+  completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  image=${pending_image%@*}
+  image_digest=${pending_image##*@}
+  next_rollback_image=$pending_prior_previous_image
+  if [[ "$pending_origin" == manual ]]; then
+    next_rollback_image=$pending_image
+  fi
+  if [[ "$next_rollback_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    next_rollback_digest=${next_rollback_image##*@}
+  else
+    next_rollback_digest=bootstrap:empty
+  fi
+  if [[ "$pending_origin" == manual ]]; then
+    write_release_state "$pending_previous_image" "$pending_image" \
+      "$compose_file" "$rollback_compose_backup"
+  else
+    if [[ ! "$pending_prior_previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+      pending_prior_previous_image=bootstrap:empty
+    fi
+    write_release_state "$pending_previous_image" "$pending_prior_previous_image" \
+      "$compose_file" "$pending_prior_previous_compose_file"
+  fi
+  printf '{"source_commit":"%s","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"candidate_%s=failed;rollback_container=%s;rollback_internal=%s;rollback_public_https=%s;rollback_wss_handshake=%s;shared_ingress=passed;tcp80_closed=passed;running_digest=%s","final_observed_state":"current_digest=%s","next_rollback_digest":"%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"rolled_back"}\n' \
+    "$source_commit" "$image" "$image_digest" "$workflow_run" \
+    "$previous_digest" "$failure_stage" \
+    "${COFORGE_RUNNING_DIGEST_RESULT:-}" "${COFORGE_RUNNING_DIGEST_RESULT:-}" \
+    "${COFORGE_PUBLIC_HEALTH_RESULT:-}" "${COFORGE_WSS_HEALTH_RESULT:-}" \
+    "${COFORGE_RUNNING_DIGEST_RESULT:-}" \
+    "$previous_digest" "$next_rollback_digest" \
+    "$executor" "$started_at" "$completed_at" >>"$history_file"
+  rm -f -- "$pending_image_file" "$pending_previous_image_file" \
+    "$pending_source_commit_file" "$pending_workflow_run_file" \
+    "$pending_executor_file" "$pending_started_at_file" \
+    "$pending_origin_file" "$pending_owner_file" \
+    "$pending_prior_previous_image_file" "$pending_prior_previous_compose_file" \
+    "$pending_previous_compose_file" "$pending_rollback_complete_file" \
+    "$pending_failure_file"
+  printf 'failed candidate %s was rolled back and verified\n' "$pending_image"
+  exit 0
+fi
+if [[ "$release_image" == --record-failed-rollback ]]; then
+  require_pending_owner
+  pending_image=$(cat "$pending_image_file" 2>/dev/null || true)
+  pending_previous_image=$(cat "$pending_previous_image_file" 2>/dev/null || true)
+  source_commit=$(cat "$pending_source_commit_file" 2>/dev/null || true)
+  workflow_run=$(cat "$pending_workflow_run_file" 2>/dev/null || true)
+  executor=$(cat "$pending_executor_file" 2>/dev/null || true)
+  started_at=$(cat "$pending_started_at_file" 2>/dev/null || true)
+  pending_origin=$(cat "$pending_origin_file" 2>/dev/null || true)
+  failure_stage=$(cat "$pending_failure_file" 2>/dev/null || true)
+  if [[ ! "$pending_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
+    || [[ ! "$executor" =~ ^[A-Za-z0-9._@/-]+$ ]] \
+    || [[ ! "$started_at" =~ ^[0-9TZ:.-]+$ ]] \
+    || [[ ! "$pending_origin" =~ ^(release|manual)$ ]] \
+    || [[ ! "$failure_stage" =~ ^(internal|external|interrupted|manual)$ ]]; then
+    printf 'failed rollback evidence is missing or invalid\n' >&2
+    exit 65
+  fi
+  if [[ "$pending_origin" == release ]] \
+    && { [[ ! "$source_commit" =~ ^[0-9a-f]{40}$ ]] \
+      || [[ ! "$workflow_run" =~ ^https://github\.com/[A-Za-z0-9._/-]+/actions/runs/[0-9]+$ ]]; }; then
+    printf 'release rollback provenance is missing or invalid\n' >&2
+    exit 65
+  fi
+  if [[ "$pending_origin" == manual ]] \
+    && { [[ "$source_commit" != manual ]] || [[ "$workflow_run" != manual ]]; }; then
+    printf 'manual rollback provenance is missing or invalid\n' >&2
+    exit 65
+  fi
+  if [[ "$pending_previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    previous_digest=${pending_previous_image##*@}
+  elif [[ "$pending_previous_image" == bootstrap:empty ]]; then
+    previous_digest=bootstrap:empty
+  else
+    printf 'pending previous release evidence is invalid\n' >&2
+    exit 65
+  fi
+  completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  image=${pending_image%@*}
+  image_digest=${pending_image##*@}
+  observed_current=$(cat "$current_image_file" 2>/dev/null || true)
+  if [[ ! "$observed_current" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    observed_current=absent
+  fi
+  probe_image=$pending_image
+  if [[ "$observed_current" != absent ]]; then
+    probe_image=$observed_current
+  fi
+  docker_status=unavailable
+  observed_running=unknown
+  gateway_container=unknown
+  if docker info >/dev/null 2>&1; then
+    docker_status=available
+    container_id=$(COFORGE_GATEWAY_IMAGE="$probe_image" docker compose \
+      --project-name "$project_name" --file "$compose_file" \
+      ps --all --quiet gateway 2>/dev/null || true)
+    observed_running=absent
+    gateway_container=absent
+    if [[ -n "$container_id" ]]; then
+      gateway_container=present
+      observed_running=$(docker inspect --format '{{.Config.Image}}' "$container_id" 2>/dev/null || true)
+      if [[ ! "$observed_running" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+        observed_running=unknown
+      fi
+    fi
+  fi
+  printf '{"source_commit":"%s","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"candidate_%s=failed;rollback=failed","final_observed_state":"docker=%s;current_image=%s;running_image=%s;gateway_container=%s","next_rollback_digest":"%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"failed_rollback"}\n' \
+    "$source_commit" "$image" "$image_digest" "$workflow_run" \
+    "$previous_digest" "$failure_stage" "$docker_status" "$observed_current" "$observed_running" \
+    "$gateway_container" "$previous_digest" "$executor" "$started_at" \
+    "$completed_at" >>"$history_file"
+  printf 'failed rollback was recorded; pending recovery evidence was retained\n'
+  exit 0
+fi
+if [[ "$release_image" == --rollback ]]; then
+  rollback=true
+  pending_image=$(cat "$pending_image_file" 2>/dev/null || true)
+  pending_previous_image=$(cat "$pending_previous_image_file" 2>/dev/null || true)
+  if [[ -e "$pending_image_file" ]] \
+    && [[ ! "$pending_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    printf 'pending release evidence is corrupt; refusing rollback mutation\n' >&2
+    exit 65
+  fi
+  if [[ "$pending_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    require_pending_owner
+    release_image=$pending_previous_image
+    pending_rollback=true
+    if [[ ! -e "$pending_failure_file" ]]; then
+      printf 'external\n' >"$pending_failure_file"
+    fi
+    if [[ "$release_image" == bootstrap:empty ]]; then
+      export COFORGE_GATEWAY_IMAGE=$pending_image
+      if ! docker compose \
+        --project-name "$project_name" \
+        --file "$compose_file" \
+        down; then
+        printf 'failed bootstrap candidate %s could not be stopped\n' \
+          "$pending_image" >&2
+        exit 1
+      fi
+      remaining_container=$(docker compose \
+        --project-name "$project_name" \
+        --file "$compose_file" \
+        ps --all --quiet)
+      if [[ -n "$remaining_container" ]]; then
+        printf 'failed bootstrap candidate %s is still present after shutdown\n' \
+          "$pending_image" >&2
+        exit 1
+      fi
+      rm -f -- "$current_image_file"
+      : >"$pending_rollback_complete_file"
+      printf 'failed bootstrap candidate %s was stopped\n' "$pending_image"
+      exit 0
+    fi
+    if [[ -r "$pending_previous_compose_file" ]]; then
+      cp -f "$pending_previous_compose_file" "$compose_file"
+    fi
+  else
+    release_image=$recorded_previous_image
+    pending_rollback=false
+    if [[ ! "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+      printf 'current release evidence is missing or invalid\n' >&2
+      exit 65
+    fi
+    if [[ ! "$release_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+      release_image=bootstrap:empty
+    fi
+    started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    printf '%s\n' "$previous_image" >"$pending_image_file"
+    printf '%s\n' "$release_image" >"$pending_previous_image_file"
+    printf 'manual\n' >"$pending_source_commit_file"
+    printf 'manual\n' >"$pending_workflow_run_file"
+    printf '%s\n' "${COFORGE_EXECUTOR:-local}" >"$pending_executor_file"
+    printf '%s\n' "$started_at" >"$pending_started_at_file"
+    printf 'manual\n' >"$pending_origin_file"
+    printf '%s\n' "${COFORGE_TRANSACTION_OWNER:-manual}" >"$pending_owner_file"
+    printf 'manual\n' >"$pending_failure_file"
+    pending_image=$previous_image
+    pending_previous_image=$release_image
+    trap 'record_interruption HUP' HUP
+    trap 'record_interruption INT' INT
+    trap 'record_interruption TERM' TERM
+  fi
+  if [[ ! "$release_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
+    && [[ "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    export COFORGE_GATEWAY_IMAGE=$previous_image
+    if ! docker compose \
+      --project-name "$project_name" \
+      --file "$compose_file" \
+      down; then
+      record_standalone_rollback "$previous_image" unknown \
+        'rollback_empty=failed' failed_rollback
+      printf 'current image %s could not be stopped\n' "$previous_image" >&2
+      exit 1
+    fi
+    remaining_container=$(docker compose \
+      --project-name "$project_name" \
+      --file "$compose_file" \
+      ps --all --quiet)
+    if [[ -n "$remaining_container" ]]; then
+      record_standalone_rollback "$previous_image" unknown \
+        'rollback_empty=failed;gateway_container=present' failed_rollback
+      printf 'Compose project is not empty after rollback shutdown\n' >&2
+      exit 1
+    fi
+    : >"$pending_rollback_complete_file"
+    printf 'current image %s was stopped and is pending external verification\n' \
+      "$previous_image"
+    exit 0
+  fi
+fi
+if [[ ! "$release_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+  printf 'image must be an immutable ghcr.io reference pinned by sha256 digest\n' >&2
+  exit 64
+fi
+if [[ "$rollback" == false ]] && [[ -e "$pending_image_file" ]]; then
+  record_orphaned_pending
+  printf 'another release is already pending external verification\n' >&2
+  exit 75
+fi
+defer_commit=${COFORGE_DEFER_COMMIT:-false}
+if [[ "$defer_commit" != false ]] && [[ "$defer_commit" != true ]]; then
+  printf 'COFORGE_DEFER_COMMIT must be true or false\n' >&2
+  exit 64
+fi
+if [[ "$rollback" == false ]] && [[ "$defer_commit" != true ]] \
+  && { [[ "${COFORGE_INTERNAL_TEST_MODE:-}" != compose-release-tests ]] \
+    || [[ "$app_root" != /tmp/* ]]; }; then
+  printf 'image deployment requires deferred external verification\n' >&2
+  exit 64
+fi
+if [[ "$defer_commit" == true ]]; then
+  source_commit=${COFORGE_SOURCE_COMMIT:-}
+  workflow_run=${COFORGE_WORKFLOW_RUN:-}
+  executor=${COFORGE_EXECUTOR:-}
+  transaction_owner=${COFORGE_TRANSACTION_OWNER:-}
+  if [[ ! "$source_commit" =~ ^[0-9a-f]{40}$ ]] \
+    || [[ ! "$workflow_run" =~ ^https://github\.com/[A-Za-z0-9._/-]+/actions/runs/[0-9]+$ ]] \
+    || [[ ! "$executor" =~ ^[A-Za-z0-9._@/-]+$ ]] \
+    || [[ ! "$transaction_owner" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    printf 'deferred commit requires valid source commit, workflow run, and executor evidence\n' >&2
+    exit 64
+  fi
+  started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  if [[ "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    printf '%s\n' "$previous_image" >"$pending_previous_image_file"
+    if [[ -r "$compose_file" ]]; then
+      cp -f "$compose_file" "$pending_previous_compose_file"
+    fi
+  else
+    printf 'bootstrap:empty\n' >"$pending_previous_image_file"
+  fi
+  if [[ "$recorded_previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    printf '%s\n' "$recorded_previous_image" >"$pending_prior_previous_image_file"
+    if [[ -r "$previous_compose_file" ]]; then
+      cp -f "$previous_compose_file" "$pending_prior_previous_compose_file"
+    fi
+  else
+    printf 'bootstrap:empty\n' >"$pending_prior_previous_image_file"
+  fi
+  printf '%s\n' "$source_commit" >"$pending_source_commit_file"
+  printf '%s\n' "$workflow_run" >"$pending_workflow_run_file"
+  printf '%s\n' "$executor" >"$pending_executor_file"
+  printf '%s\n' "$started_at" >"$pending_started_at_file"
+  printf 'release\n' >"$pending_origin_file"
+  printf '%s\n' "$transaction_owner" >"$pending_owner_file"
+  trap 'record_interruption HUP' HUP
+  trap 'record_interruption INT' INT
+  trap 'record_interruption TERM' TERM
+  printf '%s\n' "$release_image" >"$next_pending_image_file"
+  mv -f "$next_pending_image_file" "$pending_image_file"
+fi
+if [[ "$rollback" == false ]]; then
+  export COFORGE_GATEWAY_IMAGE=$release_image
+  if ! docker compose \
+    --project-name "$project_name" \
+    --file "$candidate_compose_file" \
+    config --quiet; then
+    if [[ "$defer_commit" == true ]]; then
+      record_failed_preparation compose-validation
+    fi
+    printf 'candidate Compose definition failed validation\n' >&2
+    exit 65
+  fi
+  if [[ ! "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    if [[ -e "$current_image_file" ]]; then
+      if [[ "$defer_commit" == true ]]; then
+        record_failed_preparation invalid-current-record
+      fi
+      printf 'current release record is invalid; refusing bootstrap\n' >&2
+      exit 65
+    fi
+    existing_container=$(docker compose \
+      --project-name "$project_name" \
+      --file "$candidate_compose_file" \
+      ps --all --quiet)
+    if [[ -n "$existing_container" ]]; then
+      if [[ "$defer_commit" == true ]]; then
+        record_failed_preparation nonempty-bootstrap
+      fi
+      printf 'release record is missing but the Compose project is not empty\n' >&2
+      exit 65
+    fi
+  elif [[ ! -r "$compose_file" ]]; then
+    if [[ "$defer_commit" == true ]]; then
+      record_failed_preparation missing-current-compose
+    fi
+    printf 'current release record has no readable Compose definition\n' >&2
+    exit 65
+  fi
+  if [[ "$candidate_compose_file" != "$compose_file" ]]; then
+    if [[ -r "$compose_file" ]]; then
+      if [[ "$defer_commit" == false ]]; then
+        cp -f "$compose_file" "$previous_compose_file"
+      fi
+    fi
+    install -m 0600 "$candidate_compose_file" "$compose_file"
+  fi
+fi
+if [[ "$rollback" == true ]] && [[ "${pending_rollback:-false}" == false ]] \
+  && [[ -r "$compose_file" ]]; then
+  cp -f "$compose_file" "$rollback_compose_backup"
+  if [[ "$release_image" != bootstrap:empty ]]; then
+    if [[ ! -r "$previous_compose_file" ]]; then
+      printf 'previous Compose definition is missing\n' >&2
+      exit 65
+    fi
+    cp -f "$previous_compose_file" "$compose_file"
+  fi
+fi
+
+deploy_image() {
+  local image=$1
+  export COFORGE_GATEWAY_IMAGE=$image
+
+  docker compose \
+    --project-name "$project_name" \
+    --file "$compose_file" \
+    pull gateway || return
+  docker compose \
+    --project-name "$project_name" \
+    --file "$compose_file" \
+    up --detach --wait --wait-timeout 60 --no-build gateway || return
+
+  local container_id running_image
+  container_id=$(docker compose \
+    --project-name "$project_name" \
+    --file "$compose_file" \
+    ps --quiet gateway)
+  if [[ -z "$container_id" ]]; then
+    return 1
+  fi
+  running_image=$(docker inspect --format '{{.Config.Image}}' "$container_id")
+  if [[ "$running_image" != "$image" ]]; then
+    printf 'running container image %s does not match requested image %s\n' \
+      "$running_image" "$image" >&2
+    return 1
+  fi
+
+  local attempt
+  for ((attempt = 1; attempt <= health_attempts; attempt++)); do
+    if curl --fail --silent --show-error --max-time 3 "$health_url" >/dev/null; then
+      return 0
+    fi
+    if ((attempt < health_attempts)); then
+      sleep 1
+    fi
+  done
+  return 1
+}
+
+stop_project_and_verify_empty() {
+  local image=$1
+  local remaining_container
+  export COFORGE_GATEWAY_IMAGE=$image
+  docker compose \
+    --project-name "$project_name" \
+    --file "$compose_file" \
+    down || return
+  remaining_container=$(docker compose \
+    --project-name "$project_name" \
+    --file "$compose_file" \
+    ps --all --quiet) || return
+  [[ -z "$remaining_container" ]]
+}
+
+if deploy_image "$release_image"; then
+  if [[ "$rollback" == true ]]; then
+    : >"$pending_rollback_complete_file"
+    printf 'rollback image %s passed internal health and is pending external verification\n' \
+      "$release_image"
+    exit 0
+  fi
+  if [[ "$defer_commit" == true ]]; then
+    printf 'image %s passed internal health and is pending external verification\n' \
+      "$release_image"
+    exit 0
+  fi
+  if [[ ! "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    previous_image=bootstrap:empty
+  fi
+  write_release_state "$release_image" "$previous_image" \
+    "$compose_file" "$previous_compose_file"
+  printf 'image %s is healthy\n' "$release_image"
+  exit 0
+fi
+
+printf 'image %s failed its health check; restoring previous image\n' "$release_image" >&2
+if [[ "$defer_commit" == true ]]; then
+  printf 'internal\n' >"$pending_failure_file"
+  pending_previous_image=$(cat "$pending_previous_image_file")
+  if [[ "$pending_previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    cp -f "$pending_previous_compose_file" "$compose_file"
+    if ! deploy_image "$pending_previous_image"; then
+      printf 'previous image %s also failed health verification\n' \
+        "$pending_previous_image" >&2
+      exit 1
+    fi
+    printf '%s\n' "$pending_previous_image" >"$next_image_file"
+    mv -f "$next_image_file" "$current_image_file"
+  else
+    if ! stop_project_and_verify_empty "$release_image"; then
+      printf 'failed bootstrap candidate %s could not be restored to an empty state\n' \
+        "$release_image" >&2
+      exit 1
+    fi
+    rm -f -- "$current_image_file"
+  fi
+  : >"$pending_rollback_complete_file"
+  exit 1
+fi
+if [[ "$rollback" == true ]] && [[ -r "$rollback_compose_backup" ]]; then
+  mv -f "$rollback_compose_backup" "$compose_file"
+fi
+if [[ "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+  if [[ "$rollback" == false ]] && [[ -r "$previous_compose_file" ]]; then
+    cp -f "$previous_compose_file" "$compose_file"
+  fi
+  if ! deploy_image "$previous_image"; then
+    printf 'previous image %s also failed health verification\n' "$previous_image" >&2
+    exit 1
+  fi
+else
+  if ! stop_project_and_verify_empty "$release_image"; then
+    printf 'failed candidate %s could not be restored to an empty state\n' \
+      "$release_image" >&2
+    exit 1
+  fi
+fi
+exit 1

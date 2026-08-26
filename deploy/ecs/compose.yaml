@@ -1,0 +1,26 @@
+services:
+  gateway:
+    image: ${COFORGE_GATEWAY_IMAGE:?set COFORGE_GATEWAY_IMAGE to an immutable digest}
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${COFORGE_EDGE_BIND_IP:-127.0.0.1}:${COFORGE_GATEWAY_PORT:-18180}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+    stop_grace_period: 70s

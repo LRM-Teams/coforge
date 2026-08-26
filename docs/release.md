@@ -32,6 +32,9 @@ implements this contract without duplicating it.
   project. Do not release a host binary or add an application systemd unit.
 - Keep application ports private. Caddy owns the public HTTPS/WSS entry point;
   a routine application release must not rewrite shared Caddy configuration.
+- Do not expose public plaintext HTTP for CoForge, including redirect-only
+  listeners. The test deployment verifies that port 80 is unreachable while
+  trusted HTTPS/WSS on 443 remains healthy.
 
 The `test` name does not weaken security. Login, token, attachment, and WSS
 traffic still require valid HTTPS, least-privilege credentials, secret
@@ -82,8 +85,8 @@ Every deployment or local-distribution publication record must identify:
 | `artifact_members` | Image reference or component versions plus platform installation-bundle names, sizes, SHA-256 checksums, and signatures |
 | `environment_or_channel` | Isolated `test` or `production` target |
 | `workflow_run` | GitHub Actions run URL or stable run ID |
-| `previous_identity` | Last known healthy digest/manifest, or an explicit bootstrap marker |
-| `verification_result` | Track-specific health, install, upgrade, and integrity evidence |
+| `previous_identity` | Last known healthy digest/manifest, or an explicit bootstrap marker; cloud JSONL names this `previous_digest` |
+| `verification_result` | Track-specific internal, public, shared-ingress, running-identity, install, upgrade, and integrity evidence; cloud JSONL names this `health_result` |
 | `approval` | Production-only human approval bound to the exact artifact identity |
 | `executor` | Agent or human that executed the deployment |
 | `started_at` / `completed_at` | UTC transaction boundaries |
@@ -199,11 +202,6 @@ rules, and logs. An unmatched path is denied and no origin rule may fall back
 from one business prefix to the other. The CDN does not accept or forward
 application login cookies.
 
-The operator provisions and proves that boundary with
-[`operations/aliyun-oss-cdn.md`](operations/aliyun-oss-cdn.md). Until its
-acceptance report and configuration evidence both pass, a release workflow must
-treat the CDN feed as unavailable rather than fall back to an OSS endpoint.
-
 Users never depend on or discover the OSS bucket URL. Immutable release objects
 use a long immutable cache policy; `channels.json` uses revalidation/no-cache. A
 publication is incomplete until the workflow refreshes affected CDN objects and
@@ -264,54 +262,6 @@ An exact component SemVer is not enough to select an installation because
 Computer and Daemon versions are independent. An implementation may offer a
 friendlier exact selector only when it resolves unambiguously to a signed
 release-set digest and one platform bundle.
-
-The implemented updater commands are:
-
-```text
-coforge-computer install [--version latest|test|sha256:<64 lowercase hex>]
-coforge-computer upgrade [--version latest|test|sha256:<64 lowercase hex>]
-coforge-computer rollback
-```
-
-`install.sh` and `install.ps1` download a platform bootstrap only after its
-SHA-256 has been pinned into that reviewed script, then pass the selector to
-`coforge-computer install`. Until the provisioning task supplies those exact
-bootstrap bytes and pins, both scripts return a stable not-published failure;
-tests may inject a local bootstrap only behind `COFORGE_INSTALLER_TEST_MODE=1`.
-No production feed URL or trust key is configurable through the command line.
-
-Every signed feed object uses this JSON envelope:
-
-```json
-{
-  "schema_version": 1,
-  "key_id": "coforge-release-...",
-  "payload": "<base64 of the exact UTF-8 JSON payload>",
-  "signature": "<base64 Ed25519 signature>"
-}
-```
-
-The signature input is the exact UTF-8 byte sequence
-`coforge-release-v1\n<key_id>\n<payload>`. A release-set selector is the
-lowercase `sha256:` digest of the decoded release-set payload bytes. The
-release-set payload names signed Computer and Daemon manifests and one signed
-bundle per target. Each signed bundle repeats both component-manifest digests
-and the size/SHA-256 of both embedded process payloads; activation requires all
-three identities to agree.
-
-The updater accepts only relative immutable paths inside the selected
-component or release-set namespace. It rejects redirects, traversal, unknown
-schemas or keys, signature/digest/size mismatches, decreasing channel
-generations, and a channel with `current: null`. It never probes the other
-channel, a component path, or a `latest` object after any rejection.
-
-Installation stages a complete version below the current user's platform data
-directory, records its offline payload identities, and atomically switches the
-active pointer only after verification. The sole user PATH shim resolves that
-pointer. `rollback` performs no network access and re-verifies the retained
-payloads before atomically swapping current and previous. Machine identity,
-credentials, configuration, and application data remain outside the version
-store.
 
 ## Main to test
 
@@ -603,16 +553,38 @@ single-component transaction, signature, or per-user installation boundaries.
 
 ## Implementation status
 
-The local updater, installer entry points, Ed25519 wire format, and fixture
-matrix are implemented. Real distribution remains fail closed until the
-infrastructure provisioning task supplies the protected signing key/key ID,
-publishes each platform bootstrap, replaces the reviewed bootstrap checksum
-pins, and makes the consumer-visible CDN objects available. Cloud registry,
-Compose deployment automation, production environment, publication workflow,
-and signing-key custody/rotation are also still unimplemented. Until those
-dependencies exist, the release Skill may inspect, run fixture verification,
-prepare evidence, and identify blockers, but it must not claim a real CDN
-installation or publication succeeded.
+The MVP `test` implementation is defined by
+[`deploy-ecs.yml`](../.github/workflows/deploy-ecs.yml),
+[`compose.yaml`](../deploy/ecs/compose.yaml), and
+[`compose_release.sh`](../scripts/deploy/compose_release.sh). A push to `main`
+builds one GHCR image, passes its immutable digest to a repository-restricted
+static-egress runner, and deploys through the GitHub `test` Environment. The
+operator contract and one-time ECS/shared-Caddy prerequisites are documented in
+[`aliyun-ecs.md`](deployment/aliyun-ecs.md).
+
+The remote transaction validates the candidate Compose definition before
+mutation, verifies or records the prior healthy/empty state, keeps the candidate
+pending through bounded public HTTPS, WSS handshake, shared-ingress, and exact
+running-image checks, and only then commits it as healthy. Healthy,
+failed-preparation, interrupted, rolled-back, and failed-rollback outcomes are
+kept in the deploy user's redacted JSONL history and copied to the workflow run
+as a bounded-retention artifact.
+
+The authoritative release pointer is one atomically replaced `release-state`
+manifest containing the current/previous digests and their immutable Compose
+generation hashes. Host-wide locking and a transaction owner bind prepare,
+commit, rollback, and finalization across both Actions and manual operations.
+
+Production promotion is not implemented. The release Skill may operate the
+test workflow only after its documented runner, Environment secrets, rootless
+Docker account, and additive Caddy route exist. It must continue to stop rather
+than improvise when any prerequisite or release evidence is missing.
+
+The local feed topology and `cdn.coforge.cn/releases/` consumer boundary above
+are approved, but no feed or installer exists yet. Archive formats,
+platform/architecture matrices, signature key lifecycle, and updater commands
+remain unimplemented. The release Skill may inspect and prepare their evidence,
+but it must not invent publication, signing, or updater commands.
 
 ## Official references
 
