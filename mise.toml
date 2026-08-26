@@ -5,7 +5,11 @@ go = "1.26.7"
 
 [tasks.install]
 description = "Install all workspace dependencies"
-run = "bun install"
+run = "bun install --frozen-lockfile"
+
+[tasks.test]
+description = "Run repository tests"
+run = "bun run test"
 
 [tasks.check]
 description = "Run repository type checks"
