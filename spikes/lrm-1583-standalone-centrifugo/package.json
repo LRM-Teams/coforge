@@ -3,8 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "oxfmt --check . && oxlint backend.ts integration.test.ts && tsc --noEmit",
-    "test": "bun test --timeout 30000"
+    "check": "oxfmt --check . && oxlint backend.ts integration.test.ts fault-matrix.ts && tsc --noEmit",
+    "test": "bun test --timeout 30000",
+    "fault-matrix": "bun run fault-matrix.ts"
   },
   "dependencies": {
     "centrifuge": "5.7.0"

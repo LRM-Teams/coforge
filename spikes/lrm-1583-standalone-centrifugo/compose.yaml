@@ -59,6 +59,8 @@ services:
       interval: 2s
       timeout: 2s
       retries: 30
+    ports:
+      - "127.0.0.1:18189:8000"
 
   centrifugo-b:
     image: centrifugo/centrifugo:v6.9.3
@@ -73,11 +75,13 @@ services:
       interval: 2s
       timeout: 2s
       retries: 30
+    ports:
+      - "127.0.0.1:18289:8000"
 
   edge:
     image: caddy:2.10.2-alpine
     ports:
-      - "18083:8080"
+      - "127.0.0.1:18089:8080"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     healthcheck:

@@ -26,7 +26,11 @@
     "namespaces": [
       {
         "name": "conversation",
-        "subscribe_proxy_enabled": true
+        "subscribe_proxy_enabled": true,
+        "presence": true,
+        "history_size": 100,
+        "history_ttl": "5m",
+        "force_recovery": true
       }
     ]
   },

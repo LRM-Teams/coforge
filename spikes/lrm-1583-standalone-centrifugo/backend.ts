@@ -37,6 +37,33 @@ Bun.serve({
       return json({ ok: true, replica });
     }
 
+    if (request.method === "GET" && url.pathname === "/test-control/online") {
+      const channel = url.searchParams.get("channel");
+      if (!channel?.startsWith("conversation:")) {
+        return json({ error: "invalid channel" }, 400);
+      }
+
+      const response = await fetch("http://centrifugo-a:8000/api/presence", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-Key": "lrm-1583-disposable-api-key",
+        },
+        body: JSON.stringify({ channel }),
+      });
+      if (!response.ok) {
+        return json({ error: "presence unavailable", replica }, 502);
+      }
+
+      const body = (await response.json()) as {
+        result?: { presence?: Record<string, { user?: string }> };
+      };
+      const connections = Object.entries(body.result?.presence ?? {})
+        .map(([client, presence]) => ({ client, user: presence.user ?? "" }))
+        .sort((left, right) => left.client.localeCompare(right.client));
+      return json({ channel, connections, replica });
+    }
+
     if (request.method === "POST" && url.pathname === "/centrifugo/connect") {
       const body = (await request.json()) as { b64data?: unknown };
       const data = decodeData(body.b64data) as { accessToken?: unknown } | undefined;
