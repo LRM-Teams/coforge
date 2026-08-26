@@ -76,9 +76,14 @@ defaults.
 
 ## Development workflow
 
-Use test-driven development for behavioral changes: begin with a failing test,
-make the smallest implementation change that passes, then refactor with the
-suite green. Keep commits narrow, use English Conventional Commit messages,
-rebase the latest `origin/main` before pushing, and run the relevant checks for
-every change. Read [AGENTS.md](AGENTS.md) before modifying architecture or
-package boundaries.
+Use test-driven development for behavioral changes: agree the public test seam,
+then work one vertical slice at a time with a failing test followed by the
+smallest passing implementation. Refactoring belongs to independent review.
+Keep commits narrow, use English Conventional Commit messages, rebase the
+latest `origin/main` before pushing, and run the relevant checks for every
+change. Read [AGENTS.md](AGENTS.md) before modifying architecture or package
+boundaries.
+
+Project-level `tdd`, `codebase-design`, `domain-modeling`, and `code-review`
+skills are maintained under `.agents/skills` and pinned by `skills-lock.json`.
+They are shared by supported coding agents when working in this repository.

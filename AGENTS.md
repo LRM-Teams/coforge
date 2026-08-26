@@ -17,8 +17,9 @@ These instructions apply to the entire repository.
 - Use the repository owner's GitHub identity for commits: `me-frankan <me.frankan@gmail.com>`. Never commit with an Agent name or Agent email.
 - Respect ownership claimed in `#coforge`. Coordinate before editing another agent's active files or changing a shared contract.
 - A task is complete only after relevant formatting, type checking, tests, and build checks pass. If a check does not exist yet, state that clearly in the handoff.
-- Develop behavioral changes with test-driven development: write or update a test that fails for the intended behavior, implement the minimum change that makes it pass, then refactor while keeping tests green.
+- Develop behavioral changes with test-driven development. Agree the public test seam first, then work in vertical slices: one failing test followed by the minimum implementation that passes it.
 - Start bug fixes with a regression test. Do not remove or weaken a valid test merely to make CI pass.
+- Keep refactoring in the independent review stage rather than expanding a red-green implementation slice.
 
 ## Toolchain
 
@@ -27,6 +28,14 @@ These instructions apply to the entire repository.
 - Run `mise run test`, `mise run check`, and `mise run build` before submitting a change; CI runs them in that order.
 - Do not silently change a runtime or tool version. Update `mise.toml`, affected lockfiles, CI, and architecture documentation together.
 - Do not introduce Next.js. The accepted Web/backend direction is TanStack Start on Node 24 LTS.
+
+## Shared agent skills
+
+- Project skills live in `.agents/skills`; `skills-lock.json` records their upstream source and content hash.
+- Read and apply `tdd` for behavioral implementation and `codebase-design` when choosing or changing a test seam.
+- Use `domain-modeling` when changing canonical domain terms or relationships; do not turn `CONTEXT.md` into a running specification.
+- Use `code-review` from an independent context with an explicit fixed point. The coordinator must include this instruction in every Standards and Spec reviewer brief: perform the assigned review directly; do not invoke `code-review` again or spawn additional reviewers.
+- The engineering skills do not yet have an approved issue-tracker configuration. Until `docs/agents/issue-tracker.md` exists, give `code-review` an explicit spec source; if none is available, ask the requester instead of invoking an unavailable setup skill or inferring a tracker workflow.
 
 ## Architecture invariants
 
