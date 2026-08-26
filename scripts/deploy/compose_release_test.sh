@@ -84,6 +84,20 @@ fi
 EOF
 chmod 0755 "$test_root/bin/curl"
 
+cat >"$test_root/bin/cp" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+destination=${!#}
+if [[ "${FAKE_CP_SIGNAL_DURING_PREPARE:-false}" == true ]] \
+  && { [[ "$destination" == */pending-previous-compose.yaml ]] \
+    || [[ "$destination" == */.compose.before-rollback ]]; }; then
+  kill -TERM "$PPID"
+  kill -TERM "$$"
+fi
+exec /bin/cp "$@"
+EOF
+chmod 0755 "$test_root/bin/cp"
+
 registry=ghcr.io/lrm-teams/coforge-realtime-gateway
 first_image="$registry@sha256:$(printf '1%.0s' {1..64})"
 second_image="$registry@sha256:$(printf '2%.0s' {1..64})"
@@ -92,6 +106,30 @@ fourth_image="$registry@sha256:$(printf '4%.0s' {1..64})"
 docker_log="$test_root/docker.log"
 source_commit=$(printf 'a%.0s' {1..40})
 workflow_run=https://github.com/LRM-Teams/coforge/actions/runs/12345
+
+mkdir -p "$test_root/manual-pre-marker-cancel"
+printf 'release: current\n' >"$test_root/manual-pre-marker-cancel/compose.yaml"
+printf 'release: previous\n' >"$test_root/manual-pre-marker-cancel/previous-compose.yaml"
+printf '%s\n' "$first_image" >"$test_root/manual-pre-marker-cancel/current-image"
+printf '%s\n' "$third_image" >"$test_root/manual-pre-marker-cancel/previous-image"
+if PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  FAKE_CP_SIGNAL_DURING_PREPARE=true \
+  COFORGE_APP_ROOT="$test_root/manual-pre-marker-cancel" \
+  "$release_script" --rollback; then
+  printf 'manual pre-marker cancellation returned success unexpectedly\n' >&2
+  exit 1
+fi
+if [[ -e "$test_root/manual-pre-marker-cancel/pending-image" ]] \
+  || [[ -e "$test_root/manual-pre-marker-cancel/pending-origin" ]] \
+  || [[ -e "$test_root/manual-pre-marker-cancel/.compose.before-rollback" ]] \
+  || ! tail -n 1 "$test_root/manual-pre-marker-cancel/release-history.jsonl" \
+    | grep -Fq '"source_commit":"manual"' \
+  || ! tail -n 1 "$test_root/manual-pre-marker-cancel/release-history.jsonl" \
+    | grep -Fq '"outcome":"interrupted"'; then
+  printf 'manual pre-marker cancellation was not durably recoverable\n' >&2
+  exit 1
+fi
 
 mkdir -p "$test_root/config-validation"
 printf 'release: current\n' >"$test_root/config-validation/compose.yaml"
@@ -225,15 +263,18 @@ if PATH="$test_root/bin:$PATH" \
   COFORGE_SOURCE_COMMIT="$source_commit" \
   COFORGE_WORKFLOW_RUN="$workflow_run" \
   COFORGE_EXECUTOR=github-actions \
-  COFORGE_TEST_SIGNAL_DURING_PREPARE=true \
+  FAKE_CP_SIGNAL_DURING_PREPARE=true \
   COFORGE_HEALTH_ATTEMPTS=1 \
   "$release_script" "$second_image"; then
   printf 'pre-marker cancellation returned success unexpectedly\n' >&2
   exit 1
 fi
-if [[ ! -e "$test_root/pre-marker-cancel/pending-image" ]] \
+if [[ -e "$test_root/pre-marker-cancel/pending-image" ]] \
+  || [[ -e "$test_root/pre-marker-cancel/pending-previous-image" ]] \
   || ! tail -n 1 "$test_root/pre-marker-cancel/release-history.jsonl" \
-    | grep -Fq '"outcome":"interrupted"'; then
+    | grep -Fq '"outcome":"interrupted"' \
+  || ! tail -n 1 "$test_root/pre-marker-cancel/release-history.jsonl" \
+    | grep -Fq '"final_observed_state":"unchanged"'; then
   printf 'pre-marker cancellation was not durably recoverable\n' >&2
   exit 1
 fi

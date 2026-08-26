@@ -47,13 +47,12 @@ next_state_file="$app_root/.release-state.next"
 next_image_file="$app_root/.current-image.next"
 next_previous_file="$app_root/.previous-image.next"
 next_pending_image_file="$app_root/.pending-image.next"
-deferred_signal=
-
-# Invoked by the signal traps installed while transaction sidecars are staged.
-# shellcheck disable=SC2329
-defer_interruption() {
-  deferred_signal=$1
-}
+pre_marker_image=
+pre_marker_previous=bootstrap:empty
+pre_marker_source_commit=
+pre_marker_workflow_run=
+pre_marker_executor=
+pre_marker_started_at=
 
 state_field() {
   local field=$1
@@ -143,7 +142,33 @@ clear_pending() {
     "$pending_origin_file" "$pending_owner_file" "$pending_manual_from_file" \
     "$pending_prior_previous_image_file" "$pending_prior_previous_compose_file" \
     "$pending_previous_compose_file" "$pending_rollback_complete_file" \
-    "$pending_failure_file" "$next_pending_image_file"
+    "$pending_failure_file" "$next_pending_image_file" \
+    "$rollback_compose_backup"
+}
+
+# Invoked by traps while sidecars are being staged. It must record immediately:
+# returning to an interrupted external command would let `set -e` exit before
+# the discovery marker is published.
+# shellcheck disable=SC2329
+record_pre_marker_interruption() {
+  local signal=$1
+  local completed_at image image_digest previous_digest
+  trap - ERR HUP INT TERM
+  set +e
+  completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  image=${pre_marker_image%@*}
+  image_digest=${pre_marker_image##*@}
+  previous_digest=$pre_marker_previous
+  if [[ "$previous_digest" != bootstrap:empty ]]; then
+    previous_digest=${previous_digest##*@}
+  fi
+  printf '{"source_commit":"%s","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"signal_%s=interrupted","final_observed_state":"unchanged","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"interrupted"}\n' \
+    "$pre_marker_source_commit" "$image" "$image_digest" \
+    "$pre_marker_workflow_run" "$previous_digest" "$signal" \
+    "$pre_marker_executor" "$pre_marker_started_at" "$completed_at" \
+    >>"$history_file"
+  clear_pending
+  exit 130
 }
 
 record_failed_preparation() {
@@ -506,7 +531,7 @@ if [[ "$release_image" == --commit ]]; then
     "$pending_origin_file" "$pending_owner_file" "$pending_manual_from_file" \
     "$pending_prior_previous_image_file" "$pending_prior_previous_compose_file" \
     "$pending_previous_compose_file" "$pending_rollback_complete_file" \
-    "$pending_failure_file"
+    "$pending_failure_file" "$rollback_compose_backup"
   printf 'image %s is healthy and committed\n' "$pending_image"
   exit 0
 fi
@@ -627,7 +652,7 @@ if [[ "$release_image" == --finalize-rollback ]]; then
     "$pending_origin_file" "$pending_owner_file" "$pending_manual_from_file" \
     "$pending_prior_previous_image_file" "$pending_prior_previous_compose_file" \
     "$pending_previous_compose_file" "$pending_rollback_complete_file" \
-    "$pending_failure_file"
+    "$pending_failure_file" "$rollback_compose_backup"
   printf 'failed candidate %s was rolled back and verified\n' "$pending_image"
   exit 0
 fi
@@ -785,9 +810,15 @@ if [[ "$release_image" == --rollback ]]; then
       exit 64
     fi
     started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    trap 'defer_interruption HUP' HUP
-    trap 'defer_interruption INT' INT
-    trap 'defer_interruption TERM' TERM
+    pre_marker_image=$manual_pending_image
+    pre_marker_previous=$release_image
+    pre_marker_source_commit=manual
+    pre_marker_workflow_run=manual
+    pre_marker_executor=$manual_executor
+    pre_marker_started_at=$started_at
+    trap 'record_pre_marker_interruption HUP' HUP
+    trap 'record_pre_marker_interruption INT' INT
+    trap 'record_pre_marker_interruption TERM' TERM
     if [[ -n "$manual_from" ]]; then
       printf '%s\n' "$manual_from" >"$pending_manual_from_file"
     fi
@@ -799,10 +830,6 @@ if [[ "$release_image" == --rollback ]]; then
     printf 'manual\n' >"$pending_origin_file"
     printf '%s\n' "$manual_owner" >"$pending_owner_file"
     printf 'manual\n' >"$pending_failure_file"
-    if [[ "${COFORGE_INTERNAL_TEST_MODE:-}" == compose-release-tests ]] \
-      && [[ "${COFORGE_TEST_SIGNAL_DURING_PREPARE:-false}" == true ]]; then
-      kill -TERM "$$"
-    fi
     pending_image=$manual_pending_image
     pending_previous_image=$release_image
     if [[ "$previous_image" != bootstrap:empty ]] && [[ -r "$current_compose_source" ]]; then
@@ -816,9 +843,6 @@ if [[ "$release_image" == --rollback ]]; then
     trap 'record_interruption HUP' HUP
     trap 'record_interruption INT' INT
     trap 'record_interruption TERM' TERM
-    if [[ -n "$deferred_signal" ]]; then
-      record_interruption "$deferred_signal"
-    fi
   fi
   if [[ ! "$release_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
     && [[ "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
@@ -882,9 +906,18 @@ if [[ "$defer_commit" == true ]]; then
     exit 64
   fi
   started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  trap 'defer_interruption HUP' HUP
-  trap 'defer_interruption INT' INT
-  trap 'defer_interruption TERM' TERM
+  pre_marker_image=$release_image
+  pre_marker_previous=$previous_image
+  if [[ ! "$pre_marker_previous" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    pre_marker_previous=bootstrap:empty
+  fi
+  pre_marker_source_commit=$source_commit
+  pre_marker_workflow_run=$workflow_run
+  pre_marker_executor=$executor
+  pre_marker_started_at=$started_at
+  trap 'record_pre_marker_interruption HUP' HUP
+  trap 'record_pre_marker_interruption INT' INT
+  trap 'record_pre_marker_interruption TERM' TERM
   if [[ "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
     printf '%s\n' "$previous_image" >"$pending_previous_image_file"
     if [[ -r "$current_compose_source" ]]; then
@@ -907,18 +940,11 @@ if [[ "$defer_commit" == true ]]; then
   printf '%s\n' "$started_at" >"$pending_started_at_file"
   printf 'release\n' >"$pending_origin_file"
   printf '%s\n' "$transaction_owner" >"$pending_owner_file"
-  if [[ "${COFORGE_INTERNAL_TEST_MODE:-}" == compose-release-tests ]] \
-    && [[ "${COFORGE_TEST_SIGNAL_DURING_PREPARE:-false}" == true ]]; then
-    kill -TERM "$$"
-  fi
   printf '%s\n' "$release_image" >"$next_pending_image_file"
   mv -f "$next_pending_image_file" "$pending_image_file"
   trap 'record_interruption HUP' HUP
   trap 'record_interruption INT' INT
   trap 'record_interruption TERM' TERM
-  if [[ -n "$deferred_signal" ]]; then
-    record_interruption "$deferred_signal"
-  fi
 fi
 if [[ "$rollback" == false ]]; then
   export COFORGE_GATEWAY_IMAGE=$release_image
