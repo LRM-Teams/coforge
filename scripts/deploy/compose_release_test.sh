@@ -113,6 +113,11 @@ if [[ "${FAKE_SENTINEL_PROMOTION_FAIL:-false}" == true ]] \
   && [[ "$destination" == */pending-audit-write-failed ]]; then
   exit 17
 fi
+if [[ "${FAKE_OWNER_PROMOTION_FAIL:-false}" == true ]] \
+  && [[ "$source_path" == */.pending-owner.next ]] \
+  && [[ "$destination" == */pending-owner ]]; then
+  exit 18
+fi
 /bin/mv "$@"
 if [[ "${FAKE_SIGNAL_AFTER_PENDING_MARKER:-false}" == true ]] \
   && [[ "$destination" == */pending-image ]]; then
@@ -484,6 +489,97 @@ if [[ "$formal_ci_readonly_status" -eq 0 ]] \
     COFORGE_APP_ROOT="$test_root/formal-ci-readonly" \
     "$release_script" --current-image >/dev/null 2>&1; then
   printf 'formal CI readonly failure did not retain active fail-closed evidence\n' >&2
+  exit 1
+fi
+cp -a "$test_root/formal-ci-readonly" "$test_root/formal-missing-compose"
+cp -a "$test_root/formal-ci-readonly" "$test_root/formal-corrupt-compose"
+cp -a "$test_root/formal-ci-readonly" "$test_root/formal-state-mismatch"
+cp -a "$test_root/formal-ci-readonly" "$test_root/formal-owner-failure"
+rm -f "$test_root/formal-missing-compose/pending-previous-compose.yaml"
+printf 'corrupt\n' >>"$test_root/formal-corrupt-compose/pending-previous-compose.yaml"
+state_digest=$(<"$test_root/formal-state-mismatch/pending-previous-compose.digest")
+mkdir -p "$test_root/formal-state-mismatch/compose-generations"
+cp "$test_root/formal-state-mismatch/pending-previous-compose.yaml" \
+  "$test_root/formal-state-mismatch/compose-generations/$state_digest.yaml"
+printf '%s\nbootstrap:empty\n%s\nnone\n' "$third_image" "$state_digest" \
+  >"$test_root/formal-state-mismatch/release-state"
+for invalid_formal_root in \
+  "$test_root/formal-missing-compose" \
+  "$test_root/formal-corrupt-compose" \
+  "$test_root/formal-state-mismatch"; do
+  set +e
+  PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+    COFORGE_TRANSACTION_OWNER=successor-owner \
+    COFORGE_APP_ROOT="$invalid_formal_root" \
+    "$release_script" --adopt-interrupted
+  invalid_formal_status=$?
+  set -e
+  if [[ "$invalid_formal_status" -ne 74 ]] \
+    || [[ "$(<"$invalid_formal_root/pending-owner")" != test-owner ]] \
+    || [[ ! -e "$invalid_formal_root/.pre-marker-active" ]] \
+    || [[ -e "$invalid_formal_root/pending-failure-stage" ]] \
+    || [[ -e "$invalid_formal_root/release-history.jsonl" ]]; then
+    printf 'invalid rollback-critical evidence crossed the active gate\n' >&2
+    exit 1
+  fi
+done
+mkdir -p "$test_root/formal-prior-pair"
+printf 'release: current\n' >"$test_root/formal-prior-pair/compose.yaml"
+printf 'release: previous\n' >"$test_root/formal-prior-pair/previous-compose.yaml"
+printf 'release: candidate\n' >"$test_root/formal-prior-pair/candidate.yaml"
+printf '%s\n' "$first_image" >"$test_root/formal-prior-pair/current-image"
+printf '%s\n' "$third_image" >"$test_root/formal-prior-pair/previous-image"
+set +e
+PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TEST_SIGNAL_READONLY_DURING_PULL=true \
+  COFORGE_APP_ROOT="$test_root/formal-prior-pair" \
+  COFORGE_CANDIDATE_COMPOSE="$test_root/formal-prior-pair/candidate.yaml" \
+  COFORGE_DEFER_COMMIT=true COFORGE_SOURCE_COMMIT="$source_commit" \
+  COFORGE_WORKFLOW_RUN="$workflow_run" COFORGE_EXECUTOR=github-actions \
+  COFORGE_HEALTH_ATTEMPTS=1 "$release_script" "$second_image"
+formal_prior_status=$?
+set -e
+chmod 0700 "$test_root/formal-prior-pair"
+if [[ "$formal_prior_status" -eq 0 ]] \
+  || [[ ! -e "$test_root/formal-prior-pair/pending-prior-previous-compose.yaml" ]] \
+  || [[ ! -e "$test_root/formal-prior-pair/pending-prior-previous-compose.digest" ]]; then
+  printf 'formal prior rollback pair fixture was not created\n' >&2
+  exit 1
+fi
+cp -a "$test_root/formal-prior-pair" "$test_root/formal-prior-missing"
+cp -a "$test_root/formal-prior-pair" "$test_root/formal-prior-corrupt"
+rm -f "$test_root/formal-prior-missing/pending-prior-previous-compose.yaml"
+printf 'corrupt\n' >>"$test_root/formal-prior-corrupt/pending-prior-previous-compose.yaml"
+for invalid_prior_root in \
+  "$test_root/formal-prior-missing" \
+  "$test_root/formal-prior-corrupt"; do
+  set +e
+  PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+    COFORGE_TRANSACTION_OWNER=successor-owner \
+    COFORGE_APP_ROOT="$invalid_prior_root" \
+    "$release_script" --adopt-interrupted
+  invalid_prior_status=$?
+  set -e
+  if [[ "$invalid_prior_status" -ne 74 ]] \
+    || [[ "$(<"$invalid_prior_root/pending-owner")" != test-owner ]] \
+    || [[ ! -e "$invalid_prior_root/.pre-marker-active" ]]; then
+    printf 'invalid prior rollback pair crossed the active gate\n' >&2
+    exit 1
+  fi
+done
+cp -a "$test_root/formal-owner-failure" \
+  "$test_root/formal-owner-failure.expected"
+set +e
+PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  FAKE_OWNER_PROMOTION_FAIL=true COFORGE_TRANSACTION_OWNER=successor-owner \
+  COFORGE_APP_ROOT="$test_root/formal-owner-failure" \
+  "$release_script" --adopt-interrupted
+owner_failure_status=$?
+set -e
+if [[ "$owner_failure_status" -ne 74 ]] \
+  || ! diff -r "$test_root/formal-owner-failure.expected" \
+    "$test_root/formal-owner-failure" >/dev/null; then
+  printf 'failed owner handoff mutated formal transaction evidence\n' >&2
   exit 1
 fi
 PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \

@@ -36,8 +36,10 @@ pending_origin_file="$app_root/pending-origin"
 pending_owner_file="$app_root/pending-owner"
 pending_manual_from_file="$app_root/pending-manual-from"
 pending_previous_compose_file="$app_root/pending-previous-compose.yaml"
+pending_previous_compose_digest_file="$app_root/pending-previous-compose.digest"
 pending_prior_previous_image_file="$app_root/pending-prior-previous-image"
 pending_prior_previous_compose_file="$app_root/pending-prior-previous-compose.yaml"
+pending_prior_previous_compose_digest_file="$app_root/pending-prior-previous-compose.digest"
 pending_rollback_complete_file="$app_root/pending-rollback-complete"
 pending_failure_file="$app_root/pending-failure-stage"
 history_file="$app_root/release-history.jsonl"
@@ -143,7 +145,9 @@ clear_pending() {
     "$pending_executor_file" "$pending_started_at_file" \
     "$pending_origin_file" "$pending_owner_file" "$pending_manual_from_file" \
     "$pending_prior_previous_image_file" "$pending_prior_previous_compose_file" \
-    "$pending_previous_compose_file" "$pending_rollback_complete_file" \
+    "$pending_prior_previous_compose_digest_file" \
+    "$pending_previous_compose_file" "$pending_previous_compose_digest_file" \
+    "$pending_rollback_complete_file" \
     "$pending_failure_file" "$next_pending_image_file" \
     "$rollback_compose_backup" "$pre_marker_active_file" \
     "$pending_audit_failed_file"
@@ -337,7 +341,9 @@ require_pending_owner() {
 
 formal_pending_evidence_valid() {
   local pending_image pending_previous source_commit workflow_run executor
-  local started_at origin owner
+  local started_at origin owner pending_prior previous_compose_digest
+  local prior_compose_digest state_current state_previous
+  local state_current_compose state_previous_compose state_generation
   pending_image=$(cat "$pending_image_file" 2>/dev/null || true)
   pending_previous=$(cat "$pending_previous_image_file" 2>/dev/null || true)
   source_commit=$(cat "$pending_source_commit_file" 2>/dev/null || true)
@@ -353,12 +359,65 @@ formal_pending_evidence_valid() {
     && [[ "$executor" =~ ^[A-Za-z0-9._@/-]+$ ]] \
     && [[ "$started_at" =~ ^[0-9TZ:.-]+$ ]] \
     && [[ "$owner" =~ ^[A-Za-z0-9._-]+$ ]] \
-    && { { [[ "$origin" == release ]] \
-        && [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] \
-        && [[ "$workflow_run" =~ ^https://github\.com/[A-Za-z0-9._/-]+/actions/runs/[0-9]+$ ]]; } \
-      || { [[ "$origin" == manual ]] \
-        && [[ "$source_commit" == manual ]] \
-        && [[ "$workflow_run" == manual ]]; }; }
+    || return 1
+
+  if [[ "$origin" == manual ]]; then
+    [[ "$source_commit" == manual ]] \
+      && [[ "$workflow_run" == manual ]] \
+      && [[ -r "$compose_file" ]]
+    return
+  fi
+  [[ "$origin" == release ]] \
+    && [[ "$executor" == github-actions ]] \
+    && [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] \
+    && [[ "$workflow_run" =~ ^https://github\.com/[A-Za-z0-9._/-]+/actions/runs/[0-9]+$ ]] \
+    || return 1
+
+  pending_prior=$(cat "$pending_prior_previous_image_file" 2>/dev/null || true)
+  previous_compose_digest=$(cat "$pending_previous_compose_digest_file" 2>/dev/null || true)
+  prior_compose_digest=$(cat "$pending_prior_previous_compose_digest_file" 2>/dev/null || true)
+  if [[ "$pending_previous" == bootstrap:empty ]]; then
+    [[ "$previous_compose_digest" == none ]] \
+      && [[ ! -e "$pending_previous_compose_file" ]] || return 1
+  else
+    [[ "$previous_compose_digest" =~ ^[0-9a-f]{64}$ ]] \
+      && [[ -r "$pending_previous_compose_file" ]] \
+      && [[ "$(sha256sum "$pending_previous_compose_file" | cut -d ' ' -f 1)" == "$previous_compose_digest" ]] \
+      || return 1
+  fi
+  if [[ "$pending_prior" == bootstrap:empty ]]; then
+    [[ "$prior_compose_digest" == none ]] \
+      && [[ ! -e "$pending_prior_previous_compose_file" ]] || return 1
+  elif [[ "$pending_prior" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    [[ "$prior_compose_digest" =~ ^[0-9a-f]{64}$ ]] \
+      && [[ -r "$pending_prior_previous_compose_file" ]] \
+      && [[ "$(sha256sum "$pending_prior_previous_compose_file" | cut -d ' ' -f 1)" == "$prior_compose_digest" ]] \
+      || return 1
+  else
+    return 1
+  fi
+  if [[ -r "$state_file" ]]; then
+    state_current=$(state_field 1)
+    state_previous=$(state_field 2)
+    state_current_compose=$(state_field 3)
+    state_previous_compose=$(state_field 4)
+    if [[ "$state_current" == "$pending_previous" ]] \
+      && [[ "$state_previous" == "$pending_prior" ]] \
+      && [[ "$state_current_compose" == "$previous_compose_digest" ]] \
+      && [[ "$state_previous_compose" == "$prior_compose_digest" ]]; then
+      :
+    elif [[ "$state_current" == "$pending_image" ]] \
+      && [[ "$state_previous" == "$pending_previous" ]] \
+      && [[ "$state_previous_compose" == "$previous_compose_digest" ]] \
+      && [[ "$state_current_compose" =~ ^[0-9a-f]{64}$ ]]; then
+      state_generation="$compose_store/$state_current_compose.yaml"
+      [[ -r "$state_generation" ]] \
+        && [[ "$(sha256sum "$state_generation" | cut -d ' ' -f 1)" == "$state_current_compose" ]] \
+        || return 1
+    else
+      return 1
+    fi
+  fi
 }
 
 if [[ "$1" != --record-failed-rollback ]] && [[ "$1" != --record-interruption ]] \
@@ -509,30 +568,37 @@ if [[ "$release_image" == --rollback-target-image ]]; then
   exit 0
 fi
 if [[ "$release_image" == --adopt-interrupted ]]; then
+  if ! formal_pending_evidence_valid; then
+    printf 'formal recovery evidence is incomplete or invalid\n' >&2
+    exit 74
+  fi
   new_owner=${COFORGE_TRANSACTION_OWNER:-}
   old_owner=$(cat "$pending_owner_file" 2>/dev/null || true)
   pending_executor=$(cat "$pending_executor_file" 2>/dev/null || true)
-  pending_failure=$(cat "$pending_failure_file" 2>/dev/null || true)
   pending_image=$(cat "$pending_image_file" 2>/dev/null || true)
   if [[ ! "$new_owner" =~ ^[A-Za-z0-9._-]+$ ]] \
     || [[ ! "$old_owner" =~ ^[A-Za-z0-9._-]+$ ]] \
     || [[ "$new_owner" == "$old_owner" ]] \
     || [[ "$pending_executor" != github-actions ]] \
-    || [[ ! "$pending_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
-    || { [[ -n "$pending_failure" ]] \
-      && [[ ! "$pending_failure" =~ ^(interrupted|internal|external)$ ]]; }; then
+    || [[ ! "$pending_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
     printf 'only an interrupted GitHub Actions transaction may be adopted\n' >&2
     exit 73
   fi
-  if [[ -z "$pending_failure" ]]; then
-    printf 'interrupted\n' >"$pending_failure_file"
+  owner_next_file="$app_root/.pending-owner.next"
+  printf '%s\n' "$new_owner" >"$owner_next_file"
+  if ! mv -f "$owner_next_file" "$pending_owner_file"; then
+    rm -f -- "$owner_next_file"
+    printf 'transaction owner handoff failed; formal evidence was unchanged\n' >&2
+    exit 74
   fi
-  printf '%s\n' "$new_owner" >"$app_root/.pending-owner.next"
-  mv -f "$app_root/.pending-owner.next" "$pending_owner_file"
   printf 'interrupted transaction adopted by %s\n' "$new_owner"
   exit 0
 fi
 if [[ "$release_image" == --record-interruption ]]; then
+  if ! formal_pending_evidence_valid; then
+    printf 'formal recovery evidence is incomplete or invalid\n' >&2
+    exit 74
+  fi
   require_pending_owner
   record_interruption workflow-cancelled
 fi
@@ -605,12 +671,18 @@ if [[ "$release_image" == --commit ]]; then
     "$pending_executor_file" "$pending_started_at_file" \
     "$pending_origin_file" "$pending_owner_file" "$pending_manual_from_file" \
     "$pending_prior_previous_image_file" "$pending_prior_previous_compose_file" \
-    "$pending_previous_compose_file" "$pending_rollback_complete_file" \
+    "$pending_prior_previous_compose_digest_file" \
+    "$pending_previous_compose_file" "$pending_previous_compose_digest_file" \
+    "$pending_rollback_complete_file" \
     "$pending_failure_file" "$rollback_compose_backup"
   printf 'image %s is healthy and committed\n' "$pending_image"
   exit 0
 fi
 if [[ "$release_image" == --finalize-rollback ]]; then
+  if ! formal_pending_evidence_valid; then
+    printf 'formal recovery evidence is incomplete or invalid\n' >&2
+    exit 74
+  fi
   require_pending_owner
   pending_image=$(cat "$pending_image_file" 2>/dev/null || true)
   pending_previous_image=$(cat "$pending_previous_image_file" 2>/dev/null || true)
@@ -726,7 +798,9 @@ if [[ "$release_image" == --finalize-rollback ]]; then
     "$pending_executor_file" "$pending_started_at_file" \
     "$pending_origin_file" "$pending_owner_file" "$pending_manual_from_file" \
     "$pending_prior_previous_image_file" "$pending_prior_previous_compose_file" \
-    "$pending_previous_compose_file" "$pending_rollback_complete_file" \
+    "$pending_prior_previous_compose_digest_file" \
+    "$pending_previous_compose_file" "$pending_previous_compose_digest_file" \
+    "$pending_rollback_complete_file" \
     "$pending_failure_file" "$rollback_compose_backup"
   printf 'failed candidate %s was rolled back and verified\n' "$pending_image"
   exit 0
@@ -829,6 +903,10 @@ if [[ "$release_image" == --rollback ]]; then
     exit 65
   fi
   if [[ "$pending_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    if ! formal_pending_evidence_valid; then
+      printf 'formal recovery evidence is incomplete or invalid\n' >&2
+      exit 74
+    fi
     require_pending_owner
     : >"$pre_marker_active_file"
     release_image=$pending_previous_image
@@ -1005,19 +1083,31 @@ if [[ "$defer_commit" == true ]]; then
   : >"$pre_marker_active_file"
   if [[ "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
     printf '%s\n' "$previous_image" >"$pending_previous_image_file"
-    if [[ -r "$current_compose_source" ]]; then
-      cp -f "$current_compose_source" "$pending_previous_compose_file"
+    if [[ ! -r "$current_compose_source" ]]; then
+      record_failed_preparation missing-current-compose
+      printf 'current release record has no readable Compose definition\n' >&2
+      exit 65
     fi
+    cp -f "$current_compose_source" "$pending_previous_compose_file"
+    sha256sum "$pending_previous_compose_file" | cut -d ' ' -f 1 \
+      >"$pending_previous_compose_digest_file"
   else
     printf 'bootstrap:empty\n' >"$pending_previous_image_file"
+    printf 'none\n' >"$pending_previous_compose_digest_file"
   fi
   if [[ "$recorded_previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
     printf '%s\n' "$recorded_previous_image" >"$pending_prior_previous_image_file"
-    if [[ -r "$previous_compose_source" ]]; then
-      cp -f "$previous_compose_source" "$pending_prior_previous_compose_file"
+    if [[ ! -r "$previous_compose_source" ]]; then
+      record_failed_preparation missing-prior-compose
+      printf 'prior release record has no readable Compose definition\n' >&2
+      exit 65
     fi
+    cp -f "$previous_compose_source" "$pending_prior_previous_compose_file"
+    sha256sum "$pending_prior_previous_compose_file" | cut -d ' ' -f 1 \
+      >"$pending_prior_previous_compose_digest_file"
   else
     printf 'bootstrap:empty\n' >"$pending_prior_previous_image_file"
+    printf 'none\n' >"$pending_prior_previous_compose_digest_file"
   fi
   printf '%s\n' "$source_commit" >"$pending_source_commit_file"
   printf '%s\n' "$workflow_run" >"$pending_workflow_run_file"

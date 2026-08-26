@@ -223,11 +223,15 @@ handled by the same fail-closed rule and must be investigated rather than
 discarded. A formal interruption handler removes that sentinel only after its
 JSONL outcome is durable. An active sentinel without a complete formal pending
 transaction blocks every command, including audit commands. When complete
-GitHub provenance, owner, and `pending-image` evidence are present, the recovery
-helper may only adopt the transaction to its new owner and record the
-interruption; adoption preserves the active sentinel, and the successful
-durable interruption audit removes it. All unrelated successor operations stay
-blocked throughout that handoff.
+GitHub provenance, owner, `pending-image`, and both rollback image/Compose pairs
+are present and hash-consistent with their recorded digests and any existing
+immutable `release-state` generations,
+the recovery helper may only adopt the transaction to its new owner and record
+the interruption. Adoption atomically replaces only the owner and preserves the
+active sentinel; it never creates failure-stage evidence. The matching new
+owner's successful durable interruption audit records that stage and removes
+the sentinel. All unrelated successor operations stay blocked throughout that
+handoff. Missing, corrupt, or mismatched rollback snapshots remain fail closed.
 
 Compose uses Docker's `local` logging driver with bounded rotation. Inspect
 runtime logs with `docker compose --project-name coforge-test logs gateway`;
