@@ -1,0 +1,4 @@
+interface:
+  display_name: "CoForge Release"
+  short_description: "Promote and roll back immutable CoForge releases"
+  default_prompt: "Use $coforge-release to prepare, promote, verify, or roll back a CoForge release safely."

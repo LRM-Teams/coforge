@@ -28,7 +28,8 @@ packages. A workspace child is an isolated process implemented inside
 
 See [the architecture baseline](docs/architecture.md) for the canonical
 boundaries and [the database design](docs/database-schema.md) for the current
-conversation and delivery model.
+conversation and delivery model. See [the release contract](docs/release.md)
+for test deployment, exact-digest production promotion, and rollback rules.
 
 ## Repository layout
 
@@ -90,6 +91,8 @@ smallest passing implementation. Refactoring belongs to independent review.
 Read [AGENTS.md](AGENTS.md) for the normative decision gates, review
 requirements, and architecture-change rules.
 
-Project-level `tdd`, `codebase-design`, `domain-modeling`, and `code-review`
-skills are maintained under `.agents/skills` and pinned by `skills-lock.json`.
-They are shared by supported coding agents when working in this repository.
+Project-level engineering and release skills are maintained under
+`.agents/skills`. Upstream engineering skills are pinned by `skills-lock.json`;
+the repository-owned `coforge-release` Skill points to `docs/release.md` as its
+canonical contract. They are shared by supported coding agents when working in
+this repository.

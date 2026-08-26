@@ -224,6 +224,8 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 
 验证阶段采用轻量 [GitHub Flow](https://docs.github.com/en/get-started/using-github/github-flow)：短生命周期 feature branch → CR/PR → `main`，不维护长期 `dev` 分支，禁止直接向 `main` 提交或推送。规范性的决策门槛、评审、检查与合并规则统一由根目录 [`AGENTS.md`](../AGENTS.md) 维护。
 
+云端应用以不可变 Docker image 发布，由独立 Docker Compose project 管理，不把 Go binary 直接安装到宿主机，也不增加应用级 systemd unit。`main` 上的产物只构建一次并自动发布到 MVP `test` 环境；未来的 production 发布由人批准精确 image digest，再由 Agent 把同一个 digest 晋级，禁止重新 build 或使用 `latest`。完整的发布、健康检查、审计与回滚契约见 [`docs/release.md`](release.md)。
+
 提交与 CR 保持小而单一，使用简洁的英文 Conventional Commit：`<type>(optional-scope): imperative summary`。
 
 ## 9. 稳定性与安全约束
