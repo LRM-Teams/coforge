@@ -167,6 +167,76 @@ if [[ "$(<"$test_root/deferred-commit/pending-image")" != "$second_image" ]]; th
   printf 'internally healthy candidate was not recorded as pending\n' >&2
   exit 1
 fi
+
+mkdir -p "$test_root/orphan-sidecars"
+printf 'release: current\n' >"$test_root/orphan-sidecars/compose.yaml"
+printf 'release: candidate\n' >"$test_root/orphan-sidecars/candidate.yaml"
+printf '%s\n' "$first_image" >"$test_root/orphan-sidecars/current-image"
+printf 'manual\n' >"$test_root/orphan-sidecars/pending-origin"
+printf 'manual\n' >"$test_root/orphan-sidecars/pending-failure-stage"
+printf 'bootstrap:empty\n' >"$test_root/orphan-sidecars/pending-manual-from"
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/orphan-sidecars" \
+  COFORGE_CANDIDATE_COMPOSE="$test_root/orphan-sidecars/candidate.yaml" \
+  COFORGE_DEFER_COMMIT=true \
+  COFORGE_SOURCE_COMMIT="$source_commit" \
+  COFORGE_WORKFLOW_RUN="$workflow_run" \
+  COFORGE_EXECUTOR=github-actions \
+  COFORGE_HEALTH_ATTEMPTS=1 \
+  "$release_script" "$second_image"
+if [[ -e "$test_root/orphan-sidecars/pending-manual-from" ]] \
+  || [[ -e "$test_root/orphan-sidecars/pending-failure-stage" ]]; then
+  printf 'orphaned manual sidecars contaminated a new CI transaction\n' >&2
+  exit 1
+fi
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/orphan-sidecars" \
+  COFORGE_HEALTH_ATTEMPTS=1 \
+  "$release_script" --rollback
+if [[ "$(<"$test_root/orphan-sidecars/pending-failure-stage")" != external ]]; then
+  printf 'CI external rollback inherited an orphaned manual trigger\n' >&2
+  exit 1
+fi
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/orphan-sidecars" \
+  COFORGE_PUBLIC_HEALTH_RESULT=passed \
+  COFORGE_SHARED_INGRESS_HEALTH_RESULT=passed \
+  COFORGE_WSS_HEALTH_RESULT=passed \
+  COFORGE_RUNNING_DIGEST_RESULT=passed \
+  "$release_script" --finalize-rollback
+if ! tail -n 1 "$test_root/orphan-sidecars/release-history.jsonl" \
+  | grep -Fq 'candidate_external=failed'; then
+  printf 'CI external rollback audit retained an orphaned manual trigger\n' >&2
+  exit 1
+fi
+
+mkdir -p "$test_root/pre-marker-cancel"
+printf 'release: current\n' >"$test_root/pre-marker-cancel/compose.yaml"
+printf 'release: candidate\n' >"$test_root/pre-marker-cancel/candidate.yaml"
+printf '%s\n' "$first_image" >"$test_root/pre-marker-cancel/current-image"
+if PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/pre-marker-cancel" \
+  COFORGE_CANDIDATE_COMPOSE="$test_root/pre-marker-cancel/candidate.yaml" \
+  COFORGE_DEFER_COMMIT=true \
+  COFORGE_SOURCE_COMMIT="$source_commit" \
+  COFORGE_WORKFLOW_RUN="$workflow_run" \
+  COFORGE_EXECUTOR=github-actions \
+  COFORGE_TEST_SIGNAL_DURING_PREPARE=true \
+  COFORGE_HEALTH_ATTEMPTS=1 \
+  "$release_script" "$second_image"; then
+  printf 'pre-marker cancellation returned success unexpectedly\n' >&2
+  exit 1
+fi
+if [[ ! -e "$test_root/pre-marker-cancel/pending-image" ]] \
+  || ! tail -n 1 "$test_root/pre-marker-cancel/release-history.jsonl" \
+    | grep -Fq '"outcome":"interrupted"'; then
+  printf 'pre-marker cancellation was not durably recoverable\n' >&2
+  exit 1
+fi
 if PATH="$test_root/bin:$PATH" \
   FAKE_DOCKER_LOG="$docker_log" \
   COFORGE_APP_ROOT="$test_root/deferred-commit" \
@@ -448,8 +518,20 @@ PATH="$test_root/bin:$PATH" \
 
 mkdir -p "$test_root/failed-rollback"
 printf 'release: healthy\n' >"$test_root/failed-rollback/compose.yaml"
+printf 'release: prior\n' >"$test_root/failed-rollback/previous-compose.yaml"
 printf 'release: candidate\n' >"$test_root/failed-rollback/candidate.yaml"
 printf '%s\n' "$first_image" >"$test_root/failed-rollback/current-image"
+printf '%s\n' "$third_image" >"$test_root/failed-rollback/previous-image"
+mkdir -p "$test_root/failed-rollback/compose-generations"
+failed_current_compose_digest=$(sha256sum "$test_root/failed-rollback/compose.yaml" | cut -d ' ' -f 1)
+failed_previous_compose_digest=$(sha256sum "$test_root/failed-rollback/previous-compose.yaml" | cut -d ' ' -f 1)
+cp "$test_root/failed-rollback/compose.yaml" \
+  "$test_root/failed-rollback/compose-generations/$failed_current_compose_digest.yaml"
+cp "$test_root/failed-rollback/previous-compose.yaml" \
+  "$test_root/failed-rollback/compose-generations/$failed_previous_compose_digest.yaml"
+printf '%s\n%s\n%s\n%s\n' "$first_image" "$third_image" \
+  "$failed_current_compose_digest" "$failed_previous_compose_digest" \
+  >"$test_root/failed-rollback/release-state"
 PATH="$test_root/bin:$PATH" \
   FAKE_DOCKER_LOG="$docker_log" \
   COFORGE_APP_ROOT="$test_root/failed-rollback" \
@@ -484,8 +566,43 @@ if ! tail -n 1 "$test_root/failed-rollback/release-history.jsonl" \
   exit 1
 fi
 if ! tail -n 1 "$test_root/failed-rollback/release-history.jsonl" \
-  | grep -Fq '"next_rollback_digest"'; then
+  | grep -Fq '"next_rollback_digest":"sha256:3333333333333333333333333333333333333333333333333333333333333333"'; then
   printf 'failed rollback did not retain the next rollback identity\n' >&2
+  exit 1
+fi
+
+mkdir -p "$test_root/partial-pointer-failed-rollback"
+printf 'release: selected\n' >"$test_root/partial-pointer-failed-rollback/compose.yaml"
+printf 'release: next\n' >"$test_root/partial-pointer-failed-rollback/previous-compose.yaml"
+mkdir -p "$test_root/partial-pointer-failed-rollback/compose-generations"
+partial_selected_compose_digest=$(sha256sum "$test_root/partial-pointer-failed-rollback/compose.yaml" | cut -d ' ' -f 1)
+partial_next_compose_digest=$(sha256sum "$test_root/partial-pointer-failed-rollback/previous-compose.yaml" | cut -d ' ' -f 1)
+cp "$test_root/partial-pointer-failed-rollback/compose.yaml" \
+  "$test_root/partial-pointer-failed-rollback/compose-generations/$partial_selected_compose_digest.yaml"
+cp "$test_root/partial-pointer-failed-rollback/previous-compose.yaml" \
+  "$test_root/partial-pointer-failed-rollback/compose-generations/$partial_next_compose_digest.yaml"
+printf '%s\n%s\n%s\n%s\n' "$second_image" "$first_image" \
+  "$partial_selected_compose_digest" "$partial_next_compose_digest" \
+  >"$test_root/partial-pointer-failed-rollback/release-state"
+printf '%s\n' "$second_image" >"$test_root/partial-pointer-failed-rollback/pending-image"
+printf '%s\n' "$first_image" >"$test_root/partial-pointer-failed-rollback/pending-previous-image"
+printf '%s\n' "$third_image" >"$test_root/partial-pointer-failed-rollback/pending-prior-previous-image"
+printf '%s\n' "$source_commit" >"$test_root/partial-pointer-failed-rollback/pending-source-commit"
+printf '%s\n' "$workflow_run" >"$test_root/partial-pointer-failed-rollback/pending-workflow-run"
+printf 'github-actions\n' >"$test_root/partial-pointer-failed-rollback/pending-executor"
+printf '2026-08-26T00:00:00Z\n' >"$test_root/partial-pointer-failed-rollback/pending-started-at"
+printf 'release\n' >"$test_root/partial-pointer-failed-rollback/pending-origin"
+printf 'test-owner\n' >"$test_root/partial-pointer-failed-rollback/pending-owner"
+printf 'external\n' >"$test_root/partial-pointer-failed-rollback/pending-failure-stage"
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/partial-pointer-failed-rollback" \
+  "$release_script" --record-failed-rollback
+if ! tail -n 1 "$test_root/partial-pointer-failed-rollback/release-history.jsonl" \
+  | grep -Fq 'selected_image=ghcr.io/lrm-teams/coforge-realtime-gateway@sha256:2222222222222222222222222222222222222222222222222222222222222222' \
+  || ! tail -n 1 "$test_root/partial-pointer-failed-rollback/release-history.jsonl" \
+    | grep -Fq '"next_rollback_digest":"sha256:1111111111111111111111111111111111111111111111111111111111111111"'; then
+  printf 'partial pointer failed rollback did not use authoritative identities\n' >&2
   exit 1
 fi
 if [[ ! -e "$test_root/failed-rollback/pending-image" ]]; then

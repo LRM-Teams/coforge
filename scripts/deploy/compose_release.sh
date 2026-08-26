@@ -47,6 +47,13 @@ next_state_file="$app_root/.release-state.next"
 next_image_file="$app_root/.current-image.next"
 next_previous_file="$app_root/.previous-image.next"
 next_pending_image_file="$app_root/.pending-image.next"
+deferred_signal=
+
+# Invoked by the signal traps installed while transaction sidecars are staged.
+# shellcheck disable=SC2329
+defer_interruption() {
+  deferred_signal=$1
+}
 
 state_field() {
   local field=$1
@@ -331,6 +338,12 @@ exec 9>"$app_root/.release.lock"
 if ! flock --nonblock 9; then
   printf 'another release operation holds the host lock\n' >&2
   exit 75
+fi
+if [[ ! -e "$pending_image_file" ]]; then
+  # A transaction is discoverable only after its marker is atomically
+  # published. Under the host lock, sidecars without that marker can only be
+  # remnants of an interrupted preparation and must not enter a successor.
+  clear_pending
 fi
 if [[ "$1" != --record-failed-rollback ]] && [[ "$1" != --record-interruption ]] \
   && [[ -e "$pending_image_file" ]]; then
@@ -663,6 +676,14 @@ if [[ "$release_image" == --record-failed-rollback ]]; then
     && [[ ! "$observed_selected" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
     observed_selected=unknown
   fi
+  observed_next_rollback=$recorded_previous_image
+  if [[ "$observed_next_rollback" == bootstrap:empty ]]; then
+    next_rollback_digest=bootstrap:empty
+  elif [[ "$observed_next_rollback" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    next_rollback_digest=${observed_next_rollback##*@}
+  else
+    next_rollback_digest=unknown
+  fi
   observed_compatibility=$(cat "$current_image_file" 2>/dev/null || true)
   if [[ ! "$observed_compatibility" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
     observed_compatibility=absent
@@ -693,7 +714,7 @@ if [[ "$release_image" == --record-failed-rollback ]]; then
     "$source_commit" "$image" "$image_digest" "$workflow_run" \
     "$previous_digest" "$failure_stage" "$docker_status" "$observed_selected" \
     "$observed_compatibility" "$observed_running" "$gateway_container" \
-    "$previous_digest" "$executor" "$started_at" "$completed_at" >>"$history_file"
+    "$next_rollback_digest" "$executor" "$started_at" "$completed_at" >>"$history_file"
   printf 'failed rollback was recorded; pending recovery evidence was retained\n'
   exit 0
 fi
@@ -764,7 +785,9 @@ if [[ "$release_image" == --rollback ]]; then
       exit 64
     fi
     started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    trap '' HUP INT TERM
+    trap 'defer_interruption HUP' HUP
+    trap 'defer_interruption INT' INT
+    trap 'defer_interruption TERM' TERM
     if [[ -n "$manual_from" ]]; then
       printf '%s\n' "$manual_from" >"$pending_manual_from_file"
     fi
@@ -776,6 +799,10 @@ if [[ "$release_image" == --rollback ]]; then
     printf 'manual\n' >"$pending_origin_file"
     printf '%s\n' "$manual_owner" >"$pending_owner_file"
     printf 'manual\n' >"$pending_failure_file"
+    if [[ "${COFORGE_INTERNAL_TEST_MODE:-}" == compose-release-tests ]] \
+      && [[ "${COFORGE_TEST_SIGNAL_DURING_PREPARE:-false}" == true ]]; then
+      kill -TERM "$$"
+    fi
     pending_image=$manual_pending_image
     pending_previous_image=$release_image
     if [[ "$previous_image" != bootstrap:empty ]] && [[ -r "$current_compose_source" ]]; then
@@ -789,6 +816,9 @@ if [[ "$release_image" == --rollback ]]; then
     trap 'record_interruption HUP' HUP
     trap 'record_interruption INT' INT
     trap 'record_interruption TERM' TERM
+    if [[ -n "$deferred_signal" ]]; then
+      record_interruption "$deferred_signal"
+    fi
   fi
   if [[ ! "$release_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
     && [[ "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
@@ -852,6 +882,9 @@ if [[ "$defer_commit" == true ]]; then
     exit 64
   fi
   started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  trap 'defer_interruption HUP' HUP
+  trap 'defer_interruption INT' INT
+  trap 'defer_interruption TERM' TERM
   if [[ "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
     printf '%s\n' "$previous_image" >"$pending_previous_image_file"
     if [[ -r "$current_compose_source" ]]; then
@@ -874,11 +907,18 @@ if [[ "$defer_commit" == true ]]; then
   printf '%s\n' "$started_at" >"$pending_started_at_file"
   printf 'release\n' >"$pending_origin_file"
   printf '%s\n' "$transaction_owner" >"$pending_owner_file"
+  if [[ "${COFORGE_INTERNAL_TEST_MODE:-}" == compose-release-tests ]] \
+    && [[ "${COFORGE_TEST_SIGNAL_DURING_PREPARE:-false}" == true ]]; then
+    kill -TERM "$$"
+  fi
+  printf '%s\n' "$release_image" >"$next_pending_image_file"
+  mv -f "$next_pending_image_file" "$pending_image_file"
   trap 'record_interruption HUP' HUP
   trap 'record_interruption INT' INT
   trap 'record_interruption TERM' TERM
-  printf '%s\n' "$release_image" >"$next_pending_image_file"
-  mv -f "$next_pending_image_file" "$pending_image_file"
+  if [[ -n "$deferred_signal" ]]; then
+    record_interruption "$deferred_signal"
+  fi
 fi
 if [[ "$rollback" == false ]]; then
   export COFORGE_GATEWAY_IMAGE=$release_image
