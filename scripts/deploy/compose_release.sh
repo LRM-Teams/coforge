@@ -395,7 +395,9 @@ if [[ -e "$pending_audit_failed_file" ]]; then
   printf 'a pre-marker interruption audit failed; refusing to discard recovery evidence\n' >&2
   exit 74
 fi
-if [[ -e "$pre_marker_active_file" ]]; then
+if [[ -e "$pre_marker_active_file" ]] \
+  && [[ "$1" != --record-interruption ]] \
+  && [[ "$1" != --record-failed-rollback ]]; then
   printf 'an incomplete or unaudited transaction exists; refusing to discard recovery evidence\n' >&2
   exit 74
 fi
@@ -775,6 +777,7 @@ if [[ "$release_image" == --record-failed-rollback ]]; then
     "$previous_digest" "$failure_stage" "$docker_status" "$observed_selected" \
     "$observed_compatibility" "$observed_running" "$gateway_container" \
     "$next_rollback_digest" "$executor" "$started_at" "$completed_at" >>"$history_file"
+  rm -f -- "$pre_marker_active_file"
   printf 'failed rollback was recorded; pending recovery evidence was retained\n'
   exit 0
 fi
@@ -789,6 +792,7 @@ if [[ "$release_image" == --rollback ]]; then
   fi
   if [[ "$pending_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
     require_pending_owner
+    : >"$pre_marker_active_file"
     release_image=$pending_previous_image
     pending_rollback=true
     if [[ ! -e "$pending_failure_file" ]]; then
@@ -815,6 +819,7 @@ if [[ "$release_image" == --rollback ]]; then
       fi
       rm -f -- "$current_image_file"
       : >"$pending_rollback_complete_file"
+      rm -f -- "$pre_marker_active_file"
       printf 'failed bootstrap candidate %s was stopped\n' "$pending_image"
       exit 0
     fi
@@ -880,14 +885,9 @@ if [[ "$release_image" == --rollback ]]; then
     trap 'record_interruption INT' INT
     trap 'record_interruption TERM' TERM
     if [[ "${COFORGE_INTERNAL_TEST_MODE:-}" == compose-release-tests ]] \
-      && [[ "${COFORGE_TEST_READONLY_DURING_ACTIVE_REMOVAL:-false}" == true ]]; then
-      chmod 0500 "$app_root"
-    fi
-    if [[ "${COFORGE_INTERNAL_TEST_MODE:-}" == compose-release-tests ]] \
       && [[ "${COFORGE_TEST_SIGNAL_DURING_ACTIVE_REMOVAL:-false}" == true ]]; then
       kill -TERM "$$"
     fi
-    rm -f -- "$pre_marker_active_file"
   fi
   if [[ ! "$release_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
     && [[ "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
@@ -913,6 +913,7 @@ if [[ "$release_image" == --rollback ]]; then
       exit 1
     fi
     : >"$pending_rollback_complete_file"
+    rm -f -- "$pre_marker_active_file"
     printf 'current image %s was stopped and is pending external verification\n' \
       "$previous_image"
     exit 0
@@ -992,14 +993,9 @@ if [[ "$defer_commit" == true ]]; then
   trap 'record_interruption INT' INT
   trap 'record_interruption TERM' TERM
   if [[ "${COFORGE_INTERNAL_TEST_MODE:-}" == compose-release-tests ]] \
-    && [[ "${COFORGE_TEST_READONLY_DURING_ACTIVE_REMOVAL:-false}" == true ]]; then
-    chmod 0500 "$app_root"
-  fi
-  if [[ "${COFORGE_INTERNAL_TEST_MODE:-}" == compose-release-tests ]] \
     && [[ "${COFORGE_TEST_SIGNAL_DURING_ACTIVE_REMOVAL:-false}" == true ]]; then
     kill -TERM "$$"
   fi
-  rm -f -- "$pre_marker_active_file"
 fi
 if [[ "$rollback" == false ]]; then
   export COFORGE_GATEWAY_IMAGE=$release_image
@@ -1063,6 +1059,11 @@ fi
 
 deploy_image() {
   local image=$1
+  if [[ "${COFORGE_INTERNAL_TEST_MODE:-}" == compose-release-tests ]] \
+    && [[ "${COFORGE_TEST_SIGNAL_READONLY_DURING_PULL:-false}" == true ]]; then
+    chmod 0500 "$app_root"
+    kill -TERM "$$"
+  fi
   export COFORGE_GATEWAY_IMAGE=$image
 
   docker compose \
@@ -1119,11 +1120,13 @@ stop_project_and_verify_empty() {
 if deploy_image "$release_image"; then
   if [[ "$rollback" == true ]]; then
     : >"$pending_rollback_complete_file"
+    rm -f -- "$pre_marker_active_file"
     printf 'rollback image %s passed internal health and is pending external verification\n' \
       "$release_image"
     exit 0
   fi
   if [[ "$defer_commit" == true ]]; then
+    rm -f -- "$pre_marker_active_file"
     printf 'image %s passed internal health and is pending external verification\n' \
       "$release_image"
     exit 0
@@ -1159,6 +1162,7 @@ if [[ "$defer_commit" == true ]]; then
     rm -f -- "$current_image_file"
   fi
   : >"$pending_rollback_complete_file"
+  rm -f -- "$pre_marker_active_file"
   exit 1
 fi
 if [[ "$rollback" == true ]] && [[ -r "$rollback_compose_backup" ]]; then

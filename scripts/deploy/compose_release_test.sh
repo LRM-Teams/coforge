@@ -423,8 +423,7 @@ printf 'release: candidate\n' >"$test_root/formal-ci-readonly/candidate.yaml"
 printf '%s\n' "$first_image" >"$test_root/formal-ci-readonly/current-image"
 set +e
 PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
-  COFORGE_TEST_SIGNAL_DURING_ACTIVE_REMOVAL=true \
-  COFORGE_TEST_READONLY_DURING_ACTIVE_REMOVAL=true \
+  COFORGE_TEST_SIGNAL_READONLY_DURING_PULL=true \
   COFORGE_APP_ROOT="$test_root/formal-ci-readonly" \
   COFORGE_CANDIDATE_COMPOSE="$test_root/formal-ci-readonly/candidate.yaml" \
   COFORGE_DEFER_COMMIT=true COFORGE_SOURCE_COMMIT="$source_commit" \
@@ -450,8 +449,7 @@ printf '%s\n' "$first_image" >"$test_root/formal-manual-readonly/current-image"
 printf '%s\n' "$third_image" >"$test_root/formal-manual-readonly/previous-image"
 set +e
 PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
-  COFORGE_TEST_SIGNAL_DURING_ACTIVE_REMOVAL=true \
-  COFORGE_TEST_READONLY_DURING_ACTIVE_REMOVAL=true \
+  COFORGE_TEST_SIGNAL_READONLY_DURING_PULL=true \
   COFORGE_APP_ROOT="$test_root/formal-manual-readonly" \
   "$release_script" --rollback
 formal_manual_readonly_status=$?
