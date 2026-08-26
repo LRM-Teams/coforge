@@ -9,8 +9,10 @@ These rules extend the repository root `AGENTS.md` for this app.
 - `login` authenticates the user, stores credentials in the OS credential
   store, and lists accessible Workspaces. It must not register a Computer,
   bind a Workspace, or start a workspace-daemon.
-- `setup` creates or restores at most one Workspace–Computer binding. Its
-  optional positional value is a stable `workspace-slug`; never add `--all`.
+- `setup` associates the current local user configuration with at most one
+  accessible Workspace. Its optional positional value is a stable
+  `workspace-slug`; never add `--all`. Server-side Workspace–Computer binding,
+  Computer registration, and daemon startup require their own reviewed design.
 - Never print access tokens, refresh tokens, device codes, or stored secrets.
 - Resolve state through the platform-native path module; do not hand-build a
   hidden home-directory convention at call sites.

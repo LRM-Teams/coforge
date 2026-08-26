@@ -25,7 +25,7 @@ test("compiled CLI writes help to stdout and exits successfully", () => {
 
   expect(result.exitCode).toBe(0);
   expect(result.stdout.toString()).toContain("login [options]");
-  expect(result.stdout.toString()).toContain("setup [workspace-slug]");
+  expect(result.stdout.toString()).toContain("setup [options] [workspace-slug]");
   expect(result.stderr.toString()).toBe("");
 });
 
@@ -42,6 +42,19 @@ test("compiled login help documents the stable automation options", () => {
   expect(result.stdout.toString()).not.toContain("register");
   expect(result.stdout.toString()).toContain("--server <url>");
   expect(result.stdout.toString()).toContain("--json");
+  expect(result.stderr.toString()).toBe("");
+});
+
+test("compiled setup help documents JSON mode and does not offer --all", () => {
+  const result = Bun.spawnSync({
+    cmd: [executable, "setup", "--help"],
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout.toString()).toContain("--json");
+  expect(result.stdout.toString()).not.toContain("--all");
   expect(result.stderr.toString()).toBe("");
 });
 
@@ -131,16 +144,17 @@ test("compiled login strips terminal controls from device authorization instruct
   }
 });
 
-test("compiled setup reports the deferred binding protocol without claiming success", () => {
+test("compiled setup reports a stable not-logged-in failure without claiming success", () => {
   const result = Bun.spawnSync({
     cmd: [executable, "setup", "workspace-a"],
+    env: { ...process.env, XDG_CONFIG_HOME: directory },
     stdout: "pipe",
     stderr: "pipe",
   });
 
   expect(result.exitCode).toBe(1);
   expect(result.stdout.toString()).toBe("");
-  expect(result.stderr.toString()).toBe(
-    "Workspace setup is waiting for the reviewed binding protocol\n",
-  );
+  expect(result.stderr.toString()).toContain("SETUP_NOT_LOGGED_IN");
+  expect(result.stderr.toString()).toContain("Hint:");
+  expect(result.stderr.toString()).not.toContain("binding was created");
 });
