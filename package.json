@@ -7,7 +7,8 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "bun run --filter '*' --if-present build",
-    "typecheck": "bun run --filter '*' --if-present typecheck"
+    "dev:gateway": "cd apps/realtime-gateway && go run ./cmd/gateway",
+    "build": "bun run --filter '*' --if-present build && cd apps/realtime-gateway && mkdir -p dist && go build -o dist/realtime-gateway ./cmd/gateway",
+    "typecheck": "bun run --filter '*' --if-present typecheck && cd apps/realtime-gateway && go vet ./..."
   }
 }
