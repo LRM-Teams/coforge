@@ -34,7 +34,8 @@ These instructions apply to the entire repository.
 - Project skills live in `.agents/skills`; `skills-lock.json` records their upstream source and content hash.
 - Read and apply `tdd` for behavioral implementation and `codebase-design` when choosing or changing a test seam.
 - Use `domain-modeling` when changing canonical domain terms or relationships; do not turn `CONTEXT.md` into a running specification.
-- Use `code-review` from an independent context with an explicit fixed point. Any reviewers it starts must perform their assigned review directly: they must not invoke `code-review` again or spawn additional reviewers.
+- Use `code-review` from an independent context with an explicit fixed point. The coordinator must include this instruction in every Standards and Spec reviewer brief: perform the assigned review directly; do not invoke `code-review` again or spawn additional reviewers.
+- The engineering skills do not yet have an approved issue-tracker configuration. Until `docs/agents/issue-tracker.md` exists, give `code-review` an explicit spec source; if none is available, ask the requester instead of invoking an unavailable setup skill or inferring a tracker workflow.
 
 ## Architecture invariants
 
