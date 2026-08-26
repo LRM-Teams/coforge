@@ -409,15 +409,24 @@ cp -a "$test_root/formal-manual-stale-active" \
   "$test_root/manual-finalize-corrupt-backup"
 cp -a "$test_root/formal-manual-stale-active" \
   "$test_root/manual-finalize-corrupt-target"
+cp -a "$test_root/formal-manual-stale-active" \
+  "$test_root/manual-finalize-missing-live"
+cp -a "$test_root/formal-manual-stale-active" \
+  "$test_root/manual-finalize-corrupt-live"
 rm -f "$test_root/manual-finalize-missing-backup/.compose.before-rollback"
 printf 'corrupt\n' \
   >>"$test_root/manual-finalize-corrupt-backup/.compose.before-rollback"
 printf 'corrupt\n' \
   >>"$test_root/manual-finalize-corrupt-target/pending-previous-compose.yaml"
+rm -f "$test_root/manual-finalize-missing-live/compose.yaml"
+printf 'tampered-after-health\n' \
+  >"$test_root/manual-finalize-corrupt-live/compose.yaml"
 for invalid_manual_finalize_root in \
   "$test_root/manual-finalize-missing-backup" \
   "$test_root/manual-finalize-corrupt-backup" \
-  "$test_root/manual-finalize-corrupt-target"; do
+  "$test_root/manual-finalize-corrupt-target" \
+  "$test_root/manual-finalize-missing-live" \
+  "$test_root/manual-finalize-corrupt-live"; do
   cp -a "$invalid_manual_finalize_root" "$invalid_manual_finalize_root.expected"
   set +e
   PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
@@ -795,11 +804,24 @@ if [[ "$(<"$test_root/deferred-commit/pending-image")" != "$second_image" ]]; th
 fi
 cp -a "$test_root/deferred-commit" "$test_root/commit-missing-compose"
 cp -a "$test_root/deferred-commit" "$test_root/commit-corrupt-compose"
+cp -a "$test_root/deferred-commit" "$test_root/commit-missing-live"
+cp -a "$test_root/deferred-commit" "$test_root/commit-corrupt-live"
+cp -a "$test_root/deferred-commit" "$test_root/commit-missing-candidate"
+cp -a "$test_root/deferred-commit" "$test_root/commit-corrupt-candidate"
 rm -f "$test_root/commit-missing-compose/pending-previous-compose.yaml"
 printf 'corrupt\n' >>"$test_root/commit-corrupt-compose/pending-previous-compose.yaml"
+rm -f "$test_root/commit-missing-live/compose.yaml"
+printf 'tampered-after-health\n' >"$test_root/commit-corrupt-live/compose.yaml"
+rm -f "$test_root/commit-missing-candidate/pending-candidate-compose.yaml"
+printf 'corrupt\n' \
+  >>"$test_root/commit-corrupt-candidate/pending-candidate-compose.yaml"
 for invalid_commit_root in \
   "$test_root/commit-missing-compose" \
-  "$test_root/commit-corrupt-compose"; do
+  "$test_root/commit-corrupt-compose" \
+  "$test_root/commit-missing-live" \
+  "$test_root/commit-corrupt-live" \
+  "$test_root/commit-missing-candidate" \
+  "$test_root/commit-corrupt-candidate"; do
   cp -a "$invalid_commit_root" "$invalid_commit_root.expected"
   set +e
   PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
@@ -975,6 +997,26 @@ if PATH="$test_root/bin:$PATH" \
 fi
 if [[ ! -e "$test_root/retry-commit/pending-image" ]]; then
   printf 'post-audit commit failure discarded retry evidence\n' >&2
+  exit 1
+fi
+cp -a "$test_root/retry-commit" "$test_root/retry-commit-missing-live"
+rm -f "$test_root/retry-commit-missing-live/compose.yaml"
+cp -a "$test_root/retry-commit-missing-live" \
+  "$test_root/retry-commit-missing-live.expected"
+set +e
+PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/retry-commit-missing-live" \
+  COFORGE_PUBLIC_HEALTH_RESULT=passed \
+  COFORGE_SHARED_INGRESS_HEALTH_RESULT=passed \
+  COFORGE_WSS_HEALTH_RESULT=passed COFORGE_TCP80_RESULT=passed \
+  COFORGE_RUNNING_DIGEST_RESULT=passed \
+  "$release_script" --commit
+retry_missing_live_status=$?
+set -e
+if [[ "$retry_missing_live_status" -ne 74 ]] \
+  || ! diff -r "$test_root/retry-commit-missing-live.expected" \
+    "$test_root/retry-commit-missing-live" >/dev/null; then
+  printf 'partial-pointer retry published a missing live Compose definition\n' >&2
   exit 1
 fi
 PATH="$test_root/bin:$PATH" \
@@ -1445,6 +1487,74 @@ if ! tail -n 2 "$docker_log" | grep -Fq ' down'; then
   printf 'rollback without a previous image did not stop the Compose project\n' >&2
   exit 1
 fi
+cp -a "$test_root/first-deploy" "$test_root/empty-manual-missing-live"
+cp -a "$test_root/first-deploy" "$test_root/empty-manual-corrupt-live"
+rm -f "$test_root/empty-manual-missing-live/compose.yaml"
+printf 'tampered-after-health\n' \
+  >"$test_root/empty-manual-corrupt-live/compose.yaml"
+for invalid_empty_manual_root in \
+  "$test_root/empty-manual-missing-live" \
+  "$test_root/empty-manual-corrupt-live"; do
+  cp -a "$invalid_empty_manual_root" "$invalid_empty_manual_root.expected"
+  set +e
+  PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+    COFORGE_APP_ROOT="$invalid_empty_manual_root" \
+    COFORGE_PUBLIC_HEALTH_RESULT=not-applicable \
+    COFORGE_SHARED_INGRESS_HEALTH_RESULT=passed \
+    COFORGE_WSS_HEALTH_RESULT=not-applicable COFORGE_TCP80_RESULT=passed \
+    COFORGE_RUNNING_DIGEST_RESULT=not-applicable \
+    "$release_script" --finalize-rollback
+  invalid_empty_manual_status=$?
+  set -e
+  if [[ "$invalid_empty_manual_status" -ne 74 ]] \
+    || ! diff -r "$invalid_empty_manual_root.expected" \
+      "$invalid_empty_manual_root" >/dev/null; then
+    printf 'empty manual finalization published invalid live Compose state\n' >&2
+    exit 1
+  fi
+done
+set +e
+PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/first-deploy" \
+  COFORGE_PUBLIC_HEALTH_RESULT=not-applicable \
+  COFORGE_SHARED_INGRESS_HEALTH_RESULT=passed \
+  COFORGE_WSS_HEALTH_RESULT=not-applicable COFORGE_TCP80_RESULT=passed \
+  COFORGE_RUNNING_DIGEST_RESULT=not-applicable \
+  COFORGE_TEST_FAIL_AFTER_FINALIZE_STATE=true \
+  "$release_script" --finalize-rollback
+partial_manual_finalize_status=$?
+set -e
+if [[ "$partial_manual_finalize_status" -ne 87 ]] \
+  || [[ ! -e "$test_root/first-deploy/pending-image" ]]; then
+  printf 'manual partial-finalize fixture was not retained\n' >&2
+  exit 1
+fi
+cp -a "$test_root/first-deploy" "$test_root/partial-manual-missing-live"
+cp -a "$test_root/first-deploy" "$test_root/partial-manual-corrupt-live"
+rm -f "$test_root/partial-manual-missing-live/compose.yaml"
+printf 'tampered-after-health\n' \
+  >"$test_root/partial-manual-corrupt-live/compose.yaml"
+for invalid_partial_manual_root in \
+  "$test_root/partial-manual-missing-live" \
+  "$test_root/partial-manual-corrupt-live"; do
+  cp -a "$invalid_partial_manual_root" "$invalid_partial_manual_root.expected"
+  set +e
+  PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+    COFORGE_APP_ROOT="$invalid_partial_manual_root" \
+    COFORGE_PUBLIC_HEALTH_RESULT=not-applicable \
+    COFORGE_SHARED_INGRESS_HEALTH_RESULT=passed \
+    COFORGE_WSS_HEALTH_RESULT=not-applicable COFORGE_TCP80_RESULT=passed \
+    COFORGE_RUNNING_DIGEST_RESULT=not-applicable \
+    "$release_script" --finalize-rollback
+  invalid_partial_manual_status=$?
+  set -e
+  if [[ "$invalid_partial_manual_status" -ne 74 ]] \
+    || ! diff -r "$invalid_partial_manual_root.expected" \
+      "$invalid_partial_manual_root" >/dev/null; then
+    printf 'partial manual retry published invalid live Compose state\n' >&2
+    exit 1
+  fi
+done
 PATH="$test_root/bin:$PATH" \
   FAKE_DOCKER_LOG="$docker_log" \
   COFORGE_APP_ROOT="$test_root/first-deploy" \

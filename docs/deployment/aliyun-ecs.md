@@ -202,7 +202,11 @@ remains pending until the workflow verifies public IP HTTPS, a WSS `101`
 upgrade, an existing shared ingress route, and the running container's exact
 image reference, then invokes `--commit`. All network probes use bounded connect
 and total timeouts. No candidate becomes `current-image` before all those
-checks pass.
+checks pass. Before mutation, the controller stores and hashes an immutable
+candidate Compose snapshot. Internal deployment and final commit use that same
+snapshot; commit also requires the live Compose file to retain the recorded
+digest, so post-health deletion or modification fails closed instead of
+publishing a different generation.
 An internal or external failure restores and verifies the previously recorded
 digest with its previous Compose definition, then `--finalize-rollback` writes
 the durable rollback outcome. If the first deployment has no previous digest,

@@ -36,6 +36,8 @@ pending_started_at_file="$app_root/pending-started-at"
 pending_origin_file="$app_root/pending-origin"
 pending_owner_file="$app_root/pending-owner"
 pending_manual_from_file="$app_root/pending-manual-from"
+pending_candidate_compose_file="$app_root/pending-candidate-compose.yaml"
+pending_candidate_compose_digest_file="$app_root/pending-candidate-compose.digest"
 pending_previous_compose_file="$app_root/pending-previous-compose.yaml"
 pending_previous_compose_digest_file="$app_root/pending-previous-compose.digest"
 pending_prior_previous_image_file="$app_root/pending-prior-previous-image"
@@ -145,6 +147,7 @@ clear_pending() {
     "$pending_source_commit_file" "$pending_workflow_run_file" \
     "$pending_executor_file" "$pending_started_at_file" \
     "$pending_origin_file" "$pending_owner_file" "$pending_manual_from_file" \
+    "$pending_candidate_compose_file" "$pending_candidate_compose_digest_file" \
     "$pending_prior_previous_image_file" "$pending_prior_previous_compose_file" \
     "$pending_prior_previous_compose_digest_file" \
     "$pending_previous_compose_file" "$pending_previous_compose_digest_file" \
@@ -346,7 +349,7 @@ formal_pending_evidence_valid() {
   local started_at origin owner pending_prior previous_compose_digest
   local prior_compose_digest state_current state_previous
   local state_current_compose state_previous_compose state_generation
-  local manual_from rollback_backup_digest
+  local manual_from rollback_backup_digest candidate_compose_digest
   pending_image=$(cat "$pending_image_file" 2>/dev/null || true)
   pending_previous=$(cat "$pending_previous_image_file" 2>/dev/null || true)
   source_commit=$(cat "$pending_source_commit_file" 2>/dev/null || true)
@@ -436,6 +439,11 @@ formal_pending_evidence_valid() {
     && [[ "$workflow_run" =~ ^https://github\.com/[A-Za-z0-9._/-]+/actions/runs/[0-9]+$ ]] \
     || return 1
 
+  candidate_compose_digest=$(cat "$pending_candidate_compose_digest_file" 2>/dev/null || true)
+  [[ "$candidate_compose_digest" =~ ^[0-9a-f]{64}$ ]] \
+    && [[ -r "$pending_candidate_compose_file" ]] \
+    && [[ "$(sha256sum "$pending_candidate_compose_file" | cut -d ' ' -f 1)" == "$candidate_compose_digest" ]] \
+    || return 1
   pending_prior=$(cat "$pending_prior_previous_image_file" 2>/dev/null || true)
   previous_compose_digest=$(cat "$pending_previous_compose_digest_file" 2>/dev/null || true)
   prior_compose_digest=$(cat "$pending_prior_previous_compose_digest_file" 2>/dev/null || true)
@@ -472,7 +480,7 @@ formal_pending_evidence_valid() {
     elif [[ "$state_current" == "$pending_image" ]] \
       && [[ "$state_previous" == "$pending_previous" ]] \
       && [[ "$state_previous_compose" == "$previous_compose_digest" ]] \
-      && [[ "$state_current_compose" =~ ^[0-9a-f]{64}$ ]]; then
+      && [[ "$state_current_compose" == "$candidate_compose_digest" ]]; then
       state_generation="$compose_store/$state_current_compose.yaml"
       [[ -r "$state_generation" ]] \
         && [[ "$(sha256sum "$state_generation" | cut -d ' ' -f 1)" == "$state_current_compose" ]] \
@@ -481,6 +489,13 @@ formal_pending_evidence_valid() {
       return 1
     fi
   fi
+}
+
+live_compose_matches() {
+  local expected_digest=$1
+  [[ "$expected_digest" =~ ^[0-9a-f]{64}$ ]] \
+    && [[ -r "$compose_file" ]] \
+    && [[ "$(sha256sum "$compose_file" | cut -d ' ' -f 1)" == "$expected_digest" ]]
 }
 
 if [[ "$1" != --record-failed-rollback ]] && [[ "$1" != --record-interruption ]] \
@@ -687,6 +702,11 @@ if [[ "$release_image" == --commit ]]; then
     printf 'formal recovery evidence is incomplete or invalid\n' >&2
     exit 74
   fi
+  candidate_compose_digest=$(cat "$pending_candidate_compose_digest_file")
+  if ! live_compose_matches "$candidate_compose_digest"; then
+    printf 'live Compose definition does not match the verified candidate snapshot\n' >&2
+    exit 74
+  fi
   require_pending_owner
   if [[ "${COFORGE_PUBLIC_HEALTH_RESULT:-}" != passed ]] \
     || [[ "${COFORGE_SHARED_INGRESS_HEALTH_RESULT:-}" != passed ]] \
@@ -719,7 +739,7 @@ if [[ "$release_image" == --commit ]]; then
     exit 65
   fi
   write_release_state "$pending_image" "$pending_previous_image" \
-    "$compose_file" "$pending_previous_compose_file"
+    "$pending_candidate_compose_file" "$pending_previous_compose_file"
   completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   image=${pending_image%@*}
   image_digest=${pending_image##*@}
@@ -737,6 +757,7 @@ if [[ "$release_image" == --commit ]]; then
     "$pending_source_commit_file" "$pending_workflow_run_file" \
     "$pending_executor_file" "$pending_started_at_file" \
     "$pending_origin_file" "$pending_owner_file" "$pending_manual_from_file" \
+    "$pending_candidate_compose_file" "$pending_candidate_compose_digest_file" \
     "$pending_prior_previous_image_file" "$pending_prior_previous_compose_file" \
     "$pending_prior_previous_compose_digest_file" \
     "$pending_previous_compose_file" "$pending_previous_compose_digest_file" \
@@ -787,11 +808,21 @@ if [[ "$release_image" == --finalize-rollback ]]; then
   fi
   if [[ "$pending_previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
     previous_digest=${pending_previous_image##*@}
+    expected_live_compose_digest=$(cat "$pending_previous_compose_digest_file")
   elif [[ "$pending_previous_image" == bootstrap:empty ]]; then
     previous_digest=bootstrap:empty
+    if [[ "$pending_origin" == manual ]]; then
+      expected_live_compose_digest=$(cat "$rollback_compose_backup_digest_file")
+    else
+      expected_live_compose_digest=$(cat "$pending_candidate_compose_digest_file")
+    fi
   else
     printf 'pending previous release evidence is invalid\n' >&2
     exit 65
+  fi
+  if ! live_compose_matches "$expected_live_compose_digest"; then
+    printf 'live Compose definition does not match the verified rollback artifact\n' >&2
+    exit 74
   fi
   if [[ "${COFORGE_SHARED_INGRESS_HEALTH_RESULT:-}" != passed ]]; then
     printf 'rollback finalization requires passed shared-ingress evidence\n' >&2
@@ -831,14 +862,14 @@ if [[ "$release_image" == --finalize-rollback ]]; then
     next_rollback_digest=bootstrap:empty
   fi
   if [[ "$pending_origin" == manual ]]; then
+    manual_current_compose="$pending_previous_compose_file"
+    if [[ "$pending_previous_image" == bootstrap:empty ]]; then
+      manual_current_compose="$app_root/.empty-compose"
+    fi
     if [[ "$pending_manual_from" == bootstrap:empty ]]; then
       write_release_state "$pending_previous_image" bootstrap:empty \
-        "$compose_file" "$app_root/.empty-compose"
+        "$manual_current_compose" "$app_root/.empty-compose"
     else
-      manual_current_compose=$compose_file
-      if [[ "$pending_previous_image" == bootstrap:empty ]]; then
-        manual_current_compose="$app_root/.empty-compose"
-      fi
       write_release_state "$pending_previous_image" "$pending_image" \
         "$manual_current_compose" "$rollback_compose_backup"
     fi
@@ -846,12 +877,17 @@ if [[ "$release_image" == --finalize-rollback ]]; then
     if [[ ! "$pending_prior_previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
       pending_prior_previous_image=bootstrap:empty
     fi
-    rollback_current_compose=$compose_file
+    rollback_current_compose=$pending_previous_compose_file
     if [[ "$pending_previous_image" == bootstrap:empty ]]; then
       rollback_current_compose="$app_root/.empty-compose"
     fi
     write_release_state "$pending_previous_image" "$pending_prior_previous_image" \
       "$rollback_current_compose" "$pending_prior_previous_compose_file"
+  fi
+  if [[ "${COFORGE_INTERNAL_TEST_MODE:-}" == compose-release-tests ]] \
+    && [[ "${COFORGE_TEST_FAIL_AFTER_FINALIZE_STATE:-false}" == true ]]; then
+    printf 'injected failure after rollback state publication\n' >&2
+    exit 87
   fi
   printf '{"source_commit":"%s","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"candidate_%s=failed;rollback_container=%s;rollback_internal=%s;rollback_public_https=%s;rollback_wss_handshake=%s;shared_ingress=passed;tcp80_closed=passed;running_digest=%s","final_observed_state":"current_digest=%s","next_rollback_digest":"%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"rolled_back"}\n' \
     "$source_commit" "$image" "$image_digest" "$workflow_run" \
@@ -865,6 +901,7 @@ if [[ "$release_image" == --finalize-rollback ]]; then
     "$pending_source_commit_file" "$pending_workflow_run_file" \
     "$pending_executor_file" "$pending_started_at_file" \
     "$pending_origin_file" "$pending_owner_file" "$pending_manual_from_file" \
+    "$pending_candidate_compose_file" "$pending_candidate_compose_digest_file" \
     "$pending_prior_previous_image_file" "$pending_prior_previous_compose_file" \
     "$pending_prior_previous_compose_digest_file" \
     "$pending_previous_compose_file" "$pending_previous_compose_digest_file" \
@@ -1171,6 +1208,9 @@ if [[ "$defer_commit" == true ]]; then
   trap 'record_pre_marker_interruption INT' INT
   trap 'record_pre_marker_interruption TERM' TERM
   : >"$pre_marker_active_file"
+  cp -f "$candidate_compose_file" "$pending_candidate_compose_file"
+  sha256sum "$pending_candidate_compose_file" | cut -d ' ' -f 1 \
+    >"$pending_candidate_compose_digest_file"
   if [[ "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
     printf '%s\n' "$previous_image" >"$pending_previous_image_file"
     if [[ ! -r "$current_compose_source" ]]; then
@@ -1216,10 +1256,14 @@ if [[ "$defer_commit" == true ]]; then
   fi
 fi
 if [[ "$rollback" == false ]]; then
+  deploy_compose_source=$candidate_compose_file
+  if [[ "$defer_commit" == true ]]; then
+    deploy_compose_source=$pending_candidate_compose_file
+  fi
   export COFORGE_GATEWAY_IMAGE=$release_image
   if ! docker compose \
     --project-name "$project_name" \
-    --file "$candidate_compose_file" \
+    --file "$deploy_compose_source" \
     config --quiet; then
     if [[ "$defer_commit" == true ]]; then
       record_failed_preparation compose-validation
@@ -1237,7 +1281,7 @@ if [[ "$rollback" == false ]]; then
     fi
     existing_container=$(docker compose \
       --project-name "$project_name" \
-      --file "$candidate_compose_file" \
+      --file "$deploy_compose_source" \
       ps --all --quiet)
     if [[ -n "$existing_container" ]]; then
       if [[ "$defer_commit" == true ]]; then
@@ -1253,13 +1297,13 @@ if [[ "$rollback" == false ]]; then
     printf 'current release record has no readable Compose definition\n' >&2
     exit 65
   fi
-  if [[ "$candidate_compose_file" != "$compose_file" ]]; then
+  if [[ "$deploy_compose_source" != "$compose_file" ]]; then
     if [[ -r "$compose_file" ]]; then
       if [[ "$defer_commit" == false ]]; then
         cp -f "$compose_file" "$previous_compose_file"
       fi
     fi
-    install -m 0600 "$candidate_compose_file" "$compose_file"
+    install -m 0600 "$deploy_compose_source" "$compose_file"
   fi
 fi
 if [[ "$rollback" == true ]] && [[ "${pending_rollback:-false}" == false ]]; then
