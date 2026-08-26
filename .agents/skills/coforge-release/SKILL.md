@@ -9,10 +9,11 @@ Read [`docs/release.md`](../../../docs/release.md) completely before acting. It
 is canonical; this Skill only routes and enforces its workflow. Also follow
 [`AGENTS.md`](../../../AGENTS.md) for Issue, branch, review, and decision gates.
 
-## Classify the request
+## Classify authority
 
-- **Inspect**: report the deployed digest, workflow state, health, and blockers
-  using read-only operations.
+- **Inspect** is strictly read-only. Report state and blockers; never update an
+  Issue or another external record unless the current task separately and
+  explicitly authorizes that write.
 - **Deploy test**: observe or execute the documented `main`-to-`test` workflow.
 - **Prepare production**: assemble the exact-digest approval packet, then stop
   before deployment.
@@ -23,85 +24,37 @@ is canonical; this Skill only routes and enforces its workflow. Also follow
 
 ## Discover the implemented interface
 
-1. Read the current workflow and Compose files from the repository. Use
-   `rg --files` to discover their real names; do not rely on remembered paths.
-2. Identify the exact source commit, image reference and digest, target
-   environment, current healthy digest, previous healthy digest, workflow run,
-   and approval record.
-3. Compare the implemented inputs and outputs with `docs/release.md`.
-4. If the document still says the operator interface is unimplemented, stop
-   before external mutation. Report the missing interface and update the
-   tracked implementation Issue; do not improvise SSH or Docker commands.
+1. Use `rg --files` to discover the current workflow and Compose files; do not
+   rely on remembered paths.
+2. Compare their real operator inputs and outputs with the canonical contract.
+3. If the document still says the operator interface is unimplemented, stop
+   before external mutation, report the missing interface, and identify its
+   tracked implementation Issue when one is discoverable. Only update that
+   Issue when the current task explicitly authorizes project work. Never
+   improvise SSH or Docker commands.
 
-## Inspect or deploy test
+## Route the operation
 
-For inspection, remain read-only and return the evidence fields defined in the
-canonical contract.
+- **Inspect**: collect the fields in **Release identity and evidence** and
+  **Audit records** using read-only operations.
+- **Deploy test**: execute **Main to test**, including **Health verification**
+  and its audit record, only through the implemented interface.
+- **Prepare production**: assemble the packet in **Test to production**, ask a
+  human to approve the exact digest, and stop.
+- **Promote production**: re-read the durable approval, require an exact digest
+  match, then execute **Test to production** through the implemented interface.
+  The Agent may execute and monitor; it cannot supply the human approval.
+- **Rollback**: follow **Rollback** for authorization and target selection, then
+  verify and audit the result through the same implemented interface.
 
-For test deployment:
+For every mutating operation, apply **Routine release boundary** before the
+first mutation. Also stop when another deployment owns the environment gate or
+when the implemented interface cannot provide the required evidence. Report a
+blocker instead of weakening TLS, exposing secrets, guessing a target, or
+changing shared infrastructure.
 
-- require a successful `main` commit and immutable registry digest;
-- enter the `test` environment concurrency gate;
-- run only the repository's documented deployment interface;
-- verify container health and external HTTPS health without `--insecure`;
-- record the candidate or the restored previous digest as the final result.
+## Return
 
-Do not rebuild on the server, deploy a mutable tag, expose an internal port, add
-an application systemd unit, or change shared Caddy configuration.
-
-## Prepare or promote production
-
-Prepare an approval packet with:
-
-- exact image digest and source commit;
-- successful test workflow and health evidence;
-- change and risk summary;
-- current and previous healthy production digests;
-- rollback and database-compatibility statement.
-
-Ask a human to approve that exact digest. Preparation ends there.
-
-Before promotion, re-read the durable approval and require an exact digest
-match. Then use only the documented production workflow. Confirm it deploys the
-same digest already healthy in test, monitor both health layers, and record the
-final digest and workflow run. Never approve the deployment on the human's
-behalf or treat a general message such as "release the latest" as approval.
-
-## Roll back
-
-During a failed approved deployment, restore the recorded previous healthy
-digest automatically and rerun both health checks. For an unrelated later
-rollback, require the authorization specified in `docs/release.md`. Do not
-rebuild, retag, or create a Git revert as the operational rollback.
-
-Stop if the previous healthy digest is missing unless the workflow proves and
-records a first deployment to an empty environment. Also stop if database
-compatibility is not established. Report that rollback is unsafe instead of
-guessing.
-
-## Stop conditions
-
-Do not mutate an environment when any of these is true:
-
-- the requested image is not an immutable digest;
-- source, test evidence, current state, or rollback target cannot be verified,
-  except for a recorded empty-environment bootstrap;
-- a deployment for the target environment is already active;
-- production approval is absent, stale, ambiguous, or for another digest;
-- the repository has no implemented operator interface;
-- execution would expose secrets, bypass TLS, use root, or modify shared
-  infrastructure outside a separately approved change;
-- a database change prevents the previous application digest from working.
-
-## Report the outcome
-
-Return a compact release record:
-
-- environment and final status;
-- source commit and exact digest;
-- workflow run and approval reference when applicable;
-- internal and external health results;
-- previous digest and rollback result;
-- blockers or follow-up work.
-
-Never print credentials, token-bearing URLs, secret values, or unredacted logs.
+Return the compact record defined by **Release identity and evidence** and
+**Audit records**, plus blockers and follow-up work. Never print credentials,
+token-bearing URLs, secret values, or unredacted logs.

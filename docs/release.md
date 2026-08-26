@@ -46,6 +46,9 @@ Every deployment record must identify:
 | `previous_digest` | Last known healthy digest, or an explicit bootstrap marker |
 | `health_result` | Internal container health plus external HTTPS health |
 | `approval` | Production-only human approval bound to this digest |
+| `executor` | Agent or human that executed the deployment |
+| `started_at` / `completed_at` | UTC transaction boundaries |
+| `outcome` | Healthy, failed, rolled back, or failed rollback |
 
 Tags such as a commit SHA are useful labels, but they do not replace the
 digest. Compose must ultimately resolve the service image as
@@ -68,6 +71,12 @@ concurrency are independent from the Git branch model. Test and production
 must use separate secrets, databases, volumes, networks, internal ports, and
 public endpoints when both environments exist.
 
+Every Compose invocation must pass the intended project explicitly with `-p`;
+do not derive it from a checkout directory. Render and validate the effective
+base-plus-environment configuration before mutation. Environment secrets must
+not be committed, echoed, placed in command arguments, or copied into release
+records.
+
 The MVP provisions only `test`. Production stays disabled until it has an
 independent environment configuration and an enforceable human approval gate.
 GitHub currently limits required reviewers for private repositories on some
@@ -83,12 +92,12 @@ The automated path is:
 3. Capture the pushed image digest as a workflow output and deployment record.
 4. Enter the `test` GitHub Environment and its environment-specific
    concurrency group.
-5. Set the Compose service image to the exact digest, pull it, and recreate the
-   affected service without building on the server.
-6. Wait for the Compose health check, then verify the public endpoint through
-   valid HTTPS without bypassing certificate validation.
-7. Record the digest as healthy only after both checks pass.
-8. If either check fails, restore the previous healthy digest, repeat the
+5. Validate the Compose configuration, set the service image to the exact
+   digest, pull it, and recreate the affected service with `--no-build`.
+6. Use a bounded wait for Compose health, then run the complete verification set
+   below.
+7. Record the digest as healthy only after every required check passes.
+8. If any check fails, restore the previous healthy digest, repeat the
    checks, and report the failed candidate and rollback result. For the first
    deployment to a verified empty environment, restore the empty state.
 
@@ -104,7 +113,8 @@ Production promotion is a two-party operation:
 
 1. An Agent prepares a promotion request containing the exact digest, source
    commit, test deployment run, test health result, change summary, known
-   risks, and previous healthy production digest.
+   risks, migration compatibility, production configuration revision, and
+   previous healthy production digest.
 2. A human approves or rejects that exact digest through the protected
    production deployment gate. The Agent that prepared or triggered the
    promotion cannot satisfy the human gate.
@@ -118,7 +128,28 @@ Production promotion is a two-party operation:
 
 Changing the digest invalidates the approval. A failed or cancelled attempt
 does not authorize a different candidate. An approval of `latest`, a branch,
-or an unspecified future release is invalid.
+an unspecified future release, or a commit without its full `sha256:...` digest
+is invalid.
+
+## Health verification
+
+A release is healthy only when every applicable check passes within its
+documented timeout:
+
+1. Compose reports each required service running and healthy through a
+   meaningful container health check; process existence alone is insufficient.
+2. The host-local readiness endpoint passes through its intended loopback or
+   internal route.
+3. The public HTTPS readiness endpoint passes with normal certificate
+   verification. Never use `--insecure` to make a release pass.
+4. A minimal functional smoke check exercises the released path, including WSS
+   connection behavior when realtime transport changes.
+5. Existing routes that share host ingress remain healthy.
+6. The running container resolves to the requested digest and matches the
+   deployment record.
+
+Compose health is necessary but does not replace external or functional
+verification. Capture failure diagnostics without secrets.
 
 ## Rollback
 
@@ -139,6 +170,16 @@ Rollback means redeploying a known healthy image digest. It is not a Git
 revert, rebuild, or mutable retag. Database changes must be backward compatible
 with the previous application digest; otherwise application rollback is not a
 valid recovery plan and the release must not proceed.
+
+## Audit records
+
+Keep both GitHub's Environment deployment record and the durable release record
+defined above for every test deployment, production promotion, failed attempt,
+and rollback. Record the human approver and exact approved digest for production,
+the previous and resulting digest, health evidence, rollback trigger and result,
+and the final observed state. An interrupted release is a recorded outcome, not
+a missing entry. The records must reveal the running and next rollback digests
+without relying on an Agent's private memory, and must never contain secrets.
 
 ## Routine release boundary
 
@@ -174,6 +215,7 @@ must not invent deployment commands or mutate a server.
 - [GitHub deployments and environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
 - [Deploying with GitHub Actions](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments)
 - [Publishing Docker images](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)
+- [Docker image pulls by immutable digest](https://docs.docker.com/reference/cli/docker/image/pull/#pull-an-image-by-digest-immutable-identifier)
 - [Docker Compose project names](https://docs.docker.com/compose/how-tos/project-name/)
 - [Docker Compose service image and health configuration](https://docs.docker.com/reference/compose-file/services/)
 - [`docker compose pull`](https://docs.docker.com/reference/cli/docker/compose/pull/)
