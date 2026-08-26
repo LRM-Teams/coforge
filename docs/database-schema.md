@@ -1,6 +1,6 @@
 # CoForge IM database schema
 
-Status: proposed baseline
+Status: discussion draft; not an approved migration
 
 Database: PostgreSQL 16+
 
@@ -88,8 +88,8 @@ with their original sequence. The local durable inbox uniquely constrains
 WebSocket connection outbox remains an in-memory write queue and is not
 represented by a database table.
 
-The local inbox/outbox schema is intentionally deferred to the SQLite spool ADR;
-it is not part of this PostgreSQL migration.
+The local inbox/outbox schema is intentionally deferred to a later discussion;
+it is not part of this cloud data-model draft.
 
 ## Atomic write paths
 
@@ -124,7 +124,7 @@ or Agent from opening a DM with itself unless that becomes an explicit feature.
 
 ## Identity boundaries
 
-The initial DDL deliberately does not add foreign keys from `workspace_id`,
+This draft deliberately does not define foreign keys from `workspace_id`,
 `subject_id`, or `agent_id` to identity tables, because those tables are not yet
 part of the repository contract. Add those foreign keys when workspace, member,
 and Agent ownership schemas stabilize. Internal messaging references are fully
@@ -143,4 +143,6 @@ constrained now.
 - Treat `body_json` as versioned application data. Do not use it as a substitute
   for columns needed by relational filters or integrity rules.
 
-The executable baseline is in [`database/0001_im_core.sql`](../database/0001_im_core.sql).
+No SQL migration, ORM schema, or migration-tool choice is approved by this
+document. Those are added only after the tables and technology choice are
+reviewed with the project owner.
