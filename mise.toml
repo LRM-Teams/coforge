@@ -12,9 +12,27 @@ description = "Run repository tests"
 run = "bun run test"
 
 [tasks.check]
-description = "Run repository type checks"
-run = "bun run typecheck"
+description = "Run repository format, lint, and type checks"
+run = "bun run check"
 
 [tasks.build]
 description = "Build deployable cloud applications"
 run = "bun run build"
+
+[tasks."test:computer"]
+run = "cd apps/coforge-computer && bun test"
+
+[tasks."check:computer"]
+run = "cd apps/coforge-computer && bun run check"
+
+[tasks."build:computer"]
+run = "cd apps/coforge-computer && bun run build"
+
+[tasks."test:gateway"]
+run = "cd apps/realtime-gateway && go test ./..."
+
+[tasks."check:gateway"]
+run = "cd apps/realtime-gateway && go vet ./..."
+
+[tasks."build:gateway"]
+run = "cd apps/realtime-gateway && mkdir -p dist && go build -o dist/realtime-gateway ./cmd/gateway"

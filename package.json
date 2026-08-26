@@ -10,6 +10,6 @@
     "dev:gateway": "cd apps/realtime-gateway && go run ./cmd/gateway",
     "test": "bun run --filter '*' --if-present test && cd apps/realtime-gateway && go test ./...",
     "build": "bun run --filter '*' --if-present build && cd apps/realtime-gateway && mkdir -p dist && go build -o dist/realtime-gateway ./cmd/gateway",
-    "typecheck": "bun run --filter '*' --if-present typecheck && cd apps/realtime-gateway && go vet ./..."
+    "check": "bun run --filter '*' --if-present check && cd apps/realtime-gateway && go vet ./..."
   }
 }

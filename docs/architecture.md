@@ -187,7 +187,13 @@ workspaces/{workspace_id}/attachments/{attachment_id}/original
 
 coforge-computer 是机器级 supervisor，不执行 workspace 内的 Agent 业务。它管理登录后的机器身份、安装/升级、coforge-daemon 的启动停止与健康检查。
 
-`machine_id` 是机器的稳定身份，跨 computer、daemon 与 workspace 子进程的重启和升级保持不变。它的具体签发方式、存储位置、唯一性范围与云端 computer 表结构由单独评审确定，本文不预先锁定。
+`login [--server <url>]` 登录用户、把凭据写入 OS credential store，并返回可访问 Workspace 列表；它不注册 Computer、不绑定 Workspace，也不启动 daemon。托管版使用默认 server，自托管场景显式指定。交互式 login 使用 OAuth 2.0 Device Authorization Grant：先通过 RFC 8414 metadata 发现 device authorization 与 token endpoint，再按 RFC 8628 展示 user code、轮询并处理 `authorization_pending` / `slow_down`。轮询连接超时后降低请求频率并重试，单次请求必须受 device-code 剩余有效期约束。凭据不进入命令参数或日志。
+
+MVP OAuth client 使用 `client_id = coforge-computer` 与 `scope = openid offline_access`。login 成功后从同一 metadata 的 `coforge_workspaces_endpoint` 扩展发现可访问 Workspace 读取端点；该 endpoint 必须经过与认证端点相同的 HTTPS/localhost 安全校验。Computer 以 bearer credential 执行 GET，并读取 `{ workspaces: [{ id, slug, name }] }`，忽略未知字段以便兼容扩展。`id` 是持久关联使用的稳定身份；`slug` 只用于人读选择，不能代替 `id`；`name` 仅用于展示。该读取不创建 Workspace–Computer binding。token 通过 Bun 的跨平台原生 credential API 写入 macOS Keychain、Linux Secret Service 或 Windows Credential Manager，不允许自动降级为明文文件。Linux 无可用 Secret Service 时 login 以稳定错误失败并提示用户启动或解锁系统凭据服务。
+
+`setup [workspace-slug]` 每次只创建或恢复一个 Workspace–Computer binding，为该 Workspace 选择 `workspace_root` 并启动它自己的 workspace-daemon。省略参数时交互单选用户可访问的一个 Workspace；位置参数必须是稳定唯一的 `workspace-slug`，不是 display name。第二个 Workspace 再执行一次 setup，MVP 不提供 `--all`。
+
+`machine_id` 是机器的稳定身份，跨 computer、daemon 与 workspace 子进程的重启和升级保持不变。Computer 注册不属于 `login`，其 endpoint、payload、幂等键和 machine proof 必须在单独纵向设计中确定；`machine_id` 的具体签发方式、存储位置、唯一性范围与云端 computer 表结构也由该设计评审，本文不预先锁定。
 
 ### coforge-daemon
 

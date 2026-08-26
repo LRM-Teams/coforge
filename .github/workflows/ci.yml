@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
-    name: Test, check, and build
+  computer:
+    name: Computer
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -30,10 +30,31 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Test
-        run: mise run test
+        run: mise run test:computer
 
       - name: Check
-        run: mise run check
+        run: mise run check:computer
 
       - name: Build
-        run: mise run build
+        run: mise run build:computer
+
+  realtime-gateway:
+    name: Realtime gateway
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install pinned toolchain
+        uses: jdx/mise-action@v4
+
+      - name: Test
+        run: mise run test:gateway
+
+      - name: Check
+        run: mise run check:gateway
+
+      - name: Build
+        run: mise run build:gateway
