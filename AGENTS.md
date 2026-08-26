@@ -29,13 +29,15 @@ These instructions apply to the entire repository.
 - Before requesting final review, fetch and rebase the branch onto the latest `origin/main`. Never force-push `main` or another contributor's branch.
 - Use concise English Conventional Commit messages: `<type>(optional-scope): imperative summary` (for example, `docs: refine delivery guarantees`).
 - Use the repository owner's GitHub identity for commits: `me-frankan <me.frankan@gmail.com>`. Never commit with an Agent name or Agent email.
+- Respect ownership claimed in `#coforge`. Coordinate before editing another agent's active files or changing a shared contract.
 - Amend or rebase mistakes on the feature branch before review. Do not add revert commits merely to clean up work that has not been merged.
 - Keep `main` history clean and linear by using the repository's approved squash/rebase merge strategy, then delete the merged branch; do not create gratuitous merge commits.
 - A CR must describe its scope, approved decisions, official source links for technical choices, tests and checks run, known risks, and any follow-up work. Do not merge while review comments remain unresolved.
 - During MVP, keep required CI short: formatting/linting, type checking, relevant tests, and build. Add slower checks only when their risk reduction justifies the feedback delay. GitHub documents reviews and status checks as independently configurable [branch protection options](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches).
 - A task is complete only after the relevant short checks pass and the CR is approved. If a check does not exist yet, state that clearly in the CR.
-- Develop behavioral changes with test-driven development: write or update a test that fails for the intended behavior, implement the minimum change that makes it pass, then refactor while keeping tests green.
+- Develop behavioral changes with test-driven development. Agree the public test seam first, then work in vertical slices: one failing test followed by the minimum implementation that passes it.
 - Start bug fixes with a regression test. Do not remove or weaken a valid test merely to make CI pass.
+- Keep refactoring in the independent review stage rather than expanding a red-green implementation slice.
 
 ## Toolchain
 
@@ -44,6 +46,14 @@ These instructions apply to the entire repository.
 - Run `mise run test`, `mise run check`, and `mise run build` before submitting a change; CI runs them in that order.
 - Do not silently change a runtime or tool version. Update `mise.toml`, affected lockfiles, CI, and architecture documentation together.
 - Do not introduce Next.js. The accepted Web/backend direction is TanStack Start on Node 24 LTS.
+
+## Shared agent skills
+
+- Project skills live in `.agents/skills`; `skills-lock.json` records their upstream source and content hash.
+- Read and apply `tdd` for behavioral implementation and `codebase-design` when choosing or changing a test seam.
+- Use `domain-modeling` when changing canonical domain terms or relationships; do not turn `CONTEXT.md` into a running specification.
+- Use `code-review` from an independent context with an explicit fixed point. The coordinator must include this instruction in every Standards and Spec reviewer brief: perform the assigned review directly; do not invoke `code-review` again or spawn additional reviewers.
+- The engineering skills do not yet have an approved issue-tracker configuration. Until `docs/agents/issue-tracker.md` exists, give `code-review` an explicit spec source; if none is available, ask the requester instead of invoking an unavailable setup skill or inferring a tracker workflow.
 
 ## Architecture invariants
 

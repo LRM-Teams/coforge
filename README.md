@@ -84,7 +84,12 @@ During MVP, ordinary changes use one Agent review and target a 5–10 minute
 review-to-merge cycle; only broad or difficult-to-reverse decisions require
 Frank's explicit approval.
 
-Use test-driven development for behavioral changes: begin with a failing test,
-make the smallest implementation change that passes, then refactor with the
-suite green. Read [AGENTS.md](AGENTS.md) for the normative decision gates,
-review requirements, and architecture-change rules.
+Use test-driven development for behavioral changes: agree the public test seam,
+then work one vertical slice at a time with a failing test followed by the
+smallest passing implementation. Refactoring belongs to independent review.
+Read [AGENTS.md](AGENTS.md) for the normative decision gates, review
+requirements, and architecture-change rules.
+
+Project-level `tdd`, `codebase-design`, `domain-modeling`, and `code-review`
+skills are maintained under `.agents/skills` and pinned by `skills-lock.json`.
+They are shared by supported coding agents when working in this repository.
