@@ -69,12 +69,15 @@ blob itself. Reactions are unique per participant, message, and emoji.
 ### `message_attachment`
 
 A `message_attachment` row represents an attachment already bound to a committed
-canonical message. It stores the stable `attachment_id`, private OSS
+canonical message. It stores the stable `attachment_id`, provider-independent
 `object_key`, original filename metadata, declared and verified content type,
 byte size, and any integrity metadata approved by the backend design. It never
-stores object bytes or an expiring signed URL. The backend derives download
-authorization only after reaching the row through a committed message visible
-to the requesting participant.
+stores object bytes, a bucket, endpoint, delivery-provider discriminator, or an
+expiring OSS/CDN signed URL. The backend derives download authorization only
+after reaching the row through a committed message visible to the requesting
+participant. Physical bucket and delivery-domain mappings are adapter deployment
+configuration, so switching delivery from direct OSS to private CDN does not
+rewrite this row or copy the object.
 
 Before that row exists, the backend maintains a durable, expiring upload intent
 bound to the creating participant, workspace, conversation, server-generated
@@ -96,6 +99,14 @@ encoded into the object key. The original filename is metadata only and is
 never concatenated into an authorization prefix. Exact lifecycle/status
 columns remain part of the later reviewed migration; this document does not
 turn the upload flow into an approved SQL schema.
+
+The same immutable `object_key` is the resource identity used by both delivery
+adapters. A direct OSS adapter signs an exact-key GET request; a private CDN
+adapter signs the corresponding canonical path at `files.coforge.cn`. Both are
+reached only after the provider-neutral attachment-download authorizer verifies
+the committed message and requester visibility. Neither adapter may persist its
+returned bearer URL, and a content replacement receives a new `attachment_id`
+and object key rather than overwriting the object behind an existing row.
 
 ### `agent_message_delivery`
 
