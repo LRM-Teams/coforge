@@ -7,16 +7,34 @@ These instructions apply to the entire repository.
 - Read [`docs/architecture.md`](docs/architecture.md) before changing package boundaries, process ownership, transport, delivery semantics, persistence, infrastructure, or runtime versions.
 - Treat that document as the canonical architecture source. Update it in the same change whenever an architectural decision changes.
 - Keep `docs/architecture.md` as the single maintained architecture source; do not create a duplicate HTML companion.
-- Do not turn an unresolved question into a repository convention. Raise it in `#coforge` and record the decision before implementation.
+- Do not turn an unresolved question into code or a repository convention. Present the options and trade-offs in `#coforge`, then record the decision before implementation; use Frank's approval only when the decision meets a gate below.
+
+## Decision gates
+
+- Obtain Frank's explicit approval before changing architecture, database schema, wire protocol, licensing, security boundaries, or another decision with broad or difficult-to-reverse impact. Ordinary reversible implementation choices use the MVP fast lane below.
+- Prefer a mature maintained framework when it satisfies the requirements. Propose custom infrastructure only after documenting the gap, maintenance burden, and alternatives.
+- Base technical proposals and implementations on current official documentation, official repositories, and official migration guides. Do not rely on remembered or built-in knowledge for versions, APIs, configuration, or support status.
+- For each broad or difficult-to-reverse technical proposal, cite its official sources and state the problem, candidates, maturity, license, runtime compatibility, operational cost, migration/rollback impact, recommendation, and unresolved risks. Mark experimental or undocumented behavior explicitly.
+- Do not add or change a repository license without Frank's explicit approval.
+- Establish formatting and lint checks before feature implementation, and make them required CR checks once adopted.
 
 ## Collaboration and delivery
 
-- During the validation phase, develop directly on `main`; do not create a long-lived `dev` branch.
-- Multiple agents may work on `main` concurrently. Keep commits narrow, preserve unrelated changes, fetch and rebase onto the latest `origin/main` before pushing, and never force-push.
+- Follow the lightweight, branch-based [GitHub Flow](https://docs.github.com/en/get-started/using-github/github-flow). Create every change on a short-lived feature branch from the latest `origin/main`; use a clear prefix such as `feat/`, `fix/`, `docs/`, or `chore/`. Do not use a long-lived `dev` branch.
+- Keep MVP branches to one small objective and, as a rule, merge or close them within the same working day. Prefer a sequence of small CRs to a multi-day feature branch.
+- Never commit or push directly to `main`. A change reaches `main` only through a CR/PR with passing required checks and at least one approval from a reviewing Agent. Authors must not self-approve their own CR.
+- Use the MVP fast lane for ordinary implementation and documentation: one Agent review, the short automated checks, and immediate squash/rebase merge once feedback is resolved. Target a 5–10 minute review-to-merge cycle; Frank does not need to approve each ordinary CR.
+- Frank's explicit approval remains required for the decision gates above and for changes to architecture, database schema, wire protocol, licensing, security boundaries, or other decisions with broad or difficult-to-reverse impact.
+- Keep each branch and CR focused on one concern. Preserve unrelated work and coordinate in `#coforge` before touching files another contributor has claimed.
+- Before requesting final review, fetch and rebase the branch onto the latest `origin/main`. Never force-push `main` or another contributor's branch.
 - Use concise English Conventional Commit messages: `<type>(optional-scope): imperative summary` (for example, `docs: refine delivery guarantees`).
 - Use the repository owner's GitHub identity for commits: `me-frankan <me.frankan@gmail.com>`. Never commit with an Agent name or Agent email.
 - Respect ownership claimed in `#coforge`. Coordinate before editing another agent's active files or changing a shared contract.
-- A task is complete only after relevant formatting, type checking, tests, and build checks pass. If a check does not exist yet, state that clearly in the handoff.
+- Amend or rebase mistakes on the feature branch before review. Do not add revert commits merely to clean up work that has not been merged.
+- Keep `main` history clean and linear by using the repository's approved squash/rebase merge strategy, then delete the merged branch; do not create gratuitous merge commits.
+- A CR must describe its scope, approved decisions, official source links for technical choices, tests and checks run, known risks, and any follow-up work. Do not merge while review comments remain unresolved.
+- During MVP, keep required CI short: formatting/linting, type checking, relevant tests, and build. Add slower checks only when their risk reduction justifies the feedback delay. GitHub documents reviews and status checks as independently configurable [branch protection options](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches).
+- A task is complete only after the relevant short checks pass and the CR is approved. If a check does not exist yet, state that clearly in the CR.
 - Develop behavioral changes with test-driven development. Agree the public test seam first, then work in vertical slices: one failing test followed by the minimum implementation that passes it.
 - Start bug fixes with a regression test. Do not remove or weaken a valid test merely to make CI pass.
 - Keep refactoring in the independent review stage rather than expanding a red-green implementation slice.

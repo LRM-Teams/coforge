@@ -76,13 +76,19 @@ defaults.
 
 ## Development workflow
 
+Create each change on a short-lived feature branch and merge it into `main` only
+through an approved CR/PR. Direct pushes to `main` are not allowed. Keep CRs
+narrow, use English Conventional Commit messages, rebase the latest
+`origin/main`, and run the short relevant checks before requesting review.
+During MVP, ordinary changes use one Agent review and target a 5–10 minute
+review-to-merge cycle; only broad or difficult-to-reverse decisions require
+Frank's explicit approval.
+
 Use test-driven development for behavioral changes: agree the public test seam,
 then work one vertical slice at a time with a failing test followed by the
 smallest passing implementation. Refactoring belongs to independent review.
-Keep commits narrow, use English Conventional Commit messages, rebase the
-latest `origin/main` before pushing, and run the relevant checks for every
-change. Read [AGENTS.md](AGENTS.md) before modifying architecture or package
-boundaries.
+Read [AGENTS.md](AGENTS.md) for the normative decision gates, review
+requirements, and architecture-change rules.
 
 Project-level `tdd`, `codebase-design`, `domain-modeling`, and `code-review`
 skills are maintained under `.agents/skills` and pinned by `skills-lock.json`.

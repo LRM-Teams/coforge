@@ -222,9 +222,9 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 
 精确版本以 `mise.toml` 为准。升级版本时必须同时更新锁文件、CI 和本文，不能只改本机环境。
 
-验证阶段采用 trunk-based 工作方式：所有开发直接进入 `main`，暂不维护 `dev` 分支。多人并行时必须在提交前拉取并 rebase 最新 `origin/main`，禁止 force-push。
+验证阶段采用轻量 [GitHub Flow](https://docs.github.com/en/get-started/using-github/github-flow)：短生命周期 feature branch → CR/PR → `main`，不维护长期 `dev` 分支，禁止直接向 `main` 提交或推送。规范性的决策门槛、评审、检查与合并规则统一由根目录 [`AGENTS.md`](../AGENTS.md) 维护。
 
-提交保持小而单一，使用简洁的英文 Conventional Commit：`<type>(optional-scope): imperative summary`。
+提交与 CR 保持小而单一，使用简洁的英文 Conventional Commit：`<type>(optional-scope): imperative summary`。
 
 ## 9. 稳定性与安全约束
 
