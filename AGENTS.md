@@ -17,11 +17,14 @@ These instructions apply to the entire repository.
 - Use the repository owner's GitHub identity for commits: `me-frankan <me.frankan@gmail.com>`. Never commit with an Agent name or Agent email.
 - Respect ownership claimed in `#coforge`. Coordinate before editing another agent's active files or changing a shared contract.
 - A task is complete only after relevant formatting, type checking, tests, and build checks pass. If a check does not exist yet, state that clearly in the handoff.
+- Develop behavioral changes with test-driven development: write or update a test that fails for the intended behavior, implement the minimum change that makes it pass, then refactor while keeping tests green.
+- Start bug fixes with a regression test. Do not remove or weaken a valid test merely to make CI pass.
 
 ## Toolchain
 
 - Use `mise` as the repository's development tool and version manager.
 - Treat `mise.toml` as the source of truth for tool versions once present. Run `mise install`, then prefer `mise run <task>` or `mise exec -- <command>` over unpinned global tools.
+- Run `mise run test`, `mise run check`, and `mise run build` before submitting a change; CI runs them in that order.
 - Do not silently change a runtime or tool version. Update `mise.toml`, affected lockfiles, CI, and architecture documentation together.
 - Do not introduce Next.js. The accepted Web/backend direction is TanStack Start on Node 24 LTS.
 

@@ -51,12 +51,18 @@ mise install
 mise run install
 ```
 
-Run repository checks and production builds:
+Run tests first, then repository checks and production builds:
 
 ```bash
+mise run test
 mise run check
 mise run build
 ```
+
+GitHub Actions runs the same sequence for every pull request and every push to
+`main`. Dependency installation uses frozen-lockfile mode, so the first change
+that adds a Bun dependency must also commit its generated lockfile. Runtime
+versions continue to come from `mise.toml`.
 
 Run the current realtime-gateway skeleton:
 
@@ -70,7 +76,9 @@ defaults.
 
 ## Development workflow
 
-Development currently lands directly on `main`. Keep commits narrow, use
-English Conventional Commit messages, rebase the latest `origin/main` before
-pushing, and run the relevant checks for every change. Read [AGENTS.md](AGENTS.md)
-before modifying architecture or package boundaries.
+Use test-driven development for behavioral changes: begin with a failing test,
+make the smallest implementation change that passes, then refactor with the
+suite green. Keep commits narrow, use English Conventional Commit messages,
+rebase the latest `origin/main` before pushing, and run the relevant checks for
+every change. Read [AGENTS.md](AGENTS.md) before modifying architecture or
+package boundaries.
