@@ -25,9 +25,14 @@ CoForge 让用户通过 Web 私聊或群聊多个 code agent，同时把 Agent �
 ```mermaid
 flowchart LR
     User[Web 用户] -->|HTTPS| Caddy[Caddy<br/>TLS · edge proxy]
+    User -->|signed HTTPS upload| OSS[(Alibaba Cloud OSS<br/>private attachment bucket)]
+    User -->|short-lived signed GET| Delivery[files.coforge.cn<br/>Direct OSS or private CDN]
     Caddy --> Web[Web / backend<br/>Node · TanStack Start<br/>control plane]
     Caddy -->|WSS| Gateway[realtime-gateway<br/>Go<br/>transport only]
     Web --> DB[(Managed PostgreSQL)]
+    Web -->|upload sign · object verify| OSS
+    Web -->|authorize · issue delivery URL| Delivery
+    Delivery -->|direct read or authenticated origin fetch| OSS
     Web <-->|delivery / stream| Gateway
 
     subgraph Host[用户机器]
@@ -118,6 +123,63 @@ PostgreSQL 的首要领域对象是：
 - `agent_message_delivery`
 
 `run` 表示一次 Agent 执行，`event` 表示执行中的流式片段、工具或状态记录；二者不是 delivery 的核心，不应在骨架阶段过早锁死。最终表名、字段、索引与 migration 方案由 backend 设计评审确定。
+
+### Alibaba Cloud OSS：聊天附件数据面
+
+首个 OSS bucket 只承载聊天图片与文件附件，必须保持 `private`。Bucket 不使用 `public-read` 或 `public-read-write`；公开头像和 Web 静态资源以后使用独立 bucket，不能与聊天附件混放。浏览器与 OSS 之间的文件传输使用 HTTPS 数据面，不经过 realtime-gateway，也不改变 daemon 只使用 WSS/RPC 的传输边界。
+
+计划中的稳定文件访问域名是 `files.coforge.cn`。这个名称表达业务用途而不是当前基础设施：最初可以直连 OSS，以后可以在不改变客户端和数据库引用的情况下把同一域名切到 CDN。`cdn.coforge.cn` 不作为 canonical 文件域名。Bucket 名称、Region、实际 endpoint 与域名启用时间属于部署配置，确认前不得写死；启用中国内地 custom domain 前，部署检查必须确认域名已经完成 ICP 备案。
+
+上传链路固定为：
+
+1. Web 客户端通过已认证的 backend 控制面请求上传授权，并提供目标 workspace、conversation、文件大小和声明类型；
+2. backend 校验当前用户仍是该 conversation 的 active participant，检查配额，分配稳定 `attachment_id` 与服务端生成的 `object_key`，并创建可过期的 durable upload intent；intent 绑定发起 participant、workspace、conversation、精确 object key 与预期文件 metadata；
+3. backend 使用服务端 RAM 身份获取短时 STS 凭据并生成 V4 Post Policy，或直接生成等价的短时 V4 上传签名；授权只允许 intent 中的精确 object key，并限制有效期、大小、类型且禁止覆盖；
+4. 浏览器使用该短时授权通过 HTTPS 直接上传到 OSS；长期 AK/SK 永远不会到达浏览器；
+5. 客户端通知 backend 上传完成；backend 要求同一个发起 participant 和未过期 intent，向 OSS 校验对象存在性、key、大小和必要 metadata，匹配后把 intent 标记为可绑定；
+6. 只有 intent 的创建者可以把它一次性绑定到同一 conversation 的 canonical message，绑定与 message commit 必须原子完成。过期、失败、已消费或 conversation 不匹配的 intent 都拒绝引用。
+
+附件只有在关联到请求者可见的 committed canonical message 后才能下载或预览；未发送草稿与孤立 upload intent 不签发 GET URL。数据库只保存稳定 `object_key` 与 committed-message 附件 metadata，不保存 bucket、endpoint、delivery provider 或 OSS/CDN signed URL；物理 bucket 和域名映射属于 adapter 部署配置。Signed URL 是 bearer credential，必须短时有效且不得写入数据库、日志或 analytics；返回它的 backend 响应必须 `Cache-Control: no-store`。访问权被撤销后，已签发 URL 最长仍可用到自身过期时间，因此 TTL 就是明确的撤销延迟上界。过期、失败或未绑定 intent 对应的孤立对象由明确的 retention cleanup process 最终清理。
+
+#### 下载授权 seam
+
+Backend 对调用方只暴露一个 `AttachmentDownloadAuthorizer` interface：
+
+```text
+authorize_attachment_download(
+  authenticated_requester,
+  message_id,
+  attachment_id
+) -> { url, expires_at }
+```
+
+这是一个深模块：它根据 `message_id` 解析 workspace 与 conversation，校验请求者的 membership 和 committed message 可见性，确认 `attachment_id` 实际绑定到该 message，再把已授权的稳定 `object_key` 交给当前 delivery adapter。调用方不提供 object key、bucket 或 provider，返回值也不暴露 provider kind；因此授权规则、对象身份和客户端契约均不依赖 OSS 或 CDN。Adapter 只负责签发可交付 URL，不重做 conversation 授权，也不接受客户端提供的任意路径。
+
+同一个内部 adapter slot 有两个实现：
+
+- **Direct OSS adapter** 根据部署配置将稳定 object key 映射到 private bucket，并仅对该精确 key 签发短时 V4 presigned GET URL。
+- **Private CDN adapter** 对 `https://files.coforge.cn/{object_key}` 的规范化路径和过期时间生成 CDN signed URL。CDN POP 在查找缓存前验证客户端签名；未签名、签名不匹配或已过期的请求拒绝。CDN 签名密钥只存在于 backend Secret 与 CDN 配置，不是 OSS 凭据。
+
+切换 adapter 只改变部署配置和 URL 签发方式；不改变 interface、object key、message/attachment 记录，不需要复制对象或发布客户端新版本。
+
+#### CDN 客户端鉴权、回源授权与缓存键
+
+Private CDN adapter 必须把两条授权链分开：
+
+1. **客户端 → CDN POP** 使用 backend 生成的 CDN signed URL，只证明持有者在 TTL 内可访问该规范化 object path。Backend 在每次签发前仍执行 committed-message 可见性授权；CDN 不认识 workspace、conversation 或 requester。
+2. **CDN POP → private OSS origin** 使用阿里云 CDN private-bucket origin access 的独立服务身份和只读授权。CDN 在 cache miss 时为回源请求生成 `Authorization` header；客户端 CDN 签名参数必须在回源前移除，不能被当作 OSS 签名转发，也不能与 origin header 签名叠加。Bucket 保持 private，且该 CDN 身份仅授予附件 bucket 的回源只读能力；鉴于该功能可读取 origin bucket 内全部对象，附件 bucket 不得混放其他业务对象。
+
+CDN 必须先验证 signed URL，再用去掉签名、过期时间和 nonce 等鉴权材料后的 `files.coforge.cn` 规范化 object path 作为缓存身份。这样同一 immutable object 的不同短时 URL 共享一个 cache entry，但未授权请求仍会在 cache lookup 前拒绝。`requester_id`、workspace/conversation/message id、原始文件名和 delivery-provider 不进入 URL 或 cache key。任何会改变字节、响应权限或安全相关 header 的变体都不得从 cache key 中忽略；如以后需要变体，必须给它独立的 immutable object key 或纳入 cache key。对象禁止覆盖；内容变更必须使用新 `attachment_id`/object key，以免旧缓存与数据库身份分叉。
+
+Canonical object key 使用 workspace-first 隔离：
+
+```text
+workspaces/{workspace_id}/attachments/{attachment_id}/original
+```
+
+消息与附件的关联保存在 PostgreSQL，不把 conversation/message 层级编码进对象路径。原始文件名只作为清洗后的 metadata 保存，不能参与权限边界或直接拼接路径。OSS CORS 只允许明确的 CoForge Web origin；服务端 RAM 用户只允许 `AssumeRole`，上传 role 只获得目标 bucket/prefix 所需的最小 `PutObject` 权限。真实 AK/SK 只能放部署 Secret，不得进入仓库、日志、命令行参数或前端构建产物。
+
+实现依据为阿里云官方的 [client direct upload](https://www.alibabacloud.com/help/en/oss/user-guide/uploading-objects-to-oss-directly-from-clients/)、[server-side V4 signing](https://www.alibabacloud.com/help/en/oss/user-guide/obtain-signature-information-from-the-server-and-upload-data-to-oss)、[private object signed URL](https://www.alibabacloud.com/help/en/oss/developer-reference/download-objects-using-a-presigned-url-generated-with-oss-sdk-for-node-js)、[custom domain rules](https://www.alibabacloud.com/help/en/oss/user-guide/access-buckets-via-custom-domain-names)、[CDN URL signing](https://www.alibabacloud.com/help/en/cdn/user-guide/configure-url-signing)、[private OSS origin access](https://www.alibabacloud.com/help/en/cdn/user-guide/grant-alibaba-cloud-cdn-access-permissions-on-private-oss-buckets) 与 [custom cache key](https://www.alibabacloud.com/help/en/cdn/user-guide/create-custom-cache-keys)。
 
 ## 5. 本地执行面
 
