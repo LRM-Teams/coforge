@@ -22,14 +22,18 @@ coforge-computer <-Unix socket-> coforge-daemon -> N workspace children -> ACP
 - Edge and local deployment: Caddy and Docker
 - Development tool versions: mise
 
-Only `coforge-computer` and `coforge-daemon` are local distributable app
-packages. A workspace child is an isolated process implemented inside
-`coforge-daemon`, not a third package.
+Only `coforge-computer` and `coforge-daemon` are local app packages. The
+Computer package depends on the Daemon package for build and distribution, so
+users install one Computer distribution containing both compatible payloads.
+Computer and Daemon still run as independent OS processes. A workspace child
+is an isolated process implemented inside `coforge-daemon`, not a third package.
 
 See [the architecture baseline](docs/architecture.md) for the canonical
 boundaries and [the database design](docs/database-schema.md) for the current
 conversation and delivery model. See [the release contract](docs/release.md)
-for test deployment, exact-digest production promotion, and rollback rules.
+for cloud deployment, atomic Computer installation bundles and compatibility
+release sets, exact-artifact production promotion, per-user installation, and
+rollback rules.
 
 ## Repository layout
 
