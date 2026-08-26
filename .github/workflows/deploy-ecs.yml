@@ -143,7 +143,7 @@ jobs:
           import sys
 
           address = ipaddress.ip_address(sys.argv[1])
-          if address.version != 4 or not address.is_global:
+          if address.version != 4 or not address.is_global or address.is_multicast:
               raise SystemExit(1)
           PY
           then
@@ -204,15 +204,6 @@ jobs:
               && install -m 0700 '$REMOTE_STAGE/compose_release.sh' \
                 .local/share/coforge/realtime-gateway/compose_release.sh"
 
-      - name: Recover prior interrupted release before deployment
-        env:
-          ECS_EDGE_BIND_IP: ${{ vars.ECS_EDGE_BIND_IP }}
-          ECS_HOST: ${{ vars.ECS_HOST }}
-          ECS_SHARED_INGRESS_HEALTH_PATH: ${{ vars.ECS_SHARED_INGRESS_HEALTH_PATH }}
-          IMAGE_REF: ${{ needs.build.outputs.image_ref }}
-          TRANSACTION_OWNER: ${{ github.run_id }}-${{ github.run_attempt }}
-        run: scripts/deploy/recover_release.sh
-
       - name: Log deployment user in to GHCR
         env:
           GHCR_PULL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -225,6 +216,15 @@ jobs:
                 && docker info --format '{{json .SecurityOptions}}' | grep -Fq 'name=rootless' \
                 && \
                 docker login ghcr.io --username '$GHCR_PULL_USERNAME' --password-stdin"
+
+      - name: Recover prior interrupted release before deployment
+        env:
+          ECS_EDGE_BIND_IP: ${{ vars.ECS_EDGE_BIND_IP }}
+          ECS_HOST: ${{ vars.ECS_HOST }}
+          ECS_SHARED_INGRESS_HEALTH_PATH: ${{ vars.ECS_SHARED_INGRESS_HEALTH_PATH }}
+          IMAGE_REF: ${{ needs.build.outputs.image_ref }}
+          TRANSACTION_OWNER: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: scripts/deploy/recover_release.sh
 
       - name: Prepare image transaction
         id: prepare

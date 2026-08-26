@@ -225,6 +225,7 @@ record_standalone_rollback() {
   local resulting_digest=$2
   local health_result=$3
   local outcome=${4:-rolled_back}
+  local next_rollback_digest=${5:-$2}
   local completed_at image image_digest executor_name
   completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   image=${attempted_image%@*}
@@ -233,9 +234,10 @@ record_standalone_rollback() {
   if [[ ! "$executor_name" =~ ^[A-Za-z0-9._@/-]+$ ]]; then
     executor_name=local
   fi
-  printf '{"source_commit":"manual","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"manual","previous_digest":"%s","health_result":"%s","final_observed_state":"current_digest=%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"%s"}\n' \
+  printf '{"source_commit":"manual","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"manual","previous_digest":"%s","health_result":"%s","final_observed_state":"current_digest=%s","next_rollback_digest":"%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"%s"}\n' \
     "$image" "$image_digest" "$resulting_digest" "$health_result" \
-    "$resulting_digest" "$executor_name" "$completed_at" "$completed_at" "$outcome" \
+    "$resulting_digest" "$next_rollback_digest" "$executor_name" \
+    "$completed_at" "$completed_at" "$outcome" \
     >>"$history_file"
 }
 
@@ -736,20 +738,25 @@ if [[ "$release_image" == --rollback ]]; then
     if [[ ! "$release_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
       release_image=bootstrap:empty
     fi
+    manual_executor=${COFORGE_EXECUTOR:-local}
+    manual_owner=${COFORGE_TRANSACTION_OWNER:-manual}
+    if [[ ! "$manual_executor" =~ ^[A-Za-z0-9._@/-]+$ ]] \
+      || [[ ! "$manual_owner" =~ ^[A-Za-z0-9._-]+$ ]]; then
+      printf 'manual rollback requires valid executor and owner identities\n' >&2
+      exit 64
+    fi
     started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    trap '' HUP INT TERM
     printf '%s\n' "$release_image" >"$pending_previous_image_file"
     printf 'manual\n' >"$pending_source_commit_file"
     printf 'manual\n' >"$pending_workflow_run_file"
-    printf '%s\n' "${COFORGE_EXECUTOR:-local}" >"$pending_executor_file"
+    printf '%s\n' "$manual_executor" >"$pending_executor_file"
     printf '%s\n' "$started_at" >"$pending_started_at_file"
     printf 'manual\n' >"$pending_origin_file"
-    printf '%s\n' "${COFORGE_TRANSACTION_OWNER:-manual}" >"$pending_owner_file"
+    printf '%s\n' "$manual_owner" >"$pending_owner_file"
     printf 'manual\n' >"$pending_failure_file"
     pending_image=$manual_pending_image
     pending_previous_image=$release_image
-    trap 'record_interruption HUP' HUP
-    trap 'record_interruption INT' INT
-    trap 'record_interruption TERM' TERM
     if [[ "$previous_image" != bootstrap:empty ]] && [[ -r "$current_compose_source" ]]; then
       cp -f "$current_compose_source" "$rollback_compose_backup"
       if [[ "$current_compose_source" != "$compose_file" ]]; then
@@ -758,6 +765,9 @@ if [[ "$release_image" == --rollback ]]; then
     fi
     printf '%s\n' "$manual_pending_image" >"$next_pending_image_file"
     mv -f "$next_pending_image_file" "$pending_image_file"
+    trap 'record_interruption HUP' HUP
+    trap 'record_interruption INT' INT
+    trap 'record_interruption TERM' TERM
   fi
   if [[ ! "$release_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
     && [[ "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
@@ -766,8 +776,8 @@ if [[ "$release_image" == --rollback ]]; then
       --project-name "$project_name" \
       --file "$compose_file" \
       down; then
-      record_standalone_rollback "$previous_image" unknown \
-        'rollback_empty=failed' failed_rollback
+      record_standalone_rollback "$previous_image" "${previous_image##*@}" \
+        'rollback_empty=failed' failed_rollback bootstrap:empty
       printf 'current image %s could not be stopped\n' "$previous_image" >&2
       exit 1
     fi
@@ -776,8 +786,9 @@ if [[ "$release_image" == --rollback ]]; then
       --file "$compose_file" \
       ps --all --quiet)
     if [[ -n "$remaining_container" ]]; then
-      record_standalone_rollback "$previous_image" unknown \
-        'rollback_empty=failed;gateway_container=present' failed_rollback
+      record_standalone_rollback "$previous_image" "${previous_image##*@}" \
+        'rollback_empty=failed;gateway_container=present' failed_rollback \
+        bootstrap:empty
       printf 'Compose project is not empty after rollback shutdown\n' >&2
       exit 1
     fi

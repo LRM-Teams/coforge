@@ -680,6 +680,13 @@ if ! tail -n 1 "$test_root/standalone-rollback-failure/release-history.jsonl" \
   printf 'standalone rollback failure did not create a durable audit record\n' >&2
   exit 1
 fi
+if tail -n 1 "$test_root/standalone-rollback-failure/release-history.jsonl" \
+  | grep -Fq 'unknown' \
+  || ! tail -n 1 "$test_root/standalone-rollback-failure/release-history.jsonl" \
+    | grep -Fq '"next_rollback_digest":"bootstrap:empty"'; then
+  printf 'standalone rollback failure lost its known release identities\n' >&2
+  exit 1
+fi
 
 mkdir -p "$test_root/socket-app"
 printf 'release: socket\n' >"$test_root/socket-app/compose.yaml"
@@ -860,6 +867,23 @@ if PATH="$test_root/bin:$PATH" \
   COFORGE_APP_ROOT="$test_root/corrupt-pending" \
   "$release_script" --rollback; then
   printf 'expected corrupt pending evidence to stop rollback mutation\n' >&2
+  exit 1
+fi
+
+mkdir -p "$test_root/invalid-manual"
+printf 'release: current\n' >"$test_root/invalid-manual/compose.yaml"
+printf '%s\n' "$first_image" >"$test_root/invalid-manual/current-image"
+if PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/invalid-manual" \
+  COFORGE_EXECUTOR='invalid executor' \
+  "$release_script" --rollback; then
+  printf 'manual rollback accepted an invalid executor identity\n' >&2
+  exit 1
+fi
+if [[ -e "$test_root/invalid-manual/pending-image" ]] \
+  || [[ "$(<"$test_root/invalid-manual/current-image")" != "$first_image" ]]; then
+  printf 'invalid manual input published or mutated a transaction\n' >&2
   exit 1
 fi
 

@@ -33,9 +33,17 @@ if [[ "$pending_owner" != "$TRANSACTION_OWNER" ]]; then
     "COFORGE_TRANSACTION_OWNER='$TRANSACTION_OWNER' \
       $pending_root/compose_release.sh --adopt-interrupted"
 fi
+set +e
 ssh -F "$ssh_config" coforge-ecs \
   "COFORGE_TRANSACTION_OWNER='$TRANSACTION_OWNER' \
-    $pending_root/compose_release.sh --record-interruption" || true
+    $pending_root/compose_release.sh --record-interruption"
+interruption_status=$?
+set -e
+if [[ "$interruption_status" -ne 130 ]]; then
+  printf 'interrupted release audit failed with status %s\n' \
+    "$interruption_status" >&2
+  exit 1
+fi
 
 recovery_ok=true
 if ! ssh -F "$ssh_config" coforge-ecs \

@@ -22,7 +22,7 @@ if [[ "$command_line" == *'if test -e '* ]]; then
 elif [[ "$command_line" == *'cat '*'/pending-owner'* ]]; then
   printf '%s\n' "${TRANSACTION_OWNER:?}"
 elif [[ "$command_line" == *'--record-interruption'* ]]; then
-  exit 130
+  exit "${FAKE_INTERRUPTION_STATUS:-130}"
 elif [[ "$command_line" == *'--rollback-target-image'* ]]; then
   :
 elif [[ "$command_line" == *'--finalize-rollback'* ]]; then
@@ -53,6 +53,19 @@ PATH="$test_root/bin:$PATH" FAKE_PENDING_STATE=absent "$recover_script"
 if PATH="$test_root/bin:$PATH" FAKE_PENDING_STATE=transport-failure \
   "$recover_script"; then
   printf 'recovery treated SSH transport failure as an absent transaction\n' >&2
+  exit 1
+fi
+
+if PATH="$test_root/bin:$PATH" \
+  FAKE_PENDING_STATE=present \
+  FAKE_INTERRUPTION_STATUS=255 \
+  FAKE_FAILED_RECORD="$test_root/unexpected-failed-record" \
+  "$recover_script"; then
+  printf 'recovery swallowed an interrupted-audit transport failure\n' >&2
+  exit 1
+fi
+if [[ -e "$test_root/unexpected-failed-record" ]]; then
+  printf 'recovery mutated state after interrupted-audit failure\n' >&2
   exit 1
 fi
 

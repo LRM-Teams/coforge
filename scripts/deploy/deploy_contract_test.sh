@@ -35,6 +35,14 @@ grep -Fq 'if test -e $pending_root/pending-image; then printf present; else prin
 grep -Fq '&& ssh -F "$ssh_config" coforge-ecs' "$recover_release"
 grep -Fq -- '--record-failed-rollback' "$recover_release"
 grep -Fq 'not address.is_global' "$workflow"
+grep -Fq 'address.is_multicast' "$workflow"
+login_line=$(grep -n 'name: Log deployment user in to GHCR' "$workflow" | cut -d: -f1)
+recovery_line=$(grep -n 'name: Recover prior interrupted release before deployment' \
+  "$workflow" | cut -d: -f1)
+if ((login_line >= recovery_line)); then
+  printf 'successor recovery runs before private-registry authentication\n' >&2
+  exit 1
+fi
 grep -Fq 'mise run test:deploy' "$ci_workflow"
 grep -Fq 'mise run check:deploy' "$ci_workflow"
 
