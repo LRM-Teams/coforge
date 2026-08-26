@@ -1,0 +1,13 @@
+{
+  "name": "coforge",
+  "private": true,
+  "packageManager": "bun@1.4.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "bun run --filter '*' --if-present build",
+    "typecheck": "bun run --filter '*' --if-present typecheck"
+  }
+}
