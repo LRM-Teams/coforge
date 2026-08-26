@@ -43,6 +43,13 @@ if ((login_line >= recovery_line)); then
   printf 'successor recovery runs before private-registry authentication\n' >&2
   exit 1
 fi
+evidence_block=$(sed -n '/name: Collect durable release evidence/,/name: Remove remote staging files/p' \
+  "$workflow")
+if [[ "$evidence_block" == *'continue-on-error: true'* ]] \
+  || [[ "$evidence_block" != *'if-no-files-found: error'* ]]; then
+  printf 'durable deployment evidence is configured as best-effort\n' >&2
+  exit 1
+fi
 grep -Fq 'mise run test:deploy' "$ci_workflow"
 grep -Fq 'mise run check:deploy' "$ci_workflow"
 

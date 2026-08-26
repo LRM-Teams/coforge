@@ -30,7 +30,9 @@ environment must promote the same digest rather than rebuild it.
   root SSH are not supported by the workflow.
 - The deploy job runs only on a dedicated runner labelled
   `coforge-test-deploy` in the repository-restricted `coforge-deploy` runner
-  group, with a stable egress IPv4. Port 22 permits only that `/32`; do not
+  group, with a stable egress IPv4. Keep this runner outside the target ECS and
+  its private VPC path so its HTTPS/WSS/TCP probes exercise the public IP.
+  Port 22 permits only that `/32`; do not
   allowlist GitHub-hosted runners' broad, changing IP ranges.
 - The existing Caddy configuration is never replaced. An administrator adds
   one reviewed import, validates the complete configuration with the running
@@ -230,8 +232,25 @@ public WSS, shared-ingress, TCP/80-closed, and running-digest verification.
 The TCP gate is an actual connect probe, not an HTTP response check:
 
 ```sh
+curl --fail --proto '=https' --tlsv1.2 --connect-timeout 5 --max-time 20 \
+  https://<public-ip>/coforge/readyz
+python3 scripts/deploy/wss_smoke.py \
+  wss://<public-ip>/coforge/v1/connect --timeout 10
+curl --fail --proto '=https' --tlsv1.2 --connect-timeout 5 --max-time 20 \
+  https://<public-ip>/<existing-shared-health-path>
 python3 scripts/deploy/tcp_closed.py <public-ip> 80 --timeout 5
+ssh -F <pinned-ssh-config> coforge-ecs \
+  'export XDG_RUNTIME_DIR=/run/user/$(id -u); \
+   export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock; \
+   docker compose --project-name coforge-test \
+     --file ~/.local/share/coforge/realtime-gateway/compose.yaml \
+     ps --quiet gateway'
 ```
+
+Resolve that container with `docker inspect --format '{{.Config.Image}}'` and
+compare it byte-for-byte with `compose_release.sh --rollback-target-image`.
+Run the public probes from the same external static-egress runner, not from the
+ECS host or its private network.
 
 For a non-empty target, finalize only after every result above passes:
 

@@ -432,7 +432,6 @@ jobs:
 
       - name: Collect durable release evidence
         if: ${{ always() }}
-        continue-on-error: true
         run: |
           scp -F "$RUNNER_TEMP/ssh/config" \
             coforge-ecs:.local/share/coforge/realtime-gateway/release-history.jsonl \
@@ -444,7 +443,7 @@ jobs:
         with:
           name: test-deployment-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/release-history.jsonl
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 90
 
       - name: Remove remote staging files

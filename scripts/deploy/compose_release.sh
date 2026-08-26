@@ -76,14 +76,23 @@ compose_generation_path() {
 
 store_compose() {
   local source=$1
-  local digest
+  local digest generation_path temporary_generation
   if [[ ! -r "$source" ]]; then
     printf 'none\n'
     return
   fi
   digest=$(sha256sum "$source" | cut -d ' ' -f 1)
-  if [[ ! -e "$compose_store/$digest.yaml" ]]; then
-    install -m 0600 "$source" "$compose_store/$digest.yaml"
+  generation_path="$compose_store/$digest.yaml"
+  if [[ ! -r "$generation_path" ]] \
+    || [[ "$(sha256sum "$generation_path" 2>/dev/null | cut -d ' ' -f 1)" != "$digest" ]]; then
+    temporary_generation=$(mktemp "$compose_store/.generation.XXXXXX")
+    install -m 0600 "$source" "$temporary_generation"
+    if [[ "$(sha256sum "$temporary_generation" | cut -d ' ' -f 1)" != "$digest" ]]; then
+      rm -f -- "$temporary_generation"
+      printf 'Compose generation copy failed verification\n' >&2
+      exit 65
+    fi
+    mv -f "$temporary_generation" "$generation_path"
   fi
   printf '%s\n' "$digest"
 }
@@ -171,7 +180,9 @@ record_interruption() {
   if [[ "$previous_digest" != bootstrap:empty ]]; then
     previous_digest=${previous_digest##*@}
   fi
-  printf '%s\n' interrupted >"$pending_failure_file"
+  if [[ ! -e "$pending_failure_file" ]]; then
+    printf '%s\n' interrupted >"$pending_failure_file"
+  fi
   printf '{"source_commit":"%s","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"signal_%s=interrupted","final_observed_state":"%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"interrupted"}\n' \
     "$source_commit" "$image" "$image_digest" "$workflow_run" \
     "$previous_digest" "$signal" "$final_state" "$executor" "$started_at" \
@@ -395,7 +406,8 @@ if [[ "$release_image" == --adopt-interrupted ]]; then
     || [[ "$new_owner" == "$old_owner" ]] \
     || [[ "$pending_executor" != github-actions ]] \
     || [[ ! "$pending_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
-    || { [[ -n "$pending_failure" ]] && [[ "$pending_failure" != interrupted ]]; }; then
+    || { [[ -n "$pending_failure" ]] \
+      && [[ ! "$pending_failure" =~ ^(interrupted|internal|external)$ ]]; }; then
     printf 'only an interrupted GitHub Actions transaction may be adopted\n' >&2
     exit 73
   fi
@@ -646,13 +658,18 @@ if [[ "$release_image" == --record-failed-rollback ]]; then
   completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   image=${pending_image%@*}
   image_digest=${pending_image##*@}
-  observed_current=$(cat "$current_image_file" 2>/dev/null || true)
-  if [[ ! "$observed_current" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
-    observed_current=absent
+  observed_selected=$previous_image
+  if [[ "$observed_selected" != bootstrap:empty ]] \
+    && [[ ! "$observed_selected" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    observed_selected=unknown
+  fi
+  observed_compatibility=$(cat "$current_image_file" 2>/dev/null || true)
+  if [[ ! "$observed_compatibility" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    observed_compatibility=absent
   fi
   probe_image=$pending_image
-  if [[ "$observed_current" != absent ]]; then
-    probe_image=$observed_current
+  if [[ "$observed_selected" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+    probe_image=$observed_selected
   fi
   docker_status=unavailable
   observed_running=unknown
@@ -672,11 +689,11 @@ if [[ "$release_image" == --record-failed-rollback ]]; then
       fi
     fi
   fi
-  printf '{"source_commit":"%s","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"candidate_%s=failed;rollback=failed","final_observed_state":"docker=%s;current_image=%s;running_image=%s;gateway_container=%s","next_rollback_digest":"%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"failed_rollback"}\n' \
+  printf '{"source_commit":"%s","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"candidate_%s=failed;rollback=failed","final_observed_state":"docker=%s;selected_image=%s;compatibility_current=%s;running_image=%s;gateway_container=%s","next_rollback_digest":"%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"failed_rollback"}\n' \
     "$source_commit" "$image" "$image_digest" "$workflow_run" \
-    "$previous_digest" "$failure_stage" "$docker_status" "$observed_current" "$observed_running" \
-    "$gateway_container" "$previous_digest" "$executor" "$started_at" \
-    "$completed_at" >>"$history_file"
+    "$previous_digest" "$failure_stage" "$docker_status" "$observed_selected" \
+    "$observed_compatibility" "$observed_running" "$gateway_container" \
+    "$previous_digest" "$executor" "$started_at" "$completed_at" >>"$history_file"
   printf 'failed rollback was recorded; pending recovery evidence was retained\n'
   exit 0
 fi
@@ -727,10 +744,11 @@ if [[ "$release_image" == --rollback ]]; then
     release_image=$recorded_previous_image
     pending_rollback=false
     manual_pending_image=$previous_image
+    manual_from=
     if [[ "$previous_image" == bootstrap:empty ]] \
       && [[ "$release_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
       manual_pending_image=$release_image
-      printf 'bootstrap:empty\n' >"$pending_manual_from_file"
+      manual_from=bootstrap:empty
     elif [[ ! "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
       printf 'current release evidence is missing or invalid\n' >&2
       exit 65
@@ -747,6 +765,9 @@ if [[ "$release_image" == --rollback ]]; then
     fi
     started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     trap '' HUP INT TERM
+    if [[ -n "$manual_from" ]]; then
+      printf '%s\n' "$manual_from" >"$pending_manual_from_file"
+    fi
     printf '%s\n' "$release_image" >"$pending_previous_image_file"
     printf 'manual\n' >"$pending_source_commit_file"
     printf 'manual\n' >"$pending_workflow_run_file"

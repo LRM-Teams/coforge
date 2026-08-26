@@ -267,6 +267,35 @@ if [[ -e "$test_root/retry-commit/pending-image" ]] \
   exit 1
 fi
 
+mkdir -p "$test_root/generation-repair/compose-generations"
+printf 'release: current\n' >"$test_root/generation-repair/compose.yaml"
+printf 'release: candidate\n' >"$test_root/generation-repair/candidate.yaml"
+printf '%s\n' "$first_image" >"$test_root/generation-repair/current-image"
+candidate_compose_hash=$(sha256sum "$test_root/generation-repair/candidate.yaml" | cut -d ' ' -f 1)
+printf 'truncated\n' >"$test_root/generation-repair/compose-generations/$candidate_compose_hash.yaml"
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/generation-repair" \
+  COFORGE_CANDIDATE_COMPOSE="$test_root/generation-repair/candidate.yaml" \
+  COFORGE_DEFER_COMMIT=true \
+  COFORGE_SOURCE_COMMIT="$source_commit" \
+  COFORGE_WORKFLOW_RUN="$workflow_run" \
+  COFORGE_EXECUTOR=github-actions \
+  COFORGE_HEALTH_ATTEMPTS=1 \
+  "$release_script" "$second_image"
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/generation-repair" \
+  COFORGE_PUBLIC_HEALTH_RESULT=passed \
+  COFORGE_SHARED_INGRESS_HEALTH_RESULT=passed \
+  COFORGE_WSS_HEALTH_RESULT=passed \
+  COFORGE_RUNNING_DIGEST_RESULT=passed \
+  "$release_script" --commit
+if [[ "$(sha256sum "$test_root/generation-repair/compose-generations/$candidate_compose_hash.yaml" | cut -d ' ' -f 1)" != "$candidate_compose_hash" ]]; then
+  printf 'Compose generation was not atomically repaired before pointer publication\n' >&2
+  exit 1
+fi
+
 mkdir -p "$test_root/partial-commit"
 printf 'release: previous\n' >"$test_root/partial-commit/previous-compose.yaml"
 printf 'release: current\n' >"$test_root/partial-commit/compose.yaml"
@@ -355,21 +384,39 @@ if PATH="$test_root/bin:$PATH" \
   printf 'expected a different transaction owner to be rejected\n' >&2
   exit 1
 fi
+printf 'external\n' >"$test_root/deferred-commit/pending-failure-stage"
 PATH="$test_root/bin:$PATH" \
   FAKE_DOCKER_LOG="$docker_log" \
   COFORGE_TRANSACTION_OWNER=other-owner \
   COFORGE_APP_ROOT="$test_root/deferred-commit" \
   "$release_script" --adopt-interrupted
 if [[ "$(<"$test_root/deferred-commit/pending-owner")" != other-owner ]] \
-  || [[ "$(<"$test_root/deferred-commit/pending-failure-stage")" != interrupted ]]; then
-  printf 'a successor workflow could not adopt an unmarked interrupted transaction\n' >&2
+  || [[ "$(<"$test_root/deferred-commit/pending-failure-stage")" != external ]]; then
+  printf 'a successor workflow could not adopt an external-stage transaction\n' >&2
   exit 1
 fi
+printf 'internal\n' >"$test_root/deferred-commit/pending-failure-stage"
 PATH="$test_root/bin:$PATH" \
   FAKE_DOCKER_LOG="$docker_log" \
   COFORGE_TRANSACTION_OWNER=test-owner \
   COFORGE_APP_ROOT="$test_root/deferred-commit" \
   "$release_script" --adopt-interrupted
+if [[ "$(<"$test_root/deferred-commit/pending-failure-stage")" != internal ]]; then
+  printf 'a successor workflow could not adopt an internal-stage transaction\n' >&2
+  exit 1
+fi
+printf 'external\n' >"$test_root/deferred-commit/pending-failure-stage"
+if PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/deferred-commit" \
+  "$release_script" --record-interruption; then
+  printf 'explicit interruption recorder returned success unexpectedly\n' >&2
+  exit 1
+fi
+if [[ "$(<"$test_root/deferred-commit/pending-failure-stage")" != external ]]; then
+  printf 'interruption audit overwrote the original rollback trigger\n' >&2
+  exit 1
+fi
 PATH="$test_root/bin:$PATH" \
   FAKE_DOCKER_LOG="$docker_log" \
   COFORGE_APP_ROOT="$test_root/deferred-commit" \
@@ -643,6 +690,19 @@ fi
 if [[ "$(sed -n '3p' "$test_root/first-deploy/release-state")" != none ]] \
   || [[ ! "$(sed -n '4p' "$test_root/first-deploy/release-state")" =~ ^[0-9a-f]{64}$ ]]; then
   printf 'empty-state rollback lost the previous image Compose generation\n' >&2
+  exit 1
+fi
+if PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TRANSACTION_OWNER='invalid owner' \
+  COFORGE_APP_ROOT="$test_root/first-deploy" \
+  "$release_script" --rollback; then
+  printf 'rollback from empty accepted an invalid owner identity\n' >&2
+  exit 1
+fi
+if [[ -e "$test_root/first-deploy/pending-manual-from" ]] \
+  || [[ -e "$test_root/first-deploy/pending-image" ]]; then
+  printf 'invalid rollback from empty leaked transaction metadata\n' >&2
   exit 1
 fi
 PATH="$test_root/bin:$PATH" \
