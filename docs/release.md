@@ -260,6 +260,54 @@ Computer and Daemon versions are independent. An implementation may offer a
 friendlier exact selector only when it resolves unambiguously to a signed
 release-set digest and one platform bundle.
 
+The implemented updater commands are:
+
+```text
+coforge-computer install [--version latest|test|sha256:<64 lowercase hex>]
+coforge-computer upgrade [--version latest|test|sha256:<64 lowercase hex>]
+coforge-computer rollback
+```
+
+`install.sh` and `install.ps1` download a platform bootstrap only after its
+SHA-256 has been pinned into that reviewed script, then pass the selector to
+`coforge-computer install`. Until the provisioning task supplies those exact
+bootstrap bytes and pins, both scripts return a stable not-published failure;
+tests may inject a local bootstrap only behind `COFORGE_INSTALLER_TEST_MODE=1`.
+No production feed URL or trust key is configurable through the command line.
+
+Every signed feed object uses this JSON envelope:
+
+```json
+{
+  "schema_version": 1,
+  "key_id": "coforge-release-...",
+  "payload": "<base64 of the exact UTF-8 JSON payload>",
+  "signature": "<base64 Ed25519 signature>"
+}
+```
+
+The signature input is the exact UTF-8 byte sequence
+`coforge-release-v1\n<key_id>\n<payload>`. A release-set selector is the
+lowercase `sha256:` digest of the decoded release-set payload bytes. The
+release-set payload names signed Computer and Daemon manifests and one signed
+bundle per target. Each signed bundle repeats both component-manifest digests
+and the size/SHA-256 of both embedded process payloads; activation requires all
+three identities to agree.
+
+The updater accepts only relative immutable paths inside the selected
+component or release-set namespace. It rejects redirects, traversal, unknown
+schemas or keys, signature/digest/size mismatches, decreasing channel
+generations, and a channel with `current: null`. It never probes the other
+channel, a component path, or a `latest` object after any rejection.
+
+Installation stages a complete version below the current user's platform data
+directory, records its offline payload identities, and atomically switches the
+active pointer only after verification. The sole user PATH shim resolves that
+pointer. `rollback` performs no network access and re-verifies the retained
+payloads before atomically swapping current and previous. Machine identity,
+credentials, configuration, and application data remain outside the version
+store.
+
 ## Main to test
 
 ### Cloud application
@@ -550,15 +598,16 @@ single-component transaction, signature, or per-user installation boundaries.
 
 ## Implementation status
 
-This contract intentionally does not name a registry, workflow file, Compose
-file, production URL, workflow input, archive format, platform/architecture
-matrix, signature algorithm and key lifecycle, or updater command that the
-repository has not yet implemented. The local feed topology and
-`cdn.coforge.cn/releases/` consumer boundary above are approved, but no feed or
-installer exists yet. Each implementation must update this document with its
-real operator interface before claiming the release Skill can execute it. Until
-then, the Skill may inspect, prepare evidence, and identify blockers, but it
-must not invent deployment, publication, signing, or updater commands.
+The local updater, installer entry points, Ed25519 wire format, and fixture
+matrix are implemented. Real distribution remains fail closed until the
+infrastructure provisioning task supplies the protected signing key/key ID,
+publishes each platform bootstrap, replaces the reviewed bootstrap checksum
+pins, and makes the consumer-visible CDN objects available. Cloud registry,
+Compose deployment automation, production environment, publication workflow,
+and signing-key custody/rotation are also still unimplemented. Until those
+dependencies exist, the release Skill may inspect, run fixture verification,
+prepare evidence, and identify blockers, but it must not claim a real CDN
+installation or publication succeeded.
 
 ## Official references
 

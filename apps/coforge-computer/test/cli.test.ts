@@ -136,3 +136,46 @@ test("setup binds at most one workspace per invocation", async () => {
 
   expect(calls).toEqual(["workspace-a", undefined]);
 });
+
+test("install and upgrade preserve the three release-set selection modes", async () => {
+  const calls: Array<{ operation: string; version?: string }> = [];
+  const dependencies = {
+    login: { async run() {} },
+    setup: { async run() {} },
+    updater: {
+      async install(version: string) {
+        calls.push({ operation: "install", version });
+      },
+      async upgrade(version: string) {
+        calls.push({ operation: "upgrade", version });
+      },
+      async rollback() {
+        calls.push({ operation: "rollback" });
+      },
+    },
+  };
+
+  await expect(runCli(["install"], dependencies)).resolves.toBe(0);
+  await expect(runCli(["upgrade", "--version", "test"], dependencies)).resolves.toBe(0);
+  await expect(
+    runCli(
+      [
+        "install",
+        "--version",
+        "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      ],
+      dependencies,
+    ),
+  ).resolves.toBe(0);
+  await expect(runCli(["rollback"], dependencies)).resolves.toBe(0);
+
+  expect(calls).toEqual([
+    { operation: "install", version: "latest" },
+    { operation: "upgrade", version: "test" },
+    {
+      operation: "install",
+      version: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    },
+    { operation: "rollback" },
+  ]);
+});
