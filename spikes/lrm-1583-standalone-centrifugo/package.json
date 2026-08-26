@@ -1,0 +1,18 @@
+{
+  "name": "@coforge/spike-lrm-1583-standalone-centrifugo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "oxfmt --check . && oxlint backend.ts integration.test.ts && tsc --noEmit",
+    "test": "bun test --timeout 30000"
+  },
+  "dependencies": {
+    "centrifuge": "5.7.0"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.0",
+    "oxfmt": "0.65.0",
+    "oxlint": "1.80.0",
+    "typescript": "7.0.2"
+  }
+}

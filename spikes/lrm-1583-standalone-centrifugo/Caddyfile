@@ -1,0 +1,11 @@
+{
+	auto_https off
+}
+
+:8080 {
+	@centrifugo path /connection/*
+	reverse_proxy @centrifugo centrifugo-a:8000 centrifugo-b:8000
+
+	@backend path /centrifugo/* /test-control/* /health
+	reverse_proxy @backend backend-a:3000 backend-b:3000
+}

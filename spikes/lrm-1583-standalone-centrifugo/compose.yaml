@@ -1,0 +1,107 @@
+name: coforge-lrm-1583
+
+services:
+  redis:
+    image: redis:7.4.5-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 1s
+      retries: 30
+
+  backend-a:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      BACKEND_REPLICA: backend-a
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)})",
+        ]
+      interval: 1s
+      timeout: 1s
+      retries: 30
+
+  backend-b:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      BACKEND_REPLICA: backend-b
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)})",
+        ]
+      interval: 1s
+      timeout: 1s
+      retries: 30
+
+  centrifugo-a:
+    image: centrifugo/centrifugo:v6.9.3
+    command: ["centrifugo", "--config=/centrifugo/config.json"]
+    volumes:
+      - ./centrifugo.json:/centrifugo/config.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "centrifugo", "checkconfig", "--config=/centrifugo/config.json"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  centrifugo-b:
+    image: centrifugo/centrifugo:v6.9.3
+    command: ["centrifugo", "--config=/centrifugo/config.json"]
+    volumes:
+      - ./centrifugo.json:/centrifugo/config.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "centrifugo", "checkconfig", "--config=/centrifugo/config.json"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  edge:
+    image: caddy:2.10.2-alpine
+    ports:
+      - "18083:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/health"]
+      interval: 1s
+      timeout: 1s
+      retries: 30
+    depends_on:
+      backend-a:
+        condition: service_healthy
+      backend-b:
+        condition: service_healthy
+      centrifugo-a:
+        condition: service_healthy
+      centrifugo-b:
+        condition: service_healthy
+
+  client:
+    profiles: ["test"]
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    environment:
+      CENTRIFUGO_URL: ws://edge:8080/connection/websocket
+    depends_on:
+      edge:
+        condition: service_healthy

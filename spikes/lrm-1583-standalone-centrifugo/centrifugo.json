@@ -1,0 +1,49 @@
+{
+  "engine": {
+    "type": "redis",
+    "redis": {
+      "address": "redis://redis:6379"
+    }
+  },
+  "client": {
+    "allowed_origins": ["*"],
+    "proxy": {
+      "connect": {
+        "enabled": true,
+        "endpoint": "http://edge:8080/centrifugo/connect",
+        "timeout": "2s",
+        "binary_encoding": true
+      }
+    }
+  },
+  "channel": {
+    "proxy": {
+      "subscribe": {
+        "endpoint": "http://edge:8080/centrifugo/subscribe",
+        "timeout": "2s"
+      }
+    },
+    "namespaces": [
+      {
+        "name": "conversation",
+        "subscribe_proxy_enabled": true
+      }
+    ]
+  },
+  "http_api": {
+    "key": "lrm-1583-disposable-api-key"
+  },
+  "rpc": {
+    "proxy": {
+      "endpoint": "http://edge:8080/centrifugo/rpc",
+      "timeout": "2s",
+      "binary_encoding": true
+    },
+    "without_namespace": {
+      "proxy_enabled": true
+    }
+  },
+  "log": {
+    "level": "info"
+  }
+}
