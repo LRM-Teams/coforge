@@ -242,6 +242,10 @@ record_interruption() {
     printf 'formal interruption audit failed; pending evidence retained\n' >&2
     exit 74
   fi
+  if ! rm -f -- "$pre_marker_active_file"; then
+    printf 'formal interruption was audited but active sentinel cleanup failed\n' >&2
+    exit 74
+  fi
   if [[ "$final_state" == unchanged ]]; then
     clear_pending
   fi
@@ -392,15 +396,8 @@ if [[ -e "$pending_audit_failed_file" ]]; then
   exit 74
 fi
 if [[ -e "$pre_marker_active_file" ]]; then
-  if [[ -e "$pending_image_file" ]]; then
-    # The atomic discovery marker proves every required sidecar was staged.
-    # A surviving active sentinel is stale transition debris, not an
-    # incomplete transaction, so recovery may safely resume.
-    rm -f -- "$pre_marker_active_file"
-  else
-    printf 'an incomplete pre-marker transaction exists; refusing to discard recovery evidence\n' >&2
-    exit 74
-  fi
+  printf 'an incomplete or unaudited transaction exists; refusing to discard recovery evidence\n' >&2
+  exit 74
 fi
 if [[ ! -e "$pending_image_file" ]]; then
   # A transaction is discoverable only after its marker is atomically
@@ -883,6 +880,10 @@ if [[ "$release_image" == --rollback ]]; then
     trap 'record_interruption INT' INT
     trap 'record_interruption TERM' TERM
     if [[ "${COFORGE_INTERNAL_TEST_MODE:-}" == compose-release-tests ]] \
+      && [[ "${COFORGE_TEST_READONLY_DURING_ACTIVE_REMOVAL:-false}" == true ]]; then
+      chmod 0500 "$app_root"
+    fi
+    if [[ "${COFORGE_INTERNAL_TEST_MODE:-}" == compose-release-tests ]] \
       && [[ "${COFORGE_TEST_SIGNAL_DURING_ACTIVE_REMOVAL:-false}" == true ]]; then
       kill -TERM "$$"
     fi
@@ -990,6 +991,10 @@ if [[ "$defer_commit" == true ]]; then
   trap 'record_interruption HUP' HUP
   trap 'record_interruption INT' INT
   trap 'record_interruption TERM' TERM
+  if [[ "${COFORGE_INTERNAL_TEST_MODE:-}" == compose-release-tests ]] \
+    && [[ "${COFORGE_TEST_READONLY_DURING_ACTIVE_REMOVAL:-false}" == true ]]; then
+    chmod 0500 "$app_root"
+  fi
   if [[ "${COFORGE_INTERNAL_TEST_MODE:-}" == compose-release-tests ]] \
     && [[ "${COFORGE_TEST_SIGNAL_DURING_ACTIVE_REMOVAL:-false}" == true ]]; then
     kill -TERM "$$"

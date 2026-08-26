@@ -304,7 +304,7 @@ formal_ci_status=$?
 set -e
 if [[ "$formal_ci_status" -ne 130 ]] \
   || [[ ! -e "$test_root/formal-ci-stale-active/pending-image" ]] \
-  || [[ ! -e "$test_root/formal-ci-stale-active/.pre-marker-active" ]]; then
+  || [[ -e "$test_root/formal-ci-stale-active/.pre-marker-active" ]]; then
   printf 'CI active-removal interruption fixture was not created\n' >&2
   exit 1
 fi
@@ -344,7 +344,7 @@ formal_manual_status=$?
 set -e
 if [[ "$formal_manual_status" -ne 130 ]] \
   || [[ ! -e "$test_root/formal-manual-stale-active/pending-image" ]] \
-  || [[ ! -e "$test_root/formal-manual-stale-active/.pre-marker-active" ]]; then
+  || [[ -e "$test_root/formal-manual-stale-active/.pre-marker-active" ]]; then
   printf 'manual active-removal interruption fixture was not created\n' >&2
   exit 1
 fi
@@ -414,6 +414,56 @@ if [[ "$formal_manual_audit_status" -ne 74 ]] \
     COFORGE_APP_ROOT="$test_root/formal-manual-audit-failure" \
     "$release_script" --current-image >/dev/null 2>&1; then
   printf 'formal manual audit failure did not fail closed\n' >&2
+  exit 1
+fi
+
+mkdir -p "$test_root/formal-ci-readonly"
+printf 'release: current\n' >"$test_root/formal-ci-readonly/compose.yaml"
+printf 'release: candidate\n' >"$test_root/formal-ci-readonly/candidate.yaml"
+printf '%s\n' "$first_image" >"$test_root/formal-ci-readonly/current-image"
+set +e
+PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TEST_SIGNAL_DURING_ACTIVE_REMOVAL=true \
+  COFORGE_TEST_READONLY_DURING_ACTIVE_REMOVAL=true \
+  COFORGE_APP_ROOT="$test_root/formal-ci-readonly" \
+  COFORGE_CANDIDATE_COMPOSE="$test_root/formal-ci-readonly/candidate.yaml" \
+  COFORGE_DEFER_COMMIT=true COFORGE_SOURCE_COMMIT="$source_commit" \
+  COFORGE_WORKFLOW_RUN="$workflow_run" COFORGE_EXECUTOR=github-actions \
+  COFORGE_HEALTH_ATTEMPTS=1 "$release_script" "$second_image"
+formal_ci_readonly_status=$?
+set -e
+chmod 0700 "$test_root/formal-ci-readonly"
+if [[ "$formal_ci_readonly_status" -eq 0 ]] \
+  || [[ ! -e "$test_root/formal-ci-readonly/pending-image" ]] \
+  || [[ ! -e "$test_root/formal-ci-readonly/.pre-marker-active" ]] \
+  || PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+    COFORGE_APP_ROOT="$test_root/formal-ci-readonly" \
+    "$release_script" --current-image >/dev/null 2>&1; then
+  printf 'formal CI readonly failure did not retain active fail-closed evidence\n' >&2
+  exit 1
+fi
+
+mkdir -p "$test_root/formal-manual-readonly"
+printf 'release: current\n' >"$test_root/formal-manual-readonly/compose.yaml"
+printf 'release: previous\n' >"$test_root/formal-manual-readonly/previous-compose.yaml"
+printf '%s\n' "$first_image" >"$test_root/formal-manual-readonly/current-image"
+printf '%s\n' "$third_image" >"$test_root/formal-manual-readonly/previous-image"
+set +e
+PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TEST_SIGNAL_DURING_ACTIVE_REMOVAL=true \
+  COFORGE_TEST_READONLY_DURING_ACTIVE_REMOVAL=true \
+  COFORGE_APP_ROOT="$test_root/formal-manual-readonly" \
+  "$release_script" --rollback
+formal_manual_readonly_status=$?
+set -e
+chmod 0700 "$test_root/formal-manual-readonly"
+if [[ "$formal_manual_readonly_status" -eq 0 ]] \
+  || [[ ! -e "$test_root/formal-manual-readonly/pending-image" ]] \
+  || [[ ! -e "$test_root/formal-manual-readonly/.pre-marker-active" ]] \
+  || PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+    COFORGE_APP_ROOT="$test_root/formal-manual-readonly" \
+    "$release_script" --current-image >/dev/null 2>&1; then
+  printf 'formal manual readonly failure did not retain active fail-closed evidence\n' >&2
   exit 1
 fi
 
