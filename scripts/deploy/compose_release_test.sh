@@ -403,6 +403,39 @@ PATH="$test_root/bin:$PATH" \
   COFORGE_APP_ROOT="$test_root/formal-manual-stale-active" \
   COFORGE_HEALTH_ATTEMPTS=1 \
   "$release_script" --rollback
+cp -a "$test_root/formal-manual-stale-active" \
+  "$test_root/manual-finalize-missing-backup"
+cp -a "$test_root/formal-manual-stale-active" \
+  "$test_root/manual-finalize-corrupt-backup"
+cp -a "$test_root/formal-manual-stale-active" \
+  "$test_root/manual-finalize-corrupt-target"
+rm -f "$test_root/manual-finalize-missing-backup/.compose.before-rollback"
+printf 'corrupt\n' \
+  >>"$test_root/manual-finalize-corrupt-backup/.compose.before-rollback"
+printf 'corrupt\n' \
+  >>"$test_root/manual-finalize-corrupt-target/pending-previous-compose.yaml"
+for invalid_manual_finalize_root in \
+  "$test_root/manual-finalize-missing-backup" \
+  "$test_root/manual-finalize-corrupt-backup" \
+  "$test_root/manual-finalize-corrupt-target"; do
+  cp -a "$invalid_manual_finalize_root" "$invalid_manual_finalize_root.expected"
+  set +e
+  PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+    COFORGE_APP_ROOT="$invalid_manual_finalize_root" \
+    COFORGE_PUBLIC_HEALTH_RESULT=passed \
+    COFORGE_SHARED_INGRESS_HEALTH_RESULT=passed \
+    COFORGE_WSS_HEALTH_RESULT=passed COFORGE_TCP80_RESULT=passed \
+    COFORGE_RUNNING_DIGEST_RESULT=passed \
+    "$release_script" --finalize-rollback
+  invalid_manual_finalize_status=$?
+  set -e
+  if [[ "$invalid_manual_finalize_status" -ne 74 ]] \
+    || ! diff -r "$invalid_manual_finalize_root.expected" \
+      "$invalid_manual_finalize_root" >/dev/null; then
+    printf 'manual finalization published invalid rollback backup state\n' >&2
+    exit 1
+  fi
+done
 PATH="$test_root/bin:$PATH" \
   FAKE_DOCKER_LOG="$docker_log" \
   COFORGE_APP_ROOT="$test_root/formal-manual-stale-active" \
@@ -760,6 +793,31 @@ if [[ "$(<"$test_root/deferred-commit/pending-image")" != "$second_image" ]]; th
   printf 'internally healthy candidate was not recorded as pending\n' >&2
   exit 1
 fi
+cp -a "$test_root/deferred-commit" "$test_root/commit-missing-compose"
+cp -a "$test_root/deferred-commit" "$test_root/commit-corrupt-compose"
+rm -f "$test_root/commit-missing-compose/pending-previous-compose.yaml"
+printf 'corrupt\n' >>"$test_root/commit-corrupt-compose/pending-previous-compose.yaml"
+for invalid_commit_root in \
+  "$test_root/commit-missing-compose" \
+  "$test_root/commit-corrupt-compose"; do
+  cp -a "$invalid_commit_root" "$invalid_commit_root.expected"
+  set +e
+  PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+    COFORGE_APP_ROOT="$invalid_commit_root" \
+    COFORGE_PUBLIC_HEALTH_RESULT=passed \
+    COFORGE_SHARED_INGRESS_HEALTH_RESULT=passed \
+    COFORGE_WSS_HEALTH_RESULT=passed COFORGE_TCP80_RESULT=passed \
+    COFORGE_RUNNING_DIGEST_RESULT=passed \
+    "$release_script" --commit
+  invalid_commit_status=$?
+  set -e
+  if [[ "$invalid_commit_status" -ne 74 ]] \
+    || ! diff -r "$invalid_commit_root.expected" \
+      "$invalid_commit_root" >/dev/null; then
+    printf 'commit published invalid previous Compose state\n' >&2
+    exit 1
+  fi
+done
 
 mkdir -p "$test_root/orphan-sidecars"
 printf 'release: current\n' >"$test_root/orphan-sidecars/compose.yaml"

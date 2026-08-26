@@ -240,6 +240,11 @@ never add secrets to application environment variables or image layers.
 Manual rollback uses the transaction's recorded previous healthy digest; do
 not edit Compose state, pass an arbitrary image, or use `latest`:
 
+The controller hashes both the rollback target Compose snapshot and the
+pre-rollback Compose backup. Finalization revalidates both hashes before
+publishing the new authoritative current/previous pair; missing or modified
+backup state returns 74 and retains the pending transaction.
+
 ```sh
 COFORGE_EDGE_BIND_IP=<internal-address> \
   ~/.local/share/coforge/realtime-gateway/compose_release.sh \

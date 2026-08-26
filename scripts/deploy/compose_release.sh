@@ -24,6 +24,7 @@ compose_file="$app_root/compose.yaml"
 candidate_compose_file=${COFORGE_CANDIDATE_COMPOSE:-"$compose_file"}
 previous_compose_file="$app_root/previous-compose.yaml"
 rollback_compose_backup="$app_root/.compose.before-rollback"
+rollback_compose_backup_digest_file="$app_root/.compose.before-rollback.digest"
 current_image_file="$app_root/current-image"
 previous_image_file="$app_root/previous-image"
 pending_image_file="$app_root/pending-image"
@@ -149,7 +150,8 @@ clear_pending() {
     "$pending_previous_compose_file" "$pending_previous_compose_digest_file" \
     "$pending_rollback_complete_file" \
     "$pending_failure_file" "$next_pending_image_file" \
-    "$rollback_compose_backup" "$pre_marker_active_file" \
+    "$rollback_compose_backup" "$rollback_compose_backup_digest_file" \
+    "$pre_marker_active_file" \
     "$pending_audit_failed_file"
 }
 
@@ -344,6 +346,7 @@ formal_pending_evidence_valid() {
   local started_at origin owner pending_prior previous_compose_digest
   local prior_compose_digest state_current state_previous
   local state_current_compose state_previous_compose state_generation
+  local manual_from rollback_backup_digest
   pending_image=$(cat "$pending_image_file" 2>/dev/null || true)
   pending_previous=$(cat "$pending_previous_image_file" 2>/dev/null || true)
   source_commit=$(cat "$pending_source_commit_file" 2>/dev/null || true)
@@ -364,7 +367,67 @@ formal_pending_evidence_valid() {
   if [[ "$origin" == manual ]]; then
     [[ "$source_commit" == manual ]] \
       && [[ "$workflow_run" == manual ]] \
-      && [[ -r "$compose_file" ]]
+      && [[ -r "$compose_file" ]] || return 1
+    manual_from=$(cat "$pending_manual_from_file" 2>/dev/null || true)
+    rollback_backup_digest=$(cat "$rollback_compose_backup_digest_file" 2>/dev/null || true)
+    previous_compose_digest=$(cat "$pending_previous_compose_digest_file" 2>/dev/null || true)
+    if [[ "$pending_previous" == bootstrap:empty ]]; then
+      [[ "$previous_compose_digest" == none ]] \
+        && [[ ! -e "$pending_previous_compose_file" ]] || return 1
+    else
+      [[ "$previous_compose_digest" =~ ^[0-9a-f]{64}$ ]] \
+        && [[ -r "$pending_previous_compose_file" ]] \
+        && [[ "$(sha256sum "$pending_previous_compose_file" | cut -d ' ' -f 1)" == "$previous_compose_digest" ]] \
+        || return 1
+    fi
+    if [[ "$manual_from" == bootstrap:empty ]]; then
+      [[ "$pending_image" == "$pending_previous" ]] \
+        && [[ "$rollback_backup_digest" == none ]] \
+        && [[ ! -e "$rollback_compose_backup" ]] || return 1
+    elif [[ -z "$manual_from" ]]; then
+      [[ "$pending_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
+        && [[ "$rollback_backup_digest" =~ ^[0-9a-f]{64}$ ]] \
+        && [[ -r "$rollback_compose_backup" ]] \
+        && [[ "$(sha256sum "$rollback_compose_backup" | cut -d ' ' -f 1)" == "$rollback_backup_digest" ]] \
+        || return 1
+    else
+      return 1
+    fi
+    if [[ -r "$state_file" ]]; then
+      state_current=$(state_field 1)
+      state_previous=$(state_field 2)
+      state_current_compose=$(state_field 3)
+      state_previous_compose=$(state_field 4)
+      if [[ "$manual_from" == bootstrap:empty ]]; then
+        if [[ "$state_current" == bootstrap:empty ]] \
+          && [[ "$state_previous" == "$pending_previous" ]] \
+          && [[ "$state_current_compose" == none ]] \
+          && [[ "$state_previous_compose" == "$previous_compose_digest" ]]; then
+          :
+        elif [[ "$state_current" == "$pending_previous" ]] \
+          && [[ "$state_previous" == bootstrap:empty ]] \
+          && [[ "$state_current_compose" == "$previous_compose_digest" ]] \
+          && [[ "$state_previous_compose" == none ]]; then
+          :
+        else
+          return 1
+        fi
+      else
+        if [[ "$state_current" == "$pending_image" ]] \
+          && [[ "$state_previous" == "$pending_previous" ]] \
+          && [[ "$state_current_compose" == "$rollback_backup_digest" ]] \
+          && [[ "$state_previous_compose" == "$previous_compose_digest" ]]; then
+          :
+        elif [[ "$state_current" == "$pending_previous" ]] \
+          && [[ "$state_previous" == "$pending_image" ]] \
+          && [[ "$state_current_compose" == "$previous_compose_digest" ]] \
+          && [[ "$state_previous_compose" == "$rollback_backup_digest" ]]; then
+          :
+        else
+          return 1
+        fi
+      fi
+    fi
     return
   fi
   [[ "$origin" == release ]] \
@@ -620,6 +683,10 @@ if [[ "$release_image" == --commit-status ]]; then
   exit 0
 fi
 if [[ "$release_image" == --commit ]]; then
+  if ! formal_pending_evidence_valid; then
+    printf 'formal recovery evidence is incomplete or invalid\n' >&2
+    exit 74
+  fi
   require_pending_owner
   if [[ "${COFORGE_PUBLIC_HEALTH_RESULT:-}" != passed ]] \
     || [[ "${COFORGE_SHARED_INGRESS_HEALTH_RESULT:-}" != passed ]] \
@@ -674,7 +741,8 @@ if [[ "$release_image" == --commit ]]; then
     "$pending_prior_previous_compose_digest_file" \
     "$pending_previous_compose_file" "$pending_previous_compose_digest_file" \
     "$pending_rollback_complete_file" \
-    "$pending_failure_file" "$rollback_compose_backup"
+    "$pending_failure_file" "$rollback_compose_backup" \
+    "$rollback_compose_backup_digest_file"
   printf 'image %s is healthy and committed\n' "$pending_image"
   exit 0
 fi
@@ -801,7 +869,8 @@ if [[ "$release_image" == --finalize-rollback ]]; then
     "$pending_prior_previous_compose_digest_file" \
     "$pending_previous_compose_file" "$pending_previous_compose_digest_file" \
     "$pending_rollback_complete_file" \
-    "$pending_failure_file" "$rollback_compose_backup"
+    "$pending_failure_file" "$rollback_compose_backup" \
+    "$rollback_compose_backup_digest_file"
   printf 'failed candidate %s was rolled back and verified\n' "$pending_image"
   exit 0
 fi
@@ -980,6 +1049,18 @@ if [[ "$release_image" == --rollback ]]; then
       printf '%s\n' "$manual_from" >"$pending_manual_from_file"
     fi
     printf '%s\n' "$release_image" >"$pending_previous_image_file"
+    if [[ "$release_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
+      if [[ ! -r "$previous_compose_source" ]]; then
+        clear_pending
+        printf 'previous release record has no readable Compose definition\n' >&2
+        exit 65
+      fi
+      cp -f "$previous_compose_source" "$pending_previous_compose_file"
+      sha256sum "$pending_previous_compose_file" | cut -d ' ' -f 1 \
+        >"$pending_previous_compose_digest_file"
+    else
+      printf 'none\n' >"$pending_previous_compose_digest_file"
+    fi
     printf 'manual\n' >"$pending_source_commit_file"
     printf 'manual\n' >"$pending_workflow_run_file"
     printf '%s\n' "$manual_executor" >"$pending_executor_file"
@@ -989,11 +1070,20 @@ if [[ "$release_image" == --rollback ]]; then
     printf 'manual\n' >"$pending_failure_file"
     pending_image=$manual_pending_image
     pending_previous_image=$release_image
-    if [[ "$previous_image" != bootstrap:empty ]] && [[ -r "$current_compose_source" ]]; then
+    if [[ "$previous_image" != bootstrap:empty ]]; then
+      if [[ ! -r "$current_compose_source" ]]; then
+        clear_pending
+        printf 'current release record has no readable Compose definition\n' >&2
+        exit 65
+      fi
       cp -f "$current_compose_source" "$rollback_compose_backup"
+      sha256sum "$rollback_compose_backup" | cut -d ' ' -f 1 \
+        >"$rollback_compose_backup_digest_file"
       if [[ "$current_compose_source" != "$compose_file" ]]; then
         cp -f "$current_compose_source" "$compose_file"
       fi
+    else
+      printf 'none\n' >"$rollback_compose_backup_digest_file"
     fi
     printf '%s\n' "$manual_pending_image" >"$next_pending_image_file"
     mv -f "$next_pending_image_file" "$pending_image_file"
@@ -1294,7 +1384,7 @@ if [[ "$defer_commit" == true ]]; then
   exit 1
 fi
 if [[ "$rollback" == true ]] && [[ -r "$rollback_compose_backup" ]]; then
-  mv -f "$rollback_compose_backup" "$compose_file"
+  cp -f "$rollback_compose_backup" "$compose_file"
 fi
 if [[ "$previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
   if [[ "$rollback" == false ]] && [[ -r "$previous_compose_source" ]]; then
