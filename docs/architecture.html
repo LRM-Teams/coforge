@@ -154,7 +154,7 @@
       <aside class="meta" aria-label="文档元数据">
         <dl>
           <dt>状态</dt><dd>Working draft</dd>
-          <dt>分支</dt><dd><code>main</code></dd>
+          <dt>分支</dt><dd>MVP fast lane · feature → CR → <code>main</code></dd>
           <dt>部署</dt><dd>Docker · 2 replicas</dd>
           <dt>本地</dt><dd>Bun 1.4 · 2 apps</dd>
           <dt>更新</dt><dd>2026-08-26</dd>
@@ -338,7 +338,7 @@
         <article class="note">
           <span class="chip accepted">Accepted</span>
           <h3>当前约束</h3>
-          <ul><li>无 Next.js；Web/backend 使用 TanStack + Node 24；</li><li>本地 TS 使用 Bun 1.4，Gateway 使用 Go；</li><li>本地仅 computer / daemon 两个发布应用；</li><li>Docker + Caddy + 两副本 + managed PostgreSQL；</li><li>前期所有开发直接落 <code>main</code>；</li><li>版本由 <code>mise</code> 统一管理。</li></ul>
+          <ul><li>无 Next.js；Web/backend 使用 TanStack + Node 24；</li><li>本地 TS 使用 Bun 1.4，Gateway 使用 Go；</li><li>本地仅 computer / daemon 两个发布应用；</li><li>Docker + Caddy + 两副本 + managed PostgreSQL；</li><li>MVP 采用轻量 CR：短生命周期 feature branch、一位 Agent review、短检查后立即 squash/rebase，禁止直接 push <code>main</code>；</li><li>只有架构、schema、协议、许可证、安全边界等高影响事项需要 Frank 明确批准；</li><li>版本由 <code>mise</code> 统一管理。</li></ul>
         </article>
         <article class="note">
           <span class="chip proposed">Proposed</span>

@@ -211,9 +211,9 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 
 精确版本以 `mise.toml` 为准。升级版本时必须同时更新锁文件、CI 和本文，不能只改本机环境。
 
-验证阶段采用 trunk-based 工作方式：所有开发直接进入 `main`，暂不维护 `dev` 分支。多人并行时必须在提交前拉取并 rebase 最新 `origin/main`，禁止 force-push。
+验证阶段采用轻量 [GitHub Flow](https://docs.github.com/en/get-started/using-github/github-flow)：短生命周期 feature branch → CR/PR → `main`，不维护长期 `dev` 分支，禁止直接向 `main` 提交或推送。MVP 分支只承载一个小目标，原则上当天合并或关闭。普通代码与文档由一位 Agent review，通过短检查后立即 squash/rebase 合并，目标从发起评审到合并为 5–10 分钟，不要求 Frank 逐个审批；架构、数据库 schema、通信协议、许可证、安全边界及其他影响广泛或难以逆转的事项仍须 Frank 明确批准。多人并行时必须保持分支职责单一，在最终评审前 rebase 最新 `origin/main`，禁止 force-push `main` 或其他贡献者的分支。
 
-提交保持小而单一，使用简洁的英文 Conventional Commit：`<type>(optional-scope): imperative summary`。
+提交与 CR 保持小而单一，使用简洁的英文 Conventional Commit：`<type>(optional-scope): imperative summary`。MVP 必需检查保持短小，仅包含格式/lint、类型检查、相关测试与构建；慢检查只有在风险收益值得延迟时再加入。未合并分支上的错误应通过 amend/rebase 整理，不以 revert commit 清理；`main` 使用项目批准的 squash/rebase merge 策略保持线性历史，合并后删除 feature branch。
 
 ## 9. 稳定性与安全约束
 

@@ -70,7 +70,12 @@ defaults.
 
 ## Development workflow
 
-Development currently lands directly on `main`. Keep commits narrow, use
-English Conventional Commit messages, rebase the latest `origin/main` before
-pushing, and run the relevant checks for every change. Read [AGENTS.md](AGENTS.md)
-before modifying architecture or package boundaries.
+Create each change on a short-lived feature branch and merge it into `main` only
+through an approved CR/PR. Direct pushes to `main` are not allowed. Keep CRs
+narrow, use English Conventional Commit messages, rebase the latest
+`origin/main`, and run the short relevant checks before requesting review.
+During MVP, ordinary changes use one Agent review and target a 5–10 minute
+review-to-merge cycle; only broad or difficult-to-reverse decisions require
+Frank's explicit approval. Read
+[AGENTS.md](AGENTS.md) before making a technical choice or modifying architecture
+or package boundaries.
