@@ -53,6 +53,7 @@ These instructions apply to the entire repository.
 - Read and apply `tdd` for behavioral implementation and `codebase-design` when choosing or changing a test seam.
 - Use `domain-modeling` when changing canonical domain terms or relationships; do not turn `CONTEXT.md` into a running specification.
 - Use `code-review` from an independent context with an explicit fixed point. The coordinator must include this instruction in every Standards and Spec reviewer brief: perform the assigned review directly; do not invoke `code-review` again or spawn additional reviewers.
+- Use `coforge-release` when inspecting or executing a test deployment, preparing or executing a production promotion, verifying release evidence, or rolling back. [`docs/release.md`](docs/release.md) is the canonical release contract; the Skill is only its execution layer.
 - The engineering skills do not yet have an approved issue-tracker configuration. Until `docs/agents/issue-tracker.md` exists, give `code-review` an explicit spec source; if none is available, ask the requester instead of invoking an unavailable setup skill or inferring a tracker workflow.
 
 ## Architecture invariants
