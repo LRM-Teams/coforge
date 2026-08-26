@@ -575,6 +575,15 @@ if ! tail -n 1 "$test_root/empty-state-rollback/release-history.jsonl" \
   printf 'empty-state rollback did not record explicit non-applicable WSS evidence\n' >&2
   exit 1
 fi
+if [[ "$(sed -n '1p' "$test_root/empty-state-rollback/release-state")" != bootstrap:empty ]] \
+  || [[ "$(sed -n '3p' "$test_root/empty-state-rollback/release-state")" != none ]]; then
+  printf 'automatic bootstrap rollback bound empty state to a Compose generation\n' >&2
+  exit 1
+fi
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/empty-state-rollback" \
+  "$release_script" --current-image >/dev/null
 
 mkdir -p "$test_root/empty-state-down-failure"
 printf 'release: first-candidate\n' >"$test_root/empty-state-down-failure/candidate.yaml"
@@ -862,5 +871,12 @@ if PATH="$test_root/bin:$PATH" \
   printf 'expected direct image deployment without external gates to be rejected\n' >&2
   exit 1
 fi
+
+while IFS= read -r record; do
+  if [[ "$record" != *'"track":"cloud-application"'* ]]; then
+    printf 'release record is missing its cloud track identity: %s\n' "$record" >&2
+    exit 1
+  fi
+done < <(find "$test_root" -type f -name release-history.jsonl -exec cat {} +)
 
 printf 'compose release script tests passed\n'

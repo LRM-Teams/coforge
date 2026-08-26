@@ -141,7 +141,7 @@ record_failed_preparation() {
   else
     previous_digest=bootstrap:empty
   fi
-  printf '{"source_commit":"%s","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"pre_mutation_%s=failed","final_observed_state":"unchanged","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"failed_preparation"}\n' \
+  printf '{"source_commit":"%s","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"pre_mutation_%s=failed","final_observed_state":"unchanged","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"failed_preparation"}\n' \
     "$source_commit" "$image" "$image_digest" "$workflow_run" \
     "$previous_digest" "$failure_stage" "$executor" "$started_at" \
     "$completed_at" >>"$history_file"
@@ -172,7 +172,7 @@ record_interruption() {
     previous_digest=${previous_digest##*@}
   fi
   printf '%s\n' interrupted >"$pending_failure_file"
-  printf '{"source_commit":"%s","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"signal_%s=interrupted","final_observed_state":"%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"interrupted"}\n' \
+  printf '{"source_commit":"%s","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"signal_%s=interrupted","final_observed_state":"%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"interrupted"}\n' \
     "$source_commit" "$image" "$image_digest" "$workflow_run" \
     "$previous_digest" "$signal" "$final_state" "$executor" "$started_at" \
     "$completed_at" >>"$history_file"
@@ -214,7 +214,7 @@ record_orphaned_pending() {
   image=${pending_image%@*}
   image_digest=${pending_image##*@}
   printf 'interrupted\n' >"$pending_failure_file"
-  printf '{"source_commit":"%s","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"previous_job=interrupted","final_observed_state":"pending-recovery","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"interrupted"}\n' \
+  printf '{"source_commit":"%s","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"previous_job=interrupted","final_observed_state":"pending-recovery","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"interrupted"}\n' \
     "$source_commit" "$image" "$image_digest" "$workflow_run" \
     "$previous_digest" "$executor" "$started_at" "$completed_at" \
     >>"$history_file"
@@ -233,7 +233,7 @@ record_standalone_rollback() {
   if [[ ! "$executor_name" =~ ^[A-Za-z0-9._@/-]+$ ]]; then
     executor_name=local
   fi
-  printf '{"source_commit":null,"image":"%s","image_digest":"%s","environment":"test","workflow_run":null,"previous_digest":"%s","health_result":"%s","final_observed_state":"current_digest=%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"%s"}\n' \
+  printf '{"source_commit":"manual","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"manual","previous_digest":"%s","health_result":"%s","final_observed_state":"current_digest=%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"%s"}\n' \
     "$image" "$image_digest" "$resulting_digest" "$health_result" \
     "$resulting_digest" "$executor_name" "$completed_at" "$completed_at" "$outcome" \
     >>"$history_file"
@@ -579,10 +579,14 @@ if [[ "$release_image" == --finalize-rollback ]]; then
     if [[ ! "$pending_prior_previous_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; then
       pending_prior_previous_image=bootstrap:empty
     fi
+    rollback_current_compose=$compose_file
+    if [[ "$pending_previous_image" == bootstrap:empty ]]; then
+      rollback_current_compose="$app_root/.empty-compose"
+    fi
     write_release_state "$pending_previous_image" "$pending_prior_previous_image" \
-      "$compose_file" "$pending_prior_previous_compose_file"
+      "$rollback_current_compose" "$pending_prior_previous_compose_file"
   fi
-  printf '{"source_commit":"%s","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"candidate_%s=failed;rollback_container=%s;rollback_internal=%s;rollback_public_https=%s;rollback_wss_handshake=%s;shared_ingress=passed;tcp80_closed=passed;running_digest=%s","final_observed_state":"current_digest=%s","next_rollback_digest":"%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"rolled_back"}\n' \
+  printf '{"source_commit":"%s","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"candidate_%s=failed;rollback_container=%s;rollback_internal=%s;rollback_public_https=%s;rollback_wss_handshake=%s;shared_ingress=passed;tcp80_closed=passed;running_digest=%s","final_observed_state":"current_digest=%s","next_rollback_digest":"%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"rolled_back"}\n' \
     "$source_commit" "$image" "$image_digest" "$workflow_run" \
     "$previous_digest" "$failure_stage" \
     "${COFORGE_RUNNING_DIGEST_RESULT:-}" "${COFORGE_RUNNING_DIGEST_RESULT:-}" \
@@ -666,7 +670,7 @@ if [[ "$release_image" == --record-failed-rollback ]]; then
       fi
     fi
   fi
-  printf '{"source_commit":"%s","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"candidate_%s=failed;rollback=failed","final_observed_state":"docker=%s;current_image=%s;running_image=%s;gateway_container=%s","next_rollback_digest":"%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"failed_rollback"}\n' \
+  printf '{"source_commit":"%s","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"candidate_%s=failed;rollback=failed","final_observed_state":"docker=%s;current_image=%s;running_image=%s;gateway_container=%s","next_rollback_digest":"%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"failed_rollback"}\n' \
     "$source_commit" "$image" "$image_digest" "$workflow_run" \
     "$previous_digest" "$failure_stage" "$docker_status" "$observed_current" "$observed_running" \
     "$gateway_container" "$previous_digest" "$executor" "$started_at" \

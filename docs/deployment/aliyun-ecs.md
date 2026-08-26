@@ -151,6 +151,11 @@ Restrict the `test` Environment to `main` and configure:
 | Variable | `ECS_EDGE_BIND_IP` | Host-side address reachable by Caddy only |
 | Variable | `ECS_SHARED_INGRESS_HEALTH_PATH` | Existing non-CoForge HTTPS health path, beginning with `/` |
 
+`ECS_HOST` must be a globally routable IPv4 address. If it was previously
+stored as a Secret, create the Variable first, verify that the workflow reads
+the Variable, and then remove the obsolete Secret; the public address is
+routing data rather than a credential.
+
 The build job publishes with the repository-scoped `GITHUB_TOKEN`. The deploy
 job pipes that same short-lived workflow token over the pinned SSH connection
 to `docker login --password-stdin`, pulls immediately, and never places the
@@ -249,6 +254,10 @@ generations, and appends the durable `rolled_back` outcome. Compatibility
 Every mode takes the same host lock, and a CI-owned pending transaction can be
 continued only with its matching owner token; a manual command cannot consume
 it.
+Before activating a new `main` candidate, the workflow uses the same recovery
+helper to detect, adopt, verify, and finalize a transaction left by an earlier
+runner loss. After successful recovery, the successor run continues deploying
+its own already-built digest instead of silently dropping that `main` commit.
 When rollback restores the verified pre-deployment empty state, the absent
 CoForge public/WSS/running-image checks are recorded explicitly as
 `not-applicable`; shared ingress must still pass. If any applicable rollback

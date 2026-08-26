@@ -79,12 +79,12 @@ Every deployment or local-distribution publication record must identify:
 
 | Field | Meaning |
 | --- | --- |
-| `source_commit` | Full Git commit SHA on `main` |
+| `source_commit` | Full Git commit SHA on `main`; host-initiated rollback uses the explicit `manual` sentinel and remains bound to immutable image digests |
 | `track` | Cloud application or local Computer distribution |
 | `artifact_identity` | Cloud image digest or local release-set, changed-component, and both component-manifest digests |
 | `artifact_members` | Image reference or component versions plus platform installation-bundle names, sizes, SHA-256 checksums, and signatures |
 | `environment_or_channel` | Isolated `test` or `production` target |
-| `workflow_run` | GitHub Actions run URL or stable run ID |
+| `workflow_run` | GitHub Actions run URL or stable run ID; host-initiated rollback uses the explicit `manual` sentinel |
 | `previous_identity` | Last known healthy digest/manifest, or an explicit bootstrap marker; cloud JSONL names this `previous_digest` |
 | `verification_result` | Track-specific internal, public, shared-ingress, running-identity, install, upgrade, and integrity evidence; cloud JSONL names this `health_result` |
 | `approval` | Production-only human approval bound to the exact artifact identity |

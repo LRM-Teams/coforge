@@ -10,15 +10,30 @@ import os
 import socket
 import ssl
 import struct
+import time
 from urllib.parse import urlsplit
 
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
-def read_exact(stream: ssl.SSLSocket, length: int) -> bytes:
+class Deadline:
+    def __init__(self, timeout: float) -> None:
+        if timeout <= 0:
+            raise ValueError("timeout must be positive")
+        self.ends_at = time.monotonic() + timeout
+
+    def remaining(self) -> float:
+        remaining = self.ends_at - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("WSS smoke exceeded its total timeout")
+        return remaining
+
+
+def read_exact(stream: ssl.SSLSocket, length: int, deadline: Deadline) -> bytes:
     chunks = bytearray()
     while len(chunks) < length:
+        stream.settimeout(deadline.remaining())
         chunk = stream.recv(length - len(chunks))
         if not chunk:
             raise RuntimeError("WSS peer closed before completing a frame")
@@ -26,9 +41,12 @@ def read_exact(stream: ssl.SSLSocket, length: int) -> bytes:
     return bytes(chunks)
 
 
-def read_headers(stream: ssl.SSLSocket) -> tuple[str, dict[str, str]]:
+def read_headers(
+    stream: ssl.SSLSocket, deadline: Deadline
+) -> tuple[str, dict[str, str]]:
     response = bytearray()
     while b"\r\n\r\n" not in response:
+        stream.settimeout(deadline.remaining())
         chunk = stream.recv(4096)
         if not chunk:
             raise RuntimeError("WSS peer closed before completing the handshake")
@@ -54,6 +72,7 @@ def masked_close_frame() -> bytes:
 
 
 def verify(url: str, timeout: float) -> None:
+    deadline = Deadline(timeout)
     parsed = urlsplit(url)
     if parsed.scheme not in {"https", "wss"} or not parsed.hostname:
         raise ValueError("URL must be an absolute https:// or wss:// URL")
@@ -76,11 +95,12 @@ def verify(url: str, timeout: float) -> None:
     ).encode("ascii")
 
     context = ssl.create_default_context()
-    with socket.create_connection((host, port), timeout=timeout) as tcp:
+    with socket.create_connection((host, port), timeout=deadline.remaining()) as tcp:
+        tcp.settimeout(deadline.remaining())
         with context.wrap_socket(tcp, server_hostname=host) as stream:
-            stream.settimeout(timeout)
+            stream.settimeout(deadline.remaining())
             stream.sendall(request)
-            status, headers = read_headers(stream)
+            status, headers = read_headers(stream, deadline)
             if not status.startswith("HTTP/1.1 101 "):
                 raise RuntimeError(f"unexpected WSS status: {status}")
             if headers.get("upgrade", "").lower() != "websocket":
@@ -94,18 +114,19 @@ def verify(url: str, timeout: float) -> None:
             if headers.get("sec-websocket-accept") != expected_accept:
                 raise RuntimeError("WSS response has an invalid Sec-WebSocket-Accept")
 
+            stream.settimeout(deadline.remaining())
             stream.sendall(masked_close_frame())
-            first, second = read_exact(stream, 2)
+            first, second = read_exact(stream, 2, deadline)
             if first & 0x0F != 0x08:
                 raise RuntimeError("WSS peer did not answer with a close frame")
             if second & 0x80:
                 raise RuntimeError("WSS server sent an invalid masked frame")
             length = second & 0x7F
             if length == 126:
-                length = struct.unpack("!H", read_exact(stream, 2))[0]
+                length = struct.unpack("!H", read_exact(stream, 2, deadline))[0]
             elif length == 127:
-                length = struct.unpack("!Q", read_exact(stream, 8))[0]
-            read_exact(stream, length)
+                length = struct.unpack("!Q", read_exact(stream, 8, deadline))[0]
+            read_exact(stream, length, deadline)
 
 
 def main() -> None:

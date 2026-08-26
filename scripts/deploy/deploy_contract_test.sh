@@ -8,22 +8,33 @@ ci_workflow="$repo_root/.github/workflows/ci.yml"
 container_test="$repo_root/scripts/deploy/container_test.sh"
 wss_smoke="$repo_root/scripts/deploy/wss_smoke.py"
 tcp_closed="$repo_root/scripts/deploy/tcp_closed.py"
+recover_release="$repo_root/scripts/deploy/recover_release.sh"
 
 # shellcheck disable=SC2016
 grep -Fq 'docker compose --project-name "$project" --file "$compose_file" config --quiet' \
   "$container_test"
 test -x "$wss_smoke"
 test -x "$tcp_closed"
+test -x "$recover_release"
 grep -Fq 'python3 scripts/deploy/wss_smoke.py' "$workflow"
 # shellcheck disable=SC2016
 grep -Fq 'python3 scripts/deploy/tcp_closed.py "$ECS_HOST" 80' "$workflow"
-grep -Fq 'pending-image' "$workflow"
-grep -Fq 'pending-owner' "$workflow"
+grep -Fq 'pending-image' "$recover_release"
+grep -Fq 'pending-owner' "$recover_release"
 grep -Fq 'ps --all --quiet' "$workflow"
 grep -Fq 'bootstrap rollback left containers in the Compose project' "$workflow"
 grep -Fq 'if commit_release || commit_is_durable; then' "$workflow"
 grep -Fq 'release commit failed without durable confirmation; retrying once' "$workflow"
 grep -Fq 'compose_release.sh --commit-status' "$workflow"
+grep -Fq 'Recover prior interrupted release before deployment' "$workflow"
+grep -Fq 'run: scripts/deploy/recover_release.sh' "$workflow"
+# shellcheck disable=SC2016
+grep -Fq 'if test -e $pending_root/pending-image; then printf present; else printf absent; fi' \
+  "$recover_release"
+# shellcheck disable=SC2016
+grep -Fq '&& ssh -F "$ssh_config" coforge-ecs' "$recover_release"
+grep -Fq -- '--record-failed-rollback' "$recover_release"
+grep -Fq 'not address.is_global' "$workflow"
 grep -Fq 'mise run test:deploy' "$ci_workflow"
 grep -Fq 'mise run check:deploy' "$ci_workflow"
 

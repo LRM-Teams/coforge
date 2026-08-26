@@ -6,6 +6,7 @@ import base64
 import hashlib
 import importlib.util
 from pathlib import Path
+from unittest import mock
 
 
 module_path = Path(__file__).with_name("wss_smoke.py")
@@ -89,5 +90,14 @@ for invalid_mode in ("bad-accept", "bad-connection", "missing-close"):
     except RuntimeError:
         continue
     raise AssertionError(f"WSS smoke accepted invalid case: {invalid_mode}")
+
+with mock.patch.object(wss_smoke.time, "monotonic", side_effect=(10.0, 11.1)):
+    deadline = wss_smoke.Deadline(1.0)
+    try:
+        deadline.remaining()
+    except TimeoutError:
+        pass
+    else:
+        raise AssertionError("WSS total deadline accepted expired cumulative work")
 
 print("WSS smoke tests passed")
