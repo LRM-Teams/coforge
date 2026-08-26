@@ -284,6 +284,91 @@ if [[ "$promotion_fallback_status" -ne 74 ]] \
   exit 1
 fi
 
+mkdir -p "$test_root/formal-ci-stale-active"
+printf 'release: current\n' >"$test_root/formal-ci-stale-active/compose.yaml"
+printf 'release: candidate\n' >"$test_root/formal-ci-stale-active/candidate.yaml"
+printf '%s\n' "$first_image" >"$test_root/formal-ci-stale-active/current-image"
+set +e
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TEST_SIGNAL_DURING_ACTIVE_REMOVAL=true \
+  COFORGE_APP_ROOT="$test_root/formal-ci-stale-active" \
+  COFORGE_CANDIDATE_COMPOSE="$test_root/formal-ci-stale-active/candidate.yaml" \
+  COFORGE_DEFER_COMMIT=true \
+  COFORGE_SOURCE_COMMIT="$source_commit" \
+  COFORGE_WORKFLOW_RUN="$workflow_run" \
+  COFORGE_EXECUTOR=github-actions \
+  COFORGE_HEALTH_ATTEMPTS=1 \
+  "$release_script" "$second_image"
+formal_ci_status=$?
+set -e
+if [[ "$formal_ci_status" -ne 130 ]] \
+  || [[ ! -e "$test_root/formal-ci-stale-active/pending-image" ]] \
+  || [[ ! -e "$test_root/formal-ci-stale-active/.pre-marker-active" ]]; then
+  printf 'CI active-removal interruption fixture was not created\n' >&2
+  exit 1
+fi
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/formal-ci-stale-active" \
+  COFORGE_HEALTH_ATTEMPTS=1 \
+  "$release_script" --rollback
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/formal-ci-stale-active" \
+  COFORGE_PUBLIC_HEALTH_RESULT=passed \
+  COFORGE_SHARED_INGRESS_HEALTH_RESULT=passed \
+  COFORGE_WSS_HEALTH_RESULT=passed \
+  COFORGE_RUNNING_DIGEST_RESULT=passed \
+  "$release_script" --finalize-rollback
+if [[ -e "$test_root/formal-ci-stale-active/pending-image" ]] \
+  || [[ -e "$test_root/formal-ci-stale-active/.pre-marker-active" ]] \
+  || ! tail -n 1 "$test_root/formal-ci-stale-active/release-history.jsonl" \
+    | grep -Fq '"outcome":"rolled_back"'; then
+  printf 'CI stale active sentinel prevented complete recovery\n' >&2
+  exit 1
+fi
+
+mkdir -p "$test_root/formal-manual-stale-active"
+printf 'release: current\n' >"$test_root/formal-manual-stale-active/compose.yaml"
+printf 'release: previous\n' >"$test_root/formal-manual-stale-active/previous-compose.yaml"
+printf '%s\n' "$first_image" >"$test_root/formal-manual-stale-active/current-image"
+printf '%s\n' "$third_image" >"$test_root/formal-manual-stale-active/previous-image"
+set +e
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TEST_SIGNAL_DURING_ACTIVE_REMOVAL=true \
+  COFORGE_APP_ROOT="$test_root/formal-manual-stale-active" \
+  "$release_script" --rollback
+formal_manual_status=$?
+set -e
+if [[ "$formal_manual_status" -ne 130 ]] \
+  || [[ ! -e "$test_root/formal-manual-stale-active/pending-image" ]] \
+  || [[ ! -e "$test_root/formal-manual-stale-active/.pre-marker-active" ]]; then
+  printf 'manual active-removal interruption fixture was not created\n' >&2
+  exit 1
+fi
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/formal-manual-stale-active" \
+  COFORGE_HEALTH_ATTEMPTS=1 \
+  "$release_script" --rollback
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/formal-manual-stale-active" \
+  COFORGE_PUBLIC_HEALTH_RESULT=passed \
+  COFORGE_SHARED_INGRESS_HEALTH_RESULT=passed \
+  COFORGE_WSS_HEALTH_RESULT=passed \
+  COFORGE_RUNNING_DIGEST_RESULT=passed \
+  "$release_script" --finalize-rollback
+if [[ -e "$test_root/formal-manual-stale-active/pending-image" ]] \
+  || [[ -e "$test_root/formal-manual-stale-active/.pre-marker-active" ]] \
+  || ! tail -n 1 "$test_root/formal-manual-stale-active/release-history.jsonl" \
+    | grep -Fq '"outcome":"rolled_back"'; then
+  printf 'manual stale active sentinel prevented complete recovery\n' >&2
+  exit 1
+fi
+
 mkdir -p "$test_root/config-validation"
 printf 'release: current\n' >"$test_root/config-validation/compose.yaml"
 printf 'release: invalid-candidate\n' >"$test_root/config-validation/candidate.yaml"

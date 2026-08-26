@@ -220,7 +220,9 @@ with the retained files; do not delete the marker or start another release
 until the missing interrupted outcome has been reconstructed in the JSONL
 history. An `.pre-marker-active` sentinel left by hard process or host loss is
 handled by the same fail-closed rule and must be investigated rather than
-discarded.
+discarded when no formal `pending-image` exists. If the formal marker and all
+sidecars were already published, a successor removes only the stale active
+sentinel and resumes the normal adopt/rollback/finalize path.
 
 Compose uses Docker's `local` logging driver with bounded rotation. Inspect
 runtime logs with `docker compose --project-name coforge-test logs gateway`;
