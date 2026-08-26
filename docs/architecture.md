@@ -26,7 +26,7 @@ CoForge 让用户通过 Web 私聊或群聊多个 code agent，同时把 Agent �
 flowchart LR
     User[Web 用户] -->|HTTPS| Caddy[Caddy<br/>TLS · edge proxy]
     User -->|signed HTTPS upload| OSS[(Alibaba Cloud OSS<br/>private attachment bucket)]
-    User -->|short-lived signed GET| Delivery[files.coforge.cn<br/>Direct OSS or private CDN]
+    User -->|short-lived signed GET| Delivery[Opaque delivery URL<br/>Direct OSS or cdn.coforge.cn/files/]
     Caddy --> Web[Web / backend<br/>Node · TanStack Start<br/>control plane]
     Caddy -->|WSS| Gateway[realtime-gateway<br/>Go<br/>transport only]
     Web --> DB[(Managed PostgreSQL)]
@@ -71,11 +71,13 @@ apps/
 
 | 名称 | 发布边界 | 运行时关系 | 核心职责 |
 | --- | --- | --- | --- |
-| `coforge-computer` | 独立 package | 独立 OS 进程 | 机器身份、安装升级、启动/停止和健康检查 coforge-daemon |
-| `coforge-daemon` | 独立 package | 独立 OS 进程 | 对齐期望/实际 workspace 集合，管理子进程生命周期和崩溃恢复 |
+| `coforge-computer` | 独立 app package；唯一面向用户的本地安装入口，并依赖 `coforge-daemon` package | 独立 OS 进程 | 机器身份、安装升级、启动/停止和健康检查 coforge-daemon |
+| `coforge-daemon` | 独立 app package；作为 Computer 的构建/分发依赖随 Computer 安装，不单独提供用户安装入口 | 独立 OS 进程 | 对齐期望/实际 workspace 集合，管理子进程生命周期和崩溃恢复 |
 | `workspace-daemon` | 不独立发布 | coforge-daemon 启动的常驻子进程；一个实例对应一个逻辑 workspace | 维护该 workspace 的 WSS、投递边界、ACP adapter 和 Agent 生命周期 |
 
 因此禁止新增 `apps/workspace-daemon`。需要隔离的是运行时进程，而不是第三个发布包。
+
+源码和运行时边界不等于用户安装边界。仓库保留两个 app package，`coforge-computer` 在 package/build 层依赖 `coforge-daemon`；发布流水线为每个平台组装一个 Computer installation bundle，其中包含已验证兼容的 Computer 与 Daemon payload。用户只安装、升级和调用 Computer，Daemon 不进入用户 PATH，但仍由 Computer 以独立 OS 进程启动。bundle 使用两个独立 executable、单一可自举 executable 或其他封装形式属于后续实现选择；无论采用哪种形式，都不能把两个运行时职责合并为一个进程。
 
 本文不加限定词的 `workspace` 指云端协作、成员、权限、conversation 与 Agent 的逻辑边界。每个 Agent 另有自己的文件系统 Agent workspace 目录，它不是第二个逻辑 workspace。文档必须用限定词区分两者；目录在代码和协议中的确切字段名留待实现前单独确认。
 
@@ -128,7 +130,7 @@ PostgreSQL 的首要领域对象是：
 
 首个 OSS bucket 只承载聊天图片与文件附件，必须保持 `private`。Bucket 不使用 `public-read` 或 `public-read-write`；公开头像和 Web 静态资源以后使用独立 bucket，不能与聊天附件混放。浏览器与 OSS 之间的文件传输使用 HTTPS 数据面，不经过 realtime-gateway，也不改变 daemon 只使用 WSS/RPC 的传输边界。
 
-计划中的稳定文件访问域名是 `files.coforge.cn`。这个名称表达业务用途而不是当前基础设施：最初可以直连 OSS，以后可以在不改变客户端和数据库引用的情况下把同一域名切到 CDN。`cdn.coforge.cn` 不作为 canonical 文件域名。Bucket 名称、Region、实际 endpoint 与域名启用时间属于部署配置，确认前不得写死；启用中国内地 custom domain 前，部署检查必须确认域名已经完成 ICP 备案。
+计划中的 production CDN 文件访问边界是 `https://cdn.coforge.cn/files/{object_key}`。`cdn.coforge.cn` 复用一张证书和 CDN edge，但 `/files/` 必须使用独立 private attachment bucket、RAM 权限、条件回源、鉴权/缓存规则与日志；不得与 `/releases/` 的 origin 或策略 fallback。CDN 域名不接收应用登录 cookie，应用 cookie 必须保持 host-only，CDN 也不得向 origin 转发 Cookie。CDN 配置完成前，Direct OSS adapter 仍可返回短时 provider URL；客户端把 delivery URL 视为 opaque value，数据库仍只保存 object key，因此切换到 CDN 不需要数据库 migration、对象复制或客户端发版。Bucket 名称、Region、实际 endpoint 与域名启用时间属于部署配置，确认前不得写死；启用中国内地 custom domain 前，部署检查必须确认域名已经完成 ICP 备案。
 
 上传链路固定为：
 
@@ -158,7 +160,7 @@ authorize_attachment_download(
 同一个内部 adapter slot 有两个实现：
 
 - **Direct OSS adapter** 根据部署配置将稳定 object key 映射到 private bucket，并仅对该精确 key 签发短时 V4 presigned GET URL。
-- **Private CDN adapter** 对 `https://files.coforge.cn/{object_key}` 的规范化路径和过期时间生成 CDN signed URL。CDN POP 在查找缓存前验证客户端签名；未签名、签名不匹配或已过期的请求拒绝。CDN 签名密钥只存在于 backend Secret 与 CDN 配置，不是 OSS 凭据。
+- **Private CDN adapter** 对 `https://cdn.coforge.cn/files/{object_key}` 的规范化路径和过期时间生成 CDN signed URL。CDN POP 在查找缓存前验证客户端签名；未签名、签名不匹配或已过期的请求拒绝。CDN 签名密钥只存在于 backend Secret 与 CDN 配置，不是 OSS 凭据。
 
 切换 adapter 只改变部署配置和 URL 签发方式；不改变 interface、object key、message/attachment 记录，不需要复制对象或发布客户端新版本。
 
@@ -169,7 +171,7 @@ Private CDN adapter 必须把两条授权链分开：
 1. **客户端 → CDN POP** 使用 backend 生成的 CDN signed URL，只证明持有者在 TTL 内可访问该规范化 object path。Backend 在每次签发前仍执行 committed-message 可见性授权；CDN 不认识 workspace、conversation 或 requester。
 2. **CDN POP → private OSS origin** 使用阿里云 CDN private-bucket origin access 的独立服务身份和只读授权。CDN 在 cache miss 时为回源请求生成 `Authorization` header；客户端 CDN 签名参数必须在回源前移除，不能被当作 OSS 签名转发，也不能与 origin header 签名叠加。Bucket 保持 private，且该 CDN 身份仅授予附件 bucket 的回源只读能力；鉴于该功能可读取 origin bucket 内全部对象，附件 bucket 不得混放其他业务对象。
 
-CDN 必须先验证 signed URL，再用去掉签名、过期时间和 nonce 等鉴权材料后的 `files.coforge.cn` 规范化 object path 作为缓存身份。这样同一 immutable object 的不同短时 URL 共享一个 cache entry，但未授权请求仍会在 cache lookup 前拒绝。`requester_id`、workspace/conversation/message id、原始文件名和 delivery-provider 不进入 URL 或 cache key。任何会改变字节、响应权限或安全相关 header 的变体都不得从 cache key 中忽略；如以后需要变体，必须给它独立的 immutable object key 或纳入 cache key。对象禁止覆盖；内容变更必须使用新 `attachment_id`/object key，以免旧缓存与数据库身份分叉。
+CDN 必须先验证 signed URL，再用去掉签名、过期时间和 nonce 等鉴权材料后的 `cdn.coforge.cn/files/{object_key}` 规范化 path 作为缓存身份。这样同一 immutable object 的不同短时 URL 共享一个 cache entry，但未授权请求仍会在 cache lookup 前拒绝。`requester_id`、workspace/conversation/message id、原始文件名和 delivery-provider 不进入 URL 或 cache key。任何会改变字节、响应权限或安全相关 header 的变体都不得从 cache key 中忽略；如以后需要变体，必须给它独立的 immutable object key 或纳入 cache key。对象禁止覆盖；内容变更必须使用新 `attachment_id`/object key，以免旧缓存与数据库身份分叉。
 
 Canonical object key 使用 workspace-first 隔离：
 
@@ -185,7 +187,7 @@ workspaces/{workspace_id}/attachments/{attachment_id}/original
 
 ### coforge-computer
 
-coforge-computer 是机器级 supervisor，不执行 workspace 内的 Agent 业务。它管理登录后的机器身份、安装/升级、coforge-daemon 的启动停止与健康检查。
+coforge-computer 是机器级 supervisor，不执行 workspace 内的 Agent 业务。它是唯一面向用户的安装与升级入口，负责安装同一 release set 中的 Computer/Daemon payload，并管理登录后的机器身份、coforge-daemon 的启动停止与健康检查。
 
 `login [--server <url>]` 登录用户、把凭据写入 OS credential store，并返回可访问 Workspace 列表；它不注册 Computer、不绑定 Workspace，也不启动 daemon。托管版使用默认 server，自托管场景显式指定。交互式 login 使用 OAuth 2.0 Device Authorization Grant：先通过 RFC 8414 metadata 发现 device authorization 与 token endpoint，再按 RFC 8628 展示 user code、轮询并处理 `authorization_pending` / `slow_down`。轮询连接超时后降低请求频率并重试，单次请求必须受 device-code 剩余有效期约束。凭据不进入命令参数或日志。
 
@@ -292,7 +294,9 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 
 验证阶段采用轻量 [GitHub Flow](https://docs.github.com/en/get-started/using-github/github-flow)：短生命周期 feature branch → CR/PR → `main`，不维护长期 `dev` 分支，禁止直接向 `main` 提交或推送。规范性的决策门槛、评审、检查与合并规则统一由根目录 [`AGENTS.md`](../AGENTS.md) 维护。
 
-云端应用以不可变 Docker image 发布，由独立 Docker Compose project 管理，不把 Go binary 直接安装到宿主机，也不增加应用级 systemd unit。`main` 上的产物只构建一次并自动发布到 MVP `test` 环境；未来的 production 发布由人批准精确 image digest，再由 Agent 把同一个 digest 晋级，禁止重新 build 或使用 `latest`。完整的发布、健康检查、审计与回滚契约见 [`docs/release.md`](release.md)。
+本地安装包与 release feed 的 consumer boundary 是 `https://cdn.coforge.cn/releases/`。它可以与聊天附件共享 CDN 证书和 edge 域名，但必须使用独立 private release bucket、RAM 权限、条件回源、缓存/访问规则与日志；路径未命中时 fail closed，禁止在 release 与附件 origin 之间 fallback，也禁止接收或向 origin 转发应用登录 cookie。
+
+云端应用以不可变 Docker image 发布，由独立 Docker Compose project 管理，不把 Go binary 直接安装到宿主机，也不增加应用级 systemd unit。`main` 上的产物只构建一次并自动发布到 MVP `test` 环境；未来的 production 发布由人批准精确 image digest，再由 Agent 把同一个 digest 晋级，禁止重新 build 或使用 `latest`。`coforge-computer` 与 `coforge-daemon` 保持独立版本、构建与签名身份；每个 immutable release set 固定两个 component artifact 的已验证兼容组合，并为每个平台提供一个同时包含两侧 payload 的 Computer installation bundle。单一原子 `channels.json` 选择 test / production 的 current / previous release set。首次本地发布通过明确的 initial bootstrap 一次建立首对 Computer 与 Daemon component artifact；此后 MVP 每次新 release set 只改变一个 component digest。只升级 Daemon 时复用未变化的 Computer artifact，再组装新 bundle。production 只晋级 test 验证过的同一 bundle bytes，不重新 build 或 repackage。用户只安装 Computer；本地安装、升级、Computer 后台启动与回滚全部限于当前用户的系统标准目录，不要求 sudo / 管理员权限；只有 Computer shim 进入用户 PATH，Daemon 保留在 version store 并由 Computer 通过 active release set 的精确路径启动，不单独注册 service。完整的发布、健康检查、审计与回滚契约见 [`docs/release.md`](release.md)。
 
 提交与 CR 保持小而单一，使用简洁的英文 Conventional Commit：`<type>(optional-scope): imperative summary`。
 
