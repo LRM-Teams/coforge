@@ -25,9 +25,11 @@ CoForge 让用户通过 Web 私聊或群聊多个 code agent，同时把 Agent �
 ```mermaid
 flowchart LR
     User[Web 用户] -->|HTTPS| Caddy[Caddy<br/>TLS · edge proxy]
+    User -->|signed HTTPS upload / download| OSS[(Alibaba Cloud OSS<br/>private attachment bucket)]
     Caddy --> Web[Web / backend<br/>Node · TanStack Start<br/>control plane]
     Caddy -->|WSS| Gateway[realtime-gateway<br/>Go<br/>transport only]
     Web --> DB[(Managed PostgreSQL)]
+    Web -->|authorize · sign · verify| OSS
     Web <-->|delivery / stream| Gateway
 
     subgraph Host[用户机器]
@@ -119,6 +121,33 @@ PostgreSQL 的首要领域对象是：
 
 `run` 表示一次 Agent 执行，`event` 表示执行中的流式片段、工具或状态记录；二者不是 delivery 的核心，不应在骨架阶段过早锁死。最终表名、字段、索引与 migration 方案由 backend 设计评审确定。
 
+### Alibaba Cloud OSS：聊天附件数据面
+
+首个 OSS bucket 只承载聊天图片与文件附件，必须保持 `private`。Bucket 不使用 `public-read` 或 `public-read-write`；公开头像和 Web 静态资源以后使用独立 bucket，不能与聊天附件混放。浏览器与 OSS 之间的文件传输使用 HTTPS 数据面，不经过 realtime-gateway，也不改变 daemon 只使用 WSS/RPC 的传输边界。
+
+计划中的稳定文件访问域名是 `files.coforge.cn`。这个名称表达业务用途而不是当前基础设施：最初可以直连 OSS，以后可以在不改变客户端和数据库引用的情况下把同一域名切到 CDN。`cdn.coforge.cn` 不作为 canonical 文件域名，`assets.coforge.cn` 留给未来公开静态资源。`coforge.cn` 截至 2026-08-26 尚未完成 ICP 备案；如果 bucket 位于中国内地，在备案完成前不能把 `files.coforge.cn` 绑定到 OSS。Bucket 名称、Region、实际 endpoint 与域名启用时间属于部署配置，确认前不得写死。
+
+上传链路固定为：
+
+1. Web 客户端通过已认证的 backend 控制面请求上传授权，并提供目标 workspace、conversation、文件大小和声明类型；
+2. backend 校验当前用户仍是该 conversation 的 active participant，检查配额，分配稳定 `attachment_id` 与服务端生成的 `object_key`；
+3. backend 使用服务端 RAM 身份获取短时 STS 凭据并生成 V4 Post Policy，或直接生成等价的短时 V4 上传签名；授权只允许精确 object prefix，并限制有效期、大小、类型且禁止覆盖；
+4. 浏览器使用该短时授权通过 HTTPS 直接上传到 OSS；长期 AK/SK 永远不会到达浏览器；
+5. 客户端通知 backend 上传完成，backend 向 OSS 校验对象存在性、key、大小和必要 metadata，验证通过后才允许 canonical message 引用该附件。
+
+下载或预览时，客户端先向 backend 请求访问。Backend 重新校验 workspace 和 conversation membership，再返回短时 V4 signed GET URL；数据库只保存 bucket/object key 与附件 metadata，不保存会过期的 signed URL。Signed URL 是 bearer credential，必须短时有效且不得写入日志。
+
+Canonical object key 使用 workspace-first 隔离：
+
+```text
+workspaces/{workspace_id}/attachments/{attachment_id}/original
+workspaces/{workspace_id}/attachments/{attachment_id}/variants/{variant}
+```
+
+消息与附件的关联保存在 PostgreSQL，不把 conversation/message 层级编码进对象路径。原始文件名只作为清洗后的 metadata 保存，不能参与权限边界或直接拼接路径。OSS CORS 只允许明确的 CoForge Web origin；服务端 RAM 用户只允许 `AssumeRole`，上传 role 只获得目标 bucket/prefix 所需的最小 `PutObject` 权限。真实 AK/SK 只能放部署 Secret，不得进入仓库、日志、命令行参数或前端构建产物。
+
+实现依据为阿里云官方的 [client direct upload](https://www.alibabacloud.com/help/en/oss/user-guide/uploading-objects-to-oss-directly-from-clients/)、[server-side V4 signing](https://www.alibabacloud.com/help/en/oss/user-guide/obtain-signature-information-from-the-server-and-upload-data-to-oss)、[private object signed URL](https://www.alibabacloud.com/help/en/oss/developer-reference/download-objects-using-a-presigned-url-generated-with-oss-sdk-for-node-js) 与 [custom domain rules](https://www.alibabacloud.com/help/en/oss/user-guide/access-buckets-via-custom-domain-names)。
+
 ## 5. 本地执行面
 
 ### coforge-computer
@@ -141,7 +170,7 @@ workspace-daemon 1 ──管理──> N Agent ──各自拥有──> 1 Agent
 
 coforge-daemon 负责期望状态与实际状态收敛、子进程创建/回收、崩溃恢复、资源治理和版本兼容，但不直接解析各家 Agent 的输出协议。
 
-Computer 的云端在线状态由当前 workspace-daemon WSS 连接集合实时派生：该 Computer 至少有一个 workspace-daemon WSS 在线时，该 Computer 在线。具体连接如何关联稳定的服务端 Computer 记录由后续 binding 与认证设计确定；`online` 与 `last_seen_at` 不作为这项状态的持久化真相。
+Workspace 内机器页面显示的在线状态属于当前 `Workspace ↔ Computer` binding，不是 Computer 的跨 Workspace 全局属性。只有这个 binding 对应的 workspace-daemon WSS 在线时，当前 Workspace 才把该 Computer 显示为在线并允许路由；即使同一台 Computer 上另一个 Workspace 的 WSS 在线，也不能让当前 binding 变为在线、替它执行请求或提供授权。连接注册、路由和鉴权必须以稳定 binding identity（或 `(workspace_id, computer_id)`）为边界，不能只按 `computer_id` 选择任意连接。`online` 与 `last_seen_at` 都不作为持久化真相。
 
 ### workspace-daemon 与 ACP
 
