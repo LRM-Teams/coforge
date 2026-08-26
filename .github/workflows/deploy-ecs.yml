@@ -108,7 +108,7 @@ jobs:
         env:
           ECS_EDGE_BIND_IP: ${{ vars.ECS_EDGE_BIND_IP }}
           ECS_SHARED_INGRESS_HEALTH_PATH: ${{ vars.ECS_SHARED_INGRESS_HEALTH_PATH }}
-          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_HOST: ${{ vars.ECS_HOST }}
           ECS_SSH_USER: ${{ secrets.ECS_SSH_USER }}
         run: |
           validate_ipv4() {
@@ -155,7 +155,7 @@ jobs:
 
       - name: Configure pinned SSH identity
         env:
-          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_HOST: ${{ vars.ECS_HOST }}
           ECS_SSH_HOST_KEY: ${{ secrets.ECS_SSH_HOST_KEY }}
           ECS_SSH_PRIVATE_KEY: ${{ secrets.ECS_SSH_PRIVATE_KEY }}
           ECS_SSH_USER: ${{ secrets.ECS_SSH_USER }}
@@ -238,7 +238,7 @@ jobs:
         env:
           ECS_EDGE_BIND_IP: ${{ vars.ECS_EDGE_BIND_IP }}
           ECS_SHARED_INGRESS_HEALTH_PATH: ${{ vars.ECS_SHARED_INGRESS_HEALTH_PATH }}
-          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_HOST: ${{ vars.ECS_HOST }}
           IMAGE_REF: ${{ needs.build.outputs.image_ref }}
           PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
           TRANSACTION_OWNER: ${{ github.run_id }}-${{ github.run_attempt }}
@@ -359,7 +359,9 @@ jobs:
             rollback_ok=false
           fi
           if ! rollback_image=$(ssh -F "$RUNNER_TEMP/ssh/config" coforge-ecs \
-            "\$HOME/.local/share/coforge/realtime-gateway/compose_release.sh --current-image"); then
+            "COFORGE_TRANSACTION_OWNER='$TRANSACTION_OWNER' \
+              \$HOME/.local/share/coforge/realtime-gateway/compose_release.sh \
+              --rollback-target-image"); then
             rollback_ok=false
             rollback_image=
           fi
@@ -396,28 +398,88 @@ jobs:
 
       - name: Recover interrupted release transaction
         if: ${{ always() }}
-        continue-on-error: true
         env:
           ECS_EDGE_BIND_IP: ${{ vars.ECS_EDGE_BIND_IP }}
+          ECS_HOST: ${{ vars.ECS_HOST }}
+          ECS_SHARED_INGRESS_HEALTH_PATH: ${{ vars.ECS_SHARED_INGRESS_HEALTH_PATH }}
+          IMAGE_REF: ${{ needs.build.outputs.image_ref }}
           TRANSACTION_OWNER: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           pending_root=.local/share/coforge/realtime-gateway
           if ! ssh -F "$RUNNER_TEMP/ssh/config" coforge-ecs \
-            "test -e $pending_root/pending-image \
-              && test \"\$(cat $pending_root/pending-owner)\" = '$TRANSACTION_OWNER'"; then
+            "test -e $pending_root/pending-image"; then
             exit 0
+          fi
+          if ! ssh -F "$RUNNER_TEMP/ssh/config" coforge-ecs \
+            "test \"\$(cat $pending_root/pending-owner)\" = '$TRANSACTION_OWNER'"; then
+            ssh -F "$RUNNER_TEMP/ssh/config" coforge-ecs \
+              "COFORGE_TRANSACTION_OWNER='$TRANSACTION_OWNER' \
+                $pending_root/compose_release.sh --adopt-interrupted"
           fi
           ssh -F "$RUNNER_TEMP/ssh/config" coforge-ecs \
             "COFORGE_TRANSACTION_OWNER='$TRANSACTION_OWNER' \
               $pending_root/compose_release.sh --record-interruption" || true
+          recovery_ok=true
           if ! ssh -F "$RUNNER_TEMP/ssh/config" coforge-ecs \
             "COFORGE_EDGE_BIND_IP='$ECS_EDGE_BIND_IP' \
               COFORGE_TRANSACTION_OWNER='$TRANSACTION_OWNER' \
               $pending_root/compose_release.sh --rollback"; then
-            ssh -F "$RUNNER_TEMP/ssh/config" coforge-ecs \
-              "COFORGE_TRANSACTION_OWNER='$TRANSACTION_OWNER' \
-                $pending_root/compose_release.sh --record-failed-rollback"
+            recovery_ok=false
           fi
+          rollback_image=$(ssh -F "$RUNNER_TEMP/ssh/config" coforge-ecs \
+            "COFORGE_TRANSACTION_OWNER='$TRANSACTION_OWNER' \
+              $pending_root/compose_release.sh --rollback-target-image") \
+            || recovery_ok=false
+          curl --fail --silent --show-error --noproxy '*' --proto '=https' \
+            --tlsv1.2 --connect-timeout 5 --max-time 20 \
+            "https://$ECS_HOST$ECS_SHARED_INGRESS_HEALTH_PATH" >/dev/null \
+            || recovery_ok=false
+          python3 scripts/deploy/tcp_closed.py "$ECS_HOST" 80 --timeout 5 \
+            || recovery_ok=false
+          rollback_evidence=passed
+          if [[ -n "$rollback_image" ]]; then
+            curl --fail --silent --show-error --noproxy '*' --proto '=https' \
+              --tlsv1.2 --connect-timeout 5 --max-time 20 \
+              "https://$ECS_HOST/coforge/readyz" >/dev/null \
+              || recovery_ok=false
+            python3 scripts/deploy/wss_smoke.py \
+              "wss://$ECS_HOST/coforge/v1/connect" --timeout 10 \
+              || recovery_ok=false
+            running=$(ssh -F "$RUNNER_TEMP/ssh/config" coforge-ecs \
+              "export XDG_RUNTIME_DIR=/run/user/\$(id -u); \
+                export DOCKER_HOST=unix://\$XDG_RUNTIME_DIR/docker.sock; \
+                COFORGE_GATEWAY_IMAGE='$rollback_image' docker compose \
+                --project-name coforge-test \
+                --file $pending_root/compose.yaml ps --quiet gateway \
+                | xargs --no-run-if-empty docker inspect \
+                    --format '{{.Config.Image}}'") || recovery_ok=false
+            [[ "$running" == "$rollback_image" ]] || recovery_ok=false
+          else
+            rollback_evidence=not-applicable
+            containers=$(ssh -F "$RUNNER_TEMP/ssh/config" coforge-ecs \
+              "export XDG_RUNTIME_DIR=/run/user/\$(id -u); \
+                export DOCKER_HOST=unix://\$XDG_RUNTIME_DIR/docker.sock; \
+                COFORGE_GATEWAY_IMAGE='$IMAGE_REF' docker compose \
+                --project-name coforge-test \
+                --file $pending_root/compose.yaml ps --all --quiet") \
+              || recovery_ok=false
+            [[ -z "$containers" ]] || recovery_ok=false
+          fi
+          if [[ "$recovery_ok" == true ]]; then
+            ssh -F "$RUNNER_TEMP/ssh/config" coforge-ecs \
+              "COFORGE_PUBLIC_HEALTH_RESULT='$rollback_evidence' \
+                COFORGE_SHARED_INGRESS_HEALTH_RESULT=passed \
+                COFORGE_WSS_HEALTH_RESULT='$rollback_evidence' \
+                COFORGE_TCP80_RESULT=passed \
+                COFORGE_RUNNING_DIGEST_RESULT='$rollback_evidence' \
+                COFORGE_TRANSACTION_OWNER='$TRANSACTION_OWNER' \
+                $pending_root/compose_release.sh --finalize-rollback"
+            exit 0
+          fi
+          ssh -F "$RUNNER_TEMP/ssh/config" coforge-ecs \
+            "COFORGE_TRANSACTION_OWNER='$TRANSACTION_OWNER' \
+              $pending_root/compose_release.sh --record-failed-rollback"
+          exit 1
 
       - name: Collect durable release evidence
         if: ${{ always() }}

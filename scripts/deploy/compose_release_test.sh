@@ -306,6 +306,13 @@ PATH="$test_root/bin:$PATH" \
   COFORGE_APP_ROOT="$test_root/partial-commit" \
   COFORGE_HEALTH_ATTEMPTS=1 \
   "$release_script" --rollback
+if [[ "$(PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/partial-commit" \
+  "$release_script" --rollback-target-image)" != "$first_image" ]]; then
+  printf 'partial commit workflow selected the candidate instead of rollback target\n' >&2
+  exit 1
+fi
 PATH="$test_root/bin:$PATH" \
   FAKE_DOCKER_LOG="$docker_log" \
   COFORGE_APP_ROOT="$test_root/partial-commit" \
@@ -348,6 +355,21 @@ if PATH="$test_root/bin:$PATH" \
   printf 'expected a different transaction owner to be rejected\n' >&2
   exit 1
 fi
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TRANSACTION_OWNER=other-owner \
+  COFORGE_APP_ROOT="$test_root/deferred-commit" \
+  "$release_script" --adopt-interrupted
+if [[ "$(<"$test_root/deferred-commit/pending-owner")" != other-owner ]] \
+  || [[ "$(<"$test_root/deferred-commit/pending-failure-stage")" != interrupted ]]; then
+  printf 'a successor workflow could not adopt an unmarked interrupted transaction\n' >&2
+  exit 1
+fi
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TRANSACTION_OWNER=test-owner \
+  COFORGE_APP_ROOT="$test_root/deferred-commit" \
+  "$release_script" --adopt-interrupted
 PATH="$test_root/bin:$PATH" \
   FAKE_DOCKER_LOG="$docker_log" \
   COFORGE_APP_ROOT="$test_root/deferred-commit" \
@@ -609,6 +631,29 @@ if [[ -e "$test_root/first-deploy/current-image" ]] \
   printf 'verified empty-state rollback was not durably finalized\n' >&2
   exit 1
 fi
+if [[ "$(sed -n '3p' "$test_root/first-deploy/release-state")" != none ]] \
+  || [[ ! "$(sed -n '4p' "$test_root/first-deploy/release-state")" =~ ^[0-9a-f]{64}$ ]]; then
+  printf 'empty-state rollback lost the previous image Compose generation\n' >&2
+  exit 1
+fi
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/first-deploy" \
+  COFORGE_HEALTH_ATTEMPTS=1 \
+  "$release_script" --rollback
+PATH="$test_root/bin:$PATH" \
+  FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_APP_ROOT="$test_root/first-deploy" \
+  COFORGE_PUBLIC_HEALTH_RESULT=passed \
+  COFORGE_SHARED_INGRESS_HEALTH_RESULT=passed \
+  COFORGE_WSS_HEALTH_RESULT=passed \
+  COFORGE_RUNNING_DIGEST_RESULT=passed \
+  "$release_script" --finalize-rollback
+if [[ "$(<"$test_root/first-deploy/current-image")" != "$first_image" ]] \
+  || [[ -e "$test_root/first-deploy/previous-image" ]]; then
+  printf 'rollback from empty state did not restore the saved image generation\n' >&2
+  exit 1
+fi
 
 mkdir -p "$test_root/standalone-rollback-failure"
 printf 'release: current-only\n' >"$test_root/standalone-rollback-failure/compose.yaml"
@@ -706,6 +751,7 @@ PATH="$test_root/bin:$PATH" \
   COFORGE_HEALTH_ATTEMPTS=1 \
   "$release_script" "$fourth_image"
 
+printf 'release: corrupted compatibility view\n' >"$test_root/app/previous-compose.yaml"
 PATH="$test_root/bin:$PATH" \
   FAKE_DOCKER_LOG="$docker_log" \
   COFORGE_APP_ROOT="$test_root/app" \

@@ -144,7 +144,7 @@ Restrict the `test` Environment to `main` and configure:
 
 | Kind | Name | Value |
 | --- | --- | --- |
-| Secret | `ECS_HOST` | Public IPv4 address |
+| Variable | `ECS_HOST` | Public IPv4 address; routing data, not a credential |
 | Secret | `ECS_SSH_USER` | `deploy` |
 | Secret | `ECS_SSH_PRIVATE_KEY` | Deployment-only private key |
 | Secret | `ECS_SSH_HOST_KEY` | Trusted complete `known_hosts` line |
