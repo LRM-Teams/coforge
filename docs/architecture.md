@@ -25,15 +25,17 @@ CoForge 让用户通过 Web 私聊或群聊多个 code agent，同时把 Agent �
 ```mermaid
 flowchart LR
     User[Web 用户] -->|HTTPS| Caddy[Caddy<br/>TLS · edge proxy]
+    User -->|WSS| Caddy
     User -->|signed HTTPS upload| OSS[(Alibaba Cloud OSS<br/>private attachment bucket)]
     User -->|short-lived signed GET| Delivery[Opaque delivery URL<br/>Direct OSS or cdn.coforge.cn/files/]
     Caddy --> Web[Web / backend<br/>Node · TanStack Start<br/>control plane]
-    Caddy -->|WSS| Gateway[realtime-gateway<br/>Go<br/>transport only]
-    Web --> DB[(Managed PostgreSQL)]
+    Caddy -->|WSS| Realtime[Centrifugo OSS ×2<br/>standalone transport]
+    Web --> DB[(PostgreSQL Docker<br/>canonical durability)]
+    Realtime <-->|HTTP/gRPC proxy · server API| Web
+    Realtime <-->|broker · presence · hot history| Redis[(Redis Docker<br/>hot state only)]
     Web -->|upload sign · object verify| OSS
     Web -->|authorize · issue delivery URL| Delivery
     Delivery -->|direct read or authenticated origin fetch| OSS
-    Web <-->|delivery / stream| Gateway
 
     subgraph Host[用户机器]
         Computer[coforge-computer<br/>独立进程]
@@ -50,11 +52,13 @@ flowchart LR
         WD2 <-->|ACP| Agent2
     end
 
-    Gateway <-->|outbound WSS + RPC| WD1
-    Gateway <-->|outbound WSS + RPC| WD2
+    Realtime <-->|outbound WSS + RPC| WD1
+    Realtime <-->|outbound WSS + RPC| WD2
 ```
 
-`Web/backend → realtime-gateway` 的具体内部接口尚未定型；图中只固定职责与数据方向，不固定实现协议。
+`Centrifugo ↔ Web/backend` 最终选择 HTTP 还是 gRPC、具体 method/field/error/version 均未定型；图中只固定职责、故障隔离与数据方向，不提前锁定业务 wire。
+
+选型理由、失败/回滚边界、LRM-1581 固定证据与官方资料见 [ADR 0001](adr/0001-standalone-centrifugo-and-compose-data-services.md)。
 
 ## 3. 包与进程不是同一个层级
 
@@ -92,7 +96,7 @@ apps/
 - 反向代理、健康检查和负载均衡；
 - 与应用进程独立常驻，应用滚动更新时保持入口稳定。
 
-验证阶段运行两个应用副本。发布时一次 drain 一个 gateway/backend 副本，新连接只进入健康实例；不引入 Kubernetes。
+验证阶段运行两个 Centrifugo 副本和两个 Backend 副本。发布时一次 drain 一个副本，新连接只进入健康实例；不引入 Kubernetes。Caddy 支持 WebSocket reverse proxy，但 route reload 或所属 Centrifugo 进程死亡仍可能断开 WSS，因此客户端必须实现有界重连与重新认证。
 
 Caddy 不理解 conversation、message、Agent 或 workspace 业务。
 
@@ -103,19 +107,27 @@ Caddy 不理解 conversation、message、Agent 或 workspace 业务。
 - canonical message 的创建、持久化和路由决策；
 - 每个目标 Agent 的 delivery ledger；
 - 普通业务 API、Web 页面和 PostgreSQL migration；
-- 接收并保存 Agent response/stream，再推送给会话参与者。
+- 接收并保存 Agent response/stream，再推送给会话参与者；
+- 通过 Centrifugo proxy/server API 执行连接授权、业务 RPC、publish 与必要的 disconnect，并在重启后从 PostgreSQL 已知 binding + Centrifugo presence 重建在线视图。
 
 初始实现使用 Node 24 LTS 与 TanStack Start，不使用 Next.js。前期保持模块化单体，只有出现清晰的扩缩容或故障隔离需求时才拆服务。
 
-### realtime-gateway：实时传输面
+### standalone Centrifugo OSS：实时传输面
 
-- 使用 Go 实现长期 WSS 连接和双向 RPC 传输；
-- 根据 backend 已作出的路由决策转发 delivery 和 stream；
-- 处理连接生命周期、背压、心跳、重连与协议版本协商。
+- 作为独立服务持有 Web/workspace-daemon 的长期 WSS，处理连接/session mechanics、背压、心跳、重连、RPC/订阅 framing 与跨副本 fan-out；
+- 通过官方 HTTP/gRPC proxy 与 server API 把需要业务判断的连接、RPC、publish 和 disconnect 交给 Backend；
+- 使用 Redis engine 共享 broker、presence 与 bounded hot history，使两个副本可以路由到彼此持有的连接；
+- Backend 重启时保留既有 WSS，但依赖 Backend 的业务 RPC 必须短暂显式失败，恢复后再重试。
 
-realtime-gateway 不拥有业务规则，不直接读写 PostgreSQL，不适配具体 Agent，也不把传输 ACK 解释为任务完成。
+Centrifugo 不拥有业务规则，不直接读写 PostgreSQL，不决定 Workspace–Computer binding 或目标 Agent，不适配具体 Agent，也不把 transport success 解释为 durable delivery 或任务完成。自定义 Go realtime-gateway、Fiber 与 embedded Centrifuge 均已退出 production 方向；仓库中的旧 skeleton 只等待后续删除，不允许扩展。
+
+### Redis：实时 hot state
+
+Redis 只作为两个 Centrifugo 副本的 broker、presence manager 与 bounded hot-history store。MVP 使用官方 Docker image、认证、私有 Compose 网络、healthcheck 与独立 named volume；volume 改善操作连续性，但不把 Redis 提升为 durable source of truth。Redis 丢失、epoch 变化或替换后允许 hot state 重建，Backend 必须依靠 PostgreSQL 与 workspace-daemon spool reconciliation 恢复 canonical delivery。
 
 ### PostgreSQL：云端持久状态
+
+MVP 使用官方 PostgreSQL Docker image、认证、私有 Compose 网络、healthcheck 与独立 named volume。数据库上线前必须演示 logical backup、在全新 container + volume 中 restore 并核对业务 fingerprint；容器重建、保留原 volume 或应用回滚都不能冒充数据库恢复。
 
 PostgreSQL 的首要领域对象是：
 
@@ -128,7 +140,7 @@ PostgreSQL 的首要领域对象是：
 
 ### Alibaba Cloud OSS：聊天附件数据面
 
-首个 OSS bucket 只承载聊天图片与文件附件，必须保持 `private`。Bucket 不使用 `public-read` 或 `public-read-write`；公开头像和 Web 静态资源以后使用独立 bucket，不能与聊天附件混放。浏览器与 OSS 之间的文件传输使用 HTTPS 数据面，不经过 realtime-gateway，也不改变 daemon 只使用 WSS/RPC 的传输边界。
+首个 OSS bucket 只承载聊天图片与文件附件，必须保持 `private`。Bucket 不使用 `public-read` 或 `public-read-write`；公开头像和 Web 静态资源以后使用独立 bucket，不能与聊天附件混放。浏览器与 OSS 之间的文件传输使用 HTTPS 数据面，不经过 Centrifugo，也不改变 daemon 只使用 WSS/RPC 的传输边界。
 
 计划中的 production CDN 文件访问边界是 `https://cdn.coforge.cn/files/{object_key}`。`cdn.coforge.cn` 复用一张证书和 CDN edge，但 `/files/` 必须使用独立 private attachment bucket、RAM 权限、条件回源、鉴权/缓存规则与日志；不得与 `/releases/` 的 origin 或策略 fallback。CDN 域名不接收应用登录 cookie，应用 cookie 必须保持 host-only，CDN 也不得向 origin 转发 Cookie。CDN 配置完成前，Direct OSS adapter 仍可返回短时 provider URL；客户端把 delivery URL 视为 opaque value，数据库仍只保存 object key，因此切换到 CDN 不需要数据库 migration、对象复制或客户端发版。Bucket 名称、Region、实际 endpoint 与域名启用时间属于部署配置，确认前不得写死；启用中国内地 custom domain 前，部署检查必须确认域名已经完成 ICP 备案。
 
@@ -211,7 +223,7 @@ workspace-daemon 1 ──管理──> N Agent ──各自拥有──> 1 Agent
 
 coforge-daemon 负责期望状态与实际状态收敛、子进程创建/回收、崩溃恢复、资源治理和版本兼容，但不直接解析各家 Agent 的输出协议。
 
-Computer 的云端在线状态由当前 workspace-daemon WSS 连接集合实时派生：该 Computer 至少有一个 workspace-daemon WSS 在线时，该 Computer 在线。具体连接如何关联稳定的服务端 Computer 记录由后续 binding 与认证设计确定；`online` 与 `last_seen_at` 不作为这项状态的持久化真相。
+云端在线与控制状态按 Workspace–Computer binding 独立派生：只有该 binding 对应的已认证 workspace-daemon WSS 在线时，这个 binding 才在线。同一 Computer 在其他 Workspace 的连接不能赋予当前 binding 在线状态、路由或 authority。具体连接如何关联稳定的服务端 Computer 记录由后续 binding 与认证设计确定；`online` 与 `last_seen_at` 不作为持久化真相。
 
 ### workspace-daemon 与 ACP
 
@@ -219,9 +231,9 @@ Computer 的云端在线状态由当前 workspace-daemon WSS 连接集合实时�
 
 一台 Computer 允许安装零个或多个 code-agent runtime。零 runtime 是有效机器状态，不阻止 computer 或 daemon 启动；安装并配置合适 runtime 前不能执行 Agent。
 
-Agent provider 的特殊逻辑必须留在 ACP adapter 边界内，不能泄漏到 realtime-gateway、Web/backend 或共享领域模型。
+Agent provider 的特殊逻辑必须留在 ACP adapter 边界内，不能泄漏到 Centrifugo、Web/backend 或共享领域模型。
 
-**提案：每个 workspace 子进程拥有独立的本地 SQLite spool。** 它存放已接管的 inbound delivery、等待云端确认的 Agent response、重连 cursor 与最小去重状态。数据库放在应用数据目录而不是用户仓库内；加密、保留期限与损坏恢复需要单独 ADR。
+**已确定 durability 边界、未确定生产格式：每个 workspace 子进程拥有独立的本地 durable spool。** 它存放已接管的 inbound delivery、等待云端确认的 Agent response、重连 cursor 与最小去重状态。数据库实现、schema、加密、保留期限与损坏恢复需要单独 ADR；无论最终是否使用 SQLite，都必须位于应用数据目录而不是用户仓库内，并保持 append/read/ACK 与进程替换后的恢复语义。
 
 ## 6. 消息投递语义
 
@@ -238,8 +250,8 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 ### 6.1 云端到 Agent
 
 1. backend 在同一事务内持久化 canonical message，并为每个目标 Agent 创建 delivery；
-2. backend 通过尚待 ADR 确定的内部接口唤醒 realtime-gateway，gateway 不读取 PostgreSQL；
-3. gateway 经目标 workspace child 自己的 WSS 发送 `delivery.offer`；
+2. backend 通过 Centrifugo server API 向已授权目标发布 `delivery.offer`；channel/subscription 映射与 payload schema 仍待 wire approval，Centrifugo 不读取 PostgreSQL；
+3. Centrifugo 经目标 workspace child 自己的 WSS 转发该 offer；
 4. workspace child 先按 `delivery_id` 写入本地 durable inbox，再返回 `delivery.accepted`；
 5. backend 校验 workspace、Agent、delivery id 与 sequence 后记录接管时间；
 6. child 按 Agent context 顺序交给 ACP；重连时由 backend 按原 sequence replay 未确认 delivery。
@@ -250,7 +262,7 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 
 1. Agent 最终 response 先写入 workspace child 的 durable outbox，并生成稳定 `client_message_id`；
 2. child 经 WSS RPC 发送 `message.publish`；
-3. gateway 只转发给 backend；backend 用 `(sender_participant_id, client_message_id)` 幂等提交 canonical response；
+3. Centrifugo 把 RPC proxy 给 backend；backend 用 `(sender_participant_id, client_message_id)` 幂等提交 canonical response；
 4. backend 返回 `message.committed(client_message_id, message_id, conversation_seq)`；
 5. child 收到确认后标记本地 outbox 项已提交。断线时持续重试相同 `client_message_id`。
 
@@ -267,12 +279,12 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 ```text
 用户私聊/群聊消息
 → Web/backend：鉴权、会话成员校验、canonical message 持久化、路由
-→ realtime-gateway：WSS/RPC 传输
+→ Centrifugo：WSS/RPC 传输
 → 目标 workspace-daemon：durable inbox、去重、接管与 ACK
 → ACP
 → code agent runtime
 → response 写入本地 durable outbox
-→ realtime-gateway：WSS/RPC 转发
+→ Centrifugo：WSS/RPC proxy
 → Web/backend：按 client_message_id 幂等持久化并推送给 conversation participants
 ```
 
@@ -285,18 +297,19 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 | 组件 | 技术基线 |
 | --- | --- |
 | Edge | Caddy 2.11.4 |
-| realtime-gateway | Go 1.26.7 |
+| realtime transport | standalone Centrifugo OSS；LRM-1581 验证 v6.8.4 |
+| realtime hot state | Redis Official Image；LRM-1581 验证 8.2.6，production pin/license 待门禁 |
 | Web/backend | Node 24 LTS + TanStack Start |
 | 本地 app/runtime | Bun 1.4 |
-| 数据库 | Managed PostgreSQL |
+| 数据库 | PostgreSQL Official Image；LRM-1581 验证 18.6 |
 
-精确版本以 `mise.toml` 为准。升级版本时必须同时更新锁文件、CI 和本文，不能只改本机环境。
+开发工具和本地 runtime 的精确版本以 `mise.toml` 为准；Caddy/Centrifugo/Redis/PostgreSQL 的 production 版本由后续 Compose 配置按不可变 digest 固定。LRM-1581 的版本只证明组合可行，不自动批准 production pin。升级版本时必须同时更新相应配置、lock/evidence、CI 与本文，不能只改本机环境或使用 `latest`。
 
 验证阶段采用轻量 [GitHub Flow](https://docs.github.com/en/get-started/using-github/github-flow)：短生命周期 feature branch → CR/PR → `main`，不维护长期 `dev` 分支，禁止直接向 `main` 提交或推送。规范性的决策门槛、评审、检查与合并规则统一由根目录 [`AGENTS.md`](../AGENTS.md) 维护。
 
 本地安装包与 release feed 的 consumer boundary 是 `https://cdn.coforge.cn/releases/`。它可以与聊天附件共享 CDN 证书和 edge 域名，但必须使用独立 private release bucket、RAM 权限、条件回源、缓存/访问规则与日志；路径未命中时 fail closed，禁止在 release 与附件 origin 之间 fallback，也禁止接收或向 origin 转发应用登录 cookie。
 
-云端应用以不可变 Docker image 发布，由独立 Docker Compose project 管理，不把 Go binary 直接安装到宿主机，也不增加应用级 systemd unit。`main` 上的产物只构建一次并自动发布到 MVP `test` 环境；未来的 production 发布由人批准精确 image digest，再由 Agent 把同一个 digest 晋级，禁止重新 build 或使用 `latest`。`coforge-computer` 与 `coforge-daemon` 保持独立版本、构建与签名身份；每个 immutable release set 固定两个 component artifact 的已验证兼容组合，并为每个平台提供一个同时包含两侧 payload 的 Computer installation bundle。单一原子 `channels.json` 选择 test / production 的 current / previous release set。首次本地发布通过明确的 initial bootstrap 一次建立首对 Computer 与 Daemon component artifact；此后 MVP 每次新 release set 只改变一个 component digest。只升级 Daemon 时复用未变化的 Computer artifact，再组装新 bundle。production 只晋级 test 验证过的同一 bundle bytes，不重新 build 或 repackage。用户只安装 Computer；本地安装、升级、Computer 后台启动与回滚全部限于当前用户的系统标准目录，不要求 sudo / 管理员权限；只有 Computer shim 进入用户 PATH，Daemon 保留在 version store 并由 Computer 通过 active release set 的精确路径启动，不单独注册 service。完整的发布、健康检查、审计与回滚契约见 [`docs/release.md`](release.md)。
+云端应用与 Caddy/Centrifugo/Redis/PostgreSQL 以不可变 Docker image 发布，由独立 Docker Compose project 管理，不把旧 Go gateway binary 直接安装到宿主机，也不增加应用级 systemd unit。CoForge 自有 image 在 `main` 上只构建一次并自动发布到 MVP `test` 环境；第三方官方 image 同样固定精确 digest。未来的 production 发布由人批准精确 image digest，再由 Agent 把同一个 digest 晋级，禁止重新 build 或使用 `latest`。Redis 与 PostgreSQL 使用独立 named volume；删除或替换 application container 不得隐式删除数据 volume，数据库 rollback 必须与应用 rollback 分开执行和验证。`coforge-computer` 与 `coforge-daemon` 保持独立版本、构建与签名身份；每个 immutable release set 固定两个 component artifact 的已验证兼容组合，并为每个平台提供一个同时包含两侧 payload 的 Computer installation bundle。单一原子 `channels.json` 选择 test / production 的 current / previous release set。首次本地发布通过明确的 initial bootstrap 一次建立首对 Computer 与 Daemon component artifact；此后 MVP 每次新 release set 只改变一个 component digest。只升级 Daemon 时复用未变化的 Computer artifact，再组装新 bundle。production 只晋级 test 验证过的同一 bundle bytes，不重新 build 或 repackage。用户只安装 Computer；本地安装、升级、Computer 后台启动与回滚全部限于当前用户的系统标准目录，不要求 sudo / 管理员权限；只有 Computer shim 进入用户 PATH，Daemon 保留在 version store 并由 Computer 通过 active release set 的精确路径启动，不单独注册 service。完整的发布、健康检查、审计与回滚契约见 [`docs/release.md`](release.md)。
 
 提交与 CR 保持小而单一，使用简洁的英文 Conventional Commit：`<type>(optional-scope): imperative summary`。
 
@@ -307,9 +320,9 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 - 凭据不得进入仓库、日志、命令行参数或生成物；
 - Unix socket 使用最小文件权限并验证对端身份；
 - Agent 只能在声明的 Agent workspace 目录中运行；
-- Caddy、gateway、backend 和本地进程都需要结构化日志和关联 id，但日志不得包含 secret；
-- validation 阶段先使用常规主机与托管 PostgreSQL，不引入 Kubernetes。
-- WebSocket 依附于 TCP，所属 gateway 进程死亡时一定会断开；保证目标是 committed message 不丢、自动重连、按序 replay 与重复抑制，而不是宣称连接永不断。
+- Caddy、Centrifugo、Redis、PostgreSQL、backend 和本地进程都需要结构化日志和关联 id，但日志不得包含 secret；
+- MVP 先在常规主机用 Docker Compose 自托管 Redis/PostgreSQL，不引入 Kubernetes；二者以后只能通过配置 seam 与受控数据迁移替换托管服务；
+- WebSocket 依附于 TCP，所属 Centrifugo 进程死亡时一定会断开；保证目标是 committed message 不丢、自动重连、按序 replay 与重复抑制，而不是宣称连接永不断。
 
 ## 10. 变更规则
 
@@ -318,25 +331,21 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 - 新增或拆分 app/package；
 - 改变进程所有权或 IPC/WSS/ACP 边界；
 - 改变 ACK、去重、sequence 或重连语义；
-- 让 realtime-gateway 访问业务数据库或承担业务规则；
+- 让 Centrifugo 访问业务数据库或承担 business authorization/routing；
+- 把 Redis/Centrifugo history 提升为 canonical durability，或改变 PostgreSQL + workspace-daemon spool 的恢复边界；
 - 引入新的持久队列、缓存、服务发现或编排平台；
 - 修改主干策略或 runtime 技术栈。
 
 ## 11. 协议提案与待决 ADR
 
-daemon 到 cloud 使用版本化 typed RPC over WSS，不照搬 Multica 事件名。建议的最小方法族：
+daemon 到 cloud 在 Centrifugo client protocol 内承载 CoForge 自有、版本化的 application RPC，不照搬 Multica 事件名。业务方法族至少覆盖 durable delivery 的 offer/accept/reject 与 Agent response 的 publish/commit；确切 method name、payload、error 与 capability 都属于待批准 wire。连接/session framing、heartbeat、transport reconnect 与 stream position 由 Centrifugo 负责，CoForge 不重复发明第二套传输协议。
 
-- `session.hello` / `session.ready` / `session.resume`
-- `delivery.offer` / `delivery.accepted` / `delivery.rejected`
-- `message.publish` / `message.committed`
-- `heartbeat.ping` / `heartbeat.pong`
-
-每个 envelope 携带 protocol version、request id、workspace/session scope 与必要 deadline。未知 major version 必须拒绝；minor capability 在 handshake 协商。浏览器 API 与 cloud internal RPC 是独立契约，“daemon 不用 HTTP”不禁止浏览器用 HTTPS 完成认证、bootstrap 和普通读取。
+每个 CoForge application request 必须携带稳定 request identity、Workspace/session scope 与必要 deadline；确切 envelope 仍待 wire approval。未知 major version 必须拒绝，minor capability 必须协商。浏览器 API 与 cloud internal RPC 是独立契约，“daemon 不用 HTTP”不禁止浏览器用 HTTPS 完成认证、bootstrap 和普通读取。
 
 以下项目在实现锁定前必须写 ADR：
 
-1. WSS encoding 与 schema generation；
-2. gateway 到 backend 的内部传输和跨副本连接定位；
+1. Centrifugo client protocol 内的 CoForge payload encoding 与 schema generation；
+2. Centrifugo 到 Backend 使用 HTTP 或 gRPC、proxy/API 暴露范围、channel/namespace 映射与在线视图枚举；
 3. SQLite schema、加密、保留与损坏恢复；
 4. `conversation_seq` 的并发分配；
 5. ACP capability mapping 与 cancellation；
@@ -348,7 +357,7 @@ daemon 到 cloud 使用版本化 typed RPC over WSS，不照搬 Multica 事件�
 1. 重复 `delivery.offer` 在本地接管后最多进入 ACP 一次；
 2. workspace child 接管后崩溃，重启能从 local inbox 继续；
 3. Agent response 离线排队，重连后只形成一条 canonical message；
-4. gateway 在 publish 中途死亡，重试不产生双写；
+4. Centrifugo 在 publish 中途死亡，重试不产生双写；
 5. 单副本滚动时另一副本接受重连；
 6. 内部 wakeup 丢失后仍能由 reconciliation / replay 修复；
 7. 跨重连保持 conversation 顺序；

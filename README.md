@@ -11,13 +11,18 @@ The project is in its architecture-validation phase.
 
 ```text
 Browser -> Caddy -> TanStack Start web/backend -> PostgreSQL
-              \--> Go realtime-gateway <-WSS- workspace child
+              \--> standalone Centrifugo <-WSS- workspace child
+                          |      ^
+                       Redis    | HTTP/gRPC proxy + server API
+                                +---- Bun backend
 
 coforge-computer <-Unix socket-> coforge-daemon -> N workspace children -> ACP
 ```
 
 - Web/backend: TanStack Start on Node 24 LTS
-- Realtime transport: Go 1.26.7 and WebSocket
+- Realtime transport: standalone Centrifugo OSS over WebSocket
+- Realtime hot state: self-hosted Redis Docker; never canonical durability
+- Canonical cloud state: self-hosted PostgreSQL Docker with backup/restore gates
 - Local apps: Bun 1.4
 - Edge and local deployment: Caddy and Docker
 - Development tool versions: mise
@@ -33,12 +38,13 @@ boundaries and [the database design](docs/database-schema.md) for the current
 conversation and delivery model. See [the release contract](docs/release.md)
 for cloud deployment, atomic Computer installation bundles and compatibility
 release sets, exact-artifact production promotion, per-user installation, and
-rollback rules.
+rollback rules. The accepted realtime and MVP data-service decision is recorded
+in [ADR 0001](docs/adr/0001-standalone-centrifugo-and-compose-data-services.md).
 
 ## Repository layout
 
 ```text
-apps/realtime-gateway   WSS transport and connection lifecycle
+apps/realtime-gateway   Obsolete Go skeleton pending removal; not a production path
 apps/web                Web UI and backend control plane (scaffold pending)
 apps/coforge-computer   Machine-level setup and supervisor
 apps/coforge-daemon     Workspace process manager (scaffold pending)
@@ -64,20 +70,21 @@ mise run check
 mise run build
 ```
 
-GitHub Actions runs separate Computer and realtime-gateway jobs for every pull
-request and every push to `main`, so failures stay attributable to one app.
-Dependency installation uses frozen-lockfile mode. Runtime versions continue
-to come from `mise.toml`.
+GitHub Actions currently keeps separate Computer and legacy realtime-gateway
+jobs for every pull request and every push to `main`, so failures stay
+attributable during the removal transition. Dependency installation uses
+frozen-lockfile mode. Runtime versions continue to come from `mise.toml`.
 
-Run the current realtime-gateway skeleton:
+The current realtime-gateway command exists only to keep the obsolete skeleton
+green until its focused removal change:
 
 ```bash
 mise exec -- bun run dev:gateway
 ```
 
-It exposes `GET /healthz`, `GET /readyz`, and `GET /v1/connect` on port 8080
-by default. Set `PORT` and `DRAIN_TIMEOUT_MS` to override the development
-defaults.
+Do not add production behavior or dependencies to that skeleton. Standalone
+Centrifugo, Redis, PostgreSQL, Backend proxy/API wiring, and their Compose
+configuration land only in separately approved focused changes.
 
 ## Development workflow
 
