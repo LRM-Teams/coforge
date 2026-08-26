@@ -369,6 +369,54 @@ if [[ -e "$test_root/formal-manual-stale-active/pending-image" ]] \
   exit 1
 fi
 
+mkdir -p "$test_root/formal-ci-audit-failure"
+printf 'release: current\n' >"$test_root/formal-ci-audit-failure/compose.yaml"
+printf 'release: candidate\n' >"$test_root/formal-ci-audit-failure/candidate.yaml"
+printf '%s\n' "$first_image" >"$test_root/formal-ci-audit-failure/current-image"
+mkdir "$test_root/formal-ci-audit-failure/release-history.jsonl"
+set +e
+PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TEST_SIGNAL_DURING_ACTIVE_REMOVAL=true \
+  COFORGE_APP_ROOT="$test_root/formal-ci-audit-failure" \
+  COFORGE_CANDIDATE_COMPOSE="$test_root/formal-ci-audit-failure/candidate.yaml" \
+  COFORGE_DEFER_COMMIT=true COFORGE_SOURCE_COMMIT="$source_commit" \
+  COFORGE_WORKFLOW_RUN="$workflow_run" COFORGE_EXECUTOR=github-actions \
+  COFORGE_HEALTH_ATTEMPTS=1 "$release_script" "$second_image"
+formal_ci_audit_status=$?
+set -e
+if [[ "$formal_ci_audit_status" -ne 74 ]] \
+  || [[ ! -e "$test_root/formal-ci-audit-failure/pending-image" ]] \
+  || [[ ! -e "$test_root/formal-ci-audit-failure/pending-audit-write-failed" ]] \
+  || PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+    COFORGE_APP_ROOT="$test_root/formal-ci-audit-failure" \
+    "$release_script" --current-image >/dev/null 2>&1; then
+  printf 'formal CI audit failure did not fail closed\n' >&2
+  exit 1
+fi
+
+mkdir -p "$test_root/formal-manual-audit-failure"
+printf 'release: current\n' >"$test_root/formal-manual-audit-failure/compose.yaml"
+printf 'release: previous\n' >"$test_root/formal-manual-audit-failure/previous-compose.yaml"
+printf '%s\n' "$first_image" >"$test_root/formal-manual-audit-failure/current-image"
+printf '%s\n' "$third_image" >"$test_root/formal-manual-audit-failure/previous-image"
+mkdir "$test_root/formal-manual-audit-failure/release-history.jsonl"
+set +e
+PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TEST_SIGNAL_DURING_ACTIVE_REMOVAL=true \
+  COFORGE_APP_ROOT="$test_root/formal-manual-audit-failure" \
+  "$release_script" --rollback
+formal_manual_audit_status=$?
+set -e
+if [[ "$formal_manual_audit_status" -ne 74 ]] \
+  || [[ ! -e "$test_root/formal-manual-audit-failure/pending-image" ]] \
+  || [[ ! -e "$test_root/formal-manual-audit-failure/pending-audit-write-failed" ]] \
+  || PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+    COFORGE_APP_ROOT="$test_root/formal-manual-audit-failure" \
+    "$release_script" --current-image >/dev/null 2>&1; then
+  printf 'formal manual audit failure did not fail closed\n' >&2
+  exit 1
+fi
+
 mkdir -p "$test_root/config-validation"
 printf 'release: current\n' >"$test_root/config-validation/compose.yaml"
 printf 'release: invalid-candidate\n' >"$test_root/config-validation/candidate.yaml"

@@ -228,10 +228,20 @@ record_interruption() {
   if [[ ! -e "$pending_failure_file" ]]; then
     printf '%s\n' interrupted >"$pending_failure_file"
   fi
-  printf '{"source_commit":"%s","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"signal_%s=interrupted","final_observed_state":"%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"interrupted"}\n' \
+  if ! printf '{"source_commit":"%s","track":"cloud-application","image":"%s","image_digest":"%s","environment":"test","workflow_run":"%s","previous_digest":"%s","health_result":"signal_%s=interrupted","final_observed_state":"%s","approval":"not-required","executor":"%s","started_at":"%s","completed_at":"%s","outcome":"interrupted"}\n' \
     "$source_commit" "$image" "$image_digest" "$workflow_run" \
     "$previous_digest" "$signal" "$final_state" "$executor" "$started_at" \
-    "$completed_at" >>"$history_file"
+    "$completed_at" >>"$history_file"; then
+    if [[ -e "$pre_marker_active_file" ]] \
+      && mv -f "$pre_marker_active_file" "$pending_audit_failed_file"; then
+      :
+    elif ! : >"$pending_audit_failed_file"; then
+      printf 'formal interruption audit failure marker could not be published; pending evidence retained\n' >&2
+      exit 74
+    fi
+    printf 'formal interruption audit failed; pending evidence retained\n' >&2
+    exit 74
+  fi
   if [[ "$final_state" == unchanged ]]; then
     clear_pending
   fi
