@@ -135,20 +135,13 @@ CREATE TABLE message_reaction (
 CREATE INDEX message_reaction_participant_idx
     ON message_reaction (participant_id, created_at DESC);
 
-CREATE TABLE agent_delivery_cursor (
-    workspace_id uuid NOT NULL,
-    agent_id uuid NOT NULL,
-    next_seq bigint NOT NULL DEFAULT 1 CHECK (next_seq > 0),
-    PRIMARY KEY (workspace_id, agent_id)
-);
-
 CREATE TABLE agent_message_delivery (
     id uuid PRIMARY KEY,
     workspace_id uuid NOT NULL,
     message_id uuid NOT NULL,
     agent_id uuid NOT NULL,
     target text NOT NULL,
-    seq bigint NOT NULL CHECK (seq > 0),
+    seq bigint GENERATED ALWAYS AS IDENTITY CHECK (seq > 0),
     created_at timestamptz NOT NULL DEFAULT now(),
     last_sent_at timestamptz,
     acked_at timestamptz,
