@@ -13,6 +13,9 @@ cat >"$test_root/bin/ssh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 command_line=${*: -1}
+if [[ -n "${FAKE_SSH_LOG:-}" ]]; then
+  printf '%s\n' "$command_line" >>"$FAKE_SSH_LOG"
+fi
 if [[ "$command_line" == *'if test -e '* ]]; then
   case "${FAKE_PENDING_STATE:-absent}" in
     absent) printf 'absent' ;;
@@ -20,13 +23,13 @@ if [[ "$command_line" == *'if test -e '* ]]; then
     transport-failure) exit 255 ;;
   esac
 elif [[ "$command_line" == *'cat '*'/pending-owner'* ]]; then
-  printf '%s\n' "${TRANSACTION_OWNER:?}"
+  printf '%s\n' "${FAKE_PENDING_OWNER:-${TRANSACTION_OWNER:?}}"
 elif [[ "$command_line" == *'--record-interruption'* ]]; then
   exit "${FAKE_INTERRUPTION_STATUS:-130}"
 elif [[ "$command_line" == *'--rollback-target-image'* ]]; then
   :
 elif [[ "$command_line" == *'--finalize-rollback'* ]]; then
-  exit 42
+  exit "${FAKE_FINALIZE_STATUS:-0}"
 elif [[ "$command_line" == *'--record-failed-rollback'* ]]; then
   : >"${FAKE_FAILED_RECORD:?}"
 fi
@@ -69,9 +72,26 @@ if [[ -e "$test_root/unexpected-failed-record" ]]; then
   exit 1
 fi
 
+recovery_log="$test_root/recovery-order.log"
+PATH="$test_root/bin:$PATH" \
+  FAKE_PENDING_STATE=present FAKE_PENDING_OWNER=old-run-owner \
+  FAKE_SSH_LOG="$recovery_log" "$recover_script"
+adopt_line=$(grep -n -- '--adopt-interrupted' "$recovery_log" | cut -d: -f1)
+audit_line=$(grep -n -- '--record-interruption' "$recovery_log" | cut -d: -f1)
+rollback_line=$(grep -n -- 'compose_release.sh --rollback$' "$recovery_log" | cut -d: -f1)
+finalize_line=$(grep -n -- '--finalize-rollback' "$recovery_log" | cut -d: -f1)
+if [[ -z "$adopt_line" || -z "$audit_line" || -z "$rollback_line" \
+  || -z "$finalize_line" ]] \
+  || ((adopt_line >= audit_line || audit_line >= rollback_line \
+    || rollback_line >= finalize_line)); then
+  printf 'successor recovery did not adopt, audit, rollback, and finalize in order\n' >&2
+  exit 1
+fi
+
 failed_record="$test_root/failed-record"
 if PATH="$test_root/bin:$PATH" \
   FAKE_PENDING_STATE=present \
+  FAKE_FINALIZE_STATUS=42 \
   FAKE_FAILED_RECORD="$failed_record" \
   "$recover_script"; then
   printf 'recovery accepted a failed rollback finalization\n' >&2

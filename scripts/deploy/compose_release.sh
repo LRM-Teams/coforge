@@ -335,6 +335,32 @@ require_pending_owner() {
   fi
 }
 
+formal_pending_evidence_valid() {
+  local pending_image pending_previous source_commit workflow_run executor
+  local started_at origin owner
+  pending_image=$(cat "$pending_image_file" 2>/dev/null || true)
+  pending_previous=$(cat "$pending_previous_image_file" 2>/dev/null || true)
+  source_commit=$(cat "$pending_source_commit_file" 2>/dev/null || true)
+  workflow_run=$(cat "$pending_workflow_run_file" 2>/dev/null || true)
+  executor=$(cat "$pending_executor_file" 2>/dev/null || true)
+  started_at=$(cat "$pending_started_at_file" 2>/dev/null || true)
+  origin=$(cat "$pending_origin_file" 2>/dev/null || true)
+  owner=$(cat "$pending_owner_file" 2>/dev/null || true)
+
+  [[ "$pending_image" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]] \
+    && { [[ "$pending_previous" == bootstrap:empty ]] \
+      || [[ "$pending_previous" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[0-9a-f]{64}$ ]]; } \
+    && [[ "$executor" =~ ^[A-Za-z0-9._@/-]+$ ]] \
+    && [[ "$started_at" =~ ^[0-9TZ:.-]+$ ]] \
+    && [[ "$owner" =~ ^[A-Za-z0-9._-]+$ ]] \
+    && { { [[ "$origin" == release ]] \
+        && [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]] \
+        && [[ "$workflow_run" =~ ^https://github\.com/[A-Za-z0-9._/-]+/actions/runs/[0-9]+$ ]]; } \
+      || { [[ "$origin" == manual ]] \
+        && [[ "$source_commit" == manual ]] \
+        && [[ "$workflow_run" == manual ]]; }; }
+}
+
 if [[ "$1" != --record-failed-rollback ]] && [[ "$1" != --record-interruption ]] \
   && [[ "$1" != --commit-status ]] \
   && [[ "$1" != --current-image ]] && [[ "$1" != --previous-image ]] \
@@ -395,11 +421,23 @@ if [[ -e "$pending_audit_failed_file" ]]; then
   printf 'a pre-marker interruption audit failed; refusing to discard recovery evidence\n' >&2
   exit 74
 fi
-if [[ -e "$pre_marker_active_file" ]] \
-  && [[ "$1" != --record-interruption ]] \
-  && [[ "$1" != --record-failed-rollback ]]; then
-  printf 'an incomplete or unaudited transaction exists; refusing to discard recovery evidence\n' >&2
-  exit 74
+if [[ -e "$pre_marker_active_file" ]]; then
+  if [[ ! -e "$pending_image_file" ]]; then
+    printf 'an active pre-marker transaction has no formal recovery marker; refusing to discard evidence\n' >&2
+    exit 74
+  fi
+  case "$1" in
+    --adopt-interrupted|--record-interruption|--record-failed-rollback)
+      if ! formal_pending_evidence_valid; then
+        printf 'active formal recovery evidence is incomplete or invalid\n' >&2
+        exit 74
+      fi
+      ;;
+    *)
+      printf 'an incomplete or unaudited transaction exists; refusing to discard recovery evidence\n' >&2
+      exit 74
+      ;;
+  esac
 fi
 if [[ ! -e "$pending_image_file" ]]; then
   # A transaction is discoverable only after its marker is atomically

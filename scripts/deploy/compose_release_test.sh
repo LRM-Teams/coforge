@@ -257,6 +257,51 @@ if PATH="$test_root/bin:$PATH" \
   printf 'successor cleared an active hard-loss sentinel\n' >&2
   exit 1
 fi
+cp -a "$test_root/hard-loss-active-sentinel" \
+  "$test_root/hard-loss-active-failed-rollback"
+set +e
+PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TRANSACTION_OWNER=test-owner \
+  COFORGE_APP_ROOT="$test_root/hard-loss-active-sentinel" \
+  "$release_script" --record-interruption
+active_only_interruption_status=$?
+PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TRANSACTION_OWNER=test-owner \
+  COFORGE_APP_ROOT="$test_root/hard-loss-active-failed-rollback" \
+  "$release_script" --record-failed-rollback
+active_only_failed_rollback_status=$?
+set -e
+if [[ "$active_only_interruption_status" -ne 74 ]] \
+  || [[ ! -e "$test_root/hard-loss-active-sentinel/.pre-marker-active" ]] \
+  || [[ -e "$test_root/hard-loss-active-sentinel/pending-failure-stage" ]] \
+  || [[ -e "$test_root/hard-loss-active-sentinel/release-history.jsonl" ]]; then
+  printf 'interruption audit discarded active-only hard-loss evidence\n' >&2
+  exit 1
+fi
+if [[ "$active_only_failed_rollback_status" -ne 74 ]] \
+  || [[ ! -e "$test_root/hard-loss-active-failed-rollback/.pre-marker-active" ]] \
+  || [[ -e "$test_root/hard-loss-active-failed-rollback/pending-failure-stage" ]] \
+  || [[ -e "$test_root/hard-loss-active-failed-rollback/release-history.jsonl" ]]; then
+  printf 'failed-rollback audit discarded active-only hard-loss evidence\n' >&2
+  exit 1
+fi
+for active_only_root in \
+  "$test_root/hard-loss-active-sentinel" \
+  "$test_root/hard-loss-active-failed-rollback"; do
+  if PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+    COFORGE_APP_ROOT="$active_only_root" \
+    "$release_script" --current-image >/dev/null 2>&1 \
+    || PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+      COFORGE_APP_ROOT="$active_only_root" \
+      COFORGE_CANDIDATE_COMPOSE="$active_only_root/candidate.yaml" \
+      COFORGE_DEFER_COMMIT=true COFORGE_SOURCE_COMMIT="$source_commit" \
+      COFORGE_WORKFLOW_RUN="$workflow_run" COFORGE_EXECUTOR=github-actions \
+      COFORGE_TRANSACTION_OWNER=next-owner COFORGE_HEALTH_ATTEMPTS=1 \
+      "$release_script" "$third_image" >/dev/null 2>&1; then
+    printf 'successor bypassed active-only hard-loss evidence\n' >&2
+    exit 1
+  fi
+done
 
 mkdir -p "$test_root/promotion-fallback"
 printf 'release: current\n' >"$test_root/promotion-fallback/compose.yaml"
@@ -441,6 +486,74 @@ if [[ "$formal_ci_readonly_status" -eq 0 ]] \
   printf 'formal CI readonly failure did not retain active fail-closed evidence\n' >&2
   exit 1
 fi
+PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TRANSACTION_OWNER=successor-owner \
+  COFORGE_APP_ROOT="$test_root/formal-ci-readonly" \
+  "$release_script" --adopt-interrupted
+if [[ "$(<"$test_root/formal-ci-readonly/pending-owner")" != successor-owner ]] \
+  || [[ ! -e "$test_root/formal-ci-readonly/.pre-marker-active" ]]; then
+  printf 'formal active transaction adoption lost owner or active evidence\n' >&2
+  exit 1
+fi
+if PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TRANSACTION_OWNER=successor-owner \
+  COFORGE_APP_ROOT="$test_root/formal-ci-readonly" \
+  "$release_script" --adopt-interrupted; then
+  printf 'formal transaction accepted adoption by its existing owner\n' >&2
+  exit 1
+fi
+if [[ "$(<"$test_root/formal-ci-readonly/pending-owner")" != successor-owner ]] \
+  || [[ ! -e "$test_root/formal-ci-readonly/.pre-marker-active" ]]; then
+  printf 'same-owner adoption rejection mutated recovery evidence\n' >&2
+  exit 1
+fi
+set +e
+PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TRANSACTION_OWNER=successor-owner \
+  COFORGE_APP_ROOT="$test_root/formal-ci-readonly" \
+  "$release_script" --record-interruption
+formal_adopt_audit_status=$?
+set -e
+if [[ "$formal_adopt_audit_status" -ne 130 ]] \
+  || [[ -e "$test_root/formal-ci-readonly/.pre-marker-active" ]] \
+  || ! tail -n 1 "$test_root/formal-ci-readonly/release-history.jsonl" \
+    | grep -Fq '"outcome":"interrupted"'; then
+  printf 'adopted formal transaction was not durably audited\n' >&2
+  exit 1
+fi
+PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TRANSACTION_OWNER=successor-owner \
+  COFORGE_APP_ROOT="$test_root/formal-ci-readonly" \
+  COFORGE_HEALTH_ATTEMPTS=1 "$release_script" --rollback
+PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TRANSACTION_OWNER=successor-owner \
+  COFORGE_APP_ROOT="$test_root/formal-ci-readonly" \
+  COFORGE_PUBLIC_HEALTH_RESULT=passed \
+  COFORGE_SHARED_INGRESS_HEALTH_RESULT=passed \
+  COFORGE_WSS_HEALTH_RESULT=passed COFORGE_TCP80_RESULT=passed \
+  COFORGE_RUNNING_DIGEST_RESULT=passed \
+  "$release_script" --finalize-rollback
+printf 'release: successor\n' >"$test_root/formal-ci-readonly/successor.yaml"
+PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TRANSACTION_OWNER=next-owner \
+  COFORGE_APP_ROOT="$test_root/formal-ci-readonly" \
+  COFORGE_CANDIDATE_COMPOSE="$test_root/formal-ci-readonly/successor.yaml" \
+  COFORGE_DEFER_COMMIT=true COFORGE_SOURCE_COMMIT="$source_commit" \
+  COFORGE_WORKFLOW_RUN="$workflow_run" COFORGE_EXECUTOR=github-actions \
+  COFORGE_HEALTH_ATTEMPTS=1 "$release_script" "$third_image"
+PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TRANSACTION_OWNER=next-owner \
+  COFORGE_APP_ROOT="$test_root/formal-ci-readonly" \
+  COFORGE_PUBLIC_HEALTH_RESULT=passed \
+  COFORGE_SHARED_INGRESS_HEALTH_RESULT=passed \
+  COFORGE_WSS_HEALTH_RESULT=passed COFORGE_TCP80_RESULT=passed \
+  COFORGE_RUNNING_DIGEST_RESULT=passed \
+  "$release_script" --commit
+if [[ "$(<"$test_root/formal-ci-readonly/current-image")" != "$third_image" ]] \
+  || [[ -e "$test_root/formal-ci-readonly/pending-image" ]]; then
+  printf 'successor digest did not deploy after adopted recovery\n' >&2
+  exit 1
+fi
 
 mkdir -p "$test_root/formal-manual-readonly"
 printf 'release: current\n' >"$test_root/formal-manual-readonly/compose.yaml"
@@ -462,6 +575,18 @@ if [[ "$formal_manual_readonly_status" -eq 0 ]] \
     COFORGE_APP_ROOT="$test_root/formal-manual-readonly" \
     "$release_script" --current-image >/dev/null 2>&1; then
   printf 'formal manual readonly failure did not retain active fail-closed evidence\n' >&2
+  exit 1
+fi
+if PATH="$test_root/bin:$PATH" FAKE_DOCKER_LOG="$docker_log" \
+  COFORGE_TRANSACTION_OWNER=successor-owner \
+  COFORGE_APP_ROOT="$test_root/formal-manual-readonly" \
+  "$release_script" --adopt-interrupted; then
+  printf 'manual transaction was incorrectly eligible for CI adoption\n' >&2
+  exit 1
+fi
+if [[ "$(<"$test_root/formal-manual-readonly/pending-owner")" != test-owner ]] \
+  || [[ ! -e "$test_root/formal-manual-readonly/.pre-marker-active" ]]; then
+  printf 'manual adoption rejection mutated recovery evidence\n' >&2
   exit 1
 fi
 
