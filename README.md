@@ -84,6 +84,6 @@ latest `origin/main` before pushing, and run the relevant checks for every
 change. Read [AGENTS.md](AGENTS.md) before modifying architecture or package
 boundaries.
 
-Project-level `tdd`, `codebase-design`, and `code-review` skills are maintained
-under `.agents/skills` and pinned by `skills-lock.json`. They are shared by
-supported coding agents when working in this repository.
+Project-level `tdd`, `codebase-design`, `domain-modeling`, and `code-review`
+skills are maintained under `.agents/skills` and pinned by `skills-lock.json`.
+They are shared by supported coding agents when working in this repository.

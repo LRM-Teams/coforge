@@ -33,6 +33,7 @@ These instructions apply to the entire repository.
 
 - Project skills live in `.agents/skills`; `skills-lock.json` records their upstream source and content hash.
 - Read and apply `tdd` for behavioral implementation and `codebase-design` when choosing or changing a test seam.
+- Use `domain-modeling` when changing canonical domain terms or relationships; do not turn `CONTEXT.md` into a running specification.
 - Use `code-review` from an independent context with an explicit fixed point. Any reviewers it starts must perform their assigned review directly: they must not invoke `code-review` again or spawn additional reviewers.
 
 ## Architecture invariants
