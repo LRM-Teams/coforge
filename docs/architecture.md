@@ -125,23 +125,23 @@ PostgreSQL 的首要领域对象是：
 
 首个 OSS bucket 只承载聊天图片与文件附件，必须保持 `private`。Bucket 不使用 `public-read` 或 `public-read-write`；公开头像和 Web 静态资源以后使用独立 bucket，不能与聊天附件混放。浏览器与 OSS 之间的文件传输使用 HTTPS 数据面，不经过 realtime-gateway，也不改变 daemon 只使用 WSS/RPC 的传输边界。
 
-计划中的稳定文件访问域名是 `files.coforge.cn`。这个名称表达业务用途而不是当前基础设施：最初可以直连 OSS，以后可以在不改变客户端和数据库引用的情况下把同一域名切到 CDN。`cdn.coforge.cn` 不作为 canonical 文件域名，`assets.coforge.cn` 留给未来公开静态资源。`coforge.cn` 截至 2026-08-26 尚未完成 ICP 备案；如果 bucket 位于中国内地，在备案完成前不能把 `files.coforge.cn` 绑定到 OSS。Bucket 名称、Region、实际 endpoint 与域名启用时间属于部署配置，确认前不得写死。
+计划中的稳定文件访问域名是 `files.coforge.cn`。这个名称表达业务用途而不是当前基础设施：最初可以直连 OSS，以后可以在不改变客户端和数据库引用的情况下把同一域名切到 CDN。`cdn.coforge.cn` 不作为 canonical 文件域名。Bucket 名称、Region、实际 endpoint 与域名启用时间属于部署配置，确认前不得写死；启用中国内地 custom domain 前，部署检查必须确认域名已经完成 ICP 备案。
 
 上传链路固定为：
 
 1. Web 客户端通过已认证的 backend 控制面请求上传授权，并提供目标 workspace、conversation、文件大小和声明类型；
-2. backend 校验当前用户仍是该 conversation 的 active participant，检查配额，分配稳定 `attachment_id` 与服务端生成的 `object_key`；
-3. backend 使用服务端 RAM 身份获取短时 STS 凭据并生成 V4 Post Policy，或直接生成等价的短时 V4 上传签名；授权只允许精确 object prefix，并限制有效期、大小、类型且禁止覆盖；
+2. backend 校验当前用户仍是该 conversation 的 active participant，检查配额，分配稳定 `attachment_id` 与服务端生成的 `object_key`，并创建可过期的 durable upload intent；intent 绑定发起 participant、workspace、conversation、精确 object key 与预期文件 metadata；
+3. backend 使用服务端 RAM 身份获取短时 STS 凭据并生成 V4 Post Policy，或直接生成等价的短时 V4 上传签名；授权只允许 intent 中的精确 object key，并限制有效期、大小、类型且禁止覆盖；
 4. 浏览器使用该短时授权通过 HTTPS 直接上传到 OSS；长期 AK/SK 永远不会到达浏览器；
-5. 客户端通知 backend 上传完成，backend 向 OSS 校验对象存在性、key、大小和必要 metadata，验证通过后才允许 canonical message 引用该附件。
+5. 客户端通知 backend 上传完成；backend 要求同一个发起 participant 和未过期 intent，向 OSS 校验对象存在性、key、大小和必要 metadata，匹配后把 intent 标记为可绑定；
+6. 只有 intent 的创建者可以把它一次性绑定到同一 conversation 的 canonical message，绑定与 message commit 必须原子完成。过期、失败、已消费或 conversation 不匹配的 intent 都拒绝引用。
 
-下载或预览时，客户端先向 backend 请求访问。Backend 重新校验 workspace 和 conversation membership，再返回短时 V4 signed GET URL；数据库只保存 bucket/object key 与附件 metadata，不保存会过期的 signed URL。Signed URL 是 bearer credential，必须短时有效且不得写入日志。
+附件只有在关联到请求者可见的 committed canonical message 后才能下载或预览；未发送草稿与孤立 upload intent 不签发 GET URL。Backend 重新校验 workspace、conversation membership 和 committed message 可见性，再返回短时 V4 signed GET URL；数据库只保存 bucket/object key 与附件 metadata，不保存会过期的 signed URL。Signed URL 是 bearer credential，必须短时有效且不得写入日志。过期、失败或未绑定 intent 对应的孤立对象由明确的 retention cleanup process 最终清理。
 
 Canonical object key 使用 workspace-first 隔离：
 
 ```text
 workspaces/{workspace_id}/attachments/{attachment_id}/original
-workspaces/{workspace_id}/attachments/{attachment_id}/variants/{variant}
 ```
 
 消息与附件的关联保存在 PostgreSQL，不把 conversation/message 层级编码进对象路径。原始文件名只作为清洗后的 metadata 保存，不能参与权限边界或直接拼接路径。OSS CORS 只允许明确的 CoForge Web origin；服务端 RAM 用户只允许 `AssumeRole`，上传 role 只获得目标 bucket/prefix 所需的最小 `PutObject` 权限。真实 AK/SK 只能放部署 Secret，不得进入仓库、日志、命令行参数或前端构建产物。
