@@ -12,7 +12,7 @@
 
 ## 结构化日志
 
-所有 Computer、Daemon、workspace-daemon、Web/backend、Centrifugo 管理侧和运维脚本输出一条事件一行 JSON。默认写 stderr，由运行环境收集；CLI 的人读结果仍写 stdout，不能把日志混入机器可读结果。
+所有 Computer、Daemon、workspace-daemon、Web/backend、realtime-gateway 管理侧和运维脚本输出一条事件一行 JSON。默认写 stderr，由运行环境收集；CLI 的人读结果仍写 stdout，不能把日志混入机器可读结果。
 
 保留字段：
 
