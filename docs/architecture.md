@@ -195,6 +195,8 @@ workspaces/{workspace_id}/attachments/{attachment_id}/original
 
 实现依据为阿里云官方的 [client direct upload](https://www.alibabacloud.com/help/en/oss/user-guide/uploading-objects-to-oss-directly-from-clients/)、[server-side V4 signing](https://www.alibabacloud.com/help/en/oss/user-guide/obtain-signature-information-from-the-server-and-upload-data-to-oss)、[private object signed URL](https://www.alibabacloud.com/help/en/oss/developer-reference/download-objects-using-a-presigned-url-generated-with-oss-sdk-for-node-js)、[custom domain rules](https://www.alibabacloud.com/help/en/oss/user-guide/access-buckets-via-custom-domain-names)、[CDN URL signing](https://www.alibabacloud.com/help/en/cdn/user-guide/configure-url-signing)、[private OSS origin access](https://www.alibabacloud.com/help/en/cdn/user-guide/grant-alibaba-cloud-cdn-access-permissions-on-private-oss-buckets) 与 [custom cache key](https://www.alibabacloud.com/help/en/cdn/user-guide/create-custom-cache-keys)。
 
+真实云资源按 [`operations/aliyun-oss-cdn.md`](operations/aliyun-oss-cdn.md) provisioning 和验收；runbook 未产生全 PASS evidence 前，本文的 CDN 路径仅是契约，不代表域名或 bucket 已上线。
+
 ## 5. 本地执行面
 
 ### coforge-computer

@@ -1,15 +1,18 @@
 {
   "name": "coforge",
   "private": true,
-  "packageManager": "bun@1.4.0",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
     "dev:gateway": "cd apps/realtime-gateway && go run ./cmd/gateway",
-    "test": "bun run --filter '*' --if-present test && cd apps/realtime-gateway && go test ./...",
+    "test": "bun run test:oss-cdn && bun run --filter '*' --if-present test && cd apps/realtime-gateway && go test ./...",
+    "test:oss-cdn": "bun test scripts/verify-oss-cdn.test.ts",
+    "check:oss-cdn": "bunx oxfmt --check scripts/verify-oss-cdn.ts scripts/verify-oss-cdn.test.ts && bunx oxlint scripts/verify-oss-cdn.ts scripts/verify-oss-cdn.test.ts",
+    "verify:oss-cdn": "bun scripts/verify-oss-cdn.ts",
     "build": "bun run --filter '*' --if-present build && cd apps/realtime-gateway && mkdir -p dist && go build -o dist/realtime-gateway ./cmd/gateway",
-    "check": "bun run --filter '*' --if-present check && cd apps/realtime-gateway && go vet ./..."
-  }
+    "check": "bun run check:oss-cdn && bun run --filter '*' --if-present check && cd apps/realtime-gateway && go vet ./..."
+  },
+  "packageManager": "bun@1.4.0"
 }
