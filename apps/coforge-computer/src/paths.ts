@@ -59,3 +59,53 @@ export function resolveComputerStateDirectory(input: {
 
   throw new Error(`unsupported platform: ${input.platform}`);
 }
+
+export function resolveComputerInstallDirectory(input: {
+  platform: NodeJS.Platform;
+  homeDirectory: string;
+  environment: PathEnvironment;
+}): string {
+  if (input.platform === "win32") {
+    const localAppData = input.environment.LOCALAPPDATA;
+    if (!localAppData || !win32.isAbsolute(localAppData)) {
+      throw new Error("LOCALAPPDATA must be an absolute path");
+    }
+    return win32.join(localAppData, "Coforge", "Computer");
+  }
+
+  if (input.platform === "darwin") {
+    return posix.join(input.homeDirectory, "Library", "Application Support", "CoForge", "Computer");
+  }
+
+  if (input.platform === "linux") {
+    const configured = input.environment.XDG_DATA_HOME;
+    const dataHome =
+      configured && posix.isAbsolute(configured)
+        ? configured
+        : posix.join(input.homeDirectory, ".local", "share");
+    return posix.join(dataHome, "coforge", "computer");
+  }
+
+  throw new Error(`unsupported platform: ${input.platform}`);
+}
+
+export function resolveComputerBinaryDirectory(input: {
+  platform: NodeJS.Platform;
+  homeDirectory: string;
+  environment: PathEnvironment;
+}): string {
+  if (input.platform === "win32") {
+    const localAppData = input.environment.LOCALAPPDATA;
+    if (!localAppData || !win32.isAbsolute(localAppData)) {
+      throw new Error("LOCALAPPDATA must be an absolute path");
+    }
+    return win32.join(localAppData, "Coforge", "bin");
+  }
+  if (input.platform === "linux" || input.platform === "darwin") {
+    const configured = input.environment.XDG_BIN_HOME;
+    return configured && posix.isAbsolute(configured)
+      ? configured
+      : posix.join(input.homeDirectory, ".local", "bin");
+  }
+  throw new Error(`unsupported platform: ${input.platform}`);
+}

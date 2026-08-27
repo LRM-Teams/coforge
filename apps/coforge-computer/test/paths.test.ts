@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 
-import { resolveComputerConfigDirectory, resolveComputerStateDirectory } from "../src/paths";
+import {
+  resolveComputerBinaryDirectory,
+  resolveComputerConfigDirectory,
+  resolveComputerInstallDirectory,
+  resolveComputerStateDirectory,
+} from "../src/paths";
 
 test("Linux uses XDG_CONFIG_HOME for Computer configuration", () => {
   expect(
@@ -80,4 +85,28 @@ test("Windows uses LOCALAPPDATA", () => {
       environment: { LOCALAPPDATA: "C:\\Users\\alice\\AppData\\Local" },
     }),
   ).toBe("C:\\Users\\alice\\AppData\\Local\\Coforge");
+});
+
+test("per-user installation paths never use system locations", () => {
+  expect(
+    resolveComputerInstallDirectory({
+      platform: "linux",
+      homeDirectory: "/home/alice",
+      environment: { XDG_DATA_HOME: "/home/alice/data" },
+    }),
+  ).toBe("/home/alice/data/coforge/computer");
+  expect(
+    resolveComputerBinaryDirectory({
+      platform: "linux",
+      homeDirectory: "/home/alice",
+      environment: {},
+    }),
+  ).toBe("/home/alice/.local/bin");
+  expect(
+    resolveComputerInstallDirectory({
+      platform: "win32",
+      homeDirectory: "C:\\Users\\alice",
+      environment: { LOCALAPPDATA: "C:\\Users\\alice\\AppData\\Local" },
+    }),
+  ).toBe("C:\\Users\\alice\\AppData\\Local\\Coforge\\Computer");
 });

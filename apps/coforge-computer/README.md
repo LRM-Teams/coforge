@@ -44,6 +44,12 @@ keeps stdout to one stable result object and sends interactive prompts to
 stderr. Setup does not register a Computer, create a server-side
 Workspace–Computer binding, collect `machine_id`, or start a daemon.
 
+`coforge-computer install` and `upgrade` select `production.current` (`latest`),
+`test.current`, or one exact `sha256:` release set. `rollback` reactivates the
+retained previous bundle offline after checking both process payloads. All
+versions and the sole Computer shim are installed for the current user; Daemon
+is never exposed as a separate installed command.
+
 The executable runs on Bun and uses [Commander.js](https://github.com/tj/commander.js)
 for commands, arguments, validation, generated help, suggestions, and version
 output. Commander 15 is ESM-only and explicitly supports Bun. `picocolors` adds
