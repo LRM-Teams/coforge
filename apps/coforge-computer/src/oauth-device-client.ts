@@ -31,9 +31,7 @@ export class OAuthDeviceClient implements DeviceAuthorizationClient {
 
   async authorize(serverUrl: string): Promise<DeviceAuthorization> {
     const issuer = normalizeServerUrl(serverUrl);
-    const discoveryResponse = await this.#request(discoveryUrl(issuer));
-    const metadata = await readJson<OAuthMetadata>(discoveryResponse, "OAuth discovery");
-    if (metadata.issuer !== issuer) throw new Error("OAuth discovery issuer mismatch");
+    const metadata = await this.#discover(issuer);
     const deviceAuthorizationEndpoint = normalizeEndpoint(
       metadata.device_authorization_endpoint,
       "device authorization endpoint",
@@ -105,7 +103,40 @@ export class OAuthDeviceClient implements DeviceAuthorizationClient {
         "OAuth metadata does not advertise the CoForge workspaces endpoint.",
       );
     }
-    const response = await this.#request(this.#workspacesEndpoint, {
+    return await this.#requestWorkspaces(this.#workspacesEndpoint, credential);
+  }
+
+  async listWorkspacesForServer(
+    serverUrl: string,
+    credential: Credential,
+  ): Promise<AccessibleWorkspace[]> {
+    const issuer = normalizeServerUrl(serverUrl);
+    const metadata = await this.#discover(issuer);
+    if (metadata.coforge_workspaces_endpoint === undefined) {
+      throw loginError(
+        "AUTH_WORKSPACE_LIST_FAILED",
+        "OAuth metadata does not advertise the CoForge workspaces endpoint.",
+      );
+    }
+    const endpoint = normalizeEndpoint(
+      metadata.coforge_workspaces_endpoint,
+      "CoForge workspaces endpoint",
+    );
+    return await this.#requestWorkspaces(endpoint, credential);
+  }
+
+  async #discover(issuer: string): Promise<OAuthMetadata> {
+    const discoveryResponse = await this.#request(discoveryUrl(issuer));
+    const metadata = await readJson<OAuthMetadata>(discoveryResponse, "OAuth discovery");
+    if (metadata.issuer !== issuer) throw new Error("OAuth discovery issuer mismatch");
+    return metadata;
+  }
+
+  async #requestWorkspaces(
+    endpoint: string,
+    credential: Credential,
+  ): Promise<AccessibleWorkspace[]> {
+    const response = await this.#request(endpoint, {
       headers: { authorization: `${credential.tokenType} ${credential.accessToken}` },
     });
     if (!response.ok) {

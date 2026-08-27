@@ -44,6 +44,7 @@ export interface CredentialStore {
 export type ComputerLoginOptions = {
   client: DeviceAuthorizationClient;
   store: CredentialStore;
+  config: { saveCurrentProfile(profile: { serverUrl: string }): Promise<void> };
   writeLine: (line: string) => void;
   writeProgressLine?: (line: string) => void;
   sleep: (milliseconds: number) => Promise<void>;
@@ -99,6 +100,11 @@ export class ComputerLogin {
     } while (token.status !== "authorized");
 
     await this.options.store.save(serverUrl, token.credential);
+    try {
+      await this.options.config.saveCurrentProfile({ serverUrl });
+    } catch {
+      throw loginError("AUTH_PROFILE_WRITE_FAILED", "Could not save the current login profile.");
+    }
     const workspaces = await this.options.client.listWorkspaces(token.credential);
     if (input.json) {
       this.options.writeLine(

@@ -30,19 +30,35 @@ authenticated `GET` with the device grant's bearer credential and expects:
 }
 ```
 
-The canonical Workspace command is `setup [workspace-slug]`. Each invocation
-creates or restores at most one Workspace–Computer binding; omitting the slug
-will open an interactive single-Workspace selector. The MVP does not provide
-`--all`. Cloud binding and interactive selection remain unimplemented until
-their reviewed protocol is available; the CLI reports that limitation instead
-of inventing an endpoint.
+The canonical Workspace command is `setup [workspace-slug]`. It reloads the
+current login from the OS credential store, lists Workspaces through the same
+approved metadata endpoint, and associates the current local user configuration
+with exactly one accessible Workspace. Omitting the slug opens an interactive
+numbered selector. The positional slug must match exactly, and the MVP does not
+provide `--all`.
+
+Each Workspace receives its own `workspaces/<encoded-id>/config.json`; the file
+contains only the stable `workspace_id`. The slug and display name are used for
+selection and output but are not persisted as relationship keys. `setup --json`
+keeps stdout to one stable result object and sends interactive prompts to
+stderr. Setup does not register a Computer, create a server-side
+Workspace–Computer binding, collect `machine_id`, or start a daemon.
 
 The executable runs on Bun and uses [Commander.js](https://github.com/tj/commander.js)
 for commands, arguments, validation, generated help, suggestions, and version
 output. Commander 15 is ESM-only and explicitly supports Bun. `picocolors` adds
 TTY-safe emphasis without changing redirected output.
 
-Daemon state follows each operating system's normal per-user location:
+Computer configuration follows each operating system's normal per-user
+location:
+
+| Platform | Configuration directory                            |
+| -------- | -------------------------------------------------- |
+| Linux    | `$XDG_CONFIG_HOME/coforge`, or `~/.config/coforge` |
+| macOS    | `~/Library/Application Support/Coforge`            |
+| Windows  | `%LOCALAPPDATA%\Coforge`                           |
+
+Daemon state remains separate:
 
 | Platform | State directory                                        |
 | -------- | ------------------------------------------------------ |

@@ -3,6 +3,8 @@ import pc from "picocolors";
 
 import { ComputerLogin, type CredentialStore, type DeviceAuthorizationClient } from "../src/login";
 
+const config = { async saveCurrentProfile() {} };
+
 test("login completes the device-code flow and persists the credential", async () => {
   const events: string[] = [];
   const client: DeviceAuthorizationClient = {
@@ -47,6 +49,11 @@ test("login completes the device-code flow and persists the credential", async (
   const result = await new ComputerLogin({
     client,
     store,
+    config: {
+      async saveCurrentProfile(profile) {
+        events.push(`profile:${profile.serverUrl}`);
+      },
+    },
     writeLine: (line) => output.push(line),
     writeProgressLine: (line) => progress.push(line),
     sleep: async () => undefined,
@@ -78,6 +85,7 @@ test("login completes the device-code flow and persists the credential", async (
     "authorize",
     "poll:device-secret",
     "save:https://coforge.example:access-secret",
+    "profile:https://coforge.example",
     "workspaces:access-secret",
   ]);
 });
@@ -107,6 +115,7 @@ test("JSON login writes exactly one stable stdout object without secrets", async
       },
     },
     store: { async save() {} },
+    config,
     writeLine: (line) => stdout.push(line),
     writeProgressLine: (line) => stderr.push(line),
     sleep: async () => undefined,
@@ -156,6 +165,7 @@ test("human login strips terminal controls from Workspace labels while JSON pres
         },
       },
       store: { async save() {} },
+      config,
       writeLine: (line) => stdout.push(line),
       writeProgressLine: (line) => stderr.push(line),
       sleep: async () => undefined,
@@ -200,6 +210,7 @@ test("login waits at the server interval while authorization is pending", async 
   await new ComputerLogin({
     client,
     store: { async save() {} },
+    config,
     writeLine: () => undefined,
     sleep: async (milliseconds) => {
       sleeps.push(milliseconds);
@@ -239,6 +250,7 @@ test("login increases the polling interval after slow_down", async () => {
   await new ComputerLogin({
     client,
     store: { async save() {} },
+    config,
     writeLine: () => undefined,
     sleep: async (milliseconds) => {
       sleeps.push(milliseconds);
@@ -283,6 +295,7 @@ test("login backs off after a polling timeout and bounds each request by the dea
   await new ComputerLogin({
     client,
     store: { async save() {} },
+    config,
     writeLine: () => undefined,
     sleep: async (milliseconds) => {
       sleeps.push(milliseconds);
@@ -319,6 +332,7 @@ test("login stops when a timed-out poll consumes the remaining device-code lifet
       },
     },
     store: { async save() {} },
+    config,
     writeLine: () => undefined,
     sleep: async (milliseconds) => {
       now += milliseconds;
@@ -352,6 +366,7 @@ test("login reports a stable error when the device code expires locally", async 
       },
     },
     store: { async save() {} },
+    config,
     writeLine: () => undefined,
     sleep: async () => undefined,
   });
