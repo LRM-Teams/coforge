@@ -4,16 +4,15 @@ import { Check, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { m } from "@/paraglide/messages";
 
-type OperatingSystem = "macos" | "linux" | "windows";
+type OperatingSystem = "macos-linux" | "windows";
 
 const commands: Record<OperatingSystem, string> = {
-  macos: "curl -fsSL https://get.coforge.dev/computer | sh",
-  linux: "curl -fsSL https://get.coforge.dev/computer | sh",
+  "macos-linux": "curl -fsSL https://get.coforge.dev/computer | sh",
   windows: "irm https://get.coforge.dev/computer.ps1 | iex",
 };
 
 export function YourComputerInstall() {
-  const [operatingSystem, setOperatingSystem] = useState<OperatingSystem>("macos");
+  const [operatingSystem, setOperatingSystem] = useState<OperatingSystem>("macos-linux");
   const [copied, setCopied] = useState(false);
   const command = commands[operatingSystem];
 
@@ -25,24 +24,24 @@ export function YourComputerInstall() {
   return (
     <div className="space-y-6 px-6 py-8 sm:px-8">
       <div className="flex gap-2" role="tablist" aria-label={m.computer_operating_system()}>
-        {(["macos", "linux", "windows"] as const).map((system) => (
+        {(
+          [
+            { id: "macos-linux", label: m.computer_os_macos_linux() },
+            { id: "windows", label: m.computer_os_windows() },
+          ] as const
+        ).map(({ id, label }) => (
           <button
-            key={system}
+            key={id}
             type="button"
             role="tab"
-            aria-selected={operatingSystem === system}
-            className={`rounded-lg px-3 py-2 text-sm ${operatingSystem === system ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}
+            aria-selected={operatingSystem === id}
+            className={`rounded-lg px-3 py-2 text-sm ${operatingSystem === id ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}
             onClick={() => {
-              setOperatingSystem(system);
+              setOperatingSystem(id);
               setCopied(false);
             }}
           >
-            {m[
-              `computer_os_${system}` as
-                | "computer_os_macos"
-                | "computer_os_linux"
-                | "computer_os_windows"
-            ]()}
+            {label}
           </button>
         ))}
       </div>
