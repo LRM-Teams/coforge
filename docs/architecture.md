@@ -2,7 +2,7 @@
 
 状态：验证阶段架构基线
 
-更新时间：2026-08-26
+更新时间：2026-08-27
 
 适用范围：仓库结构、云端服务、本地进程、消息投递与开发工具链
 
@@ -38,16 +38,16 @@ flowchart LR
     subgraph Host[用户机器]
         Computer[coforge-computer<br/>独立进程]
         Daemon[coforge-daemon<br/>独立进程]
-        WD1[workspace-daemon A<br/>子进程 · workspace A]
-        WD2[workspace-daemon B<br/>子进程 · workspace B]
+        WD1[workspace worker A<br/>常驻子进程 · workspace A]
+        WD2[workspace worker B<br/>常驻子进程 · workspace B]
         Agent1[Code agent runtime]
         Agent2[Code agent runtime]
 
         Computer <-->|Unix domain socket| Daemon
         Daemon -->|spawn / supervise| WD1
         Daemon -->|spawn / supervise| WD2
-        WD1 <-->|ACP| Agent1
-        WD2 <-->|ACP| Agent2
+        WD1 <-->|provider-neutral adapter| Agent1
+        WD2 <-->|provider-neutral adapter| Agent2
     end
 
     Gateway <-->|outbound WSS + RPC| WD1
@@ -58,13 +58,17 @@ flowchart LR
 
 ## 3. 包与进程不是同一个层级
 
-本地只发布两个 app package：
+本地只发布两个 app package。内置 Agent runtime 可以是独立 library/runtime package，但不能成为第三个 app：
 
 ```text
 apps/
 ├── coforge-computer/
 └── coforge-daemon/
-    └── 内部实现 workspace-daemon 子进程角色
+    └── 内部实现 workspace worker 子进程角色
+
+packages/
+└── coforge-agent/
+    └── 使用 Pi SDK 的内置 Agent runtime；由 coforge-daemon 安装和启动
 ```
 
 必须保持以下区别：
@@ -73,11 +77,12 @@ apps/
 | --- | --- | --- | --- |
 | `coforge-computer` | 独立 app package；唯一面向用户的本地安装入口，并依赖 `coforge-daemon` package | 独立 OS 进程 | 机器身份、安装升级、启动/停止和健康检查 coforge-daemon |
 | `coforge-daemon` | 独立 app package；作为 Computer 的构建/分发依赖随 Computer 安装，不单独提供用户安装入口 | 独立 OS 进程 | 对齐期望/实际 workspace 集合，管理子进程生命周期和崩溃恢复 |
-| `workspace-daemon` | 不独立发布 | coforge-daemon 启动的常驻子进程；一个实例对应一个逻辑 workspace | 维护该 workspace 的 WSS、投递边界、ACP adapter 和 Agent 生命周期 |
+| workspace worker | 不独立发布 | coforge-daemon 监督的常驻子进程；一个实例对应一个逻辑 workspace | 维护该 workspace 的 WSS、投递边界、code-agent adapter 和 Agent 生命周期 |
+| `coforge-agent` | 可独立打包的 runtime package；是 coforge-daemon 的精确版本依赖，不是 app 或用户安装入口 | workspace worker 启动的常驻独立 Agent runtime process | 封装 Pi SDK、内置 extensions、skills 和 Pi-specific runner |
 
-因此禁止新增 `apps/workspace-daemon`。需要隔离的是运行时进程，而不是第三个发布包。
+因此禁止为 workspace worker 新增第三个 app package。需要隔离的是运行时进程，而不是发布包。
 
-源码和运行时边界不等于用户安装边界。仓库保留两个 app package，`coforge-computer` 在 package/build 层依赖 `coforge-daemon`；发布流水线为每个平台组装一个 Computer installation bundle，其中包含已验证兼容的 Computer 与 Daemon payload。用户只安装、升级和调用 Computer，Daemon 不进入用户 PATH，但仍由 Computer 以独立 OS 进程启动。bundle 使用两个独立 executable、单一可自举 executable 或其他封装形式属于后续实现选择；无论采用哪种形式，都不能把两个运行时职责合并为一个进程。
+源码、可独立打包边界、运行时边界与用户安装边界不是同一层级。仓库保留两个 app package；`coforge-computer` 在 package/build 层依赖 `coforge-daemon`，Daemon 再依赖精确版本的 `@coforge/agent`。monorepo 开发时 Bun workspace 链接本地 package，发布时 Daemon 安装同版本的独立 package artifact。发布流水线为每个平台组装一个 Computer installation bundle，其中包含已验证兼容的 Computer、Daemon 和内置 Agent payload。用户只安装、升级和调用 Computer，Daemon 和 Agent runner 都不进入用户 PATH，但仍作为独立 OS 进程运行。bundle 的具体封装形式属于后续实现选择；无论采用哪种形式，都不能把这些运行时职责合并为一个进程。
 
 本文不加限定词的 `workspace` 指云端协作、成员、权限、conversation 与 Agent 的逻辑边界。每个 Agent 另有自己的文件系统 Agent workspace 目录，它不是第二个逻辑 workspace。文档必须用限定词区分两者；目录在代码和协议中的确切字段名留待实现前单独确认。
 
@@ -195,35 +200,36 @@ coforge-computer 是机器级 supervisor，不执行 workspace 内的 Agent 业�
 
 MVP OAuth client 使用 `client_id = coforge-computer` 与 `scope = openid offline_access`。login 成功后从同一 metadata 的 `coforge_workspaces_endpoint` 扩展发现可访问 Workspace 读取端点；该 endpoint 必须经过与认证端点相同的 HTTPS/localhost 安全校验。Computer 以 bearer credential 执行 GET，并读取 `{ workspaces: [{ id, slug, name }] }`，忽略未知字段以便兼容扩展。`id` 是持久关联使用的稳定身份；`slug` 只用于人读选择，不能代替 `id`；`name` 仅用于展示。该读取不创建 Workspace–Computer binding。token 通过 Bun 的跨平台原生 credential API 写入 macOS Keychain、Linux Secret Service 或 Windows Credential Manager，不允许自动降级为明文文件。Linux 无可用 Secret Service 时 login 以稳定错误失败并提示用户启动或解锁系统凭据服务。
 
-`setup [workspace-slug]` 每次只创建或恢复一个 Workspace–Computer binding，为该 Workspace 选择 `workspace_root` 并启动它自己的 workspace-daemon。省略参数时交互单选用户可访问的一个 Workspace；位置参数必须是稳定唯一的 `workspace-slug`，不是 display name。第二个 Workspace 再执行一次 setup，MVP 不提供 `--all`。
+`setup [workspace-slug]` 每次只创建或恢复一个 Workspace–Computer binding，为该 Workspace 选择 `workspace_root` 并启动它自己的 workspace worker。省略参数时交互单选用户可访问的一个 Workspace；位置参数必须是稳定唯一的 `workspace-slug`，不是 display name。第二个 Workspace 再执行一次 setup，MVP 不提供 `--all`。
 
-`machine_id` 是机器的稳定身份，跨 computer、daemon 与 workspace 子进程的重启和升级保持不变。Computer 注册不属于 `login`，其 endpoint、payload、幂等键和 machine proof 必须在单独纵向设计中确定；`machine_id` 的具体签发方式、存储位置、唯一性范围与云端 computer 表结构也由该设计评审，本文不预先锁定。
+`machine_id` 是机器的稳定身份，跨 Computer、Daemon 与 workspace worker 的重启和升级保持不变。Computer 注册不属于 `login`，其 endpoint、payload、幂等键和 machine proof 必须在单独纵向设计中确定；`machine_id` 的具体签发方式、存储位置、唯一性范围与云端 computer 表结构也由该设计评审，本文不预先锁定。
 
 ### coforge-daemon
 
-coforge-daemon 管理一台机器上所有已绑定逻辑 workspace 的常驻 workspace-daemon：
+coforge-daemon 是唯一由 OS/Computer 托管的 supervisor daemon，管理一台机器上所有已绑定逻辑 workspace 的常驻 workspace worker。`daemon` 专指这个顶层后台服务；`worker` 专指受其监督、可被替换的 workspace 常驻子进程；`Agent runtime process` 专指 provider execution process：
 
 ```text
-coforge-daemon 1 ──管理──> N 常驻 workspace-daemon
-workspace-daemon 1 <──绑定──> 1 逻辑 workspace
-workspace-daemon 1 ──管理──> N Agent ──各自拥有──> 1 Agent workspace 目录
+coforge-daemon 1 ──监督──> N 常驻 workspace worker
+workspace worker 1 <──绑定──> 1 逻辑 workspace
+workspace worker 1 ──管理──> N Agent ──各自拥有──> 1 Agent workspace 目录
+Agent 1 ──执行于──> 1 常驻 Agent runtime process
 ```
 
-一个逻辑 workspace 分配到这台机器后，coforge-daemon 为其维持一个 workspace-daemon。常驻表示该子进程在两条消息之间也保持运行；进程崩溃或升级后可以被替换，但新的进程仍使用同一个稳定 `workspace_id`，不会因此创建新的 Workspace。
+一个逻辑 workspace 分配到这台机器后，coforge-daemon 为其维持一个 workspace worker。常驻表示该子进程在两条消息之间也保持运行；进程崩溃或升级后可以被替换，但新的进程仍使用同一个稳定 `workspace_id`，不会因此创建新的 Workspace。
 
-coforge-daemon 负责期望状态与实际状态收敛、子进程创建/回收、崩溃恢复、资源治理和版本兼容，但不直接解析各家 Agent 的输出协议。
+coforge-daemon 负责期望状态与实际状态收敛、子进程创建/回收、崩溃恢复、Agent capacity 和版本兼容，但不直接解析各家 Agent 的输出协议。Agent capacity 是 machine-level Daemon 拥有、可在多个 workspace worker 之间分配的 Agent runtime 资源额度；一次分配称为 Runtime lease。具体容量单位、配置、排队公平性、lease lifecycle 和跨进程 protocol 在实现前另行固定。
 
-Computer 的云端在线状态由当前 workspace-daemon WSS 连接集合实时派生：该 Computer 至少有一个 workspace-daemon WSS 在线时，该 Computer 在线。具体连接如何关联稳定的服务端 Computer 记录由后续 binding 与认证设计确定；`online` 与 `last_seen_at` 不作为这项状态的持久化真相。
+Computer 的云端在线状态由当前 workspace worker WSS 连接集合实时派生：该 Computer 至少有一个 workspace worker WSS 在线时，该 Computer 在线。具体连接如何关联稳定的服务端 Computer 记录由后续 binding 与认证设计确定；`online` 与 `last_seen_at` 不作为这项状态的持久化真相。
 
-### workspace-daemon 与 ACP
+### workspace worker 与 code-agent adapter
 
-每个 workspace-daemon 是独立子进程，只能管理同一个 `workspace_id` 下的 Agent。每个 Agent 拥有自己的文件系统 Agent workspace 目录；子进程只能访问这些已声明目录和允许的环境变量。workspace-daemon 通过 ACP 与 Codex、Claude Code、Pi 等 Agent runtime 通信，对上层暴露统一的启动、发送、中断、恢复、销毁和事件语义。
+每个 workspace worker 是独立子进程，只能管理同一个 `workspace_id` 下的 Agent。每个 Agent 拥有自己的文件系统 Agent workspace 目录；worker 只能访问这些已声明目录和允许的环境变量。workspace worker 通过 provider-neutral code-agent adapter 管理 Agent runtime，对上层暴露统一的启动、发送、中断、恢复、销毁和事件语义。每个 Agent runtime process 是 workspace worker 启动、在多次 prompt 之间复用并在显式销毁前保持存活的独立子进程。Agent control protocol 是 adapter 内部可替换的实现细节；可以使用 provider 正式支持的 native protocol、SDK child runner 或 ACP，不作为上层 architecture contract。
 
 一台 Computer 允许安装零个或多个 code-agent runtime。零 runtime 是有效机器状态，不阻止 computer 或 daemon 启动；安装并配置合适 runtime 前不能执行 Agent。
 
-Agent provider 的特殊逻辑必须留在 ACP adapter 边界内，不能泄漏到 realtime-gateway、Web/backend 或共享领域模型。
+首批 adapter 使用常驻 CoForge Agent 与 Codex 子进程。`@coforge/agent` 是可独立打包的内置 Agent runtime，当前使用官方 Pi SDK 创建 session，并复用 Pi SDK 的 JSONL run mode 作为 daemon adapter 的内部 control；Codex 使用官方 app-server JSONL stdio。两侧都必须在报告启动成功前完成 skills discovery：CoForge Agent 先完成 Pi `ResourceLoader` reload，Codex adapter 先执行 `skills/list(forceReload: true)` 再创建 thread。control protocol 不固定为长期架构。选择、版本、license、失败边界和回滚见 [ADR 0002](adr/0002-provider-native-code-agent-subprocesses.md)。Agent provider 的特殊 command、envelope、事件与错误逻辑必须留在各自 package/adapter 内，不能泄漏到 realtime-gateway、Web/backend 或共享领域模型。
 
-**提案：每个 workspace 子进程拥有独立的本地 SQLite spool。** 它存放已接管的 inbound delivery、等待云端确认的 Agent response、重连 cursor 与最小去重状态。数据库放在应用数据目录而不是用户仓库内；加密、保留期限与损坏恢复需要单独 ADR。
+**提案：每个 workspace worker 拥有独立的本地 SQLite spool。** 它存放已接管的 inbound delivery、等待云端确认的 Agent response、重连 cursor 与最小去重状态。数据库放在应用数据目录而不是用户仓库内；加密、保留期限与损坏恢复需要单独 ADR。
 
 ## 6. 消息投递语义
 
@@ -241,20 +247,20 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 
 1. backend 在同一事务内持久化 canonical message，并为每个目标 Agent 创建 delivery；
 2. backend 通过尚待 ADR 确定的内部接口唤醒 realtime-gateway，gateway 不读取 PostgreSQL；
-3. gateway 经目标 workspace child 自己的 WSS 发送 `delivery.offer`；
-4. workspace child 先按 `delivery_id` 写入本地 durable inbox，再返回 `delivery.accepted`；
+3. gateway 经目标 workspace worker 自己的 WSS 发送 `delivery.offer`；
+4. workspace worker 先按 `delivery_id` 写入本地 durable inbox，再返回 `delivery.accepted`；
 5. backend 校验 workspace、Agent、delivery id 与 sequence 后记录接管时间；
-6. child 按 Agent context 顺序交给 ACP；重连时由 backend 按原 sequence replay 未确认 delivery。
+6. workspace worker 按 Agent context 顺序交给 code-agent adapter；重连时由 backend 按原 sequence replay 未确认 delivery。
 
 `delivery.accepted` 只表示“本机已耐久接管”，不表示 Agent 已执行完成。ACK 丢失会触发相同 `delivery_id` 的重发，本地唯一约束把它变成幂等 no-op。
 
 ### 6.2 Agent 到云端
 
-1. Agent 最终 response 先写入 workspace child 的 durable outbox，并生成稳定 `client_message_id`；
-2. child 经 WSS RPC 发送 `message.publish`；
+1. Agent 最终 response 先写入 workspace worker 的 durable outbox，并生成稳定 `client_message_id`；
+2. workspace worker 经 WSS RPC 发送 `message.publish`；
 3. gateway 只转发给 backend；backend 用 `(sender_participant_id, client_message_id)` 幂等提交 canonical response；
 4. backend 返回 `message.committed(client_message_id, message_id, conversation_seq)`；
-5. child 收到确认后标记本地 outbox 项已提交。断线时持续重试相同 `client_message_id`。
+5. workspace worker 收到确认后标记本地 outbox 项已提交。断线时持续重试相同 `client_message_id`。
 
 共同语义：
 
@@ -270,9 +276,10 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 用户私聊/群聊消息
 → Web/backend：鉴权、会话成员校验、canonical message 持久化、路由
 → realtime-gateway：WSS/RPC 传输
-→ 目标 workspace-daemon：durable inbox、去重、接管与 ACK
-→ ACP
-→ code agent runtime
+→ 目标 workspace worker：durable inbox、去重、接管与 ACK
+→ provider-neutral code-agent adapter
+→ provider-specific control（当前为 CoForge Agent SDK runner / Codex app-server，可替换）
+→ 常驻 Agent runtime process
 → response 写入本地 durable outbox
 → realtime-gateway：WSS/RPC 转发
 → Web/backend：按 client_message_id 幂等持久化并推送给 conversation participants
@@ -310,7 +317,7 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 - 凭据不得进入仓库、日志、命令行参数或生成物；
 - Unix socket 使用最小文件权限并验证对端身份；
 - Agent 只能在声明的 Agent workspace 目录中运行；
-- Caddy、gateway、backend 和本地进程都需要结构化日志和关联 id，但日志不得包含 secret；
+- Caddy、gateway、backend 和本地进程都需要结构化日志和关联 id，但日志不得包含 secret；Computer、Daemon、workspace worker 和 Agent runtime process 的本地分类、滚动、保留、脱敏与失败契约见 [本地日志契约](local-logging.md)，代码实现尚未开始；
 - validation 阶段先使用常规主机与托管 PostgreSQL，不引入 Kubernetes。
 - WebSocket 依附于 TCP，所属 gateway 进程死亡时一定会断开；保证目标是 committed message 不丢、自动重连、按序 replay 与重复抑制，而不是宣称连接永不断。
 
@@ -319,7 +326,7 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 以下变更必须先在 `#coforge` 对齐，并与本文同一次提交：
 
 - 新增或拆分 app/package；
-- 改变进程所有权或 IPC/WSS/ACP 边界；
+- 改变进程所有权或 IPC/WSS/code-agent adapter seam；
 - 改变 ACK、去重、sequence 或重连语义；
 - 让 realtime-gateway 访问业务数据库或承担业务规则；
 - 引入新的持久队列、缓存、服务发现或编排平台；
@@ -342,20 +349,20 @@ daemon 到 cloud 使用版本化 typed RPC over WSS，不照搬 Multica 事件�
 2. gateway 到 backend 的内部传输和跨副本连接定位；
 3. SQLite schema、加密、保留与损坏恢复；
 4. `conversation_seq` 的并发分配；
-5. ACP capability mapping 与 cancellation；
+5. 除 ADR-0002 已批准 Pi/Codex 最小映射外，新增 provider 的 capability mapping 与 cancellation；
 6. reconnect、drain deadline 与可测量恢复 SLO；
 7. 设备身份、密钥轮换与 workspace revoke。
 
 ## 12. 首批故障验证
 
-1. 重复 `delivery.offer` 在本地接管后最多进入 ACP 一次；
-2. workspace child 接管后崩溃，重启能从 local inbox 继续；
+1. 重复 `delivery.offer` 在本地接管后最多进入 code-agent adapter 一次；
+2. workspace worker 接管后崩溃，重启能从 local inbox 继续；
 3. Agent response 离线排队，重连后只形成一条 canonical message；
 4. gateway 在 publish 中途死亡，重试不产生双写；
 5. 单副本滚动时另一副本接受重连；
 6. 内部 wakeup 丢失后仍能由 reconciliation / replay 修复；
 7. 跨重连保持 conversation 顺序；
-8. workspace revoke 后停止 replay 与 ACP 执行。
+8. workspace revoke 后停止 replay 与 code-agent 执行。
 
 ## 13. 参考，不是模板
 

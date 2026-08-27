@@ -47,12 +47,15 @@ redaction, and a non-root deployment identity.
 | Cloud application | Full `registry/repository@sha256:...` image reference | `test` GitHub Environment and Compose project | Deploy the same digest to production Compose |
 | Local Computer distribution | Release-set digest, both component-manifest digests, and every platform installation-bundle checksum | Test release set selected by `channels.json` | Select the same tested release-set and bundle bytes in production |
 
-`workspace-daemon` is released inside `coforge-daemon`; it is not a third local
-package. The local distribution deliberately separates four layers:
+The workspace worker role is released inside `coforge-daemon`; it is not a third local
+app package. `@coforge/agent` is independently packable for dependency and
+verification purposes, but the exact installed package remains part of the
+Daemon component payload rather than becoming a third user-facing component.
+The local distribution deliberately separates four layers:
 
 | Layer | Cardinality and meaning |
 | --- | --- |
-| App package | Two source/build units: `coforge-computer` and `coforge-daemon`; Computer declares Daemon as a package dependency |
+| App package | Two source/build units: `coforge-computer` and `coforge-daemon`; Computer declares Daemon as a package dependency, and Daemon declares an exact `@coforge/agent` runtime dependency |
 | Component artifact | Two independently versioned build outputs that may be reused when the peer did not change |
 | Computer installation bundle | One user download per platform/architecture containing both compatible process payloads |
 | Release set | One immutable compatibility and integrity identity that pins both component artifacts and every platform bundle |
@@ -158,6 +161,7 @@ identity.
 The component trees exist so an unchanged Computer or Daemon artifact can be
 reused and audited; they do not create a supported second Daemon installer.
 `coforge-computer` depends on `coforge-daemon` at the package/build boundary,
+the Daemon artifact contains its exact installed `@coforge/agent` dependency,
 and the release-set assembly is the only user distribution boundary.
 
 `channels.json` is the only mutable selection object. Its signed payload has a
