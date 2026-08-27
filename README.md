@@ -2,8 +2,8 @@
 
 Coforge is a private and group chat product for working with code agents that
 run inside local workspaces. The cloud owns conversations and durable message
-delivery; local workspace processes connect outbound and adapt agent runtimes
-through the Agent Client Protocol (ACP).
+delivery; local workspace processes connect outbound and adapt resident agent
+runtimes through provider-neutral code-agent adapters.
 
 The project is in its architecture-validation phase.
 
@@ -11,12 +11,12 @@ The project is in its architecture-validation phase.
 
 ```text
 Browser -> Caddy -> TanStack Start / Bun backend -> PostgreSQL
-              \--> standalone Centrifugo <-WSS- workspace child
+              \--> standalone Centrifugo <-WSS- workspace worker
                           |      |
                        Redis    | HTTP/gRPC proxy + server API
                                 +---- backend
 
-coforge-computer <-Unix socket-> coforge-daemon -> N workspace children -> ACP
+coforge-computer <-Unix socket-> coforge-daemon -> N workspace workers -> resident Agent runtimes
 ```
 
 - Web/backend: TanStack Start with Bun 1.4 as the business-control runtime
@@ -30,8 +30,11 @@ coforge-computer <-Unix socket-> coforge-daemon -> N workspace children -> ACP
 Only `coforge-computer` and `coforge-daemon` are local app packages. The
 Computer package depends on the Daemon package for build and distribution, so
 users install one Computer distribution containing both compatible payloads.
-Computer and Daemon still run as independent OS processes. A workspace child
-is an isolated process implemented inside `coforge-daemon`, not a third package.
+Computer and Daemon still run as independent OS processes. A workspace worker
+is an isolated process implemented inside `coforge-daemon`, not a third app.
+The independently packable `@coforge/agent` runtime package uses the Pi SDK and
+is installed as an exact Daemon dependency; it is not a user installation
+entry point.
 
 See [the architecture baseline](docs/architecture.md) for the canonical
 boundaries and [the database design](docs/database-schema.md) for the current
@@ -40,17 +43,20 @@ for cloud deployment, atomic Computer installation bundles and compatibility
 release sets, exact-artifact production promotion, per-user installation, and
 rollback rules. The accepted realtime and MVP data-service decision is recorded
 in [ADR 0001](docs/adr/0001-standalone-centrifugo-and-compose-data-services.md).
+Computer and Daemon share the single LogTape-based contract documented in
+[local application logging](docs/local-logging.md); implementation is pending.
 
 ## Repository layout
 
 ```text
 apps/realtime-gateway   Obsolete Go skeleton pending removal; not a production path
-apps/web                Web UI and backend control plane (scaffold pending)
+apps/web                Web UI and backend control plane
 apps/coforge-computer   Machine-level setup and supervisor
-apps/coforge-daemon     Workspace process manager (scaffold pending)
+apps/coforge-daemon     Workspace worker supervisor and code-agent adapters
+packages/coforge-agent Independently packable built-in Agent runtime using Pi SDK
 database                PostgreSQL migrations
 docs                    Architecture, ADRs, and data-model documentation
-packages                Shared protocol and ACP adapters (pending ADRs)
+packages                Shared and independently packable runtime packages
 ```
 
 ## Development
@@ -70,26 +76,12 @@ mise run check
 mise run build
 ```
 
-GitHub Actions currently keeps separate Computer and legacy realtime-gateway
-jobs for every pull request and every push to `main`, so failures stay
-attributable during the removal transition. Dependency installation uses
+GitHub Actions runs the focused infrastructure and Computer checks for every
+pull request and every push to `main`. Dependency installation uses
 frozen-lockfile mode. Runtime versions continue to come from `mise.toml`.
 
-The current realtime-gateway command exists only to keep the obsolete skeleton
-green until its focused removal change:
-
-```bash
-mise exec -- bun run dev:gateway
-```
-
-Do not add production behavior or dependencies to that skeleton. Standalone
-Centrifugo, Redis, PostgreSQL, Backend proxy/API wiring, and their Compose
-configuration land only in separately approved focused changes.
-
-The first test pipeline deploys an immutable gateway image with rootless Docker
-Compose on an IP-first Aliyun ECS host. See [the ECS deployment
-runbook](docs/deployment/aliyun-ecs.md) for the non-root SSH contract, GitHub
-Environment secrets, HTTPS health gate, and rollback procedure.
+Standalone Centrifugo, Redis, PostgreSQL, Backend proxy/API wiring, and their
+deployment configuration land only in separately approved focused changes.
 
 ## Development workflow
 

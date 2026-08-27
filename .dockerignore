@@ -1,0 +1,8 @@
+.git
+.amp
+**/node_modules
+**/dist
+**/.output
+**/.env
+**/.env.*
+*.log

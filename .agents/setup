@@ -11,6 +11,26 @@ run_step() {
 	printf '<== %s (%ss)\n' "$label" "$((SECONDS - started_at))"
 }
 
+install_docker() {
+	if command -v docker >/dev/null 2>&1; then
+		return
+	fi
+
+	sudo install -m 0755 -d /etc/apt/keyrings
+	sudo curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+	sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+	# shellcheck disable=SC1091
+	source /etc/os-release
+	printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian %s stable\n' \
+		"$(dpkg --print-architecture)" "$VERSION_CODENAME" |
+		sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+	sudo apt-get update
+	sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+		docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+	sudo usermod -aG docker "$(id -un)"
+}
+
 mise_bin="$HOME/.local/bin/mise"
 
 if [[ ! -x "$mise_bin" ]]; then
@@ -28,6 +48,7 @@ fi
 
 export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
 
+run_step "Install Docker" install_docker
 run_step "Install pinned toolchain" "$mise_bin" install --locked
 run_step "Install Bun dependencies" "$mise_bin" run install
 run_step "Download Go dependencies" "$mise_bin" exec -- go -C apps/realtime-gateway mod download

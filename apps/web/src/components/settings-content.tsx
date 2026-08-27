@@ -1,0 +1,116 @@
+import { Check, Languages, Monitor, Moon, Sun } from "lucide-react";
+
+import { m } from "@/paraglide/messages";
+
+type Locale = "en" | "zh-CN";
+type Theme = "system" | "light" | "dark";
+
+interface SettingsContentProps {
+  locale: Locale;
+  theme: Theme;
+  onLocaleChange: (locale: Locale) => void;
+  onThemeChange: (theme: Theme) => void;
+}
+
+export function SettingsContent({
+  locale,
+  theme,
+  onLocaleChange,
+  onThemeChange,
+}: SettingsContentProps) {
+  return (
+    <main className="flex-1 p-4 sm:p-5 md:p-6">
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight">{m.settings_title()}</h1>
+        <p className="mt-2 text-sm text-muted-foreground">{m.settings_description()}</p>
+      </div>
+
+      <div className="mt-8 max-w-2xl space-y-4">
+        <section className="rounded-lg border bg-card p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <Languages aria-hidden="true" className="mt-0.5 size-4 text-muted-foreground" />
+            <div>
+              <h2 className="text-sm font-semibold">{m.preferences_language()}</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {m.settings_language_description()}
+              </p>
+            </div>
+          </div>
+          <div className="mt-5 grid gap-2 sm:grid-cols-2">
+            <PreferenceButton
+              selected={locale === "en"}
+              label={m.preferences_english()}
+              onClick={() => onLocaleChange("en")}
+            />
+            <PreferenceButton
+              selected={locale === "zh-CN"}
+              label={m.preferences_chinese()}
+              onClick={() => onLocaleChange("zh-CN")}
+            />
+          </div>
+        </section>
+
+        <section className="rounded-lg border bg-card p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            {theme === "system" ? (
+              <Monitor aria-hidden="true" className="mt-0.5 size-4 text-muted-foreground" />
+            ) : theme === "light" ? (
+              <Sun aria-hidden="true" className="mt-0.5 size-4 text-muted-foreground" />
+            ) : (
+              <Moon aria-hidden="true" className="mt-0.5 size-4 text-muted-foreground" />
+            )}
+            <div>
+              <h2 className="text-sm font-semibold">{m.preferences_appearance()}</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {m.settings_appearance_description()}
+              </p>
+            </div>
+          </div>
+          <div className="mt-5 grid gap-2 sm:grid-cols-3">
+            <PreferenceButton
+              selected={theme === "system"}
+              label={m.preferences_system()}
+              onClick={() => onThemeChange("system")}
+            />
+            <PreferenceButton
+              selected={theme === "light"}
+              label={m.preferences_light()}
+              onClick={() => onThemeChange("light")}
+            />
+            <PreferenceButton
+              selected={theme === "dark"}
+              label={m.preferences_dark()}
+              onClick={() => onThemeChange("dark")}
+            />
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function PreferenceButton({
+  selected,
+  label,
+  onClick,
+}: {
+  selected: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onClick}
+      className={
+        selected
+          ? "flex h-10 items-center rounded-md border border-brand bg-accent px-3 text-left text-sm text-accent-foreground"
+          : "flex h-10 items-center rounded-md border bg-background px-3 text-left text-sm hover:bg-muted"
+      }
+    >
+      {label}
+      {selected && <Check aria-hidden="true" className="ml-auto size-4" />}
+    </button>
+  );
+}

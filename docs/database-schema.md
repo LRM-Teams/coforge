@@ -117,8 +117,8 @@ Each targeted Agent receives one row with a database-assigned `seq`. PostgreSQL
 uses one identity sequence for all deliveries, so concurrent inserts do not
 collide and no counter table or row lock is needed. Gaps are valid; each Agent's
 subset remains monotonic and can be replayed in `seq` order. After commit, the
-backend may offer the delivery to an online workspace-daemon. The workspace
-child returns a durable-accept response only after it has inserted the delivery
+backend may offer the delivery to an online workspace worker. The worker
+returns a durable-accept response only after it has inserted the delivery
 into its local durable inbox, or confirmed that the same `delivery_id` is
 already there. The exact response method and envelope remain gated by the
 separate wire-protocol approval. ACK therefore means **durably accepted by the

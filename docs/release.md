@@ -47,12 +47,15 @@ redaction, and a non-root deployment identity.
 | Cloud application | Full `registry/repository@sha256:...` image reference | `test` GitHub Environment and Compose project | Deploy the same digest to production Compose |
 | Local Computer distribution | Release-set digest, both component-manifest digests, and every platform installation-bundle checksum | Test release set selected by `channels.json` | Select the same tested release-set and bundle bytes in production |
 
-`workspace-daemon` is released inside `coforge-daemon`; it is not a third local
-package. The local distribution deliberately separates four layers:
+The workspace worker role is released inside `coforge-daemon`; it is not a third local
+app package. `@coforge/agent` is independently packable for dependency and
+verification purposes, but the exact installed package remains part of the
+Daemon component payload rather than becoming a third user-facing component.
+The local distribution deliberately separates four layers:
 
 | Layer | Cardinality and meaning |
 | --- | --- |
-| App package | Two source/build units: `coforge-computer` and `coforge-daemon`; Computer declares Daemon as a package dependency |
+| App package | Two source/build units: `coforge-computer` and `coforge-daemon`; Computer declares Daemon as a package dependency, and Daemon declares an exact `@coforge/agent` runtime dependency |
 | Component artifact | Two independently versioned build outputs that may be reused when the peer did not change |
 | Computer installation bundle | One user download per platform/architecture containing both compatible process payloads |
 | Release set | One immutable compatibility and integrity identity that pins both component artifacts and every platform bundle |
@@ -158,6 +161,7 @@ identity.
 The component trees exist so an unchanged Computer or Daemon artifact can be
 reused and audited; they do not create a supported second Daemon installer.
 `coforge-computer` depends on `coforge-daemon` at the package/build boundary,
+the Daemon artifact contains its exact installed `@coforge/agent` dependency,
 and the release-set assembly is the only user distribution boundary.
 
 `channels.json` is the only mutable selection object. Its signed payload has a
@@ -553,32 +557,13 @@ single-component transaction, signature, or per-user installation boundaries.
 
 ## Implementation status
 
-The MVP `test` implementation is defined by
-[`deploy-ecs.yml`](../.github/workflows/deploy-ecs.yml),
-[`compose.yaml`](../deploy/ecs/compose.yaml), and
-[`compose_release.sh`](../scripts/deploy/compose_release.sh). A push to `main`
-builds one GHCR image, passes its immutable digest to a repository-restricted
-static-egress runner, and deploys through the GitHub `test` Environment. The
-operator contract and one-time ECS/shared-Caddy prerequisites are documented in
-[`aliyun-ecs.md`](deployment/aliyun-ecs.md).
-
-The remote transaction validates the candidate Compose definition before
-mutation, verifies or records the prior healthy/empty state, keeps the candidate
-pending through bounded public HTTPS, WSS handshake, shared-ingress, and exact
-running-image checks, and only then commits it as healthy. Healthy,
-failed-preparation, interrupted, rolled-back, and failed-rollback outcomes are
-kept in the deploy user's redacted JSONL history and copied to the workflow run
-as a bounded-retention artifact.
-
-The authoritative release pointer is one atomically replaced `release-state`
-manifest containing the current/previous digests and their immutable Compose
-generation hashes. Host-wide locking and a transaction owner bind prepare,
-commit, rollback, and finalization across both Actions and manual operations.
-
-Production promotion is not implemented. The release Skill may operate the
-test workflow only after its documented runner, Environment secrets, rootless
-Docker account, and additive Caddy route exist. It must continue to stop rather
-than improvise when any prerequisite or release evidence is missing.
+The obsolete custom Go realtime-gateway, its ECS Compose deployment, and its
+test workflow have been removed. The approved standalone Centrifugo, Redis,
+PostgreSQL, and Backend deployment is not implemented yet. Until a focused
+implementation defines immutable artifacts, verification, audit evidence, and
+rollback for that complete stack, neither test nor production cloud deployment
+has a repository-supported operator path. The release Skill must stop rather
+than reconstruct or invoke the removed gateway workflow.
 
 The local feed topology and `cdn.coforge.cn/releases/` consumer boundary above
 are approved, but no feed or installer exists yet. Archive formats,

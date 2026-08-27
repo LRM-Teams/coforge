@@ -12,7 +12,7 @@ CoForge needs a machine to continue serving Workspaces after the interactive Use
 
 - `login` is authentication-only. It may discover the authorization server, perform the OAuth device flow, save the User refresh credential, and list accessible Workspaces; it does not register a Computer, create a Workspace–Computer binding, or start a daemon.
 - A Computer is a per-user background service identity. Background work must not continue as the User who originally registered it.
-- Each resident workspace-daemon connects outward to the Go realtime-gateway. The gateway remains a transport component and does not acquire business or database ownership.
+- Each resident workspace worker connects outward to standalone Centrifugo. Centrifugo remains a transport component and does not acquire business or database ownership.
 - Agent processes run third-party tools and are outside the trusted credential boundary. They must not receive a general bearer token or a generic token-retrieval API.
 - Browser business APIs are outside this decision. OAuth discovery/device authorization/token endpoints and release or installer downloads remain standard HTTPS bootstrap/distribution paths; resident Computer and daemon business traffic uses versioned CoForge RPC.
 - Exact RPC methods, wire fields, credential representations, cryptographic algorithms, and database schema are deliberately outside this proposal. Each requires a separately reviewed design and Frank's explicit approval before implementation.
@@ -40,11 +40,11 @@ Bootstrap / distribution only
   coforge-computer -> release metadata and installer artifacts over HTTPS
 
 Interactive management
-  coforge-computer -> short-lived User-authorized CoForge RPC -> realtime-gateway
+  coforge-computer -> short-lived User-authorized CoForge RPC -> Centrifugo -> Backend
 
 Resident service data plane
-  workspace-daemon -> long-lived Workspace-session CoForge RPC over WSS
-                   -> Go realtime-gateway
+  workspace worker -> long-lived Workspace-session CoForge RPC over WSS
+                   -> standalone Centrifugo
 
 Local control
   coforge-computer -> independently versioned CoForge RPC over UDS/named pipe
@@ -52,20 +52,20 @@ Local control
 
 Agent operation
   Agent/coforge CLI -> private Credential Proxy RPC over local IPC
-                    -> existing workspace-daemon remote session
-                    -> realtime-gateway
+                    -> existing workspace worker remote session
+                    -> standalone Centrifugo
 ```
 
 The remote and local profiles share protocol governance and authorization vocabulary, not necessarily framing or connection mechanics. Local control does not open a TCP management port, and a cloud credential cannot directly start, stop, upgrade, or otherwise control the local daemon. The launcher and local peer authorization establish the local lifecycle boundary.
 
 ### Daemon-owned Credential Proxy
 
-Each workspace-daemon owns the Credential Proxy for the Agent runtimes it launched. The proxy:
+Each workspace worker owns the Credential Proxy for the Agent runtimes it launched. The proxy:
 
 1. creates an in-memory binding from a runtime identity observed by the supervisor to one `agent_id`, one `workspace_id`, an allowlist of operations/scopes, and an expiry;
 2. authenticates the local caller with an OS-backed peer/process boundary and matches it to that binding; the effective Agent subject always comes from the binding, never from a caller-supplied Agent ID;
 3. exposes only approved typed RPC operations and never exposes `get-token`, refresh, arbitrary forwarding, or another audience's namespace;
-4. obtains or refreshes any short-lived Agent credential only inside the trusted workspace-daemon and records the Agent as the remote authorization and audit subject;
+4. obtains or refreshes any short-lived Agent credential only inside the trusted workspace worker and records the Agent as the remote authorization and audit subject;
 5. deletes the binding and invalidates later calls when the runtime stops, the Agent is revoked, the Workspace is unbound, the Computer is revoked, or the binding expires; and
 6. redacts authorization material, refresh credentials, pairing grants, and sensitive request bodies from logs, errors, traces, and metrics.
 
@@ -86,7 +86,7 @@ The OS credential store is mandatory: macOS Keychain, Linux Secret Service/libse
 
 `machine_id` is generated locally on first registration as an RFC 9562 UUIDv4 from a CSPRNG. It identifies one per-user CoForge installation profile, not physical hardware, and is unique within one CoForge issuer. The server enforces that at most one active Computer identity for that issuer claims the same `machine_id`; a collision or clone is a conflict, never an implicit takeover.
 
-The identifier is written atomically to the platform's standard per-user application-data directory with owner-only directory/file permissions. It survives Computer, daemon, workspace child, and package upgrades. Losing or deliberately resetting that state creates a new `machine_id` and requires User-authorized registration; uninstall/reinstall does not recover authority from a hardware fingerprint. Copying the file does not copy authority because `machine_id` is public and machine proof is separate.
+The identifier is written atomically to the platform's standard per-user application-data directory with owner-only directory/file permissions. It survives Computer, Daemon, workspace worker, and package upgrades. Losing or deliberately resetting that state creates a new `machine_id` and requires User-authorized registration; uninstall/reinstall does not recover authority from a hardware fingerprint. Copying the file does not copy authority because `machine_id` is public and machine proof is separate.
 
 Registration is a User-authorized management operation and is not part of `login`. Its semantic request contains the issuer-scoped `machine_id`, a daemon-generated proof public key, a retry-stable idempotency identity, the supported protocol/package compatibility declaration, and non-secret user-visible machine metadata. These are semantic requirements, not approved field names. The server:
 
@@ -103,14 +103,14 @@ Revoking a Computer invalidates its Computer credential family, every Workspace 
 
 Four numbers evolve independently:
 
-1. **Remote CoForge RPC protocol major and capabilities** for daemon/Computer to realtime-gateway communication;
+1. **Remote CoForge RPC protocol major and capabilities** for daemon/Computer communication through Centrifugo;
 2. **Local CoForge RPC protocol major and capabilities** for Computer↔daemon and Agent↔Credential Proxy communication;
 3. **Local config schema version** for non-secret application state and its atomic migrations; and
 4. **Computer and daemon SemVer**, released as separate components whose compatible pair is recorded in the immutable release set.
 
 Package SemVer never implies a protocol or config version. Every RPC handshake identifies its protocol major and capabilities before business operations. An unknown major, a missing required capability, an unsupported audience, or an audience/method mismatch fails closed without downgrade. Within one major, changes are additive: new fields are optional, unknown safe fields are tolerated, and new capabilities are used only after negotiation. A retired field identity is reserved and never reused, including its number and name when the chosen schema has them; deleting, reinterpreting, or making a field required is a breaking change. Unknown methods are rejected rather than forwarded.
 
-The exact envelope, version numbers, capability names, error codes, deprecation window, and schema technology remain unapproved wire design. Their proposal must include compatibility tests for Bun↔Go WSS and the local UDS/Windows profile before implementation.
+The exact envelope, version numbers, capability names, error codes, deprecation window, and schema technology remain unapproved wire design. Their proposal must include compatibility tests for the Bun client↔Centrifugo↔Backend path and the local UDS/Windows profile before implementation.
 
 ## Threats and failure modes
 
@@ -138,7 +138,7 @@ Rejected. It turns a short interactive authorization into indefinite background 
 
 ### Give every Agent process a bearer token or `get-token`
 
-Rejected. A compromised tool could exfiltrate, replay, or persist it and bypass the operation allowlist. The Credential Proxy keeps the credential and dispatch authority inside the trusted workspace-daemon.
+Rejected. A compromised tool could exfiltrate, replay, or persist it and bypass the operation allowlist. The Credential Proxy keeps the credential and dispatch authority inside the trusted workspace worker.
 
 ### Use one token audience and rely only on scopes
 
@@ -154,11 +154,11 @@ Rejected. Hardware identifiers clone, change, leak correlation, and are not secr
 
 ### Couple protocol versions to package SemVer
 
-Rejected. Computer, daemon, gateway, local config, and transports roll out or roll back at different times. Coupling them creates unnecessary breaking upgrades and hides compatibility requirements.
+Rejected. Computer, daemon, cloud transport, local config, and transports roll out or roll back at different times. Coupling them creates unnecessary breaking upgrades and hides compatibility requirements.
 
 ### Select an RPC framework or schema in this ADR
 
-Rejected for this decision. Identity/audience boundaries are independent of codec and framework, and current evidence for Bun↔Go WSS plus local UDS/Windows support must be reviewed separately. Selecting one here would pre-approve unreviewed methods and fields.
+Rejected for this decision. Identity/audience boundaries are independent of codec and framework, and current evidence for the Bun client↔Centrifugo↔Backend path plus local UDS/Windows support must be reviewed separately. Selecting one here would pre-approve unreviewed methods and fields.
 
 ## Compatibility, migration, and rollback
 
@@ -181,7 +181,7 @@ Implementation proposals must demonstrate:
 - immediate runtime/Agent/unbind/Computer revocation behavior, including offline reconnect;
 - duplicate registration, concurrent retry, clone, lost state, interrupted rotation, protocol mismatch, and config rollback failure cases;
 - local caller isolation on Linux, macOS, and Windows rather than assuming peer UID is process isolation; and
-- Bun↔Go remote RPC and local IPC compatibility plus measured latency, throughput, allocation, backpressure, and reconnect/replay behavior.
+- Bun client↔Centrifugo↔Backend remote RPC and local IPC compatibility plus measured latency, throughput, allocation, backpressure, and reconnect/replay behavior.
 
 Frank's explicit approval is required for this ADR and every later exact RPC method, wire field, credential lifecycle/algorithm, or database impact. Until then, registration, binding wire, remote Agent methods, and credential issuance remain blocked.
 
