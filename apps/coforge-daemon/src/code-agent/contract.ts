@@ -9,7 +9,7 @@ export type AgentRuntimeConfig = Readonly<{
   reasoning: string;
 }>;
 
-export type CodeAgentEvent =
+export type AgentRuntimeEvent =
   | { type: "activity"; activity: AgentActivity }
   | { type: "text-delta"; text: string }
   | { type: "tool-start"; id: string; name: string }
@@ -19,7 +19,7 @@ export type CodeAgentEvent =
 
 export interface CodeAgentSession {
   prompt(text: string): Promise<void>;
-  subscribe(listener: (event: CodeAgentEvent) => void): () => void;
+  subscribe(listener: (event: AgentRuntimeEvent) => void): () => void;
   interrupt(): Promise<void>;
   onExit(listener: () => void): () => void;
   dispose(): Promise<void>;

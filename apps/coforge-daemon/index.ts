@@ -5,7 +5,7 @@ import type { WorkspaceWorker } from "./src/workspace-worker/supervisor";
 export type {
   AgentRuntimeConfig,
   CodeAgentAdapter,
-  CodeAgentEvent,
+  AgentRuntimeEvent,
   CodeAgentProvider,
   CodeAgentSession,
   CodeAgentStartOptions,

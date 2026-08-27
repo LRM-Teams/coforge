@@ -1,6 +1,6 @@
 import type {
   CodeAgentAdapter,
-  CodeAgentEvent,
+  AgentRuntimeEvent,
   CodeAgentSession,
   CodeAgentStartOptions,
 } from "../contract";
@@ -38,7 +38,7 @@ export class PiAgentAdapter implements CodeAgentAdapter {
 
 class PiAgentSession implements CodeAgentSession {
   readonly #process: JsonlProcess;
-  readonly #listeners = new Set<(event: CodeAgentEvent) => void>();
+  readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
   #state: "idle" | "running" | "interrupting" | "disposed" = "idle";
 
   constructor(process: JsonlProcess) {
@@ -57,7 +57,7 @@ class PiAgentSession implements CodeAgentSession {
     }
   }
 
-  subscribe(listener: (event: CodeAgentEvent) => void): () => void {
+  subscribe(listener: (event: AgentRuntimeEvent) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
   }
@@ -126,7 +126,7 @@ class PiAgentSession implements CodeAgentSession {
     }
   }
 
-  #emit(event: CodeAgentEvent): void {
+  #emit(event: AgentRuntimeEvent): void {
     for (const listener of this.#listeners) listener(event);
   }
 

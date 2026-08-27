@@ -1,6 +1,6 @@
 import type {
   CodeAgentAdapter,
-  CodeAgentEvent,
+  AgentRuntimeEvent,
   CodeAgentSession,
   CodeAgentStartOptions,
 } from "../contract";
@@ -46,7 +46,7 @@ export class ClaudeCodeAgentAdapter implements CodeAgentAdapter {
 
 class ClaudeCodeAgentSession implements CodeAgentSession {
   readonly #process: JsonlProcess;
-  readonly #listeners = new Set<(event: CodeAgentEvent) => void>();
+  readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
   #state: "idle" | "running" | "interrupting" | "disposed" = "idle";
   #pendingInterrupt:
     | { id: string; promise: Promise<void>; resolve(): void; reject(error: Error): void }
@@ -111,7 +111,7 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
     }
   }
 
-  subscribe(listener: (event: CodeAgentEvent) => void): () => void {
+  subscribe(listener: (event: AgentRuntimeEvent) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
   }
@@ -208,7 +208,7 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
     }
   }
 
-  #emit(event: CodeAgentEvent): void {
+  #emit(event: AgentRuntimeEvent): void {
     for (const listener of this.#listeners) listener(event);
   }
 

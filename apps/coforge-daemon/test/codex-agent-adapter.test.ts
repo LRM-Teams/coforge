@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { CodexAgentAdapter } from "../src/code-agent/codex/adapter";
-import type { CodeAgentEvent } from "../src/code-agent/contract";
+import type { AgentRuntimeEvent } from "../src/code-agent/contract";
 
 test("Codex loads skills before running app-server behind the code-agent seam", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-codex-"));
@@ -24,7 +24,7 @@ test("Codex loads skills before running app-server behind the code-agent seam", 
 
   try {
     const session = await adapter.start({ agentWorkspaceDirectory });
-    const events: CodeAgentEvent[] = [];
+    const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
 
     await session.prompt("finish");
@@ -117,7 +117,10 @@ function fixtureAdapter(): CodexAgentAdapter {
   });
 }
 
-async function waitForEvent(events: CodeAgentEvent[], type: CodeAgentEvent["type"]): Promise<void> {
+async function waitForEvent(
+  events: AgentRuntimeEvent[],
+  type: AgentRuntimeEvent["type"],
+): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (events.some((event) => event.type === type)) return;
     await Bun.sleep(5);

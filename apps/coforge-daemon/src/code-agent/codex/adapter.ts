@@ -1,6 +1,6 @@
 import type {
   CodeAgentAdapter,
-  CodeAgentEvent,
+  AgentRuntimeEvent,
   CodeAgentSession,
   CodeAgentStartOptions,
 } from "../contract";
@@ -58,7 +58,7 @@ export class CodexAgentAdapter implements CodeAgentAdapter {
 class CodexAgentSession implements CodeAgentSession {
   readonly #process: JsonlProcess;
   readonly #threadId: string;
-  readonly #listeners = new Set<(event: CodeAgentEvent) => void>();
+  readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
   #state: CodexSessionState = { type: "idle" };
 
   constructor(process: JsonlProcess, threadId: string) {
@@ -94,7 +94,7 @@ class CodexAgentSession implements CodeAgentSession {
       : { type: "running", turnId: turn.id };
   }
 
-  subscribe(listener: (event: CodeAgentEvent) => void): () => void {
+  subscribe(listener: (event: AgentRuntimeEvent) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
   }
@@ -174,7 +174,7 @@ class CodexAgentSession implements CodeAgentSession {
     }
   }
 
-  #emit(event: CodeAgentEvent): void {
+  #emit(event: AgentRuntimeEvent): void {
     for (const listener of this.#listeners) listener(event);
   }
 
