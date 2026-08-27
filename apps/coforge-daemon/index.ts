@@ -31,11 +31,17 @@ export { AgentRuntimePool } from "./src/agent-capacity/agent-runtime-pool";
 export type { AgentRuntimeHandle } from "./src/agent-capacity/agent-runtime-pool";
 export { AgentProcessManager } from "./src/agent-runtime/agent-process-manager";
 export { AgentStateMachine } from "./src/agent-runtime/agent-state-machine";
+export { createAgentActivity } from "./src/agent-runtime/agent-activity";
 export type {
   AgentAdapterFactory,
   AgentRuntime,
   AgentStatus,
 } from "./src/agent-runtime/agent-process-manager";
+export type {
+  AgentActivity,
+  AgentActivityLevel,
+  AgentActivityType,
+} from "./src/agent-runtime/agent-activity";
 export type {
   AgentStateEvent,
   AgentStateTransition,

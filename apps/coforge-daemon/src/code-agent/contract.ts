@@ -1,3 +1,5 @@
+import type { AgentActivity } from "../agent-runtime/agent-activity";
+
 /** Provider-neutral seam owned by each workspace worker. */
 export type CodeAgentProvider = "pi" | "codex" | "claude-code";
 
@@ -8,6 +10,7 @@ export type AgentRuntimeConfig = Readonly<{
 }>;
 
 export type CodeAgentEvent =
+  | { type: "activity"; activity: AgentActivity }
   | { type: "text-delta"; text: string }
   | { type: "tool-start"; id: string; name: string }
   | { type: "tool-output"; id: string; text: string }
