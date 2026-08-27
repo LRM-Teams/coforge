@@ -30,19 +30,25 @@ export function YourComputerInstall() {
             { id: "windows", label: m.computer_os_windows() },
           ] as const
         ).map(({ id, label }) => (
-          <button
+          <Button
             key={id}
             type="button"
             role="tab"
             aria-selected={operatingSystem === id}
-            className={`rounded-lg px-3 py-2 text-sm ${operatingSystem === id ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:text-foreground"}`}
+            variant="outline"
+            size="sm"
+            className={
+              operatingSystem === id
+                ? "border-brand bg-accent text-accent-foreground hover:bg-accent/80"
+                : "text-muted-foreground hover:border-accent hover:bg-accent/50 hover:text-foreground"
+            }
             onClick={() => {
               setOperatingSystem(id);
               setCopied(false);
             }}
           >
             {label}
-          </button>
+          </Button>
         ))}
       </div>
       <div>
