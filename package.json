@@ -10,6 +10,9 @@
     "dev:gateway": "cd apps/realtime-gateway && go run ./cmd/gateway",
     "test": "bun run test:deploy && bun run --filter '*' --if-present test && cd apps/realtime-gateway && go test ./...",
     "test:deploy": "export PYTHONDONTWRITEBYTECODE=1; bash scripts/deploy/compose_release_test.sh && bash scripts/deploy/recover_release_test.sh && bash scripts/deploy/deploy_contract_test.sh && python3 scripts/deploy/wss_smoke_test.py && bash scripts/deploy/container_test.sh",
+    "test:oss-cdn": "bun test scripts/verify-oss-cdn.test.ts",
+    "check:oss-cdn": "bunx oxfmt --check scripts/verify-oss-cdn.ts scripts/verify-oss-cdn.test.ts && bunx oxlint scripts/verify-oss-cdn.ts scripts/verify-oss-cdn.test.ts",
+    "verify:oss-cdn": "bun scripts/verify-oss-cdn.ts",
     "build": "bun run --filter '*' --if-present build && cd apps/realtime-gateway && mkdir -p dist && go build -o dist/realtime-gateway ./cmd/gateway",
     "check": "bun run check:deploy && bun run --filter '*' --if-present check && cd apps/realtime-gateway && go vet ./...",
     "check:deploy": "ruff check scripts/deploy/*.py && actionlint && shellcheck scripts/deploy/*.sh && bash -n scripts/deploy/*.sh"

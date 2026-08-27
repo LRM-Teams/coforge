@@ -11,20 +11,20 @@ Workspaces. It is an independent distributable process managed by
 ```text
 coforge-computer (stable machine_id)
 └── coforge-daemon
-    ├── resident workspace-daemon for Workspace A
+    ├── resident workspace worker for Workspace A
     │   ├── Agent A1 → Agent workspace directory A1
     │   └── Agent A2 → Agent workspace directory A2
-    └── resident workspace-daemon for Workspace B
+    └── resident workspace worker for Workspace B
         └── Agent B1 → Agent workspace directory B1
 ```
 
-`workspace-daemon` is a child-process role inside this package. It is not a
+`workspace worker` is a supervised child-process role inside this package. It is not a
 third app or independently published package.
 
 For every logical Workspace assigned to this Computer, `coforge-daemon` keeps
-one resident `workspace-daemon` child. Resident means that the child stays
+one resident workspace worker. Resident means that the worker stays
 alive between messages while the Workspace remains assigned. A crashed or
-replaced child is a new process for the same stable `workspace_id`; it is not a
+replaced worker is a new process for the same stable `workspace_id`; it is not a
 new Workspace.
 
 ## Vocabulary
@@ -35,7 +35,8 @@ new Workspace.
 | Workspace | The logical collaboration, membership, permission, conversation, and Agent boundary. |
 | `workspace_id` | The stable end-to-end identity of that logical Workspace. |
 | workspace binding | The assignment that makes a logical Workspace active on a Computer. |
-| workspace-daemon | The resident child process that represents one logical Workspace on the bound Computer. |
+| workspace worker | The daemon-supervised resident child process that represents one logical Workspace on the bound Computer. |
+| Agent runtime process | A provider execution process, owned by one workspace worker and reused across prompts until its session is disposed. |
 | Agent workspace | One Agent's filesystem working area. It is not another logical Workspace. |
 
 Documentation must qualify whether "workspace" means the logical Workspace or
@@ -46,31 +47,32 @@ directory remains a separate decision before implementation.
 
 `coforge-daemon` owns:
 
-- convergence between the desired and actual set of resident Workspace
-  children;
+- convergence between the desired and actual set of resident workspace workers;
 - spawning, monitoring, backoff, replacement, and orderly shutdown of those
-  children;
-- resource governance and version compatibility for child processes.
+  workers;
+- machine-level Agent capacity and version compatibility for child processes;
+  Runtime lease lifecycle remains a separate design decision.
 
 `coforge-daemon` uses the machine's stable `machine_id`; it does not mint a new
-machine identity for itself or for each Workspace child. The exact issuance,
+machine identity for itself or for each workspace worker. The exact issuance,
 persistence, uniqueness, and cloud database schema for `machine_id` are outside
 this package model and require their own reviewed design.
 
-Cloud-visible Computer online status is a realtime projection of Workspace
-child connections: a Computer is online when at least one of its
-`workspace-daemon` WSS sessions is connected. The daemon package does not
+Cloud-visible Computer online status is a realtime projection of workspace
+worker connections: a Computer is online when at least one workspace worker's
+WSS session is connected. The daemon package does not
 persist an `online` flag or `last_seen_at` value as durable truth.
 
-Each `workspace-daemon` owns, for exactly one logical Workspace:
+Each workspace worker owns, for exactly one logical Workspace:
 
 - its outbound WSS session and protocol scope;
 - its durable delivery inbox/outbox and replay cursor;
-- the Agent runtimes in that Workspace through ACP adapters;
+- the Agent runtimes in that Workspace through provider-neutral code-agent
+  adapters;
 - enforcement that each Agent can access only its declared Agent workspace
   directory and allowed environment.
 
-A Workspace child may manage multiple Agents. It must never manage an Agent
+A workspace worker may manage multiple Agents. It must never manage an Agent
 from a different `workspace_id`.
 
 A Computer may have zero or more code-agent runtimes installed. Having no
@@ -84,9 +86,13 @@ is installed and configured.
   `coforge-computer` owns that lifecycle.
 - Neither daemon owns cloud authentication, conversation persistence, or
   routing decisions.
-- Provider-specific Codex, Claude Code, Pi, or other output formats stay behind
-  ACP adapters.
-- The Workspace child role must not become `apps/workspace-daemon`.
+- Provider-specific Codex, Claude Code, Pi, or other command and event formats
+  stay behind code-agent adapters. The independently packaged `@coforge/agent`
+  uses the Pi SDK and runs as a resident child process; Codex app-server is a
+  second resident child-process implementation. Both load Workspace skills
+  before session startup completes; see ADR 0002.
+- The workspace worker role must not become a third app package.
 
 See [`../../docs/architecture.md`](../../docs/architecture.md) for the
-canonical system architecture.
+canonical system architecture and [`../../docs/local-logging.md`](../../docs/local-logging.md)
+for the local categorized, rotating log contract that must precede daemon lifecycle implementation.
