@@ -211,7 +211,50 @@ MVP OAuth client 使用 `client_id = coforge-computer` 与 `scope = openid offli
 
 每个已选择 Workspace 在平台原生用户配置目录中拥有独立配置：Linux 使用 `$XDG_CONFIG_HOME/coforge`（缺省 `~/.config/coforge`），macOS 使用 `~/Library/Application Support/Coforge`，Windows 使用 `%LOCALAPPDATA%\Coforge`。Workspace 配置只持久化稳定 `workspace_id`；slug 和 display name 只用于选择与输出，不作为持久关联键。当前 setup 不注册 Computer、不采集 `machine_id`、不创建服务端 Workspace–Computer binding，也不启动 daemon。上述云端 binding 与进程启动必须在后续独立纵向设计评审后实现。
 
-`machine_id` 是机器的稳定身份，跨 computer、daemon 与 workspace 子进程的重启和升级保持不变。Computer 注册不属于 `login`，其 endpoint、payload、幂等键和 machine proof 必须在单独纵向设计中确定；`machine_id` 的具体签发方式、存储位置、唯一性范围与云端 computer 表结构也由该设计评审，本文不预先锁定。
+`machine_id` 是机器的稳定身份，跨 computer、daemon 与 workspace 子进程的重启和升级保持不变。Computer 注册不属于 `login`；其已提交但尚未批准的身份、存储、幂等和 proof 语义见下文与 ADR-0001。精确 endpoint、wire payload/field、proof 算法与云端 computer 表结构仍由后续评审，本文不预先锁定。
+
+### 身份、凭据与协议边界（提案）
+
+[`ADR-0001`](adr/0001-separate-user-computer-workspace-and-agent-authority.md) 提议在 registration、binding 和 Agent operation 实现前先锁定四类不可互换的 principal：
+
+| Principal | 作用域 | 生命期与持有者 |
+| --- | --- | --- |
+| User | 人在 Computer CLI 中主动发起的管理操作 | 交互会话；User refresh credential 只进 OS credential store，User access 只在内存 |
+| Computer | 一个 per-user CoForge installation profile 的长期服务身份 | daemon 可以在 User 退出后继续工作，但不能继续代表 User |
+| Workspace session | 某个 Computer–Workspace binding 的短期连接身份 | 只在该 binding 的可信 workspace-daemon 内存中 |
+| Agent runtime | 某个 Agent 在某个 Workspace/runtime session 中的短期能力与审计身份 | Agent 进程不取得 bearer token，由 workspace-daemon 内的 Credential Proxy 代理批准操作 |
+
+远端 CoForge RPC 在协议层分离 User、Computer/Workspace 和 Agent-operation audience 与 method namespace。验签成功不等于授权成功；issuer、audience、principal kind、subject、Workspace/binding membership、operation/scope、expiry 与必要 proof 必须同时匹配。跨 audience credential、未知 major、不兼容 capability 或 audience/method 错配全部 fail closed，不降级、不猜测、不转换为另一类身份。
+
+通信分层为：
+
+```text
+OAuth discovery / device authorization / token  --HTTPS--> authorization server
+release metadata / installer artifact            --HTTPS--> distribution endpoint
+
+interactive Computer management                  --User-audience versioned RPC--> realtime-gateway
+resident workspace-daemon                        --Workspace-session versioned RPC/WSS--> realtime-gateway
+coforge-computer                                  --local versioned RPC/UDS or named pipe--> coforge-daemon
+Agent/coforge CLI                                 --private local Credential Proxy RPC--> workspace-daemon
+```
+
+OAuth 与 release 链路是 bootstrap/distribution 例外，不是常驻机器业务数据面。Computer 和 daemon 的常驻远端业务通信全部使用 versioned CoForge RPC，不以 HTTP endpoint 作为 fallback。Computer↔daemon 与 Agent↔Credential Proxy 均使用本地 UDS/Windows 等价机制，不开 TCP 管理端口，也不用云端 Token 直接控制本机 lifecycle。
+
+Credential Proxy 由每个 workspace-daemon 为自己启动的 Agent runtime 持有。它只在内存中维护 `runtime_id -> agent_id + workspace_id + allowed operations/scopes + expiry` binding；有效身份来自 supervisor 观测到的本地 caller/binding，不信任请求中自报的 Agent ID。Proxy 只暴露批准的 typed RPC operation，不提供 `get-token`、通用转发或另一 audience 的命名空间。runtime 停止、Agent 撤销、Workspace unbind、Computer 撤销或 binding 过期后立即删除 binding 并拒绝后续调用。
+
+OS credential store 只保存 User refresh credential、Computer proof private key 与可轮换/发送方约束的 Computer 长期凭据。`machine_id`、issuer/server reference、server Computer reference 与本地非敏感配置放入 owner-only 的平台标准 application-data 目录。User access、一次性 pairing grant、Computer access、Workspace session、Agent runtime credential 与 runtime binding 仅存在对应可信进程内存，不写 config/JSON/SQLite/日志/命令行/生成物。Agent 进程只得到自己的私有本地 RPC handle 和非敏感 runtime context。
+
+User-level credential store 只能隔离 OS user，不能单独隔离同一 user 下的恶意 Agent 进程。runtime launcher 还必须阻止 Agent 访问 OS credential API、daemon state 和其他 runtime 的 local endpoint；平台无法建立该边界时，credential-bearing Agent operation fail closed。如果 MVP 改为信任所有 same-user process，必须对这一弱化边界另行取得 Frank 明确风险接受。
+
+`machine_id` 提案为首次 registration 时以 CSPRNG 生成的 RFC 9562 UUIDv4，是某个 CoForge issuer 内一个 per-user installation profile 的公开稳定标识，不是硬件指纹、credential 或必然的 server table primary key。它以原子写和 owner-only 权限保存在平台标准 application-data 目录，在进程重启和产品升级间稳定；丢失/重置后必须经 User 重新 registration。拷贝 `machine_id` 不拷贝授权，因为 daemon 自己生成 proof key，私钥不离开可信边界。
+
+Computer registration 由短期 User 授权发起，不属于 `login`。语义输入包括 issuer-scoped `machine_id`、daemon proof public key、跨重试稳定的 idempotency identity、协议/包兼容声明与非敏感机器 metadata；这些不是已批准的 wire field 名。同一 User、`machine_id`、proof key 与 idempotency identity 的重试返回同一结果；所有者或 proof 不同时冲突拒绝，不隐式接管。注册不自动赋予 Workspace 权限；服务端返回与 issuer、Computer 和 proof key 绑定的短期单次 pairing grant，Computer 经认证的本地 RPC 交给 daemon，daemon 以 proof-of-possession 兑换发送方约束的 Computer credential。精确 proof 算法、RPC method/envelope/field/error 与数据库影响仍必须在实现前单独提交并获得 Frank 明确批准。
+
+撤销 Computer 使 Computer credential family、其派生的 Workspace session、runtime binding 与后续 reconnect/replay 全部失效；unbind 只影响该 Workspace–Computer binding；runtime 停止或 Agent 撤销只影响该 Agent runtime。User logout 撤销 User 授权，但不隐式撤销已独立注册的 Computer。refresh replay 或 cloned credential 触发对应 credential family 撤销，需要 User 明确 repair/re-pair。
+
+版本号分为四个独立边界：远端 CoForge RPC protocol major/capabilities、本地 RPC protocol major/capabilities、local config schema 与 Computer/daemon 各自的 SemVer。package SemVer 不暗示 protocol/config version，两个 component 的兼容组合由 immutable release set 记录。每个 RPC handshake 在业务操作前声明 protocol major 与 capabilities；同一 major 内只许 additive 扩展，新字段必须 optional，只在协商后使用新 capability。删除字段时必须 reserve 它的 field identity；所选 schema 若有 number/name，两者都永不复用。删除/改义/改为必填属于 breaking change。
+
+该提案的 alternatives、threat/failure matrix、compatibility、migration、rollback 与官方依据统一记录在 ADR-0001。在 Frank 明确批准前，这些段落只是审议中的架构提案，不授权新增 RPC method、wire field、credential lifecycle 或 database schema。
 
 ### coforge-daemon
 
@@ -342,9 +385,11 @@ durable-accept response 只表示“本机已耐久接管”，不表示 Agent �
 
 ## 11. 协议提案与待决 ADR
 
-daemon 到 cloud 在 Centrifugo client protocol 内承载 CoForge 自有、版本化的 application RPC，不照搬 Multica 事件名。业务方法族至少覆盖 durable delivery 的 offer/accept/reject 与 Agent response 的 publish/commit；确切 method name、payload、error 与 capability 都属于待批准 wire。连接/session framing、heartbeat、transport reconnect 与 stream position 由 Centrifugo 负责，CoForge 不重复发明第二套传输协议。
+daemon 到 cloud 使用版本化 typed CoForge RPC over WSS，不照搬 Multica 事件名。身份、audience、Credential Proxy、registration 与独立版本边界见待批准的 [`ADR-0001`](adr/0001-separate-user-computer-workspace-and-agent-authority.md)。
 
-每个 CoForge application request 必须携带稳定 request identity、Workspace/session scope 与必要 deadline；确切 envelope 仍待 wire approval。未知 major version 必须拒绝，minor capability 必须协商。浏览器 API 与 cloud internal RPC 是独立契约，“daemon 不用 HTTP”不禁止浏览器用 HTTPS 完成认证、bootstrap 和普通读取。
+精确 RPC method name、envelope/field/error、encoding/schema technology、credential representation 和协议版本号尚未批准，因此本文不预先列出可直接实现的 wire vocabulary。第 6 节中 `delivery.offer`、`delivery.accepted`、`message.publish` 等只是说明领域流程的语义标签，不是已批准方法名。正式提案必须说明 Bun workspace-daemon↔Go realtime-gateway 与本地 UDS/Windows profile 的兼容和性能证据，并在实现前获得 Frank 明确批准。
+
+浏览器 API、OAuth/bootstrap HTTPS、cloud internal RPC、本地 Computer↔daemon RPC 与 workspace-daemon↔gateway RPC 是独立契约。“daemon 不用 HTTP 作为常驻业务数据面”不禁止浏览器使用 HTTPS，也不改变 OAuth device-code/token 和 release/installer download 的标准 HTTPS 例外。
 
 以下项目在实现锁定前必须写 ADR：
 
@@ -354,7 +399,7 @@ daemon 到 cloud 在 Centrifugo client protocol 内承载 CoForge 自有、版�
 4. `conversation_seq` 的并发分配；
 5. ACP capability mapping 与 cancellation；
 6. reconnect、drain deadline 与可测量恢复 SLO；
-7. LRM-1563 约束下的设备身份、密钥轮换与 workspace revoke。
+7. ADR-0001 批准后的精确 machine proof、credential lifecycle、registration/binding wire 与 workspace revoke。
 
 ## 12. 首批故障验证
 
