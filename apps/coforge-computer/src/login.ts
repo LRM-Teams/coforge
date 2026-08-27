@@ -47,6 +47,7 @@ export type ComputerLoginOptions = {
   config: { saveCurrentProfile(profile: { serverUrl: string }): Promise<void> };
   writeLine: (line: string) => void;
   writeProgressLine?: (line: string) => void;
+  openVerificationPage?: (url: string) => Promise<void>;
   sleep: (milliseconds: number) => Promise<void>;
   now?: () => number;
   colors?: Pick<typeof pc, "bold" | "cyan" | "green">;
@@ -69,6 +70,11 @@ export class ComputerLogin {
       this.options.writeLine(`Server:      ${serverUrl}`);
     }
     const authorization = await this.options.client.authorize(serverUrl);
+    if (!input.json) {
+      void (this.options.openVerificationPage ?? openVerificationPage)(authorization.verificationUri).catch(
+        () => undefined,
+      );
+    }
     if (!input.json) writeInstruction("");
     writeInstruction(input.json ? "Complete device authorization:" : "To sign in:");
     writeInstruction(`Verify at:   ${colors.cyan(terminalText(authorization.verificationUri))}`);
@@ -127,4 +133,15 @@ export class ComputerLogin {
     }
     return { serverUrl, workspaces };
   }
+}
+
+async function openVerificationPage(url: string): Promise<void> {
+  const command =
+    process.platform === "darwin"
+      ? ["open", url]
+      : process.platform === "win32"
+        ? ["cmd.exe", "/d", "/c", "start", "", url]
+        : ["xdg-open", url];
+  const child = Bun.spawn({ cmd: command, stdout: "ignore", stderr: "ignore" });
+  if ((await child.exited) !== 0) throw new Error("browser opener failed");
 }
