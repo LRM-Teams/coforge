@@ -14,6 +14,14 @@ Internationalization follows TanStack Start's official Paraglide integration.
 English and Simplified Chinese messages live under `messages`; locale-aware
 URLs, SSR request handling, and `<html lang>` are generated through Paraglide.
 
+Browser login uses Authing as the hosted OpenID Connect IdP. Copy
+`apps/web/.env.example` to `apps/web/.env` and set `AUTHING_APP_SECRET` plus a
+random `COFORGE_SESSION_SECRET` of at least 32 characters. Do not commit the
+secret. In the Authing console, register the callback URL
+`http://localhost:3000/auth/callback` exactly, keep the application type as a
+standard web app, and use authorization-code mode. Computer CLI login is a
+separate Device Flow client and is unchanged.
+
 ```bash
 mise install
 mise run install

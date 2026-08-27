@@ -29,6 +29,15 @@ run = "cd apps/coforge-computer && bun run check"
 [tasks."build:computer"]
 run = "cd apps/coforge-computer && bun run build"
 
+[tasks."test:web"]
+run = "cd apps/web && bun run test"
+
+[tasks."check:web"]
+run = "cd apps/web && bun run check"
+
+[tasks."build:web"]
+run = "cd apps/web && bun run build"
+
 [tasks."test:oss-cdn"]
 run = "bun run test:oss-cdn"
 

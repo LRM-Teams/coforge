@@ -17,7 +17,12 @@ import { m } from "@/paraglide/messages";
 
 const sidebarShortcut = "Mod+B" as const;
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export type AppUser = {
+  name: string;
+  email: string;
+};
+
+export function AppShell({ user, children }: { user: AppUser; children: React.ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -113,7 +118,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 aria-label={m.controls_current_user()}
                 className="flex size-11 items-center justify-center rounded-full border bg-card text-xs font-medium outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 md:size-8"
               >
-                F
+                {userInitial(user.name)}
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 side="top"
@@ -123,9 +128,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 <div className="min-w-0 px-2 py-2">
                   <span className="block truncate text-sm font-medium text-popover-foreground">
-                    Frank An
+                    {user.name}
                   </span>
-                  <span className="block truncate text-xs text-muted-foreground">@frankan</span>
+                  <span className="block truncate text-xs text-muted-foreground">{user.email}</span>
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -136,6 +141,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       {m.navigation_personal_settings()}
                     </Link>
                   }
+                />
+                <DropdownMenuItem
+                  className="h-11 gap-2 px-2 md:h-10"
+                  render={<a href="/auth/logout">{m.controls_sign_out()}</a>}
                 />
               </DropdownMenuContent>
             </DropdownMenu>
@@ -179,4 +188,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
     </div>
   );
+}
+
+function userInitial(name: string): string {
+  return name.trim().charAt(0).toUpperCase() || "?";
 }
