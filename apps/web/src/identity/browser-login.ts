@@ -144,10 +144,24 @@ export function readBrowserSession(input: {
   };
 }
 
-export function endBrowserLogin(redirectUri = "http://localhost:3000/"): {
+export function buildAuthingLogoutUrl(
+  config: AuthingConfig,
+  postLogoutRedirectUri: string,
+): string {
+  const url = new URL(config.endSessionEndpoint);
+  url.searchParams.set("client_id", config.appId);
+  url.searchParams.set("post_logout_redirect_uri", postLogoutRedirectUri);
+  return url.toString();
+}
+
+export function endBrowserLogin(input: { config: AuthingConfig; postLogoutRedirectUri: string }): {
   clearSessionCookie: string;
+  authingLogoutUrl: string;
 } {
-  return { clearSessionCookie: clearCookie(SESSION_COOKIE, redirectUri) };
+  return {
+    clearSessionCookie: clearCookie(SESSION_COOKIE, input.config.redirectUri),
+    authingLogoutUrl: buildAuthingLogoutUrl(input.config, input.postLogoutRedirectUri),
+  };
 }
 
 export function createAuthingExchanger(config: AuthingConfig): TokenExchanger {

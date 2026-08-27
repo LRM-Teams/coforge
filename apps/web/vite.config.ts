@@ -10,7 +10,12 @@ import { paraglideOptions } from "./paraglide.config.ts";
 
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
-  server: { allowedHosts: [".onamp.dev"] },
+  server: {
+    allowedHosts: [".onamp.dev"],
+    host: "127.0.0.1",
+    port: 8788,
+    strictPort: true,
+  },
   plugins: [
     paraglideVitePlugin(paraglideOptions),
     tanstackStart(),

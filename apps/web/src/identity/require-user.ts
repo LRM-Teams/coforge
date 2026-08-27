@@ -2,8 +2,12 @@ import { redirect } from "@tanstack/react-router";
 
 import { readBrowserSession, type BrowserUser } from "./browser-login";
 import { AuthConfigError, readSessionSecret } from "./config";
+import { devBrowserUser } from "./dev-skip-auth";
 
 export function requireBrowserUser(cookieHeader: string | undefined): BrowserUser {
+  const skipped = devBrowserUser();
+  if (skipped) return skipped;
+
   let sessionSecret: string;
   try {
     sessionSecret = readSessionSecret(process.env);
@@ -20,6 +24,9 @@ export function requireBrowserUser(cookieHeader: string | undefined): BrowserUse
 }
 
 export function optionalBrowserUser(cookieHeader: string | undefined): BrowserUser | null {
+  const skipped = devBrowserUser();
+  if (skipped) return skipped;
+
   try {
     return readBrowserSession({
       sessionSecret: readSessionSecret(process.env),

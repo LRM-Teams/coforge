@@ -131,11 +131,18 @@ test("completeBrowserLogin rejects an Authing account without email", async () =
   ).rejects.toThrow("email is required");
 });
 
-test("endBrowserLogin clears the session cookie", () => {
-  const ended = endBrowserLogin();
+test("endBrowserLogin clears the session cookie and returns the Authing logout URL", () => {
+  const ended = endBrowserLogin({
+    config,
+    postLogoutRedirectUri: "http://localhost:3000/login",
+  });
   expect(ended.clearSessionCookie).toContain("coforge_session=");
   expect(ended.clearSessionCookie).toContain("Max-Age=0");
   expect(ended.clearSessionCookie).toContain("HttpOnly");
+  const authingLogout = new URL(ended.authingLogoutUrl);
+  expect(authingLogout.searchParams.get("post_logout_redirect_uri")).toBe(
+    "http://localhost:3000/login",
+  );
 });
 
 test("readBrowserSession returns null for a missing or tampered cookie", () => {

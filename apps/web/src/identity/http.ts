@@ -54,9 +54,12 @@ export async function handleLoginCallback(input: {
   }
 }
 
-export function handleLogout(input: { origin: string }): Response {
-  const ended = endBrowserLogin(`${input.origin}/`);
-  return redirect("/login", {
+export function handleLogout(input: { origin: string; config: AuthingConfig }): Response {
+  const ended = endBrowserLogin({
+    config: input.config,
+    postLogoutRedirectUri: `${input.origin}/login`,
+  });
+  return redirect(ended.authingLogoutUrl, {
     "set-cookie": ended.clearSessionCookie,
     "cache-control": "no-store",
   });

@@ -109,10 +109,22 @@ test("login callback returns to login when Authing state is invalid", async () =
   expect(response.headers.get("location")).toContain("/login?error=");
 });
 
-test("logout clears the session cookie", () => {
-  const response = handleLogout({ origin: "http://localhost:3000" });
+test("logout clears the session cookie and signs the user out at Authing", () => {
+  const response = handleLogout({
+    origin: "http://localhost:3000",
+    config,
+  });
   expect(response.status).toBe(302);
-  expect(response.headers.get("location")).toBe("/login");
+  const location = response.headers.get("location");
+  expect(location).toBeTruthy();
+  const authingLogout = new URL(location!);
+  expect(authingLogout.origin + authingLogout.pathname).toBe(
+    "https://coforge-dev.authing.cn/oidc/session/end",
+  );
+  expect(authingLogout.searchParams.get("client_id")).toBe("6a8fde6fa804dd3bea560bac");
+  expect(authingLogout.searchParams.get("post_logout_redirect_uri")).toBe(
+    "http://localhost:3000/login",
+  );
   expect(cookieHeader(response)).toContain("Max-Age=0");
 });
 

@@ -29,6 +29,14 @@ run = "cd apps/coforge-computer && bun run check"
 [tasks."build:computer"]
 run = "cd apps/coforge-computer && bun run build"
 
+[tasks."dev:frontend"]
+description = "Start the Web UI + control-plane Vite server on 8788"
+run = "./scripts/dev-frontend.sh"
+
+[tasks."dev:backend"]
+description = "Start the built Web/backend Nitro server on 8789"
+run = "./scripts/dev-backend.sh"
+
 [tasks."test:web"]
 run = "cd apps/web && bun run test"
 
