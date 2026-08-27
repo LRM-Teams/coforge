@@ -1,12 +1,18 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { RouterContextProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { AppShell } from "@/components/app-shell";
 import { overwriteGetLocale } from "@/paraglide/runtime";
+import { getRouter } from "@/router";
 
-GlobalRegistrator.register({ url: "http://localhost/en" });
+try {
+  GlobalRegistrator.register({ url: "http://localhost/en" });
+} catch {
+  // Another test file may have registered Happy DOM first.
+}
 overwriteGetLocale(() => "en");
 
 beforeEach(() => {
@@ -17,9 +23,17 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
+function renderShell(props: React.ComponentProps<typeof AppShell> = {}) {
+  return render(
+    <RouterContextProvider router={getRouter()}>
+      <AppShell {...props} />
+    </RouterContextProvider>,
+  );
+}
+
 test("switches to dark mode and remembers the preference", async () => {
   const user = userEvent.setup({ document });
-  const view = render(<AppShell page="settings" />);
+  const view = renderShell({ page: "settings" });
 
   expect(view.getByRole("heading", { name: "Settings" })).toBeTruthy();
   await user.click(view.getByRole("button", { name: "Dark" }));
@@ -29,13 +43,13 @@ test("switches to dark mode and remembers the preference", async () => {
 });
 
 test("uses the system color scheme by default", () => {
-  const view = render(<AppShell page="settings" />);
+  const view = renderShell({ page: "settings" });
 
   expect(view.getByRole("button", { name: "System" }).getAttribute("aria-pressed")).toBe("true");
 });
 
 test("uses the current user avatar as the personal settings menu trigger without a tooltip", () => {
-  const view = render(<AppShell />);
+  const view = renderShell();
   const trigger = view.getByRole("button", { name: "Current user" });
 
   expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
@@ -43,7 +57,7 @@ test("uses the current user avatar as the personal settings menu trigger without
 });
 
 test("collapses and restores the sidebar with the Mod-B shortcut", () => {
-  const view = render(<AppShell />);
+  const view = renderShell();
 
   expect(view.getByRole("complementary")).toBeTruthy();
   fireEvent.keyDown(document, { key: "b", code: "KeyB", ctrlKey: true });
@@ -59,7 +73,7 @@ test("collapses and restores the sidebar with the Mod-B shortcut", () => {
 test("opens and dismisses the sidebar as a mobile drawer", async () => {
   window.innerWidth = 390;
   const user = userEvent.setup({ document });
-  const view = render(<AppShell />);
+  const view = renderShell();
 
   await user.click(view.getByRole("button", { name: "Show sidebar" }));
   expect(view.getAllByRole("button", { name: "Hide sidebar" })).toHaveLength(2);

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { formatForDisplay, useHotkey } from "@tanstack/react-hotkeys";
+import { Link } from "@tanstack/react-router";
 import {
   Bell,
   ChevronDown,
@@ -27,7 +28,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
-import { getLocale, localizeHref, setLocale } from "@/paraglide/runtime";
+import { getLocale, setLocale } from "@/paraglide/runtime";
 
 const navigation = [
   { label: m.navigation_overview, href: "#overview", icon: Clock3, current: false },
@@ -41,15 +42,21 @@ const navigation = [
   },
   { label: m.navigation_projects, href: "#projects", icon: Folder, current: false },
   { label: m.navigation_members, href: "#members", icon: Users, current: true },
-  { label: m.navigation_computers, href: "#computers", icon: Monitor, current: false },
+  { label: m.navigation_computers, href: "/computers", icon: Monitor, current: false },
 ] as const;
 
 const sidebarShortcut = "Mod+B" as const;
 
 type Theme = "system" | "light" | "dark";
-type Page = "members" | "settings";
+type Page = "members" | "settings" | "computers";
 
-export function AppShell({ page = "members" }: { page?: Page }) {
+export function AppShell({
+  page = "members",
+  children,
+}: {
+  page?: Page;
+  children?: React.ReactNode;
+}) {
   const locale = getLocale();
   const [theme, setTheme] = useState<Theme>("system");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -212,21 +219,43 @@ export function AppShell({ page = "members" }: { page?: Page }) {
           </div>
 
           <nav aria-label={m.navigation_label()} className="flex flex-col gap-1 md:gap-2.5">
-            {navigation.map(({ label, href, icon: Icon, current }) => (
-              <a
-                key={href}
-                href={href}
-                aria-current={current && page === "members" ? "page" : undefined}
-                className={
-                  current && page === "members"
-                    ? "relative flex h-11 items-center gap-2.5 rounded-[4px] bg-sidebar-accent px-2 text-sm text-sidebar-accent-foreground before:absolute before:-left-3 before:h-5 before:w-0.5 before:rounded-r-full before:bg-brand md:h-9"
-                    : "flex h-11 items-center gap-2.5 rounded-[4px] px-2 text-sm text-sidebar-foreground hover:text-sidebar-accent-foreground md:h-9"
-                }
-              >
-                <Icon aria-hidden="true" className="size-4" />
-                {label()}
-              </a>
-            ))}
+            {navigation.map(({ label, href, icon: Icon, current }) => {
+              const selected =
+                (current && page === "members") || (href === "/computers" && page === "computers");
+              const className = selected
+                ? "relative flex h-11 items-center gap-2.5 rounded-[4px] bg-sidebar-accent px-2 text-sm text-sidebar-accent-foreground before:absolute before:-left-3 before:h-5 before:w-0.5 before:rounded-r-full before:bg-brand md:h-9"
+                : "flex h-11 items-center gap-2.5 rounded-[4px] px-2 text-sm text-sidebar-foreground hover:text-sidebar-accent-foreground md:h-9";
+
+              if (href === "/computers") {
+                return (
+                  <Link
+                    key={href}
+                    to="/computers"
+                    className={className}
+                    activeProps={{
+                      className:
+                        "relative flex h-11 items-center gap-2.5 rounded-[4px] bg-sidebar-accent px-2 text-sm text-sidebar-accent-foreground before:absolute before:-left-3 before:h-5 before:w-0.5 before:rounded-r-full before:bg-brand md:h-9",
+                      "aria-current": "page",
+                    }}
+                  >
+                    <Icon aria-hidden="true" className="size-4" />
+                    {label()}
+                  </Link>
+                );
+              }
+
+              return (
+                <a
+                  key={href}
+                  href={href}
+                  aria-current={selected ? "page" : undefined}
+                  className={className}
+                >
+                  <Icon aria-hidden="true" className="size-4" />
+                  {label()}
+                </a>
+              );
+            })}
           </nav>
 
           <div className="mt-auto">
@@ -253,10 +282,7 @@ export function AppShell({ page = "members" }: { page?: Page }) {
                 <DropdownMenuItem
                   className="h-11 gap-2 px-2 md:h-10"
                   render={
-                    <a
-                      href={localizeHref("/settings")}
-                      aria-current={page === "settings" ? "page" : undefined}
-                    >
+                    <a href="/settings" aria-current={page === "settings" ? "page" : undefined}>
                       <CircleUserRound aria-hidden="true" />
                       {m.navigation_personal_settings()}
                     </a>
@@ -313,12 +339,16 @@ export function AppShell({ page = "members" }: { page?: Page }) {
                 <span className="hidden sm:inline">{m.header_new_agent()}</span>
               </Button>
             </>
+          ) : page === "computers" ? (
+            <span className="text-sm font-medium">{m.navigation_computers()}</span>
           ) : (
             <span className="text-sm font-medium">{m.navigation_settings()}</span>
           )}
         </header>
 
-        {page === "settings" ? (
+        {children ? (
+          children
+        ) : page === "settings" ? (
           <SettingsContent
             locale={locale}
             theme={theme}

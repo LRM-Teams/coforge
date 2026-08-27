@@ -1,11 +1,29 @@
-import { expect, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, expect, test } from "bun:test";
+import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { RouterContextProvider } from "@tanstack/react-router";
+import { cleanup, render } from "@testing-library/react";
 
 import { AppShell } from "@/components/app-shell";
 import { overwriteGetLocale } from "@/paraglide/runtime";
+import { getRouter } from "@/router";
+
+try {
+  GlobalRegistrator.register({ url: "http://localhost/en" });
+} catch {
+  // Another test file may have registered Happy DOM first.
+}
+afterEach(cleanup);
+
+function renderShell() {
+  return render(
+    <RouterContextProvider router={getRouter()}>
+      <AppShell />
+    </RouterContextProvider>,
+  ).container.innerHTML;
+}
 
 test("shows the primary navigation with Members selected", () => {
-  const markup = renderToStaticMarkup(<AppShell />);
+  const markup = renderShell();
 
   expect(markup).toContain("<aside");
   expect(markup).toContain("Overview");
@@ -20,7 +38,7 @@ test("shows the primary navigation with Members selected", () => {
 });
 
 test("shows the member workspace header and main content", () => {
-  const markup = renderToStaticMarkup(<AppShell />);
+  const markup = renderShell();
 
   expect(markup).toContain("<header");
   expect(markup).toContain("<main");
@@ -37,7 +55,7 @@ test("shows the member workspace header and main content", () => {
 
 test("renders the same shell from the Simplified Chinese catalog", () => {
   overwriteGetLocale(() => "zh-CN");
-  const markup = renderToStaticMarkup(<AppShell />);
+  const markup = renderShell();
   overwriteGetLocale(() => "en");
 
   expect(markup).toContain("成员");

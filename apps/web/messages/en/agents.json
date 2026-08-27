@@ -1,0 +1,21 @@
+{
+  "$schema": "https://inlang.com/schema/inlang-message-format",
+  "agent_private_chat": "Private chat",
+  "agent_success_rate": "Success rate",
+  "agent_total_spend": "Total spend",
+  "agent_total_time": "Total time",
+  "agent_days": "days",
+  "agent_more_actions": "More actions for {name}",
+  "agent_atlas_role": "HR assistant",
+  "agent_atlas_description": "Helps recruit team members, update agents, and support daily work.",
+  "agent_john_role": "Product designer",
+  "agent_john_description": "Turns real user needs into clear product features and executable solutions.",
+  "agent_judy_role": "Backend engineer",
+  "agent_judy_description": "Designs and maintains server logic, databases, and APIs for reliable services.",
+  "agent_mark_role": "Frontend engineer",
+  "agent_mark_description": "Builds clear, responsive interfaces that work smoothly across devices.",
+  "agent_tick_role": "UI designer",
+  "agent_tick_description": "Defines visual direction and turns product ideas into practical interface designs.",
+  "agent_tony_role": "Product manager",
+  "agent_tony_description": "Coordinates research, design, testing, and delivery to keep the team moving."
+}
