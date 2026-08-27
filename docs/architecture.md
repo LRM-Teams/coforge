@@ -246,13 +246,13 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 ### 6.1 云端到 Agent
 
 1. backend 在同一事务内持久化 canonical message，并为每个目标 Agent 创建 delivery；
-2. backend 通过 Centrifugo server API 发布 `delivery:offer`；Centrifugo 不读取 PostgreSQL 或自行决定目标；
+2. backend 通过 Centrifugo server API 发布 delivery offer；Centrifugo 不读取 PostgreSQL 或自行决定目标；
 3. Centrifugo 经目标 workspace worker 自己的 WSS 转发该 offer；
-4. workspace worker 先按 `delivery_id` 写入本地 durable inbox，再返回 `delivery:accepted`；
+4. workspace worker 先按 `delivery_id` 写入本地 durable inbox，再返回 accepted ACK；
 5. backend 校验 workspace、Agent、delivery id 与 sequence 后记录接管时间；
 6. workspace worker 按 Agent context 顺序交给 code-agent adapter；重连时由 backend 按原 sequence replay 未确认 delivery。
 
-`delivery:accepted` 只表示“本机已耐久接管”，不表示 Agent 已执行完成。ACK 丢失会触发相同 `delivery_id` 的重发，本地唯一约束把它变成幂等 no-op。
+accepted ACK 只表示“本机已耐久接管”，不表示 Agent 已执行完成。ACK 丢失会触发相同 `delivery_id` 的重发，本地唯一约束把它变成幂等 no-op。
 
 ### 6.2 Agent 到云端
 
@@ -337,7 +337,6 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 daemon 到 cloud 使用版本化 typed RPC over WSS，不照搬 Multica 事件名。建议的最小方法族：
 
 - `session:hello` / `session:ready` / `session:resume`
-- `delivery:offer` / `delivery:accepted` / `delivery:rejected`
 - `message:publish` / `message:committed`
 - `heartbeat:ping` / `heartbeat:pong`
 
@@ -355,7 +354,7 @@ daemon 到 cloud 使用版本化 typed RPC over WSS，不照搬 Multica 事件�
 
 ## 12. 首批故障验证
 
-1. 重复 `delivery:offer` 在本地接管后最多进入 code-agent adapter 一次；
+1. 重复 delivery offer 在本地接管后最多进入 code-agent adapter 一次；
 2. workspace worker 接管后崩溃，重启能从 local inbox 继续；
 3. Agent response 离线排队，重连后只形成一条 canonical message；
 4. Centrifugo 在 publish 中途死亡，重试不产生双写；
