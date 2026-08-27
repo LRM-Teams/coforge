@@ -39,6 +39,9 @@ session。
   Claude Code）。内置 Pi runtime 随 Daemon/CoForge Agent payload 固定交付，不通过
   PATH 扫描，也不作为本机发现结果；其版本和 capabilities 来自已验证的 release
   manifest/package metadata。
+- Runtime 对外只暴露最小状态集合：`starting`、`ready`、`unavailable`。`busy` 是独立
+  的当前任务字段，不是健康状态；崩溃、停止、超时或无法确认都统一表现为
+  `unavailable`，具体原因只进入受控诊断字段。
 
 ## 连接和身份模型
 
