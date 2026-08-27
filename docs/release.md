@@ -209,8 +209,8 @@ application login cookies.
 The public installation entry points are served from the main site:
 
 ```text
-https://www.coforge.cn/computer/install.sh
-https://www.coforge.cn/computer/install.ps1
+https://coforge.cn/computer/install.sh
+https://coforge.cn/computer/install.ps1
 ```
 
 These stable URLs are the user-facing bootstrap boundary and must route to the
