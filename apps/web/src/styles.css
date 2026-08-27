@@ -48,13 +48,13 @@
   --card-foreground: #101319;
   --popover: #ffffff;
   --popover-foreground: #101319;
-  --primary: #101319;
+  --primary: #5d36dc;
   --primary-foreground: #ffffff;
   --secondary: #f4faf6;
   --secondary-foreground: #101319;
   --muted: #f4faf6;
   --muted-foreground: #777d8d;
-  --accent: color-mix(in srgb, #c5bafe 35%, #f4faf6);
+  --accent: #c5bafe;
   --accent-foreground: #5d36dc;
   --destructive: #dc2626;
   --border: #e0e5f1;
