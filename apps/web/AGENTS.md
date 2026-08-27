@@ -26,6 +26,26 @@ instructions for the TanStack Start Web/backend modular monolith.
   responses. Do not create an API route just to serve data to a TanStack Start
   page.
 
+## PostgreSQL and Prisma
+
+- Prisma is the Web/backend database standard. Use the repository's Prisma
+  skills for CLI, Client API, database setup, and Prisma upgrades before
+  changing database code.
+- Keep `prisma/schema.prisma`, generated client usage, repositories, and
+  migrations on the server side. UI routes and feature components must call a
+  Server Function or server service instead of importing Prisma.
+- Change the Prisma schema first, review the generated SQL migration, and
+  commit migrations. Never use `prisma db push` or `prisma db reset` for shared
+  environments, CI, staging, or production; never mutate schema on application
+  startup.
+- Use parameterized Prisma queries. Use `$queryRaw`/`$executeRaw` only for a
+  reviewed PostgreSQL-specific requirement, and keep that SQL in a server-only
+  repository or migration.
+- Use PostgreSQL for database-semantic tests; do not silently substitute SQLite.
+- Read the database URL and credentials from runtime environment/secret
+  injection. Local development uses the project's Docker PostgreSQL; managed
+  PostgreSQL changes must not leak provider-specific details into domain code.
+
 ## Route and page organization
 
 - `src/routes/__root.tsx` owns the document shell: HTML, global head, global

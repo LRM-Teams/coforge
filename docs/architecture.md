@@ -108,7 +108,7 @@ Caddy 不理解 conversation、message、Agent 或 workspace 业务。
 - 私聊/群聊 conversation 与 participant；
 - canonical message 的创建、持久化和路由决策；
 - 每个目标 Agent 的 delivery ledger；
-- 普通业务 API、Web 页面和 PostgreSQL migration；
+- 普通业务 API、Web 页面和 PostgreSQL migration（统一使用 Prisma，详见 [ADR 0003](adr/0003-prisma-as-postgresql-data-access.md)）；
 - 接收并保存 Agent response/stream，再推送给会话参与者。
 
 初始实现使用 Bun 1.4 与 TanStack Start，不使用 Next.js。前期保持模块化单体，只有出现清晰的扩缩容或故障隔离需求时才拆服务。生产构建使用 Nitro 的 Bun preset 生成自包含 server output，并以非 root 用户运行在不可变 Docker image 中；Nitro 3 adapter 当前仍是 beta，进入 production 前必须验证构建、启动、健康检查、优雅停止及 PostgreSQL/Centrifugo 集成路径。
@@ -131,7 +131,7 @@ PostgreSQL 的首要领域对象是：
 - `message`
 - `agent_message_delivery`
 
-`run` 表示一次 Agent 执行，`event` 表示执行中的流式片段、工具或状态记录；二者不是 delivery 的核心，不应在骨架阶段过早锁死。最终表名、字段、索引与 migration 方案由 backend 设计评审确定。
+`run` 表示一次 Agent 执行，`event` 表示执行中的流式片段、工具或状态记录；二者不是 delivery 的核心，不应在骨架阶段过早锁死。最终表名、字段、索引与 migration 内容由 backend 设计评审确定，数据访问标准为 Prisma。
 
 ### Alibaba Cloud OSS：聊天附件数据面
 
@@ -298,7 +298,7 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 | Web/backend | Bun 1.4 + TanStack Start + Nitro Bun preset |
 | 本地 app/runtime | Bun 1.4 |
 | CI workflow 检查 | actionlint 1.7.12 + ShellCheck 0.11.0 |
-| 数据库 | Managed PostgreSQL |
+| 数据库 | PostgreSQL（开发 Docker；生产可托管）+ Prisma |
 
 精确版本以 `mise.toml` 为准。升级版本时必须同时更新锁文件、CI 和本文，不能只改本机环境。
 
@@ -318,7 +318,7 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 - Unix socket 使用最小文件权限并验证对端身份；
 - Agent 只能在声明的 Agent workspace 目录中运行；
 - Caddy、Centrifugo、backend 和本地进程都需要结构化日志和关联 id，但日志不得包含 secret；Computer、Daemon、workspace worker 和 Agent runtime process 的本地分类、滚动、保留、脱敏与失败契约见 [本地日志契约](local-logging.md)，代码实现尚未开始；
-- validation 阶段先使用常规主机与托管 PostgreSQL，不引入 Kubernetes。
+- 开发与 validation 阶段先使用 Docker PostgreSQL 与托管 PostgreSQL，不引入 Kubernetes。
 - WebSocket 依附于 TCP，所属 Centrifugo 进程死亡时一定会断开；保证目标是 committed message 不丢、自动重连、按序 replay 与重复抑制，而不是宣称连接永不断。
 
 ## 10. 变更规则

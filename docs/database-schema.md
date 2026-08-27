@@ -186,6 +186,8 @@ constrained now.
 - Treat `body_json` as versioned application data. Do not use it as a substitute
   for columns needed by relational filters or integrity rules.
 
-No SQL migration, ORM schema, or migration-tool choice is approved by this
-document. Those are added only after the tables and technology choice are
-reviewed with the project owner.
+The table design remains a discussion draft and is not an approved migration.
+The project-level data-access choice is recorded in
+[`ADR 0003`](adr/0003-prisma-as-postgresql-data-access.md): approved
+implementations use Prisma schema, generated Prisma Client, and Prisma Migrate.
+That approval does not approve these draft tables or any SQL migration yet.
