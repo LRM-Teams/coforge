@@ -86,6 +86,11 @@ Do not add production behavior or dependencies to that skeleton. Standalone
 Centrifugo, Redis, PostgreSQL, Backend proxy/API wiring, and their Compose
 configuration land only in separately approved focused changes.
 
+The first test pipeline deploys an immutable gateway image with rootless Docker
+Compose on an IP-first Aliyun ECS host. See [the ECS deployment
+runbook](docs/deployment/aliyun-ecs.md) for the non-root SSH contract, GitHub
+Environment secrets, HTTPS health gate, and rollback procedure.
+
 ## Development workflow
 
 Create each change on a short-lived feature branch and merge it into `main` only
