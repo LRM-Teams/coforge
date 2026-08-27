@@ -143,8 +143,8 @@ releases/daemon/{version}/{component-artifact}
 release-sets/{id}/manifest.json
 release-sets/{id}/bundles/{platform-architecture-package}
 channels.json
-install.sh
-install.ps1
+computer/install.sh
+computer/install.ps1
 ```
 
 Computer and daemon manifests use independent SemVer versions and contain the
@@ -205,6 +205,19 @@ different private buckets, RAM permissions, conditional origins, cache/access
 rules, and logs. An unmatched path is denied and no origin rule may fall back
 from one business prefix to the other. The CDN does not accept or forward
 application login cookies.
+
+The public installation entry points are served from the main site:
+
+```text
+https://www.coforge.cn/computer/install.sh
+https://www.coforge.cn/computer/install.ps1
+```
+
+These stable URLs are the user-facing bootstrap boundary and must route to the
+corresponding release installer under the CDN release feed. They must not
+expose an OSS bucket hostname or replace the immutable release-set and payload
+verification performed by the installer. The web UI should link to these main-
+site entry points rather than directly to the CDN or OSS origin.
 
 Users never depend on or discover the OSS bucket URL. Immutable release objects
 use a long immutable cache policy; `channels.json` uses revalidation/no-cache. A

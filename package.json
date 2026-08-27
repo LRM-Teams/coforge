@@ -13,5 +13,8 @@
     "verify:oss-cdn": "bun scripts/verify-oss-cdn.ts",
     "build": "bun run --filter '*' --if-present build",
     "check": "actionlint && bun run --filter '*' --if-present check"
+  },
+  "devDependencies": {
+    "@tanstack/intent": "^0.3.7"
   }
 }

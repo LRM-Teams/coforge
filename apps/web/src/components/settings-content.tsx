@@ -1,4 +1,4 @@
-import { Check, Languages, Monitor, Moon, Sun } from "lucide-react";
+import { Check, Languages, Moon, Sun, SunMoon } from "lucide-react";
 
 import { m } from "@/paraglide/messages";
 
@@ -53,7 +53,7 @@ export function SettingsContent({
         <section className="rounded-lg border bg-card p-4 sm:p-5">
           <div className="flex items-start gap-3">
             {theme === "system" ? (
-              <Monitor aria-hidden="true" className="mt-0.5 size-4 text-muted-foreground" />
+              <SunMoon aria-hidden="true" className="mt-0.5 size-4 text-muted-foreground" />
             ) : theme === "light" ? (
               <Sun aria-hidden="true" className="mt-0.5 size-4 text-muted-foreground" />
             ) : (

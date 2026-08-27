@@ -1,0 +1,14 @@
+{
+  "$schema": "https://inlang.com/schema/inlang-message-format",
+  "preferences_language": "语言",
+  "preferences_appearance": "外观",
+  "preferences_english": "English",
+  "preferences_chinese": "简体中文",
+  "preferences_system": "跟随系统",
+  "preferences_light": "浅色",
+  "preferences_dark": "深色",
+  "settings_title": "设置",
+  "settings_description": "管理你的 CoForge 使用偏好。",
+  "settings_language_description": "选择整个应用使用的语言。",
+  "settings_appearance_description": "选择 CoForge 在此设备上的显示方式。"
+}
