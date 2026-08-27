@@ -14,6 +14,7 @@ export class JsonlProcess {
   readonly #child: Bun.Subprocess<"pipe", "pipe", "pipe">;
   readonly #pending = new Map<string, PendingRequest>();
   readonly #listeners = new Set<(record: JsonRecord) => void>();
+  readonly #failureListeners = new Set<(error: Error) => void>();
   #nextRequestId = 1;
   #state: ProcessState = { type: "open" };
 
@@ -38,6 +39,16 @@ export class JsonlProcess {
   onRecord(listener: (record: JsonRecord) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  onFailure(listener: (error: Error) => void): () => void {
+    if (this.#state.type === "failed") {
+      const message = this.#state.message;
+      queueMicrotask(() => listener(new Error(message)));
+      return () => undefined;
+    }
+    this.#failureListeners.add(listener);
+    return () => this.#failureListeners.delete(listener);
   }
 
   async send(message: JsonRecord): Promise<void> {
@@ -147,6 +158,8 @@ export class JsonlProcess {
     if (this.#state.type !== "open") return;
     this.#state = { type: "failed", message };
     this.#rejectPending(message);
+    for (const listener of this.#failureListeners) listener(new Error(message));
+    this.#failureListeners.clear();
     if (terminate) this.#child.kill("SIGTERM");
   }
 

@@ -1,5 +1,5 @@
 /** Provider-neutral seam owned by each workspace worker. */
-export type CodeAgentProvider = "pi" | "codex";
+export type CodeAgentProvider = "pi" | "codex" | "claude-code";
 
 export type CodeAgentEvent =
   | { type: "text-delta"; text: string }

@@ -37,11 +37,12 @@ new Workspace.
 | workspace binding | The assignment that makes a logical Workspace active on a Computer. |
 | workspace worker | The daemon-supervised resident child process that represents one logical Workspace on the bound Computer. |
 | Agent runtime process | A provider execution process, owned by one workspace worker and reused across prompts until its session is disposed. |
-| Agent workspace | One Agent's filesystem working area. It is not another logical Workspace. |
+| Agent workspace | One Agent's durable filesystem working area on this Computer. It is not another logical Workspace. |
 
 Documentation must qualify whether "workspace" means the logical Workspace or
-an Agent workspace directory. The exact code and protocol field name for the
-directory remains a separate decision before implementation.
+an Agent workspace directory. Agent workspaces use the canonical relative path
+`workspaces/<workspace_id>/agents/<agent_id>` and remain stable across runtime
+replacement and provider changes.
 
 ## Ownership
 
@@ -88,9 +89,14 @@ is installed and configured.
   routing decisions.
 - Provider-specific Codex, Claude Code, Pi, or other command and event formats
   stay behind code-agent adapters. The independently packaged `@coforge/agent`
-  uses the Pi SDK and runs as a resident child process; Codex app-server is a
-  second resident child-process implementation. Both load Workspace skills
-  before session startup completes; see ADR 0002.
+  uses the Pi SDK and runs as a resident child process. Codex and Claude Code
+  adapters start the user's existing `codex` and `claude` installations from
+  `PATH`, preserving their login, settings, and skills rather than bundling
+  provider SDKs or binaries. CoForge-assigned skills are materialized in each
+  Agent workspace using the provider's project convention (`.pi/skills`,
+  `.agents/skills`, or `.claude/skills`); user-global provider skills remain
+  provider-owned. All three load Agent workspace skills before session startup
+  completes; see ADR 0002.
 - The workspace worker role must not become a third app package.
 
 See [`../../docs/architecture.md`](../../docs/architecture.md) for the
