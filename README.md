@@ -49,7 +49,6 @@ Computer and Daemon share the single LogTape-based contract documented in
 ## Repository layout
 
 ```text
-apps/realtime-gateway   Obsolete Go skeleton pending removal; not a production path
 apps/web                Web UI and backend control plane (scaffold pending)
 apps/coforge-computer   Machine-level setup and supervisor
 apps/coforge-daemon     Workspace worker supervisor and code-agent adapters
@@ -76,26 +75,12 @@ mise run check
 mise run build
 ```
 
-GitHub Actions currently keeps separate Computer and legacy realtime-gateway
-jobs for every pull request and every push to `main`, so failures stay
-attributable during the removal transition. Dependency installation uses
+GitHub Actions runs the focused infrastructure and Computer checks for every
+pull request and every push to `main`. Dependency installation uses
 frozen-lockfile mode. Runtime versions continue to come from `mise.toml`.
 
-The current realtime-gateway command exists only to keep the obsolete skeleton
-green until its focused removal change:
-
-```bash
-mise exec -- bun run dev:gateway
-```
-
-Do not add production behavior or dependencies to that skeleton. Standalone
-Centrifugo, Redis, PostgreSQL, Backend proxy/API wiring, and their Compose
-configuration land only in separately approved focused changes.
-
-The first test pipeline deploys an immutable gateway image with rootless Docker
-Compose on an IP-first Aliyun ECS host. See [the ECS deployment
-runbook](docs/deployment/aliyun-ecs.md) for the non-root SSH contract, GitHub
-Environment secrets, HTTPS health gate, and rollback procedure.
+Standalone Centrifugo, Redis, PostgreSQL, Backend proxy/API wiring, and their
+deployment configuration land only in separately approved focused changes.
 
 ## Development workflow
 

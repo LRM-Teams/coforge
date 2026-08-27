@@ -54,7 +54,7 @@ Web 与 workspace worker 只依赖稳定的 Caddy public URL，不感知 Centrif
 
 ## 未选择的方案
 
-- **自定义 Go realtime-gateway**：会重复实现成熟的连接、RPC、presence、recovery 与多副本原语，并增加长期维护面。现有 skeleton 是待删除的 obsolete artifact，不允许继续扩展为 production 路径。
+- **自定义 Go realtime-gateway**：会重复实现成熟的连接、RPC、presence、recovery 与多副本原语，并增加长期维护面。原有 skeleton 已删除，不允许重新引入为 production 路径。
 - **Fiber + embedded Centrifuge**：技术 spike 已证明可行，但仍需维护自定义 Go server、adapter 与版本隔离；相比 standalone Centrifugo 没有足以抵消自研成本的 MVP 收益。
 - **workspace worker 直接连接 Bun Backend**：服务更少，但 Backend 发布、崩溃与连接风暴会与业务 API/数据库生命周期耦合，无法满足已批准的 Backend restart isolation。
 - **MVP 立即购买托管 Redis/PostgreSQL**：不是可行性问题，而是不符合 MVP 成本边界；adapter/config seam 与恢复门禁保留以后迁移能力。
