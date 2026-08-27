@@ -27,8 +27,8 @@ flowchart LR
     User[Web 用户] -->|HTTPS| Caddy[Caddy<br/>TLS · edge proxy]
     User -->|signed HTTPS upload| OSS[(Alibaba Cloud OSS<br/>private attachment bucket)]
     User -->|short-lived signed GET| Delivery[Opaque delivery URL<br/>Direct OSS or cdn.coforge.cn/files/]
-    Caddy --> Web[Web / backend<br/>Node · TanStack Start<br/>control plane]
     Caddy -->|WSS| Realtime[Standalone Centrifugo OSS<br/>transport only]
+    Caddy --> Web[Web / backend<br/>Bun · TanStack Start<br/>control plane]
     Web --> DB[(Managed PostgreSQL)]
     Web -->|upload sign · object verify| OSS
     Web -->|authorize · issue delivery URL| Delivery
@@ -111,7 +111,7 @@ Caddy 不理解 conversation、message、Agent 或 workspace 业务。
 - 普通业务 API、Web 页面和 PostgreSQL migration；
 - 接收并保存 Agent response/stream，再推送给会话参与者。
 
-初始实现使用 Node 24 LTS 与 TanStack Start，不使用 Next.js。前期保持模块化单体，只有出现清晰的扩缩容或故障隔离需求时才拆服务。
+初始实现使用 Bun 1.4 与 TanStack Start，不使用 Next.js。前期保持模块化单体，只有出现清晰的扩缩容或故障隔离需求时才拆服务。生产构建使用 Nitro 的 Bun preset 生成自包含 server output，并以非 root 用户运行在不可变 Docker image 中；Nitro 3 adapter 当前仍是 beta，进入 production 前必须验证构建、启动、健康检查、优雅停止及 PostgreSQL/Centrifugo 集成路径。
 
 ### Standalone Centrifugo：实时传输面
 
@@ -295,7 +295,7 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 | --- | --- |
 | Edge | Caddy 2.11.4 |
 | 实时传输 | Standalone Centrifugo OSS |
-| Web/backend | Node 24 LTS + TanStack Start |
+| Web/backend | Bun 1.4 + TanStack Start + Nitro Bun preset |
 | 本地 app/runtime | Bun 1.4 |
 | CI workflow 检查 | actionlint 1.7.12 + ShellCheck 0.11.0 |
 | 数据库 | Managed PostgreSQL |
