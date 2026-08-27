@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+run_step() {
+	local label="$1"
+	shift
+	local started_at=$SECONDS
+
+	printf '==> %s\n' "$label"
+	"$@"
+	printf '<== %s (%ss)\n' "$label" "$((SECONDS - started_at))"
+}
+
+mise_bin="$HOME/.local/bin/mise"
+
+if [[ ! -x "$mise_bin" ]]; then
+	run_step "Install mise" env MISE_INSTALL_PATH="$mise_bin" sh -c 'curl -fsSL https://mise.run | sh'
+fi
+
+profile_marker="# CoForge mise tools"
+if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+	cat >>"$HOME/.bash_profile" <<'EOF'
+
+# CoForge mise tools
+export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
+EOF
+fi
+
+export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
+
+run_step "Install pinned toolchain" "$mise_bin" install --locked
+run_step "Install Bun dependencies" "$mise_bin" run install
+run_step "Download Go dependencies" "$mise_bin" exec -- go -C apps/realtime-gateway mod download
+
+printf 'Orb setup complete.\n'

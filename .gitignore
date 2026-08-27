@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .output/
+.amp/portals/*
 .env
 .mise.local.toml
 .DS_Store
