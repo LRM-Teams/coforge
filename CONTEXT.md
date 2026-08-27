@@ -32,6 +32,14 @@ _Avoid_: Agent process, provider runtime
 A short-lived execution and audit identity for one Agent in one Workspace runtime session. It never inherits User or Computer authority.
 _Avoid_: Agent token, code-agent installation
 
+**Agent capacity**:
+The machine-level limit owned by coforge-daemon for concurrently resident Agent runtimes across all workspace workers. A workspace worker cannot create capacity.
+_Avoid_: Slot pool, workspace quota, worker count
+
+**Runtime lease**:
+A grant of machine-owned Agent capacity from coforge-daemon to one workspace worker for an Agent runtime. Its lifecycle and cross-process protocol remain undecided.
+_Avoid_: Slot, Agent assignment, execution token
+
 **Credential Proxy**:
 The trusted daemon-owned boundary that authorizes a local Agent runtime to invoke an approved operation without exposing a bearer credential to the Agent process.
 _Avoid_: Token endpoint, token store, loopback HTTP proxy

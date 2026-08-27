@@ -60,16 +60,16 @@ These instructions apply to the entire repository.
 
 - The local product has exactly two app packages: `apps/coforge-computer` and `apps/coforge-daemon`; the Computer package depends on the Daemon package for build and distribution.
 - Users install only the Computer distribution. It must include the compatible Daemon payload; Daemon is not a second user-installed product or a public CLI entry point.
-- Never create `apps/workspace-daemon`. A workspace-daemon is a child-process role implemented and released inside `coforge-daemon`.
+- Never create `apps/workspace-worker`. A workspace worker is a supervised resident child-process role implemented and released inside `coforge-daemon`.
 - `coforge-computer` and `coforge-daemon` are independent OS processes. Their local control channel is a Unix domain socket, not a TCP management port.
-- One coforge-daemon manages zero or more workspace-daemon child processes; each workspace-daemon belongs to exactly one workspace.
-- Workspace-daemons adapt Codex, Claude Code, Pi, and other code-agent runtimes through ACP. Higher layers must not parse provider-specific output.
+- One coforge-daemon manages zero or more workspace worker child processes; each workspace worker belongs to exactly one workspace.
+- Workspace workers adapt Codex, Claude Code, Pi, and other code-agent runtimes through provider-neutral code-agent adapters. Each adapter may use an officially supported native protocol, SDK child runner, or ACP; higher layers must not parse provider-specific output.
 - Caddy owns public TLS and edge proxying. Standalone Centrifugo OSS owns WSS/RPC transport mechanics only. Web/backend owns authentication, conversations, persistence, and routing decisions.
 - PostgreSQL is accessed through Web/backend. Centrifugo must not acquire domain or database ownership.
-- Redis is Centrifugo broker/presence/hot-history state only. PostgreSQL plus each workspace-daemon's durable spool remain the canonical durability and replay boundary.
+- Redis is Centrifugo broker/presence/hot-history state only. PostgreSQL plus each workspace worker's durable spool remain the canonical durability and replay boundary.
 - Do not extend the obsolete custom Go realtime-gateway, add Fiber, or embed Centrifuge as a production path. Its existing skeleton remains only until the approved follow-up removes source, commands, and CI.
-- Delivery is at-least-once and idempotent: a canonical message plus per-Agent delivery ledger is the durable model. An ACK means the local workspace-daemon accepted responsibility, not that an Agent run finished.
-- Do not ACK a cloud delivery until the workspace child has durably accepted local responsibility. Outbound Agent messages must also be locally retryable and server-idempotent across reconnects.
+- Delivery is at-least-once and idempotent: a canonical message plus per-Agent delivery ledger is the durable model. An ACK means the local workspace worker accepted responsibility, not that an Agent run finished.
+- Do not ACK a cloud delivery until the workspace worker has durably accepted local responsibility. Outbound Agent messages must also be locally retryable and server-idempotent across reconnects.
 - Do not introduce a database command mailbox, claim/lease workflow, or treat a connection-local WebSocket outbox as durable storage without a new recorded architecture decision.
 - The MVP is message-centric private/group chat. Do not make commands, generic jobs, workflows, or run/event persistence part of the core model without a recorded decision.
 
