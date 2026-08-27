@@ -311,6 +311,7 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 - Unix socket 使用最小文件权限并验证对端身份；
 - Agent 只能在声明的 Agent workspace 目录中运行；
 - Caddy、gateway、backend 和本地进程都需要结构化日志和关联 id，但日志不得包含 secret；
+- 日志、liveness/readiness 探针、低基数指标和保留/脱敏规则遵循 [`docs/observability.md`](observability.md)；该基线不锁定业务 wire 或采集供应商；
 - validation 阶段先使用常规主机与托管 PostgreSQL，不引入 Kubernetes。
 - WebSocket 依附于 TCP，所属 gateway 进程死亡时一定会断开；保证目标是 committed message 不丢、自动重连、按序 replay 与重复抑制，而不是宣称连接永不断。
 
