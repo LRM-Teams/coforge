@@ -31,6 +31,15 @@ run = "cd apps/coforge-computer && bun run build"
 [tasks."test:gateway"]
 run = "cd apps/realtime-gateway && go test ./..."
 
+[tasks."test:oss-cdn"]
+run = "bun run test:oss-cdn"
+
+[tasks."check:oss-cdn"]
+run = "bun run check:oss-cdn"
+
+[tasks."verify:oss-cdn"]
+run = "bun run verify:oss-cdn"
+
 [tasks."check:gateway"]
 run = "cd apps/realtime-gateway && go vet ./..."
 

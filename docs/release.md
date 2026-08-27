@@ -199,6 +199,11 @@ rules, and logs. An unmatched path is denied and no origin rule may fall back
 from one business prefix to the other. The CDN does not accept or forward
 application login cookies.
 
+The operator provisions and proves that boundary with
+[`operations/aliyun-oss-cdn.md`](operations/aliyun-oss-cdn.md). Until its
+acceptance report and configuration evidence both pass, a release workflow must
+treat the CDN feed as unavailable rather than fall back to an OSS endpoint.
+
 Users never depend on or discover the OSS bucket URL. Immutable release objects
 use a long immutable cache policy; `channels.json` uses revalidation/no-cache. A
 publication is incomplete until the workflow refreshes affected CDN objects and

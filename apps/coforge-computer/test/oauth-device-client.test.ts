@@ -215,6 +215,49 @@ test("token polling converts the runtime abort timeout into a retryable result",
   });
 });
 
+test("setup discovers and uses only the approved Workspaces endpoint", async () => {
+  const requests: Array<{ url: string; authorization: string | null }> = [];
+  const responses = [
+    Response.json({
+      issuer: "https://auth.example",
+      device_authorization_endpoint: "https://auth.example/device",
+      token_endpoint: "https://auth.example/token",
+      coforge_workspaces_endpoint: "https://auth.example/api/v1/workspaces",
+    }),
+    Response.json({
+      workspaces: [{ id: "ws_01", slug: "alpha", name: "Alpha Team" }],
+    }),
+  ];
+  const client = new OAuthDeviceClient({
+    clientId: "coforge-computer",
+    scope: "openid offline_access",
+    fetch: async (input, init) => {
+      requests.push({
+        url: String(input),
+        authorization: new Headers(init?.headers).get("authorization"),
+      });
+      return responses.shift()!;
+    },
+  });
+
+  await expect(
+    client.listWorkspacesForServer("https://auth.example", {
+      accessToken: "access-secret",
+      tokenType: "Bearer",
+    }),
+  ).resolves.toEqual([{ id: "ws_01", slug: "alpha", name: "Alpha Team" }]);
+  expect(requests).toEqual([
+    {
+      url: "https://auth.example/.well-known/oauth-authorization-server",
+      authorization: null,
+    },
+    {
+      url: "https://auth.example/api/v1/workspaces",
+      authorization: "Bearer access-secret",
+    },
+  ]);
+});
+
 test("login completes against a reproducible local device-code server and lists workspaces", async () => {
   const requests: Array<{ path: string; authorization: string | null }> = [];
   let server: ReturnType<typeof Bun.serve>;
@@ -257,6 +300,7 @@ test("login completes against a reproducible local device-code server and lists 
     const result = await new ComputerLogin({
       client: new OAuthDeviceClient({ clientId: "coforge-computer", scope: "openid" }),
       store: { async save() {} },
+      config: { async saveCurrentProfile() {} },
       writeLine: () => undefined,
       sleep: async () => undefined,
     }).run({ serverUrl: `http://localhost:${server.port}` });

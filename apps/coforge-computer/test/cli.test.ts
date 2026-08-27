@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { runCli, type LoginCommand, type SetupCommand } from "../src/cli";
-import { loginError } from "../src/errors";
+import { loginError, setupError } from "../src/errors";
 
 test("login starts device authorization for the selected server", async () => {
   const calls: Array<{ serverUrl: string; json: boolean }> = [];
@@ -122,17 +122,70 @@ test("unexpected login failures are normalized without exposing diagnostics", as
   expect(stderr.join("\n")).not.toContain("access-secret");
 });
 
-test("setup binds at most one workspace per invocation", async () => {
-  const calls: Array<string | undefined> = [];
+test("setup configures at most one Workspace per invocation", async () => {
+  const calls: Array<{ workspaceSlug: string | undefined; json: boolean }> = [];
   const setup: SetupCommand = {
-    async run(workspaceSlug) {
-      calls.push(workspaceSlug);
+    async run(workspaceSlug, options) {
+      calls.push({ workspaceSlug, json: options.json });
     },
   };
   const dependencies = { login: { async run() {} }, setup };
 
   await expect(runCli(["setup", "workspace-a"], dependencies)).resolves.toBe(0);
-  await expect(runCli(["setup"], dependencies)).resolves.toBe(0);
+  await expect(runCli(["setup", "--json"], dependencies)).resolves.toBe(0);
 
-  expect(calls).toEqual(["workspace-a", undefined]);
+  expect(calls).toEqual([
+    { workspaceSlug: "workspace-a", json: false },
+    { workspaceSlug: undefined, json: true },
+  ]);
+});
+
+test("JSON setup failure is one stable stdout object with an actionable hint", async () => {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const exitCode = await runCli(
+    ["setup", "missing", "--json"],
+    {
+      login: { async run() {} },
+      setup: {
+        async run() {
+          throw setupError("SETUP_WORKSPACE_NOT_FOUND", "Workspace slug is not accessible.");
+        },
+      },
+    },
+    { stdout: (line) => stdout.push(line), stderr: (line) => stderr.push(line) },
+  );
+
+  expect(exitCode).toBe(1);
+  expect(stderr).toEqual([]);
+  expect(stdout).toHaveLength(1);
+  expect(JSON.parse(stdout[0]!)).toEqual({
+    ok: false,
+    error: {
+      code: "SETUP_WORKSPACE_NOT_FOUND",
+      message: "Workspace slug is not accessible.",
+      hint: "Use a slug shown by login, or omit it to choose interactively.",
+    },
+  });
+});
+
+test("unexpected setup failures are normalized without exposing diagnostics", async () => {
+  const stderr: string[] = [];
+  const exitCode = await runCli(
+    ["setup", "workspace-a"],
+    {
+      login: { async run() {} },
+      setup: {
+        async run() {
+          throw new Error("token=access-secret");
+        },
+      },
+    },
+    { stdout: () => undefined, stderr: (line) => stderr.push(line) },
+  );
+
+  expect(exitCode).toBe(1);
+  expect(stderr.join("\n")).toContain("SETUP_FAILED");
+  expect(stderr.join("\n")).toContain("Hint:");
+  expect(stderr.join("\n")).not.toContain("access-secret");
 });
