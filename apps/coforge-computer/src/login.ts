@@ -71,9 +71,9 @@ export class ComputerLogin {
     }
     const authorization = await this.options.client.authorize(serverUrl);
     if (!input.json) {
-      void (this.options.openVerificationPage ?? openVerificationPage)(
-        authorization.verificationUri,
-      ).catch(() => undefined);
+      void (this.options.openVerificationPage ?? openVerificationPage)(authorization.verificationUri).catch(
+        () => undefined,
+      );
     }
     if (!input.json) writeInstruction("");
     writeInstruction(input.json ? "Complete device authorization:" : "To sign in:");

@@ -106,10 +106,7 @@ test("login opens the verification page and still prints fallback instructions",
         };
       },
       async pollToken() {
-        return {
-          status: "authorized",
-          credential: { accessToken: "access-secret", tokenType: "Bearer" },
-        };
+        return { status: "authorized", credential: { accessToken: "access-secret", tokenType: "Bearer" } };
       },
       async listWorkspaces() {
         return [];
