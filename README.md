@@ -49,7 +49,8 @@ Computer and Daemon share the single LogTape-based contract documented in
 ## Repository layout
 
 ```text
-apps/web                Web UI and backend control plane (scaffold pending)
+apps/realtime-gateway   Obsolete Go skeleton pending removal; not a production path
+apps/web                Web UI and backend control plane
 apps/coforge-computer   Machine-level setup and supervisor
 apps/coforge-daemon     Workspace worker supervisor and code-agent adapters
 packages/coforge-agent Independently packable built-in Agent runtime using Pi SDK
