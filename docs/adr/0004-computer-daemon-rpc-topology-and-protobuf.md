@@ -28,7 +28,7 @@ session。
   TypeScript 类型；不同时维护 JSON fallback。
 - RPC method 使用 Centrifugo 原生 namespace boundary：`<namespace>:<method>`，例如
   `computer:register`、`workspace:session_open`、`runtime:inventory_report`。
-  日志 event name 仍可使用 dotted name，两者不是同一命名空间。
+  日志 event name 也统一使用相同的 `namespace:action` 分隔规则。
 - setup 由 Workspace 页面发起并携带系统生成的、短时一次性的 setup intent。用户不
   输入 Workspace ID、slug，也不在 Computer 端选择 Workspace；intent 只绑定一个
   Workspace 和发起用户。
