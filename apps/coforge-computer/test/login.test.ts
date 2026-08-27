@@ -78,7 +78,7 @@ test("login completes the device-code flow and persists the credential", async (
     "Workspaces:  2",
     "  - Alpha Team (alpha)",
     "  - Beta Team (beta)",
-    "Result:      Login complete. No Workspace binding was created.",
+    "Result:      Login complete. No Workspace registration was created.",
   ]);
   expect(progress).toEqual(["Waiting for authorization…"]);
   expect(events).toEqual([

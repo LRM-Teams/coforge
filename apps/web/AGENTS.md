@@ -106,6 +106,20 @@ instructions for the TanStack Start Web/backend modular monolith.
   relevant router data with `router.invalidate({ sync: true })` when the next
   UI step requires fresh data.
 
+## Agent status and activity UI
+
+- Keep Agent status and activity separate. `agent:status` contains only
+  `online` or `offline`; do not infer more statuses from activity text.
+- Render the fixed `agent:activity` fields `activity`, `level`, `message`, and
+  `occurred_at` in an Agent-owned timeline under `src/features/agents/`.
+- Localize the label and icon selected by `activity`, but preserve provider
+  error and warning `message` text in its original language and wording.
+- Render unknown activity values with a generic activity presentation and the
+  original message instead of dropping the record.
+- Show command and workspace-relative file path messages as copyable monospace
+  text. Never expect or render file contents, diffs, prompts, secrets, or raw
+  provider stderr in an activity record.
+
 ## Type safety and code splitting
 
 - Keep the generated `src/routeTree.gen.ts` out of manual edits; regenerate it

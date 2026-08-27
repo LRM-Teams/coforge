@@ -258,6 +258,39 @@ test("setup discovers and uses only the approved Workspaces endpoint", async () 
   ]);
 });
 
+test("setup fetches one Workspace by slug instead of listing all Workspaces", async () => {
+  const requests: string[] = [];
+  const responses = [
+    Response.json({
+      issuer: "https://auth.example",
+      device_authorization_endpoint: "https://auth.example/device",
+      token_endpoint: "https://auth.example/token",
+      coforge_workspaces_endpoint: "https://auth.example/api/v1/workspaces",
+    }),
+    Response.json({ workspace: { id: "ws_01", slug: "lrm-team", name: "LRM Team" } }),
+  ];
+  const client = new OAuthDeviceClient({
+    clientId: "coforge-computer",
+    scope: "openid offline_access",
+    fetch: async (input) => {
+      requests.push(String(input));
+      return responses.shift()!;
+    },
+  });
+
+  await expect(
+    client.getWorkspaceForServer(
+      "https://auth.example",
+      { accessToken: "access-secret", tokenType: "Bearer" },
+      "lrm-team",
+    ),
+  ).resolves.toEqual({ id: "ws_01", slug: "lrm-team", name: "LRM Team" });
+  expect(requests).toEqual([
+    "https://auth.example/.well-known/oauth-authorization-server",
+    "https://auth.example/api/v1/workspaces/lrm-team/",
+  ]);
+});
+
 test("login completes against a reproducible local device-code server and lists workspaces", async () => {
   const requests: Array<{ path: string; authorization: string | null }> = [];
   let server: ReturnType<typeof Bun.serve>;
@@ -312,7 +345,7 @@ test("login completes against a reproducible local device-code server and lists 
       { path: "/oauth/token", authorization: null },
       { path: "/api/v1/workspaces", authorization: "Bearer access-secret" },
     ]);
-    expect(requests.map(({ path }) => path)).not.toContain("/api/v1/workspace-bindings");
+    expect(requests.map(({ path }) => path)).not.toContain("/api/v1/workspace-registrations");
   } finally {
     server.stop(true);
   }

@@ -18,7 +18,7 @@ CoForge 让用户通过 Web 私聊或群聊多个 code agent，同时把 Agent �
 - 云端业务控制面、实时传输面与本地执行面边界清晰；
 - 先以最少服务跑通纵向链路，不提前引入 Kubernetes 或微服务拆分。
 
-首版是消息系统，不是命令或工作流平台。核心对象保持为 conversation、participant、message、per-Agent delivery 与 workspace binding；run、stream event、generic job 和 workflow 暂不进入骨架核心。
+首版是消息系统，不是命令或工作流平台。核心对象保持为 conversation、participant、message、per-Agent delivery 与 workspace connection；run、stream event、generic job 和 workflow 暂不进入骨架核心。
 
 ## 2. 总体拓扑
 
@@ -196,17 +196,22 @@ workspaces/{workspace_id}/attachments/{attachment_id}/original
 
 coforge-computer 是机器级 supervisor，不执行 workspace 内的 Agent 业务。它是唯一面向用户的安装与升级入口，负责安装同一 release set 中的 Computer/Daemon payload，并管理登录后的机器身份、coforge-daemon 的启动停止与健康检查。
 
+Computer 通过用户级方式托管 Daemon：Linux 和 Windows 由 Computer 按需启动并复用
+Daemon；macOS 由 Computer 安装用户级 `launchd` LaunchAgent（不需要 sudo），由
+`launchd` 负责登录时启动和崩溃重启，Computer 仍通过本地 Unix Socket 完成健康检查与
+handshake。Daemon 不注册为系统级服务，也不开放 TCP 管理端口。
+
 `login [--server <url>]` 仍可用于单独重新认证，但普通用户不需要先执行它。推荐入口是单个 `setup` 流程：没有 User credential 时在流程内部完成 OAuth 2.0 Device Authorization Grant；先通过 RFC 8414 metadata 发现 device authorization 与 token endpoint，再按 RFC 8628 展示 user code、轮询并处理 `authorization_pending` / `slow_down`。轮询连接超时后降低请求频率并重试，单次请求必须受 device-code 剩余有效期约束。凭据不进入命令参数或日志。
 
 MVP OAuth client 使用 `client_id = coforge-computer` 与 `scope = openid offline_access`。Workspace 页面为当前 Workspace 创建一次性 setup intent，并通过 CoForge Computer setup deep link 或安装器参数传入；用户不输入 Workspace ID/slug，也不在 Computer 端选择 Workspace。User authorization context 只用于该次用户主动注册，Computer/Daemon 的后续业务连接使用独立 Computer/Workspace credential。token 通过 Bun 的跨平台原生 credential API 写入 macOS Keychain、Linux Secret Service 或 Windows Credential Manager，不允许自动降级为明文文件。Linux 无可用 Secret Service 时 setup 以稳定错误失败并提示用户启动或解锁系统凭据服务。
 
-`setup` 创建或恢复 setup intent 指定的一个 Workspace–Computer binding，为该 Workspace 选择 `workspace_root` 并让 Daemon 启动它自己的 workspace worker。用户不提供 Workspace 参数，也不进行 Workspace 选择；为第二个 Workspace 绑定时，必须从第二个 Workspace 页面重新发起 setup。
+`setup` 创建或恢复 setup intent 指定的一个 Workspace–Computer connection，为该 Workspace 选择 `workspace_root` 并让 Daemon 启动它自己的 workspace worker。用户不提供 Workspace 参数，也不进行 Workspace 选择；为第二个 Workspace 注册时，必须从第二个 Workspace 页面重新发起 setup。
 
 `machine_id` 是机器的稳定身份，跨 Computer、Daemon 与 workspace worker 的重启和升级保持不变。Computer 注册属于 setup 中的用户主动授权操作，并通过 `computer:register` RPC 完成；其精确 envelope、payload、幂等键和 machine proof 按 [ADR 0004](adr/0004-computer-daemon-rpc-topology-and-protobuf.md) 的实现 packet 固定。
 
 ### coforge-daemon
 
-coforge-daemon 是唯一由 OS/Computer 托管的 supervisor daemon，管理一台机器上所有已绑定逻辑 workspace 的常驻 workspace worker；Computer 不维护云端长期 WebSocket，每个 workspace worker 独立持有一条 WSS。`daemon` 专指这个顶层后台服务；`worker` 专指受其监督、可被替换的 workspace 常驻子进程；`Agent runtime process` 专指 provider execution process：
+coforge-daemon 是唯一由 OS/Computer 托管的 supervisor daemon，管理一台机器上所有已注册逻辑 workspace 的常驻 workspace worker；Computer 不维护云端长期 WebSocket，每个 workspace worker 独立持有一条 WSS。`daemon` 专指这个顶层后台服务；`worker` 专指受其监督、可被替换的 workspace 常驻子进程；`Agent runtime process` 专指 provider execution process：
 
 ```text
 coforge-daemon 1 ──监督──> N 常驻 workspace worker
@@ -217,15 +222,15 @@ Agent 1 ──执行于──> 1 常驻 Agent runtime process
 
 一个逻辑 workspace 分配到这台机器后，coforge-daemon 为其维持一个 workspace worker。常驻表示该子进程在两条消息之间也保持运行；进程崩溃或升级后可以被替换，但新的进程仍使用同一个稳定 `workspace_id`，不会因此创建新的 Workspace。
 
-coforge-daemon 负责期望状态与实际状态收敛、子进程创建/回收、崩溃恢复、Agent capacity 和版本兼容，但不直接解析各家 Agent 的输出协议。Agent capacity 是 machine-level Daemon 拥有、可在多个 workspace worker 之间分配的 Agent runtime 资源额度；一次分配称为 Runtime lease。具体容量单位、配置、排队公平性、lease lifecycle 和跨进程 protocol 在实现前另行固定。
+coforge-daemon 负责期望状态与实际状态收敛、子进程创建/回收、崩溃恢复、Agent capacity 和版本兼容，但不直接解析各家 Agent 的输出协议。Agent capacity 是 machine-level Daemon 拥有、可在多个 workspace worker 之间分配的 Agent runtime 资源额度。Daemon 通过唯一共享的 `AgentRuntimePool` 管理这项额度；每个 workspace worker 只拥有一个 `AgentProcessManager`，由它在启动 Agent runtime 前向共享池申请容量，并在 runtime 停止后归还。workspace worker 不创建或持有独立容量池。容量配置按显式配置、`COFORGE_AGENT_CAPACITY` 环境变量、机器资源计算值的顺序解析；无效的显式值或环境变量必须直接失败，不能静默回退。排队与公平策略按实际需求逐步实现，不预先扩展状态或跨进程协议。
 
-Computer 的云端在线状态由当前 workspace worker WSS 连接集合实时派生：该 Computer 至少有一个 workspace worker WSS 在线时，该 Computer 在线。具体连接如何关联稳定的服务端 Computer 记录由后续 binding 与认证设计确定；`online` 与 `last_seen_at` 不作为这项状态的持久化真相。
+Computer 的云端在线状态由当前 workspace worker WSS 连接集合实时派生：该 Computer 至少有一个 workspace worker WSS 在线时，该 Computer 在线。具体连接如何关联稳定的服务端 Computer 记录由后续 registration 与认证设计确定；`online` 与 `last_seen_at` 不作为这项状态的持久化真相。
 
 ### workspace worker 与 code-agent adapter
 
 每个 workspace worker 是独立子进程，只能管理同一个 `workspace_id` 下的 Agent。每个 Agent 在本机拥有稳定的 Agent workspace，规范相对路径是 `workspaces/<workspace_id>/agents/<agent_id>`；`workspace_id` 与 `agent_id` 必须是不可变身份，目录不能由名称、provider、session 或进程 ID 派生。该目录是 Agent runtime process 的 cwd，在 runtime 重启、workspace worker 替换和 provider 切换时保留；只有明确的、用户确认的本机数据重置才能删除。worker 只能访问这些已声明目录和允许的环境变量。workspace worker 通过 provider-neutral code-agent adapter 管理 Agent runtime，对上层暴露统一的启动、发送、中断、销毁和事件语义。每个 Agent runtime process 是 workspace worker 启动、在多次 prompt 之间复用并在显式销毁前保持存活的独立子进程。Agent control protocol 是 adapter 内部可替换的实现细节；可以使用 provider 正式支持的 native protocol、SDK child runner 或 ACP，不作为上层 architecture contract。
 
-一台 Computer 始终随 Daemon 交付内置 Pi runtime；此外允许存在零个或多个用户安装的 code-agent runtime。内置 Pi 不通过本机扫描发现，而由已验证的 release/package metadata 声明；用户安装的 Codex 与 Claude Code 才需要检测可执行文件、版本和 capabilities。Agent 对产品和 Web 只暴露 `active`、`inactive` 两种业务状态；runtime 启动、ready、不可用和任务变化记录为 activity timeline 明细，不扩展 Agent 状态。没有可用的用户 runtime 不阻止 Computer 或 Daemon 启动，安装并配置合适 runtime 前不能执行对应 Agent。
+一台 Computer 始终随 Daemon 交付内置 Pi runtime；此外允许存在零个或多个用户安装的 code-agent runtime。内置 Pi 不通过本机扫描发现，而由已验证的 release/package metadata 声明；用户安装的 Codex 与 Claude Code 才需要检测可执行文件、版本和 capabilities。Agent 对产品和 Web 只暴露 `online`、`offline` 两种业务状态：Agent runtime process 存在且由 AgentProcessManager 持有时为 `online`，进程退出或被停止后为 `offline`。该状态从本地进程生命周期派生，不单独维护或持久化。workspace worker 使用两个事件上报 Agent 信息：`agent:status` 只携带 `online` 或 `offline`，`agent:activity` 携带 starting、stopping、turn、工具、错误和警告明细；两者都通过该 Workspace Worker 的 WSS 发送，activity 不新增 Agent 状态。每个 Workspace Connection 为 status 与 activity 分配同一条单调递增 sequence，先写入 worker durable spool，再按 sequence 顺序发送；重连 replay 不得跳过更早事件，服务端按 event_id/sequence 幂等去重。不同 Workspace Connection 之间不承诺全局顺序。没有可用的用户 runtime 不阻止 Computer 或 Daemon 启动，安装并配置合适 runtime 前不能执行对应 Agent。
 
 首批 adapter 使用常驻 CoForge Agent、Codex 与 Claude Code 子进程。`@coforge/agent` 是可独立打包并随 Daemon 交付的内置 Agent runtime，当前使用官方 Pi SDK 创建 session，并复用 Pi SDK 的 JSONL run mode 作为 daemon adapter 的内部 control。Codex 和 Claude Code 不随 CoForge 打包；adapter 从用户环境的 `PATH` 启动用户已安装、登录和配置的 `codex` / `claude` CLI，分别使用官方 app-server JSONL stdio 与 print-mode 双向 stream-json。CoForge 分配给 Agent 的 Skills 必须在启动前写入该 Agent workspace 下 provider 原生的 project scope：Pi 为 `.pi/skills/<skill>/SKILL.md`，Codex 为 `.agents/skills/<skill>/SKILL.md`，Claude Code 为 `.claude/skills/<skill>/SKILL.md`。CoForge 不复制、改写或接管用户 HOME 下的 provider 全局 Skills；各 CLI 按自身规则继续发现它们。三侧都必须在报告启动成功前完成 skills discovery：CoForge Agent 先完成 Pi `ResourceLoader` reload，Codex adapter 先执行 `skills/list(forceReload: true)` 再创建 thread，Claude Code adapter 完成 stream control `initialize` 并确认返回已加载的 commands/skills。control protocol 不固定为长期架构。选择、版本、license、失败边界和回滚见 [ADR 0002](adr/0002-provider-native-code-agent-subprocesses.md)。Agent provider 的特殊 command、envelope、事件与错误逻辑必须留在各自 package/adapter 内，不能泄漏到 Centrifugo、Web/backend 或共享领域模型。
 
@@ -306,7 +311,7 @@ accepted ACK 只表示“本机已耐久接管”，不表示 Agent 已执行完
 
 本地安装包与 release feed 的 consumer boundary 是 `https://cdn.coforge.cn/releases/`。它可以与聊天附件共享 CDN 证书和 edge 域名，但必须使用独立 private release bucket、RAM 权限、条件回源、缓存/访问规则与日志；路径未命中时 fail closed，禁止在 release 与附件 origin 之间 fallback，也禁止接收或向 origin 转发应用登录 cookie。
 
-云端应用与 standalone data services 的具体 Compose 和发布流水线尚未实现；实现时必须使用按 digest 固定的镜像，不能恢复 custom Go gateway 或使用 `latest`。`coforge-computer` 与 `coforge-daemon` 保持独立版本、构建与签名身份；每个 immutable release set 固定两个 component artifact 的已验证兼容组合，并为每个平台提供一个同时包含两侧 payload 的 Computer installation bundle。单一原子 `channels.json` 选择 test / production 的 current / previous release set。首次本地发布通过明确的 initial bootstrap 一次建立首对 Computer 与 Daemon component artifact；此后 MVP 每次新 release set 只改变一个 component digest。只升级 Daemon 时复用未变化的 Computer artifact，再组装新 bundle。production 只晋级 test 验证过的同一 bundle bytes，不重新 build 或 repackage。用户只安装 Computer；本地安装、升级、Computer 后台启动与回滚全部限于当前用户的系统标准目录，不要求 sudo / 管理员权限；只有 Computer shim 进入用户 PATH，Daemon 保留在 version store 并由 Computer 通过 active release set 的精确路径启动，不单独注册 service。完整的发布、健康检查、审计与回滚契约见 [`docs/release.md`](release.md)。
+云端应用与 standalone data services 的具体 Compose 和发布流水线尚未实现；实现时必须使用按 digest 固定的镜像，不能恢复 custom Go gateway 或使用 `latest`。`coforge-computer` 与 `coforge-daemon` 保持独立版本、构建与签名身份；每个 immutable release set 固定两个 component artifact 的已验证兼容组合，并为每个平台提供一个同时包含两侧 payload 的 Computer installation bundle。单一原子 `channels.json` 选择 test / production 的 current / previous release set。首次本地发布通过明确的 initial bootstrap 一次建立首对 Computer 与 Daemon component artifact；此后 MVP 每次新 release set 只改变一个 component digest。只升级 Daemon 时复用未变化的 Computer artifact，再组装新 bundle。production 只晋级 test 验证过的同一 bundle bytes，不重新 build 或 repackage。用户只安装 Computer；本地安装、升级、Computer 后台启动与回滚全部限于当前用户的系统标准目录，不要求 sudo / 管理员权限；只有 Computer shim 进入用户 PATH，Daemon 保留在 version store 并由 Computer 通过 active release set 的精确路径启动。macOS 的用户级 `launchd` LaunchAgent 是 Daemon 自启动的明确例外，不注册系统级 service。完整的发布、健康检查、审计与回滚契约见 [`docs/release.md`](release.md)。
 
 提交与 CR 保持小而单一，使用简洁的英文 Conventional Commit：`<type>(optional-scope): imperative summary`。
 

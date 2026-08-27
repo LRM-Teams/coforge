@@ -43,4 +43,19 @@ export class NativeCredentialStore implements CredentialStore {
       );
     }
   }
+
+  async saveDaemonCredential(serverUrl: string, credential: string): Promise<void> {
+    try {
+      await this.secrets.set({
+        service: "cn.coforge.computer.daemon",
+        name: serverUrl,
+        value: credential,
+      });
+    } catch {
+      throw loginError(
+        "AUTH_CREDENTIAL_STORE_UNAVAILABLE",
+        "The operating system credential store is unavailable.",
+      );
+    }
+  }
 }

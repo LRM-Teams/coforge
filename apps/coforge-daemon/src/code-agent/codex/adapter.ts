@@ -114,6 +114,10 @@ class CodexAgentSession implements CodeAgentSession {
     }
   }
 
+  onExit(listener: () => void): () => void {
+    return this.#process.onClose(listener);
+  }
+
   async dispose(): Promise<void> {
     if (this.#state.type === "disposed") return;
     this.#state = { type: "disposed" };

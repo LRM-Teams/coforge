@@ -75,6 +75,10 @@ class PiAgentSession implements CodeAgentSession {
     }
   }
 
+  onExit(listener: () => void): () => void {
+    return this.#process.onClose(listener);
+  }
+
   async dispose(): Promise<void> {
     if (this.#state === "disposed") return;
     this.#state = "disposed";

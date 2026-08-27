@@ -18,6 +18,7 @@ export const LOGIN_HINTS = {
   AUTH_INVALID_SERVER: "Use an HTTPS server URL without credentials, a query, or a fragment.",
   AUTH_NETWORK_ERROR: "Check the server URL and network connection, then rerun login.",
   AUTH_PROFILE_WRITE_FAILED: "Check the configuration directory permissions, then rerun login.",
+  AUTH_WORKSPACE_GET_FAILED: "Check the Workspace slug and your account access, then rerun setup.",
   AUTH_WORKSPACE_LIST_FAILED: "Check your account access and rerun login.",
 } as const;
 
@@ -30,10 +31,11 @@ export function loginError(code: LoginErrorCode, message: string): CliError {
 export const SETUP_HINTS = {
   SETUP_CONFIG_WRITE_FAILED: "Check the configuration directory permissions, then rerun setup.",
   SETUP_FAILED: "Check your login and server configuration, then rerun setup.",
-  SETUP_NOT_LOGGED_IN: "Run `coforge-computer login` before setup.",
-  SETUP_NO_WORKSPACES: "Ask a Workspace administrator to grant access, then rerun setup.",
-  SETUP_SELECTION_INVALID: "Choose one of the numbered Workspaces and rerun setup.",
-  SETUP_WORKSPACE_NOT_FOUND: "Use a slug shown by login, or omit it to choose interactively.",
+  SETUP_NOT_LOGGED_IN: "Complete Device Code login, then rerun setup.",
+  SETUP_REGISTRATION_UNAVAILABLE:
+    "The approved CoForge RPC transport is not available in this build.",
+  SETUP_WORKSPACE_REQUIRED: "Run setup with `--workspace <slug>` when prompts are unavailable.",
+  SETUP_WORKSPACE_NOT_FOUND: "Check the Workspace slug and your account access, then rerun setup.",
 } as const;
 
 export type SetupErrorCode = keyof typeof SETUP_HINTS;

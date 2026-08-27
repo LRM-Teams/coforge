@@ -15,6 +15,7 @@ export class JsonlProcess {
   readonly #pending = new Map<string, PendingRequest>();
   readonly #listeners = new Set<(record: JsonRecord) => void>();
   readonly #failureListeners = new Set<(error: Error) => void>();
+  readonly #closeListeners = new Set<() => void>();
   #nextRequestId = 1;
   #state: ProcessState = { type: "open" };
 
@@ -49,6 +50,15 @@ export class JsonlProcess {
     }
     this.#failureListeners.add(listener);
     return () => this.#failureListeners.delete(listener);
+  }
+
+  onClose(listener: () => void): () => void {
+    if (this.#state.type !== "open") {
+      queueMicrotask(listener);
+      return () => undefined;
+    }
+    this.#closeListeners.add(listener);
+    return () => this.#closeListeners.delete(listener);
   }
 
   async send(message: JsonRecord): Promise<void> {
@@ -96,6 +106,7 @@ export class JsonlProcess {
       this.#child.kill("SIGTERM");
       await this.#child.exited;
     }
+    this.#notifyClosed();
   }
 
   async #readStdout(): Promise<void> {
@@ -160,7 +171,13 @@ export class JsonlProcess {
     this.#rejectPending(message);
     for (const listener of this.#failureListeners) listener(new Error(message));
     this.#failureListeners.clear();
+    this.#notifyClosed();
     if (terminate) this.#child.kill("SIGTERM");
+  }
+
+  #notifyClosed(): void {
+    for (const listener of this.#closeListeners) listener();
+    this.#closeListeners.clear();
   }
 
   #rejectPending(message: string): void {

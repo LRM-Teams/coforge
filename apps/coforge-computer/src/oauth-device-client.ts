@@ -125,6 +125,45 @@ export class OAuthDeviceClient implements DeviceAuthorizationClient {
     return await this.#requestWorkspaces(endpoint, credential);
   }
 
+  async getWorkspaceForServer(
+    serverUrl: string,
+    credential: Credential,
+    workspaceSlug: string,
+  ): Promise<AccessibleWorkspace> {
+    const issuer = normalizeServerUrl(serverUrl);
+    const metadata = await this.#discover(issuer);
+    if (metadata.coforge_workspaces_endpoint === undefined) {
+      throw loginError(
+        "AUTH_WORKSPACE_GET_FAILED",
+        "OAuth metadata does not advertise the CoForge Workspace endpoint.",
+      );
+    }
+    const endpoint = normalizeEndpoint(
+      metadata.coforge_workspaces_endpoint,
+      "CoForge workspaces endpoint",
+    );
+    const workspaceEndpoint = new URL(
+      `${encodeURIComponent(workspaceSlug)}/`,
+      endpoint.endsWith("/") ? endpoint : `${endpoint}/`,
+    ).toString();
+    const response = await this.#request(workspaceEndpoint, {
+      headers: { authorization: `${credential.tokenType} ${credential.accessToken}` },
+    });
+    if (!response.ok) {
+      throw loginError(
+        "AUTH_WORKSPACE_GET_FAILED",
+        `Could not access Workspace '${workspaceSlug}' (HTTP ${response.status}).`,
+      );
+    }
+    try {
+      const body = (await response.json()) as { workspace?: unknown };
+      return readWorkspace(body.workspace ?? body);
+    } catch (error) {
+      if (error instanceof CliError) throw error;
+      throw loginError("AUTH_WORKSPACE_GET_FAILED", "The Workspace response is invalid.");
+    }
+  }
+
   async #discover(issuer: string): Promise<OAuthMetadata> {
     const discoveryResponse = await this.#request(discoveryUrl(issuer));
     const metadata = await readJson<OAuthMetadata>(discoveryResponse, "OAuth discovery");

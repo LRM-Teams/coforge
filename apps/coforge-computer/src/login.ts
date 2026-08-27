@@ -48,6 +48,7 @@ export type ComputerLoginOptions = {
   writeLine: (line: string) => void;
   writeProgressLine?: (line: string) => void;
   openVerificationPage?: (url: string) => Promise<void>;
+  suppressFinalResult?: boolean;
   sleep: (milliseconds: number) => Promise<void>;
   now?: () => number;
   colors?: Pick<typeof pc, "bold" | "cyan" | "green">;
@@ -112,7 +113,9 @@ export class ComputerLogin {
       throw loginError("AUTH_PROFILE_WRITE_FAILED", "Could not save the current login profile.");
     }
     const workspaces = await this.options.client.listWorkspaces(token.credential);
-    if (input.json) {
+    if (this.options.suppressFinalResult) {
+      // Setup owns the final output because authentication is an internal step.
+    } else if (input.json) {
       this.options.writeLine(
         JSON.stringify({
           ok: true,
@@ -129,7 +132,7 @@ export class ComputerLogin {
           `  - ${terminalText(workspace.name)} (${terminalText(workspace.slug)})`,
         );
       }
-      this.options.writeLine("Result:      Login complete. No Workspace binding was created.");
+      this.options.writeLine("Result:      Login complete. No Workspace registration was created.");
     }
     return { serverUrl, workspaces };
   }

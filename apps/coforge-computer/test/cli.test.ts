@@ -122,7 +122,7 @@ test("unexpected login failures are normalized without exposing diagnostics", as
   expect(stderr.join("\n")).not.toContain("access-secret");
 });
 
-test("setup configures at most one Workspace per invocation", async () => {
+test("setup accepts the Workspace slug through an explicit option", async () => {
   const calls: Array<{ workspaceSlug: string | undefined; json: boolean }> = [];
   const setup: SetupCommand = {
     async run(workspaceSlug, options) {
@@ -131,20 +131,16 @@ test("setup configures at most one Workspace per invocation", async () => {
   };
   const dependencies = { login: { async run() {} }, setup };
 
-  await expect(runCli(["setup", "workspace-a"], dependencies)).resolves.toBe(0);
-  await expect(runCli(["setup", "--json"], dependencies)).resolves.toBe(0);
+  await expect(runCli(["setup", "--workspace", "workspace-a"], dependencies)).resolves.toBe(0);
 
-  expect(calls).toEqual([
-    { workspaceSlug: "workspace-a", json: false },
-    { workspaceSlug: undefined, json: true },
-  ]);
+  expect(calls).toEqual([{ workspaceSlug: "workspace-a", json: false }]);
 });
 
 test("JSON setup failure is one stable stdout object with an actionable hint", async () => {
   const stdout: string[] = [];
   const stderr: string[] = [];
   const exitCode = await runCli(
-    ["setup", "missing", "--json"],
+    ["setup", "--workspace", "missing", "--json"],
     {
       login: { async run() {} },
       setup: {
@@ -164,7 +160,7 @@ test("JSON setup failure is one stable stdout object with an actionable hint", a
     error: {
       code: "SETUP_WORKSPACE_NOT_FOUND",
       message: "Workspace slug is not accessible.",
-      hint: "Use a slug shown by login, or omit it to choose interactively.",
+      hint: "Check the Workspace slug and your account access, then rerun setup.",
     },
   });
 });
@@ -172,7 +168,7 @@ test("JSON setup failure is one stable stdout object with an actionable hint", a
 test("unexpected setup failures are normalized without exposing diagnostics", async () => {
   const stderr: string[] = [];
   const exitCode = await runCli(
-    ["setup", "workspace-a"],
+    ["setup", "--workspace", "workspace-a"],
     {
       login: { async run() {} },
       setup: {

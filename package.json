@@ -15,6 +15,7 @@
     "check": "actionlint && bun run --filter '*' --if-present check"
   },
   "devDependencies": {
+    "@bufbuild/buf": "1.72.0",
     "@tanstack/intent": "^0.3.7"
   }
 }

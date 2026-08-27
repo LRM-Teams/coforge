@@ -1,0 +1,20 @@
+{
+  "name": "@coforge/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "module": "index.ts",
+  "scripts": {
+    "test": "bun test",
+    "check": "buf lint && buf format --diff --exit-code && oxfmt --check . && oxlint . && tsc --noEmit"
+  },
+  "dependencies": {
+    "protobufjs": "7.6.5"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.0",
+    "oxfmt": "0.65.0",
+    "oxlint": "1.80.0",
+    "typescript": "7.0.2"
+  }
+}

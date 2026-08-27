@@ -1,6 +1,12 @@
 /** Provider-neutral seam owned by each workspace worker. */
 export type CodeAgentProvider = "pi" | "codex" | "claude-code";
 
+export type AgentRuntimeConfig = Readonly<{
+  provider: CodeAgentProvider;
+  model: string;
+  reasoning: string;
+}>;
+
 export type CodeAgentEvent =
   | { type: "text-delta"; text: string }
   | { type: "tool-start"; id: string; name: string }
@@ -12,11 +18,13 @@ export interface CodeAgentSession {
   prompt(text: string): Promise<void>;
   subscribe(listener: (event: CodeAgentEvent) => void): () => void;
   interrupt(): Promise<void>;
+  onExit(listener: () => void): () => void;
   dispose(): Promise<void>;
 }
 
 export interface CodeAgentStartOptions {
   agentWorkspaceDirectory: string;
+  runtime?: AgentRuntimeConfig;
   environment?: Readonly<Record<string, string>>;
 }
 

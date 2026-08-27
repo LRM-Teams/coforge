@@ -14,6 +14,9 @@ session。
 
 - `coforge-computer` 不维护云端长期 WebSocket。它只通过本地 UDS（Windows 使用等价
   的命名管道）调用 `coforge-daemon`。
+- Daemon 的托管保持用户级边界：Linux/Windows 由 Computer 按需启动和复用；macOS
+  由 Computer 安装用户级 `launchd` LaunchAgent，让系统负责登录启动和崩溃重启。
+  不注册系统级服务，不要求 sudo，Computer 仍以本地 RPC handshake 确认 Daemon 已就绪。
 - 一个 `coforge-daemon` 监督零个或多个 workspace worker；每个 workspace worker
   恰好绑定一个逻辑 Workspace，并独立持有一条到 Centrifugo 的 WSS 长连接。
 - Computer/Daemon 发往服务端的业务通信统一使用 CoForge 自定义 RPC；Computer 与
@@ -29,9 +32,10 @@ session。
 - RPC method 使用 Centrifugo 原生 namespace boundary：`<namespace>:<method>`，例如
   `computer:register`、`workspace_worker:ready`、`workspace_worker:code_agents_update`。
   日志 event name 也统一使用相同的 `namespace:action` 分隔规则。
-- setup 由 Workspace 页面发起并携带系统生成的、短时一次性的 setup intent。用户不
-  输入 Workspace ID、slug，也不在 Computer 端选择 Workspace；intent 只绑定一个
-  Workspace 和发起用户。
+- setup 使用 Workspace 页面提供的可读 slug（例如 `lrm-team`），不暴露内部
+  Workspace ID，也不在 Computer 端列出或选择 Workspace。服务端根据 slug 和当前
+  User authorization context 创建或确认短时、一次性的 setup intent；intent 只绑定
+  一个 Workspace 和发起用户。
 - Computer 注册是用户主动授权的操作，使用 User authorization context；注册后由
   Backend 颁发 Computer/Workspace session credential 给 Daemon。User credential
   不持久化到 Daemon，不进入 Agent runtime，也不用于普通 Daemon reconnect。
@@ -39,9 +43,9 @@ session。
   Claude Code）。内置 Pi runtime 随 Daemon/CoForge Agent payload 固定交付，不通过
   PATH 扫描，也不作为本机发现结果；其版本和 capabilities 来自已验证的 release
   manifest/package metadata。
-- Agent 对产品和 Web 只暴露两个业务状态：`active` 和 `inactive`。Runtime 的
-  `starting`、`ready`、`unavailable` 以及任务开始/结束等信息属于 activity timeline
-  明细，不是额外的 Agent 状态；不要把它们扩展成更多业务状态。
+- Agent 对产品和 Web 只暴露两个业务状态：`online` 和 `offline`。Runtime 的
+  `starting`、`stopped`、`ready`、`unavailable` 以及任务开始/结束等信息属于 activity
+  timeline 明细，不是额外的 Agent 状态；不要把它们扩展成更多业务状态。
 
 ## 连接和身份模型
 
@@ -53,7 +57,7 @@ Computer --local RPC--> Daemon
 ```
 
 每条 worker 连接的服务端上下文必须绑定 `computer_id`、`workspace_id` 和
-`binding_id`。Worker A 的断线、重启或 replay 不得影响 Worker B。Daemon 是 supervisor，
+`connection_id`。Worker A 的断线、重启或 replay 不得影响 Worker B。Daemon 是 supervisor，
 不是所有 Workspace 的共享业务 session。
 
 ## 方法命名和协议范围
@@ -61,7 +65,7 @@ Computer --local RPC--> Daemon
 首批 method namespace 包括：
 
 - `computer:register`
-- `workspace:binding_activate`
+- `workspace:registration_activate`
 - `workspace_worker:ready`
 - `workspace_worker:resume`
 - `workspace_worker:heartbeat`
@@ -74,7 +78,7 @@ Computer --local RPC--> Daemon
 Workspace 的业务消息；它不是用户登录，也不是 Agent runtime ready。断线恢复使用
 `workspace_worker:resume`。具体 field、错误码、capability、deadline、Protobuf package 和生成工具在实现前必须
 通过协议兼容性检查。未知 major、错误 audience、缺少 required capability 和错误
-Workspace binding 必须 fail closed。
+Workspace connection 必须 fail closed。
 
 ## 未选择的方案
 
@@ -100,7 +104,7 @@ Workspace binding 必须 fail closed。
 - 验证必须覆盖多 Workspace 并行连接、单 worker 故障隔离、单 worker 重连/replay、
   重复 register 幂等、User credential 不落盘、Protobuf breaking check 和未知 method
   fail closed。
-- 回滚只能切换到仍支持同一 protocol major、audience 和 binding 语义的已验证 release
+- 回滚只能切换到仍支持同一 protocol major、audience 和 registration 语义的已验证 release
   set；不能通过回滚重新启用 Computer 云端长连接或 User token 的 Daemon 持久化。
 
 ## 一手资料

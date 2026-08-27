@@ -142,6 +142,10 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
     return promise;
   }
 
+  onExit(listener: () => void): () => void {
+    return this.#process.onClose(listener);
+  }
+
   async dispose(): Promise<void> {
     if (this.#state === "disposed") return;
     this.#state = "disposed";

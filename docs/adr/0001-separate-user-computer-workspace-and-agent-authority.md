@@ -10,7 +10,7 @@ CoForge needs a machine to continue serving Workspaces after the interactive Use
 
 ## Context and constraints
 
-- `login` is authentication-only. It may discover the authorization server, perform the OAuth device flow, save the User refresh credential, and list accessible Workspaces; it does not register a Computer, create a Workspace–Computer binding, or start a daemon.
+- `login` is authentication-only. It may discover the authorization server, perform the OAuth device flow, save the User refresh credential, and list accessible Workspaces; it does not register a Computer, create a Workspace–Computer connection, or start a daemon.
 - A Computer is a per-user background service identity. Background work must not continue as the User who originally registered it.
 - Each resident workspace worker connects outward to standalone Centrifugo. Centrifugo remains a transport component and does not acquire business or database ownership.
 - Agent processes run third-party tools and are outside the trusted credential boundary. They must not receive a general bearer token or a generic token-retrieval API.
@@ -25,10 +25,10 @@ CoForge needs a machine to continue serving Workspaces after the interactive Use
 | --------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | **User**              | A person authorizing one interactive Computer CLI management session                            | User-management operations explicitly granted to that User                                      | Computer background service, Workspace session, or Agent runtime           |
 | **Computer**          | The long-lived service identity of one per-user installation profile registered with one issuer | Machine-level registration, proof rotation, and acquisition of sessions for its active bindings | The registering User or an unbound Workspace                               |
-| **Workspace session** | A short-lived connection identity derived from one active Workspace–Computer binding            | Resident operations for exactly that Computer, Workspace, and binding                           | Another binding, User management, or an Agent operation without delegation |
+| **Workspace session** | A short-lived connection identity derived from one active Workspace–Computer connection            | Resident operations for exactly that Computer, Workspace, and connection                       | Another registration, User management, or an Agent operation without delegation |
 | **Agent runtime**     | A short-lived capability and audited subject for one Agent within one Workspace runtime session | Only the operations, Workspace, and expiry recorded in its runtime binding                      | User management, Computer lifecycle, another Agent, or another Workspace   |
 
-Remote RPC authorization has separate User, Computer/Workspace, and Agent-operation audiences and method namespaces. Authorization is the intersection of issuer, audience, principal kind, subject, Workspace/binding membership, allowed operation, expiry, and proof when required. A credential that passes signature validation but has the wrong audience or principal kind is rejected; there is no fallback or confused-deputy conversion between audiences.
+Remote RPC authorization has separate User, Computer/Workspace, and Agent-operation audiences and method namespaces. Authorization is the intersection of issuer, audience, principal kind, subject, Workspace/registration membership, allowed operation, expiry, and proof when required. A credential that passes signature validation but has the wrong audience or principal kind is rejected; there is no fallback or confused-deputy conversion between audiences.
 
 The exact audience strings and method names are wire contract, not part of this ADR. Adding one, changing an audience, or moving a method between namespaces requires the wire approval gate.
 
@@ -66,7 +66,7 @@ Each workspace worker owns the Credential Proxy for the Agent runtimes it launch
 2. authenticates the local caller with an OS-backed peer/process boundary and matches it to that binding; the effective Agent subject always comes from the binding, never from a caller-supplied Agent ID;
 3. exposes only approved typed RPC operations and never exposes `get-token`, refresh, arbitrary forwarding, or another audience's namespace;
 4. obtains or refreshes any short-lived Agent credential only inside the trusted workspace worker and records the Agent as the remote authorization and audit subject;
-5. deletes the binding and invalidates later calls when the runtime stops, the Agent is revoked, the Workspace is unbound, the Computer is revoked, or the binding expires; and
+5. deletes the binding and invalidates later calls when the runtime stops, the Agent is revoked, the Workspace is unregistered, the Computer is revoked, or the binding expires; and
 6. redacts authorization material, refresh credentials, pairing grants, and sensitive request bodies from logs, errors, traces, and metrics.
 
 A user-level credential store is not a security boundary between processes running as the same OS user. The Credential Proxy therefore cannot claim containment from peer UID alone: the runtime launcher must also prevent an Agent process from opening the credential store, daemon state, or another runtime's local endpoint. If a supported platform cannot enforce that boundary, credential-bearing Agent operations fail closed. Treating every same-user process as trusted would be a weaker product boundary and requires an explicit separate risk acceptance.
@@ -92,12 +92,12 @@ Registration is a User-authorized management operation and is not part of `login
 
 - creates a Computer or returns the same result for a retry by the same authorized User with the same `machine_id`, proof key, and idempotency identity;
 - rejects a reused `machine_id` with a different owner or proof instead of merging or reassigning it;
-- records no Workspace authority until a separately authorized Workspace–Computer binding exists; and
+- records no Workspace authority until a separately authorized Workspace–Computer connection exists; and
 - returns a short-lived, single-use pairing grant bound to the issuer, Computer, and proposed proof key.
 
 The Computer CLI passes only that pairing grant to coforge-daemon over authenticated local RPC. The daemon proves possession of the private key and redeems the grant once for a rotating, sender-constrained Computer credential. The private key never leaves the daemon's trusted boundary. Each remote Computer or Workspace session establishment proves possession and binds the proof to that session's protocol transcript; the exact proof algorithm and wire representation remain a mandatory pre-implementation approval item.
 
-Revoking a Computer invalidates its Computer credential family, every Workspace session derived from it, every local runtime binding, and future reconnect/replay. Unbinding one Workspace invalidates only that binding's Workspace sessions and Agent runtime bindings. Revoking or stopping one Agent invalidates only that Agent's runtime bindings. User logout/revocation removes User authority but does not silently revoke an independently registered Computer; Computer revocation is an explicit management action. Refresh replay or cloned credentials revoke the affected credential family and require User-authorized repair/re-pairing.
+Revoking a Computer invalidates its Computer credential family, every Workspace session derived from it, every local runtime binding, and future reconnect/replay. Unregistering one Workspace invalidates only that registration's Workspace sessions and Agent runtime bindings. Revoking or stopping one Agent invalidates only that Agent's runtime bindings. User logout/revocation removes User authority but does not silently revoke an independently registered Computer; Computer revocation is an explicit management action. Refresh replay or cloned credentials revoke the affected credential family and require User-authorized repair/re-pairing.
 
 ### Independent version boundaries
 
@@ -124,7 +124,7 @@ The exact envelope, version numbers, capability names, error codes, deprecation 
 | Machine state is cloned                                         | Duplicate `machine_id` plus mismatched proof conflicts; credential-family replay revokes and requires repair                             |
 | `machine_id` is lost or corrupted                               | Create a new identity only through explicit User-authorized registration; never infer authority from hardware                            |
 | Credential rotation is interrupted                              | Keep at most the last confirmed credential family state; replay detection revokes uncertain families instead of accepting two writers    |
-| Workspace is unbound while offline                              | Server rejects reconnect and replay for that binding; daemon removes the local session/runtime bindings on reconciliation                |
+| Workspace is unregistered while offline                              | Server rejects reconnect and replay for that registration; daemon removes the local session/runtime bindings on reconciliation                |
 | Runtime stops or is revoked during a call                       | Cancel/deny subsequent local calls and reject remote completion that no longer has valid runtime authority                               |
 | Protocol downgrade or incompatible capability                   | Reject the handshake; do not guess, silently ignore a required capability, or fall back to an HTTP business endpoint                     |
 | Older config/package is restored                                | Run only an explicitly supported atomic config migration and release-set compatibility pair; otherwise stop with an upgrade/repair error |
@@ -142,7 +142,7 @@ Rejected. A compromised tool could exfiltrate, replay, or persist it and bypass 
 
 ### Use one token audience and rely only on scopes
 
-Rejected. Scope mistakes then become cross-principal confused-deputy paths. Principal kind, audience, binding membership, and method namespace are independent mandatory checks.
+Rejected. Scope mistakes then become cross-principal confused-deputy paths. Principal kind, audience, registration membership, and method namespace are independent mandatory checks.
 
 ### Use loopback HTTP/TCP for local management
 
@@ -168,7 +168,7 @@ This is a pre-wire proposal, so no production Computer registration or Workspace
 2. migrate the current credential-store record so only the User refresh credential persists; discard any stored User access credential and require login when no refresh credential exists;
 3. propose the exact local protocol/profile and pairing state machine, including failure, restart, redaction, and cross-audience tests, for Frank's explicit approval;
 4. propose exact remote RPC methods, envelopes, credential lifecycle, proof algorithm, and any database effects for the same approval gate; and only then
-5. implement the approved local and remote contracts, registration, binding sessions, Credential Proxy forwarding, revoke, and reconnect convergence.
+5. implement the approved local and remote contracts, registration, registration sessions, Credential Proxy forwarding, revoke, and reconnect convergence.
 
 Before a wire version ships, rollback is a documentation revert. After credentials are issued, rollback must never downgrade audience checks, reuse a retired field, copy access tokens back to disk, or accept a bearer-only Computer identity. A server may temporarily support two explicitly declared protocol majors during a measured rollout, but each session uses exactly one negotiated major and an immutable audience. If safe rollback cannot preserve the credential and config invariants, the client stops and requires upgrade or User-authorized repair.
 
@@ -183,7 +183,7 @@ Implementation proposals must demonstrate:
 - local caller isolation on Linux, macOS, and Windows rather than assuming peer UID is process isolation; and
 - Bun client↔Centrifugo↔Backend remote RPC and local IPC compatibility plus measured latency, throughput, allocation, backpressure, and reconnect/replay behavior.
 
-Frank's explicit approval is required for this ADR and every later exact RPC method, wire field, credential lifecycle/algorithm, or database impact. Until then, registration, binding wire, remote Agent methods, and credential issuance remain blocked.
+Frank's explicit approval is required for this ADR and every later exact RPC method, wire field, credential lifecycle/algorithm, or database impact. Until then, registration, registration wire, remote Agent methods, and credential issuance remain blocked.
 
 ## Official references
 
