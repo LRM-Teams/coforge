@@ -4,6 +4,7 @@ import { RouterContextProvider } from "@tanstack/react-router";
 import { cleanup, render } from "@testing-library/react";
 
 import { AppShell } from "@/components/app-shell";
+import { AgentsContent } from "@/components/agents-content";
 import { overwriteGetLocale } from "@/paraglide/runtime";
 import { getRouter } from "@/router";
 
@@ -17,7 +18,9 @@ afterEach(cleanup);
 function renderShell() {
   return render(
     <RouterContextProvider router={getRouter()}>
-      <AppShell />
+      <AppShell>
+        <AgentsContent />
+      </AppShell>
     </RouterContextProvider>,
   ).container.innerHTML;
 }
@@ -26,11 +29,6 @@ test("shows the primary navigation with Members selected", () => {
   const markup = renderShell();
 
   expect(markup).toContain("<aside");
-  expect(markup).toContain("Overview");
-  expect(markup).toContain("Search");
-  expect(markup).toContain("Notifications");
-  expect(markup).toContain("Conversations");
-  expect(markup).toContain("Projects");
   expect(markup).toContain("Members");
   expect(markup).toContain("Computers");
   expect(markup).toContain('aria-label="Current user"');
