@@ -39,8 +39,8 @@ export function YourComputerInstall() {
             size="sm"
             className={
               operatingSystem === id
-                ? "border-brand bg-accent text-accent-foreground hover:bg-accent/80"
-                : "text-muted-foreground hover:border-accent hover:bg-accent/50 hover:text-foreground"
+                ? "border-brand bg-brand text-brand-foreground hover:bg-brand/90"
+                : "border-border bg-background text-muted-foreground hover:border-brand/40 hover:bg-accent hover:text-foreground"
             }
             onClick={() => {
               setOperatingSystem(id);
