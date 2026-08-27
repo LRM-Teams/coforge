@@ -143,8 +143,8 @@ releases/daemon/{version}/{component-artifact}
 release-sets/{id}/manifest.json
 release-sets/{id}/bundles/{platform-architecture-package}
 channels.json
-install.sh
-install.ps1
+computer/install.sh
+computer/install.ps1
 ```
 
 Computer and daemon manifests use independent SemVer versions and contain the
@@ -209,8 +209,8 @@ application login cookies.
 The public installation entry points are served from the main site:
 
 ```text
-https://www.coforge.cn/install.sh
-https://www.coforge.cn/install.ps1
+https://www.coforge.cn/computer/install.sh
+https://www.coforge.cn/computer/install.ps1
 ```
 
 These stable URLs are the user-facing bootstrap boundary and must route to the
