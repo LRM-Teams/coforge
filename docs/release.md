@@ -209,8 +209,8 @@ application login cookies.
 The public installation entry points are served from the main site:
 
 ```text
-https://www.coforge.cn/computer/install.sh
-https://www.coforge.cn/computer/install.ps1
+https://coforge.cn/computer/install.sh
+https://coforge.cn/computer/install.ps1
 ```
 
 These stable URLs are the user-facing bootstrap boundary and must route to the
@@ -592,10 +592,6 @@ but it must not invent publication, signing, or updater commands.
 - [GitHub artifact attestations for binaries and manifests](https://docs.github.com/en/actions/concepts/security/artifact-attestations)
 - [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 - [Bun standalone executable and cross-compilation targets](https://bun.sh/docs/bundler/executables)
-- [Raft Computer package](https://www.npmjs.com/package/@botiverse/raft-computer)
-- [Raft Daemon package](https://www.npmjs.com/package/@botiverse/raft-daemon)
-- [Raft Computer installer](https://cdn.raft.build/computer/install.sh)
-- [Raft Computer release manifest](https://cdn.raft.build/computer/manifest.json)
 - [The Update Framework specification](https://theupdateframework.github.io/specification/)
 - [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/)
 - [Apple macOS Library directory details](https://developer.apple.com/library/archive/documentation/FileManagement/Conceptual/FileSystemProgrammingGuide/MacOSXDirectories/MacOSXDirectories.html)

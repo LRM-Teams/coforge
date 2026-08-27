@@ -7,8 +7,8 @@ import { m } from "@/paraglide/messages";
 type OperatingSystem = "macos-linux" | "windows";
 
 const commands: Record<OperatingSystem, string> = {
-  "macos-linux": "curl -fsSL https://www.coforge.cn/computer/install.sh | sh",
-  windows: "irm https://www.coforge.cn/computer/install.ps1 | iex",
+  "macos-linux": "curl -fsSL https://coforge.cn/computer/install.sh | sh",
+  windows: "irm https://coforge.cn/computer/install.ps1 | iex",
 };
 
 export function YourComputerInstall() {

@@ -29,7 +29,7 @@ flowchart LR
     User -->|short-lived signed GET| Delivery[Opaque delivery URL<br/>Direct OSS or cdn.coforge.cn/files/]
     Caddy -->|WSS| Realtime[Standalone Centrifugo OSS<br/>transport only]
     Caddy --> Web[Web / backend<br/>Bun · TanStack Start<br/>control plane]
-    Web --> DB[(Managed PostgreSQL)]
+    Web --> DB[(PostgreSQL<br/>Docker dev / managed production)]
     Web -->|upload sign · object verify| OSS
     Web -->|authorize · issue delivery URL| Delivery
     Delivery -->|direct read or authenticated origin fetch| OSS
@@ -108,7 +108,7 @@ Caddy 不理解 conversation、message、Agent 或 workspace 业务。
 - 私聊/群聊 conversation 与 participant；
 - canonical message 的创建、持久化和路由决策；
 - 每个目标 Agent 的 delivery ledger；
-- 普通业务 API、Web 页面和 PostgreSQL migration；
+- 普通业务 API、Web 页面和 PostgreSQL migration（统一使用 Prisma，详见 [ADR 0003](adr/0003-prisma-as-postgresql-data-access.md)）；
 - 接收并保存 Agent response/stream，再推送给会话参与者。
 
 初始实现使用 Bun 1.4 与 TanStack Start，不使用 Next.js。前期保持模块化单体，只有出现清晰的扩缩容或故障隔离需求时才拆服务。生产构建使用 Nitro 的 Bun preset 生成自包含 server output，并以非 root 用户运行在不可变 Docker image 中；Nitro 3 adapter 当前仍是 beta，进入 production 前必须验证构建、启动、健康检查、优雅停止及 PostgreSQL/Centrifugo 集成路径。
@@ -131,7 +131,7 @@ PostgreSQL 的首要领域对象是：
 - `message`
 - `agent_message_delivery`
 
-`run` 表示一次 Agent 执行，`event` 表示执行中的流式片段、工具或状态记录；二者不是 delivery 的核心，不应在骨架阶段过早锁死。最终表名、字段、索引与 migration 方案由 backend 设计评审确定。
+`run` 表示一次 Agent 执行，`event` 表示执行中的流式片段、工具或状态记录；二者不是 delivery 的核心，不应在骨架阶段过早锁死。最终表名、字段、索引与 migration 内容由 backend 设计评审确定，数据访问标准为 Prisma。
 
 ### Alibaba Cloud OSS：聊天附件数据面
 
@@ -196,17 +196,17 @@ workspaces/{workspace_id}/attachments/{attachment_id}/original
 
 coforge-computer 是机器级 supervisor，不执行 workspace 内的 Agent 业务。它是唯一面向用户的安装与升级入口，负责安装同一 release set 中的 Computer/Daemon payload，并管理登录后的机器身份、coforge-daemon 的启动停止与健康检查。
 
-`login [--server <url>]` 登录用户、把凭据写入 OS credential store，并返回可访问 Workspace 列表；它不注册 Computer、不绑定 Workspace，也不启动 daemon。托管版使用默认 server，自托管场景显式指定。交互式 login 使用 OAuth 2.0 Device Authorization Grant：先通过 RFC 8414 metadata 发现 device authorization 与 token endpoint，再按 RFC 8628 展示 user code、轮询并处理 `authorization_pending` / `slow_down`。轮询连接超时后降低请求频率并重试，单次请求必须受 device-code 剩余有效期约束。凭据不进入命令参数或日志。
+`login [--server <url>]` 仍可用于单独重新认证，但普通用户不需要先执行它。推荐入口是单个 `setup` 流程：没有 User credential 时在流程内部完成 OAuth 2.0 Device Authorization Grant；先通过 RFC 8414 metadata 发现 device authorization 与 token endpoint，再按 RFC 8628 展示 user code、轮询并处理 `authorization_pending` / `slow_down`。轮询连接超时后降低请求频率并重试，单次请求必须受 device-code 剩余有效期约束。凭据不进入命令参数或日志。
 
-MVP OAuth client 使用 `client_id = coforge-computer` 与 `scope = openid offline_access`。login 成功后从同一 metadata 的 `coforge_workspaces_endpoint` 扩展发现可访问 Workspace 读取端点；该 endpoint 必须经过与认证端点相同的 HTTPS/localhost 安全校验。Computer 以 bearer credential 执行 GET，并读取 `{ workspaces: [{ id, slug, name }] }`，忽略未知字段以便兼容扩展。`id` 是持久关联使用的稳定身份；`slug` 只用于人读选择，不能代替 `id`；`name` 仅用于展示。该读取不创建 Workspace–Computer binding。token 通过 Bun 的跨平台原生 credential API 写入 macOS Keychain、Linux Secret Service 或 Windows Credential Manager，不允许自动降级为明文文件。Linux 无可用 Secret Service 时 login 以稳定错误失败并提示用户启动或解锁系统凭据服务。
+MVP OAuth client 使用 `client_id = coforge-computer` 与 `scope = openid offline_access`。Workspace 页面为当前 Workspace 创建一次性 setup intent，并通过 CoForge Computer setup deep link 或安装器参数传入；用户不输入 Workspace ID/slug，也不在 Computer 端选择 Workspace。User authorization context 只用于该次用户主动注册，Computer/Daemon 的后续业务连接使用独立 Computer/Workspace credential。token 通过 Bun 的跨平台原生 credential API 写入 macOS Keychain、Linux Secret Service 或 Windows Credential Manager，不允许自动降级为明文文件。Linux 无可用 Secret Service 时 setup 以稳定错误失败并提示用户启动或解锁系统凭据服务。
 
-`setup [workspace-slug]` 每次只创建或恢复一个 Workspace–Computer binding，为该 Workspace 选择 `workspace_root` 并启动它自己的 workspace worker。省略参数时交互单选用户可访问的一个 Workspace；位置参数必须是稳定唯一的 `workspace-slug`，不是 display name。第二个 Workspace 再执行一次 setup，MVP 不提供 `--all`。
+`setup` 创建或恢复 setup intent 指定的一个 Workspace–Computer binding，为该 Workspace 选择 `workspace_root` 并让 Daemon 启动它自己的 workspace worker。用户不提供 Workspace 参数，也不进行 Workspace 选择；为第二个 Workspace 绑定时，必须从第二个 Workspace 页面重新发起 setup。
 
-`machine_id` 是机器的稳定身份，跨 Computer、Daemon 与 workspace worker 的重启和升级保持不变。Computer 注册不属于 `login`，其 endpoint、payload、幂等键和 machine proof 必须在单独纵向设计中确定；`machine_id` 的具体签发方式、存储位置、唯一性范围与云端 computer 表结构也由该设计评审，本文不预先锁定。
+`machine_id` 是机器的稳定身份，跨 Computer、Daemon 与 workspace worker 的重启和升级保持不变。Computer 注册属于 setup 中的用户主动授权操作，并通过 `computer:register` RPC 完成；其精确 envelope、payload、幂等键和 machine proof 按 [ADR 0004](adr/0004-computer-daemon-rpc-topology-and-protobuf.md) 的实现 packet 固定。
 
 ### coforge-daemon
 
-coforge-daemon 是唯一由 OS/Computer 托管的 supervisor daemon，管理一台机器上所有已绑定逻辑 workspace 的常驻 workspace worker。`daemon` 专指这个顶层后台服务；`worker` 专指受其监督、可被替换的 workspace 常驻子进程；`Agent runtime process` 专指 provider execution process：
+coforge-daemon 是唯一由 OS/Computer 托管的 supervisor daemon，管理一台机器上所有已绑定逻辑 workspace 的常驻 workspace worker；Computer 不维护云端长期 WebSocket，每个 workspace worker 独立持有一条 WSS。`daemon` 专指这个顶层后台服务；`worker` 专指受其监督、可被替换的 workspace 常驻子进程；`Agent runtime process` 专指 provider execution process：
 
 ```text
 coforge-daemon 1 ──监督──> N 常驻 workspace worker
@@ -246,20 +246,20 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 ### 6.1 云端到 Agent
 
 1. backend 在同一事务内持久化 canonical message，并为每个目标 Agent 创建 delivery；
-2. backend 通过 Centrifugo server API 发布 `delivery.offer`；Centrifugo 不读取 PostgreSQL 或自行决定目标；
+2. backend 通过 Centrifugo server API 发布 `delivery:offer`；Centrifugo 不读取 PostgreSQL 或自行决定目标；
 3. Centrifugo 经目标 workspace worker 自己的 WSS 转发该 offer；
-4. workspace worker 先按 `delivery_id` 写入本地 durable inbox，再返回 `delivery.accepted`；
+4. workspace worker 先按 `delivery_id` 写入本地 durable inbox，再返回 `delivery:accepted`；
 5. backend 校验 workspace、Agent、delivery id 与 sequence 后记录接管时间；
 6. workspace worker 按 Agent context 顺序交给 code-agent adapter；重连时由 backend 按原 sequence replay 未确认 delivery。
 
-`delivery.accepted` 只表示“本机已耐久接管”，不表示 Agent 已执行完成。ACK 丢失会触发相同 `delivery_id` 的重发，本地唯一约束把它变成幂等 no-op。
+`delivery:accepted` 只表示“本机已耐久接管”，不表示 Agent 已执行完成。ACK 丢失会触发相同 `delivery_id` 的重发，本地唯一约束把它变成幂等 no-op。
 
 ### 6.2 Agent 到云端
 
 1. Agent 最终 response 先写入 workspace worker 的 durable outbox，并生成稳定 `client_message_id`；
-2. workspace worker 经 WSS RPC 发送 `message.publish`；
+2. workspace worker 经 WSS RPC 发送 `message:publish`；
 3. Centrifugo 通过 backend proxy 转交业务 RPC；backend 用 `(sender_participant_id, client_message_id)` 幂等提交 canonical response；
-4. backend 返回 `message.committed(client_message_id, message_id, conversation_seq)`；
+4. backend 返回 `message:committed(client_message_id, message_id, conversation_seq)`；
 5. workspace worker 收到确认后标记本地 outbox 项已提交。断线时持续重试相同 `client_message_id`。
 
 共同语义：
@@ -298,7 +298,7 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 | Web/backend | Bun 1.4 + TanStack Start + Nitro Bun preset |
 | 本地 app/runtime | Bun 1.4 |
 | CI workflow 检查 | actionlint 1.7.12 + ShellCheck 0.11.0 |
-| 数据库 | Managed PostgreSQL |
+| 数据库 | PostgreSQL（开发 Docker；生产可托管）+ Prisma |
 
 精确版本以 `mise.toml` 为准。升级版本时必须同时更新锁文件、CI 和本文，不能只改本机环境。
 
@@ -318,7 +318,7 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 - Unix socket 使用最小文件权限并验证对端身份；
 - Agent 只能在声明的 Agent workspace 目录中运行；
 - Caddy、Centrifugo、backend 和本地进程都需要结构化日志和关联 id，但日志不得包含 secret；Computer、Daemon、workspace worker 和 Agent runtime process 的本地分类、滚动、保留、脱敏与失败契约见 [本地日志契约](local-logging.md)，代码实现尚未开始；
-- validation 阶段先使用常规主机与托管 PostgreSQL，不引入 Kubernetes。
+- 开发与 validation 阶段先使用 Docker PostgreSQL 与托管 PostgreSQL，不引入 Kubernetes。
 - WebSocket 依附于 TCP，所属 Centrifugo 进程死亡时一定会断开；保证目标是 committed message 不丢、自动重连、按序 replay 与重复抑制，而不是宣称连接永不断。
 
 ## 10. 变更规则
@@ -336,16 +336,16 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 
 daemon 到 cloud 使用版本化 typed RPC over WSS，不照搬 Multica 事件名。建议的最小方法族：
 
-- `session.hello` / `session.ready` / `session.resume`
-- `delivery.offer` / `delivery.accepted` / `delivery.rejected`
-- `message.publish` / `message.committed`
-- `heartbeat.ping` / `heartbeat.pong`
+- `session:hello` / `session:ready` / `session:resume`
+- `delivery:offer` / `delivery:accepted` / `delivery:rejected`
+- `message:publish` / `message:committed`
+- `heartbeat:ping` / `heartbeat:pong`
 
 每个 envelope 携带 protocol version、request id、workspace/session scope 与必要 deadline。未知 major version 必须拒绝；minor capability 在 handshake 协商。浏览器 API 与 cloud internal RPC 是独立契约，“daemon 不用 HTTP”不禁止浏览器用 HTTPS 完成认证、bootstrap 和普通读取。
 
 以下项目在实现锁定前必须写 ADR：
 
-1. WSS encoding 与 schema generation；
+1. Protobuf package、生成工具与 envelope 的 exact schema；
 2. Centrifugo 到 backend 的 proxy/API schema 和跨副本连接定位；
 3. SQLite schema、加密、保留与损坏恢复；
 4. `conversation_seq` 的并发分配；
@@ -355,7 +355,7 @@ daemon 到 cloud 使用版本化 typed RPC over WSS，不照搬 Multica 事件�
 
 ## 12. 首批故障验证
 
-1. 重复 `delivery.offer` 在本地接管后最多进入 code-agent adapter 一次；
+1. 重复 `delivery:offer` 在本地接管后最多进入 code-agent adapter 一次；
 2. workspace worker 接管后崩溃，重启能从 local inbox 继续；
 3. Agent response 离线排队，重连后只形成一条 canonical message；
 4. Centrifugo 在 publish 中途死亡，重试不产生双写；
