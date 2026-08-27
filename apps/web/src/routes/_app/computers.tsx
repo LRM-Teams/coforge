@@ -1,19 +1,20 @@
-import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { createFileRoute } from "@tanstack/react-router";
 
 import { AddComputerDialog } from "@/components/add-computer-dialog";
-import { AppShell } from "@/components/app-shell";
 import { ComputerContent } from "@/components/computer-content";
 
-export const Route = createFileRoute("/computers")({ component: ComputersPage });
+export const Route = createFileRoute("/_app/computers")({
+  component: ComputersPage,
+});
 
 function ComputersPage() {
   const [addComputerOpen, setAddComputerOpen] = useState(false);
 
   return (
-    <AppShell page="computers">
+    <>
       <ComputerContent onAdd={() => setAddComputerOpen(true)} />
       <AddComputerDialog open={addComputerOpen} onOpenChange={setAddComputerOpen} />
-    </AppShell>
+    </>
   );
 }

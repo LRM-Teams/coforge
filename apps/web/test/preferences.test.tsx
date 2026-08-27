@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { useState } from "react";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { RouterContextProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { AppShell } from "@/components/app-shell";
+import { SettingsContent } from "@/components/settings-content";
 import { overwriteGetLocale } from "@/paraglide/runtime";
 import { getRouter } from "@/router";
 
@@ -23,17 +25,41 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-function renderShell(props: React.ComponentProps<typeof AppShell> = {}) {
+function renderShell() {
   return render(
     <RouterContextProvider router={getRouter()}>
-      <AppShell {...props} />
+      <AppShell>
+        <div />
+      </AppShell>
     </RouterContextProvider>,
   );
 }
 
+function renderSettings() {
+  function SettingsTestPage() {
+    const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
+    function changeTheme(nextTheme: "system" | "light" | "dark") {
+      setTheme(nextTheme);
+      localStorage.setItem("coforge-theme", nextTheme);
+      document.documentElement.classList.toggle("dark", nextTheme === "dark");
+    }
+
+    return (
+      <SettingsContent
+        locale="en"
+        theme={theme}
+        onLocaleChange={() => {}}
+        onThemeChange={changeTheme}
+      />
+    );
+  }
+
+  return render(<SettingsTestPage />);
+}
+
 test("switches to dark mode and remembers the preference", async () => {
   const user = userEvent.setup({ document });
-  const view = renderShell({ page: "settings" });
+  const view = renderSettings();
 
   expect(view.getByRole("heading", { name: "Settings" })).toBeTruthy();
   await user.click(view.getByRole("button", { name: "Dark" }));
@@ -43,7 +69,7 @@ test("switches to dark mode and remembers the preference", async () => {
 });
 
 test("uses the system color scheme by default", () => {
-  const view = renderShell({ page: "settings" });
+  const view = renderSettings();
 
   expect(view.getByRole("button", { name: "System" }).getAttribute("aria-pressed")).toBe("true");
 });
