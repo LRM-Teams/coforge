@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# CoForge currently has no wake-time authentication or local backing services.
+printf 'No orb resume steps required.\n'
