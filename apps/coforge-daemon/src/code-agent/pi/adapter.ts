@@ -173,6 +173,9 @@ function textContent(value: unknown): string {
 }
 
 function eventTime(record: Readonly<Record<string, unknown>>): string {
+  if (typeof record.timestamp === "number" && Number.isFinite(record.timestamp)) {
+    return new Date(record.timestamp).toISOString();
+  }
   return typeof record.timestamp === "string" && !Number.isNaN(Date.parse(record.timestamp))
     ? record.timestamp
     : new Date().toISOString();

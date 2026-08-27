@@ -59,7 +59,7 @@ function handle(command: { id: string; type: string; message?: string }): void {
     if (command.message === "finish") {
       write({
         type: "tool_execution_start",
-        timestamp: "2026-01-02T03:04:05.000Z",
+        timestamp: 1733234567890,
         toolCallId: "tool-1",
         toolName: "bash",
         args: { command: "printf safe" },

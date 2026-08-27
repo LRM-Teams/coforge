@@ -32,7 +32,7 @@ test("Pi loads skills before running in a child process behind the code-agent se
           activity: "running_command",
           level: "info",
           message: "printf safe",
-          occurredAt: "2026-01-02T03:04:05.000Z",
+          occurredAt: "2024-12-03T14:02:47.890Z",
         },
       },
       { type: "tool-output", id: "tool-1", text: "tests passed" },
