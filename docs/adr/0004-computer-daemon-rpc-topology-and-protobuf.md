@@ -27,7 +27,7 @@ session。
 - Computer/Daemon 的业务 payload 使用 Protobuf。schema 通过 `.proto` 维护并生成
   TypeScript 类型；不同时维护 JSON fallback。
 - RPC method 使用 Centrifugo 原生 namespace boundary：`<namespace>:<method>`，例如
-  `computer:register`、`workspace:session_open`、`runtime:inventory_report`。
+  `computer:register`、`workspace_worker:ready`、`workspace_worker:code_agents_update`。
   日志 event name 也统一使用相同的 `namespace:action` 分隔规则。
 - setup 由 Workspace 页面发起并携带系统生成的、短时一次性的 setup intent。用户不
   输入 Workspace ID、slug，也不在 Computer 端选择 Workspace；intent 只绑定一个
@@ -35,6 +35,13 @@ session。
 - Computer 注册是用户主动授权的操作，使用 User authorization context；注册后由
   Backend 颁发 Computer/Workspace session credential 给 Daemon。User credential
   不持久化到 Daemon，不进入 Agent runtime，也不用于普通 Daemon reconnect。
+- `workspace_worker:code_agents_update` 只上报需要探测的用户安装 runtime（当前为 Codex 和
+  Claude Code）。内置 Pi runtime 随 Daemon/CoForge Agent payload 固定交付，不通过
+  PATH 扫描，也不作为本机发现结果；其版本和 capabilities 来自已验证的 release
+  manifest/package metadata。
+- Agent 对产品和 Web 只暴露两个业务状态：`active` 和 `inactive`。Runtime 的
+  `starting`、`ready`、`unavailable` 以及任务开始/结束等信息属于 activity timeline
+  明细，不是额外的 Agent 状态；不要把它们扩展成更多业务状态。
 
 ## 连接和身份模型
 
@@ -55,16 +62,17 @@ Computer --local RPC--> Daemon
 
 - `computer:register`
 - `workspace:binding_activate`
-- `workspace:session_open`
-- `workspace:session_resume`
-- `computer:heartbeat`
-- `runtime:inventory_report`
+- `workspace_worker:ready`
+- `workspace_worker:resume`
+- `workspace_worker:heartbeat`
+- `workspace_worker:code_agents_update`
 - `computer:revoke`
 - `workspace:revoke`
-- `delivery:offer` / `delivery:accepted` / `delivery:rejected`
 - `message:publish` / `message:committed`
 
-具体 field、错误码、capability、deadline、Protobuf package 和生成工具在实现前必须
+`workspace_worker:ready` 表示该 Worker 已完成本地启动、认证和 WSS 建立，可以接收该
+Workspace 的业务消息；它不是用户登录，也不是 Agent runtime ready。断线恢复使用
+`workspace_worker:resume`。具体 field、错误码、capability、deadline、Protobuf package 和生成工具在实现前必须
 通过协议兼容性检查。未知 major、错误 audience、缺少 required capability 和错误
 Workspace binding 必须 fail closed。
 

@@ -90,6 +90,46 @@ test("login completes the device-code flow and persists the credential", async (
   ]);
 });
 
+test("login opens the verification page and still prints fallback instructions", async () => {
+  const opened: string[] = [];
+  const output: string[] = [];
+
+  await new ComputerLogin({
+    client: {
+      async authorize() {
+        return {
+          deviceCode: "device-secret",
+          userCode: "ABCD-EFGH",
+          verificationUri: "https://auth.example/activate",
+          expiresInSeconds: 600,
+          intervalSeconds: 5,
+        };
+      },
+      async pollToken() {
+        return {
+          status: "authorized",
+          credential: { accessToken: "access-secret", tokenType: "Bearer" },
+        };
+      },
+      async listWorkspaces() {
+        return [];
+      },
+    },
+    store: { async save() {} },
+    config,
+    writeLine: (line) => output.push(line),
+    sleep: async () => undefined,
+    openVerificationPage: async (url) => {
+      opened.push(url);
+    },
+    colors: pc.createColors(false),
+  }).run({ serverUrl: "https://coforge.example", json: false });
+
+  expect(opened).toEqual(["https://auth.example/activate"]);
+  expect(output).toContain("Verify at:   https://auth.example/activate");
+  expect(output).toContain("User code:   ABCD-EFGH");
+});
+
 test("JSON login writes exactly one stable stdout object without secrets", async () => {
   const stdout: string[] = [];
   const stderr: string[] = [];

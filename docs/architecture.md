@@ -225,7 +225,7 @@ Computer 的云端在线状态由当前 workspace worker WSS 连接集合实时�
 
 每个 workspace worker 是独立子进程，只能管理同一个 `workspace_id` 下的 Agent。每个 Agent 在本机拥有稳定的 Agent workspace，规范相对路径是 `workspaces/<workspace_id>/agents/<agent_id>`；`workspace_id` 与 `agent_id` 必须是不可变身份，目录不能由名称、provider、session 或进程 ID 派生。该目录是 Agent runtime process 的 cwd，在 runtime 重启、workspace worker 替换和 provider 切换时保留；只有明确的、用户确认的本机数据重置才能删除。worker 只能访问这些已声明目录和允许的环境变量。workspace worker 通过 provider-neutral code-agent adapter 管理 Agent runtime，对上层暴露统一的启动、发送、中断、销毁和事件语义。每个 Agent runtime process 是 workspace worker 启动、在多次 prompt 之间复用并在显式销毁前保持存活的独立子进程。Agent control protocol 是 adapter 内部可替换的实现细节；可以使用 provider 正式支持的 native protocol、SDK child runner 或 ACP，不作为上层 architecture contract。
 
-一台 Computer 允许安装零个或多个 code-agent runtime。零 runtime 是有效机器状态，不阻止 computer 或 daemon 启动；安装并配置合适 runtime 前不能执行 Agent。
+一台 Computer 始终随 Daemon 交付内置 Pi runtime；此外允许存在零个或多个用户安装的 code-agent runtime。内置 Pi 不通过本机扫描发现，而由已验证的 release/package metadata 声明；用户安装的 Codex 与 Claude Code 才需要检测可执行文件、版本和 capabilities。Agent 对产品和 Web 只暴露 `active`、`inactive` 两种业务状态；runtime 启动、ready、不可用和任务变化记录为 activity timeline 明细，不扩展 Agent 状态。没有可用的用户 runtime 不阻止 Computer 或 Daemon 启动，安装并配置合适 runtime 前不能执行对应 Agent。
 
 首批 adapter 使用常驻 CoForge Agent、Codex 与 Claude Code 子进程。`@coforge/agent` 是可独立打包并随 Daemon 交付的内置 Agent runtime，当前使用官方 Pi SDK 创建 session，并复用 Pi SDK 的 JSONL run mode 作为 daemon adapter 的内部 control。Codex 和 Claude Code 不随 CoForge 打包；adapter 从用户环境的 `PATH` 启动用户已安装、登录和配置的 `codex` / `claude` CLI，分别使用官方 app-server JSONL stdio 与 print-mode 双向 stream-json。CoForge 分配给 Agent 的 Skills 必须在启动前写入该 Agent workspace 下 provider 原生的 project scope：Pi 为 `.pi/skills/<skill>/SKILL.md`，Codex 为 `.agents/skills/<skill>/SKILL.md`，Claude Code 为 `.claude/skills/<skill>/SKILL.md`。CoForge 不复制、改写或接管用户 HOME 下的 provider 全局 Skills；各 CLI 按自身规则继续发现它们。三侧都必须在报告启动成功前完成 skills discovery：CoForge Agent 先完成 Pi `ResourceLoader` reload，Codex adapter 先执行 `skills/list(forceReload: true)` 再创建 thread，Claude Code adapter 完成 stream control `initialize` 并确认返回已加载的 commands/skills。control protocol 不固定为长期架构。选择、版本、license、失败边界和回滚见 [ADR 0002](adr/0002-provider-native-code-agent-subprocesses.md)。Agent provider 的特殊 command、envelope、事件与错误逻辑必须留在各自 package/adapter 内，不能泄漏到 Centrifugo、Web/backend 或共享领域模型。
 
@@ -246,13 +246,13 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 ### 6.1 云端到 Agent
 
 1. backend 在同一事务内持久化 canonical message，并为每个目标 Agent 创建 delivery；
-2. backend 通过 Centrifugo server API 发布 `delivery:offer`；Centrifugo 不读取 PostgreSQL 或自行决定目标；
+2. backend 通过 Centrifugo server API 发布 delivery offer；Centrifugo 不读取 PostgreSQL 或自行决定目标；
 3. Centrifugo 经目标 workspace worker 自己的 WSS 转发该 offer；
-4. workspace worker 先按 `delivery_id` 写入本地 durable inbox，再返回 `delivery:accepted`；
+4. workspace worker 先按 `delivery_id` 写入本地 durable inbox，再返回 accepted ACK；
 5. backend 校验 workspace、Agent、delivery id 与 sequence 后记录接管时间；
 6. workspace worker 按 Agent context 顺序交给 code-agent adapter；重连时由 backend 按原 sequence replay 未确认 delivery。
 
-`delivery:accepted` 只表示“本机已耐久接管”，不表示 Agent 已执行完成。ACK 丢失会触发相同 `delivery_id` 的重发，本地唯一约束把它变成幂等 no-op。
+accepted ACK 只表示“本机已耐久接管”，不表示 Agent 已执行完成。ACK 丢失会触发相同 `delivery_id` 的重发，本地唯一约束把它变成幂等 no-op。
 
 ### 6.2 Agent 到云端
 
@@ -337,7 +337,6 @@ Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现
 daemon 到 cloud 使用版本化 typed RPC over WSS，不照搬 Multica 事件名。建议的最小方法族：
 
 - `session:hello` / `session:ready` / `session:resume`
-- `delivery:offer` / `delivery:accepted` / `delivery:rejected`
 - `message:publish` / `message:committed`
 - `heartbeat:ping` / `heartbeat:pong`
 
@@ -355,7 +354,7 @@ daemon 到 cloud 使用版本化 typed RPC over WSS，不照搬 Multica 事件�
 
 ## 12. 首批故障验证
 
-1. 重复 `delivery:offer` 在本地接管后最多进入 code-agent adapter 一次；
+1. 重复 delivery offer 在本地接管后最多进入 code-agent adapter 一次；
 2. workspace worker 接管后崩溃，重启能从 local inbox 继续；
 3. Agent response 离线排队，重连后只形成一条 canonical message；
 4. Centrifugo 在 publish 中途死亡，重试不产生双写；
