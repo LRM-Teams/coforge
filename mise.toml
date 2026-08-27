@@ -1,9 +1,6 @@
 [tools]
 node = "24"
 bun = "1.4"
-go = "1.26.7"
-python = "3.12"
-ruff = "0.12.12"
 actionlint = "1.7.12"
 shellcheck = "0.11.0"
 
@@ -32,9 +29,6 @@ run = "cd apps/coforge-computer && bun run check"
 [tasks."build:computer"]
 run = "cd apps/coforge-computer && bun run build"
 
-[tasks."test:gateway"]
-run = "cd apps/realtime-gateway && go test ./..."
-
 [tasks."test:oss-cdn"]
 run = "bun run test:oss-cdn"
 
@@ -43,15 +37,3 @@ run = "bun run check:oss-cdn"
 
 [tasks."verify:oss-cdn"]
 run = "bun run verify:oss-cdn"
-
-[tasks."check:gateway"]
-run = "cd apps/realtime-gateway && go vet ./..."
-
-[tasks."build:gateway"]
-run = "cd apps/realtime-gateway && mkdir -p dist && go build -o dist/realtime-gateway ./cmd/gateway"
-
-[tasks."test:deploy"]
-run = "bun run test:deploy"
-
-[tasks."check:deploy"]
-run = "bun run check:deploy"

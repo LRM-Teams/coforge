@@ -67,7 +67,7 @@ These instructions apply to the entire repository.
 - Caddy owns public TLS and edge proxying. Standalone Centrifugo OSS owns WSS/RPC transport mechanics only. Web/backend owns authentication, conversations, persistence, and routing decisions.
 - PostgreSQL is accessed through Web/backend. Centrifugo must not acquire domain or database ownership.
 - Redis is Centrifugo broker/presence/hot-history state only. PostgreSQL plus each workspace worker's durable spool remain the canonical durability and replay boundary.
-- Do not extend the obsolete custom Go realtime-gateway, add Fiber, or embed Centrifuge as a production path. Its existing skeleton remains only until the approved follow-up removes source, commands, and CI.
+- Do not reintroduce the removed custom Go realtime-gateway, add Fiber, or embed Centrifuge as a production path.
 - Delivery is at-least-once and idempotent: a canonical message plus per-Agent delivery ledger is the durable model. An ACK means the local workspace worker accepted responsibility, not that an Agent run finished.
 - Do not ACK a cloud delivery until the workspace worker has durably accepted local responsibility. Outbound Agent messages must also be locally retryable and server-idempotent across reconnects.
 - Do not introduce a database command mailbox, claim/lease workflow, or treat a connection-local WebSocket outbox as durable storage without a new recorded architecture decision.
