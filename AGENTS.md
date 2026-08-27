@@ -45,7 +45,7 @@ These instructions apply to the entire repository.
 - Treat `mise.toml` as the source of truth for tool versions once present. Run `mise install`, then prefer `mise run <task>` or `mise exec -- <command>` over unpinned global tools.
 - Run `mise run test`, `mise run check`, and `mise run build` before submitting a change; CI runs them in that order.
 - Do not silently change a runtime or tool version. Update `mise.toml`, affected lockfiles, CI, and architecture documentation together.
-- Do not introduce Next.js. The accepted Web/backend direction is TanStack Start on Node 24 LTS.
+- Do not introduce Next.js. The accepted Web/backend direction is TanStack Start with Bun 1.4 as the business-control runtime.
 
 ## Shared agent skills
 
@@ -64,8 +64,10 @@ These instructions apply to the entire repository.
 - `coforge-computer` and `coforge-daemon` are independent OS processes. Their local control channel is a Unix domain socket, not a TCP management port.
 - One coforge-daemon manages zero or more workspace-daemon child processes; each workspace-daemon belongs to exactly one workspace.
 - Workspace-daemons adapt Codex, Claude Code, Pi, and other code-agent runtimes through ACP. Higher layers must not parse provider-specific output.
-- Caddy owns public TLS and edge proxying. The Go realtime-gateway owns WSS/RPC transport only. Web/backend owns authentication, conversations, persistence, and routing decisions.
-- PostgreSQL is accessed through Web/backend. The realtime-gateway must not acquire domain or database ownership.
+- Caddy owns public TLS and edge proxying. Standalone Centrifugo OSS owns WSS/RPC transport mechanics only. Web/backend owns authentication, conversations, persistence, and routing decisions.
+- PostgreSQL is accessed through Web/backend. Centrifugo must not acquire domain or database ownership.
+- Redis is Centrifugo broker/presence/hot-history state only. PostgreSQL plus each workspace-daemon's durable spool remain the canonical durability and replay boundary.
+- Do not extend the obsolete custom Go realtime-gateway, add Fiber, or embed Centrifuge as a production path. Its existing skeleton remains only until the approved follow-up removes source, commands, and CI.
 - Delivery is at-least-once and idempotent: a canonical message plus per-Agent delivery ledger is the durable model. An ACK means the local workspace-daemon accepted responsibility, not that an Agent run finished.
 - Do not ACK a cloud delivery until the workspace child has durably accepted local responsibility. Outbound Agent messages must also be locally retryable and server-idempotent across reconnects.
 - Do not introduce a database command mailbox, claim/lease workflow, or treat a connection-local WebSocket outbox as durable storage without a new recorded architecture decision.
