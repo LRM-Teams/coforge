@@ -1,11 +1,12 @@
 import type {
   CodeAgentAdapter,
-  CodeAgentEvent,
+  AgentRuntimeEvent,
   CodeAgentSession,
   CodeAgentStartOptions,
 } from "../contract";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
+import { createAgentActivity } from "../../agent-runtime/agent-activity";
 
 export class CodexAgentAdapter implements CodeAgentAdapter {
   readonly provider = "codex" as const;
@@ -58,7 +59,7 @@ export class CodexAgentAdapter implements CodeAgentAdapter {
 class CodexAgentSession implements CodeAgentSession {
   readonly #process: JsonlProcess;
   readonly #threadId: string;
-  readonly #listeners = new Set<(event: CodeAgentEvent) => void>();
+  readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
   #state: CodexSessionState = { type: "idle" };
 
   constructor(process: JsonlProcess, threadId: string) {
@@ -94,7 +95,7 @@ class CodexAgentSession implements CodeAgentSession {
       : { type: "running", turnId: turn.id };
   }
 
-  subscribe(listener: (event: CodeAgentEvent) => void): () => void {
+  subscribe(listener: (event: AgentRuntimeEvent) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
   }
@@ -114,6 +115,10 @@ class CodexAgentSession implements CodeAgentSession {
     }
   }
 
+  onExit(listener: () => void): () => void {
+    return this.#process.onClose(listener);
+  }
+
   async dispose(): Promise<void> {
     if (this.#state.type === "disposed") return;
     this.#state = { type: "disposed" };
@@ -130,6 +135,19 @@ class CodexAgentSession implements CodeAgentSession {
       const item = asRecord(params?.item);
       if (item?.type === "commandExecution" && typeof item.id === "string") {
         this.#emit({ type: "tool-start", id: item.id, name: "command" });
+        const command = typeof item.command === "string" ? item.command : "command";
+        this.#emit({
+          type: "activity",
+          activity: createAgentActivity("running_command", "info", command, eventTime(record)),
+        });
+      } else if (item?.type === "fileChange") {
+        for (const change of fileChanges(item)) {
+          const activity = change.kind === "add" ? "writing_file" : "editing_file";
+          this.#emit({
+            type: "activity",
+            activity: createAgentActivity(activity, "info", change.path, eventTime(record)),
+          });
+        }
       }
       return;
     }
@@ -170,7 +188,7 @@ class CodexAgentSession implements CodeAgentSession {
     }
   }
 
-  #emit(event: CodeAgentEvent): void {
+  #emit(event: AgentRuntimeEvent): void {
     for (const listener of this.#listeners) listener(event);
   }
 
@@ -199,4 +217,26 @@ function assertSkillsLoaded(response: Record<string, unknown>, cwd: string): voi
   if (!workspace || !Array.isArray(workspace.errors) || workspace.errors.length > 0) {
     throw new Error("Codex failed to load workspace skills");
   }
+}
+
+function eventTime(record: Readonly<Record<string, unknown>>): string {
+  return typeof record.timestamp === "string" && !Number.isNaN(Date.parse(record.timestamp))
+    ? record.timestamp
+    : new Date().toISOString();
+}
+
+function fileChanges(
+  item: Readonly<Record<string, unknown>>,
+): Array<{ kind: string; path: string }> {
+  const changes = Array.isArray(item.changes) ? item.changes : [item];
+  return changes.flatMap((value) => {
+    const change = asRecord(value);
+    if (!change || typeof change.path !== "string") return [];
+    return [
+      {
+        kind: typeof change.kind === "string" ? change.kind : "edit",
+        path: change.path,
+      },
+    ];
+  });
 }

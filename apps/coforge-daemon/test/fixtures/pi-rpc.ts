@@ -57,7 +57,13 @@ function handle(command: { id: string; type: string; message?: string }): void {
       assistantMessageEvent: { type: "text_delta", delta: "Pi response" },
     });
     if (command.message === "finish") {
-      write({ type: "tool_execution_start", toolCallId: "tool-1", toolName: "bash" });
+      write({
+        type: "tool_execution_start",
+        timestamp: 1733234567890,
+        toolCallId: "tool-1",
+        toolName: "bash",
+        args: { command: "printf safe" },
+      });
       write({
         type: "tool_execution_update",
         toolCallId: "tool-1",

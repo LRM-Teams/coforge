@@ -30,20 +30,22 @@ authenticated `GET` with the device grant's bearer credential and expects:
 }
 ```
 
-The canonical command is `setup`. It is initiated from a Workspace page and
-receives a short-lived setup intent for exactly that Workspace. If no login
-credential exists, setup performs the OAuth device flow inline, then continues
-without asking the user to choose a Workspace or enter an ID/slug. A second
-Workspace requires a new setup initiated from that Workspace's page.
+The canonical command is `setup --workspace <slug>`. If no login credential
+exists, setup performs the OAuth device flow inline, then registers the
+Computer through the CoForge RPC transport. A second Workspace is configured
+with another explicit setup invocation.
 
 Each Workspace receives its own `workspaces/<encoded-id>/config.json`; the file
 contains only the stable `workspace_id`. The slug and display name are used for
 selection and output but are not persisted as relationship keys. `setup --json`
 keeps stdout to one stable result object and sends interactive prompts to
 stderr. Setup registers the Computer and creates the server-side Workspace–Computer
-binding through the approved CoForge RPC flow, then asks the local Daemon to start
-the selected Workspace worker. Computer does not maintain a cloud WebSocket; each
-Workspace worker owns its own cloud WSS connection.
+registration through the approved CoForge RPC flow, then automatically starts (or reuses)
+the local Daemon after a Unix Socket handshake. The current Daemon slice accepts
+the handshake; Workspace worker supervision and the cloud RPC handler are still
+separate implementation slices. The user does not run `coforge-daemon` separately.
+Computer does not maintain a cloud WebSocket; each Workspace worker owns its own
+cloud WSS connection.
 
 `coforge-computer install` and `upgrade` select `production.current` (`latest`),
 `test.current`, or one exact `sha256:` release set. `rollback` reactivates the
@@ -81,8 +83,9 @@ returns `AUTH_CREDENTIAL_STORE_UNAVAILABLE` with a remediation hint instead of
 falling back to plaintext. Credentials never appear in command arguments,
 stdout, stderr, or generated artifacts.
 
-Stable `machine_id` issuance and its cloud registration payload remain pending
-the architecture's device identity ADR and are not guessed here.
+Stable `machine_id` issuance and the initial cloud registration payload are
+implemented in the Computer setup slice. Server-side validation and identity
+proof remain pending.
 
 Official references:
 

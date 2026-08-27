@@ -119,7 +119,21 @@ These instructions apply to the entire repository.
 - Treat `mise.toml` as the source of truth for tool versions once present. Run `mise install`, then prefer `mise run <task>` or `mise exec -- <command>` over unpinned global tools.
 - Run `mise run test`, `mise run check`, and `mise run build` before submitting a change; CI runs them in that order.
 - Do not silently change a runtime or tool version. Update `mise.toml`, affected lockfiles, CI, and architecture documentation together.
+- Protobuf schemas under `packages/protocol/proto` must pass `buf lint` and
+  `buf format --diff --exit-code`; do not use TypeScript lint rules as a
+  substitute for `.proto` validation.
+- Never edit any `package.json` manually with an editor or patch. Use Bun's
+  package-management commands instead: `bun add`, `bun remove`,
+  `bun pm pkg set`, or `bun pm pkg delete`. Run the command from the owning
+  workspace, then review the resulting manifest and `bun.lock` diff. A
+  dependency change is incomplete unless the lockfile is updated and the
+  relevant check passes.
+- Do not hand-edit `bun.lock`; regenerate it through Bun after changing a
+  package manifest.
 - Do not introduce Next.js. The accepted Web/backend direction is TanStack Start with Bun 1.4 as the business-control runtime.
+- Bun-specific runtime and compatibility guidance lives in
+  `.agents/skills/using-bun-runtime/SKILL.md`; load it before changing Bun
+  runtime code or dependencies. The target runtime remains Bun, never Node.
 
 ## Shared agent skills
 

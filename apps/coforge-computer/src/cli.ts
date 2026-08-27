@@ -1,20 +1,31 @@
 #!/usr/bin/env bun
 
 import { Command, CommanderError } from "commander";
-import { createInterface } from "node:readline/promises";
+import { emitKeypressEvents } from "node:readline";
 import { homedir } from "node:os";
+import { join } from "node:path";
 
 import { OAuthDeviceClient } from "./oauth-device-client";
 import { ComputerLogin } from "./login";
 import { CliError, loginError, setupError } from "./errors";
 import { NativeCredentialStore } from "./credential-store";
-import { resolveComputerBinaryDirectory, resolveComputerInstallDirectory } from "./paths";
+import {
+  resolveComputerBinaryDirectory,
+  resolveComputerInstallDirectory,
+  resolveComputerStateDirectory,
+  resolveDaemonSocketPath,
+} from "./paths";
 import { ComputerUpdater, UpdateError } from "./updater";
 import { FileComputerConfig } from "./local-config";
 import { resolveComputerConfigDirectory } from "./paths";
 import { ComputerSetup } from "./setup";
 import { terminalText } from "./terminal-output";
 import type { AccessibleWorkspace } from "./login";
+import { currentComputerPlatform } from "./platform";
+import { FileMachineIdFallback, resolveMachineId } from "./machine-id";
+import { CentrifugoComputerRegisterTransport, cloudWebSocketEndpoint } from "./cloud-rpc-transport";
+import { ComputerRegistrationClient } from "@coforge/protocol";
+import { createDaemonHost, resolveDaemonExecutablePath } from "@coforge/daemon";
 
 const VERSION = "0.1.0";
 const DEFAULT_SERVER_URL = "https://coforge.cn";
@@ -74,13 +85,13 @@ export async function runCli(
   program
     .command("setup")
     .description("Configure one accessible Workspace for this Computer.")
-    .argument("[workspace-slug]", "stable Workspace slug; omit to choose interactively")
+    .option("--workspace <slug>", "stable Workspace slug")
     .option("--json", "write one stable JSON result to stdout")
-    .addHelpText("after", "\nExample:\n  $ coforge-computer setup my-workspace")
-    .action((workspaceSlug: string | undefined, options: { json?: boolean }) => {
+    .addHelpText("after", "\nExample:\n  $ coforge-computer setup --workspace my-workspace")
+    .action((options: { workspace?: string; json?: boolean }) => {
       setupSelected = true;
       json = options.json ?? false;
-      return dependencies.setup.run(workspaceSlug, { json });
+      return dependencies.setup.run(options.workspace, { json });
     });
   for (const operation of ["install", "upgrade"] as const) {
     program
@@ -176,6 +187,17 @@ function createSetupCommand(
   config: FileComputerConfig,
 ): SetupCommand {
   const credentials = new NativeCredentialStore();
+  const platform = currentComputerPlatform();
+  const stateDirectory = resolveComputerStateDirectory({
+    platform: platform.os,
+    homeDirectory: homedir(),
+    environment: process.env,
+  });
+  const installDirectory = resolveComputerInstallDirectory({
+    platform: platform.os,
+    homeDirectory: homedir(),
+    environment: process.env,
+  });
   const client = new OAuthDeviceClient({
     clientId: "coforge-computer",
     scope: "openid offline_access",
@@ -183,11 +205,77 @@ function createSetupCommand(
   const setup = new ComputerSetup({
     config,
     credentials,
-    client: {
-      listWorkspaces: (serverUrl, credential) =>
-        client.listWorkspacesForServer(serverUrl, credential),
+    machineIdProvider: () =>
+      resolveMachineId({
+        platform: platform.os,
+        fallback: new FileMachineIdFallback(join(stateDirectory, "machine-id")),
+      }),
+    authenticate: {
+      async authenticate(serverUrl, _json) {
+        const login = new ComputerLogin({
+          client,
+          store: credentials,
+          config,
+          writeLine: io.stdout,
+          writeProgressLine: io.stderr,
+          suppressFinalResult: true,
+          sleep: Bun.sleep,
+        });
+        await login.run({ serverUrl, json: false });
+        const credential = await credentials.load(serverUrl);
+        if (!credential)
+          throw setupError(
+            "SETUP_NOT_LOGGED_IN",
+            "Device authorization did not produce credentials.",
+          );
+        return credential;
+      },
     },
-    selectWorkspace: (workspaces) => selectWorkspaceInteractively(workspaces, io.stderr),
+    // The production workspace:list RPC transport is not approved/available
+    // yet. Never substitute the OAuth HTTP client here.
+    client: {
+      listWorkspaces: async () => {
+        throw setupError(
+          "SETUP_REGISTRATION_UNAVAILABLE",
+          "Workspace listing RPC is unavailable in this build.",
+        );
+      },
+    },
+    registrationFactory: (serverUrl, credential) => ({
+      register: (request) =>
+        new ComputerRegistrationClient(
+          new CentrifugoComputerRegisterTransport(
+            cloudWebSocketEndpoint(serverUrl),
+            credential.accessToken,
+          ),
+        ).register(request),
+    }),
+    launcher:
+      platform.os === "darwin"
+        ? createDaemonHost({
+            platform: platform.os,
+            executablePath: resolveDaemonExecutablePath({
+              installRoot: installDirectory,
+              platform: platform.os,
+            }),
+            socketPath: resolveDaemonSocketPath({ platform: platform.os, stateDirectory }),
+            homeDirectory: homedir(),
+            uid: process.getuid?.() ?? 0,
+          })
+        : createDaemonHost({
+            platform: platform.os,
+            executablePath: resolveDaemonExecutablePath({
+              installRoot: installDirectory,
+              platform: platform.os,
+            }),
+            socketPath: resolveDaemonSocketPath({ platform: platform.os, stateDirectory }),
+            homeDirectory: homedir(),
+            uid: process.getuid?.() ?? 0,
+          }),
+    selectWorkspace:
+      process.stdin.isTTY && process.stderr.isTTY
+        ? (workspaces) => selectWorkspaceInteractively(workspaces)
+        : undefined,
     writeLine: io.stdout,
   });
   return {
@@ -208,7 +296,7 @@ function createUpdateCommand(io: { stdout: (line: string) => void }): UpdateComm
     homeDirectory: process.env.HOME ?? process.env.USERPROFILE ?? "",
     environment: process.env,
   });
-  const target = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch === "arm64" ? "arm64" : "x64"}`;
+  const target = currentComputerPlatform().releaseTarget;
   const updater = new ComputerUpdater({
     baseUrl: DEFAULT_RELEASES_URL,
     trustedKeys: { "coforge-release-unprovisioned": RELEASE_KEY },
@@ -234,26 +322,53 @@ function createUpdateCommand(io: { stdout: (line: string) => void }): UpdateComm
 
 async function selectWorkspaceInteractively(
   workspaces: AccessibleWorkspace[],
-  writePrompt: (line: string) => void,
 ): Promise<AccessibleWorkspace> {
-  writePrompt("Choose one Workspace:");
-  for (const [index, workspace] of workspaces.entries()) {
-    writePrompt(
-      `  ${index + 1}) ${terminalText(workspace.name)} (${terminalText(workspace.slug)})`,
-    );
-  }
-  const input = createInterface({ input: process.stdin, output: process.stderr });
-  try {
-    const answer = await input.question("Selection: ");
-    const selectedIndex = Number(answer) - 1;
-    const workspace = Number.isInteger(selectedIndex) ? workspaces[selectedIndex] : undefined;
-    if (!workspace) {
-      throw setupError("SETUP_SELECTION_INVALID", "The Workspace selection is invalid.");
-    }
-    return workspace;
-  } finally {
-    input.close();
-  }
+  const input = process.stdin;
+  const output = process.stderr;
+  let selectedIndex = 0;
+  const lineCount = workspaces.length + 2;
+
+  return await new Promise((resolve, reject) => {
+    const render = (initial = false) => {
+      if (!initial) output.write(`\x1b[${lineCount}A`);
+      output.write("\x1b[2KChoose a Workspace:\n");
+      for (const [index, workspace] of workspaces.entries()) {
+        const marker = index === selectedIndex ? "❯" : " ";
+        output.write(
+          `\x1b[2K${marker} ${terminalText(workspace.name)} (${terminalText(workspace.slug)})\n`,
+        );
+      }
+      output.write("\x1b[2KUse ↑/↓ to move, Enter to select, Esc to cancel\n");
+    };
+    const cleanup = () => {
+      input.off("keypress", onKeypress);
+      input.setRawMode?.(false);
+      input.pause();
+    };
+    const onKeypress = (_character: string, key: { name?: string; sequence?: string }) => {
+      if (key.name === "up")
+        selectedIndex = (selectedIndex - 1 + workspaces.length) % workspaces.length;
+      else if (key.name === "down") selectedIndex = (selectedIndex + 1) % workspaces.length;
+      else if (key.name === "return") {
+        const workspace = workspaces[selectedIndex];
+        if (!workspace) return;
+        cleanup();
+        resolve(workspace);
+        return;
+      } else if (key.name === "escape" || key.name === "q" || key.sequence === "\u0003") {
+        cleanup();
+        reject(setupError("SETUP_WORKSPACE_NOT_FOUND", "Workspace selection was cancelled."));
+        return;
+      } else return;
+      render();
+    };
+
+    emitKeypressEvents(input);
+    input.setRawMode?.(true);
+    input.resume();
+    input.on("keypress", onKeypress);
+    render(true);
+  });
 }
 
 if (import.meta.main) {

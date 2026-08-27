@@ -1,11 +1,12 @@
 import type {
   CodeAgentAdapter,
-  CodeAgentEvent,
+  AgentRuntimeEvent,
   CodeAgentSession,
   CodeAgentStartOptions,
 } from "../contract";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
+import { createAgentActivity } from "../../agent-runtime/agent-activity";
 
 export class PiAgentAdapter implements CodeAgentAdapter {
   readonly provider = "pi" as const;
@@ -38,7 +39,7 @@ export class PiAgentAdapter implements CodeAgentAdapter {
 
 class PiAgentSession implements CodeAgentSession {
   readonly #process: JsonlProcess;
-  readonly #listeners = new Set<(event: CodeAgentEvent) => void>();
+  readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
   #state: "idle" | "running" | "interrupting" | "disposed" = "idle";
 
   constructor(process: JsonlProcess) {
@@ -57,7 +58,7 @@ class PiAgentSession implements CodeAgentSession {
     }
   }
 
-  subscribe(listener: (event: CodeAgentEvent) => void): () => void {
+  subscribe(listener: (event: AgentRuntimeEvent) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
   }
@@ -73,6 +74,10 @@ class PiAgentSession implements CodeAgentSession {
       if (!this.#isDisposed()) this.#state = "running";
       throw error;
     }
+  }
+
+  onExit(listener: () => void): () => void {
+    return this.#process.onClose(listener);
   }
 
   async dispose(): Promise<void> {
@@ -92,6 +97,27 @@ class PiAgentSession implements CodeAgentSession {
     if (record.type === "tool_execution_start") {
       if (typeof record.toolCallId === "string" && typeof record.toolName === "string") {
         this.#emit({ type: "tool-start", id: record.toolCallId, name: record.toolName });
+        const input = asRecord(record.args) ?? asRecord(record.input) ?? asRecord(record.arguments);
+        const details =
+          typeof input?.command === "string"
+            ? input.command
+            : typeof input?.path === "string"
+              ? input.path
+              : record.toolName;
+        const activity =
+          record.toolName === "bash"
+            ? "running_command"
+            : record.toolName === "read"
+              ? "reading_file"
+              : record.toolName === "write"
+                ? "writing_file"
+                : record.toolName === "edit"
+                  ? "editing_file"
+                  : "using_tool";
+        this.#emit({
+          type: "activity",
+          activity: createAgentActivity(activity, "info", details, eventTime(record)),
+        });
       }
       return;
     }
@@ -122,7 +148,7 @@ class PiAgentSession implements CodeAgentSession {
     }
   }
 
-  #emit(event: CodeAgentEvent): void {
+  #emit(event: AgentRuntimeEvent): void {
     for (const listener of this.#listeners) listener(event);
   }
 
@@ -144,4 +170,13 @@ function textContent(value: unknown): string {
     .filter((item) => item?.type === "text" && typeof item.text === "string")
     .map((item) => item!.text as string)
     .join("");
+}
+
+function eventTime(record: Readonly<Record<string, unknown>>): string {
+  if (typeof record.timestamp === "number" && Number.isFinite(record.timestamp)) {
+    return new Date(record.timestamp).toISOString();
+  }
+  return typeof record.timestamp === "string" && !Number.isNaN(Date.parse(record.timestamp))
+    ? record.timestamp
+    : new Date().toISOString();
 }

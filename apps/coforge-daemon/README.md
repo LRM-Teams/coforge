@@ -1,6 +1,6 @@
 # coforge-daemon
 
-Status: runtime model accepted; implementation pending
+Status: runtime model accepted; implementation in progress
 
 `coforge-daemon` is the machine-local process manager for logical CoForge
 Workspaces. It is an independent distributable process managed by
@@ -34,7 +34,7 @@ new Workspace.
 | `machine_id` | The stable identity of the machine. It survives Computer, daemon, and child-process restarts and upgrades. |
 | Workspace | The logical collaboration, membership, permission, conversation, and Agent boundary. |
 | `workspace_id` | The stable end-to-end identity of that logical Workspace. |
-| workspace binding | The assignment that makes a logical Workspace active on a Computer. |
+| workspace connection | The assignment that makes a logical Workspace active on a Computer. |
 | workspace worker | The daemon-supervised resident child process that represents one logical Workspace on the bound Computer. |
 | Agent runtime process | A provider execution process, owned by one workspace worker and reused across prompts until its session is disposed. |
 | Agent workspace | One Agent's durable filesystem working area on this Computer. It is not another logical Workspace. |
@@ -51,8 +51,18 @@ replacement and provider changes.
 - convergence between the desired and actual set of resident workspace workers;
 - spawning, monitoring, backoff, replacement, and orderly shutdown of those
   workers;
-- machine-level Agent capacity and version compatibility for child processes;
-  Runtime lease lifecycle remains a separate design decision.
+- one shared `AgentRuntimePool` for machine-level Agent capacity across all
+  workspace workers, plus version compatibility for child processes.
+
+Each workspace worker owns one `AgentProcessManager`. It requests capacity from
+the daemon-owned `AgentRuntimePool` before starting an Agent runtime and returns
+that capacity when the runtime stops. Workspace workers do not create their own
+capacity pools.
+
+Agent status has only two values: `online` while the Agent runtime process is
+held by `AgentProcessManager`, and `offline` after the process exits or is
+stopped. The status is derived from the local process lifecycle; starting,
+stopping, errors, and work progress belong in the activity timeline instead.
 
 `coforge-daemon` uses the machine's stable `machine_id`; it does not mint a new
 machine identity for itself or for each workspace worker. The exact issuance,

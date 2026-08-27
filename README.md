@@ -55,7 +55,7 @@ apps/web                Web UI and backend control plane
 apps/web/prisma         Planned Prisma schema and migrations
 apps/coforge-computer   Machine-level setup and supervisor
 apps/coforge-daemon     Workspace worker supervisor and code-agent adapters
-packages/coforge-agent Independently packable built-in Agent runtime using Pi SDK
+packages/agent          Independently packable built-in Agent runtime using Pi SDK
 docs                    Architecture, ADRs, and data-model documentation
 packages                Shared and independently packable runtime packages
 ```

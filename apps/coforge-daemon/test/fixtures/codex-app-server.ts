@@ -82,7 +82,11 @@ function handle(request: Request): void {
     if (textInput(request.params) === "finish") {
       write({
         method: "item/started",
-        params: { turnId, item: { id: "item-1", type: "commandExecution" } },
+        timestamp: "2026-01-02T03:04:05.000Z",
+        params: {
+          turnId,
+          item: { id: "item-1", type: "commandExecution", command: "printf safe" },
+        },
       });
       write({
         method: "item/commandExecution/outputDelta",
@@ -91,6 +95,26 @@ function handle(request: Request): void {
       write({
         method: "item/completed",
         params: { turnId, item: { id: "item-1", type: "commandExecution", exitCode: 0 } },
+      });
+      write({
+        method: "turn/completed",
+        params: { turn: { id: turnId, status: "completed" } },
+      });
+    } else if (textInput(request.params) === "files") {
+      write({
+        method: "item/started",
+        timestamp: "2026-01-02T03:04:05.000Z",
+        params: {
+          turnId,
+          item: {
+            id: "item-2",
+            type: "fileChange",
+            changes: [
+              { kind: "add", path: "src/new.ts" },
+              { kind: "update", path: "src/existing.ts" },
+            ],
+          },
+        },
       });
       write({
         method: "turn/completed",

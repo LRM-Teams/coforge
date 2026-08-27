@@ -14,12 +14,12 @@ CoForge MVP 使用 Caddy 作为唯一公网 edge、standalone Centrifugo OSS 作
 ### 服务拓扑与职责
 
 - Caddy 是唯一公网入口，终止 TLS，并把 HTTPS 路由到 Web/Backend、把 WSS 路由到两个 Centrifugo 副本。Caddy 只做 edge proxy、健康检查与负载均衡，不理解 User、Workspace、Computer、Agent、conversation 或 message。
-- Centrifugo OSS 是独立 realtime transport service。它持有 Web/workspace worker 长连接，负责连接/session mechanics、心跳、背压、重连、RPC/订阅 framing、跨副本 fan-out、presence 与 bounded hot recovery；它不读取 PostgreSQL，不决定 binding、权限、目标 Agent 或 canonical message。
-- Bun Backend 通过 Centrifugo 官方 HTTP/gRPC proxy 与 server API 处理连接授权、业务 RPC、发布和必要的断开；Backend 始终拥有 User/Workspace/Computer/Agent 权限、Workspace–Computer binding、conversation、canonical message、delivery ledger、幂等提交与 PostgreSQL。
+- Centrifugo OSS 是独立 realtime transport service。它持有 Web/workspace worker 长连接，负责连接/session mechanics、心跳、背压、重连、RPC/订阅 framing、跨副本 fan-out、presence 与 bounded hot recovery；它不读取 PostgreSQL，不决定 registration、权限、目标 Agent 或 canonical message。
+- Bun Backend 通过 Centrifugo 官方 HTTP/gRPC proxy 与 server API 处理连接授权、业务 RPC、发布和必要的断开；Backend 始终拥有 User/Workspace/Computer/Agent 权限、Workspace–Computer connection、conversation、canonical message、delivery ledger、幂等提交与 PostgreSQL。
 - workspace worker 仍按逻辑 Workspace 各自发起一条 WSS。`coforge-computer` 只管理本机 `coforge-daemon`，不成为远程 realtime endpoint。
-- Centrifugo↔Backend 最终选 HTTP 还是 gRPC、channel/rpc namespace、method、field、error、capability 和版本行为都不在本 ADR 中锁定；这些必须在身份、credential audience、binding 与 wire approval packet 通过后才能实现。
+- Centrifugo↔Backend 最终选 HTTP 还是 gRPC、channel/rpc namespace、method、field、error、capability 和版本行为都不在本 ADR 中锁定；这些必须在身份、credential audience、registration 与 wire approval packet 通过后才能实现。
 
-Production 实现必须继续等待 LRM-1563 对 machine identity、Workspace–Computer binding、credential audience 与 exact versioned wire 的分别明确批准；本 ADR 或 spike 的 broad approval 不能替代该门禁。
+Production 实现必须继续等待 LRM-1563 对 machine identity、Workspace–Computer connection、credential audience 与 exact versioned wire 的分别明确批准；本 ADR 或 spike 的 broad approval 不能替代该门禁。
 
 ### Backend runtime 边界
 
@@ -31,13 +31,13 @@ Production 实现必须继续等待 LRM-1563 对 machine identity、Workspace–
 ### 在线视图与两副本边界
 
 - MVP 运行两个 Centrifugo 副本并共享 Redis engine。Redis broker 负责把任一副本的 publication fan-out 到持有目标连接的副本，Redis presence 让任一副本查询共享的 hot online view；presence 是 eventually consistent 的短期视图，不是强一致真相。
-- Backend 重启不终止 Centrifugo 持有的既有 WSS；Backend 不可用期间需要业务判断的 RPC 必须显式失败，不能伪装成功。Backend 恢复后，以 PostgreSQL 中已知的 Workspace–Computer binding 集合为完整枚举边界，从 Centrifugo/Redis presence 重建在线视图；presence 查询失败、响应无效或无法覆盖枚举边界时必须返回 unknown/error，不能把未知 binding 伪装成 offline。
+- Backend 重启不终止 Centrifugo 持有的既有 WSS；Backend 不可用期间需要业务判断的 RPC 必须显式失败，不能伪装成功。Backend 恢复后，以 PostgreSQL 中已知的 Workspace–Computer connection 集合为完整枚举边界，从 Centrifugo/Redis presence 重建在线视图；presence 查询失败、响应无效或无法覆盖枚举边界时必须返回 unknown/error，不能把未知 binding 伪装成 offline。
 - Centrifugo 副本、Caddy route 或客户端网络中断仍会断开对应 WSS。客户端必须重连并重新认证；无法完整 hot-recover 时，Backend 从 PostgreSQL canonical state 与 workspace worker durable spool 执行 reconciliation/replay。
-- `online` 与 `last_seen_at` 不是持久化真相。在线状态只从当前 Workspace–Computer binding 的已认证 workspace worker session 派生，不能由同一 Computer 在其他 Workspace 的连接代替。
+- `online` 与 `last_seen_at` 不是持久化真相。在线状态只从当前 Workspace–Computer connection 的已认证 workspace worker session 派生，不能由同一 Computer 在其他 Workspace 的连接代替。
 
 ### 数据与耐久性
 
-- PostgreSQL 是 Backend canonical message、delivery ledger、binding 与其他业务状态的 durable source of truth。MVP 使用官方 PostgreSQL Docker image、认证、私有 Compose 网络和独立 named volume。
+- PostgreSQL 是 Backend canonical message、delivery ledger、registration 与其他业务状态的 durable source of truth。MVP 使用官方 PostgreSQL Docker image、认证、私有 Compose 网络和独立 named volume。
 - 每个 workspace worker 的 durable inbox/outbox spool 是机器侧接管、重试与去重真相。ACK 只在本地 durable accept 后返回；spool 的生产格式、加密、保留和损坏恢复仍需单独批准。
 - Redis 只承担 Centrifugo 的 broker、presence 与 bounded hot history。Redis volume 用于改善操作连续性，不把 Redis 提升为 canonical durability；Redis 数据丢失、epoch 变化或容器替换都必须可由 PostgreSQL + spool 恢复。
 - Centrifugo history/recovery 只能降低重连成本，不能替代 canonical message、per-Agent delivery 或本地 spool。容器重建也不等于数据库恢复、应用回滚或消息 replay。
@@ -71,7 +71,7 @@ Web 与 workspace worker 只依赖稳定的 Caddy public URL，不感知 Centrif
 | Caddy reload/route 变化 | drain 或有界 reconnect；公开 WSS/HTTPS seam 恢复后才健康 | 只以 container health 代替 edge 可用性 |
 | 托管迁移失败 | Redis 可退回原 endpoint 并重建 hot state；PostgreSQL 按已验证 cutover plan 回到原 canonical endpoint | 双写未验证、静默丢数据或回退到旧 schema |
 
-LRM-1581 在固定行为 SHA 上独立通过 11/11 black-box cases、34 assertions、PostgreSQL clean-volume restore、workspace worker spool probe、Backend/Centrifugo/Redis/network faults 与 2,000 次 Protobuf RPC benchmark。production 仍必须补充部署配置评审、Redis license gate、身份/credential/binding/wire approval、备份保留与定期 restore drill。
+LRM-1581 在固定行为 SHA 上独立通过 11/11 black-box cases、34 assertions、PostgreSQL clean-volume restore、workspace worker spool probe、Backend/Centrifugo/Redis/network faults 与 2,000 次 Protobuf RPC benchmark。production 仍必须补充部署配置评审、Redis license gate、身份/credential/registration/wire approval、备份保留与定期 restore drill。
 
 ## 一手资料
 

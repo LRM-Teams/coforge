@@ -1,11 +1,12 @@
 import type {
   CodeAgentAdapter,
-  CodeAgentEvent,
+  AgentRuntimeEvent,
   CodeAgentSession,
   CodeAgentStartOptions,
 } from "../contract";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
+import { createAgentActivity } from "../../agent-runtime/agent-activity";
 
 export class ClaudeCodeAgentAdapter implements CodeAgentAdapter {
   readonly provider = "claude-code" as const;
@@ -46,7 +47,7 @@ export class ClaudeCodeAgentAdapter implements CodeAgentAdapter {
 
 class ClaudeCodeAgentSession implements CodeAgentSession {
   readonly #process: JsonlProcess;
-  readonly #listeners = new Set<(event: CodeAgentEvent) => void>();
+  readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
   #state: "idle" | "running" | "interrupting" | "disposed" = "idle";
   #pendingInterrupt:
     | { id: string; promise: Promise<void>; resolve(): void; reject(error: Error): void }
@@ -111,7 +112,7 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
     }
   }
 
-  subscribe(listener: (event: CodeAgentEvent) => void): () => void {
+  subscribe(listener: (event: AgentRuntimeEvent) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
   }
@@ -140,6 +141,10 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
       reject(error instanceof Error ? error : new Error(String(error)));
     }
     return promise;
+  }
+
+  onExit(listener: () => void): () => void {
+    return this.#process.onClose(listener);
   }
 
   async dispose(): Promise<void> {
@@ -171,6 +176,27 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
           typeof block.name === "string"
         ) {
           this.#emit({ type: "tool-start", id: block.id, name: block.name });
+          const input = asRecord(block.input);
+          const details =
+            block.name === "Bash" && typeof input?.command === "string"
+              ? input.command
+              : typeof input?.file_path === "string"
+                ? input.file_path
+                : block.name;
+          const activity =
+            block.name === "Bash"
+              ? "running_command"
+              : block.name === "Read"
+                ? "reading_file"
+                : block.name === "Write"
+                  ? "writing_file"
+                  : block.name === "Edit"
+                    ? "editing_file"
+                    : "using_tool";
+          this.#emit({
+            type: "activity",
+            activity: createAgentActivity(activity, "info", details, eventTime(record)),
+          });
         }
       }
       return;
@@ -204,7 +230,7 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
     }
   }
 
-  #emit(event: CodeAgentEvent): void {
+  #emit(event: AgentRuntimeEvent): void {
     for (const listener of this.#listeners) listener(event);
   }
 
@@ -234,4 +260,10 @@ function textContent(value: unknown): string {
     .filter((block) => block?.type === "text" && typeof block.text === "string")
     .map((block) => block!.text as string)
     .join("");
+}
+
+function eventTime(record: Readonly<Record<string, unknown>>): string {
+  return typeof record.timestamp === "string" && !Number.isNaN(Date.parse(record.timestamp))
+    ? record.timestamp
+    : new Date().toISOString();
 }

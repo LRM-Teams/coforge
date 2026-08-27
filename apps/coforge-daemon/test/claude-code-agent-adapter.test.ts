@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ClaudeCodeAgentAdapter } from "../src/code-agent/claude-code/adapter";
-import type { CodeAgentEvent } from "../src/code-agent/contract";
+import type { AgentRuntimeEvent } from "../src/code-agent/contract";
 
 test("Claude Code discovers workspace skills before its resident CLI process is ready", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-code-"));
@@ -71,7 +71,7 @@ test("Claude Code maps stream-json turns behind the code-agent seam", async () =
 
   try {
     const session = await adapter.start({ agentWorkspaceDirectory });
-    const events: CodeAgentEvent[] = [];
+    const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
 
     await session.prompt("finish");
@@ -79,6 +79,15 @@ test("Claude Code maps stream-json turns behind the code-agent seam", async () =
     expect(events).toEqual([
       { type: "text-delta", text: "Claude response" },
       { type: "tool-start", id: "tool-1", name: "Bash" },
+      {
+        type: "activity",
+        activity: {
+          activity: "running_command",
+          level: "info",
+          message: "printf safe",
+          occurredAt: "2026-01-02T03:04:05.000Z",
+        },
+      },
       { type: "tool-output", id: "tool-1", text: "tests passed" },
       { type: "tool-end", id: "tool-1", isError: false },
       { type: "completed", status: "completed" },
@@ -96,7 +105,7 @@ test("Claude Code rejects overlapping turns and interrupts without replacing its
 
   try {
     const session = await adapter.start({ agentWorkspaceDirectory });
-    const events: CodeAgentEvent[] = [];
+    const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
 
     await session.prompt("wait");
@@ -139,7 +148,10 @@ function fixtureAdapter(): ClaudeCodeAgentAdapter {
   });
 }
 
-async function waitForEvent(events: CodeAgentEvent[], type: CodeAgentEvent["type"]): Promise<void> {
+async function waitForEvent(
+  events: AgentRuntimeEvent[],
+  type: AgentRuntimeEvent["type"],
+): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (events.some((event) => event.type === type)) return;
     await Bun.sleep(5);

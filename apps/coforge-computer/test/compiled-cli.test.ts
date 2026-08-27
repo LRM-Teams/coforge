@@ -25,7 +25,7 @@ test("compiled CLI writes help to stdout and exits successfully", () => {
 
   expect(result.exitCode).toBe(0);
   expect(result.stdout.toString()).toContain("login [options]");
-  expect(result.stdout.toString()).toContain("setup [options] [workspace-slug]");
+  expect(result.stdout.toString()).toContain("setup [options]");
   expect(result.stdout.toString()).toContain("install [options]");
   expect(result.stdout.toString()).toContain("upgrade [options]");
   expect(result.stdout.toString()).toContain("rollback");
@@ -149,7 +149,7 @@ test("compiled login strips terminal controls from device authorization instruct
 
 test("compiled setup reports a stable not-logged-in failure without claiming success", () => {
   const result = Bun.spawnSync({
-    cmd: [executable, "setup", "workspace-a"],
+    cmd: [executable, "setup", "--workspace", "workspace-a"],
     env: { ...process.env, XDG_CONFIG_HOME: directory },
     stdout: "pipe",
     stderr: "pipe",
@@ -159,5 +159,5 @@ test("compiled setup reports a stable not-logged-in failure without claiming suc
   expect(result.stdout.toString()).toBe("");
   expect(result.stderr.toString()).toContain("SETUP_NOT_LOGGED_IN");
   expect(result.stderr.toString()).toContain("Hint:");
-  expect(result.stderr.toString()).not.toContain("binding was created");
+  expect(result.stderr.toString()).not.toContain("registration was created");
 });

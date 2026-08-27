@@ -109,3 +109,14 @@ export function resolveComputerBinaryDirectory(input: {
   }
   throw new Error(`unsupported platform: ${input.platform}`);
 }
+
+export function resolveDaemonSocketPath(input: {
+  platform: NodeJS.Platform;
+  stateDirectory: string;
+}): string {
+  if (input.platform === "win32") return "\\\\.\\pipe\\coforge-daemon";
+  if (input.platform === "linux" || input.platform === "darwin") {
+    return posix.join(input.stateDirectory, "daemon.sock");
+  }
+  throw new Error(`unsupported platform: ${input.platform}`);
+}
