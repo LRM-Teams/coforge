@@ -60,7 +60,7 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 
 | 字段 | 语义 |
 | --- | --- |
-| `activity` | 稳定类型，例如 `running_command`、`reading_file`、`error` |
+| `activity` | 稳定类型，例如 `running_command`、`reading_file`、`using_tool`、`error` |
 | `level` | `info`、`warning` 或 `error` |
 | `message` | 命令、workspace-relative 文件路径或 provider 原始诊断文本 |
 | `occurred_at` | workspace worker 记录的 UTC RFC 3339 时间 |
@@ -104,7 +104,8 @@ message: <目标文件路径>
 文件。`message` 是 Agent workspace 内的相对路径，供前端展示和 activity timeline 关联；
 不得记录文件内容、完整 diff、prompt、绝对路径或隐藏在参数中的 secret。其他 Code Agent
 工具也通过 `agent:activity` 记录工具类型和安全的目标摘要，provider-specific 工具名
-不能扩散到上层状态模型。
+不能扩散到上层状态模型。暂未纳入统一分类的工具使用 `activity=using_tool`，并在
+`message` 中保留安全的工具名或目标摘要，不能因为 provider 增加工具就丢弃事件。
 
 进程生命周期和 turn 生命周期必须按实际发生顺序记录。例如启动成功的顺序是
 `agent:activity(starting)`、`agent:status(online)`；停止时记录

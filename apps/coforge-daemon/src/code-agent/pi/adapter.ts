@@ -6,6 +6,7 @@ import type {
 } from "../contract";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
+import { createAgentActivity } from "../../agent-runtime/agent-activity";
 
 export class PiAgentAdapter implements CodeAgentAdapter {
   readonly provider = "pi" as const;
@@ -96,6 +97,27 @@ class PiAgentSession implements CodeAgentSession {
     if (record.type === "tool_execution_start") {
       if (typeof record.toolCallId === "string" && typeof record.toolName === "string") {
         this.#emit({ type: "tool-start", id: record.toolCallId, name: record.toolName });
+        const input = asRecord(record.args) ?? asRecord(record.input) ?? asRecord(record.arguments);
+        const details =
+          typeof input?.command === "string"
+            ? input.command
+            : typeof input?.path === "string"
+              ? input.path
+              : record.toolName;
+        const activity =
+          record.toolName === "bash"
+            ? "running_command"
+            : record.toolName === "read"
+              ? "reading_file"
+              : record.toolName === "write"
+                ? "writing_file"
+                : record.toolName === "edit"
+                  ? "editing_file"
+                  : "using_tool";
+        this.#emit({
+          type: "activity",
+          activity: createAgentActivity(activity, "info", details, eventTime(record)),
+        });
       }
       return;
     }
@@ -148,4 +170,10 @@ function textContent(value: unknown): string {
     .filter((item) => item?.type === "text" && typeof item.text === "string")
     .map((item) => item!.text as string)
     .join("");
+}
+
+function eventTime(record: Readonly<Record<string, unknown>>): string {
+  return typeof record.timestamp === "string" && !Number.isNaN(Date.parse(record.timestamp))
+    ? record.timestamp
+    : new Date().toISOString();
 }

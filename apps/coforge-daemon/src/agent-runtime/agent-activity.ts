@@ -7,6 +7,7 @@ export type AgentActivityType =
   | "reading_file"
   | "writing_file"
   | "editing_file"
+  | "using_tool"
   | "error"
   | "warning";
 

@@ -6,6 +6,7 @@ import type {
 } from "../contract";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
+import { createAgentActivity } from "../../agent-runtime/agent-activity";
 
 export class CodexAgentAdapter implements CodeAgentAdapter {
   readonly provider = "codex" as const;
@@ -134,6 +135,19 @@ class CodexAgentSession implements CodeAgentSession {
       const item = asRecord(params?.item);
       if (item?.type === "commandExecution" && typeof item.id === "string") {
         this.#emit({ type: "tool-start", id: item.id, name: "command" });
+        const command = typeof item.command === "string" ? item.command : "command";
+        this.#emit({
+          type: "activity",
+          activity: createAgentActivity("running_command", "info", command, eventTime(record)),
+        });
+      } else if (item?.type === "fileChange") {
+        for (const change of fileChanges(item)) {
+          const activity = change.kind === "add" ? "writing_file" : "editing_file";
+          this.#emit({
+            type: "activity",
+            activity: createAgentActivity(activity, "info", change.path, eventTime(record)),
+          });
+        }
       }
       return;
     }
@@ -203,4 +217,26 @@ function assertSkillsLoaded(response: Record<string, unknown>, cwd: string): voi
   if (!workspace || !Array.isArray(workspace.errors) || workspace.errors.length > 0) {
     throw new Error("Codex failed to load workspace skills");
   }
+}
+
+function eventTime(record: Readonly<Record<string, unknown>>): string {
+  return typeof record.timestamp === "string" && !Number.isNaN(Date.parse(record.timestamp))
+    ? record.timestamp
+    : new Date().toISOString();
+}
+
+function fileChanges(
+  item: Readonly<Record<string, unknown>>,
+): Array<{ kind: string; path: string }> {
+  const changes = Array.isArray(item.changes) ? item.changes : [item];
+  return changes.flatMap((value) => {
+    const change = asRecord(value);
+    if (!change || typeof change.path !== "string") return [];
+    return [
+      {
+        kind: typeof change.kind === "string" ? change.kind : "edit",
+        path: change.path,
+      },
+    ];
+  });
 }

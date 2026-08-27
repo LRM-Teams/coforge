@@ -32,6 +32,15 @@ test("Codex loads skills before running app-server behind the code-agent seam", 
     expect(events).toEqual([
       { type: "text-delta", text: "Codex response" },
       { type: "tool-start", id: "item-1", name: "command" },
+      {
+        type: "activity",
+        activity: {
+          activity: "running_command",
+          level: "info",
+          message: "printf safe",
+          occurredAt: "2026-01-02T03:04:05.000Z",
+        },
+      },
       { type: "tool-output", id: "item-1", text: "tests passed" },
       { type: "tool-end", id: "item-1", isError: false },
       { type: "completed", status: "completed" },
@@ -42,6 +51,32 @@ test("Codex loads skills before running app-server behind the code-agent seam", 
     await session.interrupt();
     await waitForEvent(events, "completed");
     expect(events.at(-1)).toEqual({ type: "completed", status: "interrupted" });
+
+    events.length = 0;
+    await session.prompt("files");
+    await waitForEvent(events, "completed");
+    expect(events).toEqual([
+      { type: "text-delta", text: "Codex response" },
+      {
+        type: "activity",
+        activity: {
+          activity: "writing_file",
+          level: "info",
+          message: "src/new.ts",
+          occurredAt: "2026-01-02T03:04:05.000Z",
+        },
+      },
+      {
+        type: "activity",
+        activity: {
+          activity: "editing_file",
+          level: "info",
+          message: "src/existing.ts",
+          occurredAt: "2026-01-02T03:04:05.000Z",
+        },
+      },
+      { type: "completed", status: "completed" },
+    ]);
 
     await session.dispose();
   } finally {

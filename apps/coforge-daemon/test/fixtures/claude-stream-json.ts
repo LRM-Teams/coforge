@@ -66,7 +66,12 @@ function handle(record: Record<string, unknown>): void {
     });
     write({
       type: "assistant",
-      message: { content: [{ type: "tool_use", id: "tool-1", name: "Bash", input: {} }] },
+      timestamp: "2026-01-02T03:04:05.000Z",
+      message: {
+        content: [
+          { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "printf safe" } },
+        ],
+      },
     });
     write({
       type: "user",

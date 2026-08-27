@@ -6,6 +6,7 @@ import type {
 } from "../contract";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
+import { createAgentActivity } from "../../agent-runtime/agent-activity";
 
 export class ClaudeCodeAgentAdapter implements CodeAgentAdapter {
   readonly provider = "claude-code" as const;
@@ -175,6 +176,27 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
           typeof block.name === "string"
         ) {
           this.#emit({ type: "tool-start", id: block.id, name: block.name });
+          const input = asRecord(block.input);
+          const details =
+            block.name === "Bash" && typeof input?.command === "string"
+              ? input.command
+              : typeof input?.file_path === "string"
+                ? input.file_path
+                : block.name;
+          const activity =
+            block.name === "Bash"
+              ? "running_command"
+              : block.name === "Read"
+                ? "reading_file"
+                : block.name === "Write"
+                  ? "writing_file"
+                  : block.name === "Edit"
+                    ? "editing_file"
+                    : "using_tool";
+          this.#emit({
+            type: "activity",
+            activity: createAgentActivity(activity, "info", details, eventTime(record)),
+          });
         }
       }
       return;
@@ -238,4 +260,10 @@ function textContent(value: unknown): string {
     .filter((block) => block?.type === "text" && typeof block.text === "string")
     .map((block) => block!.text as string)
     .join("");
+}
+
+function eventTime(record: Readonly<Record<string, unknown>>): string {
+  return typeof record.timestamp === "string" && !Number.isNaN(Date.parse(record.timestamp))
+    ? record.timestamp
+    : new Date().toISOString();
 }

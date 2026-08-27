@@ -79,6 +79,15 @@ test("Claude Code maps stream-json turns behind the code-agent seam", async () =
     expect(events).toEqual([
       { type: "text-delta", text: "Claude response" },
       { type: "tool-start", id: "tool-1", name: "Bash" },
+      {
+        type: "activity",
+        activity: {
+          activity: "running_command",
+          level: "info",
+          message: "printf safe",
+          occurredAt: "2026-01-02T03:04:05.000Z",
+        },
+      },
       { type: "tool-output", id: "tool-1", text: "tests passed" },
       { type: "tool-end", id: "tool-1", isError: false },
       { type: "completed", status: "completed" },

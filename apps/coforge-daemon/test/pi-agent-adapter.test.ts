@@ -26,6 +26,15 @@ test("Pi loads skills before running in a child process behind the code-agent se
     expect(events).toEqual([
       { type: "text-delta", text: "Pi response" },
       { type: "tool-start", id: "tool-1", name: "bash" },
+      {
+        type: "activity",
+        activity: {
+          activity: "running_command",
+          level: "info",
+          message: "printf safe",
+          occurredAt: "2026-01-02T03:04:05.000Z",
+        },
+      },
       { type: "tool-output", id: "tool-1", text: "tests passed" },
       { type: "tool-end", id: "tool-1", isError: false },
       { type: "completed", status: "completed" },
