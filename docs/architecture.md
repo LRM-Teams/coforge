@@ -113,6 +113,8 @@ Caddy 不理解 conversation、message、Agent 或 workspace 业务。
 
 初始实现使用 Bun 1.4 与 TanStack Start，不使用 Next.js。前期保持模块化单体，只有出现清晰的扩缩容或故障隔离需求时才拆服务。生产构建使用 Nitro 的 Bun preset 生成自包含 server output，并以非 root 用户运行在不可变 Docker image 中；Nitro 3 adapter 当前仍是 beta，进入 production 前必须验证构建、启动、健康检查、优雅停止及 PostgreSQL/Centrifugo 集成路径。
 
+Web 浏览器登录由 Web/backend 拥有。MVP 使用 Authing 托管登录页与 OIDC authorization code + PKCE；callback 必须在服务端用 App Secret 换 token，再签发 CoForge 自己的 host-only HttpOnly `coforge_session` cookie（SameSite=Lax，HTTPS 时 Secure）。Authing access/refresh token 不是 CoForge 长期会话，不得作为浏览器会话存储，也不得写入前端。本切片不新增 PostgreSQL user 表；稳定 CoForge user id 由 Authing `sub` 派生。Computer `login` 仍使用 OAuth Device Authorization Grant，不经过 Authing，也不因 Web 退出而撤销。用户表、Computer Device Flow 与跨设备会话撤销需要单独设计评审。实现依据为 Authing 官方 [托管登录页与授权码换 token](https://docs.authing.cn/v2/guides/basics/authenticate-first-user/use-hosted-login-page.html)，以及 TanStack Start 官方 [server routes](https://tanstack.com/start/latest/docs/framework/react/guide/server-routes) 与 [server functions](https://tanstack.com/start/latest/docs/framework/react/guide/server-functions)。
+
 ### Standalone Centrifugo：实时传输面
 
 - 使用 standalone Centrifugo OSS 持有长期 WSS 连接并提供双向 RPC/订阅传输；

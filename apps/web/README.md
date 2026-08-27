@@ -14,11 +14,32 @@ Internationalization follows TanStack Start's official Paraglide integration.
 English and Simplified Chinese messages live under `messages`; locale-aware
 URLs, SSR request handling, and `<html lang>` are generated through Paraglide.
 
+Browser login uses Authing as the hosted OpenID Connect IdP. Copy
+`apps/web/.env.example` to `apps/web/.env` and set `AUTHING_APP_SECRET` plus a
+random `COFORGE_SESSION_SECRET` of at least 32 characters. Do not commit the
+secret. In the Authing console, register the callback URL
+`http://localhost:8788/auth/callback` exactly, and the logout redirect URL
+`http://localhost:8788/login`. Keep the application type as a standard web app,
+and use authorization-code mode. Computer CLI login is a separate Device Flow
+client and is unchanged.
+
+For local UI work without Authing, uncomment `COFORGE_DEV_SKIP_AUTH=1` in
+`apps/web/.env`. This returns a fixed dev user on the server and is ignored when
+`NODE_ENV=production`. Remove or disable it before validating real login flows.
+
+Local Web UI and Web/backend are the same TanStack Start package. Use the
+frontend script for daily development and the backend script to run the
+production Nitro server. Neither script uses port 3000.
+
 ```bash
 mise install
 mise run install
-bun run --cwd apps/web dev
+./scripts/dev-frontend.sh    # http://127.0.0.1:8788
+./scripts/dev-backend.sh     # http://127.0.0.1:8789 after a production build
 ```
+
+The scripts find the mise Bun install if `bun` is not on PATH. Re-running a
+script replaces whatever is already listening on that port.
 
 Edit `src/routes/index.tsx` to get started. Add route files under
 `src/routes`; TanStack Router updates `src/routeTree.gen.ts` for you.

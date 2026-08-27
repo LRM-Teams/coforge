@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { useState } from "react";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { RouterContextProvider } from "@tanstack/react-router";
@@ -9,6 +9,8 @@ import { AppShell } from "@/components/app-shell";
 import { SettingsContent } from "@/components/settings-content";
 import { overwriteGetLocale } from "@/paraglide/runtime";
 import { getRouter } from "@/router";
+
+const signedInUser = { name: "Frank An", email: "frank@example.com" };
 
 try {
   GlobalRegistrator.register({ url: "http://localhost/en" });
@@ -24,11 +26,12 @@ beforeEach(() => {
 });
 
 afterEach(cleanup);
+afterAll(() => GlobalRegistrator.unregister().catch(() => undefined));
 
 function renderShell() {
   return render(
     <RouterContextProvider router={getRouter()}>
-      <AppShell>
+      <AppShell user={signedInUser}>
         <div />
       </AppShell>
     </RouterContextProvider>,
@@ -80,6 +83,7 @@ test("uses the current user avatar as the personal settings menu trigger without
 
   expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
   expect(trigger.hasAttribute("data-base-ui-tooltip-trigger")).toBeFalse();
+  expect(trigger.textContent).toBe("F");
 });
 
 test("collapses and restores the sidebar with the Mod-B shortcut", () => {

@@ -7,7 +7,9 @@
     "#/*": "./src/*"
   },
   "scripts": {
-    "dev": "bun --bun vite dev",
+    "dev": "bun --bun vite dev --port 8788 --host 127.0.0.1 --strictPort",
+    "dev:frontend": "bun run ./scripts/dev-frontend.ts",
+    "dev:backend": "bun run ./scripts/dev-backend.ts",
     "generate-i18n": "bun run ./scripts/generate-i18n.ts",
     "generate-routes": "tsr generate",
     "build": "bun --bun vite build",

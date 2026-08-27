@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { RouterContextProvider } from "@tanstack/react-router";
 import { cleanup, render } from "@testing-library/react";
@@ -8,17 +8,20 @@ import { AgentsContent } from "@/components/agents-content";
 import { overwriteGetLocale } from "@/paraglide/runtime";
 import { getRouter } from "@/router";
 
+const user = { name: "Frank An", email: "frank@example.com" };
+
 try {
   GlobalRegistrator.register({ url: "http://localhost/en" });
 } catch {
   // Another test file may have registered Happy DOM first.
 }
 afterEach(cleanup);
+afterAll(() => GlobalRegistrator.unregister().catch(() => undefined));
 
 function renderShell() {
   return render(
     <RouterContextProvider router={getRouter()}>
-      <AppShell>
+      <AppShell user={user}>
         <AgentsContent />
       </AppShell>
     </RouterContextProvider>,
@@ -32,6 +35,7 @@ test("shows the primary navigation with Members selected", () => {
   expect(markup).toContain("Members");
   expect(markup).toContain("Computers");
   expect(markup).toContain('aria-label="Current user"');
+  expect(markup).toContain(">F</button>");
   expect(markup).toContain('aria-current="page"');
 });
 
