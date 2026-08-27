@@ -1,4 +1,16 @@
-export {};
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
+
+const expectedSkill = process.argv
+  .find((argument) => argument.startsWith("expected-skill="))
+  ?.slice(15);
+const skillsDirectory = join(process.cwd(), ".agents", "skills");
+let skills: string[] = [];
+try {
+  skills = await readdir(skillsDirectory);
+} catch {
+  // No project skills were discovered.
+}
 
 const decoder = new TextDecoder();
 let buffer = "";
@@ -35,10 +47,18 @@ function handle(request: Request): void {
   if (request.method === "skills/list" && request.id && initialized) {
     skillsLoaded = true;
     const cwds = request.params?.cwds;
+    const errors =
+      expectedSkill && !skills.includes(expectedSkill) ? ["missing expected skill"] : [];
     write({
       id: request.id,
       result: {
-        data: [{ cwd: Array.isArray(cwds) ? cwds[0] : undefined, skills: [], errors: [] }],
+        data: [
+          {
+            cwd: Array.isArray(cwds) ? cwds[0] : undefined,
+            skills: skills.map((name) => ({ name })),
+            errors,
+          },
+        ],
       },
     });
     return;

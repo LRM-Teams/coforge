@@ -14,8 +14,7 @@
     "build": "bun build --compile ./index.ts --outfile ./dist/coforge-daemon"
   },
   "dependencies": {
-    "@coforge/agent": "0.1.0",
-    "@openai/codex": "0.150.1"
+    "@coforge/agent": "0.1.0"
   },
   "devDependencies": {
     "@types/bun": "1.4.0",

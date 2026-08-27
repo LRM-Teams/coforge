@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 test("loads workspace skills before accepting RPC commands", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "coforge-agent-"));
-  const skillDirectory = join(workspace, ".agents", "skills", "startup-proof");
+  const skillDirectory = join(workspace, ".pi", "skills", "startup-proof");
   await mkdir(skillDirectory, { recursive: true });
   await writeFile(
     join(skillDirectory, "SKILL.md"),
@@ -65,7 +65,7 @@ Use this skill only for the startup test.
 
 test("does not become ready when a workspace skill is invalid", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "coforge-agent-invalid-"));
-  const skillDirectory = join(workspace, ".agents", "skills", "invalid");
+  const skillDirectory = join(workspace, ".pi", "skills", "invalid");
   await mkdir(skillDirectory, { recursive: true });
   await writeFile(join(skillDirectory, "SKILL.md"), "# Missing required frontmatter\n");
   const child = spawnRunner(workspace);

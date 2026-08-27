@@ -28,6 +28,10 @@ _Avoid_: Computer login, global daemon session
 The logical collaborator that receives messages, produces responses, and is named in server-side authorization and audit records.
 _Avoid_: Agent process, provider runtime
 
+**Agent workspace**:
+The durable filesystem working area for one Agent within one Workspace on one Computer. It survives Agent runtime replacement and provider changes, and is not itself a logical Workspace.
+_Avoid_: Workspace, repository, provider home, runtime directory
+
 **Agent runtime**:
 A short-lived execution and audit identity for one Agent in one Workspace runtime session. It never inherits User or Computer authority.
 _Avoid_: Agent token, code-agent installation

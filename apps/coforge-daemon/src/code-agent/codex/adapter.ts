@@ -12,11 +12,7 @@ export class CodexAgentAdapter implements CodeAgentAdapter {
   readonly #command: readonly string[];
 
   constructor(options: { command?: readonly string[] } = {}) {
-    this.#command = options.command ?? [
-      process.execPath,
-      new URL("../../../node_modules/.bin/codex", import.meta.url).pathname,
-      "app-server",
-    ];
+    this.#command = options.command ?? ["codex", "app-server"];
   }
 
   async start(options: CodeAgentStartOptions): Promise<CodeAgentSession> {
