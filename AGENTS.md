@@ -137,6 +137,8 @@ These instructions apply to the entire repository.
 - Never create `apps/workspace-worker`. A workspace worker is a supervised resident child-process role implemented and released inside `coforge-daemon`.
 - `coforge-computer` and `coforge-daemon` are independent OS processes. Their local control channel is a Unix domain socket, not a TCP management port.
 - One coforge-daemon manages zero or more workspace worker child processes; each workspace worker belongs to exactly one workspace.
+- `coforge-computer` does not maintain a long-lived cloud WebSocket. Each workspace worker owns exactly one long-lived WSS connection to the cloud; a machine with N bound Workspaces has N worker connections.
+- All Computer/Daemon business traffic to the cloud uses the versioned CoForge RPC over the worker WSS and Protobuf payloads. OAuth, installation, and release metadata are the only HTTPS exceptions. Do not add Computer/Daemon REST business endpoints.
 - Workspace workers adapt Codex, Claude Code, Pi, and other code-agent runtimes through provider-neutral code-agent adapters. Each adapter may use an officially supported native protocol, SDK child runner, or ACP; higher layers must not parse provider-specific output.
 - Caddy owns public TLS and edge proxying. Standalone Centrifugo OSS owns WSS/RPC transport mechanics only. Web/backend owns authentication, conversations, persistence, and routing decisions.
 - PostgreSQL is accessed through Web/backend. Centrifugo must not acquire domain or database ownership.
