@@ -27,7 +27,7 @@ session。
 - Computer/Daemon 的业务 payload 使用 Protobuf。schema 通过 `.proto` 维护并生成
   TypeScript 类型；不同时维护 JSON fallback。
 - RPC method 使用 Centrifugo 原生 namespace boundary：`<namespace>:<method>`，例如
-  `computer:register`、`workspace_worker:ready`、`runtime:inventory_report`。
+  `computer:register`、`workspace_worker:ready`、`workspace_worker:code_agents_update`。
   日志 event name 也统一使用相同的 `namespace:action` 分隔规则。
 - setup 由 Workspace 页面发起并携带系统生成的、短时一次性的 setup intent。用户不
   输入 Workspace ID、slug，也不在 Computer 端选择 Workspace；intent 只绑定一个
@@ -35,7 +35,7 @@ session。
 - Computer 注册是用户主动授权的操作，使用 User authorization context；注册后由
   Backend 颁发 Computer/Workspace session credential 给 Daemon。User credential
   不持久化到 Daemon，不进入 Agent runtime，也不用于普通 Daemon reconnect。
-- `runtime:inventory_report` 只上报需要探测的用户安装 runtime（当前为 Codex 和
+- `workspace_worker:code_agents_update` 只上报需要探测的用户安装 runtime（当前为 Codex 和
   Claude Code）。内置 Pi runtime 随 Daemon/CoForge Agent payload 固定交付，不通过
   PATH 扫描，也不作为本机发现结果；其版本和 capabilities 来自已验证的 release
   manifest/package metadata。
@@ -62,10 +62,9 @@ Computer --local RPC--> Daemon
 - `workspace_worker:ready`
 - `workspace_worker:resume`
 - `workspace_worker:heartbeat`
-- `runtime:inventory_report`
+- `workspace_worker:code_agents_update`
 - `computer:revoke`
 - `workspace:revoke`
-- `delivery:offer` / `delivery:accepted` / `delivery:rejected`
 - `message:publish` / `message:committed`
 
 `workspace_worker:ready` 表示该 Worker 已完成本地启动、认证和 WSS 建立，可以接收该
