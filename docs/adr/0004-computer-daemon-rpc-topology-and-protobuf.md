@@ -61,7 +61,7 @@ Computer --local RPC--> Daemon
 - `workspace:binding_activate`
 - `workspace_worker:ready`
 - `workspace_worker:resume`
-- `computer:heartbeat`
+- `workspace_worker:heartbeat`
 - `runtime:inventory_report`
 - `computer:revoke`
 - `workspace:revoke`
