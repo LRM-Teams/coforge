@@ -68,7 +68,7 @@ apps/
     └── 内部实现 workspace worker 子进程角色
 
 packages/
-└── coforge-agent/
+└── agent/
     └── 使用 Pi SDK 的内置 Agent runtime；由 coforge-daemon 安装和启动
 ```
 
@@ -79,7 +79,7 @@ packages/
 | `coforge-computer` | 独立 app package；唯一面向用户的本地安装入口，并依赖 `coforge-daemon` package | 独立 OS 进程 | 机器身份、安装升级、启动/停止和健康检查 coforge-daemon |
 | `coforge-daemon` | 独立 app package；作为 Computer 的构建/分发依赖随 Computer 安装，不单独提供用户安装入口 | 独立 OS 进程 | 对齐期望/实际 workspace 集合，管理子进程生命周期和崩溃恢复 |
 | workspace worker | 不独立发布 | coforge-daemon 监督的常驻子进程；一个实例对应一个逻辑 workspace | 维护该 workspace 的 WSS、投递边界、code-agent adapter 和 Agent 生命周期 |
-| `coforge-agent` | 可独立打包的 runtime package；是 coforge-daemon 的精确版本依赖，不是 app 或用户安装入口 | workspace worker 启动的常驻独立 Agent runtime process | 封装 Pi SDK、内置 extensions、skills 和 Pi-specific runner |
+| `@coforge/agent` | 可独立打包的 runtime package；是 coforge-daemon 的精确版本依赖，不是 app 或用户安装入口 | workspace worker 启动的常驻独立 Agent runtime process | 封装 Pi SDK、内置 extensions、skills 和 Pi-specific runner |
 
 因此禁止为 workspace worker 新增第三个 app package。需要隔离的是运行时进程，而不是发布包。
 

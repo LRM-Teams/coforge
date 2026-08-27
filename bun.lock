@@ -74,7 +74,7 @@
         "vite": "8.2.2",
       },
     },
-    "packages/coforge-agent": {
+    "packages/agent": {
       "name": "@coforge/agent",
       "version": "0.1.0",
       "bin": {
@@ -204,7 +204,7 @@
 
     "@base-ui/utils": ["@base-ui/utils@0.3.2", "", { "dependencies": { "@babel/runtime": "^7.29.2", "@floating-ui/utils": "^0.2.12", "reselect": "^5.2.0", "use-sync-external-store": "^1.6.0" }, "peerDependencies": { "@types/react": "^17 || ^18 || ^19", "react": "^17 || ^18 || ^19", "react-dom": "^17 || ^18 || ^19" }, "optionalPeers": ["@types/react"] }, "sha512-oWy1aq/I2GmYjpl4PhEAhzflF8VPGKgZeq0xAWTbfD5KBWyxcN0ZP2+WHSUm/5Z6lVMBDLReLcoXwSYoRc/zNQ=="],
 
-    "@coforge/agent": ["@coforge/agent@workspace:packages/coforge-agent"],
+    "@coforge/agent": ["@coforge/agent@workspace:packages/agent"],
 
     "@coforge/computer": ["@coforge/computer@workspace:apps/coforge-computer"],
 
