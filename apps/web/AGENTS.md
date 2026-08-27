@@ -38,6 +38,10 @@ instructions for the TanStack Start Web/backend modular monolith.
   commit migrations. Never use `prisma db push` or `prisma db reset` for shared
   environments, CI, staging, or production; never mutate schema on application
   startup.
+- Keep `prisma`, `@prisma/client`, and the PostgreSQL driver adapter on the
+  same supported major version, pinned by the workspace lockfile. Use the
+  repository's Bun-compatible Prisma setup rather than adding an alternate
+  database client.
 - Use parameterized Prisma queries. Use `$queryRaw`/`$executeRaw` only for a
   reviewed PostgreSQL-specific requirement, and keep that SQL in a server-only
   repository or migration.

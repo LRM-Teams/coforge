@@ -12,7 +12,7 @@
 
 ## 结构化日志
 
-所有 Computer、Daemon、workspace-daemon、Web/backend、realtime-gateway 管理侧和运维脚本输出一条事件一行 JSON。默认写 stderr，由运行环境收集；CLI 的人读结果仍写 stdout，不能把日志混入机器可读结果。
+所有 Computer、Daemon、workspace worker、Web/backend、Centrifugo 管理侧和运维脚本输出一条事件一行 JSON。默认写 stderr，由运行环境收集；CLI 的人读结果仍写 stdout，不能把日志混入机器可读结果。
 
 保留字段：
 
@@ -79,8 +79,8 @@ MVP 默认保留结构化运行日志 30 天、审计/发布证据 90 天；部�
 
 ## 实施顺序
 
-1. 先在现有 Gateway 和 Computer 统一 JSON logger、request ID 和敏感字段过滤。
-2. 再为 Daemon/workspace-daemon 接入同一事件字段与 liveness/readiness seam。
+1. 先在 Web/backend、Computer 和 Daemon 统一 JSON logger、request ID 和敏感字段过滤。
+2. 再为 workspace worker 和 Centrifugo 管理面接入同一事件字段与 liveness/readiness seam。
 3. 最后接入指标采集与告警；在没有真实消费者前不锁定 tracing vendor 或云厂商协议。
 
 架构总览与进程职责见 [`docs/architecture.md`](architecture.md)。

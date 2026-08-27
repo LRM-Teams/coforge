@@ -29,7 +29,7 @@ flowchart LR
     User -->|short-lived signed GET| Delivery[Opaque delivery URL<br/>Direct OSS or cdn.coforge.cn/files/]
     Caddy -->|WSS| Realtime[Standalone Centrifugo OSS<br/>transport only]
     Caddy --> Web[Web / backend<br/>Bun · TanStack Start<br/>control plane]
-    Web --> DB[(Managed PostgreSQL)]
+    Web --> DB[(PostgreSQL<br/>Docker dev / managed production)]
     Web -->|upload sign · object verify| OSS
     Web -->|authorize · issue delivery URL| Delivery
     Delivery -->|direct read or authenticated origin fetch| OSS

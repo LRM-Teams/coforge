@@ -43,18 +43,19 @@ for cloud deployment, atomic Computer installation bundles and compatibility
 release sets, exact-artifact production promotion, per-user installation, and
 rollback rules. The accepted realtime and MVP data-service decision is recorded
 in [ADR 0001](docs/adr/0001-standalone-centrifugo-and-compose-data-services.md).
+PostgreSQL data access is standardized on Prisma; see [ADR 0003](docs/adr/0003-prisma-as-postgresql-data-access.md)
+and the [Web/backend agent instructions](apps/web/AGENTS.md).
 Computer and Daemon share the single LogTape-based contract documented in
 [local application logging](docs/local-logging.md); implementation is pending.
 
 ## Repository layout
 
 ```text
-apps/realtime-gateway   Obsolete Go skeleton pending removal; not a production path
 apps/web                Web UI and backend control plane
+apps/web/prisma         Planned Prisma schema and migrations
 apps/coforge-computer   Machine-level setup and supervisor
 apps/coforge-daemon     Workspace worker supervisor and code-agent adapters
 packages/coforge-agent Independently packable built-in Agent runtime using Pi SDK
-database                PostgreSQL migrations
 docs                    Architecture, ADRs, and data-model documentation
 packages                Shared and independently packable runtime packages
 ```
