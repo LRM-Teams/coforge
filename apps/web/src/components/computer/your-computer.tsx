@@ -56,7 +56,7 @@ export function YourComputerInstall() {
         <p className="mt-1 text-sm text-muted-foreground">
           {m.computer_install_step_description()}
         </p>
-        <div className="mt-4 flex items-center gap-2 rounded-xl bg-[#171b23] p-4 text-sm text-[#f4f6fb]">
+        <div className="mt-4 flex items-center gap-2 rounded-xl bg-terminal p-4 text-sm text-terminal-foreground">
           <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap">{command}</code>
           <Button
             variant="secondary"

@@ -55,7 +55,7 @@ export function AgentCard({
           </h2>
           <p className="truncate text-xs text-muted-foreground">@{handle}</p>
         </div>
-        <span className="flex max-w-36 shrink-0 items-center gap-1.5 truncate rounded-full bg-accent px-2.5 py-1 text-[11px] text-accent-foreground">
+        <span className="flex max-w-36 shrink-0 items-center gap-1.5 truncate rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground">
           <Monitor aria-hidden="true" className="size-3" />
           <span className="truncate">{computer}</span>
         </span>
@@ -79,7 +79,7 @@ export function AgentCard({
       </dl>
 
       <footer className="mt-auto flex items-center gap-2 border-t pt-3 text-[11px] text-muted-foreground">
-        <span className="flex size-5 items-center justify-center rounded-full bg-accent text-[9px] font-semibold text-accent-foreground">
+        <span className="flex size-5 items-center justify-center rounded-full bg-muted text-[9px] font-semibold text-muted-foreground">
           {owner.slice(0, 1)}
         </span>
         <span>{owner}</span>
