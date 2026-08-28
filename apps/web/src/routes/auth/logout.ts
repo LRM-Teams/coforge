@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { logoutHandler } from "@/identity/route-handlers";
+import { logoutHandler } from "@/server/auth/route-handlers.server";
 
 export const Route = createFileRoute("/auth/logout")({
   server: {

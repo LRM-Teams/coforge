@@ -1,0 +1,47 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Workspace {
+  id        String                @id @default(uuid()) @db.Uuid
+  slug      String                @unique
+  name      String
+  members   WorkspaceMembership[]
+  computers WorkspaceComputer[]
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+}
+
+model WorkspaceMembership {
+  workspaceId    String    @db.Uuid
+  externalUserId String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, externalUserId])
+  @@index([externalUserId])
+}
+
+model Computer {
+  id          String              @id @default(uuid()) @db.Uuid
+  ownerUserId String
+  machineId   String
+  workspaces  WorkspaceComputer[]
+
+  @@unique([ownerUserId, machineId])
+}
+
+model WorkspaceComputer {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  computerId  String    @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  computer    Computer  @relation(fields: [computerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@unique([workspaceId, computerId])
+}

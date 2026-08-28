@@ -7,32 +7,35 @@ This Compose project starts three separate containers:
 - `postgres:18.6` — private PostgreSQL backend for CoForge canonical state.
 
 Redis is reachable only on the private Compose network and uses a Docker
-secret for its password. Centrifugo's token signing secret and HTTP API key
-are also mounted as Docker secrets.
+secret for its password. Centrifugo's HTTP API key and the backend proxy
+shared secret are also mounted as Docker secrets. Worker connection JWTs are
+verified through the backend's public JWKS endpoint; Centrifugo does not hold
+the Worker signing private key.
 Centrifugo exposes its WebSocket and internal HTTP endpoint on the configured
-local port (default `8000`). Backend proxy/API wiring is not included yet; the
-service can therefore be health-checked and connected to, but business RPC
-methods still require the future backend proxy configuration.
+local port (default `8000`). The RPC proxy and JWKS endpoints are configured
+for a Web backend on the local host. Set
+`COFORGE_RPC_PROXY_ENDPOINT` and `COFORGE_WORKER_JWKS_ENDPOINT` when the Web
+backend is not running on the default local host endpoints.
 
 ## Start
 
 ```bash
 mkdir -p infra/secrets
 openssl rand -hex 32 > infra/secrets/redis_password
-openssl rand -hex 32 > infra/secrets/centrifugo_token_hmac_secret_key
 openssl rand -hex 32 > infra/secrets/centrifugo_http_api_key
+openssl rand -hex 32 > infra/secrets/centrifugo_proxy_secret
 openssl rand -hex 32 > infra/secrets/postgres_password
 docker compose -p coforge \
-  -f infra/docker-compose.yml up -d
+  -f infra/docker-compose.centrifugo.yml up -d
 ```
 
 Check the rendered configuration and service health:
 
 ```bash
 docker compose -p coforge \
-  -f infra/docker-compose.yml config --quiet
+  -f infra/docker-compose.centrifugo.yml config --quiet
 docker compose -p coforge \
-  -f infra/docker-compose.yml ps
+  -f infra/docker-compose.centrifugo.yml ps
 curl http://localhost:8000/health
 ```
 
@@ -44,7 +47,7 @@ Stop the services without deleting the Redis volume:
 
 ```bash
 docker compose -p coforge \
-  -f infra/docker-compose.yml down
+  -f infra/docker-compose.centrifugo.yml down
 ```
 
 The committed image versions are intentionally not `latest`. Production must

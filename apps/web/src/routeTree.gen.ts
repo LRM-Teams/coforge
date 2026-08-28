@@ -15,10 +15,12 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppComputersRouteImport } from './routes/_app/computers'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as ApiJwksRouteImport } from './routes/api/jwks'
 import { Route as ApiMeRouteImport } from './routes/api/me'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AuthLogoutRouteImport } from './routes/auth/logout'
+import { Route as ApiInternalCentrifugoRouteImport } from './routes/api/internal/centrifugo'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -49,6 +51,11 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
+const ApiJwksRoute = ApiJwksRouteImport.update({
+  id: '/api/jwks',
+  path: '/api/jwks',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiMeRoute = ApiMeRouteImport.update({
   id: '/api/me',
   path: '/api/me',
@@ -69,6 +76,11 @@ const AuthLogoutRoute = AuthLogoutRouteImport.update({
   path: '/auth/logout',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiInternalCentrifugoRoute = ApiInternalCentrifugoRouteImport.update({
+  id: '/api/internal/centrifugo',
+  path: '/api/internal/centrifugo',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -76,21 +88,25 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/computers': typeof AppComputersRoute
   '/settings': typeof AppSettingsRoute
+  '/api/jwks': typeof ApiJwksRoute
   '/api/me': typeof ApiMeRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
+  '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
 }
 export interface FileRoutesByTo {
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/computers': typeof AppComputersRoute
   '/settings': typeof AppSettingsRoute
+  '/api/jwks': typeof ApiJwksRoute
   '/api/me': typeof ApiMeRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
   '/': typeof AppIndexRoute
+  '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -99,11 +115,13 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/_app/computers': typeof AppComputersRoute
   '/_app/settings': typeof AppSettingsRoute
+  '/api/jwks': typeof ApiJwksRoute
   '/api/me': typeof ApiMeRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
   '/_app/': typeof AppIndexRoute
+  '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -113,21 +131,25 @@ export interface FileRouteTypes {
     | '/login'
     | '/computers'
     | '/settings'
+    | '/api/jwks'
     | '/api/me'
     | '/auth/callback'
     | '/auth/login'
     | '/auth/logout'
+    | '/api/internal/centrifugo'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/health'
     | '/login'
     | '/computers'
     | '/settings'
+    | '/api/jwks'
     | '/api/me'
     | '/auth/callback'
     | '/auth/login'
     | '/auth/logout'
     | '/'
+    | '/api/internal/centrifugo'
   id:
     | '__root__'
     | '/_app'
@@ -135,21 +157,25 @@ export interface FileRouteTypes {
     | '/login'
     | '/_app/computers'
     | '/_app/settings'
+    | '/api/jwks'
     | '/api/me'
     | '/auth/callback'
     | '/auth/login'
     | '/auth/logout'
     | '/_app/'
+    | '/api/internal/centrifugo'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   HealthRoute: typeof HealthRoute
   LoginRoute: typeof LoginRoute
+  ApiJwksRoute: typeof ApiJwksRoute
   ApiMeRoute: typeof ApiMeRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthLogoutRoute: typeof AuthLogoutRoute
+  ApiInternalCentrifugoRoute: typeof ApiInternalCentrifugoRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -196,6 +222,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/api/jwks': {
+      id: '/api/jwks'
+      path: '/api/jwks'
+      fullPath: '/api/jwks'
+      preLoaderRoute: typeof ApiJwksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/me': {
       id: '/api/me'
       path: '/api/me'
@@ -224,6 +257,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLogoutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/internal/centrifugo': {
+      id: '/api/internal/centrifugo'
+      path: '/api/internal/centrifugo'
+      fullPath: '/api/internal/centrifugo'
+      preLoaderRoute: typeof ApiInternalCentrifugoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -245,10 +285,12 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   HealthRoute: HealthRoute,
   LoginRoute: LoginRoute,
+  ApiJwksRoute: ApiJwksRoute,
   ApiMeRoute: ApiMeRoute,
   AuthCallbackRoute: AuthCallbackRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthLogoutRoute: AuthLogoutRoute,
+  ApiInternalCentrifugoRoute: ApiInternalCentrifugoRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

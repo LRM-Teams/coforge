@@ -23,7 +23,14 @@ test("systemd user service is installed and started without a system service", a
       return 0;
     },
   });
-  await service.ensureStarted("secret").catch(() => undefined);
+  await service
+    .ensureStarted({
+      workspaceId: "w",
+      connectionId: "c",
+      workspaceRoot: "/w",
+      workspaceWorkerToken: "secret",
+    })
+    .catch(() => undefined);
   expect(commands.slice(0, 3)).toEqual([
     ["systemctl", "--user", "daemon-reload"],
     ["systemctl", "--user", "enable", "coforge-daemon.service"],

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { loginCallbackHandler } from "@/identity/route-handlers";
+import { loginCallbackHandler } from "@/server/auth/route-handlers.server";
 
 export const Route = createFileRoute("/auth/callback")({
   server: {

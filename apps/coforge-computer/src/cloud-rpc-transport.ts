@@ -5,8 +5,20 @@ import type {
   ComputerRegisterTransport,
 } from "@coforge/protocol";
 import {
+  WORKSPACE_GET_METHOD,
+  WORKSPACE_LIST_METHOD,
+  WORKSPACE_PROTOCOL_MAJOR,
+} from "@coforge/protocol";
+import type { ComputerWorkspaceRpcTransport } from "./workspace/catalog";
+import type { AccessibleWorkspace, Credential } from "./login";
+import { setupError } from "./errors";
+import {
   encodeComputerRegisterRequest,
   decodeComputerRegisterResponse,
+  encodeWorkspaceGetRequest,
+  encodeWorkspaceListRequest,
+  decodeWorkspaceGetResponse,
+  decodeWorkspaceListResponse,
 } from "@coforge/protocol/codec";
 
 export interface CentrifugeClient {
@@ -48,6 +60,92 @@ export class CentrifugoComputerRegisterTransport implements ComputerRegisterTran
     } finally {
       client.disconnect();
     }
+  }
+}
+
+export class CentrifugoWorkspaceRpcTransport implements ComputerWorkspaceRpcTransport {
+  constructor(private readonly factory: CentrifugeFactory = defaultFactory) {}
+
+  async listAccessible(serverUrl: string, credential: Credential): Promise<AccessibleWorkspace[]> {
+    const requestId = crypto.randomUUID();
+    const result = await this.call(
+      cloudWebSocketEndpoint(serverUrl),
+      credential.accessToken,
+      WORKSPACE_LIST_METHOD,
+      encodeWorkspaceListRequest({ protocolMajor: WORKSPACE_PROTOCOL_MAJOR, requestId }),
+    );
+    const response = decodeWorkspaceListResponse(result.data);
+    if (response.protocolMajor !== WORKSPACE_PROTOCOL_MAJOR || response.requestId !== requestId)
+      throw setupError("SETUP_WORKSPACE_RPC_UNAVAILABLE", "Invalid Workspace RPC response.");
+    return response.workspaces;
+  }
+
+  async getBySlug(
+    serverUrl: string,
+    credential: Credential,
+    slug: string,
+  ): Promise<AccessibleWorkspace> {
+    const requestId = crypto.randomUUID();
+    const result = await this.call(
+      cloudWebSocketEndpoint(serverUrl),
+      credential.accessToken,
+      WORKSPACE_GET_METHOD,
+      encodeWorkspaceGetRequest({
+        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+        requestId,
+        workspaceSlug: slug,
+      }),
+    );
+    try {
+      const response = decodeWorkspaceGetResponse(result.data);
+      if (response.protocolMajor !== WORKSPACE_PROTOCOL_MAJOR || response.requestId !== requestId)
+        throw new Error("invalid response");
+      return response.workspace;
+    } catch {
+      throw setupError(
+        "SETUP_WORKSPACE_NOT_FOUND",
+        `Workspace '${slug}' was not found or is not accessible.`,
+      );
+    }
+  }
+
+  private async call(endpoint: string, token: string, method: string, payload: Uint8Array) {
+    const client = this.factory(endpoint, token);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        client.on("connected", resolve);
+        client.on("error", reject);
+        client.connect();
+      });
+      return await client.rpc(method, payload);
+    } finally {
+      client.disconnect();
+    }
+  }
+}
+
+/** Kept as an explicit failure for callers that have not wired cloud RPC. */
+export class UnconfiguredComputerWorkspaceRpcTransport implements ComputerWorkspaceRpcTransport {
+  listAccessible(_serverUrl: string, _credential: Credential): Promise<AccessibleWorkspace[]> {
+    return Promise.reject(
+      setupError(
+        "SETUP_WORKSPACE_RPC_UNAVAILABLE",
+        "Workspace list RPC is not configured; no Workspace list method is approved in the current protocol.",
+      ),
+    );
+  }
+
+  getBySlug(
+    _serverUrl: string,
+    _credential: Credential,
+    _slug: string,
+  ): Promise<AccessibleWorkspace> {
+    return Promise.reject(
+      setupError(
+        "SETUP_WORKSPACE_RPC_UNAVAILABLE",
+        "Workspace lookup RPC is not configured; no Workspace lookup method is approved in the current protocol.",
+      ),
+    );
   }
 }
 

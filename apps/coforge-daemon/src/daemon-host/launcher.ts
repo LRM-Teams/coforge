@@ -2,15 +2,26 @@ import { access } from "node:fs/promises";
 import { join, win32 } from "node:path";
 import {
   decodeDaemonHandshakeResponse,
+  decodeWorkspaceWorkerConfigureResponse,
   encodeDaemonHandshakeRequest,
+  encodeWorkspaceWorkerConfigureRequest,
   frameLocalRpc,
   readLocalRpcFrame,
+  encodeLocalRpcRequest,
+  decodeLocalRpcResponse,
+  LOCAL_RPC_METHODS,
 } from "@coforge/protocol";
 import type { DaemonHandshakeResponse } from "@coforge/protocol";
 
 export interface DaemonLauncher {
-  ensureStarted(credential: string): Promise<void>;
+  ensureStarted(input: WorkspaceWorkerConfig): Promise<void>;
 }
+export type WorkspaceWorkerConfig = {
+  workspaceId: string;
+  connectionId: string;
+  workspaceRoot: string;
+  workspaceWorkerToken: string;
+};
 
 export type LocalDaemonConnection = {
   request(payload: Uint8Array): Promise<Uint8Array>;
@@ -47,18 +58,18 @@ export class LocalDaemonLauncher implements DaemonLauncher {
     this.#timeoutMilliseconds = options.timeoutMilliseconds ?? 10_000;
   }
 
-  async ensureStarted(credential: string): Promise<void> {
-    if (await this.#handshake(credential)) return;
+  async ensureStarted(input: WorkspaceWorkerConfig): Promise<void> {
+    if (await this.#handshake(input)) return;
     this.#spawn(this.options.executablePath, this.options.socketPath);
     const deadline = Date.now() + this.#timeoutMilliseconds;
     while (Date.now() < deadline) {
-      if (await this.#handshake(credential)) return;
+      if (await this.#handshake(input)) return;
       await this.#sleep(50);
     }
     throw new Error("coforge-daemon did not accept the local handshake");
   }
 
-  async #handshake(credential: string): Promise<boolean> {
+  async #handshake(config: WorkspaceWorkerConfig): Promise<boolean> {
     let connection: LocalDaemonConnection;
     try {
       connection = await this.#connect(this.options.socketPath);
@@ -67,18 +78,47 @@ export class LocalDaemonLauncher implements DaemonLauncher {
     }
     try {
       const requestId = crypto.randomUUID();
-      const response = decodeDaemonHandshakeResponse(
+      const handshakeEnvelope = decodeLocalRpcResponse(
         await connection.request(
           frameLocalRpc(
-            encodeDaemonHandshakeRequest({
-              protocolMajor: 1,
-              requestId,
-              daemonWorkspaceCredential: credential,
+            encodeLocalRpcRequest({
+              method: LOCAL_RPC_METHODS.HANDSHAKE,
+              payload: encodeDaemonHandshakeRequest({
+                protocolMajor: 1,
+                requestId,
+              }),
             }),
           ),
         ),
       );
-      return validHandshakeResponse(response, requestId);
+      if (handshakeEnvelope.method !== LOCAL_RPC_METHODS.HANDSHAKE) return false;
+      const response = decodeDaemonHandshakeResponse(handshakeEnvelope.payload);
+      if (!validHandshakeResponse(response, requestId)) return false;
+      const configureId = crypto.randomUUID();
+      const responseEnvelope = decodeLocalRpcResponse(
+        await connection.request(
+          frameLocalRpc(
+            encodeLocalRpcRequest({
+              method: LOCAL_RPC_METHODS.CONFIGURE,
+              payload: encodeWorkspaceWorkerConfigureRequest({
+                protocolMajor: 1,
+                requestId: configureId,
+                workspaceId: config.workspaceId,
+                connectionId: config.connectionId,
+                workspaceRoot: config.workspaceRoot,
+                workspaceWorkerToken: config.workspaceWorkerToken,
+              }),
+            }),
+          ),
+        ),
+      );
+      if (responseEnvelope.method !== LOCAL_RPC_METHODS.CONFIGURE) return false;
+      const configured = decodeWorkspaceWorkerConfigureResponse(responseEnvelope.payload);
+      return (
+        configured.protocolMajor === 1 &&
+        configured.requestId === configureId &&
+        configured.accepted
+      );
     } catch {
       return false;
     } finally {

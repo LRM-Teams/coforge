@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 
-import { ComputerSetup, type ComputerSetupOptions } from "../src/setup";
+import { ComputerSetup, type ComputerSetupOptions } from "../src/setup/computer-setup";
 import type { AccessibleWorkspace, Credential } from "../src/login";
+import { CliError } from "../src/errors";
+import { createWorkspaceCatalog } from "../src/workspace/catalog";
 
 const credential: Credential = { accessToken: "access-secret", tokenType: "Bearer" };
 const workspaces: AccessibleWorkspace[] = [
@@ -11,22 +13,17 @@ const workspaces: AccessibleWorkspace[] = [
 
 test("setup resolves an accessible Workspace by slug and persists its stable id", async () => {
   const saved: Array<{ id: string; slug: string }> = [];
-  const stdout: string[] = [];
   const setup = createSetup({
     config: {
       async loadCurrentProfile() {
         return { serverUrl: "https://coforge.example" };
       },
-      async saveWorkspace(workspace) {
-        saved.push(workspace);
-        return "/config/workspaces/id/config.json";
-      },
       async saveRegistration(registration) {
         saved.push({ id: registration.id, slug: registration.slug });
         return "/config/workspaces/id/config.json";
       },
+      async discardRegistration() {},
     },
-    writeLine: (line) => stdout.push(line),
   });
 
   const result = await setup.run({ workspaceSlug: "workspace-b" });
@@ -37,19 +34,14 @@ test("setup resolves an accessible Workspace by slug and persists its stable id"
     name: "workspace-b",
   });
   expect(saved).toEqual([{ id: "workspace-id-b", slug: "workspace-b" }]);
-  expect(stdout.join("\n")).toContain("Workspace:             workspace-b (workspace-b)");
-  expect(stdout.join("\n")).toContain("Configuration saved:");
-  expect(stdout.join("\n")).toContain("Computer:              registered");
-  expect(stdout.join("\n")).toContain("Daemon:                started");
 });
 
 test("setup resolves exactly the requested Workspace slug", async () => {
   const setup = createSetup({
-    client: {
-      async listWorkspaces() {
-        return workspaces;
-      },
-    },
+    catalog: createWorkspaceCatalog(
+      async () => workspaces,
+      async (_serverUrl, _credential, slug) => ({ id: "", slug, name: slug }),
+    ),
     selectWorkspace: async (available) => available[0]!,
   });
 
@@ -58,15 +50,60 @@ test("setup resolves exactly the requested Workspace slug", async () => {
   expect(true).toBe(true);
 });
 
+test("setup reports an inaccessible explicit slug before registration", async () => {
+  let registered = false;
+  const setup = createSetup({
+    catalog: createWorkspaceCatalog(
+      async () => {
+        throw new Error("must not list for direct slug");
+      },
+      async () => {
+        throw new CliError(
+          "AUTH_WORKSPACE_GET_FAILED",
+          "Could not access Workspace.",
+          "Check the Workspace slug and your account access, then rerun setup.",
+        );
+      },
+    ),
+    registrationFactory: () => ({
+      async register() {
+        registered = true;
+        throw new Error("must not register");
+      },
+    }),
+  });
+
+  await expect(setup.run({ workspaceSlug: "missing" })).rejects.toMatchObject({
+    code: "SETUP_WORKSPACE_NOT_FOUND",
+  });
+  expect(registered).toBe(false);
+});
+
+test("catalog getBySlug is a single-workspace lookup seam", async () => {
+  const calls: string[] = [];
+  const catalog = createWorkspaceCatalog(
+    async () => workspaces,
+    async (_serverUrl, _credential, slug) => {
+      calls.push(slug);
+      return { id: "workspace-id-a", slug, name: "Workspace A" };
+    },
+  );
+  const workspace = await catalog.getBySlug("https://coforge.example", credential, "workspace-a");
+
+  expect(calls).toEqual(["workspace-a"]);
+  expect(workspace.slug).toBe("workspace-a");
+});
+
 test("setup lists Workspaces only for interactive selection", async () => {
   const listed: string[] = [];
   const setup = createSetup({
-    client: {
-      async listWorkspaces(serverUrl) {
+    catalog: createWorkspaceCatalog(
+      async (serverUrl) => {
         listed.push(serverUrl);
         return workspaces;
       },
-    },
+      async (_serverUrl, _credential, slug) => ({ id: "", slug, name: slug }),
+    ),
     selectWorkspace: async (available) => available[1]!,
   });
 
@@ -106,32 +143,92 @@ test("setup authenticates inside the same flow when no credential exists", async
   expect(authenticated).toEqual(["https://coforge.example:true"]);
 });
 
-test("setup JSON output is one stable object and contains no credential", async () => {
-  const stdout: string[] = [];
-  const setup = createSetup({ writeLine: (line) => stdout.push(line) });
-
-  await setup.run({ workspaceSlug: "workspace-a", json: true });
-
-  expect(stdout).toHaveLength(1);
-  expect(JSON.parse(stdout[0]!)).toEqual({
-    ok: true,
-    workspace: { id: "workspace-id-a", slug: "workspace-a", name: "workspace-a" },
-    config_path: "/config/workspaces/id/config.json",
-    server_registration_created: true,
-    daemon_started: true,
+test("setup authenticates and saves the profile when no profile exists", async () => {
+  const calls: string[] = [];
+  const setup = createSetup({
+    config: {
+      async loadCurrentProfile() {
+        throw new Error("missing");
+      },
+      async saveCurrentProfile(profile) {
+        calls.push(`profile:${profile.serverUrl}`);
+      },
+      async saveRegistration() {
+        return "/config/workspaces/id/config.json";
+      },
+      async discardRegistration() {},
+    },
+    authenticate: {
+      async authenticate(serverUrl) {
+        calls.push(`auth:${serverUrl}`);
+        return credential;
+      },
+    },
+    credentials: {
+      async load() {
+        return null;
+      },
+      async saveDaemonCredential() {},
+    },
   });
-  expect(stdout[0]).not.toContain("access-secret");
+
+  await setup.run({ workspaceSlug: "workspace-a", serverUrl: "https://new.example", json: true });
+  expect(calls).toEqual(["auth:https://new.example", "profile:https://new.example"]);
+});
+
+test("setup uses an explicit server for catalog and registration", async () => {
+  const servers: string[] = [];
+  const setup = createSetup({
+    catalog: createWorkspaceCatalog(
+      async (serverUrl) => {
+        servers.push(`catalog:${serverUrl}`);
+        return workspaces;
+      },
+      async (serverUrl, _credential, slug) => {
+        servers.push(`lookup:${serverUrl}`);
+        return { id: "", slug, name: slug };
+      },
+    ),
+    registrationFactory: (serverUrl) => {
+      servers.push(`registration:${serverUrl}`);
+      return {
+        async register(request) {
+          return {
+            protocolMajor: 1,
+            requestId: request.requestId,
+            computerId: "c",
+            workspaceId: "w",
+            connectionId: "x",
+            workspaceWorkerToken: "t",
+          };
+        },
+      };
+    },
+  });
+  await setup.run({ workspaceSlug: "workspace-a", serverUrl: "https://explicit.example" });
+  expect(servers).toEqual([
+    "lookup:https://explicit.example",
+    "registration:https://explicit.example",
+  ]);
+});
+
+test("setup returns structured data without writing output", async () => {
+  const setup = createSetup();
+
+  const result = await setup.run({ workspaceSlug: "workspace-a", json: true });
+  expect(result.configPath).toBe("/config/workspaces/id/config.json");
 });
 
 test("setup sends a direct slug to registration without listing Workspaces", async () => {
   const requested: string[] = [];
   const setup = createSetup({
-    client: {
-      async listWorkspaces() {
+    catalog: createWorkspaceCatalog(
+      async () => {
         throw new Error("must not list for direct slug");
       },
-    },
-    registration: {
+      async (_serverUrl, _credential, slug) => ({ id: "", slug, name: slug }),
+    ),
+    registrationFactory: (_serverUrl, _credential) => ({
       async register(request) {
         requested.push(request.workspaceSlug);
         return {
@@ -140,13 +237,46 @@ test("setup sends a direct slug to registration without listing Workspaces", asy
           computerId: "computer-id",
           workspaceId: "workspace-id-a",
           connectionId: "connection-id",
-          daemonWorkspaceCredential: "daemon-secret",
+          workspaceWorkerToken: "daemon-secret",
         };
       },
-    },
+    }),
   });
   await setup.run({ workspaceSlug: "direct-slug" });
   expect(requested).toEqual(["direct-slug"]);
+});
+
+test("setup forwards discovered runtime metadata to registration", async () => {
+  let runtimes: unknown;
+  const setup = createSetup({
+    metadataProvider: {
+      async get() {
+        return {
+          platform: "linux",
+          osVersion: "bun-test",
+          computerVersion: "test",
+          machineId: "linux:test-machine-id",
+          runtimes: [{ provider: "codex", version: "1.2.3", kind: "external" }],
+        };
+      },
+    },
+    registrationFactory: (_serverUrl, _credential) => ({
+      async register(request) {
+        runtimes = request.runtimes;
+        return {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          computerId: "computer-id",
+          workspaceId: "workspace-id-a",
+          connectionId: "connection-id",
+          workspaceWorkerToken: "daemon-secret",
+        };
+      },
+    }),
+  });
+
+  await setup.run({ workspaceSlug: "workspace-a" });
+  expect(runtimes).toEqual([{ provider: "codex", version: "1.2.3", kind: "external" }]);
 });
 
 test("setup discards the registration when the Daemon launcher fails", async () => {
@@ -155,9 +285,6 @@ test("setup discards the registration when the Daemon launcher fails", async () 
     config: {
       async loadCurrentProfile() {
         return { serverUrl: "https://coforge.example" };
-      },
-      async saveWorkspace() {
-        return "/unused";
       },
       async saveRegistration() {
         throw new Error("must not save config");
@@ -186,9 +313,6 @@ test("setup discards the registration when saving its config fails", async () =>
       async loadCurrentProfile() {
         return { serverUrl: "https://coforge.example" };
       },
-      async saveWorkspace() {
-        return "/unused";
-      },
       async saveRegistration() {
         throw new Error("config failed");
       },
@@ -210,9 +334,6 @@ test("setup discards the registration when saving the Daemon credential fails", 
     config: {
       async loadCurrentProfile() {
         return { serverUrl: "https://coforge.example" };
-      },
-      async saveWorkspace() {
-        return "/unused";
       },
       async saveRegistration() {
         return "/saved";
@@ -243,12 +364,10 @@ function createSetup(overrides: Partial<ComputerSetupOptions> = {}): ComputerSet
       async loadCurrentProfile() {
         return { serverUrl: "https://coforge.example" };
       },
-      async saveWorkspace() {
-        return "/config/workspaces/id/config.json";
-      },
       async saveRegistration() {
         return "/config/workspaces/id/config.json";
       },
+      async discardRegistration() {},
     },
     credentials: {
       async load() {
@@ -256,13 +375,12 @@ function createSetup(overrides: Partial<ComputerSetupOptions> = {}): ComputerSet
       },
       async saveDaemonCredential() {},
     },
-    client: {
-      async listWorkspaces() {
-        return workspaces;
-      },
-    },
+    catalog: createWorkspaceCatalog(
+      async () => workspaces,
+      async (_serverUrl, _credential, slug) => ({ id: "", slug, name: slug }),
+    ),
     selectWorkspace: async (available) => available[0]!,
-    registration: {
+    registrationFactory: (_serverUrl, _credential) => ({
       async register(request) {
         return {
           protocolMajor: request.protocolMajor,
@@ -271,13 +389,24 @@ function createSetup(overrides: Partial<ComputerSetupOptions> = {}): ComputerSet
           workspaceId:
             request.workspaceSlug === "workspace-b" ? "workspace-id-b" : "workspace-id-a",
           connectionId: "connection-id",
-          daemonWorkspaceCredential: "daemon-secret",
+          workspaceWorkerToken: "daemon-secret",
+        };
+      },
+    }),
+    launcher: { async ensureStarted() {} },
+    metadataProvider: {
+      async get() {
+        return {
+          platform: "linux",
+          osVersion: "bun-test",
+          computerVersion: "test",
+          machineId: "linux:test-machine-id",
+          runtimes: [],
         };
       },
     },
-    launcher: { async ensureStarted() {} },
-    machineIdProvider: async () => "linux:test-machine-id",
-    writeLine: () => undefined,
+    idempotencyKeyProvider: { create: (_serverUrl, value) => `key:${value}` },
     ...overrides,
+    workspaceRoot: overrides.workspaceRoot ?? "/home/test-user/coforge-workspaces",
   });
 }

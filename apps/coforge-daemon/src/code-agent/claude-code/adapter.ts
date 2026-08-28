@@ -7,9 +7,10 @@ import type {
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
+import { RUNTIME_PROVIDER } from "@coforge/protocol";
 
 export class ClaudeCodeAgentAdapter implements CodeAgentAdapter {
-  readonly provider = "claude-code" as const;
+  readonly provider = RUNTIME_PROVIDER.CLAUDE_CODE;
   readonly #command: readonly string[];
 
   constructor(options: { command?: readonly string[] } = {}) {

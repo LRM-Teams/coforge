@@ -1,7 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
 import { LoginPage } from "@/components/login-page";
-import { peekCurrentUser } from "@/identity/current-user";
+import { peekCurrentUser } from "@/server/auth/current-user";
 
 export const Route = createFileRoute("/login")({
   validateSearch: (search: Record<string, unknown>) => ({

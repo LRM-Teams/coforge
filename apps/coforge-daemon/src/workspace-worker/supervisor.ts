@@ -1,7 +1,11 @@
+import { isAbsolute, parse } from "node:path";
+
 /** The daemon-owned identity used to start one workspace worker. */
 export interface WorkspaceConnection {
   connectionId: string;
   workspaceId: string;
+  /** Absent in legacy records; such workers are rejected by the cloud handler. */
+  computerId?: string;
   workspaceRoot: string;
 }
 
@@ -32,6 +36,7 @@ export class WorkspaceWorkerSupervisor {
   constructor(private readonly factory: WorkerFactory) {}
 
   async ensure(connection: WorkspaceConnection): Promise<WorkspaceWorker> {
+    validateWorkspaceRoot(connection.workspaceRoot);
     const existing = this.entries.get(connection.connectionId);
     if (existing) return existing.worker;
 
@@ -70,5 +75,12 @@ export class WorkspaceWorkerSupervisor {
 
   async shutdown(): Promise<void> {
     await Promise.all([...this.entries.keys()].map((connectionId) => this.stop(connectionId)));
+  }
+}
+
+/** Reject ambiguous roots before a worker can derive agent directories from them. */
+export function validateWorkspaceRoot(workspaceRoot: string): void {
+  if (!workspaceRoot || !isAbsolute(workspaceRoot) || parse(workspaceRoot).root === workspaceRoot) {
+    throw new Error("workspaceRoot must be a non-root absolute Workspace directory");
   }
 }

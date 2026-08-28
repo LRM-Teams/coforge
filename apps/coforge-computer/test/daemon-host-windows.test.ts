@@ -11,7 +11,14 @@ test("Windows daemon task runs at the current user's logon", async () => {
       return 0;
     },
   });
-  await task.ensureStarted("secret").catch(() => undefined);
+  await task
+    .ensureStarted({
+      workspaceId: "w",
+      connectionId: "c",
+      workspaceRoot: "/w",
+      workspaceWorkerToken: "secret",
+    })
+    .catch(() => undefined);
   expect(commands[0]).toContain("ONLOGON");
   expect(commands[0]).toContain("/F");
   expect(commands[1]).toEqual(["schtasks.exe", "/Run", "/TN", "CoForge Daemon"]);

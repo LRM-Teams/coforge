@@ -25,6 +25,7 @@
     "pack:check": "bun pm pack --dry-run"
   },
   "dependencies": {
+    "@coforge/protocol": "workspace:*",
     "@earendil-works/pi-coding-agent": "0.84.3"
   },
   "devDependencies": {

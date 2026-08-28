@@ -12,7 +12,7 @@ instructions for the TanStack Start Web/backend modular monolith.
   the Web UI. Put the public function at the owning feature seam, for example
   `src/features/agents/agents.functions.ts`.
 - Put database clients, repositories, authentication implementation, OSS,
-  Centrifugo adapters, and other server-only implementations under
+  Centrifugo RPC handlers, and other server-only implementations under
   `src/server/`. Use `.server.ts` naming where a module must never enter the
   client bundle.
 - Route loaders may call Server Functions, but must not access a database,

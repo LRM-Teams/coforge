@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package coforge.rpc.v1;
+
+message WorkspaceListRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_slug = 3;
+}
+
+message WorkspaceGetRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_slug = 3;
+}
+
+message WorkspaceListResponse {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  repeated Workspace workspaces = 3;
+}
+
+message WorkspaceGetResponse {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  Workspace workspace = 3;
+}
+
+message Workspace {
+  string id = 1;
+  string slug = 2;
+  string name = 3;
+}

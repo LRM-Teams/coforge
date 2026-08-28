@@ -1,7 +1,7 @@
 import { Outlet, createFileRoute } from "@tanstack/react-router";
 
 import { AppShell } from "@/components/app-shell";
-import { requireCurrentUser } from "@/identity/current-user";
+import { requireCurrentUser } from "@/server/auth/current-user";
 
 export const Route = createFileRoute("/_app")({
   beforeLoad: async () => ({ user: await requireCurrentUser() }),

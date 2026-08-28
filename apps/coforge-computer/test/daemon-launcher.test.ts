@@ -2,6 +2,11 @@ import { expect, test } from "bun:test";
 import {
   decodeDaemonHandshakeRequest,
   encodeDaemonHandshakeResponse,
+  decodeWorkspaceWorkerConfigureRequest,
+  encodeWorkspaceWorkerConfigureResponse,
+  decodeLocalRpcRequest,
+  encodeLocalRpcResponse,
+  LOCAL_RPC_METHODS,
   readLocalRpcFrame,
 } from "@coforge/protocol";
 import { LocalDaemonLauncher, resolveDaemonExecutablePath } from "@coforge/daemon";
@@ -13,12 +18,27 @@ test("reuses a running daemon after a successful local handshake", async () => {
     socketPath: "/state/daemon.sock",
     connect: async () => ({
       request: async (frame) => {
-        const request = decodeDaemonHandshakeRequest(readLocalRpcFrame(frame)!);
-        return encodeDaemonHandshakeResponse({
-          protocolMajor: 1,
-          requestId: request.requestId,
-          daemonId: "daemon-1",
-          accepted: true,
+        const envelope = decodeLocalRpcRequest(readLocalRpcFrame(frame)!);
+        if (envelope.method === LOCAL_RPC_METHODS.CONFIGURE) {
+          const request = decodeWorkspaceWorkerConfigureRequest(envelope.payload);
+          return encodeLocalRpcResponse({
+            method: LOCAL_RPC_METHODS.CONFIGURE,
+            payload: encodeWorkspaceWorkerConfigureResponse({
+              protocolMajor: 1,
+              requestId: request.requestId,
+              accepted: true,
+            }),
+          });
+        }
+        const request = decodeDaemonHandshakeRequest(envelope.payload);
+        return encodeLocalRpcResponse({
+          method: LOCAL_RPC_METHODS.HANDSHAKE,
+          payload: encodeDaemonHandshakeResponse({
+            protocolMajor: 1,
+            requestId: request.requestId,
+            daemonId: "daemon-1",
+            accepted: true,
+          }),
         });
       },
       close() {},
@@ -28,7 +48,12 @@ test("reuses a running daemon after a successful local handshake", async () => {
     },
   });
 
-  await launcher.ensureStarted("daemon-credential");
+  await launcher.ensureStarted({
+    workspaceId: "w",
+    connectionId: "c",
+    workspaceRoot: "/w",
+    workspaceWorkerToken: "daemon-credential",
+  });
   expect(spawned).toBe(false);
 });
 
@@ -43,12 +68,27 @@ test("starts the daemon and waits for its handshake", async () => {
       if (attempts < 2) throw new Error("not listening");
       return {
         request: async (frame: Uint8Array) => {
-          const request = decodeDaemonHandshakeRequest(readLocalRpcFrame(frame)!);
-          return encodeDaemonHandshakeResponse({
-            protocolMajor: 1,
-            requestId: request.requestId,
-            daemonId: "daemon-1",
-            accepted: true,
+          const envelope = decodeLocalRpcRequest(readLocalRpcFrame(frame)!);
+          if (envelope.method === LOCAL_RPC_METHODS.CONFIGURE) {
+            const request = decodeWorkspaceWorkerConfigureRequest(envelope.payload);
+            return encodeLocalRpcResponse({
+              method: LOCAL_RPC_METHODS.CONFIGURE,
+              payload: encodeWorkspaceWorkerConfigureResponse({
+                protocolMajor: 1,
+                requestId: request.requestId,
+                accepted: true,
+              }),
+            });
+          }
+          const request = decodeDaemonHandshakeRequest(envelope.payload);
+          return encodeLocalRpcResponse({
+            method: LOCAL_RPC_METHODS.HANDSHAKE,
+            payload: encodeDaemonHandshakeResponse({
+              protocolMajor: 1,
+              requestId: request.requestId,
+              daemonId: "daemon-1",
+              accepted: true,
+            }),
           });
         },
         close() {},
@@ -60,7 +100,12 @@ test("starts the daemon and waits for its handshake", async () => {
     sleep: async () => {},
   });
 
-  await launcher.ensureStarted("daemon-credential");
+  await launcher.ensureStarted({
+    workspaceId: "w",
+    connectionId: "c",
+    workspaceRoot: "/w",
+    workspaceWorkerToken: "daemon-credential",
+  });
   expect(spawned).toBe(true);
   expect(attempts).toBe(2);
 });
