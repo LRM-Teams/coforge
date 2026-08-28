@@ -62,6 +62,7 @@ message WorkspaceWorkerConfigureRequest {
   string connection_id = 4;
   string workspace_root = 5;
   string workspace_worker_token = 6;
+  string computer_id = 7;
 }
 
 message WorkspaceWorkerConfigureResponse {

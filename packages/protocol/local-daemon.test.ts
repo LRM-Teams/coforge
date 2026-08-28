@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   decodeDaemonHandshakeRequest,
   decodeDaemonHandshakeResponse,
+  decodeWorkspaceWorkerConfigureRequest,
   encodeDaemonHandshakeRequest,
   encodeDaemonHandshakeResponse,
+  encodeWorkspaceWorkerConfigureRequest,
   frameLocalRpc,
   readLocalRpcFrame,
   readLocalRpcFrames,
@@ -30,6 +32,21 @@ describe("local daemon RPC", () => {
     expect(decodeDaemonHandshakeResponse(encodeDaemonHandshakeResponse(response))).toEqual(
       response,
     );
+  });
+
+  test("round trips the Computer identity in a worker configure request", () => {
+    const request = {
+      protocolMajor: 1,
+      requestId: "request-1",
+      workspaceId: "workspace-1",
+      connectionId: "connection-1",
+      computerId: "computer-1",
+      workspaceRoot: "/workspaces/workspace-1",
+      workspaceWorkerToken: "worker-secret",
+    };
+    expect(
+      decodeWorkspaceWorkerConfigureRequest(encodeWorkspaceWorkerConfigureRequest(request)),
+    ).toEqual(request);
   });
 
   test("extracts multiple complete frames and preserves a partial frame", () => {

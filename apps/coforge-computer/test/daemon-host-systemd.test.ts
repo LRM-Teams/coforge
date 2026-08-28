@@ -27,6 +27,7 @@ test("systemd user service is installed and started without a system service", a
     .ensureStarted({
       workspaceId: "w",
       connectionId: "c",
+      computerId: "computer",
       workspaceRoot: "/w",
       workspaceWorkerToken: "secret",
     })

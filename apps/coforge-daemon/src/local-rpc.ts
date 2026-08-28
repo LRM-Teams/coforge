@@ -106,6 +106,7 @@ async function handleConnection(
           [
             request.workspaceId,
             request.connectionId,
+            request.computerId,
             request.workspaceRoot,
             request.workspaceWorkerToken,
           ].every(Boolean) &&
@@ -122,6 +123,7 @@ async function handleConnection(
           const connection = {
             workspaceId: request.workspaceId,
             connectionId: request.connectionId,
+            computerId: request.computerId,
             workspaceRoot: request.workspaceRoot,
           };
           let registryWriteStarted = false;

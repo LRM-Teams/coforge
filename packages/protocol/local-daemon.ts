@@ -22,6 +22,7 @@ export type WorkspaceWorkerConfigureRequest = {
   connectionId: string;
   workspaceRoot: string;
   workspaceWorkerToken: string;
+  computerId: string;
 };
 export type WorkspaceWorkerConfigureResponse = {
   protocolMajor: number;
@@ -65,6 +66,7 @@ export function decodeWorkspaceWorkerConfigureRequest(
     connectionId: v.connectionId,
     workspaceRoot: v.workspaceRoot,
     workspaceWorkerToken: v.workspaceWorkerToken,
+    computerId: v.computerId,
   };
 }
 export function encodeWorkspaceWorkerConfigureResponse(
