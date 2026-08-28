@@ -1,8 +1,13 @@
 export {};
+
+const exitsOnInterrupt = process.argv.includes("exit-on-interrupt");
 const decoder = new TextDecoder();
 let buffer = "";
 write({ type: "system", subtype: "init", session_id: "fixture-session" });
-process.on("SIGINT", () => write({ type: "result", subtype: "success" }));
+process.on("SIGINT", () => {
+  if (exitsOnInterrupt) process.exit(130);
+  write({ type: "result", subtype: "success" });
+});
 for await (const chunk of Bun.stdin.stream()) {
   buffer += decoder.decode(chunk, { stream: true });
   let newline = buffer.indexOf("\n");

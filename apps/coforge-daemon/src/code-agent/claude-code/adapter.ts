@@ -57,6 +57,10 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
   constructor(process: JsonlProcess) {
     this.#process = process;
     process.onRecord((record) => this.#accept(record));
+    process.onFailure((error) => this.#rejectPendingInterrupt(error));
+    process.onClose(() =>
+      this.#rejectPendingInterrupt(new Error("code agent process closed during interrupt")),
+    );
   }
 
   async ready(): Promise<void> {
@@ -216,6 +220,13 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
 
   #isDisposed(): boolean {
     return this.#state === "disposed";
+  }
+
+  #rejectPendingInterrupt(error: Error): void {
+    const pending = this.#pendingInterrupt;
+    if (!pending) return;
+    this.#pendingInterrupt = undefined;
+    pending.reject(error);
   }
 }
 

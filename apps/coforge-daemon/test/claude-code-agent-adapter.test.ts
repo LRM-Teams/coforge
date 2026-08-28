@@ -117,6 +117,24 @@ test("Claude Code rejects overlapping turns and interrupts without replacing its
   }
 });
 
+test("Claude Code rejects interrupt when the CLI exits after SIGINT", async () => {
+  const adapter = new ClaudeCodeAgentAdapter({
+    command: [
+      process.execPath,
+      new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,
+      "exit-on-interrupt",
+    ],
+  });
+
+  const session = await adapter.start({ agentWorkspaceDirectory: tmpdir() });
+  try {
+    await session.prompt("wait");
+    await expect(session.interrupt()).rejects.toThrow("exited unexpectedly");
+  } finally {
+    await session.dispose();
+  }
+});
+
 test("Claude Code startup fails when its CLI does not complete initialization", async () => {
   const adapter = new ClaudeCodeAgentAdapter({
     command: [process.execPath, new URL("./fixtures/invalid-jsonl.ts", import.meta.url).pathname],
