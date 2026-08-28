@@ -1,0 +1,13 @@
+# Non-secret Centrifugo configuration. Secret values are supplied by Compose
+# environment variables so they never need to be committed to this repository.
+engine:
+  type: redis
+
+health:
+  enabled: true
+
+admin:
+  enabled: false
+
+log:
+  level: info

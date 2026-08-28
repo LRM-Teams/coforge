@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# CoForge currently has no wake-time authentication or local backing services.
-printf 'No orb resume steps required.\n'
+# Docker is installed by setup but may be inactive after an orb resumes.
+if command -v docker >/dev/null 2>&1 && ! sudo -n docker info >/dev/null 2>&1; then
+	sudo -n systemctl start docker
+fi
+
+printf 'Orb resume checks complete.\n'

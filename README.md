@@ -81,8 +81,9 @@ GitHub Actions runs the focused infrastructure and Computer checks for every
 pull request and every push to `main`. Dependency installation uses
 frozen-lockfile mode. Runtime versions continue to come from `mise.toml`.
 
-Standalone Centrifugo, Redis, PostgreSQL, Backend proxy/API wiring, and their
-deployment configuration land only in separately approved focused changes.
+Standalone Centrifugo and Redis now have a local Docker Compose deployment in
+[`infra/README.md`](infra/README.md). PostgreSQL and Backend proxy/API wiring
+remain separate implementation slices.
 
 ## Development workflow
 

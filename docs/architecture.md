@@ -98,7 +98,7 @@ packages/
 - 反向代理、健康检查和负载均衡；
 - 与应用进程独立常驻，应用滚动更新时保持入口稳定。
 
-验证阶段运行两个 Centrifugo 副本和两个 backend 副本。发布时一次 drain 一个副本，新连接只进入健康实例；不引入 Kubernetes。具体 Compose 与发布流水线尚未实现，不能复用已删除的 custom Go gateway 部署资产。
+验证阶段运行两个 Centrifugo 副本和两个 backend 副本。发布时一次 drain 一个副本，新连接只进入健康实例；不引入 Kubernetes。当前仓库提供单节点本地验证用的 [`infra/docker-compose.centrifugo.yml`](../infra/docker-compose.centrifugo.yml)，生产 Compose 与发布流水线仍未实现，不能复用已删除的 custom Go gateway 部署资产。
 
 Caddy 不理解 conversation、message、Agent 或 workspace 业务。
 
@@ -311,7 +311,7 @@ accepted ACK 只表示“本机已耐久接管”，不表示 Agent 已执行完
 
 本地安装包与 release feed 的 consumer boundary 是 `https://cdn.coforge.cn/releases/`。它可以与聊天附件共享 CDN 证书和 edge 域名，但必须使用独立 private release bucket、RAM 权限、条件回源、缓存/访问规则与日志；路径未命中时 fail closed，禁止在 release 与附件 origin 之间 fallback，也禁止接收或向 origin 转发应用登录 cookie。
 
-云端应用与 standalone data services 的具体 Compose 和发布流水线尚未实现；实现时必须使用按 digest 固定的镜像，不能恢复 custom Go gateway 或使用 `latest`。`coforge-computer` 与 `coforge-daemon` 保持独立版本、构建与签名身份；每个 immutable release set 固定两个 component artifact 的已验证兼容组合，并为每个平台提供一个同时包含两侧 payload 的 Computer installation bundle。单一原子 `channels.json` 选择 test / production 的 current / previous release set。首次本地发布通过明确的 initial bootstrap 一次建立首对 Computer 与 Daemon component artifact；此后 MVP 每次新 release set 只改变一个 component digest。只升级 Daemon 时复用未变化的 Computer artifact，再组装新 bundle。production 只晋级 test 验证过的同一 bundle bytes，不重新 build 或 repackage。用户只安装 Computer；本地安装、升级、Computer 后台启动与回滚全部限于当前用户的系统标准目录，不要求 sudo / 管理员权限；只有 Computer shim 进入用户 PATH，Daemon 保留在 version store 并由 Computer 通过 active release set 的精确路径启动。macOS 的用户级 `launchd` LaunchAgent 是 Daemon 自启动的明确例外，不注册系统级 service。完整的发布、健康检查、审计与回滚契约见 [`docs/release.md`](release.md)。
+云端应用与 standalone data services 的生产 Compose 和发布流水线尚未实现；本地 Centrifugo、Redis 与 PostgreSQL 验证 Compose 已落在 `infra/`，生产实现时必须使用按 digest 固定的镜像，不能恢复 custom Go gateway 或使用 `latest`。`coforge-computer` 与 `coforge-daemon` 保持独立版本、构建与签名身份；每个 immutable release set 固定两个 component artifact 的已验证兼容组合，并为每个平台提供一个同时包含两侧 payload 的 Computer installation bundle。单一原子 `channels.json` 选择 test / production 的 current / previous release set。首次本地发布通过明确的 initial bootstrap 一次建立首对 Computer 与 Daemon component artifact；此后 MVP 每次新 release set 只改变一个 component digest。只升级 Daemon 时复用未变化的 Computer artifact，再组装新 bundle。production 只晋级 test 验证过的同一 bundle bytes，不重新 build 或 repackage。用户只安装 Computer；本地安装、升级、Computer 后台启动与回滚全部限于当前用户的系统标准目录，不要求 sudo / 管理员权限；只有 Computer shim 进入用户 PATH，Daemon 保留在 version store 并由 Computer 通过 active release set 的精确路径启动。macOS 的用户级 `launchd` LaunchAgent 是 Daemon 自启动的明确例外，不注册系统级 service。完整的发布、健康检查、审计与回滚契约见 [`docs/release.md`](release.md)。
 
 提交与 CR 保持小而单一，使用简洁的英文 Conventional Commit：`<type>(optional-scope): imperative summary`。
 
