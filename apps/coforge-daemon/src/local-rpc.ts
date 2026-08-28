@@ -105,24 +105,30 @@ async function handleConnection(
           request.protocolMajor === 1 &&
           [
             request.workspaceId,
-            request.connectionId,
             request.computerId,
             request.workspaceRoot,
             request.workspaceWorkerToken,
           ].every(Boolean) &&
           (await validateCredential(request.workspaceWorkerToken));
         if (valid) {
-          const saved = await credentials.load(request.connectionId);
+          const saved = await credentials.load(request.workspaceId, request.computerId);
           const previousConnection = registry
-            ? (await registry.list()).find((entry) => entry.connectionId === request.connectionId)
+            ? (await registry.list()).find(
+                (entry) =>
+                  entry.workspaceId === request.workspaceId &&
+                  entry.computerId === request.computerId,
+              )
             : undefined;
           const credentialChanged = saved !== request.workspaceWorkerToken;
           if (credentialChanged) {
-            await credentials.save(request.connectionId, request.workspaceWorkerToken);
+            await credentials.save(
+              request.workspaceId,
+              request.computerId,
+              request.workspaceWorkerToken,
+            );
           }
           const connection = {
             workspaceId: request.workspaceId,
-            connectionId: request.connectionId,
             computerId: request.computerId,
             workspaceRoot: request.workspaceRoot,
           };
@@ -133,12 +139,12 @@ async function handleConnection(
             await registry?.upsert(connection);
           } catch (error) {
             if (credentialChanged) {
-              if (saved === null) await credentials.delete(request.connectionId);
-              else await credentials.save(request.connectionId, saved);
+              if (saved === null) await credentials.delete(request.workspaceId, request.computerId);
+              else await credentials.save(request.workspaceId, request.computerId, saved);
             }
             if (registryWriteStarted) {
               if (previousConnection) await registry!.upsert(previousConnection);
-              else await registry!.delete(request.connectionId);
+              else await registry!.delete(request.workspaceId, request.computerId);
             }
             throw error;
           }

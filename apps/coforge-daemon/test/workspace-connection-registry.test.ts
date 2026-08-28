@@ -18,7 +18,7 @@ test("file workspace connection registry round-trips, replaces, and deletes conn
   directories.push(directory);
   const registry = new FileWorkspaceConnectionRegistry(directory);
   const connection: WorkspaceConnection = {
-    connectionId: "connection-a",
+    computerId: "computer-a",
     workspaceId: "workspace-a",
     workspaceRoot: "/workspaces/a",
   };
@@ -33,11 +33,11 @@ test("file workspace connection registry round-trips, replaces, and deletes conn
 
   await registry.upsert({
     ...connection,
-    connectionId: "connection-b",
+    computerId: "computer-b",
     workspaceId: "workspace-b",
   });
-  await registry.delete("connection-a");
+  await registry.delete("workspace-a", "computer-a");
   expect(await registry.list()).toEqual([
-    { ...connection, connectionId: "connection-b", workspaceId: "workspace-b" },
+    { ...connection, computerId: "computer-b", workspaceId: "workspace-b" },
   ]);
 });

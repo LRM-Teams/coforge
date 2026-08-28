@@ -20,14 +20,21 @@ export type AgentAdapterFactory = (provider: CodeAgentProvider) => CodeAgentAdap
 /** Owns the Agent runtime processes for exactly one workspace worker. */
 export class AgentProcessManager {
   readonly #pool: AgentRuntimePool;
-  readonly #connectionId: string;
+  readonly #workspaceId: string;
+  readonly #computerId: string;
   readonly #createAdapter: AgentAdapterFactory;
   readonly #runtimes = new Map<string, AgentRuntime>();
   readonly #states = new Map<string, AgentStateMachine>();
 
-  constructor(pool: AgentRuntimePool, connectionId: string, createAdapter: AgentAdapterFactory) {
+  constructor(
+    pool: AgentRuntimePool,
+    workspaceId: string,
+    computerId: string,
+    createAdapter: AgentAdapterFactory,
+  ) {
     this.#pool = pool;
-    this.#connectionId = connectionId;
+    this.#workspaceId = workspaceId;
+    this.#computerId = computerId;
     this.#createAdapter = createAdapter;
   }
 
@@ -47,7 +54,7 @@ export class AgentProcessManager {
     if (this.#runtimes.has(agentId)) {
       throw new Error(`Agent runtime is already online: ${agentId}`);
     }
-    const handle = this.#pool.acquire(this.#connectionId, agentId);
+    const handle = this.#pool.acquire(this.#workspaceId, this.#computerId, agentId);
     if (!handle) throw new Error("Agent runtime capacity is full");
 
     try {

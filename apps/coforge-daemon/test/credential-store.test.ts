@@ -18,16 +18,16 @@ test("native Workspace Worker credential store delegates to the OS secret store"
   };
   const store = new NativeWorkspaceWorkerCredentialStore(secrets);
 
-  await store.save("connection-a", "workspace-worker-secret");
-  await expect(store.load("connection-a")).resolves.toBe("workspace-worker-secret");
-  await store.delete("connection-a");
+  await store.save("workspace-a", "computer-a", "workspace-worker-secret");
+  await expect(store.load("workspace-a", "computer-a")).resolves.toBe("workspace-worker-secret");
+  await store.delete("workspace-a", "computer-a");
 
   expect(calls).toEqual([
     [
       "set",
       {
         service: "cn.coforge.daemon.workspace-worker",
-        name: "connection-a",
+        name: "workspace-a:computer-a",
         value: "workspace-worker-secret",
       },
     ],
@@ -35,14 +35,14 @@ test("native Workspace Worker credential store delegates to the OS secret store"
       "get",
       {
         service: "cn.coforge.daemon.workspace-worker",
-        name: "connection-a",
+        name: "workspace-a:computer-a",
       },
     ],
     [
       "delete",
       {
         service: "cn.coforge.daemon.workspace-worker",
-        name: "connection-a",
+        name: "workspace-a:computer-a",
       },
     ],
   ]);
@@ -57,5 +57,7 @@ test("native Workspace Worker credential store preserves secret-store failures",
     delete: async () => true,
   });
 
-  await expect(store.save("connection-a", "secret")).rejects.toThrow("secret service unavailable");
+  await expect(store.save("workspace-a", "computer-a", "secret")).rejects.toThrow(
+    "secret service unavailable",
+  );
 });

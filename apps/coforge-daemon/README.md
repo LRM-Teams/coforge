@@ -117,7 +117,7 @@ for the local categorized, rotating log contract that must precede daemon lifecy
 ## Workspace worker credentials
 
 The Computer-to-Daemon configure request carries the `WorkspaceWorkerToken`.
-The Daemon stores it by `connectionId` in Bun's OS-backed secret store and
+The Daemon stores it by the composite `workspaceId` + `computerId` in Bun's OS-backed secret store and
 rotates the stored value when a valid setup supplies a different token; the
 configure RPC and worker lifecycle APIs never carry the token. Bun delegates to
 macOS Keychain, Linux Secret Service/libsecret, or Windows Credential Manager.

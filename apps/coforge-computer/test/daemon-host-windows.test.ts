@@ -14,7 +14,6 @@ test("Windows daemon task runs at the current user's logon", async () => {
   await task
     .ensureStarted({
       workspaceId: "w",
-      connectionId: "c",
       computerId: "computer",
       workspaceRoot: "/w",
       workspaceWorkerToken: "secret",

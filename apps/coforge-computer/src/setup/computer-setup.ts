@@ -26,7 +26,7 @@ export interface RegistrationIdempotencyKeyProvider {
 
 export interface SetupCredentialStore {
   load(serverUrl: string): Promise<Credential | null>;
-  saveDaemonCredential(connectionId: string, credential: string): Promise<void>;
+  saveDaemonCredential(workspaceId: string, computerId: string, credential: string): Promise<void>;
 }
 
 export interface SetupRegistration {
@@ -135,7 +135,6 @@ export class ComputerSetup {
         id: response.workspaceId,
         slug: workspace.slug,
         computerId: response.computerId,
-        connectionId: response.connectionId,
       };
       // Start first: the Daemon must accept its credential before local
       // configuration advertises this registration as usable.
@@ -145,7 +144,6 @@ export class ComputerSetup {
           : this.options.launcher;
       await launcher.ensureStarted({
         workspaceId: response.workspaceId,
-        connectionId: response.connectionId,
         computerId: response.computerId,
         workspaceRoot: this.options.workspaceRoot,
         workspaceWorkerToken: response.workspaceWorkerToken,
@@ -155,7 +153,8 @@ export class ComputerSetup {
         response.workspaceWorkerToken,
       );
       await this.options.credentials.saveDaemonCredential(
-        response.connectionId,
+        response.workspaceId,
+        response.computerId,
         response.workspaceWorkerToken,
       );
     } catch (error) {

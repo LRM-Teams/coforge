@@ -10,7 +10,7 @@ export async function recoverWorkspaceConnections(
     try {
       await coordinator.configureWorkspaceWorker(connection);
     } catch {
-      report(`coforge-daemon: failed to recover workspace connection ${connection.connectionId}`);
+      report(`coforge-daemon: failed to recover workspace ${connection.workspaceId}`);
     }
   }
 }

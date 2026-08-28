@@ -7,8 +7,8 @@ import {
 
 /** Configuration identifying the Workspace Worker cloud connection. */
 export interface WorkspaceWorkerCloudTransportConfig {
-  connectionId: string;
   workspaceId: string;
+  computerId: string;
 }
 
 /** Provider-neutral port for one Workspace Worker's cloud connection. */

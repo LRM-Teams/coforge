@@ -9,7 +9,6 @@ export type Workspace = { readonly id: string; readonly slug: string };
 export type ComputerRegistration = {
   readonly computerId: string;
   readonly workspaceId: string;
-  readonly connectionId: string;
   readonly workspaceWorkerToken: string;
 };
 
@@ -31,7 +30,6 @@ export interface WorkspaceWorkerTokenIssuer {
     principal: AuthenticatedPrincipal;
     workspaceId: string;
     computerId: string;
-    connectionId: string;
   }): Promise<string>;
 }
 
@@ -69,7 +67,6 @@ export class ComputerRegistrar {
       principal,
       workspaceId: workspace.id,
       computerId: connection.computerId,
-      connectionId: connection.connectionId,
     });
     return {
       ...connection,

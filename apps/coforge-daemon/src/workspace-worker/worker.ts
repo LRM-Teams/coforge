@@ -40,7 +40,8 @@ export class WorkspaceWorkerImpl implements WorkspaceWorker {
     this.#connection = connection;
     this.#agentProcessManager = new AgentProcessManager(
       pool,
-      connection.connectionId,
+      connection.workspaceId,
+      connection.computerId,
       createAdapter,
     );
     this.#credentials = credentials;
@@ -53,7 +54,10 @@ export class WorkspaceWorkerImpl implements WorkspaceWorker {
   }
 
   start(connection: WorkspaceConnection): Promise<void> {
-    if (connection.connectionId !== this.#connection.connectionId) {
+    if (
+      connection.workspaceId !== this.#connection.workspaceId ||
+      connection.computerId !== this.#connection.computerId
+    ) {
       throw new Error("Workspace worker cannot be started for another connection");
     }
     if (this.#started) return Promise.resolve();
@@ -66,12 +70,12 @@ export class WorkspaceWorkerImpl implements WorkspaceWorker {
   }
 
   async #start(connection: WorkspaceConnection): Promise<void> {
-    const token = await this.#credentials.load(this.#connection.connectionId);
+    const token = await this.#credentials.load(connection.workspaceId, connection.computerId);
     if (!token) throw new Error("Workspace Worker credential is missing");
     try {
       await this.#transport.start(token, {
-        connectionId: connection.connectionId,
         workspaceId: connection.workspaceId,
+        computerId: connection.computerId,
       });
       await this.#transport.ready({
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,

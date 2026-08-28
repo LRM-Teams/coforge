@@ -26,12 +26,12 @@
 | `request_id` | 单次 HTTP/RPC/本地调用关联 ID；入口没有上游 ID 时生成 |
 | `trace_id` | 未来接入 tracing 时使用；未接入时省略 |
 | `workspace_id` | 已确定作用域时记录稳定 ID，不记录 slug/name |
-| `connection_id` | 已确定 Workspace–Computer connection 时记录 |
+| `workspace_id` + `computer_id` | 已确定 Workspace–Computer connection 时记录 |
 | `agent_id` / `runtime_id` | 已确定 Agent 作用域时记录 |
 | `duration_ms` | 操作耗时，非负数 |
 | `outcome` | `ok`、`retry`、`rejected`、`failed` 或 `unknown` |
 
-`request_id`、`workspace_id`、`connection_id`、`agent_id` 和 `runtime_id` 是关联字段，不是授权依据。日志不得记录 access/refresh token、device code、API key、签名 URL、Cookie、Authorization header、私钥、完整文件内容、消息正文、原始上传路径或用户提供的 secret。外部错误只记录稳定错误码；详细网络/凭据诊断留在受控 debug 环境，仍须脱敏。
+`request_id`、`workspace_id`、`computer_id`、`agent_id` 和 `runtime_id` 是关联字段，不是授权依据。日志不得记录 access/refresh token、device code、API key、签名 URL、Cookie、Authorization header、私钥、完整文件内容、消息正文、原始上传路径或用户提供的 secret。外部错误只记录稳定错误码；详细网络/凭据诊断留在受控 debug 环境，仍须脱敏。
 
 ### 级别与采样
 
@@ -132,7 +132,7 @@ workspace worker 必须先把 `agent:status` 和 `agent:activity` 写入本地 d
 再通过该 Workspace Connection 的 WSS 按 `sequence` 顺序发送。status 与 activity 共用
 同一条 sequence，不为两类事件维护两套计数器。重连时从服务端确认的 sequence 继续 replay，
 较大的 sequence 不得越过尚未确认的较小 sequence；重复发送由 `event_id` 或
-`(connection_id, sequence)` 幂等去重。服务端保存和转发给 Web 时必须保留 sequence，Web
+`(workspace_id, computer_id, sequence)` 幂等去重。服务端保存和转发给 Web 时必须保留 sequence，Web
 按 sequence 排序并去重；发现 gap 时等待 replay，不自行猜测或重排成另一种状态。不同
 Workspace Connection 之间没有全局顺序保证。
 

@@ -24,7 +24,7 @@ function sessionSpy() {
 }
 
 const connection: WorkspaceConnection = {
-  connectionId: "connection-a",
+  computerId: "computer-a",
   workspaceId: "workspace-a",
   workspaceRoot: "/workspaces/workspace-a",
 };
@@ -38,7 +38,7 @@ const config: AgentRuntimeConfig = {
 describe("WorkspaceWorkerImpl", () => {
   test("shares concurrent starts and starts transport once", async () => {
     const credentials = new InMemoryWorkspaceWorkerCredentialStore();
-    await credentials.save(connection.connectionId, "token-a");
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
     let starts = 0;
@@ -76,7 +76,7 @@ describe("WorkspaceWorkerImpl", () => {
 
   test("recreates transport after a failed start", async () => {
     const credentials = new InMemoryWorkspaceWorkerCredentialStore();
-    await credentials.save(connection.connectionId, "token-a");
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     let created = 0;
     let starts = 0;
     const worker = new WorkspaceWorkerImpl(
@@ -114,7 +114,7 @@ describe("WorkspaceWorkerImpl", () => {
 
   test("releases Agent runtimes when transport stop fails", async () => {
     const credentials = new InMemoryWorkspaceWorkerCredentialStore();
-    await credentials.save(connection.connectionId, "token-a");
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     let shutdownTransport = false;
     const worker = new WorkspaceWorkerImpl(
       connection,
@@ -147,7 +147,7 @@ describe("WorkspaceWorkerImpl", () => {
 
   test("waits for an in-flight start before stopping the transport", async () => {
     const credentials = new InMemoryWorkspaceWorkerCredentialStore();
-    await credentials.save(connection.connectionId, "token-a");
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     let release!: () => void;
     const started = new Promise<void>((resolve) => (release = resolve));
     const calls: string[] = [];
@@ -193,7 +193,7 @@ describe("WorkspaceWorkerImpl", () => {
       },
     };
     const credentials = new InMemoryWorkspaceWorkerCredentialStore();
-    await credentials.save(connection.connectionId, "token-a");
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const transportCalls: unknown[] = [];
     const worker = new WorkspaceWorkerImpl(connection, pool, () => adapter, credentials, {
       create: () => ({
@@ -216,7 +216,13 @@ describe("WorkspaceWorkerImpl", () => {
     expect(worker.agentProcessManager.size).toBe(0);
     expect(pool.size).toBe(0);
     expect(transportCalls).toEqual([
-      ["token-a", { connectionId: "connection-a", workspaceId: "workspace-a" }],
+      [
+        "token-a",
+        {
+          computerId: "computer-a",
+          workspaceId: "workspace-a",
+        },
+      ],
       "stop",
     ]);
   });
@@ -246,7 +252,7 @@ describe("WorkspaceWorkerImpl", () => {
     );
 
     await expect(worker.start(connection)).rejects.toThrow("credential is missing");
-    await credentials.save(connection.connectionId, "retry-token");
+    await credentials.save(connection.workspaceId, connection.computerId, "retry-token");
     await worker.start(connection);
     expect(starts).toBe(1);
     await worker.stop();

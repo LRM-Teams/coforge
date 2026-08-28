@@ -56,8 +56,9 @@ Computer --local RPC--> Daemon
                            └── Worker C --WSS + CoForge RPC--> Centrifugo --> Backend
 ```
 
-每条 worker 连接的服务端上下文必须绑定 `computer_id`、`workspace_id` 和
-`connection_id`。Worker A 的断线、重启或 replay 不得影响 Worker B。Daemon 是 supervisor，
+每条 worker 连接的服务端上下文必须绑定 `computer_id` 和 `workspace_id`；二者共同
+标识这条 Workspace–Computer 绑定。Worker A 的断线、重启或 replay 不得影响 Worker B。
+Daemon 是 supervisor，
 不是所有 Workspace 的共享业务 session。
 
 ## 方法命名和协议范围

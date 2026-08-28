@@ -26,7 +26,6 @@ const response = {
   requestId: request.requestId,
   computerId: "computer-1",
   workspaceId: "workspace-1",
-  connectionId: "connection-1",
   workspaceWorkerToken: "worker-secret",
 };
 
@@ -36,7 +35,7 @@ function encodedResponse() {
     response.requestId,
     response.computerId,
     response.workspaceId,
-    response.connectionId,
+    `${response.workspaceId}:${response.computerId}`,
     response.workspaceWorkerToken,
   ].entries()) {
     const encoded = new TextEncoder().encode(value);

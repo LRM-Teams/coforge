@@ -22,7 +22,6 @@ describe("Workspace Worker JWT", () => {
       principal: { userId: "user-1" },
       workspaceId: "workspace-1",
       computerId: "computer-1",
-      connectionId: "not-a-token-identity",
     });
     const verified = await jwtVerify(
       token,

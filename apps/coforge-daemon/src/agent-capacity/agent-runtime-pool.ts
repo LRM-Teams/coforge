@@ -1,6 +1,7 @@
 export type AgentRuntimeHandle = Readonly<{
   id: string;
-  connectionId: string;
+  workspaceId: string;
+  computerId: string;
   agentId: string;
 }>;
 
@@ -24,12 +25,17 @@ export class AgentRuntimePool {
     return this.#handles.size;
   }
 
-  acquire(connectionId: string, agentId: string): AgentRuntimeHandle | undefined {
+  acquire(
+    workspaceId: string,
+    computerId: string,
+    agentId: string,
+  ): AgentRuntimeHandle | undefined {
     if (this.#handles.size >= this.#capacity) return undefined;
 
     const handle: AgentRuntimeHandle = Object.freeze({
       id: crypto.randomUUID(),
-      connectionId,
+      workspaceId,
+      computerId,
       agentId,
     });
     this.#handles.set(handle.id, handle);

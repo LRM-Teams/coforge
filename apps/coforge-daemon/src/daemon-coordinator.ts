@@ -9,8 +9,8 @@ import {
 export interface DaemonCoordinator {
   configureWorkspaceWorker(connection: WorkspaceConnection): Promise<void>;
   startWorkspaceWorker(connection: WorkspaceConnection): Promise<WorkspaceWorker>;
-  stopWorkspaceWorker(connectionId: string): Promise<void>;
-  getWorkspaceWorker(connectionId: string): WorkspaceWorkerInfo | undefined;
+  stopWorkspaceWorker(workspaceId: string, computerId: string): Promise<void>;
+  getWorkspaceWorker(workspaceId: string, computerId: string): WorkspaceWorkerInfo | undefined;
   shutdown(): Promise<void>;
 }
 
@@ -21,8 +21,8 @@ export function createDaemonCoordinator(input: {
   return {
     startWorkspaceWorker: (connection) => supervisor.ensure(connection),
     configureWorkspaceWorker: (connection) => supervisor.ensure(connection).then(() => undefined),
-    stopWorkspaceWorker: (connectionId) => supervisor.stop(connectionId),
-    getWorkspaceWorker: (connectionId) => supervisor.query(connectionId),
+    stopWorkspaceWorker: (workspaceId, computerId) => supervisor.stop(workspaceId, computerId),
+    getWorkspaceWorker: (workspaceId, computerId) => supervisor.query(workspaceId, computerId),
     shutdown: () => supervisor.shutdown(),
   };
 }

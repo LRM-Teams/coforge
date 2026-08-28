@@ -39,7 +39,8 @@ message ComputerRegisterResponse {
   string request_id = 2;
   string computer_id = 3;
   string workspace_id = 4;
-  string connection_id = 5;
+  reserved 5;
+  reserved "connection_id";
   string workspace_worker_token = 6;
 }
 
@@ -59,7 +60,8 @@ message WorkspaceWorkerConfigureRequest {
   uint32 protocol_major = 1;
   string request_id = 2;
   string workspace_id = 3;
-  string connection_id = 4;
+  reserved 4;
+  reserved "connection_id";
   string workspace_root = 5;
   string workspace_worker_token = 6;
   string computer_id = 7;

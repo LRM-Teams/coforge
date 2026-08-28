@@ -2,10 +2,8 @@ import { isAbsolute, parse } from "node:path";
 
 /** The daemon-owned identity used to start one workspace worker. */
 export interface WorkspaceConnection {
-  connectionId: string;
   workspaceId: string;
-  /** Absent in legacy records; such workers are rejected by the cloud handler. */
-  computerId?: string;
+  computerId: string;
   workspaceRoot: string;
 }
 
@@ -20,8 +18,8 @@ export interface WorkerFactory {
 }
 
 export interface WorkspaceWorkerInfo {
-  connectionId: string;
   workspaceId: string;
+  computerId: string;
 }
 
 type Entry = {
@@ -37,45 +35,56 @@ export class WorkspaceWorkerSupervisor {
 
   async ensure(connection: WorkspaceConnection): Promise<WorkspaceWorker> {
     validateWorkspaceRoot(connection.workspaceRoot);
-    const existing = this.entries.get(connection.connectionId);
+    const existing = this.entries.get(connectionKey(connection));
     if (existing) return existing.worker;
 
-    const pending = this.starting.get(connection.connectionId);
+    const pending = this.starting.get(connectionKey(connection));
     if (pending) return pending;
 
     const start = (async () => {
       try {
         const worker = this.factory.create(connection);
         await worker.start(connection);
-        this.entries.set(connection.connectionId, { connection, worker });
+        this.entries.set(connectionKey(connection), { connection, worker });
         return worker;
       } finally {
-        this.starting.delete(connection.connectionId);
+        this.starting.delete(connectionKey(connection));
       }
     })();
-    this.starting.set(connection.connectionId, start);
+    this.starting.set(connectionKey(connection), start);
     return start;
   }
 
-  async stop(connectionId: string): Promise<void> {
-    const entry = this.entries.get(connectionId);
+  async stop(workspaceId: string, computerId: string): Promise<void> {
+    const entry = this.entries.get(workspaceComputerKey(workspaceId, computerId));
     if (!entry) return;
     await entry.worker.stop();
-    this.entries.delete(connectionId);
+    this.entries.delete(workspaceComputerKey(workspaceId, computerId));
   }
 
-  query(connectionId: string): WorkspaceWorkerInfo | undefined {
-    const entry = this.entries.get(connectionId);
+  query(workspaceId: string, computerId: string): WorkspaceWorkerInfo | undefined {
+    const entry = this.entries.get(workspaceComputerKey(workspaceId, computerId));
     if (!entry) return undefined;
     return {
-      connectionId: entry.connection.connectionId,
       workspaceId: entry.connection.workspaceId,
+      computerId: entry.connection.computerId,
     };
   }
 
   async shutdown(): Promise<void> {
-    await Promise.all([...this.entries.keys()].map((connectionId) => this.stop(connectionId)));
+    await Promise.all(
+      [...this.entries.values()].map(({ connection }) =>
+        this.stop(connection.workspaceId, connection.computerId),
+      ),
+    );
   }
+}
+
+function connectionKey(connection: WorkspaceConnection): string {
+  return workspaceComputerKey(connection.workspaceId, connection.computerId);
+}
+function workspaceComputerKey(workspaceId: string, computerId: string): string {
+  return `${workspaceId}\0${computerId}`;
 }
 
 /** Reject ambiguous roots before a worker can derive agent directories from them. */

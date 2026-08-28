@@ -18,7 +18,7 @@ test("retries reuse the unique binding and receive a fresh stateless JWT", async
   let calls = 0;
   const registrar = new ComputerRegistrar({
     workspaceAccess: { findAccessibleBySlug: async () => ({ id: "w", slug: "team" }) },
-    computers: { create: async () => ({ computerId: "c", workspaceId: "w", connectionId: "wc" }) },
+    computers: { create: async () => ({ computerId: "c", workspaceId: "w" }) },
     tokenIssuer: { issue: async () => `jwt-${++calls}` },
   });
   const first = await registrar.register(request, { userId: "u" });
@@ -30,7 +30,7 @@ test("retries reuse the unique binding and receive a fresh stateless JWT", async
 test("rejects unauthenticated or inaccessible setup", async () => {
   const registrar = new ComputerRegistrar({
     workspaceAccess: { findAccessibleBySlug: async () => undefined },
-    computers: { create: async () => ({ computerId: "c", workspaceId: "w", connectionId: "wc" }) },
+    computers: { create: async () => ({ computerId: "c", workspaceId: "w" }) },
     tokenIssuer: { issue: async () => "jwt" },
   });
   await expect(registrar.register(request, undefined)).rejects.toMatchObject({ code: 401 });

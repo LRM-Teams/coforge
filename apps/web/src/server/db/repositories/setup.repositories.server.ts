@@ -54,11 +54,11 @@ export class PrismaComputerConnectionRepository implements ComputerConnectionRep
       create: { ownerUserId: principal.userId, machineId: request.machineId },
       update: {},
     });
-    const connection = await this.db.workspaceComputer.upsert({
+    await this.db.workspaceComputer.upsert({
       where: { workspaceId_computerId: { workspaceId: workspace.id, computerId: computer.id } },
       create: { workspaceId: workspace.id, computerId: computer.id },
       update: {},
     });
-    return { computerId: computer.id, workspaceId: workspace.id, connectionId: connection.id };
+    return { computerId: computer.id, workspaceId: workspace.id };
   }
 }

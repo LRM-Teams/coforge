@@ -47,7 +47,7 @@ Add the first shared protocol slice under `packages/protocol`:
 - define the `computer:register` semantic request and response;
 - include protocol major, request ID, workspace slug, machine ID, platform,
   OS version, Computer version, and discovered external runtime metadata;
-- return the server-assigned Computer ID, Workspace ID, connection ID, and the
+- return the server-assigned Computer ID and Workspace ID (the composite binding identity), and the
   `WorkspaceWorkerToken` used by the Workspace Worker to connect to the cloud;
 - preserve unknown fields and reject unknown protocol majors;
 - make retries safe with a stable registration idempotency key;

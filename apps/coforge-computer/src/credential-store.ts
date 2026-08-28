@@ -44,11 +44,15 @@ export class NativeCredentialStore implements CredentialStore {
     }
   }
 
-  async saveDaemonCredential(connectionId: string, credential: string): Promise<void> {
+  async saveDaemonCredential(
+    workspaceId: string,
+    computerId: string,
+    credential: string,
+  ): Promise<void> {
     try {
       await this.secrets.set({
         service: "cn.coforge.computer.daemon",
-        name: connectionId,
+        name: `${workspaceId}:${computerId}`,
         value: credential,
       });
     } catch {

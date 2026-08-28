@@ -6,9 +6,10 @@ Status: accepted
 
 Setup persistence owns exactly four PostgreSQL models: `Workspace`,
 `WorkspaceMembership`, `Computer`, and `WorkspaceComputer`. The latter stores
-the durable workspace/computer binding and stable worker identity (`id`). It
-does not store a worker token, token hash, idempotency key, claim, or temporary
-registration state.
+the durable workspace/computer binding. Its database `id` is an internal
+storage primary key, not a business identity. The business identity is the
+composite `(workspaceId, computerId)` key. It does not store a worker token,
+token hash, idempotency key, claim, or temporary registration state.
 
 `WorkspaceComputer(workspaceId, computerId)` and
 `Computer(ownerUserId, machineId)` are unique database constraints. The

@@ -12,7 +12,6 @@ test("computer registration sends the stable method and rejects incompatible maj
         requestId: payload.requestId,
         computerId: "c",
         workspaceId: "w",
-        connectionId: "b",
         workspaceWorkerToken: "secret",
       };
     },
@@ -28,7 +27,10 @@ test("computer registration sends the stable method and rejects incompatible maj
     runtimes: [],
     registrationIdempotencyKey: "i",
   };
-  await expect(client.register(request)).resolves.toMatchObject({ connectionId: "b" });
+  await expect(client.register(request)).resolves.toMatchObject({
+    computerId: "c",
+    workspaceId: "w",
+  });
   expect(calls[0]).toMatchObject(["computer:register", request]);
   expect(() => client.register({ ...request, protocolMajor: 2 })).toThrow("unsupported");
 });

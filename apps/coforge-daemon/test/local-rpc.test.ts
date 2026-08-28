@@ -20,7 +20,6 @@ import type { WorkspaceWorkerCredentialStore } from "../src/workspace-worker/cre
 const servers: Array<{ close(): Promise<void> }> = [];
 const config = {
   workspaceId: "workspace-a",
-  connectionId: "connection-a",
   computerId: "computer-a",
   workspaceRoot: "/workspaces/workspace-a",
   workspaceWorkerToken: "daemon-secret",
@@ -33,7 +32,7 @@ class FakeCredentialStore implements WorkspaceWorkerCredentialStore {
   async load(): Promise<string | null> {
     return this.token;
   }
-  async save(_connectionId: string, token: string): Promise<void> {
+  async save(_workspaceId: string, _computerId: string, token: string): Promise<void> {
     this.saves++;
     this.token = token;
   }
@@ -93,9 +92,8 @@ test("daemon stores configured connection metadata without its token", async () 
 
   expect(saved).toEqual([
     {
-      connectionId: "connection-a",
-      workspaceId: "workspace-a",
       computerId: "computer-a",
+      workspaceId: "workspace-a",
       workspaceRoot: "/workspaces/workspace-a",
     },
   ]);
@@ -146,8 +144,8 @@ test("daemon processes requests on one socket in order", async () => {
       return true;
     },
     runtime: {
-      configureWorkspaceWorker: async ({ connectionId }) => {
-        configured.push(connectionId);
+      configureWorkspaceWorker: async ({ workspaceId, computerId }) => {
+        configured.push(`${workspaceId}:${computerId}`);
       },
     },
     credentials: new InMemoryWorkspaceWorkerCredentialStore(),
@@ -174,14 +172,14 @@ test("daemon processes requests on one socket in order", async () => {
       },
     },
   });
-  const request = (connectionId: string, requestId: string) =>
+  const request = (computerId: string, requestId: string) =>
     frameLocalRpc(
       encodeLocalRpcRequest({
         method: LOCAL_RPC_METHODS.CONFIGURE,
         payload: encodeWorkspaceWorkerConfigureRequest({
           protocolMajor: 1,
           ...config,
-          connectionId,
+          computerId,
           requestId,
         }),
       }),
@@ -195,7 +193,7 @@ test("daemon processes requests on one socket in order", async () => {
   expect(responses).toHaveLength(0);
   releaseFirst();
   await responsesReady;
-  expect(configured).toEqual(["first", "second"]);
+  expect(configured).toEqual(["workspace-a:first", "workspace-a:second"]);
   expect(
     decodeWorkspaceWorkerConfigureResponse(decodeLocalRpcResponse(responses[0]!).payload).requestId,
   ).toBe("request-first");

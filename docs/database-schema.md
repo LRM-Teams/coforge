@@ -49,10 +49,10 @@ apps/web/
 
 Setup persistence consists of exactly four PostgreSQL models: `Workspace`,
 `WorkspaceMembership`, `Computer`, and `WorkspaceComputer`. `WorkspaceComputer`
-is the durable binding and contains the workspace/computer foreign keys and its
-stable `id` (the worker identity used by the existing protocol contract). Its
-`(workspaceId, computerId)` unique constraint makes repeated setup converge on
-the same binding. There is no registration-idempotency table, token hash, or
+is the durable binding and contains the workspace/computer foreign keys. Its
+database `id` is an internal storage primary key; the business identity is the
+composite `(workspaceId, computerId)` key. That unique constraint makes
+repeated setup converge on the same binding. There is no registration-idempotency table, token hash, or
 temporary registration state. JWTs are stateless: every authorized retry may
 issue a fresh worker JWT for the existing binding.
 

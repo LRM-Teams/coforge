@@ -6,7 +6,7 @@ import type { WorkspaceConnection } from "../workspace-worker/supervisor";
 export interface WorkspaceConnectionRegistry {
   list(): Promise<WorkspaceConnection[]>;
   upsert(connection: WorkspaceConnection): Promise<void>;
-  delete(connectionId: string): Promise<void>;
+  delete(workspaceId: string, computerId: string): Promise<void>;
 }
 
 export class FileWorkspaceConnectionRegistry implements WorkspaceConnectionRegistry {
@@ -24,13 +24,18 @@ export class FileWorkspaceConnectionRegistry implements WorkspaceConnectionRegis
   }
   async upsert(connection: WorkspaceConnection): Promise<void> {
     const entries = (await this.list()).filter(
-      (entry) => entry.connectionId !== connection.connectionId,
+      (entry) =>
+        entry.workspaceId !== connection.workspaceId || entry.computerId !== connection.computerId,
     );
     entries.push(connection);
     await this.#write(entries);
   }
-  async delete(connectionId: string): Promise<void> {
-    await this.#write((await this.list()).filter((entry) => entry.connectionId !== connectionId));
+  async delete(workspaceId: string, computerId: string): Promise<void> {
+    await this.#write(
+      (await this.list()).filter(
+        (entry) => entry.workspaceId !== workspaceId || entry.computerId !== computerId,
+      ),
+    );
   }
   async #write(entries: WorkspaceConnection[]): Promise<void> {
     await mkdir(dirname(this.#path), { recursive: true, mode: 0o700 });

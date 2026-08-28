@@ -20,7 +20,10 @@ function fakeClient() {
   return { client, connect: () => connected(), fail: (error: unknown) => failed(error) };
 }
 
-const config = { connectionId: "connection-a", workspaceId: "workspace-a" };
+const config = {
+  computerId: "computer-a",
+  workspaceId: "workspace-a",
+};
 
 test("waits for connected and does not send a business payload", async () => {
   const fake = fakeClient();

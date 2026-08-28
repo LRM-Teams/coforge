@@ -5,7 +5,6 @@ export type CurrentProfile = { serverUrl: string };
 export type WorkspaceSelection = { id: string; slug: string };
 export type RegisteredWorkspaceConnection = WorkspaceSelection & {
   computerId: string;
-  connectionId: string;
 };
 
 export interface ComputerConfig {
@@ -52,7 +51,6 @@ export class FileComputerConfig implements ComputerConfig {
     await writeJson(configPath, {
       workspace_id: registration.id,
       computer_id: registration.computerId,
-      connection_id: registration.connectionId,
     });
     return configPath;
   }

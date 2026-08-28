@@ -17,7 +17,10 @@ The top-level logical boundary for collaboration, membership, permissions, conve
 _Avoid_: Organization, Agent workspace
 
 **Workspace–Computer connection**:
-The server-owned association authorizing one Computer to host one Workspace. Authority and online state for one registration never flow through another registration on the same Computer.
+The server-owned association authorizing one Computer to host one Workspace. Its
+business identity is the composite `(workspace_id, computer_id)`; any database
+surrogate key is internal storage detail. Authority and online state for one
+registration never flow through another registration on the same Computer.
 _Avoid_: Workspace login, machine assignment
 
 **Workspace session**:

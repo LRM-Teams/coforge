@@ -18,7 +18,6 @@ export interface DaemonLauncher {
 }
 export type WorkspaceWorkerConfig = {
   workspaceId: string;
-  connectionId: string;
   computerId: string;
   workspaceRoot: string;
   workspaceWorkerToken: string;
@@ -105,7 +104,6 @@ export class LocalDaemonLauncher implements DaemonLauncher {
                 protocolMajor: 1,
                 requestId: configureId,
                 workspaceId: config.workspaceId,
-                connectionId: config.connectionId,
                 computerId: config.computerId,
                 workspaceRoot: config.workspaceRoot,
                 workspaceWorkerToken: config.workspaceWorkerToken,

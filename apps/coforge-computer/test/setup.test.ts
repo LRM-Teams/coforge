@@ -198,7 +198,6 @@ test("setup uses an explicit server for catalog and registration", async () => {
             requestId: request.requestId,
             computerId: "c",
             workspaceId: "w",
-            connectionId: "x",
             workspaceWorkerToken: "t",
           };
         },
@@ -236,7 +235,6 @@ test("setup sends a direct slug to registration without listing Workspaces", asy
           requestId: request.requestId,
           computerId: "computer-id",
           workspaceId: "workspace-id-a",
-          connectionId: "connection-id",
           workspaceWorkerToken: "daemon-secret",
         };
       },
@@ -268,7 +266,6 @@ test("setup forwards discovered runtime metadata to registration", async () => {
           requestId: request.requestId,
           computerId: "computer-id",
           workspaceId: "workspace-id-a",
-          connectionId: "connection-id",
           workspaceWorkerToken: "daemon-secret",
         };
       },
@@ -290,7 +287,7 @@ test("setup discards the registration when the Daemon launcher fails", async () 
         throw new Error("must not save config");
       },
       async discardRegistration(registration) {
-        discarded.push(registration.connectionId);
+        discarded.push(`${registration.id}:${registration.computerId}`);
       },
     },
     launcher: {
@@ -303,7 +300,7 @@ test("setup discards the registration when the Daemon launcher fails", async () 
   await expect(setup.run({ workspaceSlug: "workspace-a" })).rejects.toMatchObject({
     code: "SETUP_CONFIG_WRITE_FAILED",
   });
-  expect(discarded).toEqual(["connection-id"]);
+  expect(discarded).toEqual(["workspace-id-a:computer-id"]);
 });
 
 test("setup discards the registration when saving its config fails", async () => {
@@ -317,7 +314,7 @@ test("setup discards the registration when saving its config fails", async () =>
         throw new Error("config failed");
       },
       async discardRegistration(registration) {
-        discarded.push(registration.connectionId);
+        discarded.push(`${registration.id}:${registration.computerId}`);
       },
     },
   });
@@ -325,7 +322,7 @@ test("setup discards the registration when saving its config fails", async () =>
   await expect(setup.run({ workspaceSlug: "workspace-a" })).rejects.toMatchObject({
     code: "SETUP_CONFIG_WRITE_FAILED",
   });
-  expect(discarded).toEqual(["connection-id"]);
+  expect(discarded).toEqual(["workspace-id-a:computer-id"]);
 });
 
 test("setup discards the registration when saving the Daemon credential fails", async () => {
@@ -339,7 +336,7 @@ test("setup discards the registration when saving the Daemon credential fails", 
         return "/saved";
       },
       async discardRegistration(registration) {
-        discarded.push(registration.connectionId);
+        discarded.push(`${registration.id}:${registration.computerId}`);
       },
     },
     credentials: {
@@ -355,7 +352,7 @@ test("setup discards the registration when saving the Daemon credential fails", 
   await expect(setup.run({ workspaceSlug: "workspace-a" })).rejects.toMatchObject({
     code: "SETUP_CONFIG_WRITE_FAILED",
   });
-  expect(discarded).toEqual(["connection-id"]);
+  expect(discarded).toEqual(["workspace-id-a:computer-id"]);
 });
 
 function createSetup(overrides: Partial<ComputerSetupOptions> = {}): ComputerSetup {
@@ -388,7 +385,6 @@ function createSetup(overrides: Partial<ComputerSetupOptions> = {}): ComputerSet
           computerId: "computer-id",
           workspaceId:
             request.workspaceSlug === "workspace-b" ? "workspace-id-b" : "workspace-id-a",
-          connectionId: "connection-id",
           workspaceWorkerToken: "daemon-secret",
         };
       },

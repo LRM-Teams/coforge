@@ -39,7 +39,6 @@ describe("local daemon RPC", () => {
       protocolMajor: 1,
       requestId: "request-1",
       workspaceId: "workspace-1",
-      connectionId: "connection-1",
       computerId: "computer-1",
       workspaceRoot: "/workspaces/workspace-1",
       workspaceWorkerToken: "worker-secret",

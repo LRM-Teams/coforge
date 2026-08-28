@@ -19,7 +19,6 @@ export type WorkspaceWorkerConfigureRequest = {
   protocolMajor: number;
   requestId: string;
   workspaceId: string;
-  connectionId: string;
   workspaceRoot: string;
   workspaceWorkerToken: string;
   computerId: string;
@@ -63,7 +62,6 @@ export function decodeWorkspaceWorkerConfigureRequest(
     protocolMajor: v.protocolMajor,
     requestId: v.requestId,
     workspaceId: v.workspaceId,
-    connectionId: v.connectionId,
     workspaceRoot: v.workspaceRoot,
     workspaceWorkerToken: v.workspaceWorkerToken,
     computerId: v.computerId,

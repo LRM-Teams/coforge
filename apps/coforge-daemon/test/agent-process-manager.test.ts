@@ -47,7 +47,12 @@ describe("AgentProcessManager", () => {
         return session;
       },
     };
-    const manager = new AgentProcessManager(new AgentRuntimePool(1), "connection-a", () => adapter);
+    const manager = new AgentProcessManager(
+      new AgentRuntimePool(1),
+      "workspace-a",
+      "computer-a",
+      () => adapter,
+    );
 
     const runtime = await manager.start("agent-1", config, "/workspaces/a/agents/agent-1");
 
@@ -69,7 +74,7 @@ describe("AgentProcessManager", () => {
   test("becomes offline when the Agent runtime process exits", async () => {
     const pool = new AgentRuntimePool(1);
     const session = sessionSpy();
-    const manager = new AgentProcessManager(pool, "connection-a", () => ({
+    const manager = new AgentProcessManager(pool, "workspace-a", "computer-a", () => ({
       provider: "pi",
       async start() {
         return session;
@@ -92,7 +97,12 @@ describe("AgentProcessManager", () => {
         return sessionSpy();
       },
     };
-    const manager = new AgentProcessManager(new AgentRuntimePool(1), "connection-a", () => adapter);
+    const manager = new AgentProcessManager(
+      new AgentRuntimePool(1),
+      "workspace-a",
+      "computer-a",
+      () => adapter,
+    );
 
     await manager.start("agent-1", config, "/agents/1");
     await expect(manager.start("agent-2", config, "/agents/2")).rejects.toThrow(
@@ -103,7 +113,7 @@ describe("AgentProcessManager", () => {
 
   test("returns capacity when adapter startup fails", async () => {
     const pool = new AgentRuntimePool(1);
-    const manager = new AgentProcessManager(pool, "connection-a", () => ({
+    const manager = new AgentProcessManager(pool, "workspace-a", "computer-a", () => ({
       provider: "pi",
       async start() {
         throw new Error("startup failed");

@@ -18,8 +18,8 @@ function workerSpy() {
   } satisfies WorkspaceWorker & { startCalls: number; stopCalls: number };
 }
 
-const connection = (connectionId: string, workspaceId: string): WorkspaceConnection => ({
-  connectionId,
+const connection = (computerId: string, workspaceId: string): WorkspaceConnection => ({
+  computerId,
   workspaceId,
   workspaceRoot: `/workspaces/${workspaceId}`,
 });
@@ -31,13 +31,13 @@ describe("WorkspaceWorkerSupervisor", () => {
       create: () => workers[0]!,
     });
 
-    const first = await supervisor.ensure(connection("connection-a", "workspace-a"));
-    const second = await supervisor.ensure(connection("connection-a", "workspace-a"));
+    const first = await supervisor.ensure(connection("computer-a", "workspace-a"));
+    const second = await supervisor.ensure(connection("computer-a", "workspace-a"));
 
     expect(second).toBe(first);
     expect(workers[0]!.startCalls).toBe(1);
-    expect(supervisor.query("connection-a")).toEqual({
-      connectionId: "connection-a",
+    expect(supervisor.query("workspace-a", "computer-a")).toEqual({
+      computerId: "computer-a",
       workspaceId: "workspace-a",
     });
   });
@@ -52,17 +52,17 @@ describe("WorkspaceWorkerSupervisor", () => {
       },
     });
 
-    const first = await supervisor.ensure(connection("connection-a", "workspace-a"));
-    const other = await supervisor.ensure(connection("connection-b", "workspace-b"));
-    await supervisor.stop("connection-a");
-    const restarted = await supervisor.ensure(connection("connection-a", "workspace-a"));
+    const first = await supervisor.ensure(connection("computer-a", "workspace-a"));
+    const other = await supervisor.ensure(connection("computer-b", "workspace-b"));
+    await supervisor.stop("workspace-a", "computer-a");
+    const restarted = await supervisor.ensure(connection("computer-a", "workspace-a"));
 
     expect(other).not.toBe(first);
     expect(restarted).not.toBe(first);
     expect(created[0]!.stopCalls).toBe(1);
     expect(created[2]!.startCalls).toBe(1);
-    expect(supervisor.query("connection-a")).toEqual({
-      connectionId: "connection-a",
+    expect(supervisor.query("workspace-a", "computer-a")).toEqual({
+      computerId: "computer-a",
       workspaceId: "workspace-a",
     });
   });
@@ -77,12 +77,12 @@ describe("WorkspaceWorkerSupervisor", () => {
       },
     });
 
-    await supervisor.ensure(connection("connection-a", "workspace-a"));
-    await supervisor.ensure(connection("connection-b", "workspace-b"));
+    await supervisor.ensure(connection("computer-a", "workspace-a"));
+    await supervisor.ensure(connection("computer-b", "workspace-b"));
     await supervisor.shutdown();
 
     expect(created.map((worker) => worker.stopCalls)).toEqual([1, 1]);
-    expect(supervisor.query("connection-a")).toBeUndefined();
-    expect(supervisor.query("connection-b")).toBeUndefined();
+    expect(supervisor.query("workspace-a", "computer-a")).toBeUndefined();
+    expect(supervisor.query("workspace-b", "computer-b")).toBeUndefined();
   });
 });

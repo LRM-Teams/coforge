@@ -6,6 +6,7 @@ export const WORKSPACE_GET_METHOD = "workspace:get" as const;
 export const WORKSPACE_WORKER_READY_METHOD = "workspace_worker:ready" as const;
 export const WORKSPACE_PROTOCOL_MAJOR = COMPUTER_REGISTER_PROTOCOL_MAJOR;
 export type Workspace = { id: string; slug: string; name: string };
+
 export type WorkspaceQueryRequest = {
   protocolMajor: number;
   requestId: string;
@@ -42,7 +43,6 @@ export type ComputerRegisterResponse = {
   requestId: string;
   computerId: string;
   workspaceId: string;
-  connectionId: string;
   workspaceWorkerToken: string;
 };
 export type WorkspaceWorkerReadyRequest = {
