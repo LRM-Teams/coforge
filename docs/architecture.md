@@ -98,7 +98,7 @@ packages/
 - 反向代理、健康检查和负载均衡；
 - 与应用进程独立常驻，应用滚动更新时保持入口稳定。
 
-验证阶段运行两个 Centrifugo 副本和两个 backend 副本。发布时一次 drain 一个副本，新连接只进入健康实例；不引入 Kubernetes。当前仓库提供单节点本地验证用的 [`infra/docker-compose.centrifugo.yml`](../infra/docker-compose.centrifugo.yml)，生产 Compose 与发布流水线仍未实现，不能复用已删除的 custom Go gateway 部署资产。
+验证阶段运行两个 Centrifugo 副本和两个 backend 副本。发布时一次 drain 一个副本，新连接只进入健康实例；不引入 Kubernetes。当前仓库提供单节点本地验证用的 [`infra/docker-compose.yml`](../infra/docker-compose.yml)，生产 Compose 与发布流水线仍未实现，不能复用已删除的 custom Go gateway 部署资产。
 
 Caddy 不理解 conversation、message、Agent 或 workspace 业务。
 

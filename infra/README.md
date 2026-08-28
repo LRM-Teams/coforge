@@ -23,16 +23,16 @@ openssl rand -hex 32 > infra/secrets/centrifugo_token_hmac_secret_key
 openssl rand -hex 32 > infra/secrets/centrifugo_http_api_key
 openssl rand -hex 32 > infra/secrets/postgres_password
 docker compose -p coforge \
-  -f infra/docker-compose.centrifugo.yml up -d
+  -f infra/docker-compose.yml up -d
 ```
 
 Check the rendered configuration and service health:
 
 ```bash
 docker compose -p coforge \
-  -f infra/docker-compose.centrifugo.yml config --quiet
+  -f infra/docker-compose.yml config --quiet
 docker compose -p coforge \
-  -f infra/docker-compose.centrifugo.yml ps
+  -f infra/docker-compose.yml ps
 curl http://localhost:8000/health
 ```
 
@@ -44,7 +44,7 @@ Stop the services without deleting the Redis volume:
 
 ```bash
 docker compose -p coforge \
-  -f infra/docker-compose.centrifugo.yml down
+  -f infra/docker-compose.yml down
 ```
 
 The committed image versions are intentionally not `latest`. Production must
