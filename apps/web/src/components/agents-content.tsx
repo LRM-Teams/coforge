@@ -14,7 +14,7 @@ function getAgents() {
       "PengdeMacBook",
       "James",
       "AT",
-      "bg-[#7556b9]",
+      "bg-avatar-1",
     ],
     [
       "John",
@@ -24,7 +24,7 @@ function getAgents() {
       "docker-test0813",
       "Wangli",
       "JO",
-      "bg-[#d18a38]",
+      "bg-avatar-2",
     ],
     [
       "Judy",
@@ -34,7 +34,7 @@ function getAgents() {
       "FrankAns-MacBook",
       "James",
       "JU",
-      "bg-[#b65757]",
+      "bg-avatar-3",
     ],
     [
       "Mark",
@@ -44,7 +44,7 @@ function getAgents() {
       "PengdeMacBook",
       "James",
       "MA",
-      "bg-[#5268b7]",
+      "bg-avatar-4",
     ],
     [
       "Tick",
@@ -54,7 +54,7 @@ function getAgents() {
       "docker-test0813",
       "Wangli",
       "TI",
-      "bg-[#497665]",
+      "bg-avatar-5",
     ],
     [
       "Tony",
@@ -64,7 +64,7 @@ function getAgents() {
       "FrankAns-MacBook",
       "James",
       "TO",
-      "bg-[#ba5937]",
+      "bg-avatar-6",
     ],
   ] as const;
 }
