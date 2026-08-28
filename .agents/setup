@@ -31,6 +31,24 @@ install_docker() {
 	sudo usermod -aG docker "$(id -un)"
 }
 
+install_linux_credential_store() {
+	if [[ "$(uname -s)" != Linux ]]; then
+		return
+	fi
+
+	local package
+	local missing=false
+	for package in libsecret-1-0 gnome-keyring; do
+		if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -Fqx 'install ok installed'; then
+			missing=true
+		fi
+	done
+	if [[ "$missing" == true ]]; then
+		sudo apt-get update
+		sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y libsecret-1-0 gnome-keyring
+	fi
+}
+
 mise_bin="$HOME/.local/bin/mise"
 
 if [[ ! -x "$mise_bin" ]]; then
@@ -49,8 +67,8 @@ fi
 export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
 
 run_step "Install Docker" install_docker
+run_step "Install Linux credential store" install_linux_credential_store
 run_step "Install pinned toolchain" "$mise_bin" install --locked
 run_step "Install Bun dependencies" "$mise_bin" run install
-run_step "Download Go dependencies" "$mise_bin" exec -- go -C apps/realtime-gateway mod download
 
 printf 'Orb setup complete.\n'

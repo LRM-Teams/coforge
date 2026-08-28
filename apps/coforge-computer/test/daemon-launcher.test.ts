@@ -51,6 +51,7 @@ test("reuses a running daemon after a successful local handshake", async () => {
   await launcher.ensureStarted({
     workspaceId: "w",
     connectionId: "c",
+    computerId: "computer",
     workspaceRoot: "/w",
     workspaceWorkerToken: "daemon-credential",
   });
@@ -103,6 +104,7 @@ test("starts the daemon and waits for its handshake", async () => {
   await launcher.ensureStarted({
     workspaceId: "w",
     connectionId: "c",
+    computerId: "computer",
     workspaceRoot: "/w",
     workspaceWorkerToken: "daemon-credential",
   });

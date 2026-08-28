@@ -21,6 +21,7 @@ const servers: Array<{ close(): Promise<void> }> = [];
 const config = {
   workspaceId: "workspace-a",
   connectionId: "connection-a",
+  computerId: "computer-a",
   workspaceRoot: "/workspaces/workspace-a",
   workspaceWorkerToken: "daemon-secret",
 };
@@ -94,6 +95,7 @@ test("daemon stores configured connection metadata without its token", async () 
     {
       connectionId: "connection-a",
       workspaceId: "workspace-a",
+      computerId: "computer-a",
       workspaceRoot: "/workspaces/workspace-a",
     },
   ]);
@@ -252,11 +254,15 @@ test("daemon restores the old token when configuration or registry persistence f
       },
     });
     servers.push(server);
-    const launcher = new LocalDaemonLauncher({ executablePath: "/unused", socketPath });
-    await Promise.race([
+    const launcher = new LocalDaemonLauncher({
+      executablePath: "/unused",
+      socketPath,
+      spawn: () => {},
+      timeoutMilliseconds: 0,
+    });
+    await expect(
       launcher.ensureStarted({ ...config, workspaceWorkerToken: "new-token" }),
-      Bun.sleep(100),
-    ]);
+    ).rejects.toThrow("did not accept");
     expect(credentials.token).toBe("old-token");
     expect(credentials.saves).toBe(2);
     expect(upserts).toBe(failure === "registry" ? 1 : 0);
@@ -278,10 +284,43 @@ test("daemon deletes a first token when configuration fails", async () => {
     credentials,
   });
   servers.push(server);
-  await Promise.race([
-    new LocalDaemonLauncher({ executablePath: "/unused", socketPath }).ensureStarted(config),
-    Bun.sleep(100),
-  ]);
+  await expect(
+    new LocalDaemonLauncher({
+      executablePath: "/unused",
+      socketPath,
+      spawn: () => {},
+      timeoutMilliseconds: 0,
+    }).ensureStarted(config),
+  ).rejects.toThrow("did not accept");
   expect(credentials.token).toBeNull();
   expect(credentials.deletes).toBe(1);
+});
+
+test("launcher stops waiting when the daemon closes the socket during configuration", async () => {
+  const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
+  const server = await startDaemonLocalRpcServer({
+    socketPath,
+    validateCredential: () => true,
+    runtime: {
+      configureWorkspaceWorker: async () => {},
+    },
+    credentials: {
+      async load() {
+        throw new Error("secret store unavailable");
+      },
+      async save() {},
+      async delete() {},
+    },
+  });
+  servers.push(server);
+
+  await expect(
+    new LocalDaemonLauncher({
+      executablePath: "/unused",
+      socketPath,
+      spawn: () => {},
+      timeoutMilliseconds: 10,
+      sleep: async () => {},
+    }).ensureStarted(config),
+  ).rejects.toThrow("did not accept");
 });

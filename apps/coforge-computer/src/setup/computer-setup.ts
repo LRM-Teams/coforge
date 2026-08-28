@@ -146,6 +146,7 @@ export class ComputerSetup {
       await launcher.ensureStarted({
         workspaceId: response.workspaceId,
         connectionId: response.connectionId,
+        computerId: response.computerId,
         workspaceRoot: this.options.workspaceRoot,
         workspaceWorkerToken: response.workspaceWorkerToken,
       });

@@ -19,6 +19,7 @@ export interface DaemonLauncher {
 export type WorkspaceWorkerConfig = {
   workspaceId: string;
   connectionId: string;
+  computerId: string;
   workspaceRoot: string;
   workspaceWorkerToken: string;
 };
@@ -105,6 +106,7 @@ export class LocalDaemonLauncher implements DaemonLauncher {
                 requestId: configureId,
                 workspaceId: config.workspaceId,
                 connectionId: config.connectionId,
+                computerId: config.computerId,
                 workspaceRoot: config.workspaceRoot,
                 workspaceWorkerToken: config.workspaceWorkerToken,
               }),
@@ -173,6 +175,9 @@ async function connectWithBun(socketPath: string): Promise<LocalDaemonConnection
       },
       connectError(_socket, error) {
         rejectResponse?.(error instanceof Error ? error : new Error("local daemon socket failed"));
+      },
+      end(_socket) {
+        rejectResponse?.(new Error("local daemon socket closed"));
       },
     },
   });
