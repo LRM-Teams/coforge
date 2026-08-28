@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { LocalDaemonLauncher } from "./launcher";
-import type { DaemonLauncher } from "./launcher";
+import type { DaemonLauncher, WorkspaceWorkerConfig } from "./launcher";
 
 type CommandRunner = (command: string[]) => Promise<number>;
 
@@ -9,6 +9,8 @@ export type LaunchdDaemonHostOptions = {
   label: string;
   executablePath: string;
   socketPath: string;
+  stateDirectory?: string;
+  cloudWebSocketEndpoint?: string;
   homeDirectory: string;
   uid: number;
   writeFile?: (path: string, content: string) => Promise<void>;
@@ -43,9 +45,9 @@ export class LaunchdDaemonHost implements DaemonLauncher {
     });
   }
 
-  async ensureStarted(credential: string): Promise<void> {
+  async ensureStarted(config: WorkspaceWorkerConfig): Promise<void> {
     await this.ensureInstalled();
-    await this.#local.ensureStarted(credential);
+    await this.#local.ensureStarted(config);
   }
 
   async ensureInstalled(): Promise<void> {
@@ -69,14 +71,17 @@ export function launchdPlist(input: {
   label: string;
   executablePath: string;
   socketPath: string;
+  stateDirectory?: string;
+  cloudWebSocketEndpoint?: string;
 }): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key><string>${xml(input.label)}</string>
+  ${input.cloudWebSocketEndpoint ? `<key>EnvironmentVariables</key><dict><key>COFORGE_CLOUD_WEBSOCKET_ENDPOINT</key><string>${xml(input.cloudWebSocketEndpoint)}</string></dict>` : ""}
   <key>ProgramArguments</key>
-  <array><string>${xml(input.executablePath)}</string><string>--socket</string><string>${xml(input.socketPath)}</string></array>
+  <array><string>${xml(input.executablePath)}</string><string>--socket</string><string>${xml(input.socketPath)}</string>${input.stateDirectory ? `<string>--state-directory</string><string>${xml(input.stateDirectory)}</string>` : ""}</array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ProcessType</key><string>Background</string>

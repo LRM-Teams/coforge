@@ -1,11 +1,90 @@
-import { parse } from "protobufjs";
+import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import {
+  DaemonHandshakeRequestSchema,
+  DaemonHandshakeResponseSchema,
+  WorkspaceWorkerConfigureRequestSchema,
+  WorkspaceWorkerConfigureResponseSchema,
+  LocalRpcRequestSchema,
+  LocalRpcResponseSchema,
+} from "./gen/coforge/rpc/v1/computer_register_pb";
 
-export const DAEMON_HANDSHAKE_METHOD = "daemon:handshake" as const;
+export const LOCAL_RPC_PROTOCOL_MAJOR = 1 as const;
+export const LOCAL_RPC_METHODS = {
+  HANDSHAKE: "daemon:handshake",
+  CONFIGURE: "workspace-worker:configure",
+} as const;
+export const DAEMON_HANDSHAKE_METHOD = LOCAL_RPC_METHODS.HANDSHAKE;
+export const WORKSPACE_WORKER_CONFIGURE_METHOD = LOCAL_RPC_METHODS.CONFIGURE;
+export type WorkspaceWorkerConfigureRequest = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  connectionId: string;
+  workspaceRoot: string;
+  workspaceWorkerToken: string;
+};
+export type WorkspaceWorkerConfigureResponse = {
+  protocolMajor: number;
+  requestId: string;
+  accepted: boolean;
+};
+export type LocalRpcRequest = { method: string; payload: Uint8Array };
+export type LocalRpcResponse = { method: string; payload: Uint8Array };
+
+export function encodeLocalRpcRequest(value: LocalRpcRequest): Uint8Array {
+  return toBinary(LocalRpcRequestSchema, create(LocalRpcRequestSchema, value));
+}
+export function decodeLocalRpcRequest(bytes: Uint8Array): LocalRpcRequest {
+  const value = fromBinary(LocalRpcRequestSchema, bytes);
+  return { method: value.method, payload: value.payload };
+}
+export function encodeLocalRpcResponse(value: LocalRpcResponse): Uint8Array {
+  return toBinary(LocalRpcResponseSchema, create(LocalRpcResponseSchema, value));
+}
+export function decodeLocalRpcResponse(bytes: Uint8Array): LocalRpcResponse {
+  const value = fromBinary(LocalRpcResponseSchema, bytes);
+  return { method: value.method, payload: value.payload };
+}
+
+export function encodeWorkspaceWorkerConfigureRequest(
+  value: WorkspaceWorkerConfigureRequest,
+): Uint8Array {
+  return toBinary(
+    WorkspaceWorkerConfigureRequestSchema,
+    create(WorkspaceWorkerConfigureRequestSchema, value),
+  );
+}
+export function decodeWorkspaceWorkerConfigureRequest(
+  bytes: Uint8Array,
+): WorkspaceWorkerConfigureRequest {
+  const v = fromBinary(WorkspaceWorkerConfigureRequestSchema, bytes);
+  return {
+    protocolMajor: v.protocolMajor,
+    requestId: v.requestId,
+    workspaceId: v.workspaceId,
+    connectionId: v.connectionId,
+    workspaceRoot: v.workspaceRoot,
+    workspaceWorkerToken: v.workspaceWorkerToken,
+  };
+}
+export function encodeWorkspaceWorkerConfigureResponse(
+  value: WorkspaceWorkerConfigureResponse,
+): Uint8Array {
+  return toBinary(
+    WorkspaceWorkerConfigureResponseSchema,
+    create(WorkspaceWorkerConfigureResponseSchema, value),
+  );
+}
+export function decodeWorkspaceWorkerConfigureResponse(
+  bytes: Uint8Array,
+): WorkspaceWorkerConfigureResponse {
+  const v = fromBinary(WorkspaceWorkerConfigureResponseSchema, bytes);
+  return { protocolMajor: v.protocolMajor, requestId: v.requestId, accepted: v.accepted };
+}
 
 export type DaemonHandshakeRequest = {
   protocolMajor: number;
   requestId: string;
-  daemonWorkspaceCredential: string;
 };
 
 export type DaemonHandshakeResponse = {
@@ -15,48 +94,24 @@ export type DaemonHandshakeResponse = {
   accepted: boolean;
 };
 
-const root = parse(`syntax = "proto3"; package coforge.rpc.v1;
-message DaemonHandshakeRequest { uint32 protocol_major = 1; string request_id = 2; string daemon_workspace_credential = 3; }
-message DaemonHandshakeResponse { uint32 protocol_major = 1; string request_id = 2; string daemon_id = 3; bool accepted = 4; }`).root;
-const requestType = root.lookupType("coforge.rpc.v1.DaemonHandshakeRequest");
-const responseType = root.lookupType("coforge.rpc.v1.DaemonHandshakeResponse");
-
 export function encodeDaemonHandshakeRequest(value: DaemonHandshakeRequest): Uint8Array {
-  return requestType
-    .encode(
-      requestType.fromObject({
-        protocolMajor: value.protocolMajor,
-        requestId: value.requestId,
-        daemonWorkspaceCredential: value.daemonWorkspaceCredential,
-      }),
-    )
-    .finish();
+  return toBinary(DaemonHandshakeRequestSchema, create(DaemonHandshakeRequestSchema, value));
 }
 
 export function decodeDaemonHandshakeRequest(bytes: Uint8Array): DaemonHandshakeRequest {
-  const value = requestType.toObject(requestType.decode(bytes));
+  const value = fromBinary(DaemonHandshakeRequestSchema, bytes);
   return {
     protocolMajor: value.protocolMajor,
     requestId: value.requestId,
-    daemonWorkspaceCredential: value.daemonWorkspaceCredential,
   };
 }
 
 export function encodeDaemonHandshakeResponse(value: DaemonHandshakeResponse): Uint8Array {
-  return responseType
-    .encode(
-      responseType.fromObject({
-        protocolMajor: value.protocolMajor,
-        requestId: value.requestId,
-        daemonId: value.daemonId,
-        accepted: value.accepted,
-      }),
-    )
-    .finish();
+  return toBinary(DaemonHandshakeResponseSchema, create(DaemonHandshakeResponseSchema, value));
 }
 
 export function decodeDaemonHandshakeResponse(bytes: Uint8Array): DaemonHandshakeResponse {
-  const value = responseType.toObject(responseType.decode(bytes));
+  const value = fromBinary(DaemonHandshakeResponseSchema, bytes);
   return {
     protocolMajor: value.protocolMajor,
     requestId: value.requestId,

@@ -9,7 +9,7 @@ export type ComputerPlatform = {
 
 export function currentComputerPlatform(
   input: {
-    platform?: NodeJS.Platform;
+    platform?: string;
     architecture?: string;
   } = {},
 ): ComputerPlatform {

@@ -14,9 +14,9 @@ export interface ComputerConfig {
   saveWorkspace(workspace: WorkspaceSelection): Promise<string>;
   saveRegistration?(
     registration: RegisteredWorkspaceConnection,
-    daemonCredential: string,
+    workspaceWorkerToken: string,
   ): Promise<string>;
-  discardRegistration?(registration: RegisteredWorkspaceConnection): Promise<void>;
+  discardRegistration(registration: RegisteredWorkspaceConnection): Promise<void>;
 }
 
 export class FileComputerConfig implements ComputerConfig {
@@ -45,7 +45,7 @@ export class FileComputerConfig implements ComputerConfig {
 
   async saveRegistration(
     registration: RegisteredWorkspaceConnection,
-    _daemonCredential: string,
+    _workspaceWorkerToken: string,
   ): Promise<string> {
     const directoryName = Buffer.from(registration.id, "utf8").toString("base64url");
     const configPath = join(this.directory, "workspaces", directoryName, "config.json");

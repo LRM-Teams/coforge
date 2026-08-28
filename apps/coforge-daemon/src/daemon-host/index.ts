@@ -12,6 +12,8 @@ export function createDaemonHost(input: {
   platform: NodeJS.Platform;
   executablePath: string;
   socketPath: string;
+  stateDirectory?: string;
+  cloudWebSocketEndpoint?: string;
   homeDirectory: string;
   uid: number;
 }): DaemonLauncher {

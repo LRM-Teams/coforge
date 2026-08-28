@@ -1,5 +1,5 @@
 import { LocalDaemonLauncher } from "./launcher";
-import type { DaemonLauncher } from "./launcher";
+import type { DaemonLauncher, WorkspaceWorkerConfig } from "./launcher";
 
 type CommandRunner = (command: string[]) => Promise<number>;
 
@@ -13,18 +13,23 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
     taskName?: string;
     executablePath: string;
     socketPath: string;
+    stateDirectory?: string;
+    cloudWebSocketEndpoint?: string;
     run?: CommandRunner;
   }) {
     this.#taskName = options.taskName ?? "CoForge Daemon";
     this.#run = options.run ?? runCommand;
-    this.#command = `"${options.executablePath.replaceAll('"', '""')}" --socket ${options.socketPath}`;
+    const daemonCommand = `"${options.executablePath.replaceAll('"', '""')}" --socket ${options.socketPath}${options.stateDirectory ? ` --state-directory "${options.stateDirectory}"` : ""}`;
+    this.#command = options.cloudWebSocketEndpoint
+      ? `cmd.exe /d /s /c "set COFORGE_CLOUD_WEBSOCKET_ENDPOINT=${options.cloudWebSocketEndpoint}&& ${daemonCommand}"`
+      : daemonCommand;
     this.#local = new LocalDaemonLauncher({
       executablePath: options.executablePath,
       socketPath: options.socketPath,
     });
   }
 
-  async ensureStarted(credential: string): Promise<void> {
+  async ensureStarted(config: WorkspaceWorkerConfig): Promise<void> {
     const result = await this.#run([
       "schtasks.exe",
       "/Create",
@@ -39,7 +44,7 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
     if (result !== 0) throw new Error("could not register the CoForge Daemon user task");
     const start = await this.#run(["schtasks.exe", "/Run", "/TN", this.#taskName]);
     if (start !== 0) throw new Error("could not start the CoForge Daemon user task");
-    await this.#local.ensureStarted(credential);
+    await this.#local.ensureStarted(config);
   }
 }
 

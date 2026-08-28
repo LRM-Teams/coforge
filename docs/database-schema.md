@@ -1,6 +1,6 @@
-# CoForge IM database schema
+# CoForge database schema
 
-Status: discussion draft; not an approved migration
+Status: approved setup identity schema plus discussion draft messaging schema
 
 Database: PostgreSQL 16+
 
@@ -44,6 +44,24 @@ apps/web/
   deployment plan before implementation.
 
 ## Model
+
+### Approved setup identity models
+
+Setup persistence consists of exactly four PostgreSQL models: `Workspace`,
+`WorkspaceMembership`, `Computer`, and `WorkspaceComputer`. `WorkspaceComputer`
+is the durable binding and contains the workspace/computer foreign keys and its
+stable `id` (the worker identity used by the existing protocol contract). Its
+`(workspaceId, computerId)` unique constraint makes repeated setup converge on
+the same binding. There is no registration-idempotency table, token hash, or
+temporary registration state. JWTs are stateless: every authorized retry may
+issue a fresh worker JWT for the existing binding.
+
+The repository must use database `upsert` operations and explicit unique-conflict
+handling, never placeholder UUID rows. Concurrent requests may both reach the
+upserts, but PostgreSQL uniqueness ensures one Computer and one
+WorkspaceComputer binding; a deployment with stronger all-or-nothing behavior
+may wrap the operations in a transaction. Token issuance occurs after the
+durable binding is found or created, so an issuer failure is safely retryable.
 
 ```mermaid
 erDiagram
@@ -221,8 +239,11 @@ constrained now.
 - Treat `body_json` as versioned application data. Do not use it as a substitute
   for columns needed by relational filters or integrity rules.
 
-The table design remains a discussion draft and is not an approved migration.
+The messaging table design remains a discussion draft and is not included in the
+setup migration. Setup-owned identity and Workspace connection tables are
+implemented separately under `apps/web/prisma/schema.prisma` and its migration.
 The project-level data-access choice is recorded in
 [`ADR 0003`](adr/0003-prisma-as-postgresql-data-access.md): approved
 implementations use Prisma schema, generated Prisma Client, and Prisma Migrate.
-That approval does not approve these draft tables or any SQL migration yet.
+That approval does not approve the draft messaging tables or their future SQL
+migrations.

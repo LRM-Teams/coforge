@@ -42,8 +42,8 @@ schema/client/migration 工作流，以及对 code agent 行为的约束，而�
 - Prisma schema 不是 PostgreSQL 所有能力的替代品。partial index、特定约束或复杂
   查询可以通过审查过的 SQL migration/raw SQL 补充，但不能绕过 repository/server
   边界。
-- 当前不引入业务 schema、migration、Prisma Client 或 Docker Compose；它们在数据库
-  表和服务 contract 通过评审后单独实现。
+- 当前只引入 Computer setup 所需的最小身份、Workspace connection 和注册幂等
+  schema/migration；聊天业务表仍需独立评审，不得借此 migration 一并加入。
 - 从本地 Docker PostgreSQL 迁移到阿里云 RDS 时，必须按备份、恢复/复制、双侧校验、
   cutover 和 rollback 计划执行，不以更换 endpoint 代替数据迁移。
 

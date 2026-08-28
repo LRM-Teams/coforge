@@ -1,7 +1,8 @@
 import type { AgentActivity } from "../agent-runtime/agent-activity";
+import type { RuntimeProvider } from "@coforge/protocol";
 
 /** Provider-neutral seam owned by each workspace worker. */
-export type CodeAgentProvider = "pi" | "codex" | "claude-code";
+export type CodeAgentProvider = RuntimeProvider;
 
 export type AgentRuntimeConfig = Readonly<{
   provider: CodeAgentProvider;

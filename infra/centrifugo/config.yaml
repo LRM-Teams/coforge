@@ -11,3 +11,20 @@ admin:
 
 log:
   level: info
+
+client:
+  token:
+    jwks_public_endpoint: http://host.docker.internal:8789/api/jwks
+    audience: coforge-centrifugo
+    issuer: coforge
+
+rpc:
+  proxy:
+    endpoint: http://host.docker.internal:8789/api/internal/centrifugo
+    timeout: 5s
+    binary_encoding: true
+    http:
+      static_headers:
+        X-CoForge-Centrifugo-Proxy-Secret: ${CENTRIFUGO_VAR_RPC_PROXY_SECRET}
+  without_namespace:
+    proxy_enabled: true

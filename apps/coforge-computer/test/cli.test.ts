@@ -136,6 +136,21 @@ test("setup accepts the Workspace slug through an explicit option", async () => 
   expect(calls).toEqual([{ workspaceSlug: "workspace-a", json: false }]);
 });
 
+test("setup forwards an explicit server URL", async () => {
+  let serverUrl: string | undefined;
+  await expect(
+    runCli(["setup", "--server", "https://coforge.example", "--workspace", "workspace-a"], {
+      login: { async run() {} },
+      setup: {
+        async run(_workspace, options) {
+          serverUrl = options.serverUrl;
+        },
+      },
+    }),
+  ).resolves.toBe(0);
+  expect(serverUrl).toBe("https://coforge.example");
+});
+
 test("JSON setup failure is one stable stdout object with an actionable hint", async () => {
   const stdout: string[] = [];
   const stderr: string[] = [];

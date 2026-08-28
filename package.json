@@ -7,15 +7,16 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "bun run --filter '*' --if-present test",
+    "test": "bun run --cwd packages/protocol generate && bun run --filter \"*\" --if-present test",
     "test:oss-cdn": "bun test scripts/verify-oss-cdn.test.ts",
     "check:oss-cdn": "bunx oxfmt --check scripts/verify-oss-cdn.ts scripts/verify-oss-cdn.test.ts && bunx oxlint scripts/verify-oss-cdn.ts scripts/verify-oss-cdn.test.ts",
     "verify:oss-cdn": "bun scripts/verify-oss-cdn.ts",
-    "build": "bun run --filter '*' --if-present build",
-    "check": "actionlint && bun run --filter '*' --if-present check"
+    "build": "bun run --cwd packages/protocol generate && bun run --filter \"*\" --if-present build",
+    "check": "actionlint && bun run --cwd packages/protocol generate && bun run --filter \"*\" --if-present check"
   },
   "devDependencies": {
     "@bufbuild/buf": "1.72.0",
+    "@bufbuild/protoc-gen-es": "^2.14.0",
     "@tanstack/intent": "^0.3.7"
   }
 }

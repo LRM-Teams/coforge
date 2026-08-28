@@ -41,7 +41,7 @@ session。
   不持久化到 Daemon，不进入 Agent runtime，也不用于普通 Daemon reconnect。
 - `workspace_worker:code_agents_update` 只上报需要探测的用户安装 runtime（当前为 Codex 和
   Claude Code）。内置 Pi runtime 随 Daemon/CoForge Agent payload 固定交付，不通过
-  PATH 扫描，也不作为本机发现结果；其版本和 capabilities 来自已验证的 release
+  PATH 扫描，也不作为本机发现结果；其版本来自已验证的 release
   manifest/package metadata。
 - Agent 对产品和 Web 只暴露两个业务状态：`online` 和 `offline`。Runtime 的
   `starting`、`stopped`、`ready`、`unavailable` 以及任务开始/结束等信息属于 activity
@@ -99,7 +99,7 @@ Workspace connection 必须 fail closed。
 - Computer setup 的用户体验可以是单个 `setup` 流程；无凭据时在流程内部完成 OAuth，
   不要求用户先执行 `login` 或选择 Workspace。
 - User token 的精确一次性授权转交方式、Computer credential 的 proof、RPC envelope、
-  Protobuf codegen 和 Centrifugo→Backend proxy protocol 仍需作为实现 packet 固定；
+  Protobuf codegen 和 Centrifugo→Web/backend Handler protocol 仍需作为实现 packet 固定；
   在此之前不得凭猜测添加生产 wire。
 - 验证必须覆盖多 Workspace 并行连接、单 worker 故障隔离、单 worker 重连/replay、
   重复 register 幂等、User credential 不落盘、Protobuf breaking check 和未知 method

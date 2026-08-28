@@ -23,7 +23,7 @@ manually.
 - `--json` writes exactly one JSON object to stdout; progress goes to stderr.
 - `setup --workspace <slug>` targets one known Workspace directly.
 - `setup` may use cursor selection only on an interactive TTY.
-- User, refresh, Computer, and Agent credentials must never be printed.
+- `UserAccessToken` 仅用于 Computer 注册；`WorkspaceWorkerToken` 是供 Workspace Worker 连接云端使用的 token，不假设其底层格式；`AgentToken` 是独立的 Agent credential。三者不可混用，也不得打印。
 
 ## Scope
 
@@ -48,7 +48,7 @@ Add the first shared protocol slice under `packages/protocol`:
 - include protocol major, request ID, workspace slug, machine ID, platform,
   OS version, Computer version, and discovered external runtime metadata;
 - return the server-assigned Computer ID, Workspace ID, connection ID, and the
-  Daemon/Workspace credential needed for the next local step;
+  `WorkspaceWorkerToken` used by the Workspace Worker to connect to the cloud;
 - preserve unknown fields and reject unknown protocol majors;
 - make retries safe with a stable registration idempotency key;
 - keep transport mechanics outside the shared package. The client must use
@@ -60,7 +60,7 @@ cloud WebSocket code in this slice.
 ### 3. Persistence
 
 - Do not write the Workspace connection before registration succeeds.
-- Store the returned registration and Daemon credential atomically using the
+- Store the returned registration and `WorkspaceWorkerToken` atomically using the
   existing platform-native configuration/credential boundaries.
 - Do not persist the User refresh token in the Daemon credential location.
 - A failed registration must leave no new registration or partial credential.

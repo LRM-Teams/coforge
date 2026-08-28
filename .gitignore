@@ -2,6 +2,7 @@ node_modules/
 dist/
 .output/
 apps/web/src/paraglide/
+apps/web/generated/
 .amp/portals/*
 .env
 .mise.local.toml

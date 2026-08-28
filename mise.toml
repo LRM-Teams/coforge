@@ -21,13 +21,13 @@ description = "Build deployable cloud applications"
 run = "bun run build"
 
 [tasks."test:computer"]
-run = "cd apps/coforge-computer && bun test"
+run = "bun run --cwd packages/protocol generate && cd apps/coforge-computer && bun test"
 
 [tasks."check:computer"]
-run = "cd apps/coforge-computer && bun run check"
+run = "bun run --cwd packages/protocol generate && cd apps/coforge-computer && bun run check"
 
 [tasks."build:computer"]
-run = "cd apps/coforge-computer && bun run build"
+run = "bun run --cwd packages/protocol generate && cd apps/coforge-computer && bun run build"
 
 [tasks."dev:frontend"]
 description = "Start the Web UI + control-plane Vite server on 8788"
@@ -38,13 +38,13 @@ description = "Start the built Web/backend Nitro server on 8789"
 run = "./scripts/dev-backend.sh"
 
 [tasks."test:web"]
-run = "cd apps/web && bun run test"
+run = "bun run --cwd packages/protocol generate && cd apps/web && bun run test"
 
 [tasks."check:web"]
-run = "cd apps/web && bun run check"
+run = "bun run --cwd packages/protocol generate && cd apps/web && bun run check"
 
 [tasks."build:web"]
-run = "cd apps/web && bun run build"
+run = "bun run --cwd packages/protocol generate && cd apps/web && bun run build"
 
 [tasks."test:oss-cdn"]
 run = "bun run test:oss-cdn"

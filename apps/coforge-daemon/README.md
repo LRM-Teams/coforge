@@ -106,9 +106,21 @@ is installed and configured.
   Agent workspace using the provider's project convention (`.pi/skills`,
   `.agents/skills`, or `.claude/skills`); user-global provider skills remain
   provider-owned. All three load Agent workspace skills before session startup
-  completes; see ADR 0002.
+  completes; see ADR 0002. RuntimeMetadata uses the stable domain identities
+  `codex`, `claude-code`, and `pi`; `claude` is only the executable name used
+  for PATH discovery.
 - The workspace worker role must not become a third app package.
 
 See [`../../docs/architecture.md`](../../docs/architecture.md) for the
 canonical system architecture and [`../../docs/local-logging.md`](../../docs/local-logging.md)
 for the local categorized, rotating log contract that must precede daemon lifecycle implementation.
+## Workspace worker credentials
+
+The Computer-to-Daemon configure request carries the `WorkspaceWorkerToken`.
+The Daemon stores it by `connectionId` in Bun's OS-backed secret store and
+rotates the stored value when a valid setup supplies a different token; the
+configure RPC and worker lifecycle APIs never carry the token. Bun delegates to
+macOS Keychain, Linux Secret Service/libsecret, or Windows Credential Manager.
+If that store is unavailable, the Daemon fails closed rather than writing a
+plaintext fallback. `InMemoryWorkspaceWorkerCredentialStore` remains available
+only as a test adapter.

@@ -1,0 +1,98 @@
+services:
+  redis:
+    image: redis:8.2.6
+    command:
+      - sh
+      - -c
+      - exec redis-server --appendonly yes --requirepass "$$(cat /run/secrets/redis_password)"
+    secrets:
+      - redis_password
+    volumes:
+      - coforge_redis_data:/data
+    networks:
+      - centrifugo
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$(cat /run/secrets/redis_password)\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18.6
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: coforge
+      POSTGRES_DB: coforge
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets:
+      - postgres_password
+    volumes:
+      - coforge_postgres_data:/var/lib/postgresql
+    networks:
+      - centrifugo
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coforge -d coforge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  centrifugo:
+    image: centrifugo/centrifugo:v6.9.2
+    command:
+      - sh
+      - -c
+      - >-
+        export CENTRIFUGO_HTTP_API_KEY="$$(cat /run/secrets/centrifugo_http_api_key)";
+        export CENTRIFUGO_CLIENT_TOKEN_JWKS_PUBLIC_ENDPOINT="$${COFORGE_WORKER_JWKS_ENDPOINT:-http://host.docker.internal:8789/api/jwks}";
+        export CENTRIFUGO_RPC_PROXY_ENDPOINT="$${COFORGE_RPC_PROXY_ENDPOINT:-http://host.docker.internal:8789/api/internal/centrifugo}";
+        export CENTRIFUGO_VAR_RPC_PROXY_SECRET="$$(cat /run/secrets/centrifugo_proxy_secret)";
+        export CENTRIFUGO_ENGINE_REDIS_ADDRESS="redis://:$$(cat /run/secrets/redis_password)@redis:6379";
+        exec centrifugo -c /centrifugo/config.yaml
+    ports:
+      - "${CENTRIFUGO_PORT:-8000}:8000"
+    volumes:
+      - ./centrifugo:/centrifugo:ro
+    secrets:
+      - centrifugo_http_api_key
+      - centrifugo_proxy_secret
+      - redis_password
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - centrifugo
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+networks:
+  centrifugo:
+    driver: bridge
+    name: coforge_network
+
+volumes:
+  coforge_redis_data:
+    name: coforge_redis_data
+  coforge_postgres_data:
+    name: coforge_postgres_data
+
+secrets:
+  redis_password:
+    file: ./secrets/redis_password
+  centrifugo_http_api_key:
+    file: ./secrets/centrifugo_http_api_key
+  centrifugo_proxy_secret:
+    file: ./secrets/centrifugo_proxy_secret
+  postgres_password:
+    file: ./secrets/postgres_password

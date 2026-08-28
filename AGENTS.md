@@ -83,6 +83,45 @@ These instructions apply to the entire repository.
 - Keep `docs/architecture.md` as the single maintained architecture source; do not create a duplicate HTML companion.
 - Do not turn an unresolved question into code or a repository convention. Present the options and trade-offs in `#coforge`, then record the decision before implementation; use Frank's approval only when the decision meets a gate below.
 
+## Module design and implementation discipline
+
+- Treat `coforge-computer` and `coforge-daemon` as large, long-lived products.
+  Before adding a feature, identify its owning module and its public seam; do
+  not put new business logic in the nearest command, entrypoint, or transport
+  file merely because it is convenient.
+- Keep CLI commands thin. A command may parse arguments, invoke an
+  application use case, and format the result for a human. Workspace lookup,
+  authentication, registration, runtime discovery, persistence, process
+  supervision, and protocol encoding belong to reusable modules below the
+  command layer.
+- Keep the abstraction gradient explicit: upper layers express business
+  intent (`setupComputer`, `registerComputer`, `startWorkspaceWorker`); middle
+  layers coordinate domain operations (`getBySlug`, `buildRegistration`,
+  `ensureStarted`); lower layers expose implementation details (`encode`,
+  `writeFrame`, `spawn`, `flush`). Do not create cross-layer methods such as
+  `findWorkspaceAndRegisterComputer` or
+  `setupAndSendProtobufOverSocket`.
+- Dependencies point downward. Entry points and commands may depend on
+  application/domain modules; domain modules may depend on ports/contracts;
+  infrastructure modules implement those ports. Domain code must not import
+  Commander, terminal UI, filesystem paths, sockets, database clients, or
+  provider-specific agent parsers.
+- Name modules after stable domain concepts and one responsibility. Prefer
+  names such as `WorkspaceCatalog`, `WorkspacePicker`, `ComputerRegistrar`,
+  `RuntimeInventory`, `MachineIdentity`, `CredentialStore`, and
+  `AgentRuntimePool`. Avoid vague names such as `Helper`, `Utils`,
+  `Service`, `Resolver`, or `Manager` unless the name is an established
+  domain role with a narrowly defined responsibility.
+- Keep terminology consistent across code, protocol, logs, and documentation.
+  Use one convention for each concept; do not alternate between snake_case,
+  camelCase, and arbitrary synonyms for the same public field or event.
+- Define the module map in the owning app's `AGENTS.md` before reorganizing or
+  adding a feature. If the ownership or boundary is unclear, stop and record
+  the design options and decision before writing implementation code.
+- For behavior changes, establish the public module seam and regression test
+  first. Test application/domain behavior independently from CLI rendering,
+  transport framing, and provider-specific adapters.
+
 ## Decision gates
 
 - Obtain Frank's explicit approval before changing architecture, database schema, wire protocol, licensing, security boundaries, or another decision with broad or difficult-to-reverse impact. Ordinary reversible implementation choices use the MVP fast lane below.

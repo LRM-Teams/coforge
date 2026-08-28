@@ -14,7 +14,6 @@ describe("local daemon RPC", () => {
     const request = {
       protocolMajor: 1,
       requestId: "request-1",
-      daemonWorkspaceCredential: "secret",
     };
     const frame = frameLocalRpc(encodeDaemonHandshakeRequest(request));
     expect(readLocalRpcFrame(frame)).not.toBeNull();

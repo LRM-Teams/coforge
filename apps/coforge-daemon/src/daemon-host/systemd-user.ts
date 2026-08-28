@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { LocalDaemonLauncher } from "./launcher";
-import type { DaemonLauncher } from "./launcher";
+import type { DaemonLauncher, WorkspaceWorkerConfig } from "./launcher";
 
 type CommandRunner = (command: string[]) => Promise<number>;
 
@@ -16,6 +16,8 @@ export class SystemdUserDaemonHost implements DaemonLauncher {
     homeDirectory: string;
     executablePath: string;
     socketPath: string;
+    stateDirectory?: string;
+    cloudWebSocketEndpoint?: string;
     writeFile?: (path: string, content: string) => Promise<void>;
     run?: CommandRunner;
   }) {
@@ -33,29 +35,39 @@ export class SystemdUserDaemonHost implements DaemonLauncher {
         await mkdir(dirname(path), { recursive: true, mode: 0o700 });
         await writeFile(path, content, { encoding: "utf8", mode: 0o600 });
       });
-    this.#unit = systemdUserUnit(options.executablePath, options.socketPath);
+    this.#unit = systemdUserUnit(
+      options.executablePath,
+      options.socketPath,
+      options.stateDirectory,
+      options.cloudWebSocketEndpoint,
+    );
     this.#local = new LocalDaemonLauncher({
       executablePath: options.executablePath,
       socketPath: options.socketPath,
     });
   }
 
-  async ensureStarted(credential: string): Promise<void> {
+  async ensureStarted(config: WorkspaceWorkerConfig): Promise<void> {
     await this.#writeFile(this.#unitPath, this.#unit);
     await this.#run(["systemctl", "--user", "daemon-reload"]);
     await this.#run(["systemctl", "--user", "enable", "coforge-daemon.service"]);
     const result = await this.#run(["systemctl", "--user", "start", "coforge-daemon.service"]);
     if (result !== 0) throw new Error("could not start the CoForge Daemon user service");
-    await this.#local.ensureStarted(credential);
+    await this.#local.ensureStarted(config);
   }
 }
 
-export function systemdUserUnit(executablePath: string, socketPath: string): string {
+export function systemdUserUnit(
+  executablePath: string,
+  socketPath: string,
+  stateDirectory?: string,
+  cloudWebSocketEndpoint?: string,
+): string {
   return `[Unit]
 Description=CoForge Daemon
 
 [Service]
-ExecStart=${systemdEscape(executablePath)} --socket ${systemdEscape(socketPath)}
+${cloudWebSocketEndpoint ? `Environment=COFORGE_CLOUD_WEBSOCKET_ENDPOINT=${systemdEscape(cloudWebSocketEndpoint)}\n` : ""}ExecStart=${systemdEscape(executablePath)} --socket ${systemdEscape(socketPath)}${stateDirectory ? ` --state-directory ${systemdEscape(stateDirectory)}` : ""}
 Restart=on-failure
 RestartSec=2
 

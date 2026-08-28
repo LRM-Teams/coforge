@@ -34,6 +34,8 @@ export const SETUP_HINTS = {
   SETUP_NOT_LOGGED_IN: "Complete Device Code login, then rerun setup.",
   SETUP_REGISTRATION_UNAVAILABLE:
     "The approved CoForge RPC transport is not available in this build.",
+  SETUP_WORKSPACE_RPC_UNAVAILABLE:
+    "Workspace queries are not available until their approved CoForge RPC methods are defined and implemented.",
   SETUP_WORKSPACE_REQUIRED: "Run setup with `--workspace <slug>` when prompts are unavailable.",
   SETUP_WORKSPACE_NOT_FOUND: "Check the Workspace slug and your account access, then rerun setup.",
 } as const;

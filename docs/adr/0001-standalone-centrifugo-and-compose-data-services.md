@@ -15,7 +15,7 @@ CoForge MVP 使用 Caddy 作为唯一公网 edge、standalone Centrifugo OSS 作
 
 - Caddy 是唯一公网入口，终止 TLS，并把 HTTPS 路由到 Web/Backend、把 WSS 路由到两个 Centrifugo 副本。Caddy 只做 edge proxy、健康检查与负载均衡，不理解 User、Workspace、Computer、Agent、conversation 或 message。
 - Centrifugo OSS 是独立 realtime transport service。它持有 Web/workspace worker 长连接，负责连接/session mechanics、心跳、背压、重连、RPC/订阅 framing、跨副本 fan-out、presence 与 bounded hot recovery；它不读取 PostgreSQL，不决定 registration、权限、目标 Agent 或 canonical message。
-- Bun Backend 通过 Centrifugo 官方 HTTP/gRPC proxy 与 server API 处理连接授权、业务 RPC、发布和必要的断开；Backend 始终拥有 User/Workspace/Computer/Agent 权限、Workspace–Computer connection、conversation、canonical message、delivery ledger、幂等提交与 PostgreSQL。
+- Bun Backend 通过 Web/backend 内部的 `Centrifugo RPC Handler` 使用 Centrifugo 官方 HTTP/gRPC proxy 机制与 server API 处理连接授权、业务 RPC、发布和必要的断开；Handler 只负责接收、校验和分派，Backend 始终拥有 User/Workspace/Computer/Agent 权限、Workspace–Computer connection、conversation、canonical message、delivery ledger、幂等提交与 PostgreSQL。
 - workspace worker 仍按逻辑 Workspace 各自发起一条 WSS。`coforge-computer` 只管理本机 `coforge-daemon`，不成为远程 realtime endpoint。
 - Centrifugo↔Backend 最终选 HTTP 还是 gRPC、channel/rpc namespace、method、field、error、capability 和版本行为都不在本 ADR 中锁定；这些必须在身份、credential audience、registration 与 wire approval packet 通过后才能实现。
 
@@ -24,7 +24,7 @@ Production 实现必须继续等待 LRM-1563 对 machine identity、Workspace–
 ### Backend runtime 边界
 
 - Web/backend 使用 TanStack Start 与 Bun 1.4，替代早期文档中的 Node 24 baseline；Node 24 只保留为兼容性回退候选，不与 Bun 形成两套 production runtime。仓库已用 `mise.toml` 固定 Bun 并统一 install/test/check/build，选择 Bun 可减少开发与部署工具链分叉。
-- TanStack Start 官方仍标记为 Release Candidate，但声明 API feature-complete/stable，并提供 Bun hosting 与 production-server 指南；Bun 官方也明确列出仍不完整的 Node.js API。进入 production 前必须在固定依赖上验证 React 19、SSR/streaming、production build/server、graceful shutdown、PostgreSQL driver 与 Centrifugo proxy 的负载和错误路径；任何未覆盖的 Node compatibility 不能按“应当兼容”放行。
+- TanStack Start 官方仍标记为 Release Candidate，但声明 API feature-complete/stable，并提供 Bun hosting 与 production-server 指南；Bun 官方也明确列出仍不完整的 Node.js API。进入 production 前必须在固定依赖上验证 React 19、SSR/streaming、production build/server、graceful shutdown、PostgreSQL driver 与 Centrifugo RPC Handler 的负载和错误路径；任何未覆盖的 Node compatibility 不能按“应当兼容”放行。
 - Bun 本身采用 MIT license，但其二进制包含按各自 license 分发的 linked components；TanStack Start 所在官方仓库采用 MIT license。依赖清单与 image 的实际 license 仍需随 production artifact 一起审计，不能从框架主 license 推导全部传递依赖都相同。
 - 当前 Web/backend 尚未形成 production 实现或数据，因此 Node→Bun 不需要数据库、wire 或流量迁移。若 implementation gate 前出现阻断性兼容问题，可在独立评审变更中恢复 Node runtime baseline 并重新构建不可变 artifact；一旦 production wire 或服务已经落地，runtime 回退必须验证相同 API/wire、graceful drain 与 PostgreSQL schema 兼容，不能把切换 image 当作已完成回滚。
 
@@ -50,7 +50,7 @@ Production 实现必须继续等待 LRM-1563 对 machine identity、Workspace–
 - Redis 改为托管服务时只替换配置与 Secret，接受 hot state 重建，并在 drain/reconnect 后用 presence 与 canonical reconciliation 验证。PostgreSQL 改为托管服务必须走受控 backup/restore 或复制迁移、双侧校验和明确 cutover/rollback；不得把 endpoint 切换当作数据迁移。
 - Redis 8 官方版本提供 RSALv2、SSPLv1、AGPLv3 三种选择；LRM-1581 仅以未修改 image 的 AGPLv3 选项做 spike。production image/version/license 在法务与 license gate 记录前不得发布；若不批准，替换兼容 broker 需要新的架构决定和同等故障证据。
 
-Web 与 workspace worker 只依赖稳定的 Caddy public URL，不感知 Centrifugo node 或 Redis endpoint。LRM-1563 批准后的 Backend/Centrifugo adapter 必须固定并版本化所选 proxy/API schema；rolling window 只有在相邻版本明确兼容时才允许混跑，未知 major/capability 必须 fail closed。旧 custom gateway 从未成为 production 数据 owner，因此不需要双跑或数据迁移兼容层。
+Web 与 workspace worker 只依赖稳定的 Caddy public URL，不感知 Centrifugo node 或 Redis endpoint。LRM-1563 批准后的 Web/backend `Centrifugo RPC Handler` 必须固定并版本化所选 proxy/API schema；rolling window 只有在相邻版本明确兼容时才允许混跑，未知 major/capability 必须 fail closed。旧 custom gateway 从未成为 production 数据 owner，因此不需要双跑或数据迁移兼容层。
 
 ## 未选择的方案
 
