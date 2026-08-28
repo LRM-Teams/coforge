@@ -6,19 +6,12 @@ import { join } from "node:path";
 import { ClaudeCodeAgentAdapter } from "../src/code-agent/claude-code/adapter";
 import type { AgentRuntimeEvent } from "../src/code-agent/contract";
 
-test("Claude Code discovers workspace skills before its resident CLI process is ready", async () => {
+test("Claude Code waits for the installed CLI init event before becoming ready", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-code-"));
-  const skillDirectory = join(agentWorkspaceDirectory, ".claude", "skills", "fixture-skill");
-  await mkdir(skillDirectory, { recursive: true });
-  await writeFile(
-    join(skillDirectory, "SKILL.md"),
-    "---\nname: fixture-skill\ndescription: Fixture skill\n---\n",
-  );
   const adapter = new ClaudeCodeAgentAdapter({
     command: [
       process.execPath,
       new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,
-      "expected-skill=fixture-skill",
     ],
   });
 

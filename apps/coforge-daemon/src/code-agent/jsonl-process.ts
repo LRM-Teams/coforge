@@ -73,6 +73,11 @@ export class JsonlProcess {
     }
   }
 
+  interrupt(): void {
+    this.#assertOpen();
+    this.#child.kill("SIGINT");
+  }
+
   async request(command: JsonRecord): Promise<JsonRecord> {
     this.#assertOpen();
     const id = `coforge-${this.#nextRequestId++}`;

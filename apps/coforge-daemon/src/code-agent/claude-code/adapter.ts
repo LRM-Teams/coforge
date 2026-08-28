@@ -49,8 +49,9 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
   readonly #process: JsonlProcess;
   readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
   #state: "idle" | "running" | "interrupting" | "disposed" = "idle";
+  #initialized = false;
   #pendingInterrupt:
-    | { id: string; promise: Promise<void>; resolve(): void; reject(error: Error): void }
+    | { promise: Promise<void>; resolve(): void; reject(error: Error): void }
     | undefined;
 
   constructor(process: JsonlProcess) {
@@ -59,8 +60,8 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
   }
 
   async ready(): Promise<void> {
+    if (this.#initialized) return;
     await new Promise<void>((resolve, reject) => {
-      const id = crypto.randomUUID();
       let unsubscribeRecord: () => void = () => undefined;
       let unsubscribeFailure: () => void = () => undefined;
       const cleanup = () => {
@@ -68,31 +69,15 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
         unsubscribeFailure();
       };
       unsubscribeRecord = this.#process.onRecord((record) => {
-        if (record.type !== "control_response") return;
-        const response = asRecord(record.response);
-        if (response?.request_id !== id) return;
-        cleanup();
-        const initialization = asRecord(response.response);
-        if (response.subtype !== "success" || !Array.isArray(initialization?.commands)) {
-          reject(new Error("Claude Code failed to load workspace skills"));
-          return;
+        if (record.type === "system" && record.subtype === "init") {
+          cleanup();
+          resolve();
         }
-        resolve();
       });
       unsubscribeFailure = this.#process.onFailure((error) => {
         cleanup();
         reject(error);
       });
-      void this.#process
-        .send({
-          type: "control_request",
-          request_id: id,
-          request: { subtype: "initialize", hooks: null },
-        })
-        .catch((error: unknown) => {
-          cleanup();
-          reject(error);
-        });
     });
   }
 
@@ -120,21 +105,16 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
   async interrupt(): Promise<void> {
     if (this.#state === "idle" || this.#state === "disposed") return;
     if (this.#pendingInterrupt) return this.#pendingInterrupt.promise;
-    const id = crypto.randomUUID();
     let resolve!: () => void;
     let reject!: (error: Error) => void;
     const promise = new Promise<void>((resolvePromise, rejectPromise) => {
       resolve = resolvePromise;
       reject = rejectPromise;
     });
-    this.#pendingInterrupt = { id, promise, resolve, reject };
+    this.#pendingInterrupt = { promise, resolve, reject };
     this.#state = "interrupting";
     try {
-      await this.#process.send({
-        type: "control_request",
-        request_id: id,
-        request: { subtype: "interrupt" },
-      });
+      this.#process.interrupt();
     } catch (error) {
       this.#pendingInterrupt = undefined;
       if (!this.#isDisposed()) this.#state = "running";
@@ -156,6 +136,10 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
   }
 
   #accept(record: Readonly<Record<string, unknown>>): void {
+    if (record.type === "system" && record.subtype === "init") {
+      this.#initialized = true;
+      return;
+    }
     if (record.type === "stream_event") {
       const event = asRecord(record.event);
       const delta = asRecord(event?.delta);
@@ -210,16 +194,12 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
       }
       return;
     }
-    if (record.type === "control_response") {
-      const response = asRecord(record.response);
-      const pending = this.#pendingInterrupt;
-      if (!response || !pending || response.request_id !== pending.id) return;
-      this.#pendingInterrupt = undefined;
-      if (response.subtype === "success") pending.resolve();
-      else pending.reject(new Error("Claude Code interrupt failed"));
-      return;
-    }
     if (record.type === "result") {
+      const pending = this.#pendingInterrupt;
+      if (pending) {
+        this.#pendingInterrupt = undefined;
+        pending.resolve();
+      }
       if (this.#state !== "running" && this.#state !== "interrupting") return;
       const interrupted = this.#state === "interrupting";
       this.#state = "idle";

@@ -1,20 +1,8 @@
-import { readdir } from "node:fs/promises";
-import { join } from "node:path";
-
-const expectedSkill = process.argv
-  .find((argument) => argument.startsWith("expected-skill="))
-  ?.slice(15);
-const skillsDirectory = join(process.cwd(), ".claude", "skills");
-let skills: string[] = [];
-try {
-  skills = await readdir(skillsDirectory);
-} catch {
-  // No project skills were discovered.
-}
-
+export {};
 const decoder = new TextDecoder();
 let buffer = "";
-let initialized = false;
+write({ type: "system", subtype: "init", session_id: "fixture-session" });
+process.on("SIGINT", () => write({ type: "result", subtype: "success" }));
 for await (const chunk of Bun.stdin.stream()) {
   buffer += decoder.decode(chunk, { stream: true });
   let newline = buffer.indexOf("\n");
@@ -27,33 +15,7 @@ for await (const chunk of Bun.stdin.stream()) {
 }
 
 function handle(record: Record<string, unknown>): void {
-  if (record.type === "control_request") {
-    const request = record.request as Record<string, unknown>;
-    if (request.subtype === "initialize" && typeof record.request_id === "string" && !initialized) {
-      initialized = true;
-      const skillMissing = expectedSkill !== undefined && !skills.includes(expectedSkill);
-      write({
-        type: "control_response",
-        response: {
-          subtype: skillMissing ? "error" : "success",
-          request_id: record.request_id,
-          ...(skillMissing
-            ? { error: "missing expected skill" }
-            : { response: { commands: skills.map((name) => ({ name })) } }),
-        },
-      });
-    }
-    if (request.subtype === "interrupt" && typeof record.request_id === "string") {
-      write({
-        type: "control_response",
-        response: { request_id: record.request_id, subtype: "success", response: {} },
-      });
-      write({ type: "result", subtype: "success", stop_reason: "interrupted" });
-    }
-    return;
-  }
   if (record.type === "user") {
-    if (!initialized) return;
     const message = record.message as Record<string, unknown>;
     if (message.content === "wait") return;
     if (message.content !== "finish") return;
