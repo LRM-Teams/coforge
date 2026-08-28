@@ -7,106 +7,24 @@ import {
   resolveComputerStateDirectory,
 } from "../src/paths";
 
-test("Linux uses XDG_CONFIG_HOME for Computer configuration", () => {
-  expect(
-    resolveComputerConfigDirectory({
-      platform: "linux",
-      homeDirectory: "/home/alice",
-      environment: { XDG_CONFIG_HOME: "/config/alice" },
-    }),
-  ).toBe("/config/alice/coforge");
+test("Computer and Daemon use separate directories under the user's .coforge directory", () => {
+  const input = { platform: "linux" as const, homeDirectory: "/home/alice", environment: {} };
+  expect(resolveComputerConfigDirectory(input)).toBe("/home/alice/.coforge/computer");
+  expect(resolveComputerStateDirectory(input)).toBe("/home/alice/.coforge/daemon");
 });
 
-test("Linux falls back to the XDG config default", () => {
-  expect(
-    resolveComputerConfigDirectory({
-      platform: "linux",
-      homeDirectory: "/home/alice",
-      environment: {},
-    }),
-  ).toBe("/home/alice/.config/coforge");
+test("Windows uses the user's .coforge directory", () => {
+  const input = {
+    platform: "win32" as const,
+    homeDirectory: "C:\\Users\\alice",
+    environment: { LOCALAPPDATA: "C:\\Users\\alice\\AppData\\Local" },
+  };
+  expect(resolveComputerConfigDirectory(input)).toBe("C:\\Users\\alice\\.coforge\\computer");
+  expect(resolveComputerStateDirectory(input)).toBe("C:\\Users\\alice\\.coforge\\daemon");
 });
 
-test("macOS configuration uses Application Support", () => {
-  expect(
-    resolveComputerConfigDirectory({
-      platform: "darwin",
-      homeDirectory: "/Users/alice",
-      environment: {},
-    }),
-  ).toBe("/Users/alice/Library/Application Support/Coforge");
-});
-
-test("Windows configuration uses LOCALAPPDATA", () => {
-  expect(
-    resolveComputerConfigDirectory({
-      platform: "win32",
-      homeDirectory: "C:\\Users\\alice",
-      environment: { LOCALAPPDATA: "C:\\Users\\alice\\AppData\\Local" },
-    }),
-  ).toBe("C:\\Users\\alice\\AppData\\Local\\Coforge");
-});
-
-test("Linux uses XDG_STATE_HOME for daemon state", () => {
-  expect(
-    resolveComputerStateDirectory({
-      platform: "linux",
-      homeDirectory: "/home/alice",
-      environment: { XDG_STATE_HOME: "/state/alice" },
-    }),
-  ).toBe("/state/alice/coforge");
-});
-
-test("Linux falls back to the XDG state default", () => {
-  expect(
-    resolveComputerStateDirectory({
-      platform: "linux",
-      homeDirectory: "/home/alice",
-      environment: {},
-    }),
-  ).toBe("/home/alice/.local/state/coforge");
-});
-
-test("macOS uses Application Support", () => {
-  expect(
-    resolveComputerStateDirectory({
-      platform: "darwin",
-      homeDirectory: "/Users/alice",
-      environment: {},
-    }),
-  ).toBe("/Users/alice/Library/Application Support/Coforge");
-});
-
-test("Windows uses LOCALAPPDATA", () => {
-  expect(
-    resolveComputerStateDirectory({
-      platform: "win32",
-      homeDirectory: "C:\\Users\\alice",
-      environment: { LOCALAPPDATA: "C:\\Users\\alice\\AppData\\Local" },
-    }),
-  ).toBe("C:\\Users\\alice\\AppData\\Local\\Coforge");
-});
-
-test("per-user installation paths never use system locations", () => {
-  expect(
-    resolveComputerInstallDirectory({
-      platform: "linux",
-      homeDirectory: "/home/alice",
-      environment: { XDG_DATA_HOME: "/home/alice/data" },
-    }),
-  ).toBe("/home/alice/data/coforge/computer");
-  expect(
-    resolveComputerBinaryDirectory({
-      platform: "linux",
-      homeDirectory: "/home/alice",
-      environment: {},
-    }),
-  ).toBe("/home/alice/.local/bin");
-  expect(
-    resolveComputerInstallDirectory({
-      platform: "win32",
-      homeDirectory: "C:\\Users\\alice",
-      environment: { LOCALAPPDATA: "C:\\Users\\alice\\AppData\\Local" },
-    }),
-  ).toBe("C:\\Users\\alice\\AppData\\Local\\Coforge\\Computer");
+test("Computer installation paths stay under its directory", () => {
+  const input = { platform: "linux" as const, homeDirectory: "/home/alice", environment: {} };
+  expect(resolveComputerInstallDirectory(input)).toBe("/home/alice/.coforge/computer/install");
+  expect(resolveComputerBinaryDirectory(input)).toBe("/home/alice/.coforge/computer/bin");
 });

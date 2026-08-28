@@ -1,9 +1,9 @@
 import { LocalDaemonLauncher } from "./launcher";
-import type { DaemonLauncher, WorkspaceWorkerConfig } from "./launcher";
+import type { DaemonLauncher, DaemonStopper, WorkspaceWorkerConfig } from "./launcher";
 
 type CommandRunner = (command: string[]) => Promise<number>;
 
-export class WindowsUserDaemonHost implements DaemonLauncher {
+export class WindowsUserDaemonHost implements DaemonLauncher, DaemonStopper {
   readonly #taskName: string;
   readonly #run: CommandRunner;
   readonly #local: LocalDaemonLauncher;
@@ -45,6 +45,19 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
     const start = await this.#run(["schtasks.exe", "/Run", "/TN", this.#taskName]);
     if (start !== 0) throw new Error("could not start the CoForge Daemon user task");
     await this.#local.ensureStarted(config);
+  }
+
+  ensureRunning(): Promise<void> {
+    return this.#local.ensureRunning();
+  }
+
+  command(operation: "start" | "stop" | "restart"): Promise<void> {
+    return this.#local.command(operation);
+  }
+
+  async stop(): Promise<void> {
+    const result = await this.#run(["schtasks.exe", "/End", "/TN", this.#taskName]);
+    if (result !== 0) throw new Error("could not stop the CoForge Daemon user task");
   }
 }
 

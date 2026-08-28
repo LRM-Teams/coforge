@@ -1,11 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { LocalDaemonLauncher } from "./launcher";
-import type { DaemonLauncher, WorkspaceWorkerConfig } from "./launcher";
+import type { DaemonLauncher, DaemonStopper, WorkspaceWorkerConfig } from "./launcher";
 
 type CommandRunner = (command: string[]) => Promise<number>;
 
-export class SystemdUserDaemonHost implements DaemonLauncher {
+export class SystemdUserDaemonHost implements DaemonLauncher, DaemonStopper {
   readonly #unitPath: string;
   readonly #run: CommandRunner;
   readonly #writeFile: (path: string, content: string) => Promise<void>;
@@ -54,6 +54,19 @@ export class SystemdUserDaemonHost implements DaemonLauncher {
     const result = await this.#run(["systemctl", "--user", "start", "coforge-daemon.service"]);
     if (result !== 0) throw new Error("could not start the CoForge Daemon user service");
     await this.#local.ensureStarted(config);
+  }
+
+  ensureRunning(): Promise<void> {
+    return this.#local.ensureRunning();
+  }
+
+  command(operation: "start" | "stop" | "restart"): Promise<void> {
+    return this.#local.command(operation);
+  }
+
+  async stop(): Promise<void> {
+    const result = await this.#run(["systemctl", "--user", "stop", "coforge-daemon.service"]);
+    if (result !== 0) throw new Error("could not stop the CoForge Daemon user service");
   }
 }
 

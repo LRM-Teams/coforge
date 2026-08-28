@@ -99,6 +99,10 @@ export {
   decodeWorkspaceWorkerConfigureRequest,
   encodeWorkspaceWorkerConfigureResponse,
   decodeWorkspaceWorkerConfigureResponse,
+  encodeDaemonCommandRequest,
+  decodeDaemonCommandRequest,
+  encodeDaemonCommandResponse,
+  decodeDaemonCommandResponse,
 } from "./local-daemon";
 export type {
   DaemonHandshakeRequest,
@@ -107,5 +111,7 @@ export type {
   WorkspaceWorkerConfigureResponse,
   LocalRpcRequest,
   LocalRpcResponse,
+  DaemonCommandRequest,
+  DaemonCommandResponse,
 } from "./local-daemon";
 export { encodeWorkspaceWorkerReadyRequest, decodeWorkspaceWorkerReadyRequest } from "./codec";

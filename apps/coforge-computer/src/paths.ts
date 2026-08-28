@@ -7,28 +7,7 @@ export function resolveComputerConfigDirectory(input: {
   homeDirectory: string;
   environment: PathEnvironment;
 }): string {
-  if (input.platform === "win32") {
-    const localAppData = input.environment.LOCALAPPDATA;
-    if (!localAppData || !win32.isAbsolute(localAppData)) {
-      throw new Error("LOCALAPPDATA must be an absolute path");
-    }
-    return win32.join(localAppData, "Coforge");
-  }
-
-  if (input.platform === "darwin") {
-    return posix.join(input.homeDirectory, "Library", "Application Support", "Coforge");
-  }
-
-  if (input.platform === "linux") {
-    const configured = input.environment.XDG_CONFIG_HOME;
-    const configHome =
-      configured && posix.isAbsolute(configured)
-        ? configured
-        : posix.join(input.homeDirectory, ".config");
-    return posix.join(configHome, "coforge");
-  }
-
-  throw new Error(`unsupported platform: ${input.platform}`);
+  return joinUserDirectory(input, "computer");
 }
 
 export function resolveComputerStateDirectory(input: {
@@ -36,28 +15,7 @@ export function resolveComputerStateDirectory(input: {
   homeDirectory: string;
   environment: PathEnvironment;
 }): string {
-  if (input.platform === "win32") {
-    const localAppData = input.environment.LOCALAPPDATA;
-    if (!localAppData || !win32.isAbsolute(localAppData)) {
-      throw new Error("LOCALAPPDATA must be an absolute path");
-    }
-    return win32.join(localAppData, "Coforge");
-  }
-
-  if (input.platform === "darwin") {
-    return posix.join(input.homeDirectory, "Library", "Application Support", "Coforge");
-  }
-
-  if (input.platform === "linux") {
-    const configured = input.environment.XDG_STATE_HOME;
-    const stateHome =
-      configured && posix.isAbsolute(configured)
-        ? configured
-        : posix.join(input.homeDirectory, ".local", "state");
-    return posix.join(stateHome, "coforge");
-  }
-
-  throw new Error(`unsupported platform: ${input.platform}`);
+  return joinUserDirectory(input, "daemon");
 }
 
 export function resolveComputerInstallDirectory(input: {
@@ -65,28 +23,7 @@ export function resolveComputerInstallDirectory(input: {
   homeDirectory: string;
   environment: PathEnvironment;
 }): string {
-  if (input.platform === "win32") {
-    const localAppData = input.environment.LOCALAPPDATA;
-    if (!localAppData || !win32.isAbsolute(localAppData)) {
-      throw new Error("LOCALAPPDATA must be an absolute path");
-    }
-    return win32.join(localAppData, "Coforge", "Computer");
-  }
-
-  if (input.platform === "darwin") {
-    return posix.join(input.homeDirectory, "Library", "Application Support", "CoForge", "Computer");
-  }
-
-  if (input.platform === "linux") {
-    const configured = input.environment.XDG_DATA_HOME;
-    const dataHome =
-      configured && posix.isAbsolute(configured)
-        ? configured
-        : posix.join(input.homeDirectory, ".local", "share");
-    return posix.join(dataHome, "coforge", "computer");
-  }
-
-  throw new Error(`unsupported platform: ${input.platform}`);
+  return joinUserDirectory(input, "computer", "install");
 }
 
 export function resolveComputerBinaryDirectory(input: {
@@ -94,18 +31,16 @@ export function resolveComputerBinaryDirectory(input: {
   homeDirectory: string;
   environment: PathEnvironment;
 }): string {
-  if (input.platform === "win32") {
-    const localAppData = input.environment.LOCALAPPDATA;
-    if (!localAppData || !win32.isAbsolute(localAppData)) {
-      throw new Error("LOCALAPPDATA must be an absolute path");
-    }
-    return win32.join(localAppData, "Coforge", "bin");
-  }
+  return joinUserDirectory(input, "computer", "bin");
+}
+
+function joinUserDirectory(
+  input: { platform: NodeJS.Platform; homeDirectory: string },
+  ...parts: string[]
+): string {
+  if (input.platform === "win32") return win32.join(input.homeDirectory, ".coforge", ...parts);
   if (input.platform === "linux" || input.platform === "darwin") {
-    const configured = input.environment.XDG_BIN_HOME;
-    return configured && posix.isAbsolute(configured)
-      ? configured
-      : posix.join(input.homeDirectory, ".local", "bin");
+    return posix.join(input.homeDirectory, ".coforge", ...parts);
   }
   throw new Error(`unsupported platform: ${input.platform}`);
 }

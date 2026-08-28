@@ -4,9 +4,8 @@ import { LaunchdDaemonHost, launchdPlist } from "@coforge/daemon";
 test("launchd service uses a per-user agent and the verified daemon payload", () => {
   const plist = launchdPlist({
     label: "cn.coforge.computer.daemon",
-    executablePath:
-      "/Users/alice/Library/Application Support/Coforge/Computer/active/coforge-daemon",
-    socketPath: "/Users/alice/Library/Application Support/Coforge/daemon.sock",
+    executablePath: "/Users/alice/.coforge/computer/install/active/coforge-daemon",
+    socketPath: "/Users/alice/.coforge/daemon/daemon.sock",
   });
 
   expect(plist).toContain("<key>RunAtLoad</key>");

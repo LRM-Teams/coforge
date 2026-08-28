@@ -258,13 +258,13 @@ or reuse another user's installation.
 - Windows resolves program and application data below the current user's
   `LocalAppData`; only Computer may use a current-user startup mechanism.
 
-The installer maintains a user-owned version store. It downloads one Computer
+The installer maintains a user-owned versioned installation directory. It downloads one Computer
 installation bundle into staging, verifies the signed release set, bundle, and
 both contained process payloads, activates only after the complete set passes,
 preserves the prior bundle for rollback, and never relocates stable machine
 identity, credentials, configuration, or user data into a versioned directory.
 Only the `coforge-computer` shim enters the current user's PATH. The Daemon
-payload remains inside the version store, is never registered as its own system
+payload remains inside the versioned installation directory, is never registered as its own system
 or user service, and is launched by Computer through the exact path selected by
 the active release set.
 
@@ -511,7 +511,7 @@ digest, increment the generation, sign the complete `channels.json`, refresh
 the CDN, and verify the selector and installation again. Because an MVP
 transaction changes only one component, the peer component remains unchanged.
 
-Devices that already activated a failed release set use the local version store
+Devices that already activated a failed release set use the local versioned installation directory
 to stop the processes, reactivate the retained previous Computer installation
 bundle, restart Computer and Daemon, and repeat health checks. If persisted
 state or protocol changes make this unsafe, production promotion must remain

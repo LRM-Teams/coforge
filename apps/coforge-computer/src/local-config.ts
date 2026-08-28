@@ -11,10 +11,7 @@ export interface ComputerConfig {
   saveCurrentProfile(profile: CurrentProfile): Promise<void>;
   loadCurrentProfile(): Promise<CurrentProfile>;
   saveWorkspace(workspace: WorkspaceSelection): Promise<string>;
-  saveRegistration?(
-    registration: RegisteredWorkspaceConnection,
-    workspaceWorkerToken: string,
-  ): Promise<string>;
+  saveRegistration?(registration: RegisteredWorkspaceConnection): Promise<string>;
   discardRegistration(registration: RegisteredWorkspaceConnection): Promise<void>;
 }
 
@@ -42,10 +39,7 @@ export class FileComputerConfig implements ComputerConfig {
     return configPath;
   }
 
-  async saveRegistration(
-    registration: RegisteredWorkspaceConnection,
-    _workspaceWorkerToken: string,
-  ): Promise<string> {
+  async saveRegistration(registration: RegisteredWorkspaceConnection): Promise<string> {
     const directoryName = Buffer.from(registration.id, "utf8").toString("base64url");
     const configPath = join(this.directory, "workspaces", directoryName, "config.json");
     await writeJson(configPath, {

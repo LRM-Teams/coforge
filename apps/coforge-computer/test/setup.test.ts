@@ -134,7 +134,6 @@ test("setup authenticates inside the same flow when no credential exists", async
       async load() {
         return null;
       },
-      async saveDaemonCredential() {},
     },
   });
 
@@ -168,7 +167,6 @@ test("setup authenticates and saves the profile when no profile exists", async (
       async load() {
         return null;
       },
-      async saveDaemonCredential() {},
     },
   });
 
@@ -325,7 +323,7 @@ test("setup discards the registration when saving its config fails", async () =>
   expect(discarded).toEqual(["workspace-id-a:computer-id"]);
 });
 
-test("setup discards the registration when saving the Daemon credential fails", async () => {
+test("setup does not save the Daemon credential in Computer", async () => {
   const discarded: string[] = [];
   const setup = createSetup({
     config: {
@@ -343,16 +341,11 @@ test("setup discards the registration when saving the Daemon credential fails", 
       async load() {
         return credential;
       },
-      async saveDaemonCredential() {
-        throw new Error("keyring failed");
-      },
     },
   });
 
-  await expect(setup.run({ workspaceSlug: "workspace-a" })).rejects.toMatchObject({
-    code: "SETUP_CONFIG_WRITE_FAILED",
-  });
-  expect(discarded).toEqual(["workspace-id-a:computer-id"]);
+  await expect(setup.run({ workspaceSlug: "workspace-a" })).resolves.toBeDefined();
+  expect(discarded).toEqual([]);
 });
 
 function createSetup(overrides: Partial<ComputerSetupOptions> = {}): ComputerSetup {
@@ -370,7 +363,6 @@ function createSetup(overrides: Partial<ComputerSetupOptions> = {}): ComputerSet
       async load() {
         return credential;
       },
-      async saveDaemonCredential() {},
     },
     catalog: createWorkspaceCatalog(
       async () => workspaces,

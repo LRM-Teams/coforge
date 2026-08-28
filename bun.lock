@@ -16,6 +16,9 @@
       "dependencies": {
         "@coforge/daemon": "workspace:*",
         "@coforge/protocol": "workspace:*",
+        "@logtape/file": "2.3.2",
+        "@logtape/logtape": "2.3.2",
+        "@logtape/redaction": "2.3.2",
         "centrifuge": "5.2.1",
         "commander": "15.0.0",
         "picocolors": "1.1.1",
@@ -319,6 +322,12 @@
     "@lix-js/sdk": ["@lix-js/sdk@0.4.7", "", { "dependencies": { "@lix-js/server-protocol-schema": "0.1.1", "dedent": "1.5.1", "human-id": "^4.1.1", "js-sha256": "^0.11.0", "kysely": "^0.27.4", "sqlite-wasm-kysely": "0.3.0", "uuid": "^10.0.0" } }, "sha512-pRbW+joG12L0ULfMiWYosIW0plmW4AsUdiPCp+Z8rAsElJ+wJ6in58zhD3UwUcd4BNcpldEGjg6PdA7e0RgsDQ=="],
 
     "@lix-js/server-protocol-schema": ["@lix-js/server-protocol-schema@0.1.1", "", {}, "sha512-jBeALB6prAbtr5q4vTuxnRZZv1M2rKe8iNqRQhFJ4Tv7150unEa0vKyz0hs8Gl3fUGsWaNJBh3J8++fpbrpRBQ=="],
+
+    "@logtape/file": ["@logtape/file@2.3.2", "", { "peerDependencies": { "@logtape/logtape": "^2.3.2" } }, "sha512-yCUuznM5U8n43p6cDV8FFNTOkjKC2lEWGDMvGWbCIxbQ0JqIlhYdiu3b9ITV6z87PwGLxko7Ru54SgOSze6QCA=="],
+
+    "@logtape/logtape": ["@logtape/logtape@2.3.2", "", {}, "sha512-SfxHfSdDlTp6tLpYP5uezNitSCTQUB3FZ1MXDbgDBN9t9kvF+XL0rOGTIa/pJcDMy1o9FELaZ25E/Ypmsf5fNQ=="],
+
+    "@logtape/redaction": ["@logtape/redaction@2.3.2", "", { "peerDependencies": { "@logtape/logtape": "^2.3.2" } }, "sha512-tLiLxtMm99oKP6g19+yBUmk54HawuVKh4xlW9lAPhyayjisnJ9gwjihxjqd6lo0Bf090/gQvI9eJ3MWSS8w+aw=="],
 
     "@mariozechner/clipboard": ["@mariozechner/clipboard@0.3.9", "", { "optionalDependencies": { "@mariozechner/clipboard-darwin-arm64": "0.3.9", "@mariozechner/clipboard-darwin-universal": "0.3.9", "@mariozechner/clipboard-darwin-x64": "0.3.9", "@mariozechner/clipboard-linux-arm64-gnu": "0.3.9", "@mariozechner/clipboard-linux-arm64-musl": "0.3.9", "@mariozechner/clipboard-linux-riscv64-gnu": "0.3.9", "@mariozechner/clipboard-linux-x64-gnu": "0.3.9", "@mariozechner/clipboard-linux-x64-musl": "0.3.9", "@mariozechner/clipboard-win32-arm64-msvc": "0.3.9", "@mariozechner/clipboard-win32-x64-msvc": "0.3.9" } }, "sha512-ABnA53mdfkGZwOFUdZNv2S0CWGO/EIuPj8Vv9xmBFmSYg/qFc7ihO6q5FcQjvoE67kZpWkEc4AhD6B/os04yuA=="],
 

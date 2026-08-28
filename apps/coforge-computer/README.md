@@ -47,6 +47,14 @@ separate implementation slices. The user does not run `coforge-daemon` separatel
 Computer does not maintain a cloud WebSocket; each Workspace worker owns its own
 cloud WSS connection.
 
+Use `coforge-computer start` to start or reuse the user-managed Daemon and
+configure every registered Workspace Worker. Use `coforge-computer stop` to
+stop that Daemon and, with it, all of its Workspace Workers. Use
+`coforge-computer restart` to perform both operations in order.
+
+Use `coforge-computer logs` to print existing Computer log files and follow
+new log records in real time. Press `Ctrl-C` to exit.
+
 `coforge-computer install` and `upgrade` select `production.current` (`latest`),
 `test.current`, or one exact `sha256:` release set. `rollback` reactivates the
 retained previous bundle offline after checking both process payloads. All
@@ -58,22 +66,22 @@ for commands, arguments, validation, generated help, suggestions, and version
 output. Commander 15 is ESM-only and explicitly supports Bun. `picocolors` adds
 TTY-safe emphasis without changing redirected output.
 
-Computer configuration follows each operating system's normal per-user
-location:
+Computer and Daemon data use separate directories under the user's home
+directory:
 
-| Platform | Configuration directory                            |
-| -------- | -------------------------------------------------- |
-| Linux    | `$XDG_CONFIG_HOME/coforge`, or `~/.config/coforge` |
-| macOS    | `~/Library/Application Support/Coforge`            |
-| Windows  | `%LOCALAPPDATA%\Coforge`                           |
+| Platform | Computer directory                |
+| -------- | --------------------------------- |
+| Linux    | `~/.coforge/computer`             |
+| macOS    | `~/.coforge/computer`             |
+| Windows  | `%USERPROFILE%\.coforge\computer` |
 
-Daemon state remains separate:
+Daemon data remains separate:
 
-| Platform | State directory                                        |
-| -------- | ------------------------------------------------------ |
-| Linux    | `$XDG_STATE_HOME/coforge`, or `~/.local/state/coforge` |
-| macOS    | `~/Library/Application Support/Coforge`                |
-| Windows  | `%LOCALAPPDATA%\Coforge`                               |
+| Platform | Daemon directory                |
+| -------- | ------------------------------- |
+| Linux    | `~/.coforge/daemon`             |
+| macOS    | `~/.coforge/daemon`             |
+| Windows  | `%USERPROFILE%\.coforge\daemon` |
 
 Credentials use `Bun.secrets`, which delegates to macOS Keychain, Linux
 libsecret, or Windows Credential Manager. This keeps tokens out of repository

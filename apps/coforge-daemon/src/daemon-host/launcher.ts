@@ -2,6 +2,8 @@ import { access } from "node:fs/promises";
 import { join, win32 } from "node:path";
 import {
   decodeDaemonHandshakeResponse,
+  decodeDaemonCommandResponse,
+  encodeDaemonCommandRequest,
   decodeWorkspaceWorkerConfigureResponse,
   encodeDaemonHandshakeRequest,
   encodeWorkspaceWorkerConfigureRequest,
@@ -15,6 +17,13 @@ import type { DaemonHandshakeResponse } from "@coforge/protocol";
 
 export interface DaemonLauncher {
   ensureStarted(input: WorkspaceWorkerConfig): Promise<void>;
+}
+export interface DaemonCommandRunner {
+  ensureRunning(): Promise<void>;
+  command(operation: "start" | "stop" | "restart"): Promise<void>;
+}
+export interface DaemonStopper {
+  stop(): Promise<void>;
 }
 export type WorkspaceWorkerConfig = {
   workspaceId: string;
@@ -37,18 +46,19 @@ export type LocalDaemonLauncherOptions = {
   timeoutMilliseconds?: number;
 };
 
-export class LocalDaemonLauncher implements DaemonLauncher {
+export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner {
   #connect: (socketPath: string) => Promise<LocalDaemonConnection>;
   #spawn: (executablePath: string, socketPath: string) => void;
   #sleep: (milliseconds: number) => Promise<void>;
   #timeoutMilliseconds: number;
+  #process: Bun.Subprocess | undefined;
 
   constructor(private readonly options: LocalDaemonLauncherOptions) {
     this.#connect = options.connect ?? connectToLocalDaemon;
     this.#spawn =
       options.spawn ??
       ((executablePath, socketPath) => {
-        Bun.spawn([executablePath, "--socket", socketPath], {
+        this.#process = Bun.spawn([executablePath, "--socket", socketPath], {
           stdin: "ignore",
           stdout: "ignore",
           stderr: "ignore",
@@ -56,6 +66,11 @@ export class LocalDaemonLauncher implements DaemonLauncher {
       });
     this.#sleep = options.sleep ?? Bun.sleep;
     this.#timeoutMilliseconds = options.timeoutMilliseconds ?? 10_000;
+  }
+
+  async stop(): Promise<void> {
+    this.#process?.kill();
+    this.#process = undefined;
   }
 
   async ensureStarted(input: WorkspaceWorkerConfig): Promise<void> {
@@ -69,7 +84,49 @@ export class LocalDaemonLauncher implements DaemonLauncher {
     throw new Error("coforge-daemon did not accept the local handshake");
   }
 
-  async #handshake(config: WorkspaceWorkerConfig): Promise<boolean> {
+  async ensureRunning(): Promise<void> {
+    if (await this.#handshake()) return;
+    this.#spawn(this.options.executablePath, this.options.socketPath);
+    const deadline = Date.now() + this.#timeoutMilliseconds;
+    while (Date.now() < deadline) {
+      if (await this.#handshake()) return;
+      await this.#sleep(50);
+    }
+    throw new Error("coforge-daemon did not accept the local handshake");
+  }
+
+  async command(operation: "start" | "stop" | "restart"): Promise<void> {
+    await this.ensureRunning();
+    let connection: LocalDaemonConnection | undefined;
+    try {
+      connection = await this.#connect(this.options.socketPath);
+      const requestId = crypto.randomUUID();
+      const response = decodeLocalRpcResponse(
+        await connection.request(
+          frameLocalRpc(
+            encodeLocalRpcRequest({
+              method: LOCAL_RPC_METHODS[operation.toUpperCase() as "START" | "STOP" | "RESTART"],
+              payload: encodeDaemonCommandRequest({ protocolMajor: 1, requestId }),
+            }),
+          ),
+        ),
+      );
+      const commandResponse = decodeDaemonCommandResponse(response.payload);
+      if (
+        response.method !==
+          LOCAL_RPC_METHODS[operation.toUpperCase() as "START" | "STOP" | "RESTART"] ||
+        commandResponse.protocolMajor !== 1 ||
+        commandResponse.requestId !== requestId ||
+        !commandResponse.accepted
+      ) {
+        throw new Error(`coforge-daemon did not accept ${operation}`);
+      }
+    } finally {
+      connection?.close();
+    }
+  }
+
+  async #handshake(config?: WorkspaceWorkerConfig): Promise<boolean> {
     let connection: LocalDaemonConnection;
     try {
       connection = await this.#connect(this.options.socketPath);
@@ -94,6 +151,7 @@ export class LocalDaemonLauncher implements DaemonLauncher {
       if (handshakeEnvelope.method !== LOCAL_RPC_METHODS.HANDSHAKE) return false;
       const response = decodeDaemonHandshakeResponse(handshakeEnvelope.payload);
       if (!validHandshakeResponse(response, requestId)) return false;
+      if (!config) return true;
       const configureId = crypto.randomUUID();
       const responseEnvelope = decodeLocalRpcResponse(
         await connection.request(

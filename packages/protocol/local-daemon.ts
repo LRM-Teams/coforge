@@ -4,6 +4,8 @@ import {
   DaemonHandshakeResponseSchema,
   WorkspaceWorkerConfigureRequestSchema,
   WorkspaceWorkerConfigureResponseSchema,
+  DaemonCommandRequestSchema,
+  DaemonCommandResponseSchema,
   LocalRpcRequestSchema,
   LocalRpcResponseSchema,
 } from "./gen/coforge/rpc/v1/computer_register_pb";
@@ -12,6 +14,9 @@ export const LOCAL_RPC_PROTOCOL_MAJOR = 1 as const;
 export const LOCAL_RPC_METHODS = {
   HANDSHAKE: "daemon:handshake",
   CONFIGURE: "workspace-worker:configure",
+  START: "daemon:start",
+  STOP: "daemon:stop",
+  RESTART: "daemon:restart",
 } as const;
 export const DAEMON_HANDSHAKE_METHOD = LOCAL_RPC_METHODS.HANDSHAKE;
 export const WORKSPACE_WORKER_CONFIGURE_METHOD = LOCAL_RPC_METHODS.CONFIGURE;
@@ -24,6 +29,12 @@ export type WorkspaceWorkerConfigureRequest = {
   computerId: string;
 };
 export type WorkspaceWorkerConfigureResponse = {
+  protocolMajor: number;
+  requestId: string;
+  accepted: boolean;
+};
+export type DaemonCommandRequest = { protocolMajor: number; requestId: string };
+export type DaemonCommandResponse = {
   protocolMajor: number;
   requestId: string;
   accepted: boolean;
@@ -80,6 +91,25 @@ export function decodeWorkspaceWorkerConfigureResponse(
 ): WorkspaceWorkerConfigureResponse {
   const v = fromBinary(WorkspaceWorkerConfigureResponseSchema, bytes);
   return { protocolMajor: v.protocolMajor, requestId: v.requestId, accepted: v.accepted };
+}
+
+export function encodeDaemonCommandRequest(value: DaemonCommandRequest): Uint8Array {
+  return toBinary(DaemonCommandRequestSchema, create(DaemonCommandRequestSchema, value));
+}
+export function decodeDaemonCommandRequest(bytes: Uint8Array): DaemonCommandRequest {
+  const value = fromBinary(DaemonCommandRequestSchema, bytes);
+  return { protocolMajor: value.protocolMajor, requestId: value.requestId };
+}
+export function encodeDaemonCommandResponse(value: DaemonCommandResponse): Uint8Array {
+  return toBinary(DaemonCommandResponseSchema, create(DaemonCommandResponseSchema, value));
+}
+export function decodeDaemonCommandResponse(bytes: Uint8Array): DaemonCommandResponse {
+  const value = fromBinary(DaemonCommandResponseSchema, bytes);
+  return {
+    protocolMajor: value.protocolMajor,
+    requestId: value.requestId,
+    accepted: value.accepted,
+  };
 }
 
 export type DaemonHandshakeRequest = {

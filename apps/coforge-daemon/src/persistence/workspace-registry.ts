@@ -3,16 +3,10 @@ import { dirname, join } from "node:path";
 import type { WorkspaceConnection } from "../workspace-worker/supervisor";
 
 /** Durable, non-secret metadata for connections configured on this machine. */
-export interface WorkspaceConnectionRegistry {
-  list(): Promise<WorkspaceConnection[]>;
-  upsert(connection: WorkspaceConnection): Promise<void>;
-  delete(workspaceId: string, computerId: string): Promise<void>;
-}
-
-export class FileWorkspaceConnectionRegistry implements WorkspaceConnectionRegistry {
+export class WorkspaceRegistry {
   readonly #path: string;
   constructor(stateDirectory: string) {
-    this.#path = join(stateDirectory, "workspace-connections.json");
+    this.#path = join(stateDirectory, "config.json");
   }
   async list(): Promise<WorkspaceConnection[]> {
     try {

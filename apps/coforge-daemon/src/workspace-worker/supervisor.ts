@@ -1,4 +1,5 @@
 import { isAbsolute, parse } from "node:path";
+import type { WorkspaceRegistry } from "../persistence/workspace-registry";
 
 /** The daemon-owned identity used to start one workspace worker. */
 export interface WorkspaceConnection {
@@ -31,7 +32,10 @@ export class WorkspaceWorkerSupervisor {
   private readonly entries = new Map<string, Entry>();
   private readonly starting = new Map<string, Promise<WorkspaceWorker>>();
 
-  constructor(private readonly factory: WorkerFactory) {}
+  constructor(
+    private readonly factory: WorkerFactory,
+    private readonly registry?: Pick<WorkspaceRegistry, "list">,
+  ) {}
 
   async ensure(connection: WorkspaceConnection): Promise<WorkspaceWorker> {
     validateWorkspaceRoot(connection.workspaceRoot);
@@ -77,6 +81,20 @@ export class WorkspaceWorkerSupervisor {
         this.stop(connection.workspaceId, connection.computerId),
       ),
     );
+  }
+
+  async startAll(): Promise<void> {
+    if (!this.registry) throw new Error("Workspace connection registry is unavailable");
+    for (const connection of await this.registry.list()) await this.ensure(connection);
+  }
+
+  stopAll(): Promise<void> {
+    return this.shutdown();
+  }
+
+  async restartAll(): Promise<void> {
+    await this.stopAll();
+    await this.startAll();
   }
 }
 

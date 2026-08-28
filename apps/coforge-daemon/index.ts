@@ -1,14 +1,16 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { startDaemonLocalRpcServer } from "./src/local-rpc";
-import { createDaemonCoordinator } from "./src/daemon-coordinator";
 import { AgentRuntimePool } from "./src/agent-capacity/agent-runtime-pool";
 import { createCodeAgentAdapter } from "./src/code-agent/registry";
 import { createWorkspaceWorkerFactory } from "./src/workspace-worker/worker";
+import { WorkspaceWorkerSupervisor } from "./src/workspace-worker/supervisor";
 import type { AgentAdapterFactory } from "./src/agent-runtime/agent-process-manager";
 import { resolveAgentCapacity } from "./src/agent-capacity/policy";
 import { NativeWorkspaceWorkerCredentialStore } from "./src/workspace-worker/credential-store";
 import type { WorkspaceWorkerCloudTransportFactory } from "./src/cloud-transport/workspace-worker-cloud-transport";
 import type { WorkspaceWorkerCredentialStore } from "./src/workspace-worker/credential-store";
-import { FileWorkspaceConnectionRegistry } from "./src/persistence/workspace-connection-registry";
+import { WorkspaceRegistry } from "./src/persistence/workspace-registry";
 import { recoverWorkspaceConnections } from "./src/recovery";
 import {
   CentrifugoWorkspaceWorkerTransport,
@@ -37,11 +39,14 @@ export {
   WindowsUserDaemonHost,
 } from "./src/daemon-host";
 export { LocalDaemonLauncher, resolveDaemonExecutablePath } from "./src/daemon-host/launcher";
-export type { DaemonLauncher } from "./src/daemon-host/launcher";
-export { createDaemonCoordinator } from "./src/daemon-coordinator";
-export { FileWorkspaceConnectionRegistry } from "./src/persistence/workspace-connection-registry";
+export type {
+  DaemonLauncher,
+  DaemonCommandRunner,
+  DaemonStopper,
+  WorkspaceWorkerConfig,
+} from "./src/daemon-host/launcher";
+export { WorkspaceRegistry } from "./src/persistence/workspace-registry";
 export { recoverWorkspaceConnections } from "./src/recovery";
-export type { DaemonCoordinator } from "./src/daemon-coordinator";
 export { AgentRuntimePool } from "./src/agent-capacity/agent-runtime-pool";
 export type { AgentRuntimeHandle } from "./src/agent-capacity/agent-runtime-pool";
 export { AgentProcessManager } from "./src/agent-runtime/agent-process-manager";
@@ -128,11 +133,9 @@ if (import.meta.main) {
     process.exit(2);
   }
   const credentials = new NativeWorkspaceWorkerCredentialStore();
-  const registry = new FileWorkspaceConnectionRegistry(
-    stateDirectory ?? Bun.env.XDG_STATE_HOME ?? ".coforge",
-  );
-  const coordinator = createDaemonCoordinator({
-    workerFactory: {
+  const registry = new WorkspaceRegistry(stateDirectory ?? join(homedir(), ".coforge", "daemon"));
+  const supervisor = new WorkspaceWorkerSupervisor(
+    {
       create: createDaemonWorkerFactory({
         credentials,
         transportFactory: {
@@ -144,20 +147,21 @@ if (import.meta.main) {
         },
       }),
     },
-  });
+    registry,
+  );
   const localRpc = await startDaemonLocalRpcServer({
     socketPath,
     validateCredential: (credential) => credential.length > 0,
-    runtime: coordinator,
+    runtime: supervisor,
     credentials,
     registry,
   });
-  await recoverWorkspaceConnections(registry, coordinator);
+  await recoverWorkspaceConnections(registry, supervisor);
   let shuttingDown = false;
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    await coordinator.shutdown();
+    await supervisor.shutdown();
     await localRpc.close();
     resolveShutdown();
   };

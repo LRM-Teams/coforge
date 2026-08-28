@@ -119,8 +119,8 @@ test("resolves the daemon from the active verified release", () => {
 test("resolves the Windows daemon from the active verified release", () => {
   expect(
     resolveDaemonExecutablePath({
-      installRoot: "C:\\Users\\Alice\\AppData\\Local\\Coforge\\Computer",
+      installRoot: "C:\\Users\\Alice\\.coforge\\computer\\install",
       platform: "win32",
     }),
-  ).toBe("C:\\Users\\Alice\\AppData\\Local\\Coforge\\Computer\\active\\coforge-daemon.exe");
+  ).toBe("C:\\Users\\Alice\\.coforge\\computer\\install\\active\\coforge-daemon.exe");
 });

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FileWorkspaceConnectionRegistry } from "../src/persistence/workspace-connection-registry";
+import { WorkspaceRegistry } from "../src/persistence/workspace-registry";
 import type { WorkspaceConnection } from "../src/workspace-worker/supervisor";
 
 const directories: string[] = [];
@@ -13,10 +13,10 @@ afterEach(async () => {
   );
 });
 
-test("file workspace connection registry round-trips, replaces, and deletes connections", async () => {
+test("workspace registry round-trips, replaces, and deletes connections", async () => {
   const directory = await mkdtemp(join(tmpdir(), "coforge-registry-"));
   directories.push(directory);
-  const registry = new FileWorkspaceConnectionRegistry(directory);
+  const registry = new WorkspaceRegistry(directory);
   const connection: WorkspaceConnection = {
     computerId: "computer-a",
     workspaceId: "workspace-a",
@@ -27,9 +27,7 @@ test("file workspace connection registry round-trips, replaces, and deletes conn
   const replacement = { ...connection, workspaceRoot: "/workspaces/replacement" };
   await registry.upsert(replacement);
   expect(await registry.list()).toEqual([replacement]);
-  expect(await Bun.file(join(directory, "workspace-connections.json")).text()).not.toContain(
-    "token",
-  );
+  expect(await Bun.file(join(directory, "config.json")).text()).not.toContain("token");
 
   await registry.upsert({
     ...connection,

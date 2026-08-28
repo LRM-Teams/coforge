@@ -6,7 +6,7 @@ export { LocalDaemonLauncher, resolveDaemonExecutablePath } from "./launcher";
 import { LaunchdDaemonHost } from "./launchd";
 import { SystemdUserDaemonHost } from "./systemd-user";
 import { WindowsUserDaemonHost } from "./windows-task";
-import type { DaemonLauncher } from "./launcher";
+import type { DaemonCommandRunner, DaemonLauncher, DaemonStopper } from "./launcher";
 
 export function createDaemonHost(input: {
   platform: NodeJS.Platform;
@@ -16,7 +16,7 @@ export function createDaemonHost(input: {
   cloudWebSocketEndpoint?: string;
   homeDirectory: string;
   uid: number;
-}): DaemonLauncher {
+}): DaemonLauncher & DaemonStopper & DaemonCommandRunner {
   if (input.platform === "darwin") {
     return new LaunchdDaemonHost({ ...input, label: "cn.coforge.computer.daemon" });
   }

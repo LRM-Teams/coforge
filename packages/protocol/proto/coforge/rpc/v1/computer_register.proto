@@ -73,6 +73,17 @@ message WorkspaceWorkerConfigureResponse {
   bool accepted = 3;
 }
 
+message DaemonCommandRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+}
+
+message DaemonCommandResponse {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  bool accepted = 3;
+}
+
 message WorkspaceWorkerReadyRequest {
   uint32 protocol_major = 1;
   string request_id = 2;

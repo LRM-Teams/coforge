@@ -29,6 +29,10 @@ test("compiled CLI writes help to stdout and exits successfully", () => {
   expect(result.stdout.toString()).toContain("install [options]");
   expect(result.stdout.toString()).toContain("upgrade [options]");
   expect(result.stdout.toString()).toContain("rollback");
+  expect(result.stdout.toString()).toContain("start");
+  expect(result.stdout.toString()).toContain("stop");
+  expect(result.stdout.toString()).toContain("restart");
+  expect(result.stdout.toString()).toContain("logs");
   expect(result.stderr.toString()).toBe("");
 });
 

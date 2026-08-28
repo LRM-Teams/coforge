@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { LocalDaemonLauncher } from "./launcher";
-import type { DaemonLauncher, WorkspaceWorkerConfig } from "./launcher";
+import type { DaemonLauncher, DaemonStopper, WorkspaceWorkerConfig } from "./launcher";
 
 type CommandRunner = (command: string[]) => Promise<number>;
 
@@ -17,7 +17,7 @@ export type LaunchdDaemonHostOptions = {
   run?: CommandRunner;
 };
 
-export class LaunchdDaemonHost implements DaemonLauncher {
+export class LaunchdDaemonHost implements DaemonLauncher, DaemonStopper {
   readonly #plistPath: string;
   readonly #run: CommandRunner;
   readonly #writeFile: (path: string, content: string) => Promise<void>;
@@ -48,6 +48,21 @@ export class LaunchdDaemonHost implements DaemonLauncher {
   async ensureStarted(config: WorkspaceWorkerConfig): Promise<void> {
     await this.ensureInstalled();
     await this.#local.ensureStarted(config);
+  }
+
+  ensureRunning(): Promise<void> {
+    return this.#local.ensureRunning();
+  }
+
+  command(operation: "start" | "stop" | "restart"): Promise<void> {
+    return this.#local.command(operation);
+  }
+
+  async stop(): Promise<void> {
+    const target = `gui/${this.#options.uid}/${this.#options.label}`;
+    // Booting the user agent out prevents KeepAlive from immediately relaunching it.
+    const result = await this.#run(["launchctl", "bootout", target]);
+    if (result !== 0) throw new Error("could not stop the CoForge Daemon");
   }
 
   async ensureInstalled(): Promise<void> {

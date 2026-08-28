@@ -35,6 +35,9 @@ import {
 } from "./workspace/catalog";
 import { registrationIdempotencyKey } from "./registration/idempotency-key";
 import { writeSetupResult } from "./cli/setup-output";
+import { createCommand as createClientCommand } from "./daemon-client";
+import { configureComputerLogger } from "./logging/computer-logger";
+import { followComputerLogs } from "./logging/computer-logs";
 
 const VERSION = "0.1.0";
 const DEFAULT_SERVER_URL = "https://coforge.cn";
@@ -105,10 +108,22 @@ export interface UpdateCommand {
   rollback(): Promise<void>;
 }
 
+export interface DaemonCommand {
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  restart(): Promise<void>;
+}
+
+export interface LogsCommand {
+  follow(): Promise<void>;
+}
+
 interface CliDependencies {
   login: LoginCommand;
   setup: SetupCommand;
   updater?: UpdateCommand;
+  daemon?: DaemonCommand;
+  logs?: LogsCommand;
 }
 
 export async function runCli(
@@ -172,6 +187,22 @@ export async function runCli(
     .command("rollback")
     .description("Reactivate the previous locally verified Computer bundle without network access.")
     .action(() => requireUpdater(dependencies).rollback());
+  program
+    .command("start")
+    .description("Start the Daemon and all configured Workspace Workers.")
+    .action(() => requireDaemon(dependencies).start());
+  program
+    .command("stop")
+    .description("Stop the Daemon and all Workspace Workers.")
+    .action(() => requireDaemon(dependencies).stop());
+  program
+    .command("restart")
+    .description("Restart the Daemon and all configured Workspace Workers.")
+    .action(() => requireDaemon(dependencies).restart());
+  program
+    .command("logs")
+    .description("Follow the Computer log, including rotated log files.")
+    .action(() => requireLogs(dependencies).follow());
 
   if (args.length === 0) {
     program.outputHelp();
@@ -216,6 +247,16 @@ export async function runCli(
 function requireUpdater(dependencies: CliDependencies): UpdateCommand {
   if (!dependencies.updater) throw new Error("Updater is unavailable in this build");
   return dependencies.updater;
+}
+
+function requireDaemon(dependencies: CliDependencies): DaemonCommand {
+  if (!dependencies.daemon) throw new Error("Daemon coordinator is unavailable in this build");
+  return dependencies.daemon;
+}
+
+function requireLogs(dependencies: CliDependencies): LogsCommand {
+  if (!dependencies.logs) throw new Error("Computer logs are unavailable in this build");
+  return dependencies.logs;
 }
 
 function createLoginCommand(
@@ -364,6 +405,28 @@ function createDaemonLauncher(
   });
 }
 
+function createCommand(
+  platform: "darwin" | "linux" | "win32",
+  installDirectory: string,
+  stateDirectory: string,
+  serverUrl: string,
+  logger?: import("@logtape/logtape").Logger,
+): DaemonCommand {
+  return createClientCommand({
+    daemon: createDaemonLauncher(platform, installDirectory, stateDirectory, serverUrl),
+    logger,
+  });
+}
+
+function createLogsCommand(
+  dataDirectory: string,
+  io: { stdout: (line: string) => void },
+): LogsCommand {
+  return {
+    follow: () => followComputerLogs({ dataDirectory, write: io.stdout }),
+  };
+}
+
 function createUpdateCommand(io: { stdout: (line: string) => void }): UpdateCommand {
   const installRoot = resolveComputerInstallDirectory({
     platform: process.platform,
@@ -404,20 +467,46 @@ if (import.meta.main) {
     stdout: (line: string) => console.log(line),
     stderr: (line: string) => console.error(line),
   };
-  const config = new FileComputerConfig(
-    resolveComputerConfigDirectory({
-      platform: process.platform,
-      homeDirectory: homedir(),
-      environment: process.env,
-    }),
-  );
-  process.exitCode = await runCli(
-    Bun.argv.slice(2),
-    {
-      login: createLoginCommand(io, config),
-      setup: createSetupCommand(io, config),
-      updater: createUpdateCommand(io),
-    },
-    io,
-  );
+  const computerDirectory = resolveComputerConfigDirectory({
+    platform: process.platform,
+    homeDirectory: homedir(),
+    environment: process.env,
+  });
+  const config = new FileComputerConfig(computerDirectory);
+  const platform = currentComputerPlatform();
+  const stateDirectory = resolveComputerStateDirectory({
+    platform: platform.os,
+    homeDirectory: homedir(),
+    environment: process.env,
+  });
+  const installDirectory = resolveComputerInstallDirectory({
+    platform: platform.os,
+    homeDirectory: homedir(),
+    environment: process.env,
+  });
+  const logging = await configureComputerLogger({
+    dataDirectory: computerDirectory,
+    version: VERSION,
+  });
+  try {
+    process.exitCode = await runCli(
+      Bun.argv.slice(2),
+      {
+        login: createLoginCommand(io, config),
+        setup: createSetupCommand(io, config),
+        updater: createUpdateCommand(io),
+        daemon: createCommand(
+          platform.os,
+          installDirectory,
+          stateDirectory,
+          DEFAULT_SERVER_URL,
+          logging.logger,
+        ),
+        logs: createLogsCommand(computerDirectory, io),
+      },
+      io,
+    );
+  } finally {
+    await logging.close();
+  }
 }

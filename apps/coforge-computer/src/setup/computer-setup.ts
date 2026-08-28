@@ -26,7 +26,6 @@ export interface RegistrationIdempotencyKeyProvider {
 
 export interface SetupCredentialStore {
   load(serverUrl: string): Promise<Credential | null>;
-  saveDaemonCredential(workspaceId: string, computerId: string, credential: string): Promise<void>;
 }
 
 export interface SetupRegistration {
@@ -148,15 +147,7 @@ export class ComputerSetup {
         workspaceRoot: this.options.workspaceRoot,
         workspaceWorkerToken: response.workspaceWorkerToken,
       });
-      configPath = await this.options.config.saveRegistration(
-        registeredRegistration,
-        response.workspaceWorkerToken,
-      );
-      await this.options.credentials.saveDaemonCredential(
-        response.workspaceId,
-        response.computerId,
-        response.workspaceWorkerToken,
-      );
+      configPath = await this.options.config.saveRegistration(registeredRegistration);
     } catch (error) {
       if (registeredRegistration) {
         try {

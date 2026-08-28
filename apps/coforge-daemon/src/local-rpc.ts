@@ -2,29 +2,39 @@ import { chmod, mkdir, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
   decodeDaemonHandshakeRequest,
+  decodeDaemonCommandRequest,
   decodeWorkspaceWorkerConfigureRequest,
   encodeWorkspaceWorkerConfigureResponse,
   encodeDaemonHandshakeResponse,
+  encodeDaemonCommandResponse,
   frameLocalRpc,
   readLocalRpcFrames,
   decodeLocalRpcRequest,
   encodeLocalRpcResponse,
   LOCAL_RPC_METHODS,
 } from "@coforge/protocol";
-import type { DaemonCoordinator } from "./daemon-coordinator";
+import type { WorkspaceWorkerSupervisor } from "./workspace-worker/supervisor";
 import type { WorkspaceWorkerCredentialStore } from "./workspace-worker/credential-store";
-import type { WorkspaceConnectionRegistry } from "./persistence/workspace-connection-registry";
+import type { WorkspaceRegistry } from "./persistence/workspace-registry";
 
 export type DaemonLocalRpcServer = {
   close(): Promise<void>;
 };
 
+type WorkerRuntime = Partial<
+  Pick<WorkspaceWorkerSupervisor, "ensure" | "startAll" | "stopAll" | "restartAll">
+> & {
+  configureWorkspaceWorker?: (
+    connection: Parameters<WorkspaceWorkerSupervisor["ensure"]>[0],
+  ) => Promise<void>;
+};
+
 export async function startDaemonLocalRpcServer(input: {
   socketPath: string;
   validateCredential: (credential: string) => boolean | Promise<boolean>;
-  runtime: Pick<DaemonCoordinator, "configureWorkspaceWorker">;
+  runtime: WorkerRuntime;
   credentials: WorkspaceWorkerCredentialStore;
-  registry?: WorkspaceConnectionRegistry;
+  registry?: Pick<WorkspaceRegistry, "list" | "upsert" | "delete">;
 }): Promise<DaemonLocalRpcServer> {
   await mkdir(dirname(input.socketPath), { recursive: true, mode: 0o700 });
   await rm(input.socketPath, { force: true });
@@ -70,9 +80,9 @@ async function handleConnection(
   chunk: Uint8Array,
   daemonId: string,
   validateCredential: (credential: string) => boolean | Promise<boolean>,
-  runtime: Pick<DaemonCoordinator, "configureWorkspaceWorker">,
+  runtime: WorkerRuntime,
   credentials: WorkspaceWorkerCredentialStore,
-  registry: WorkspaceConnectionRegistry | undefined,
+  registry: Pick<WorkspaceRegistry, "list" | "upsert" | "delete"> | undefined,
 ): Promise<void> {
   const next = new Uint8Array(socket.data.buffer.byteLength + chunk.byteLength);
   next.set(socket.data.buffer);
@@ -94,6 +104,34 @@ async function handleConnection(
                 protocolMajor: 1,
                 requestId: request.requestId,
                 daemonId,
+                accepted: valid,
+              }),
+            }),
+          ),
+        );
+      } else if (
+        envelope.method === LOCAL_RPC_METHODS.START ||
+        envelope.method === LOCAL_RPC_METHODS.STOP ||
+        envelope.method === LOCAL_RPC_METHODS.RESTART
+      ) {
+        const request = decodeDaemonCommandRequest(envelope.payload);
+        const valid = request.protocolMajor === 1 && request.requestId.length > 0;
+        if (valid) {
+          if (envelope.method === LOCAL_RPC_METHODS.START && runtime.startAll)
+            await runtime.startAll();
+          else if (envelope.method === LOCAL_RPC_METHODS.STOP && runtime.stopAll)
+            await runtime.stopAll();
+          else if (envelope.method === LOCAL_RPC_METHODS.RESTART && runtime.restartAll)
+            await runtime.restartAll();
+          else throw new Error("daemon command is unavailable");
+        }
+        socket.write(
+          frameLocalRpc(
+            encodeLocalRpcResponse({
+              method: envelope.method,
+              payload: encodeDaemonCommandResponse({
+                protocolMajor: 1,
+                requestId: request.requestId,
                 accepted: valid,
               }),
             }),
@@ -134,7 +172,10 @@ async function handleConnection(
           };
           let registryWriteStarted = false;
           try {
-            await runtime.configureWorkspaceWorker(connection);
+            if (runtime.ensure) await runtime.ensure(connection);
+            else if (runtime.configureWorkspaceWorker)
+              await runtime.configureWorkspaceWorker(connection);
+            else throw new Error("workspace worker command is unavailable");
             registryWriteStarted = registry !== undefined;
             await registry?.upsert(connection);
           } catch (error) {
