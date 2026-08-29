@@ -62,8 +62,10 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 | --- | --- |
 | `activity` | 稳定类型，例如 `running_command`、`reading_file`、`using_tool`、`error` |
 | `level` | `info`、`warning` 或 `error` |
-| `message` | 命令、workspace-relative 文件路径或 provider 原始诊断文本 |
+| `message` | Daemon 生成的稳定、安全类别文案；不包含 provider 参数或原始诊断文本 |
 | `occurred_at` | daemon 记录的 UTC RFC 3339 时间 |
+| `launch_id` | 每次实际 OS process launch 的新身份；替换后不得复用 |
+| `client_seq` | 同一 `launch_id` 内从 1 开始严格递增的 daemon 序号 |
 
 第一批 activity 类型只定义实际需要的过程记录，不预先枚举 Agent 状态机：
 
@@ -75,7 +77,8 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 | `idle` | Agent 当前没有执行中的 turn |
 | `running_command` | Agent 正在执行命令 |
 | `reading_file` / `writing_file` / `editing_file` | Agent 的文件工具操作 |
-| `error` / `warning` | 运行错误或可恢复警告 |
+| `launch_failed` / `stop_failed` | 启动或安全回收失败；使用脱敏后的可操作原因 |
+| `error` / `warning` | provider 运行错误或可恢复警告 |
 
 `starting`、`stopped`、`idle` 是 timeline 记录，不是新的 Agent 业务状态；当前状态仍只
 由 `agent:status` 的 `online` / `offline` 表示。只有真正发生过程或观察结果时才记录
@@ -85,11 +88,11 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 event: agent:activity
 activity: running_command
 level: info
-message: <具体运行的命令>
+message: Agent is running a command.
 ```
 
-`activity=running_command` 表示 Agent runtime 正在执行命令；`message` 只记录展示所需
-的安全命令文本，不把 activity 类型和命令内容拼入 event name。后续需要记录启动、工具
+`activity=running_command` 表示 Agent runtime 正在执行命令；持久化的 `message` 使用
+稳定类别文案，不包含命令文本，不把 activity 类型和命令内容拼入 event name。后续需要记录启动、工具
 调用或其他执行明细时，沿用 `agent:activity`，增加新的 discriminator 值和对应字段，
 不增加 Agent 业务状态。Code Agent 的文件工具调用必须记录，至少包括：
 
@@ -97,15 +100,14 @@ message: <具体运行的命令>
 event: agent:activity
 activity: reading_file | writing_file | editing_file
 level: info
-message: <目标文件路径>
+message: <对应操作的稳定类别文案>
 ```
 
 `reading_file`、`writing_file` 和 `editing_file` 分别表示读取文件、创建/覆盖文件和修改
-文件。`message` 是 Agent workspace 内的相对路径，供前端展示和 activity timeline 关联；
-不得记录文件内容、完整 diff、prompt、绝对路径或隐藏在参数中的 secret。其他 Code Agent
-工具也通过 `agent:activity` 记录工具类型和安全的目标摘要，provider-specific 工具名
-不能扩散到上层状态模型。暂未纳入统一分类的工具使用 `activity=using_tool`，并在
-`message` 中保留安全的工具名或目标摘要，不能因为 provider 增加工具就丢弃事件。
+文件。Daemon 不向云端发送文件路径、文件内容、完整 diff、prompt、绝对路径或隐藏在参数
+中的 secret。其他 Code Agent 工具也通过 `agent:activity` 记录稳定工具类别，provider-specific
+工具名不能扩散到上层状态模型。暂未纳入统一分类的工具使用 `activity=using_tool`；不能
+因为 provider 增加工具就丢弃事件，也不能把其参数或目标摘要持久化。
 
 进程生命周期和 turn 生命周期必须按实际发生顺序记录。例如启动成功的顺序是
 `agent:activity(starting)`、`agent:status(online)`；停止时记录
@@ -114,11 +116,13 @@ status。重启是在停止后再次记录 `starting`，成功后发送 `agent:s
 `turn_completed`，没有执行中的 turn 时再记录 `idle`；这些 activity 不改变 Agent status。
 
 Activity envelope 包含 `request_id`、`workspace_id`、`agent_id` 和上述固定业务字段；
-`request_id` 只用于关联诊断，不提供去重、顺序或恢复保证。错误/警告
-使用 `activity=error|warning`、对应的 `level`，并把 provider 返回的原始文本放在
-`message`。原始文本必须保留 provider 的原始语言和 wording，不得翻译、改写或用
-CoForge 自己的文案替换。`message` 只做必要的 secret 脱敏，
-不得上传 token、prompt、完整响应或 provider 原始 stderr。启动阶段如果进程未达到可接收工作状态，不能
+`request_id` 只用于关联诊断。`launch_id` 与 `client_seq` 是观察端未来拒绝旧 launch 和
+旧序号的可信依据，但当前 Web 没有跨连接的 current-launch 事实来源，不伪装提供服务端
+stale rejection；当前保证来自 Daemon 的 current-launch gate。
+生命周期错误使用 `activity=launch_failed|stop_failed` 和 `level=error`，只发送稳定、
+脱敏且可操作的原因，不上传命令参数、绝对路径、凭据或 stderr。provider 错误/警告
+使用 `activity=error|warning` 和对应的 `level`；Daemon 把 provider 文本映射成稳定类别
+文案，不上传 token、prompt、命令、路径、完整响应或 provider 原始 stderr。启动阶段如果进程未达到可接收工作状态，不能
 发送 `agent:status(status=online)`，并通过 `agent:activity` 记录启动明细。如果启动失败，
 通过 `agent:activity` 记录启动错误；只有原本为 online 的进程因此退出，或状态确实从
 online 变为 offline 时，才发送 `agent:status(status=offline)`。如果进程已经 online
@@ -128,29 +132,34 @@ online 变为 offline 时，才发送 `agent:status(status=offline)`。如果进
 ### WSS Activity 发送
 
 Activity 是观测数据，不采用可靠消息语义。Daemon 调用 Centrifugo client publication 后
-立即继续，不等待业务确认；断线、权限拒绝、publish proxy 或 observer 失败时直接丢弃，
-不重试、不写 spool、不在重连后 replay，也不影响 Agent 生命周期、状态或聊天消息。
+立即继续，不等待业务确认；不写 spool，也不影响 Agent 生命周期、状态或聊天消息。
+断线期间只在内存中为每个 Agent 替换保存最新一条 Activity；新 launch 会淘汰旧 launch
+pending，重连后每个 Agent 最多刷新这一条。显式 stop 清空 pending。该 bounded refresh
+不是历史 replay；publish proxy 或 observer 失败仍直接丢弃且不重试。
 Centrifugo 仅在 `activity` namespace 开启 publish proxy；Backend 根据服务端附加的连接
 metadata 校验 Workspace、Computer、Agent 与 payload scope，并禁止 Daemon 向 control
-channel 发布。单条连接通常保留发送次序，但消费者不得依赖 Activity 完整、有序或唯一。
+channel 发布。通过校验的 observation 按 `(agent_id, launch_id, client_seq)` 幂等写入
+PostgreSQL；`computer_id` 只取可信 connection metadata，不接受 payload 自报。Agent
+详情页读取最近 100 条持久 observation，并用最近一条展示最近观测到的 Computer。写入
+失败不会反向改变 publication 结果，因此该历史仍可能缺项。单条连接通常保留发送次序，
+但消费者不得依赖 Activity 完整、有序或唯一。
 
 错误至少覆盖这些归类：可执行文件不存在或无权限、工作目录或 skills 初始化失败、
 provider 初始化/认证失败、模型或 reasoning 配置不支持、Agent capacity 不足、进程
 异常退出、provider API 网络/认证/限流/额度错误、上下文或 token 限制、工具权限拒绝、
 协议解析或超时失败。警告至少覆盖 provider 返回的 warning、接近限流或额度阈值、可重试
 网络退避、上下文接近上限和可选能力不可用。具体 provider 错误必须在 adapter 内归类
-为这些稳定类别，但不能因此翻译或覆盖 provider 的原始错误文案。stderr 只作为本地
-诊断来源，不能直接作为发给服务端和前端的 `message`。
+为这些稳定类别，原始错误只作为本地诊断；stderr 不能直接作为发给服务端和前端的
+`message`。
 
 ### Web 展示契约
 
 Web 在 `src/features/agents/` 内实现 activity timeline，按 `activity` 选择本地化标签和
 图标，统一显示 `message` 和 `occurred_at`。`running_command` 使用终端语义；
 `reading_file`、`writing_file`、`editing_file` 使用对应文件操作语义；`warning` 和
-`error` 使用对应视觉级别。业务标签可以按当前界面语言本地化，provider 原始错误或警告
-`message` 不得翻译。未知 activity 必须使用通用 activity 样式显示原始 `message`，不能
-丢弃整条记录。命令和路径使用等宽文本并允许复制；前端不得尝试渲染未上报的文件内容、
-diff 或 prompt。
+`error` 使用对应视觉级别。业务标签可以按当前界面语言本地化。未知 activity 必须使用
+通用 activity 样式显示 Daemon 生成的稳定安全文案，不能丢弃整条记录；前端不得尝试
+渲染未上报的命令、路径、文件内容、diff 或 prompt。
 
 ## 健康与就绪探针
 

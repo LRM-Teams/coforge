@@ -58,7 +58,13 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
   constructor(process: JsonlProcess) {
     this.#process = process;
     process.onRecord((record) => this.#accept(record));
-    process.onFailure((error) => this.#rejectPendingInterrupt(error));
+    process.onFailure((error) => {
+      this.#rejectPendingInterrupt(error);
+      this.#emit({
+        type: "activity",
+        activity: createAgentActivity("error", "error", error.message),
+      });
+    });
     process.onClose(() =>
       this.#rejectPendingInterrupt(new Error("code agent process closed during interrupt")),
     );

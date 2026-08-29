@@ -34,7 +34,16 @@ export function AgentCard({ agent }: { agent: AgentView }) {
     >
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="truncate text-base font-semibold">{agent.displayName}</h2>
+          <h2 className="truncate text-base font-semibold">
+            <Link
+              to="/agents/$agentId"
+              params={{ agentId: agent.id }}
+              search={{ tab: "profile" }}
+              className="hover:underline"
+            >
+              {agent.displayName}
+            </Link>
+          </h2>
           <p className="truncate text-xs text-muted-foreground">@{agent.name}</p>
         </div>
         <Link

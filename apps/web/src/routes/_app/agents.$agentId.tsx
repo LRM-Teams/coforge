@@ -1,0 +1,30 @@
+import { createFileRoute } from "@tanstack/react-router";
+
+import { AgentDetail } from "@/features/agents/agent-detail";
+import { getAgentDetail } from "@/features/agents/agents.functions";
+import { m } from "@/paraglide/messages";
+
+function detailTab(value: unknown): "profile" | "activity" {
+  if (value === "activity") return "activity";
+  return "profile";
+}
+
+export const Route = createFileRoute("/_app/agents/$agentId")({
+  validateSearch: (search) => ({ tab: detailTab(search.tab) }),
+  loader: ({ params }) => getAgentDetail({ data: params.agentId }),
+  pendingComponent: () => (
+    <main className="flex-1 p-6 text-sm text-muted-foreground">{m.agent_detail_loading()}</main>
+  ),
+  errorComponent: () => (
+    <main className="flex-1 p-6">
+      <div role="alert" className="rounded-xl border border-destructive/40 p-5 text-destructive">
+        {m.agent_detail_error()}
+      </div>
+    </main>
+  ),
+  component: AgentDetailPage,
+});
+
+function AgentDetailPage() {
+  return <AgentDetail detail={Route.useLoaderData()} tab={Route.useSearch().tab} />;
+}

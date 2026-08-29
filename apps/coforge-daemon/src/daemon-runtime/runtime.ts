@@ -1,4 +1,5 @@
 import type { AgentRuntimeConfig, CodeAgentProvider } from "../code-agent/contract";
+import { AgentProcessCleanupError } from "../code-agent/contract";
 import {
   AgentProcessManager,
   type AgentAdapterFactory,
@@ -41,6 +42,7 @@ export class DaemonRuntime {
   #stopPromise: Promise<void> | undefined;
   #started = false;
   #stopping = false;
+  #activityEnabled = false;
   #unsubscribeAgentStart: (() => void) | undefined;
   #unsubscribeAgentMessage: (() => void) | undefined;
   readonly #messageAttention: AgentMessageAttentionIndex;
@@ -52,6 +54,10 @@ export class DaemonRuntime {
   readonly #agentLaunches = new Map<string, Promise<AgentRuntime>>();
   readonly #stoppingAgents = new Set<string>();
   readonly #agentStops = new Map<string, Promise<void>>();
+  readonly #currentActivityLaunches = new Map<
+    string,
+    { launchId: string; clientSeq: number; stopping: boolean }
+  >();
   readonly #pendingAgentApiKeyRevokes = new Set<string>();
   readonly #agentProxy?: {
     url: string;
@@ -146,6 +152,7 @@ export class DaemonRuntime {
         return;
       }
       this.#started = true;
+      this.#activityEnabled = true;
       for (const delivery of pending) {
         if ("provider" in delivery) await this.handleAgentStart(delivery).catch(() => {});
         else await this.handleAgentMessage(delivery).catch(() => {});
@@ -172,7 +179,7 @@ export class DaemonRuntime {
   ): Promise<AgentRuntime> {
     if (this.#stopping || !this.#started)
       return Promise.reject(new Error("daemon runtime is not running"));
-    if (this.#stoppingAgents.has(agentId))
+    if (this.#stoppingAgents.has(agentId) || this.#agentProcessManager.isStopping(agentId))
       return Promise.reject(new Error(`Agent runtime is stopping: ${agentId}`));
     const existingLaunch = this.#agentLaunches.get(agentId);
     if (existingLaunch) return existingLaunch;
@@ -192,7 +199,10 @@ export class DaemonRuntime {
     config: AgentRuntimeConfig,
     sessionId?: string,
   ): Promise<AgentRuntime> {
+    const launch = { launchId: crypto.randomUUID(), clientSeq: 0, stopping: false };
+    this.#currentActivityLaunches.set(agentId, launch);
     let agentApiKey: string | undefined;
+    let stage: "credential" | "runtime" = "credential";
     try {
       if (!this.#transport.requestAgentApiKey)
         throw new Error("Agent API key endpoint is not configured");
@@ -202,12 +212,13 @@ export class DaemonRuntime {
       });
       this.#pendingAgentApiKeyRevokes.add(agentApiKey);
       if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
-      if (this.#stoppingAgents.has(agentId))
+      if (this.#stoppingAgents.has(agentId) || this.#agentProcessManager.isStopping(agentId))
         throw new Error(`Agent runtime is stopping: ${agentId}`);
       this.#agentApiKeys.set(agentId, agentApiKey);
       const proxyToken = this.#agentProxy?.issue(agentId, agentApiKey);
       if (proxyToken) this.#agentProxyTokens.set(agentId, proxyToken);
       const localContext = proxyToken ?? this.#contextFor(agentId);
+      stage = "runtime";
       const runtime = await this.#agentProcessManager.start(
         agentId,
         config,
@@ -227,32 +238,39 @@ export class DaemonRuntime {
         await this.#agentProcessManager.stop(agentId);
         throw new Error(`Agent runtime is stopping: ${agentId}`);
       }
-      const emit = (activity: AgentActivity) => {
-        this.#transport.sendAgentActivity?.(activity);
+      const emit = (activity: Omit<AgentActivity, "launchId" | "clientSeq" | "occurredAt">) => {
+        this.#emitAgentActivity(agentId, launch, activity);
       };
       const unsubscribe = runtime.session.subscribe((runtimeEvent) => {
+        if (runtimeEvent.type === "activity") {
+          emit({
+            protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+            requestId: crypto.randomUUID(),
+            workspaceId: this.#connection.workspaceId,
+            agentId,
+            activity: runtimeEvent.activity.activity,
+            level: runtimeEvent.activity.level,
+            message: safeRuntimeActivityMessage(
+              runtimeEvent.activity.activity,
+              runtimeEvent.activity.level,
+            ),
+          });
+          return;
+        }
+        if (runtimeEvent.type !== "completed") return;
         emit({
           protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
           requestId: crypto.randomUUID(),
           workspaceId: this.#connection.workspaceId,
           agentId,
-          activity: runtimeEvent.type === "completed" ? "turn_completed" : "using_tool",
-          level: "info",
+          activity: "turn_completed",
+          level: runtimeEvent.status === "failed" ? "error" : "info",
           message:
-            runtimeEvent.type === "activity"
-              ? JSON.stringify(runtimeEvent.activity)
-              : runtimeEvent.type === "text-delta"
-                ? runtimeEvent.text
-                : runtimeEvent.type === "tool-start"
-                  ? JSON.stringify({ id: runtimeEvent.id, name: runtimeEvent.name })
-                  : runtimeEvent.type === "tool-output"
-                    ? JSON.stringify({ id: runtimeEvent.id, text: runtimeEvent.text })
-                    : runtimeEvent.type === "tool-end"
-                      ? JSON.stringify({ id: runtimeEvent.id, isError: runtimeEvent.isError })
-                      : "",
+            runtimeEvent.status === "failed" ? "Agent turn failed." : "Agent turn completed.",
         });
       });
       runtime.session.onExit(() => {
+        if (this.#currentActivityLaunches.get(agentId) !== launch) return;
         this.#revokeLocalLaunch(agentId, localContext, proxyToken);
         void this.#revokeAgentApiKey(agentApiKey).catch(() => {
           // Local access is already revoked. Remote failure remains visible
@@ -268,6 +286,8 @@ export class DaemonRuntime {
           level: "info",
           message: "Agent runtime stopped",
         });
+        if (!launch.stopping && this.#currentActivityLaunches.get(agentId) === launch)
+          this.#currentActivityLaunches.delete(agentId);
       });
       return runtime;
     } catch (error) {
@@ -281,6 +301,19 @@ export class DaemonRuntime {
           // Keep the plaintext handle in pendingAgentApiKeyRevokes for stop/retry.
         }
       }
+      if (!this.#stopping && !this.#stoppingAgents.has(agentId)) {
+        this.#emitAgentActivity(agentId, launch, {
+          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+          requestId: crypto.randomUUID(),
+          workspaceId: this.#connection.workspaceId,
+          agentId,
+          activity: "launch_failed",
+          level: "error",
+          message: this.#launchFailureMessage(agentId, stage, error),
+        });
+      }
+      if (this.#currentActivityLaunches.get(agentId) === launch)
+        this.#currentActivityLaunches.delete(agentId);
       throw error;
     }
   }
@@ -290,13 +323,14 @@ export class DaemonRuntime {
       throw new Error("unsupported agent protocol major");
     if (intent.workspaceId !== this.#connection.workspaceId)
       throw new Error("agent intent targets another Workspace");
-    try {
-      const runtime = await this.startAgent(
-        intent.agentId,
-        { provider: intent.provider, model: intent.model, reasoning: intent.reasoning },
-        intent.sessionId,
-      );
-      this.#transport.sendAgentActivity?.({
+    const runtime = await this.startAgent(
+      intent.agentId,
+      { provider: intent.provider, model: intent.model, reasoning: intent.reasoning },
+      intent.sessionId,
+    );
+    const launch = this.#currentActivityLaunches.get(intent.agentId);
+    if (launch)
+      this.#emitAgentActivity(intent.agentId, launch, {
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
         requestId: intent.requestId,
         workspaceId: intent.workspaceId,
@@ -305,19 +339,7 @@ export class DaemonRuntime {
         level: "info",
         message: "Agent runtime started",
       });
-      return runtime;
-    } catch (error) {
-      this.#transport.sendAgentActivity?.({
-        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-        requestId: intent.requestId,
-        workspaceId: intent.workspaceId,
-        agentId: intent.agentId,
-        activity: "error",
-        level: "error",
-        message: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
+    return runtime;
   }
 
   async handleAgentMessage(message: AgentMessageDelivery): Promise<void> {
@@ -334,15 +356,31 @@ export class DaemonRuntime {
     if (existingStop) return existingStop;
     // Close this Agent's launch gate and local capabilities before the first await.
     this.#stoppingAgents.add(agentId);
+    const activityLaunch = this.#currentActivityLaunches.get(agentId);
+    if (activityLaunch) activityLaunch.stopping = true;
     this.#revokeLocalLaunch(
       agentId,
       this.#agentContexts.get(agentId),
       this.#agentProxyTokens.get(agentId),
     );
-    const stopping = this.#stopAgent(agentId).finally(() => {
-      this.#agentStops.delete(agentId);
-      this.#stoppingAgents.delete(agentId);
-    });
+    const stopping = this.#stopAgent(agentId)
+      .catch((error) => {
+        if (activityLaunch)
+          this.#emitAgentActivity(agentId, activityLaunch, {
+            protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+            requestId: crypto.randomUUID(),
+            workspaceId: this.#connection.workspaceId,
+            agentId,
+            activity: "stop_failed",
+            level: "error",
+            message: this.#stopFailureMessage(agentId, error),
+          });
+        throw error;
+      })
+      .finally(() => {
+        this.#agentStops.delete(agentId);
+        if (!this.#agentProcessManager.isStopping(agentId)) this.#stoppingAgents.delete(agentId);
+      });
     this.#agentStops.set(agentId, stopping);
     return stopping;
   }
@@ -358,6 +396,7 @@ export class DaemonRuntime {
       (result): result is PromiseRejectedResult => result.status === "rejected",
     );
     if (failure) throw failure.reason;
+    this.#currentActivityLaunches.delete(agentId);
   }
 
   #revokeLocalLaunch(agentId: string, context?: string, proxyToken?: string): void {
@@ -366,6 +405,35 @@ export class DaemonRuntime {
     if (proxyToken && this.#agentProxyTokens.get(agentId) === proxyToken)
       this.#agentProxyTokens.delete(agentId);
     if (proxyToken) this.#agentProxy?.revoke(proxyToken);
+  }
+
+  #emitAgentActivity(
+    agentId: string,
+    launch: { launchId: string; clientSeq: number; stopping: boolean },
+    activity: Omit<AgentActivity, "launchId" | "clientSeq" | "occurredAt">,
+  ): void {
+    if (!this.#activityEnabled || this.#currentActivityLaunches.get(agentId) !== launch) return;
+    if (launch.stopping && activity.activity !== "stopped" && activity.level !== "error") return;
+    this.#transport.sendAgentActivity?.({
+      ...activity,
+      launchId: launch.launchId,
+      clientSeq: ++launch.clientSeq,
+      occurredAt: new Date().toISOString(),
+    });
+  }
+
+  #launchFailureMessage(agentId: string, stage: "credential" | "runtime", error: unknown): string {
+    if (error instanceof AgentProcessCleanupError || this.#agentProcessManager.isStopping(agentId))
+      return "Agent process cleanup could not be confirmed. Replacement launch is blocked.";
+    return stage === "credential"
+      ? "Agent authorization could not be prepared."
+      : "Agent runtime could not be started.";
+  }
+
+  #stopFailureMessage(agentId: string, error: unknown): string {
+    if (error instanceof AgentProcessCleanupError || this.#agentProcessManager.isStopping(agentId))
+      return "Agent process cleanup could not be confirmed. Replacement launch is blocked.";
+    return "Agent authorization could not be revoked. The Agent process has been stopped.";
   }
 
   async #revokeAgentApiKey(agentApiKey: string | undefined): Promise<void> {
@@ -442,6 +510,7 @@ export class DaemonRuntime {
     // Close every local capability synchronously before any shutdown await.
     this.#stopping = true;
     this.#started = false;
+    this.#activityEnabled = false;
     this.#unsubscribeAgentStart?.();
     this.#unsubscribeAgentStart = undefined;
     this.#unsubscribeAgentMessage?.();
@@ -465,33 +534,42 @@ export class DaemonRuntime {
       }
     }
     await Promise.allSettled(this.#agentLaunches.values());
-    let transportError: unknown;
-    {
-      try {
-        await Promise.all(
-          [...this.#pendingAgentApiKeyRevokes].map((agentApiKey) =>
-            this.#revokeAgentApiKey(agentApiKey),
-          ),
-        );
-      } catch (error) {
-        transportError = error;
-      }
-      try {
-        await this.#transport.stop();
-      } catch (error) {
-        transportError ??= error;
-      }
-      if (this.#pendingAgentApiKeyRevokes.size === 0) {
-        this.#transport = this.#transportFactory.create(this.#connection);
-      }
-    }
+    let shutdownError: unknown;
     try {
       await this.#agentProcessManager.shutdown();
     } catch (error) {
-      if (transportError === undefined) throw error;
+      shutdownError = error;
     }
-    if (transportError !== undefined) throw transportError;
+    this.#currentActivityLaunches.clear();
+    try {
+      await Promise.all(
+        [...this.#pendingAgentApiKeyRevokes].map((agentApiKey) =>
+          this.#revokeAgentApiKey(agentApiKey),
+        ),
+      );
+    } catch (error) {
+      shutdownError ??= error;
+    }
+    try {
+      await this.#transport.stop();
+    } catch (error) {
+      shutdownError ??= error;
+    }
+    if (this.#pendingAgentApiKeyRevokes.size === 0) {
+      this.#transport = this.#transportFactory.create(this.#connection);
+    }
+    if (shutdownError !== undefined) throw shutdownError;
   }
+}
+
+function safeRuntimeActivityMessage(activity: string, level: string): string {
+  if (level === "error") return "Code agent process failed.";
+  if (activity === "running_command") return "Agent is running a command.";
+  if (activity === "reading_file") return "Agent is reading a file.";
+  if (activity === "writing_file") return "Agent is writing a file.";
+  if (activity === "editing_file") return "Agent is editing a file.";
+  if (activity === "using_tool") return "Agent is using a tool.";
+  return "Agent activity observed.";
 }
 
 export function createDaemonRuntime(input: {

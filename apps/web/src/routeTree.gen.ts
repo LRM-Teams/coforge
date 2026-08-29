@@ -23,6 +23,7 @@ import { Route as ApiMeRouteImport } from './routes/api/me'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AuthLogoutRouteImport } from './routes/auth/logout'
+import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
 import { Route as AppMessagesIndexRouteImport } from './routes/_app/messages.index'
 import { Route as AppMessagesAgentIdRouteImport } from './routes/_app/messages.$agentId'
 import { Route as ApiInternalCentrifugoRouteImport } from './routes/api/internal/centrifugo'
@@ -97,6 +98,11 @@ const AuthLogoutRoute = AuthLogoutRouteImport.update({
   path: '/auth/logout',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppAgentsAgentIdRoute = AppAgentsAgentIdRouteImport.update({
+  id: '/agents/$agentId',
+  path: '/agents/$agentId',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppMessagesIndexRoute = AppMessagesIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -133,6 +139,7 @@ export interface FileRoutesByFullPath {
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
+  '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
@@ -151,6 +158,7 @@ export interface FileRoutesByTo {
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
   '/': typeof AppIndexRoute
+  '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
@@ -172,6 +180,7 @@ export interface FileRoutesById {
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/_app/messages/$agentId': typeof AppMessagesAgentIdRoute
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
@@ -193,6 +202,7 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/auth/login'
     | '/auth/logout'
+    | '/agents/$agentId'
     | '/messages/$agentId'
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
@@ -211,6 +221,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/logout'
     | '/'
+    | '/agents/$agentId'
     | '/messages/$agentId'
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
@@ -231,6 +242,7 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/logout'
     | '/_app/'
+    | '/_app/agents/$agentId'
     | '/_app/messages/$agentId'
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
@@ -352,6 +364,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLogoutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/agents/$agentId': {
+      id: '/_app/agents/$agentId'
+      path: '/agents/$agentId'
+      fullPath: '/agents/$agentId'
+      preLoaderRoute: typeof AppAgentsAgentIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/messages/': {
       id: '/_app/messages/'
       path: '/'
@@ -402,6 +421,7 @@ interface AppRouteChildren {
   AppMessagesRoute: typeof AppMessagesRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -409,6 +429,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppMessagesRoute: AppMessagesRouteWithChildren,
   AppSettingsRoute: AppSettingsRoute,
   AppIndexRoute: AppIndexRoute,
+  AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

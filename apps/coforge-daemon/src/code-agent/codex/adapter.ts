@@ -67,6 +67,12 @@ class CodexAgentSession implements CodeAgentSession {
     this.#process = process;
     this.#threadId = threadId;
     process.onRecord((record) => this.#accept(record));
+    process.onFailure((error) =>
+      this.#emit({
+        type: "activity",
+        activity: createAgentActivity("error", "error", error.message),
+      }),
+    );
   }
 
   async sendMessage(text: string): Promise<void> {

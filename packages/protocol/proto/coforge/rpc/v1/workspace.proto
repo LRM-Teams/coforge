@@ -85,6 +85,8 @@ message AgentActivity {
   string occurred_at = 8;
   string message_id = 9;
   string conversation_id = 10;
+  string launch_id = 11;
+  uint64 client_seq = 12;
 }
 
 message AgentMessageRequest {

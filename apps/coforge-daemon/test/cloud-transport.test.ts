@@ -14,10 +14,12 @@ import { WORKSPACE_WORKER_READY_METHOD } from "@coforge/protocol";
 function fakeClient() {
   let connected = () => {};
   let failed = (_error: unknown) => {};
+  let disconnected = () => {};
   let publication = (_event: { channel: string; data: Uint8Array }) => {};
   const client: CentrifugeWorkspaceClient = {
     on(event, callback) {
       if (event === "connected") connected = callback as () => void;
+      else if (event === "disconnected") disconnected = callback as () => void;
       else if (event === "error") failed = callback as (error: unknown) => void;
       else publication = callback as typeof publication;
     },
@@ -30,6 +32,7 @@ function fakeClient() {
   return {
     client,
     connect: () => connected(),
+    disconnect: () => disconnected(),
     fail: (error: unknown) => failed(error),
     publish: (channel: string, data: Uint8Array) => publication({ channel, data }),
   };
@@ -84,6 +87,8 @@ test("publishes Agent activity best effort on its restricted channel", async () 
     level: "info",
     message: "Running a tool",
     occurredAt: "2026-08-29T00:00:00.000Z",
+    launchId: "launch-1",
+    clientSeq: 1,
   } as const;
 
   expect(transport.sendAgentActivity(activity)).toBeUndefined();
@@ -94,7 +99,7 @@ test("publishes Agent activity best effort on its restricted channel", async () 
   expect(decodeAgentActivity(publications[0]!.data)).toMatchObject(activity);
 });
 
-test("drops Agent activity while disconnected", () => {
+test("retains Agent activity in memory while disconnected", () => {
   const fake = fakeClient();
   let publications = 0;
   fake.client.publish = async () => {
@@ -112,9 +117,48 @@ test("drops Agent activity while disconnected", () => {
       level: "info",
       message: "Starting",
       occurredAt: "2026-08-29T00:00:00.000Z",
+      launchId: "launch-1",
+      clientSeq: 1,
     }),
   ).toBeUndefined();
   expect(publications).toBe(0);
+});
+
+test("retains only each Agent's newest activity while disconnected and flushes on reconnect", async () => {
+  const fake = fakeClient();
+  const publications: import("@coforge/protocol").AgentActivity[] = [];
+  fake.client.publish = async (_channel, data) => {
+    publications.push(decodeAgentActivity(data));
+  };
+  const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  fake.disconnect();
+  const send = (agentId: string, launchId: string, clientSeq: number) =>
+    transport.sendAgentActivity({
+      protocolMajor: 1,
+      requestId: `${agentId}-${clientSeq}`,
+      workspaceId: config.workspaceId,
+      agentId,
+      activity: "using_tool",
+      level: "info",
+      message: "latest",
+      occurredAt: "2026-08-29T00:00:00.000Z",
+      launchId,
+      clientSeq,
+    });
+  send("agent-1", "old-launch", 1);
+  send("agent-1", "new-launch", 1);
+  send("agent-1", "new-launch", 2);
+  send("agent-1", "old-launch", 99);
+  send("agent-2", "launch-2", 1);
+  fake.connect();
+  await Promise.resolve();
+  expect(
+    publications.map(({ agentId, launchId, clientSeq }) => ({ agentId, launchId, clientSeq })),
+  ).toEqual([
+    { agentId: "agent-1", launchId: "new-launch", clientSeq: 2 },
+    { agentId: "agent-2", launchId: "launch-2", clientSeq: 1 },
+  ]);
 });
 
 const config = {

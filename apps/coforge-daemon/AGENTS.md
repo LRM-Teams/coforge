@@ -28,7 +28,7 @@ src/
 │   ├── claude-code/
 │   └── pi/
 ├── persistence/                    # durable spool and local daemon state
-└── platform/                       # OS-specific process/socket primitives
+└── platform/                       # OS-specific process-tree and socket primitives
 ```
 
 Some of these boundaries are represented by existing files and may be

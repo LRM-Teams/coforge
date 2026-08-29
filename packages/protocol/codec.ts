@@ -133,7 +133,11 @@ export function decodeAgentMessageDeliveryAck(bytes: Uint8Array): AgentMessageDe
   return { ...v, sequence: Number(v.sequence), method: AGENT_MESSAGE_ACK_METHOD };
 }
 export function encodeAgentActivity(value: AgentActivity): Uint8Array {
-  return toBinary(AgentActivitySchema, create(AgentActivitySchema, value));
+  validateAgentActivity(value);
+  return toBinary(
+    AgentActivitySchema,
+    create(AgentActivitySchema, { ...value, clientSeq: BigInt(value.clientSeq) }),
+  );
 }
 export function encodeAgentMessageRequest(value: AgentMessageRequest): Uint8Array {
   return toBinary(AgentMessageRequestSchema, create(AgentMessageRequestSchema, value));
@@ -171,10 +175,39 @@ export function decodeCloudAgentMessageResponse(bytes: Uint8Array): CloudAgentMe
 }
 export function decodeAgentActivity(bytes: Uint8Array): AgentActivity {
   const v = fromBinary(AgentActivitySchema, bytes);
-  return {
-    ...v,
+  const value = {
+    protocolMajor: v.protocolMajor,
+    requestId: v.requestId,
+    workspaceId: v.workspaceId,
+    agentId: v.agentId,
+    activity: v.activity,
+    clientSeq: Number(v.clientSeq),
     level: v.level as AgentActivity["level"],
+    message: v.message,
+    occurredAt: v.occurredAt,
+    launchId: v.launchId,
+    ...(v.messageId ? { messageId: v.messageId } : {}),
+    ...(v.conversationId ? { conversationId: v.conversationId } : {}),
   };
+  validateAgentActivity(value);
+  return value;
+}
+
+function validateAgentActivity(value: AgentActivity): void {
+  if (
+    value.protocolMajor !== 1 ||
+    !value.requestId ||
+    !value.workspaceId ||
+    !value.agentId ||
+    !value.launchId ||
+    !Number.isSafeInteger(value.clientSeq) ||
+    value.clientSeq < 1 ||
+    !value.activity ||
+    !["info", "warning", "error"].includes(value.level) ||
+    !value.occurredAt ||
+    Number.isNaN(Date.parse(value.occurredAt))
+  )
+    throw new Error("invalid agent activity");
 }
 import type { Workspace, WorkspaceQueryRequest } from "./index";
 
