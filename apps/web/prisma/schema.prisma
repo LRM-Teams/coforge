@@ -18,6 +18,7 @@ model Workspace {
   conversations       Conversation[]
   conversationMembers ConversationMember[]
   messageDeliveries   AgentMessageDelivery[]
+  agentActivity       AgentActivity[]
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 }
@@ -58,11 +59,32 @@ model Agent {
   conversations ConversationMember[]
   deliveries    AgentMessageDelivery[]
   apiKeys       AgentApiKey[]
+  activity      AgentActivity[]
 
   @@unique([workspaceId, name])
   @@unique([id, workspaceId])
   @@index([workspaceId, ownerId])
   @@index([workspaceId, createdAt])
+}
+
+model AgentActivity {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  agentId     String    @db.Uuid
+  computerId  String    @db.Uuid
+  launchId    String
+  clientSeq   Int
+  activity    String
+  level       String
+  message     String
+  occurredAt  DateTime
+  createdAt   DateTime  @default(now())
+  agent       Agent     @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  computer    Computer  @relation(fields: [computerId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, launchId, clientSeq])
+  @@index([workspaceId, agentId, occurredAt(sort: Desc), clientSeq(sort: Desc)])
 }
 
 model AgentApiKey {
@@ -101,6 +123,7 @@ model Computer {
   machineId  String
   workspaces WorkspaceComputer[]
   agentApiKeys AgentApiKey[]
+  agentActivity AgentActivity[]
   owner      User                @relation(fields: [ownerId], references: [id])
 
   @@unique([ownerId, machineId])

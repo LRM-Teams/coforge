@@ -153,6 +153,7 @@ Internal User 同时拥有稳定、全局唯一且登录后不变的 `username`�
 PostgreSQL 的首要领域对象是：
 
 - `agent`（Agent 元数据属于 Web/backend；Daemon 只消费启动意图中的 runtime config）
+- `agent_activity`（已成功到达 backend 的 Agent 观测历史；不保证完整）
 - `conversation`
 - `participant`
 - `message`
@@ -248,7 +249,7 @@ Agent 1 ──执行于──> 1 常驻 Agent runtime process
 
 单一逻辑 Workspace 配置到这台机器后，coforge-daemon 直接维持其云端连接。每个 Agent runtime 是独立的 provider execution child process，可被停止或替换；新的进程仍使用同一个稳定 `workspace_id`，不会因此创建新的 Workspace。
 
-coforge-daemon 负责单一配置、WSS 生命周期、子进程创建/回收和版本兼容，但不直接解析各家 Agent 的输出协议。MVP 不设置 capacity pool、排队或跨 Workspace 调度。
+coforge-daemon 负责单一配置、WSS 生命周期、子进程创建/回收和版本兼容，但不直接解析各家 Agent 的输出协议。替换同一 Agent 时必须先撤销旧本地权限，再有界等待 graceful stop；超时后终止整个进程树，并等待 direct child exited 完成父进程回收，旧 child 未确认退出前禁止新 launch。Unix runtime 使用独立进程组并按组终止。Windows 在引入 Job Object 并能确认整个进程树为空之前 fail closed，不启动 Agent，不能用只检查根 PID 的 `taskkill /T` 结果伪装完整回收。MVP 不设置 capacity pool、排队或跨 Workspace 调度。
 
 Computer 的云端在线状态由 daemon 的单条 Workspace WSS 连接实时派生；`online` 与 `last_seen_at` 不作为持久化真相。
 
@@ -260,11 +261,11 @@ Provider identity 的唯一来源是 shared protocol/domain 的 `RUNTIME_PROVIDE
 
 Daemon 直接管理同一 `workspace_id` 下的多个 Agent。每个 Agent 在本机拥有稳定的 Agent workspace，规范相对路径是 `workspaces/<workspace_id>/agents/<agent_id>`；`workspace_id` 与 `agent_id` 必须是不可变身份，目录不能由名称、provider、session 或进程 ID 派生。该目录是 Agent runtime process 的 cwd；daemon 只能访问这些已声明目录和允许的环境变量。daemon 通过 provider-neutral code-agent adapter 管理 Agent runtime，对上层暴露统一的启动、发送、中断、销毁以及状态/活动语义。每个 Agent runtime process 是独立的 OS child process。Agent control protocol 是 adapter 内部可替换的实现细节；可以使用 provider 正式支持的 native protocol、SDK child runner 或 ACP，不作为上层 architecture contract。
 
-一台 Computer 始终随 Daemon 交付内置 Pi runtime；此外允许存在零个或多个用户安装的 code-agent runtime。内置 Pi 不通过本机扫描发现，而由已验证的 release/package metadata 声明；用户安装的 Codex 与 Claude Code 才需要检测可执行文件和版本。Agent 对产品和 Web 只暴露 `online`、`offline` 两种业务状态：Agent runtime process 存在且由 AgentProcessManager 持有时为 `online`，进程退出或被停止后为 `offline`。该状态从本地进程生命周期派生，不单独维护或持久化。daemon 使用两个上报通道提供 Agent 信息：`agent:status` 只携带 `online` 或 `offline`，`agent:activity` 携带 starting、stopping、turn、工具、错误和警告明细；activity 不新增 Agent 状态。Activity 是观测数据：Daemon 通过 WSS 向专用 `activity:<workspace_id>` namespace 发起 best-effort publication，不等待业务确认、不重试、不写本地 spool，失败也不影响 Agent 生命周期或消息处理。Centrifugo publish proxy 只负责校验可信连接 metadata、Workspace、Computer、Agent 与 payload scope；Backend 观察失败仍允许丢弃。Activity 允许丢失、重复和乱序，不承担 Agent 状态或业务事实。没有可用的用户 runtime 不阻止 Computer 或 Daemon 启动，安装并配置合适 runtime 前不能执行对应 Agent。
+一台 Computer 始终随 Daemon 交付内置 Pi runtime；此外允许存在零个或多个用户安装的 code-agent runtime。内置 Pi 不通过本机扫描发现，而由已验证的 release/package metadata 声明；用户安装的 Codex 与 Claude Code 才需要检测可执行文件和版本。Agent 对产品和 Web 只暴露 `online`、`offline` 两种业务状态：Agent runtime process 存在且由 AgentProcessManager 持有时为 `online`，进程退出或被停止后为 `offline`。该状态从本地进程生命周期派生，不单独维护或持久化。daemon 使用两个上报通道提供 Agent 信息：`agent:status` 只携带 `online` 或 `offline`，`agent:activity` 携带 starting、stopping、turn、工具、错误和警告明细；activity 不新增 Agent 状态。Activity 是观测数据：Daemon 通过 WSS 向专用 `activity:<workspace_id>` namespace 发起 best-effort publication，不等待业务确认、不重试、不写本地 spool，失败也不影响 Agent 生命周期或消息处理。Centrifugo publish proxy 校验可信连接 metadata、Workspace、Computer、Agent 与 payload scope；Backend 把成功接收的 observation 幂等写入 PostgreSQL，供 Agent Profile 和 Activity tab 查询，并从可信 connection metadata 记录 Computer。observer 失败仍允许丢弃，因此持久历史可能缺项，不承担 Agent 状态、审计或业务事实。没有可用的用户 runtime 不阻止 Computer 或 Daemon 启动，安装并配置合适 runtime 前不能执行对应 Agent。
 
 首批 adapter 使用常驻 CoForge Agent、Codex 与 Claude Code 子进程。`@coforge/agent` 是可独立打包并随 Daemon 交付的内置 Agent runtime，当前使用官方 Pi SDK 创建 session，并复用 Pi SDK 的 JSONL run mode 作为 daemon adapter 的内部 control。Codex 和 Claude Code 不随 CoForge 打包；adapter 从用户环境的 `PATH` 启动用户已安装、登录和配置的 `codex` / `claude` CLI，分别使用官方 app-server JSONL stdio 与 print-mode 双向 stream-json。CoForge 分配给 Agent 的 Skills 必须在启动前写入该 Agent workspace 下 provider 原生的 project scope：Pi 为 `.pi/skills/<skill>/SKILL.md`，Codex 为 `.agents/skills/<skill>/SKILL.md`，Claude Code 为 `.claude/skills/<skill>/SKILL.md`。CoForge 不复制、改写或接管用户 HOME 下的 provider 全局 Skills；各 CLI 按自身规则继续发现它们。三侧都必须在报告启动成功前完成 skills discovery：CoForge Agent 先完成 Pi `ResourceLoader` reload，Codex adapter 先执行 `skills/list(forceReload: true)` 再创建 thread，Claude Code adapter 完成 stream control `initialize` 并确认返回已加载的 commands/skills。control protocol 不固定为长期架构。选择、版本、license、失败边界和回滚见 [ADR 0002](adr/0002-provider-native-code-agent-subprocesses.md)。Agent provider 的特殊 command、envelope、活动与错误逻辑必须留在各自 package/adapter 内，不能泄漏到 Centrifugo、Web/backend 或共享领域模型。
 
-Agent start intent (`agent:start`) 使用现有 `coforge.rpc.v1` WSS/RPC control path；intent 必须包含完整 runtime config，并以 workspace_id 做 scope 校验。无 session_id 创建新 session，有 session_id 由 adapter 尝试 provider resume；adapter 无法确认 resume 时必须返回明确错误，不得伪造成功。`agent:activity` 复用同一条 daemon WSS，但只向受限 Activity namespace 做 best-effort publication，不走业务 RPC。
+Agent start intent (`agent:start`) 使用现有 `coforge.rpc.v1` WSS/RPC control path；intent 必须包含完整 runtime config，并以 workspace_id 做 scope 校验。无 session_id 创建新 session，有 session_id 由 adapter 尝试 provider resume；adapter 无法确认 resume 时必须返回明确错误，不得伪造成功。每次实际 launch 生成新的 `launch_id`，Activity 携带该 launch 内递增的 `client_seq` 和 `occurred_at`；Daemon current-launch gate 是旧 launch 隔离的生产保证，丢弃旧 session 的延迟 event/onExit。`agent:activity` 复用同一条 daemon WSS，但只向受限 Activity namespace 做 best-effort publication，不走业务 RPC。断线时 transport 内存仅保留每个 Agent 最新一条，并只在同一 launch 内按 `client_seq` 拒绝倒退；它不比较 UUID，也没有可信事实可独立判断首次观察到的两个 launch 的新旧。重连最多刷新一条；不落盘、不等待 ACK。Web 校验可信 scope 和字段并持久化成功到达的 observation，但没有跨连接 current-launch 事实来源，因此不声称已实现服务端 stale rejection。
 
 ## 6. 消息投递语义
 
@@ -396,7 +397,7 @@ Computer 始终只保存一个 active Workspace binding。setup 使用 Workspace
 3. 重复 attention 不造成不可控的重复 Agent 执行；
 4. Agent→Web send 在结果未知时以相同 `request_id` 重试并收敛到同一 canonical Message；
 5. 单副本滚动时另一副本接受重连；
-6. Agent Activity 发布失败或断线时被丢弃，不阻塞 Agent，重连后也不 replay；
+6. Agent Activity 发布失败不阻塞 Agent；断线期间每个 Agent 只保留最新快照，重连只刷新该快照，不执行历史 replay；
 7. 跨重连保持 conversation 顺序；
 8. workspace revoke 后停止 attention、恢复读取与 code-agent 执行。
 

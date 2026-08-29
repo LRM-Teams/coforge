@@ -111,6 +111,8 @@ describe("CloudAgentUseCase", () => {
         level: "info",
         message: "started",
         occurredAt: "2026-08-27T00:00:00.000Z",
+        launchId: "launch-1",
+        clientSeq: 1,
       }),
       { workspaceId: "w", agentId: "a" },
     );
@@ -135,6 +137,8 @@ describe("CloudAgentUseCase", () => {
           level: "error",
           message: "failed",
           occurredAt: "2026-08-27T00:00:00.000Z",
+          launchId: "launch-1",
+          clientSeq: 1,
         }),
         { workspaceId: "w", agentId: "other" },
       ),

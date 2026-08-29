@@ -1,13 +1,17 @@
-import { decodeAgentActivity, type AgentActivity } from "@coforge/protocol";
+import { decodeAgentActivity } from "@coforge/protocol";
 
 import { getDatabaseClient } from "../db/client.server";
 import { PrismaAgentRepository } from "../db/repositories/agent.repositories.server";
+import {
+  AgentActivityRepository,
+  type TrustedAgentActivity,
+} from "../db/repositories/agent-activity.repositories.server";
 
 type AgentActivityPublicationDependencies = {
   proxySecret: string | undefined;
   agentBelongsToWorkspace(workspaceId: string, agentId: string): Promise<boolean>;
   computerBelongsToWorkspace(workspaceId: string, computerId: string): Promise<boolean>;
-  observe(activity: AgentActivity): Promise<void>;
+  observe(activity: TrustedAgentActivity): Promise<void>;
 };
 
 const unauthorized = () =>
@@ -53,7 +57,7 @@ export async function handleAgentActivityPublication(
       return unauthorized();
 
     try {
-      await dependencies.observe(activity);
+      await dependencies.observe({ ...activity, computerId });
     } catch {
       // Observation failures do not turn Activity into a reliable business message.
     }
@@ -68,6 +72,7 @@ export function createAgentActivityPublicationHandler() {
     const db = getDatabaseClient();
     if (!db) return unauthorized();
     const agents = new PrismaAgentRepository(db);
+    const activity = new AgentActivityRepository(db);
     return handleAgentActivityPublication(request, {
       proxySecret: process.env.COFORGE_CENTRIFUGO_PROXY_SECRET,
       agentBelongsToWorkspace: async (workspaceId, agentId) =>
@@ -79,7 +84,7 @@ export function createAgentActivityPublicationHandler() {
             select: { id: true },
           }),
         ),
-      observe: async (activity) => console.info("agent:activity", activity),
+      observe: (observation) => activity.record(observation),
     });
   };
 }

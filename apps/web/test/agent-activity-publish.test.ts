@@ -12,6 +12,8 @@ const activity = {
   level: "info",
   message: "Running a tool",
   occurredAt: "2026-08-29T00:00:00.000Z",
+  launchId: "launch-1",
+  clientSeq: 1,
 } as const;
 
 function encodedActivity() {
@@ -34,7 +36,7 @@ const request = (overrides: Record<string, unknown> = {}, secret = "test-secret"
   });
 
 describe("Agent activity publication", () => {
-  test("accepts a scoped observation without persisting it", async () => {
+  test("passes the authenticated Computer scope to persistence", async () => {
     const received: unknown[] = [];
     const response = await handleAgentActivityPublication(request(), {
       proxySecret: "test-secret",
@@ -47,7 +49,7 @@ describe("Agent activity publication", () => {
 
     expect(await response.json()).toEqual({ result: { skip_history: true } });
     expect(received).toHaveLength(1);
-    expect(received[0]).toMatchObject(activity);
+    expect(received[0]).toEqual({ ...activity, computerId: "computer-1" });
   });
 
   test("rejects an untrusted proxy or mismatched connection scope", async () => {

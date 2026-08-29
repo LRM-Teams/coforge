@@ -98,7 +98,9 @@ export type AgentActivity = {
   message: string;
   messageId?: string;
   conversationId?: string;
-  occurredAt?: string;
+  occurredAt: string;
+  launchId: string;
+  clientSeq: number;
 };
 export type AgentMessageRequest = {
   protocolMajor: number;

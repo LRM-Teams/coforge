@@ -8,6 +8,7 @@ import type {
   CodeAgentAdapter,
   CodeAgentSession,
 } from "../src/code-agent/contract";
+import { AgentProcessCleanupError } from "../src/code-agent/contract";
 import type { WorkspaceConfig } from "../src/daemon-runtime/runtime";
 import { InMemoryDaemonCredentialStore } from "../src/credentials/credential-store";
 import {
@@ -586,6 +587,301 @@ describe("DaemonRuntime", () => {
     } finally {
       proxy.close();
     }
+  });
+
+  test("publishes only current-launch Activity with one launch id and increasing sequence", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const activities: import("@coforge/protocol").AgentActivity[] = [];
+    const sessions: Array<{
+      event(event: Parameters<Parameters<CodeAgentSession["subscribe"]>[0]>[0]): void;
+      delayedExit(): void;
+    }> = [];
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async start() {
+          let listener: Parameters<CodeAgentSession["subscribe"]>[0] = () => undefined;
+          const exits: Array<() => void> = [];
+          let exited = false;
+          const control = {
+            event: (event: Parameters<typeof listener>[0]) => listener(event),
+            delayedExit: () => {
+              for (const exit of exits) exit();
+            },
+          };
+          sessions.push(control);
+          return {
+            ...sessionSpy(),
+            subscribe(next) {
+              listener = next;
+              return () => undefined;
+            },
+            onExit(callback) {
+              exits.push(callback);
+              return () => undefined;
+            },
+            async dispose() {
+              if (!exited) {
+                exited = true;
+                for (const exit of exits) exit();
+              }
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          sendAgentActivity(activity) {
+            activities.push(activity);
+          },
+          async requestAgentApiKey() {
+            return `sk_agent_${crypto.randomUUID().replaceAll("-", "").padEnd(43, "a")}`;
+          },
+          async revokeAgentApiKey() {},
+        }),
+      },
+    );
+    await runtime.start(connection);
+    const intent = {
+      protocolMajor: 1,
+      requestId: "start-1",
+      workspaceId: connection.workspaceId,
+      agentId: "agent-a",
+      provider: "pi" as const,
+      model: "default",
+      reasoning: "balanced",
+    };
+    await runtime.handleAgentStart(intent);
+    sessions[0]!.event({
+      type: "activity",
+      activity: {
+        activity: "running_command",
+        level: "info",
+        message: 'curl -H "Authorization: Bearer secret" /private/path',
+        occurredAt: "2026-08-29T00:00:00.000Z",
+      },
+    });
+    sessions[0]!.event({
+      type: "activity",
+      activity: {
+        activity: "error",
+        level: "error",
+        message: "Provider request failed safely.",
+        occurredAt: "2026-08-29T00:00:00.500Z",
+      },
+    });
+    const firstLaunch = activities[0]!.launchId;
+    expect(firstLaunch).not.toBe("");
+    expect(activities.every((activity) => activity.launchId === firstLaunch)).toBe(true);
+    expect(activities.map(({ clientSeq }) => clientSeq)).toEqual([1, 2, 3]);
+    expect(activities[1]!.message).toBe("Agent is running a command.");
+    expect(activities[2]!.message).toBe("Provider request failed safely.");
+    expect(JSON.stringify(activities)).not.toContain("secret");
+    expect(JSON.stringify(activities)).not.toContain("/private/path");
+
+    const stopping = runtime.stopAgent("agent-a");
+    sessions[0]!.event({
+      type: "activity",
+      activity: {
+        activity: "running_command",
+        level: "info",
+        message: "late command",
+        occurredAt: "2026-08-29T00:00:01.000Z",
+      },
+    });
+    await stopping;
+    expect(activities.map(({ activity }) => activity)).toEqual([
+      "starting",
+      "running_command",
+      "error",
+      "stopped",
+    ]);
+
+    await runtime.handleAgentStart({ ...intent, requestId: "start-2" });
+    const beforeOldCallbacks = activities.length;
+    sessions[0]!.event({
+      type: "activity",
+      activity: {
+        activity: "running_command",
+        level: "info",
+        message: "stale command",
+        occurredAt: "2026-08-29T00:00:02.000Z",
+      },
+    });
+    sessions[0]!.delayedExit();
+    expect(activities).toHaveLength(beforeOldCallbacks);
+    expect(activities.at(-1)!.launchId).not.toBe(firstLaunch);
+    expect(activities.at(-1)!.clientSeq).toBe(1);
+    await runtime.stop();
+  });
+
+  test("reports a safe launch failure and blocks retry when startup cleanup is unresolved", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const activities: import("@coforge/protocol").AgentActivity[] = [];
+    let credentialRequests = 0;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async start() {
+          throw new AgentProcessCleanupError();
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          sendAgentActivity(activity) {
+            activities.push(activity);
+          },
+          async requestAgentApiKey() {
+            credentialRequests++;
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+        }),
+      },
+    );
+    await runtime.start(connection);
+
+    await expect(runtime.startAgent("agent-a", config)).rejects.toThrow(
+      "process tree did not exit",
+    );
+    expect(activities.map(({ activity }) => activity)).toEqual(["starting", "launch_failed"]);
+    expect(activities[1]).toMatchObject({
+      agentId: "agent-a",
+      activity: "launch_failed",
+      level: "error",
+      clientSeq: 2,
+      message: "Agent process cleanup could not be confirmed. Replacement launch is blocked.",
+    });
+    await expect(runtime.startAgent("agent-a", config)).rejects.toThrow("stopping");
+    expect(credentialRequests).toBe(1);
+    await runtime.stop().catch(() => undefined);
+  });
+
+  test("reports stop failure when process-tree exit cannot be confirmed", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const activities: import("@coforge/protocol").AgentActivity[] = [];
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async start() {
+          return {
+            ...sessionSpy(),
+            async dispose() {
+              throw new AgentProcessCleanupError();
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          sendAgentActivity(activity) {
+            activities.push(activity);
+          },
+          async requestAgentApiKey() {
+            return `sk_agent_${"b".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+        }),
+      },
+    );
+    await runtime.start(connection);
+    await runtime.handleAgentStart({
+      protocolMajor: 1,
+      requestId: "start-stop-failure",
+      workspaceId: connection.workspaceId,
+      agentId: "agent-a",
+      provider: "pi",
+      model: "default",
+      reasoning: "balanced",
+    });
+
+    await expect(runtime.stopAgent("agent-a")).rejects.toThrow("process tree did not exit");
+    expect(activities.map(({ activity }) => activity)).toEqual(["starting", "stop_failed"]);
+    expect(activities[1]).toMatchObject({
+      level: "error",
+      clientSeq: 2,
+      message: "Agent process cleanup could not be confirmed. Replacement launch is blocked.",
+    });
+    await runtime.stop().catch(() => undefined);
+  });
+
+  test("does not publish an old session exit after daemon stop and restart", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const activities: import("@coforge/protocol").AgentActivity[] = [];
+    const oldExitListeners: Array<() => void> = [];
+    let launches = 0;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async start() {
+          launches++;
+          const listeners = launches === 1 ? oldExitListeners : [];
+          return {
+            ...sessionSpy(),
+            onExit(listener) {
+              listeners.push(listener);
+              return () => undefined;
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          sendAgentActivity(activity) {
+            activities.push(activity);
+          },
+          async requestAgentApiKey() {
+            return `sk_agent_${String.fromCharCode(97 + launches).repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+        }),
+      },
+    );
+    const intent = {
+      protocolMajor: 1,
+      requestId: "old-launch",
+      workspaceId: connection.workspaceId,
+      agentId: "agent-a",
+      provider: "pi" as const,
+      model: "default",
+      reasoning: "balanced",
+    };
+    await runtime.start(connection);
+    await runtime.handleAgentStart(intent);
+    await runtime.stop();
+    await runtime.start(connection);
+    await runtime.handleAgentStart({ ...intent, requestId: "new-launch" });
+    const beforeDelayedExit = activities.length;
+
+    for (const listener of oldExitListeners) listener();
+
+    expect(activities).toHaveLength(beforeDelayedExit);
+    expect(activities.at(-1)?.requestId).toBe("new-launch");
+    await runtime.stop();
   });
 
   test("failed remote revoke keeps its handle for shutdown retry and closes local access first", async () => {

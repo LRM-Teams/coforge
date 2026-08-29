@@ -8,6 +8,7 @@ import type {
   CodeAgentSession,
   AgentRuntimeConfig,
 } from "../src/code-agent/contract";
+import { AgentProcessCleanupError } from "../src/code-agent/contract";
 
 function sessionSpy() {
   const exitListeners = new Set<() => void>();
@@ -156,5 +157,75 @@ describe("AgentProcessManager", () => {
       manager.start("agent-1", config, join(testWorkspaceRoot, "failure", "agent-1")),
     ).rejects.toThrow("startup failed");
     expect(manager.size).toBe(0);
+  });
+
+  test("blocks replacement when failed startup cannot confirm process-tree cleanup", async () => {
+    let starts = 0;
+    const manager = new AgentProcessManager(() => ({
+      provider: "pi",
+      async start() {
+        starts++;
+        throw new AgentProcessCleanupError();
+      },
+    }));
+    const workspace = join(testWorkspaceRoot, "startup-cleanup", "agent-1");
+
+    await expect(manager.start("agent-1", config, workspace)).rejects.toThrow(
+      "process tree did not exit",
+    );
+    await expect(manager.start("agent-1", config, workspace)).rejects.toThrow("stopping");
+    expect(starts).toBe(1);
+  });
+
+  test("rejects a replacement start until stop confirms the old session exited", async () => {
+    let release!: () => void;
+    const exited = new Promise<void>((resolve) => (release = resolve));
+    const session = sessionSpy();
+    session.dispose = async () => {
+      session.disposeCalls += 1;
+      await exited;
+      session.exit();
+    };
+    let starts = 0;
+    const manager = new AgentProcessManager(() => ({
+      provider: "pi",
+      async start() {
+        starts++;
+        return session;
+      },
+    }));
+    const workspace = join(testWorkspaceRoot, "replacement", "agent-1");
+    await manager.start("agent-1", config, workspace);
+    const stopping = manager.stop("agent-1");
+    await expect(manager.start("agent-1", config, workspace)).rejects.toThrow("stopping");
+    expect(starts).toBe(1);
+    release();
+    await stopping;
+    await manager.start("agent-1", config, workspace);
+    expect(starts).toBe(2);
+  });
+
+  test("rejects a replacement start when process-tree termination remains unresolved", async () => {
+    const session = sessionSpy();
+    session.dispose = async () => {
+      session.disposeCalls += 1;
+      session.exit();
+      throw new Error("tree did not exit");
+    };
+    let starts = 0;
+    const manager = new AgentProcessManager(() => ({
+      provider: "pi",
+      async start() {
+        starts++;
+        return session;
+      },
+    }));
+    const workspace = join(testWorkspaceRoot, "unresolved", "agent-1");
+    await manager.start("agent-1", config, workspace);
+
+    await expect(manager.stop("agent-1")).rejects.toThrow("tree did not exit");
+    await expect(manager.start("agent-1", config, workspace)).rejects.toThrow("stopping");
+    expect(starts).toBe(1);
+    expect(manager.status("agent-1")).toBe("online");
   });
 });

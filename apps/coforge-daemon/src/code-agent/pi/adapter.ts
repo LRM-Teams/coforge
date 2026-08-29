@@ -46,6 +46,12 @@ class PiAgentSession implements CodeAgentSession {
   constructor(process: JsonlProcess) {
     this.#process = process;
     process.onRecord((record) => this.#accept(record));
+    process.onFailure((error) =>
+      this.#emit({
+        type: "activity",
+        activity: createAgentActivity("error", "error", error.message),
+      }),
+    );
   }
 
   async sendMessage(text: string): Promise<void> {

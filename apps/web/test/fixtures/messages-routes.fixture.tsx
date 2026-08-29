@@ -34,6 +34,26 @@ const loadDirectConversation = mock(async ({ data }: { data: { agentId: string }
 
 mock.module("@/features/agents/agents.functions", () => ({
   createAgent: mock(async () => agents[0]),
+  getAgentDetail: mock(async () => {
+    const failure = {
+      id: "activity-1",
+      computerId: "computer-12345678",
+      launchId: "launch-1",
+      clientSeq: 2,
+      activity: "launch_failed",
+      level: "error",
+      message: "Agent runtime could not be started.",
+      occurredAt: new Date("2026-08-29T00:00:01Z"),
+      createdAt: new Date("2026-08-29T00:00:02Z"),
+    };
+    return {
+      ...agents[0],
+      owner: { id: "user-1", username: "route-tester" },
+      computer: { id: failure.computerId, label: "computer…5678" },
+      latestError: failure,
+      activity: [failure],
+    };
+  }),
   listAgents,
 }));
 mock.module("@/features/conversations/conversations.functions", () => ({
@@ -89,4 +109,19 @@ test("a direct URL renders the second Agent through the Outlet and highlights it
     "page",
   );
   expect(loadDirectConversation).toHaveBeenCalledWith({ data: { agentId: "agent-2" } });
+});
+
+test("an Agent profile shows its Computer, runtime configuration, and latest failure", async () => {
+  const { page } = await renderRoute("/agents/agent-1?tab=profile");
+  expect(page.getByRole("heading", { name: "First Agent" })).toBeTruthy();
+  expect(page.getByText("computer…5678")).toBeTruthy();
+  expect(page.getByText(/"provider": "pi"/)).toBeTruthy();
+  expect(page.getByRole("alert").textContent).toContain("Agent runtime could not be started.");
+});
+
+test("an Agent Activity tab shows persisted failure details", async () => {
+  const { page } = await renderRoute("/agents/agent-1?tab=activity");
+  expect(page.getByText("launch_failed")).toBeTruthy();
+  expect(page.getAllByText("Agent runtime could not be started.").length).toBeGreaterThan(0);
+  expect(page.getByText(/launch-1/)).toBeTruthy();
 });

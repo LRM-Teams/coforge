@@ -124,7 +124,17 @@ test("Pi rejects prompts after its resident Agent runtime process exits", async 
         COFORGE_EXIT_AFTER_READY: "1",
       },
     });
-    await Bun.sleep(20);
+    const events: AgentRuntimeEvent[] = [];
+    session.subscribe((event) => events.push(event));
+    await waitForEvent(events, "activity");
+    expect(events.at(-1)).toMatchObject({
+      type: "activity",
+      activity: {
+        activity: "error",
+        level: "error",
+        message: "code agent process exited unexpectedly",
+      },
+    });
     await expect(session.sendMessage("after-exit")).rejects.toThrow("exited unexpectedly");
     await expect(session.sendMessage("still-exited")).rejects.toThrow("exited unexpectedly");
     await session.dispose();

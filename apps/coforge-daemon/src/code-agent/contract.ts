@@ -18,6 +18,13 @@ export type AgentRuntimeEvent =
   | { type: "tool-end"; id: string; isError: boolean }
   | { type: "completed"; status: "completed" | "interrupted" | "failed" };
 
+export class AgentProcessCleanupError extends Error {
+  constructor() {
+    super("code agent process tree did not exit");
+    this.name = "AgentProcessCleanupError";
+  }
+}
+
 export interface CodeAgentSession {
   sendMessage(message: string): Promise<void>;
   /** Non-canonical wakeup; contains no message body. */
