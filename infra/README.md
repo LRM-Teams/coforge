@@ -59,6 +59,25 @@ docker compose -p coforge \
 The committed image versions are intentionally not `latest`. Production must
 replace tags with reviewed immutable image digests before release.
 
+## Agent direct-message E2E
+
+The orb service declaration starts an isolated `coforge-e2e` Compose project,
+publishes its PostgreSQL port only on loopback, migrates and builds the Web
+backend, and enables the fixed development test identity. Generated secrets
+and the E2E database are local-only and must not be reused for production.
+
+Run the complete slice with:
+
+```bash
+mise run test:e2e:agent-direct-message
+```
+
+The test resets only the managed E2E PostgreSQL and Redis instances. It covers
+Workspace registration, scoped Worker WSS authentication, ready recovery,
+Agent process startup, User-to-Agent persistence and attention delivery,
+acceptance ACK, Agent check/read/send through the local proxy and HTTPS Agent
+identity, request-id retries, and server-rendered chat output.
+
 Configuration follows the official [Centrifugo configuration guide](https://centrifugal.dev/docs/server/configuration),
 [Redis engine guide](https://centrifugal.dev/docs/server/engines), and
 [Docker installation guide](https://centrifugal.dev/docs/getting-started/installation).

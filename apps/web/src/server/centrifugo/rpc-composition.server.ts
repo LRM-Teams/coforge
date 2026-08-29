@@ -55,7 +55,10 @@ const unavailable: CentrifugoRpcError = {
 
 const unavailableMethod: CentrifugoRpcMethod = () => unavailable;
 
-async function requireAuthenticatedCentrifugoUser(request: { user?: string }, context: Request) {
+async function requireAuthenticatedCentrifugoUser(
+  request: { user?: string; meta?: Record<string, unknown> },
+  context: Request,
+) {
   const header = context.headers.get("authorization");
   if (header?.startsWith("Bearer ")) {
     try {
@@ -99,6 +102,16 @@ async function requireAuthenticatedCentrifugoUser(request: { user?: string }, co
       throw new CentrifugoRpcAuthenticationError();
     }
   }
+  const workspaceId = request.meta?.workspace_id;
+  const computerId = request.meta?.computer_id;
+  if (
+    request.user &&
+    typeof workspaceId === "string" &&
+    typeof computerId === "string" &&
+    workspaceId &&
+    computerId
+  )
+    return { userId: request.user, workspaceId, computerId };
   // User-facing calls use Centrifugo's verified user subject. Daemon-scoped
   // methods still fail closed because their required claims are empty.
   if (!request.user) throw new CentrifugoRpcAuthenticationError();

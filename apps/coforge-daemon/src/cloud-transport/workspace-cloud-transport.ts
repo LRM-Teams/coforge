@@ -62,17 +62,14 @@ export interface WorkspaceCloudTransportFactory {
 export interface CentrifugeWorkspaceClient {
   on(event: "connected", callback: () => void): void;
   on(event: "error", callback: (error: unknown) => void): void;
+  on(
+    event: "publication",
+    callback: (publication: { channel: string; data: Uint8Array }) => void,
+  ): void;
   connect(): void;
   disconnect(): void;
   rpc(method: string, data: Uint8Array): Promise<unknown>;
   publish?(channel: string, data: Uint8Array): Promise<unknown>;
-  newSubscription?(channel: string): CentrifugeWorkspaceSubscription;
-}
-
-export interface CentrifugeWorkspaceSubscription {
-  on(event: "publication", callback: (publication: { data: Uint8Array }) => void): void;
-  subscribe(): void;
-  unsubscribe(): void;
 }
 
 export type CentrifugeWorkspaceClientFactory = (
@@ -115,7 +112,6 @@ export const defaultAgentMessageHttpClient: AgentMessageHttpClient = {
 export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
   #client: CentrifugeWorkspaceClient | undefined;
   #connected = false;
-  #subscription: CentrifugeWorkspaceSubscription | undefined;
   #agentStartListener: ((intent: AgentStartIntent) => void) | undefined;
   #agentMessageListener: ((message: AgentMessageDelivery) => void) | undefined;
   #token = "";
@@ -135,14 +131,15 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
     if (this.#connected) return;
     const client = this.clientFactory(this.endpoint, _token);
     this.#client = client;
+    client.on("publication", ({ channel, data }) => {
+      if (client !== this.#client || channel !== this.#workspaceChannel(config.workspaceId)) return;
+      this.#handleAgentPublication(data, config.workspaceId);
+    });
     await new Promise<void>((resolve, reject) => {
       client.on("connected", () => {
         if (client !== this.#client) return;
         const reconnect = this.#connected;
         this.#connected = true;
-        this.#subscription?.unsubscribe();
-        this.#subscription = undefined;
-        this.#subscribeToAgentIntents(client, config.workspaceId);
         if (reconnect && this.#lastReadyRequest) {
           void this.#sendReady(client, this.#lastReadyRequest).catch(() => {
             // A reconnect handshake is best effort. A later reconnect retries
@@ -230,33 +227,22 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
     return `workspace:${workspaceId}`;
   }
 
-  #subscribeToAgentIntents(client: CentrifugeWorkspaceClient, workspaceId: string): void {
-    // Kept optional for lightweight lifecycle clients; the production
-    // Centrifuge client implements subscriptions.
-    if (!client.newSubscription) return;
-    // This is the single Workspace connection's private routing boundary.
-    // Do not subscribe to a global Agent channel: that would deliver every
-    // Workspace's message to every daemon and rely on local dropping.
-    const subscription = client.newSubscription(this.#workspaceChannel(workspaceId));
-    subscription.on("publication", ({ data }) => {
+  #handleAgentPublication(data: Uint8Array, workspaceId: string): void {
+    try {
       try {
-        try {
-          const message = decodeAgentMessageDelivery(data);
-          if (message.protocolMajor !== 1 || message.workspaceId !== workspaceId)
-            throw new Error("agent message targets another Workspace");
-          this.#agentMessageListener?.(message);
-        } catch {
-          const intent = decodeAgentStartIntent(data);
-          if (intent.protocolMajor !== 1 || intent.workspaceId !== workspaceId)
-            throw new Error("agent intent targets another Workspace");
-          this.#agentStartListener?.(intent);
-        }
+        const message = decodeAgentMessageDelivery(data);
+        if (message.protocolMajor !== 1 || message.workspaceId !== workspaceId)
+          throw new Error("agent message targets another Workspace");
+        this.#agentMessageListener?.(message);
       } catch {
-        // Invalid publications are rejected at the protocol boundary and never reach the runtime.
+        const intent = decodeAgentStartIntent(data);
+        if (intent.protocolMajor !== 1 || intent.workspaceId !== workspaceId)
+          throw new Error("agent intent targets another Workspace");
+        this.#agentStartListener?.(intent);
       }
-    });
-    this.#subscription = subscription;
-    subscription.subscribe();
+    } catch {
+      // Invalid publications are rejected at the protocol boundary and never reach the runtime.
+    }
   }
 
   async ready(request: WorkspaceWorkerReadyRequest): Promise<void> {
@@ -276,8 +262,6 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
     const client = this.#client;
     this.#client = undefined;
     this.#connected = false;
-    this.#subscription?.unsubscribe();
-    this.#subscription = undefined;
     this.#agentStartListener = undefined;
     this.#agentMessageListener = undefined;
     this.#lastReadyRequest = undefined;

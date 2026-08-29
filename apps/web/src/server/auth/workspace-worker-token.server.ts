@@ -26,6 +26,8 @@ export function createWorkspaceWorkerTokenIssuer(
       return new SignJWT({
         workspace_id: workspaceId,
         computer_id: computerId,
+        meta: { workspace_id: workspaceId, computer_id: computerId },
+        channels: [`workspace:${workspaceId}`],
       })
         .setProtectedHeader({ alg: "EdDSA", kid: config.keyId, typ: "JWT" })
         .setSubject(principal.userId)
@@ -45,7 +47,8 @@ export async function verifyWorkspaceWorkerToken(
   environment: Record<string, string | undefined> = process.env,
 ): Promise<{ userId: string; workspaceId: string; computerId: string }> {
   const config = readWorkerJwtConfig(environment);
-  const key = await importJWK(config.privateJwk, "EdDSA");
+  const { d: _private, key_ops: _keyOps, ...publicJwk } = config.privateJwk;
+  const key = await importJWK(publicJwk, "EdDSA");
   const { payload } = await jwtVerify(token, key, {
     issuer: config.issuer,
     audience: config.audience,

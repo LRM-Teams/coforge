@@ -1,4 +1,16 @@
 services:
+  e2e-infra:
+    command: exec ./scripts/e2e/managed-infra.sh
+    port: 8000
+    health: /health
+  e2e-web:
+    command: exec ./scripts/e2e/managed-web.sh
+    port: 8789
+    health: /health
+    portal:
+      title: CoForge E2E Web
+      description: Real PostgreSQL, Redis, Centrifugo, and development test identity.
+    agent: control
   web:
     command: exec bun run --cwd apps/web dev --host 0.0.0.0 --port "$PORT"
     health: /

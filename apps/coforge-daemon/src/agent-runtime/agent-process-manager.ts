@@ -5,6 +5,7 @@ import type {
   CodeAgentProvider,
   CodeAgentSession,
 } from "../code-agent/contract";
+import { mkdir } from "node:fs/promises";
 
 export type { AgentStatus } from "./agent-state-machine";
 
@@ -42,6 +43,7 @@ export class AgentProcessManager {
     if (this.#runtimes.has(agentId)) {
       throw new Error(`Agent runtime is already online: ${agentId}`);
     }
+    await mkdir(agentWorkspaceDirectory, { recursive: true, mode: 0o700 });
     const session = await this.#createAdapter(config.provider).start({
       agentWorkspaceDirectory,
       sessionId,

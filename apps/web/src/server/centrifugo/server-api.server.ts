@@ -15,13 +15,18 @@ export function createCentrifugoServerApi(env = process.env): CentrifugoServerAp
       for (const byte of data) binary += String.fromCharCode(byte);
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: { authorization: `apikey ${apiKey}`, "content-type": "application/json" },
+        headers: { "x-api-key": apiKey, "content-type": "application/json" },
         body: JSON.stringify({
           method: "publish",
-          params: { channel, data: btoa(binary) },
+          params: { channel, b64data: btoa(binary) },
         }),
       });
       if (!response.ok) throw new Error(`Centrifugo publish failed (${response.status})`);
+      const result = (await response.json()) as { error?: { code?: unknown } };
+      if (result.error)
+        throw new Error(
+          `Centrifugo publish failed (${typeof result.error.code === "number" ? result.error.code : "command error"})`,
+        );
     },
   };
 }

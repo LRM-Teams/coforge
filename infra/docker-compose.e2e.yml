@@ -1,0 +1,14 @@
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+
+networks:
+  centrifugo:
+    name: coforge_e2e_network
+
+volumes:
+  coforge_redis_data:
+    name: coforge_e2e_redis_data
+  coforge_postgres_data:
+    name: coforge_e2e_postgres_data

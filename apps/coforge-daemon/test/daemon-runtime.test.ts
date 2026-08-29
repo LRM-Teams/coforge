@@ -1,4 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DaemonRuntime } from "../src/daemon-runtime/runtime";
 import type {
   AgentRuntimeConfig,
@@ -27,11 +30,14 @@ function sessionSpy() {
   } satisfies CodeAgentSession;
 }
 
+const workspaceRoot = join(tmpdir(), `coforge-daemon-runtime-${crypto.randomUUID()}`);
 const connection: WorkspaceConfig = {
   computerId: "computer-a",
   workspaceId: "workspace-a",
-  workspaceRoot: "/workspaces/workspace-a",
+  workspaceRoot,
 };
+
+afterAll(() => rm(workspaceRoot, { recursive: true, force: true }));
 
 const config: AgentRuntimeConfig = {
   provider: "pi",

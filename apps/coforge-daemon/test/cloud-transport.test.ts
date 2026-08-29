@@ -3,16 +3,22 @@ import {
   CentrifugoWorkspaceTransport,
   type CentrifugeWorkspaceClient,
 } from "../src/cloud-transport/workspace-cloud-transport";
-import { AGENT_MESSAGE_ACK_METHOD, decodeAgentMessageDeliveryAck } from "@coforge/protocol";
+import {
+  AGENT_MESSAGE_ACK_METHOD,
+  decodeAgentMessageDeliveryAck,
+  encodeAgentStartIntent,
+} from "@coforge/protocol";
 import { WORKSPACE_WORKER_READY_METHOD } from "@coforge/protocol";
 
 function fakeClient() {
   let connected = () => {};
   let failed = (_error: unknown) => {};
+  let publication = (_event: { channel: string; data: Uint8Array }) => {};
   const client: CentrifugeWorkspaceClient = {
     on(event, callback) {
       if (event === "connected") connected = callback as () => void;
-      else failed = callback as (error: unknown) => void;
+      else if (event === "error") failed = callback as (error: unknown) => void;
+      else publication = callback as typeof publication;
     },
     connect() {
       connected();
@@ -20,7 +26,12 @@ function fakeClient() {
     disconnect() {},
     rpc: async () => new Uint8Array(),
   };
-  return { client, connect: () => connected(), fail: (error: unknown) => failed(error) };
+  return {
+    client,
+    connect: () => connected(),
+    fail: (error: unknown) => failed(error),
+    publish: (channel: string, data: Uint8Array) => publication({ channel, data }),
+  };
 }
 
 test("sends delivery ACK through the RPC method, not a publication", async () => {
@@ -100,24 +111,12 @@ test("stop is idempotent and a stopped transport can restart", async () => {
   expect(clients).toHaveLength(2);
 });
 
-test("resends the last successful ready request after reconnect and replaces the subscription", async () => {
+test("resends the last successful ready request after reconnect", async () => {
   const fake = fakeClient();
   const readyCalls: Uint8Array[] = [];
-  const subscriptions: Array<{ unsubscribed: boolean }> = [];
   fake.client.rpc = async (method, data) => {
     if (method === WORKSPACE_WORKER_READY_METHOD) readyCalls.push(data);
     return new Uint8Array();
-  };
-  fake.client.newSubscription = () => {
-    const state = { unsubscribed: false };
-    subscriptions.push(state);
-    return {
-      on() {},
-      subscribe() {},
-      unsubscribe() {
-        state.unsubscribed = true;
-      },
-    };
   };
   const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
   await transport.start("secret", config);
@@ -136,8 +135,28 @@ test("resends the last successful ready request after reconnect and replaces the
 
   expect(readyCalls).toHaveLength(2);
   expect(readyCalls[1]).toEqual(readyCalls[0]!);
-  expect(subscriptions).toHaveLength(2);
-  expect(subscriptions[0]?.unsubscribed).toBe(true);
+});
+
+test("receives only its JWT server-side Workspace publications", async () => {
+  const fake = fakeClient();
+  const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
+  const started: string[] = [];
+  transport.onAgentStart((intent) => started.push(intent.agentId));
+  await transport.start("secret", config);
+  const data = encodeAgentStartIntent({
+    protocolMajor: 1,
+    requestId: "start-1",
+    workspaceId: config.workspaceId,
+    agentId: "agent-1",
+    provider: "pi",
+    model: "",
+    reasoning: "",
+  });
+
+  fake.publish("workspace:other", data);
+  fake.publish(`workspace:${config.workspaceId}`, data);
+
+  expect(started).toEqual(["agent-1"]);
 });
 
 test("contains a reconnect ready failure and retries on the next reconnect", async () => {

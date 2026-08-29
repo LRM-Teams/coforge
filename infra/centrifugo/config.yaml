@@ -18,6 +18,10 @@ client:
     audience: coforge-centrifugo
     issuer: coforge
 
+channel:
+  namespaces:
+    - name: workspace
+
 rpc:
   proxy:
     endpoint: http://host.docker.internal:8789/api/internal/centrifugo
@@ -30,10 +34,11 @@ rpc:
   without_namespace:
     proxy_enabled: true
   namespaces:
+    - name: agent
+      proxy_enabled: true
     - name: computer
       proxy_enabled: true
     - name: workspace
       proxy_enabled: true
     - name: workspace_worker
       proxy_enabled: true
-      publish_proxy_enabled: true

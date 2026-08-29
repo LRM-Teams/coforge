@@ -1,4 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdtemp, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AgentProcessManager } from "../src/agent-runtime/agent-process-manager";
 import type {
   CodeAgentAdapter,
@@ -34,6 +37,9 @@ const config: AgentRuntimeConfig = {
   model: "default",
   reasoning: "balanced",
 };
+const testWorkspaceRoot = join(tmpdir(), `coforge-agent-manager-${crypto.randomUUID()}`);
+
+afterAll(() => rm(testWorkspaceRoot, { recursive: true, force: true }));
 
 describe("AgentProcessManager", () => {
   test("starts one runtime with its configuration and stops it", async () => {
@@ -48,12 +54,13 @@ describe("AgentProcessManager", () => {
     };
     const manager = new AgentProcessManager(() => adapter);
 
-    const runtime = await manager.start("agent-1", config, "/workspaces/a/agents/agent-1");
+    const workspace = join(testWorkspaceRoot, "a", "agents", "agent-1");
+    const runtime = await manager.start("agent-1", config, workspace);
 
     expect(runtime.config).toEqual(config);
     expect(runtime.session).toBe(session);
     expect(startedOptions).toEqual({
-      agentWorkspaceDirectory: "/workspaces/a/agents/agent-1",
+      agentWorkspaceDirectory: workspace,
       sessionId: undefined,
       runtime: config,
     });
@@ -66,6 +73,27 @@ describe("AgentProcessManager", () => {
     expect(manager.status("agent-1")).toBe("offline");
   });
 
+  test("creates the Agent workspace before starting its adapter", async () => {
+    const root = await mkdtemp(join(tmpdir(), "coforge-agent-runtime-"));
+    const workspace = join(root, "workspace", "agents", "agent-1");
+    let directoryExistsAtStart = false;
+    const manager = new AgentProcessManager(() => ({
+      provider: "pi",
+      async start() {
+        directoryExistsAtStart = (await stat(workspace)).isDirectory();
+        return sessionSpy();
+      },
+    }));
+
+    try {
+      await manager.start("agent-1", config, workspace);
+      expect(directoryExistsAtStart).toBe(true);
+    } finally {
+      await manager.shutdown();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("becomes offline when the Agent runtime process exits", async () => {
     const session = sessionSpy();
     const manager = new AgentProcessManager(() => ({
@@ -75,7 +103,7 @@ describe("AgentProcessManager", () => {
       },
     }));
 
-    await manager.start("agent-1", config, "/agents/1");
+    await manager.start("agent-1", config, join(testWorkspaceRoot, "exit", "agent-1"));
     session.exit();
 
     expect(manager.status("agent-1")).toBe("offline");
@@ -92,8 +120,8 @@ describe("AgentProcessManager", () => {
     };
     const manager = new AgentProcessManager(() => adapter);
 
-    await manager.start("agent-1", config, "/agents/1");
-    await manager.start("agent-2", config, "/agents/2");
+    await manager.start("agent-1", config, join(testWorkspaceRoot, "multiple", "agent-1"));
+    await manager.start("agent-2", config, join(testWorkspaceRoot, "multiple", "agent-2"));
     expect(starts).toBe(2);
     expect(manager.size).toBe(2);
   });
@@ -107,7 +135,12 @@ describe("AgentProcessManager", () => {
         return sessionSpy();
       },
     }));
-    await manager.start("agent-1", config, "/agents/1", "session-7");
+    await manager.start(
+      "agent-1",
+      config,
+      join(testWorkspaceRoot, "session", "agent-1"),
+      "session-7",
+    );
     expect(options?.sessionId).toBe("session-7");
   });
 
@@ -119,7 +152,9 @@ describe("AgentProcessManager", () => {
       },
     }));
 
-    await expect(manager.start("agent-1", config, "/agents/1")).rejects.toThrow("startup failed");
+    await expect(
+      manager.start("agent-1", config, join(testWorkspaceRoot, "failure", "agent-1")),
+    ).rejects.toThrow("startup failed");
     expect(manager.size).toBe(0);
   });
 });
