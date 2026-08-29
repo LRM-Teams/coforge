@@ -8,6 +8,8 @@ import {
   DaemonCommandResponseSchema,
   LocalRpcRequestSchema,
   LocalRpcResponseSchema,
+  LocalAgentMessageRequestSchema,
+  AgentMessageResponseSchema,
 } from "./gen/coforge/rpc/v1/computer_register_pb";
 
 export const LOCAL_RPC_PROTOCOL_MAJOR = 1 as const;
@@ -17,7 +19,95 @@ export const LOCAL_RPC_METHODS = {
   START: "daemon:start",
   STOP: "daemon:stop",
   RESTART: "daemon:restart",
+  AGENT_MESSAGE: "agent:message",
 } as const;
+export type LocalAgentMessageRequest = {
+  requestId: string;
+  context: string;
+  operation: "check" | "read" | "send";
+  target?: string;
+  body?: string;
+};
+export type AgentMessageRecord = {
+  id: string;
+  sequence: number;
+  sender: string;
+  target: string;
+  body: string;
+  createdAt: string;
+};
+export type AgentMessageResponse = {
+  requestId: string;
+  accepted: boolean;
+  attentionCount: number;
+  messages: AgentMessageRecord[];
+  messageId: string;
+  summaries: MessageAttentionSummary[];
+};
+export type MessageAttentionSummary = {
+  target: string;
+  pendingCount: number;
+  firstPendingSequence: number;
+  latestSequence: number;
+  latestSender?: string;
+  flags: string[];
+};
+export function encodeLocalAgentMessageRequest(value: LocalAgentMessageRequest): Uint8Array {
+  return toBinary(LocalAgentMessageRequestSchema, create(LocalAgentMessageRequestSchema, value));
+}
+export function decodeLocalAgentMessageRequest(bytes: Uint8Array): LocalAgentMessageRequest {
+  const v = fromBinary(LocalAgentMessageRequestSchema, bytes);
+  return {
+    requestId: v.requestId,
+    context: v.context,
+    operation: v.operation as LocalAgentMessageRequest["operation"],
+    target: v.target || undefined,
+    body: v.body || undefined,
+  };
+}
+export function encodeAgentMessageResponse(value: AgentMessageResponse): Uint8Array {
+  return toBinary(
+    AgentMessageResponseSchema,
+    create(AgentMessageResponseSchema, {
+      ...value,
+      messages: value.messages.map((m) => ({
+        ...m,
+        sequence: BigInt(m.sequence),
+        createdAt: m.createdAt,
+      })),
+      summaries: value.summaries.map((summary) => ({
+        ...summary,
+        firstPendingSequence: BigInt(summary.firstPendingSequence),
+        latestSequence: BigInt(summary.latestSequence),
+      })),
+    }),
+  );
+}
+export function decodeAgentMessageResponse(bytes: Uint8Array): AgentMessageResponse {
+  const v = fromBinary(AgentMessageResponseSchema, bytes);
+  return {
+    requestId: v.requestId,
+    accepted: v.accepted,
+    attentionCount: v.attentionCount,
+    messageId: v.messageId,
+    summaries: v.summaries.map((summary) => ({
+      target: summary.target,
+      pendingCount: summary.pendingCount,
+      firstPendingSequence: Number(summary.firstPendingSequence),
+      latestSequence: Number(summary.latestSequence),
+      ...(summary.latestSender !== undefined ? { latestSender: summary.latestSender } : {}),
+      flags: summary.flags,
+    })),
+    messages: v.messages.map((m) => ({
+      id: m.id,
+      sequence: Number(m.sequence),
+      sender: m.sender,
+      target: m.target,
+      body: m.body,
+      createdAt: m.createdAt,
+    })),
+  };
+}
 export const DAEMON_HANDSHAKE_METHOD = LOCAL_RPC_METHODS.HANDSHAKE;
 export const WORKSPACE_WORKER_CONFIGURE_METHOD = LOCAL_RPC_METHODS.CONFIGURE;
 export type WorkspaceWorkerConfigureRequest = {

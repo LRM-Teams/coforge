@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { ComputerSetup, type ComputerSetupOptions } from "../src/setup/computer-setup";
 import type { AccessibleWorkspace, Credential } from "../src/login";
 import { CliError } from "../src/errors";
-import { createWorkspaceCatalog } from "../src/workspace/catalog";
+import { createWorkspaceLookup } from "../src/workspace/lookup";
 
 const credential: Credential = { accessToken: "access-secret", tokenType: "Bearer" };
 const workspaces: AccessibleWorkspace[] = [
@@ -38,11 +38,10 @@ test("setup resolves an accessible Workspace by slug and persists its stable id"
 
 test("setup resolves exactly the requested Workspace slug", async () => {
   const setup = createSetup({
-    catalog: createWorkspaceCatalog(
+    workspaceLookup: createWorkspaceLookup(
       async () => workspaces,
       async (_serverUrl, _credential, slug) => ({ id: "", slug, name: slug }),
     ),
-    selectWorkspace: async (available) => available[0]!,
   });
 
   await setup.run({ workspaceSlug: "workspace-a" });
@@ -53,7 +52,7 @@ test("setup resolves exactly the requested Workspace slug", async () => {
 test("setup reports an inaccessible explicit slug before registration", async () => {
   let registered = false;
   const setup = createSetup({
-    catalog: createWorkspaceCatalog(
+    workspaceLookup: createWorkspaceLookup(
       async () => {
         throw new Error("must not list for direct slug");
       },
@@ -81,7 +80,7 @@ test("setup reports an inaccessible explicit slug before registration", async ()
 
 test("catalog getBySlug is a single-workspace lookup seam", async () => {
   const calls: string[] = [];
-  const catalog = createWorkspaceCatalog(
+  const catalog = createWorkspaceLookup(
     async () => workspaces,
     async (_serverUrl, _credential, slug) => {
       calls.push(slug);
@@ -92,25 +91,6 @@ test("catalog getBySlug is a single-workspace lookup seam", async () => {
 
   expect(calls).toEqual(["workspace-a"]);
   expect(workspace.slug).toBe("workspace-a");
-});
-
-test("setup lists Workspaces only for interactive selection", async () => {
-  const listed: string[] = [];
-  const setup = createSetup({
-    catalog: createWorkspaceCatalog(
-      async (serverUrl) => {
-        listed.push(serverUrl);
-        return workspaces;
-      },
-      async (_serverUrl, _credential, slug) => ({ id: "", slug, name: slug }),
-    ),
-    selectWorkspace: async (available) => available[1]!,
-  });
-
-  const result = await setup.run({});
-
-  expect(result.workspace.slug).toBe("workspace-b");
-  expect(listed).toEqual(["https://coforge.example"]);
 });
 
 test("setup requires --workspace in JSON mode", async () => {
@@ -177,9 +157,9 @@ test("setup authenticates and saves the profile when no profile exists", async (
 test("setup uses an explicit server for catalog and registration", async () => {
   const servers: string[] = [];
   const setup = createSetup({
-    catalog: createWorkspaceCatalog(
+    workspaceLookup: createWorkspaceLookup(
       async (serverUrl) => {
-        servers.push(`catalog:${serverUrl}`);
+        servers.push(`workspaceLookup:${serverUrl}`);
         return workspaces;
       },
       async (serverUrl, _credential, slug) => {
@@ -219,7 +199,7 @@ test("setup returns structured data without writing output", async () => {
 test("setup sends a direct slug to registration without listing Workspaces", async () => {
   const requested: string[] = [];
   const setup = createSetup({
-    catalog: createWorkspaceCatalog(
+    workspaceLookup: createWorkspaceLookup(
       async () => {
         throw new Error("must not list for direct slug");
       },
@@ -274,7 +254,7 @@ test("setup forwards discovered runtime metadata to registration", async () => {
   expect(runtimes).toEqual([{ provider: "codex", version: "1.2.3", kind: "external" }]);
 });
 
-test("setup discards the registration when the Daemon launcher fails", async () => {
+test("setup preserves the previous registration when the Daemon launcher fails", async () => {
   const discarded: string[] = [];
   const setup = createSetup({
     config: {
@@ -298,10 +278,10 @@ test("setup discards the registration when the Daemon launcher fails", async () 
   await expect(setup.run({ workspaceSlug: "workspace-a" })).rejects.toMatchObject({
     code: "SETUP_CONFIG_WRITE_FAILED",
   });
-  expect(discarded).toEqual(["workspace-id-a:computer-id"]);
+  expect(discarded).toEqual([]);
 });
 
-test("setup discards the registration when saving its config fails", async () => {
+test("setup preserves local registrations when saving its config fails", async () => {
   const discarded: string[] = [];
   const setup = createSetup({
     config: {
@@ -320,7 +300,7 @@ test("setup discards the registration when saving its config fails", async () =>
   await expect(setup.run({ workspaceSlug: "workspace-a" })).rejects.toMatchObject({
     code: "SETUP_CONFIG_WRITE_FAILED",
   });
-  expect(discarded).toEqual(["workspace-id-a:computer-id"]);
+  expect(discarded).toEqual([]);
 });
 
 test("setup does not save the Daemon credential in Computer", async () => {
@@ -364,11 +344,10 @@ function createSetup(overrides: Partial<ComputerSetupOptions> = {}): ComputerSet
         return credential;
       },
     },
-    catalog: createWorkspaceCatalog(
+    workspaceLookup: createWorkspaceLookup(
       async () => workspaces,
       async (_serverUrl, _credential, slug) => ({ id: "", slug, name: slug }),
     ),
-    selectWorkspace: async (available) => available[0]!,
     registrationFactory: (_serverUrl, _credential) => ({
       async register(request) {
         return {

@@ -122,7 +122,7 @@ test("unexpected login failures are normalized without exposing diagnostics", as
   expect(stderr.join("\n")).not.toContain("access-secret");
 });
 
-test("setup accepts the Workspace slug through an explicit option", async () => {
+test("setup does not accept a user-supplied Workspace option", async () => {
   const calls: Array<{ workspaceSlug: string | undefined; json: boolean }> = [];
   const setup: SetupCommand = {
     async run(workspaceSlug, options) {
@@ -131,15 +131,15 @@ test("setup accepts the Workspace slug through an explicit option", async () => 
   };
   const dependencies = { login: { async run() {} }, setup };
 
-  await expect(runCli(["setup", "--workspace", "workspace-a"], dependencies)).resolves.toBe(0);
+  await expect(runCli(["setup"], dependencies)).resolves.toBe(0);
 
-  expect(calls).toEqual([{ workspaceSlug: "workspace-a", json: false }]);
+  expect(calls).toEqual([{ workspaceSlug: undefined, json: false }]);
 });
 
 test("setup forwards an explicit server URL", async () => {
   let serverUrl: string | undefined;
   await expect(
-    runCli(["setup", "--server", "https://coforge.example", "--workspace", "workspace-a"], {
+    runCli(["setup", "--server", "https://coforge.example"], {
       login: { async run() {} },
       setup: {
         async run(_workspace, options) {
@@ -155,7 +155,7 @@ test("JSON setup failure is one stable stdout object with an actionable hint", a
   const stdout: string[] = [];
   const stderr: string[] = [];
   const exitCode = await runCli(
-    ["setup", "--workspace", "missing", "--json"],
+    ["setup", "--json"],
     {
       login: { async run() {} },
       setup: {
@@ -183,7 +183,7 @@ test("JSON setup failure is one stable stdout object with an actionable hint", a
 test("unexpected setup failures are normalized without exposing diagnostics", async () => {
   const stderr: string[] = [];
   const exitCode = await runCli(
-    ["setup", "--workspace", "workspace-a"],
+    ["setup"],
     {
       login: { async run() {} },
       setup: {

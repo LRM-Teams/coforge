@@ -1,0 +1,32 @@
+{
+  "name": "@coforge/cli",
+  "version": "0.1.0",
+  "bin": {
+    "coforge": "./src/cli.ts"
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "README.md",
+    "dist"
+  ],
+  "type": "module",
+  "module": "index.ts",
+  "exports": "./index.ts",
+  "scripts": {
+    "test": "bun test",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "lint": "oxlint .",
+    "typecheck": "tsc --noEmit",
+    "check": "bun run format:check && bun run lint && bun run typecheck",
+    "build": "bun build --compile ./src/cli.ts --outfile ./dist/coforge"
+  },
+  "devDependencies": {
+    "@coforge/protocol": "workspace:*",
+    "@types/bun": "1.4.0",
+    "oxfmt": "0.65.0",
+    "oxlint": "1.80.0",
+    "typescript": "7.0.2"
+  }
+}

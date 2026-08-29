@@ -3,7 +3,7 @@ import type { ComputerConfig } from "../local-config";
 import { CliError, setupError } from "../errors";
 import type { ComputerRegisterRequest, ComputerRegistrationClient } from "@coforge/protocol";
 import type { DaemonLauncher } from "@coforge/daemon";
-import type { WorkspaceCatalog } from "../workspace/catalog";
+import type { WorkspaceLookup } from "../workspace/lookup";
 
 export type ComputerPlatformName = "darwin" | "linux" | "win32";
 
@@ -39,15 +39,15 @@ export interface SetupAuthenticator {
 export type ComputerSetupOptions = {
   config: Pick<ComputerConfig, "loadCurrentProfile"> &
     Partial<Pick<ComputerConfig, "saveCurrentProfile">> &
-    Required<Pick<ComputerConfig, "saveRegistration" | "discardRegistration">>;
+    Required<Pick<ComputerConfig, "saveRegistration" | "discardRegistration">> &
+    Partial<Pick<ComputerConfig, "loadRegistration">>;
   credentials: SetupCredentialStore;
   authenticate?: SetupAuthenticator;
-  catalog: WorkspaceCatalog;
+  workspaceLookup: WorkspaceLookup;
   registrationFactory: (serverUrl: string, credential: Credential) => SetupRegistration;
   launcher: DaemonLauncher | ((serverUrl: string) => DaemonLauncher);
   metadataProvider: ComputerMetadataProvider;
   idempotencyKeyProvider: RegistrationIdempotencyKeyProvider;
-  selectWorkspace: (workspaces: AccessibleWorkspace[]) => Promise<AccessibleWorkspace>;
   workspaceRoot: string;
 };
 
@@ -78,35 +78,31 @@ export class ComputerSetup {
       await this.options.config.saveCurrentProfile({ serverUrl });
     }
 
+    if (!input.workspaceSlug) {
+      throw setupError(
+        "SETUP_WORKSPACE_REQUIRED",
+        "Setup requires a Workspace setup intent; Computer does not select Workspaces.",
+      );
+    }
     let workspace: AccessibleWorkspace;
-    if (input.workspaceSlug) {
-      try {
-        workspace = await this.options.catalog.getBySlug(
-          serverUrl,
-          credential,
-          input.workspaceSlug,
+    try {
+      workspace = await this.options.workspaceLookup.getBySlug(
+        serverUrl,
+        credential,
+        input.workspaceSlug,
+      );
+    } catch (error) {
+      if (error instanceof CliError && error.code === "AUTH_WORKSPACE_GET_FAILED") {
+        throw setupError(
+          "SETUP_WORKSPACE_NOT_FOUND",
+          `Workspace '${input.workspaceSlug}' was not found or is not accessible.`,
         );
-      } catch (error) {
-        if (error instanceof CliError && error.code === "AUTH_WORKSPACE_GET_FAILED") {
-          throw setupError(
-            "SETUP_WORKSPACE_NOT_FOUND",
-            `Workspace '${input.workspaceSlug}' was not found or is not accessible.`,
-          );
-        }
-        throw error;
       }
-    } else {
-      if (input.json || !this.options.selectWorkspace) {
-        throw setupError("SETUP_WORKSPACE_REQUIRED", "A Workspace is required for this setup.");
-      }
-      const workspaces = await this.options.catalog.listAccessible(serverUrl, credential);
-      if (workspaces.length === 0) {
-        throw setupError("SETUP_WORKSPACE_NOT_FOUND", "No accessible Workspace was found.");
-      }
-      workspace = await this.options.selectWorkspace(workspaces);
+      throw error;
     }
 
     let configPath: string;
+    const previousRegistration = (await this.options.config.loadRegistration?.()) ?? null;
     let registeredRegistration:
       | Parameters<NonNullable<ComputerConfig["discardRegistration"]>>[0]
       | undefined;
@@ -141,6 +137,17 @@ export class ComputerSetup {
         typeof this.options.launcher === "function"
           ? this.options.launcher(serverUrl)
           : this.options.launcher;
+      // Replacement is deliberately ordered: stop the old daemon before the
+      // new binding is advertised. The old local binding remains on disk until
+      // the new one is durably saved, so failures are visible and recoverable.
+      if (
+        previousRegistration &&
+        previousRegistration.id !== response.workspaceId &&
+        "stopAll" in launcher &&
+        typeof launcher.stopAll === "function"
+      ) {
+        await launcher.stopAll();
+      }
       await launcher.ensureStarted({
         workspaceId: response.workspaceId,
         computerId: response.computerId,
@@ -149,13 +156,6 @@ export class ComputerSetup {
       });
       configPath = await this.options.config.saveRegistration(registeredRegistration);
     } catch (error) {
-      if (registeredRegistration) {
-        try {
-          await this.options.config.discardRegistration(registeredRegistration);
-        } catch {
-          // Preserve the setup failure; cleanup is best effort.
-        }
-      }
       if (error instanceof CliError) throw error;
       throw setupError("SETUP_CONFIG_WRITE_FAILED", "Could not save the Workspace configuration.");
     }

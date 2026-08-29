@@ -22,7 +22,31 @@ import { WORKSPACE_WORKER_READY_METHOD } from "@coforge/protocol";
 import { WorkspaceQueryUseCase } from "../workspaces/query.server";
 import { ComputerRegistrar } from "../computers/registration.server";
 import { PrismaComputerConnectionRepository } from "../db/repositories/setup.repositories.server";
+import {
+  PrismaAgentRepository,
+  RepositoryAgentAuthorization,
+} from "../db/repositories/agent.repositories.server";
 import { createWorkspaceWorkerTokenIssuer } from "../auth/workspace-worker-token.server";
+import {
+  createAgentStartMethod,
+  createAgentDeliveryAckMethod,
+  createAgentMessageMethod,
+} from "./rpc-handler.server";
+import { CloudAgentUseCase, WorkspaceAgentRecovery } from "../agents/cloud-agent.server";
+import { createCentrifugoServerApi } from "./server-api.server";
+import {
+  AGENT_START_METHOD,
+  AGENT_MESSAGE_ACK_METHOD,
+  AGENT_MESSAGE_READ_METHOD,
+  AGENT_MESSAGE_SEND_METHOD,
+} from "@coforge/protocol";
+import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
+import { verifyWorkspaceWorkerToken } from "../auth/workspace-worker-token.server";
+import {
+  authenticateAgentApiKey,
+  isAgentApiKeyBoundToComputer,
+} from "../agents/agent-api-key.server";
+import { PrismaAgentApiKeyRepository } from "../db/repositories/agent-api-key.repositories.server";
 
 const unavailable: CentrifugoRpcError = {
   code: 503,
@@ -31,8 +55,54 @@ const unavailable: CentrifugoRpcError = {
 
 const unavailableMethod: CentrifugoRpcMethod = () => unavailable;
 
-function requireAuthenticatedCentrifugoUser(request: { user?: string }): void {
+async function requireAuthenticatedCentrifugoUser(request: { user?: string }, context: Request) {
+  const header = context.headers.get("authorization");
+  if (header?.startsWith("Bearer ")) {
+    try {
+      return await verifyWorkspaceWorkerToken(header.slice("Bearer ".length).trim());
+    } catch {
+      const db = getDatabaseClient();
+      if (db) {
+        try {
+          const record = await authenticateAgentApiKey(
+            header.slice("Bearer ".length).trim(),
+            new PrismaAgentApiKeyRepository(db),
+          );
+          const daemonHeader = context.headers.get("x-coforge-daemon-authorization");
+          if (!daemonHeader?.startsWith("Bearer ")) throw new Error("daemon credential missing");
+          const daemon = await verifyWorkspaceWorkerToken(
+            daemonHeader.slice("Bearer ".length).trim(),
+          );
+          if (
+            !isAgentApiKeyBoundToComputer(record, daemon) ||
+            !(await db.workspaceComputer.findUnique({
+              where: {
+                workspaceId_computerId: {
+                  workspaceId: daemon.workspaceId,
+                  computerId: daemon.computerId,
+                },
+              },
+              select: { id: true },
+            }))
+          )
+            throw new Error("daemon credential scope mismatch");
+          return {
+            userId: record.ownerId,
+            workspaceId: record.workspaceId,
+            computerId: daemon.computerId,
+            agentId: record.agentId,
+          };
+        } catch {
+          // Keep malformed and revoked credentials indistinguishable.
+        }
+      }
+      throw new CentrifugoRpcAuthenticationError();
+    }
+  }
+  // User-facing calls use Centrifugo's verified user subject. Daemon-scoped
+  // methods still fail closed because their required claims are empty.
   if (!request.user) throw new CentrifugoRpcAuthenticationError();
+  return { userId: request.user, workspaceId: "", computerId: "" };
 }
 
 function authorizeCentrifugoProxy(request: Request): void {
@@ -52,12 +122,35 @@ export function createCentrifugoRpcHandler() {
       computers: new PrismaComputerConnectionRepository(db),
       tokenIssuer: createWorkspaceWorkerTokenIssuer(),
     });
+    const agentRepository = new PrismaAgentRepository(db);
+    const agentAuthorization = new RepositoryAgentAuthorization(agentRepository);
+    const centrifugo = createCentrifugoServerApi();
     return new CentrifugoRpcHandler({
       methods: {
         [COMPUTER_REGISTER_METHOD]: createComputerRegistrationMethod(registration),
         [WORKSPACE_LIST_METHOD]: createWorkspaceListMethod(query),
         [WORKSPACE_GET_METHOD]: createWorkspaceGetMethod(query),
-        [WORKSPACE_WORKER_READY_METHOD]: createWorkspaceWorkerReadyMethod(),
+        [WORKSPACE_WORKER_READY_METHOD]: createWorkspaceWorkerReadyMethod(
+          new WorkspaceAgentRecovery(agentRepository, centrifugo),
+        ),
+        [AGENT_START_METHOD]: createAgentStartMethod(
+          new CloudAgentUseCase(agentAuthorization, centrifugo, async () => {}),
+        ),
+        [AGENT_MESSAGE_ACK_METHOD]: createAgentDeliveryAckMethod(
+          new PrismaDirectConversationRepository(db),
+        ),
+        [AGENT_MESSAGE_READ_METHOD]: createAgentMessageMethod(
+          new PrismaDirectConversationRepository(db),
+          centrifugo,
+          "read",
+          agentAuthorization,
+        ),
+        [AGENT_MESSAGE_SEND_METHOD]: createAgentMessageMethod(
+          new PrismaDirectConversationRepository(db),
+          centrifugo,
+          "send",
+          agentAuthorization,
+        ),
       },
       authenticateEnvelope: requireAuthenticatedCentrifugoUser,
       authorizeProxyRequest: authorizeCentrifugoProxy,
@@ -69,6 +162,10 @@ export function createCentrifugoRpcHandler() {
       [WORKSPACE_LIST_METHOD]: unavailableMethod,
       [WORKSPACE_GET_METHOD]: unavailableMethod,
       [WORKSPACE_WORKER_READY_METHOD]: createWorkspaceWorkerReadyMethod(),
+      [AGENT_START_METHOD]: unavailableMethod,
+      [AGENT_MESSAGE_ACK_METHOD]: unavailableMethod,
+      [AGENT_MESSAGE_READ_METHOD]: unavailableMethod,
+      [AGENT_MESSAGE_SEND_METHOD]: unavailableMethod,
     },
     authenticateEnvelope: requireAuthenticatedCentrifugoUser,
     authorizeProxyRequest: authorizeCentrifugoProxy,

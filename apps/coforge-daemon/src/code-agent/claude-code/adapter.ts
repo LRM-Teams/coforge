@@ -86,7 +86,7 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
     });
   }
 
-  async prompt(text: string): Promise<void> {
+  async sendMessage(text: string): Promise<void> {
     if (this.#state !== "idle") throw new Error("code agent is already running");
     this.#state = "running";
     try {
@@ -100,6 +100,10 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
       if (!this.#isDisposed()) this.#state = "idle";
       throw error;
     }
+  }
+
+  async notify(notice: string): Promise<void> {
+    await this.sendMessage(notice);
   }
 
   subscribe(listener: (event: AgentRuntimeEvent) => void): () => void {

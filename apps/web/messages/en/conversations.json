@@ -1,0 +1,17 @@
+{
+  "$schema": "https://inlang.com/schema/inlang-message-format",
+  "messages_title": "Messages",
+  "messages_agent_list_label": "Agent conversations",
+  "messages_agents_action": "Agents",
+  "messages_empty_title": "No Agents available for private messages",
+  "messages_empty_description": "Agent conversations will appear here when available.",
+  "conversation_history": "Message history",
+  "conversation_empty_title": "No messages yet",
+  "conversation_empty_description": "Send a message to start this private conversation.",
+  "conversation_message_label": "Message",
+  "conversation_message_placeholder": "Write a message…",
+  "conversation_send": "Send",
+  "conversation_sending": "Sending…",
+  "conversation_send_error": "The message could not be sent. Try again.",
+  "conversation_auto_refresh": "Replies refresh automatically."
+}

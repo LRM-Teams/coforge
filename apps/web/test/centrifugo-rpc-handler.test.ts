@@ -2,9 +2,16 @@ import { describe, expect, test } from "bun:test";
 import {
   CentrifugoRpcAuthenticationError,
   CentrifugoRpcHandler,
+  createAgentMessageMethod,
+  createWorkspaceWorkerReadyMethod,
   type CentrifugoRpcMethod,
 } from "../src/server/centrifugo/rpc-handler.server";
 import { createCentrifugoRpcHandler } from "../src/server/centrifugo/rpc-composition.server";
+import {
+  decodeCloudAgentMessageResponse,
+  encodeAgentMessageRequest,
+  encodeWorkspaceWorkerReadyRequest,
+} from "@coforge/protocol";
 
 const encoded = (value: string) => btoa(value);
 const json = (value: unknown) =>
@@ -19,7 +26,114 @@ const authorizedJson = (value: unknown) =>
     body: JSON.stringify(value),
   });
 
+const agentMessagePayload = (agentId: string, operation: "read" | "send") =>
+  encodeAgentMessageRequest({
+    protocolMajor: 1,
+    requestId: "request-1",
+    workspaceId: "workspace-1",
+    agentId,
+    operation,
+    target: "@user",
+    body: operation === "send" ? "Hello" : undefined,
+  });
+
+const principal = (agentId?: string) => ({
+  userId: "user-1",
+  workspaceId: "workspace-1",
+  computerId: "computer-1",
+  agentId,
+});
+
 describe("CentrifugoRpcHandler", () => {
+  test("starts every existing Workspace Agent after the exact Computer reports ready", async () => {
+    const recovered: string[] = [];
+    const method = createWorkspaceWorkerReadyMethod({
+      recoverWorkspace: async (workspaceId) => {
+        recovered.push(workspaceId);
+      },
+    });
+    const payload = encodeWorkspaceWorkerReadyRequest({
+      protocolMajor: 1,
+      requestId: "ready-1",
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      workerInstanceId: "worker-1",
+      startedAt: 1,
+    });
+
+    expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
+    expect(recovered).toEqual(["workspace-1"]);
+    expect(
+      await method(payload, {
+        principal: { ...principal(), computerId: "another-computer" },
+      }),
+    ).toEqual({ code: 403, message: "workspace worker identity is not authorized" });
+    expect(recovered).toEqual(["workspace-1"]);
+  });
+
+  test("rejects Agent message access by a Daemon principal without an Agent identity", async () => {
+    const method = createAgentMessageMethod({}, {}, "read", {
+      async canUseAgent() {
+        return true;
+      },
+    });
+
+    expect(
+      await method(agentMessagePayload("agent-a", "read"), { principal: principal() }),
+    ).toEqual({ code: 403, message: "agent identity is not authorized" });
+  });
+
+  test("rejects an Agent A credential sending as Agent B", async () => {
+    const method = createAgentMessageMethod({}, {}, "send", {
+      async canUseAgent() {
+        return true;
+      },
+    });
+
+    expect(
+      await method(agentMessagePayload("agent-b", "send"), { principal: principal("agent-a") }),
+    ).toEqual({ code: 403, message: "agent identity is not authorized" });
+  });
+
+  test("allows a matching Agent API key to send", async () => {
+    const method = createAgentMessageMethod(
+      {
+        async userIdForUsername() {
+          return "target-user";
+        },
+        async getOrCreateUserAgent() {
+          return { id: "conversation-1" };
+        },
+        async sendAgentMessage() {
+          return { id: "message-1" };
+        },
+      },
+      {},
+      "send",
+      {
+        async canUseAgent() {
+          return true;
+        },
+      },
+      {
+        async execute(_scope, persist) {
+          return persist();
+        },
+      },
+    );
+
+    const result = await method(agentMessagePayload("agent-a", "send"), {
+      principal: principal("agent-a"),
+    });
+    expect(result).toBeInstanceOf(Uint8Array);
+    if (!(result instanceof Uint8Array)) throw new Error("expected an Agent message response");
+    expect(decodeCloudAgentMessageResponse(result)).toMatchObject({
+      requestId: "request-1",
+      accepted: true,
+      messageId: "message-1",
+    });
+  });
+
   test("composed protocol methods fail closed until persistence is wired", async () => {
     const handler = createCentrifugoRpcHandler();
     const previous = process.env.COFORGE_CENTRIFUGO_PROXY_SECRET;
@@ -51,6 +165,7 @@ describe("CentrifugoRpcHandler", () => {
       methods: { echo: () => new Uint8Array([1]) },
       authenticateEnvelope: (request) => {
         if (!request.user) throw new CentrifugoRpcAuthenticationError();
+        throw new Error("test callback must not authenticate this request");
       },
     });
     const result = await handler.handleRequest(json({ method: "echo", b64data: "AA==" }));
@@ -62,7 +177,7 @@ describe("CentrifugoRpcHandler", () => {
   test("round trips binary payload and passes envelope metadata", async () => {
     const method: CentrifugoRpcMethod = (payload, metadata) => {
       expect([...payload]).toEqual([0, 255, 42]);
-      expect(metadata.user).toBe("user-1");
+      expect(metadata.principal.userId).toBe("user-1");
       expect(metadata.client).toBe("connection-1");
       return payload;
     };

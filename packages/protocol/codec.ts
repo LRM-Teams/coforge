@@ -17,6 +17,23 @@ import {
   WorkspaceListResponseSchema,
 } from "./gen/coforge/rpc/v1/workspace_pb";
 import { WorkspaceWorkerReadyRequestSchema } from "./gen/coforge/rpc/v1/computer_register_pb";
+import {
+  AgentStartIntentSchema,
+  AgentMessageDeliverySchema,
+  AgentActivitySchema,
+  AgentMessageDeliveryAckSchema,
+  AgentMessageRequestSchema,
+  CloudAgentMessageResponseSchema,
+} from "./gen/coforge/rpc/v1/workspace_pb";
+import type {
+  AgentStartIntent,
+  AgentMessageDelivery,
+  AgentActivity,
+  AgentMessageDeliveryAck,
+  AgentMessageRequest,
+  CloudAgentMessageResponse,
+} from "./index";
+import { AGENT_MESSAGE_METHOD, AGENT_MESSAGE_ACK_METHOD } from "./index";
 import type { WorkspaceWorkerReadyRequest } from "./index";
 
 export function encodeWorkspaceWorkerReadyRequest(value: WorkspaceWorkerReadyRequest): Uint8Array {
@@ -32,6 +49,132 @@ export function encodeWorkspaceWorkerReadyRequest(value: WorkspaceWorkerReadyReq
 export function decodeWorkspaceWorkerReadyRequest(bytes: Uint8Array): WorkspaceWorkerReadyRequest {
   const value = fromBinary(WorkspaceWorkerReadyRequestSchema, bytes);
   return { ...value, startedAt: Number(value.startedAt) };
+}
+
+export function encodeAgentStartIntent(value: AgentStartIntent): Uint8Array {
+  return toBinary(AgentStartIntentSchema, create(AgentStartIntentSchema, value));
+}
+export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
+  const v = fromBinary(AgentStartIntentSchema, bytes);
+  if (!v.requestId || !v.workspaceId || !v.agentId || !v.provider)
+    throw new Error("invalid agent start intent");
+  if (!["pi", "codex", "claude-code"].includes(v.provider))
+    throw new Error(`unsupported runtime provider: ${v.provider}`);
+  return {
+    ...v,
+    provider: v.provider as AgentStartIntent["provider"],
+    sessionId: v.sessionId || undefined,
+  };
+}
+export function encodeAgentMessageDelivery(value: AgentMessageDelivery): Uint8Array {
+  return toBinary(
+    AgentMessageDeliverySchema,
+    create(AgentMessageDeliverySchema, {
+      protocolMajor: value.protocolMajor,
+      requestId: value.requestId,
+      messageId: value.messageId,
+      deliveryId: value.deliveryId,
+      sequence: BigInt(value.sequence),
+      workspaceId: value.workspaceId,
+      conversationId: value.conversationId,
+      agentId: value.agentId,
+      body: value.body,
+      method: value.method,
+      target: value.target,
+      latestSender: value.latestSender,
+    }),
+  );
+}
+export function decodeAgentMessageDelivery(bytes: Uint8Array): AgentMessageDelivery {
+  const value = fromBinary(AgentMessageDeliverySchema, bytes);
+  if (
+    value.method !== AGENT_MESSAGE_METHOD ||
+    !value.requestId ||
+    !value.messageId ||
+    !value.workspaceId ||
+    !value.conversationId ||
+    !value.agentId ||
+    !value.body
+  )
+    throw new Error("invalid agent message delivery");
+  return {
+    protocolMajor: value.protocolMajor,
+    requestId: value.requestId,
+    messageId: value.messageId,
+    deliveryId: value.deliveryId,
+    sequence: Number(value.sequence),
+    workspaceId: value.workspaceId,
+    conversationId: value.conversationId,
+    agentId: value.agentId,
+    body: value.body,
+    method: AGENT_MESSAGE_METHOD,
+    ...(value.target ? { target: value.target } : {}),
+    ...(value.latestSender ? { latestSender: value.latestSender } : {}),
+  };
+}
+export function encodeAgentMessageDeliveryAck(value: AgentMessageDeliveryAck): Uint8Array {
+  return toBinary(
+    AgentMessageDeliveryAckSchema,
+    create(AgentMessageDeliveryAckSchema, { ...value, sequence: BigInt(value.sequence) }),
+  );
+}
+export function decodeAgentMessageDeliveryAck(bytes: Uint8Array): AgentMessageDeliveryAck {
+  const v = fromBinary(AgentMessageDeliveryAckSchema, bytes);
+  if (
+    v.method !== AGENT_MESSAGE_ACK_METHOD ||
+    !v.requestId ||
+    !v.deliveryId ||
+    !v.messageId ||
+    !v.workspaceId ||
+    !v.agentId ||
+    !v.sequence
+  )
+    throw new Error("invalid agent delivery ack");
+  return { ...v, sequence: Number(v.sequence), method: AGENT_MESSAGE_ACK_METHOD };
+}
+export function encodeAgentActivity(value: AgentActivity): Uint8Array {
+  return toBinary(AgentActivitySchema, create(AgentActivitySchema, value));
+}
+export function encodeAgentMessageRequest(value: AgentMessageRequest): Uint8Array {
+  return toBinary(AgentMessageRequestSchema, create(AgentMessageRequestSchema, value));
+}
+export function decodeAgentMessageRequest(bytes: Uint8Array): AgentMessageRequest {
+  const v = fromBinary(AgentMessageRequestSchema, bytes);
+  if (!v.requestId || !v.agentId || !["read", "send"].includes(v.operation) || !v.target)
+    throw new Error("invalid cloud agent message request");
+  return {
+    ...v,
+    operation: v.operation as AgentMessageRequest["operation"],
+    body: v.body || undefined,
+  };
+}
+export function encodeCloudAgentMessageResponse(value: CloudAgentMessageResponse): Uint8Array {
+  return toBinary(
+    CloudAgentMessageResponseSchema,
+    create(CloudAgentMessageResponseSchema, {
+      ...value,
+      messageId: value.messageId ?? "",
+      messages: value.messages.map((m) => ({ ...m, sequence: BigInt(m.sequence) })),
+    }),
+  );
+}
+export function decodeCloudAgentMessageResponse(bytes: Uint8Array): CloudAgentMessageResponse {
+  const v = fromBinary(CloudAgentMessageResponseSchema, bytes);
+  return {
+    protocolMajor: v.protocolMajor,
+    requestId: v.requestId,
+    accepted: v.accepted,
+    attentionCount: v.attentionCount,
+    messageId: v.messageId || undefined,
+    messages: v.messages.map((m) => ({ ...m, sequence: Number(m.sequence) })),
+  };
+}
+export function decodeAgentActivity(bytes: Uint8Array): AgentActivity {
+  const v = fromBinary(AgentActivitySchema, bytes);
+  return {
+    ...v,
+    level: v.level as AgentActivity["level"],
+  };
 }
 import type { Workspace, WorkspaceQueryRequest } from "./index";
 

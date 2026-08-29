@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { LocalDaemonLauncher } from "./launcher";
-import type { DaemonLauncher, DaemonStopper, WorkspaceWorkerConfig } from "./launcher";
+import type { DaemonLauncher, DaemonStopper, DaemonWorkspaceConfig } from "./launcher";
 
 type CommandRunner = (command: string[]) => Promise<number>;
 
@@ -45,7 +45,7 @@ export class LaunchdDaemonHost implements DaemonLauncher, DaemonStopper {
     });
   }
 
-  async ensureStarted(config: WorkspaceWorkerConfig): Promise<void> {
+  async ensureStarted(config: DaemonWorkspaceConfig): Promise<void> {
     await this.ensureInstalled();
     await this.#local.ensureStarted(config);
   }

@@ -36,3 +36,4 @@ rpc:
       proxy_enabled: true
     - name: workspace_worker
       proxy_enabled: true
+      publish_proxy_enabled: true

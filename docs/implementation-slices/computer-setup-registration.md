@@ -5,7 +5,7 @@
 Implement one reviewable vertical slice for:
 
 ```text
-coforge-computer setup [--workspace <slug>]
+coforge-computer setup
   → Device Code authorization when needed
   → computer:register RPC
   → persist the returned Computer/Workspace connection
@@ -21,8 +21,9 @@ manually.
 - The verification page is opened automatically in human mode.
 - The verification URL and user code are printed when browser opening fails.
 - `--json` writes exactly one JSON object to stdout; progress goes to stderr.
-- `setup --workspace <slug>` targets one known Workspace directly.
-- `setup` may use cursor selection only on an interactive TTY.
+- `setup` is launched with a Workspace-page setup intent; the user does not
+  provide a slug or choose from a list in Computer.
+- Setup never presents Workspace selection, including on an interactive TTY.
 - `UserAccessToken` 仅用于 Computer 注册；`WorkspaceWorkerToken` 是供 Workspace Worker 连接云端使用的 token，不假设其底层格式；`AgentToken` 是独立的 Agent credential。三者不可混用，也不得打印。
 
 ## Scope

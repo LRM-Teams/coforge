@@ -13,9 +13,9 @@ import {
 } from "@coforge/protocol";
 import { LocalDaemonLauncher } from "../src/daemon-host/launcher";
 import { startDaemonLocalRpcServer } from "../src/local-rpc";
-import { InMemoryWorkspaceWorkerCredentialStore } from "../src/workspace-worker/credential-store";
-import type { WorkspaceConnection } from "../src/workspace-worker/supervisor";
-import type { WorkspaceWorkerCredentialStore } from "../src/workspace-worker/credential-store";
+import { InMemoryDaemonCredentialStore } from "../src/credentials/credential-store";
+import type { WorkspaceConfig } from "../src/daemon-runtime/runtime";
+import type { DaemonCredentialStore } from "../src/credentials/credential-store";
 
 const servers: Array<{ close(): Promise<void> }> = [];
 const config = {
@@ -25,10 +25,10 @@ const config = {
   workspaceWorkerToken: "daemon-secret",
 };
 
-class FakeCredentialStore implements WorkspaceWorkerCredentialStore {
+class FakeCredentialStore implements DaemonCredentialStore {
   token: string | null = null;
   saves = 0;
-  deletes = 0;
+  clears = 0;
   async load(): Promise<string | null> {
     return this.token;
   }
@@ -37,7 +37,7 @@ class FakeCredentialStore implements WorkspaceWorkerCredentialStore {
     this.token = token;
   }
   async delete(): Promise<void> {
-    this.deletes++;
+    this.clears++;
     this.token = null;
   }
 }
@@ -52,9 +52,9 @@ test("daemon accepts a Computer handshake over its Unix socket", async () => {
     socketPath,
     validateCredential: (credential) => credential === "daemon-secret",
     runtime: {
-      configureWorkspaceWorker: async () => {},
+      configure: async () => {},
     },
-    credentials: new InMemoryWorkspaceWorkerCredentialStore(),
+    credentials: new InMemoryDaemonCredentialStore(),
   });
   servers.push(server);
   const launcher = new LocalDaemonLauncher({
@@ -69,18 +69,18 @@ test("daemon accepts a Computer handshake over its Unix socket", async () => {
 
 test("daemon stores configured connection metadata without its token", async () => {
   const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
-  const saved: WorkspaceConnection[] = [];
+  const saved: WorkspaceConfig[] = [];
   const server = await startDaemonLocalRpcServer({
     socketPath,
     validateCredential: (credential) => credential === config.workspaceWorkerToken,
-    runtime: { configureWorkspaceWorker: async () => {} },
-    credentials: new InMemoryWorkspaceWorkerCredentialStore(),
-    registry: {
-      list: async () => [],
-      upsert: async (connection) => {
+    runtime: { configure: async () => {} },
+    credentials: new InMemoryDaemonCredentialStore(),
+    configStore: {
+      load: async () => null,
+      save: async (connection) => {
         saved.push(connection);
       },
-      delete: async () => {
+      clear: async () => {
         return;
       },
     },
@@ -107,9 +107,9 @@ test("daemon rejects an invalid handshake credential", async () => {
     socketPath,
     validateCredential: () => false,
     runtime: {
-      configureWorkspaceWorker: async () => {},
+      configure: async () => {},
     },
-    credentials: new InMemoryWorkspaceWorkerCredentialStore(),
+    credentials: new InMemoryDaemonCredentialStore(),
   });
   servers.push(server);
   const launcher = new LocalDaemonLauncher({
@@ -144,11 +144,11 @@ test("daemon processes requests on one socket in order", async () => {
       return true;
     },
     runtime: {
-      configureWorkspaceWorker: async ({ workspaceId, computerId }) => {
+      configure: async ({ workspaceId, computerId }) => {
         configured.push(`${workspaceId}:${computerId}`);
       },
     },
-    credentials: new InMemoryWorkspaceWorkerCredentialStore(),
+    credentials: new InMemoryDaemonCredentialStore(),
   });
   servers.push(server);
 
@@ -209,7 +209,7 @@ test("daemon rotates a changed token before configuring and does not rewrite an 
     socketPath,
     validateCredential: () => true,
     runtime: {
-      configureWorkspaceWorker: async () => {
+      configure: async () => {
         configured++;
       },
     },
@@ -224,30 +224,30 @@ test("daemon rotates a changed token before configuring and does not rewrite an 
   expect(configured).toBe(2);
 });
 
-test("daemon restores the old token when configuration or registry persistence fails", async () => {
+test("daemon restores the old token when configuration persistence fails", async () => {
   for (const failure of ["configure", "registry"] as const) {
     const credentials = new FakeCredentialStore();
     credentials.token = "old-token";
     const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
-    let upserts = 0;
-    let deletes = 0;
+    let saves = 0;
+    let clears = 0;
     const server = await startDaemonLocalRpcServer({
       socketPath,
       validateCredential: () => true,
       runtime: {
-        configureWorkspaceWorker: async () => {
+        configure: async () => {
           if (failure === "configure") throw new Error("failed");
         },
       },
       credentials,
-      registry: {
-        list: async () => [],
-        upsert: async () => {
-          upserts++;
+      configStore: {
+        load: async () => null,
+        save: async () => {
+          saves++;
           if (failure === "registry") throw new Error("failed");
         },
-        delete: async () => {
-          deletes++;
+        clear: async () => {
+          clears++;
         },
       },
     });
@@ -263,19 +263,19 @@ test("daemon restores the old token when configuration or registry persistence f
     ).rejects.toThrow("did not accept");
     expect(credentials.token).toBe("old-token");
     expect(credentials.saves).toBe(2);
-    expect(upserts).toBe(failure === "registry" ? 1 : 0);
-    expect(deletes).toBe(failure === "registry" ? 1 : 0);
+    expect(saves).toBe(failure === "registry" ? 1 : 0);
+    expect(clears).toBe(1);
   }
 });
 
-test("daemon deletes a first token when configuration fails", async () => {
+test("daemon clears a first token when configuration fails", async () => {
   const credentials = new FakeCredentialStore();
   const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
   const server = await startDaemonLocalRpcServer({
     socketPath,
     validateCredential: () => true,
     runtime: {
-      configureWorkspaceWorker: async () => {
+      configure: async () => {
         throw new Error("failed");
       },
     },
@@ -291,7 +291,7 @@ test("daemon deletes a first token when configuration fails", async () => {
     }).ensureStarted(config),
   ).rejects.toThrow("did not accept");
   expect(credentials.token).toBeNull();
-  expect(credentials.deletes).toBe(1);
+  expect(credentials.clears).toBe(1);
 });
 
 test("launcher stops waiting when the daemon closes the socket during configuration", async () => {
@@ -300,7 +300,7 @@ test("launcher stops waiting when the daemon closes the socket during configurat
     socketPath,
     validateCredential: () => true,
     runtime: {
-      configureWorkspaceWorker: async () => {},
+      configure: async () => {},
     },
     credentials: {
       async load() {

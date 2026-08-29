@@ -35,6 +35,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@coforge/agent": "0.1.0",
+        "@coforge/cli": "workspace:*",
         "@coforge/protocol": "workspace:*",
         "centrifuge": "5.2.1",
       },
@@ -100,6 +101,20 @@
         "@earendil-works/pi-coding-agent": "0.84.3",
       },
       "devDependencies": {
+        "@types/bun": "1.4.0",
+        "oxfmt": "0.65.0",
+        "oxlint": "1.80.0",
+        "typescript": "7.0.2",
+      },
+    },
+    "packages/cli": {
+      "name": "@coforge/cli",
+      "version": "0.1.0",
+      "bin": {
+        "coforge": "./src/cli.ts",
+      },
+      "devDependencies": {
+        "@coforge/protocol": "workspace:*",
         "@types/bun": "1.4.0",
         "oxfmt": "0.65.0",
         "oxlint": "1.80.0",
@@ -256,6 +271,8 @@
     "@bufbuild/protoplugin": ["@bufbuild/protoplugin@2.14.0", "", { "dependencies": { "@bufbuild/protobuf": "2.14.0", "@typescript/vfs": "^1.6.2", "typescript": "5.4.5" } }, "sha512-S0TvZhVtTEkZQRj2JsXBCXiib/b0+bLQtJCcn+hj9O/usgbcgxHn4D+ii22Ao3qj0/kKxVYeo7BtAI2dMk+iig=="],
 
     "@coforge/agent": ["@coforge/agent@workspace:packages/agent"],
+
+    "@coforge/cli": ["@coforge/cli@workspace:packages/cli"],
 
     "@coforge/computer": ["@coforge/computer@workspace:apps/coforge-computer"],
 

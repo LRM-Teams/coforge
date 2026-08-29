@@ -67,7 +67,7 @@ test("Claude Code maps stream-json turns behind the code-agent seam", async () =
     const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
 
-    await session.prompt("finish");
+    await session.sendMessage("finish");
     await waitForEvent(events, "completed");
     expect(events).toEqual([
       { type: "text-delta", text: "Claude response" },
@@ -101,16 +101,37 @@ test("Claude Code rejects overlapping turns and interrupts without replacing its
     const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
 
-    await session.prompt("wait");
-    await expect(session.prompt("overlap")).rejects.toThrow("already running");
+    await session.sendMessage("wait");
+    await expect(session.sendMessage("overlap")).rejects.toThrow("already running");
     await session.interrupt();
     await waitForEvent(events, "completed");
     expect(events.at(-1)).toEqual({ type: "completed", status: "interrupted" });
 
     events.length = 0;
-    await session.prompt("finish");
+    await session.sendMessage("finish");
     await waitForEvent(events, "completed");
     expect(events.at(-1)).toEqual({ type: "completed", status: "completed" });
+    await session.dispose();
+  } finally {
+    await rm(agentWorkspaceDirectory, { recursive: true, force: true });
+  }
+});
+
+test("Claude Code sends notifications through stream-json and rejects them while busy", async () => {
+  const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-notify-"));
+
+  try {
+    const session = await fixtureAdapter().start({ agentWorkspaceDirectory });
+    const events: AgentRuntimeEvent[] = [];
+    session.subscribe((event) => events.push(event));
+    await session.notify!("New message available. Run coforge message check.");
+    await waitForEvent(events, "completed");
+    expect(events.at(-1)).toEqual({ type: "completed", status: "completed" });
+
+    await session.sendMessage("wait");
+    await expect(
+      session.notify!("New message available. Run coforge message check."),
+    ).rejects.toThrow("already running");
     await session.dispose();
   } finally {
     await rm(agentWorkspaceDirectory, { recursive: true, force: true });
@@ -128,7 +149,7 @@ test("Claude Code rejects interrupt when the CLI exits after SIGINT", async () =
 
   const session = await adapter.start({ agentWorkspaceDirectory: tmpdir() });
   try {
-    await session.prompt("wait");
+    await session.sendMessage("wait");
     await expect(session.interrupt()).rejects.toThrow("exited unexpectedly");
   } finally {
     await session.dispose();

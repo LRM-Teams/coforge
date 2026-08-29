@@ -23,7 +23,11 @@ function handle(record: Record<string, unknown>): void {
   if (record.type === "user") {
     const message = record.message as Record<string, unknown>;
     if (message.content === "wait") return;
-    if (message.content !== "finish") return;
+    if (
+      message.content !== "finish" &&
+      message.content !== "New message available. Run coforge message check."
+    )
+      return;
     write({
       type: "stream_event",
       event: {

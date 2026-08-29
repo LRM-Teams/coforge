@@ -18,7 +18,7 @@ export class PrismaWorkspaceAccess implements WorkspaceAccess, QueryWorkspaceAcc
   constructor(private readonly db: PrismaClient) {}
   async findAccessibleBySlug(slug: string, principal: AuthenticatedPrincipal) {
     const row = await this.db.workspace.findFirst({
-      where: { slug, members: { some: { externalUserId: principal.userId } } },
+      where: { slug, members: { some: { userId: principal.userId } } },
       select: workspaceShape,
     });
     return row ? mapWorkspace(row) : undefined;
@@ -28,7 +28,7 @@ export class PrismaWorkspaceAccess implements WorkspaceAccess, QueryWorkspaceAcc
   }
   async listAccessible(principal: AuthenticatedPrincipal) {
     const rows = await this.db.workspace.findMany({
-      where: { members: { some: { externalUserId: principal.userId } } },
+      where: { members: { some: { userId: principal.userId } } },
       select: workspaceShape,
       orderBy: { slug: "asc" },
     });
@@ -49,9 +49,9 @@ export class PrismaComputerConnectionRepository implements ComputerConnectionRep
   }) {
     const computer = await this.db.computer.upsert({
       where: {
-        ownerUserId_machineId: { ownerUserId: principal.userId, machineId: request.machineId },
+        ownerId_machineId: { ownerId: principal.userId, machineId: request.machineId },
       },
-      create: { ownerUserId: principal.userId, machineId: request.machineId },
+      create: { ownerId: principal.userId, machineId: request.machineId },
       update: {},
     });
     await this.db.workspaceComputer.upsert({

@@ -1,4 +1,4 @@
-import { importJWK, SignJWT, type JWK } from "jose";
+import { importJWK, jwtVerify, SignJWT, type JWK } from "jose";
 
 import type { WorkspaceWorkerTokenIssuer } from "../computers/registration.server";
 
@@ -24,10 +24,8 @@ export function createWorkspaceWorkerTokenIssuer(
     async issue({ principal, workspaceId, computerId }) {
       keyPromise ??= importJWK(config.privateJwk, "EdDSA");
       return new SignJWT({
-        meta: {
-          workspace_id: workspaceId,
-          computer_id: computerId,
-        },
+        workspace_id: workspaceId,
+        computer_id: computerId,
       })
         .setProtectedHeader({ alg: "EdDSA", kid: config.keyId, typ: "JWT" })
         .setSubject(principal.userId)
@@ -38,6 +36,30 @@ export function createWorkspaceWorkerTokenIssuer(
         .setExpirationTime(`${config.lifetimeSeconds}s`)
         .sign(await keyPromise);
     },
+  };
+}
+
+/** Verify the bearer token supplied by the Centrifugo proxy. */
+export async function verifyWorkspaceWorkerToken(
+  token: string,
+  environment: Record<string, string | undefined> = process.env,
+): Promise<{ userId: string; workspaceId: string; computerId: string }> {
+  const config = readWorkerJwtConfig(environment);
+  const key = await importJWK(config.privateJwk, "EdDSA");
+  const { payload } = await jwtVerify(token, key, {
+    issuer: config.issuer,
+    audience: config.audience,
+  });
+  if (
+    typeof payload.sub !== "string" ||
+    typeof payload.workspace_id !== "string" ||
+    typeof payload.computer_id !== "string"
+  )
+    throw new Error("workspace worker JWT is missing identity claims");
+  return {
+    userId: payload.sub,
+    workspaceId: payload.workspace_id,
+    computerId: payload.computer_id,
   };
 }
 

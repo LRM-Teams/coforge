@@ -69,7 +69,7 @@ class CodexAgentSession implements CodeAgentSession {
     process.onRecord((record) => this.#accept(record));
   }
 
-  async prompt(text: string): Promise<void> {
+  async sendMessage(text: string): Promise<void> {
     if (this.#state.type !== "idle") throw new Error("code agent is already running");
     this.#state = { type: "starting", completedTurnIds: new Set() };
     let response: Readonly<Record<string, unknown>>;
@@ -94,6 +94,10 @@ class CodexAgentSession implements CodeAgentSession {
     this.#state = this.#state.completedTurnIds.has(turn.id)
       ? { type: "idle" }
       : { type: "running", turnId: turn.id };
+  }
+
+  async notify(notice: string): Promise<void> {
+    await this.sendMessage(notice);
   }
 
   subscribe(listener: (event: AgentRuntimeEvent) => void): () => void {

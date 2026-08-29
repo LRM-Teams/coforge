@@ -32,10 +32,8 @@ describe("Workspace Worker JWT", () => {
       },
     );
     expect(verified.payload.sub).toBe("user-1");
-    expect(verified.payload.meta).toEqual({
-      workspace_id: "workspace-1",
-      computer_id: "computer-1",
-    });
+    expect(verified.payload.workspace_id).toBe("workspace-1");
+    expect(verified.payload.computer_id).toBe("computer-1");
     expect(await workspaceWorkerJwks(environment)).toEqual({
       keys: [{ ...publicJwk, kid: "worker-key-1", alg: "EdDSA", use: "sig", key_ops: ["verify"] }],
     });

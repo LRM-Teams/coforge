@@ -108,6 +108,10 @@ instructions for the TanStack Start Web/backend modular monolith.
 
 ## Agent status and activity UI
 
+- `src/features/agents/agents.functions.ts` owns the authenticated Agent list/create seam;
+  server-side Agent persistence, start publication, and ready recovery remain under
+  `src/server/agents/` and `src/server/db/repositories/`.
+
 - Keep Agent status and activity separate. `agent:status` contains only
   `online` or `offline`; do not infer more statuses from activity text.
 - Render the fixed `agent:activity` fields `activity`, `level`, `message`, and

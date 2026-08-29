@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { NativeWorkspaceWorkerCredentialStore } from "../src/workspace-worker/credential-store";
+import { NativeDaemonCredentialStore } from "../src/credentials/credential-store";
 
 test("native Workspace Worker credential store delegates to the OS secret store", async () => {
   const calls: unknown[] = [];
@@ -16,7 +16,7 @@ test("native Workspace Worker credential store delegates to the OS secret store"
       return true;
     },
   };
-  const store = new NativeWorkspaceWorkerCredentialStore(secrets);
+  const store = new NativeDaemonCredentialStore(secrets);
 
   await store.save("workspace-a", "computer-a", "workspace-worker-secret");
   await expect(store.load("workspace-a", "computer-a")).resolves.toBe("workspace-worker-secret");
@@ -49,7 +49,7 @@ test("native Workspace Worker credential store delegates to the OS secret store"
 });
 
 test("native Workspace Worker credential store preserves secret-store failures", async () => {
-  const store = new NativeWorkspaceWorkerCredentialStore({
+  const store = new NativeDaemonCredentialStore({
     set: async () => {
       throw new Error("secret service unavailable");
     },

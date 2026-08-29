@@ -189,18 +189,18 @@ These instructions apply to the entire repository.
 - Users install only the Computer distribution. It must include the compatible Daemon payload; Daemon is not a second user-installed product or a public CLI entry point.
 - Never create `apps/workspace-worker`. A workspace worker is a supervised resident child-process role implemented and released inside `coforge-daemon`.
 - `coforge-computer` and `coforge-daemon` are independent OS processes. Their local control channel is a Unix domain socket, not a TCP management port.
-- One coforge-daemon manages zero or more workspace worker child processes; each workspace worker belongs to exactly one workspace.
-- `coforge-computer` does not maintain a long-lived cloud WebSocket. Each workspace worker owns exactly one long-lived WSS connection to the cloud; a machine with N bound Workspaces has N worker connections.
-- All Computer/Daemon business traffic to the cloud uses the versioned CoForge RPC over the worker WSS and Protobuf payloads. OAuth, installation, and release metadata are the only HTTPS exceptions. Do not add Computer/Daemon REST business endpoints.
+- One coforge-daemon owns one persisted daemon configuration and one cloud Workspace connection.
+- `coforge-computer` does not maintain a long-lived cloud WebSocket. The daemon owns exactly one long-lived WSS connection for its configured Workspace.
+- Server→Daemon delivery/control uses versioned CoForge RPC over the daemon WSS. Agent→Web message read/send uses the separately authorized HTTPS RPC and retries a stable `request_id`; OAuth, installation, and release metadata are the other HTTPS exceptions. Do not add unrelated Computer/Daemon REST business endpoints.
 - Workspace workers adapt Codex, Claude Code, Pi, and other code-agent runtimes through provider-neutral code-agent adapters. Each adapter may use an officially supported native protocol, SDK child runner, or ACP; higher layers must not parse provider-specific output.
 - Caddy owns public TLS and edge proxying. Standalone Centrifugo OSS owns WSS/RPC transport mechanics only. Web/backend owns authentication, conversations, persistence, and routing decisions.
 - PostgreSQL is accessed through Web/backend. Centrifugo must not acquire domain or database ownership.
-- Redis is Centrifugo broker/presence/hot-history state only. PostgreSQL plus each workspace worker's durable spool remain the canonical durability and replay boundary.
+- Redis is Centrifugo broker/presence/hot-history state plus Web message-request idempotency state. PostgreSQL canonical Message/read state is the message recovery boundary; the existing daemon durable spool is only for status/activity replay.
 - Do not reintroduce the removed custom Go realtime-gateway, add Fiber, or embed Centrifuge as a production path.
-- Delivery is at-least-once and idempotent: a canonical message plus per-Agent delivery ledger is the durable model. An ACK means the local workspace worker accepted responsibility, not that an Agent run finished.
-- Do not ACK a cloud delivery until the workspace worker has durably accepted local responsibility. Outbound Agent messages must also be locally retryable and server-idempotent across reconnects.
+- The current MVP has no local durable message inbox/outbox and no complete per-Agent delivery ledger. ACK only after `CodeAgentSession`/`notify` successfully accepts the attention; ACK does not mean the Agent run finished.
+- Recover lost volatile attention from cloud canonical Message/read boundaries. Agent→Web read/send uses the independent HTTPS RPC and retries the same `request_id`; do not route it through WSS.
 - Do not introduce a database command mailbox, claim/lease workflow, or treat a connection-local WebSocket outbox as durable storage without a new recorded architecture decision.
-- The MVP is message-centric private/group chat. Do not make commands, generic jobs, workflows, or run/event persistence part of the core model without a recorded decision.
+- The MVP is message-centric private direct chat; group chat is not implemented yet. Do not make commands, generic jobs, workflows, or run/event persistence part of the core model without a recorded decision.
 
 ## Dependency and security rules
 

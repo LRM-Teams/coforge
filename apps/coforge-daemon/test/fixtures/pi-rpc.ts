@@ -56,7 +56,10 @@ function handle(command: { id: string; type: string; message?: string }): void {
       type: "message_update",
       assistantMessageEvent: { type: "text_delta", delta: "Pi response" },
     });
-    if (command.message === "finish") {
+    if (
+      command.message === "finish" ||
+      command.message === "New message available. Run coforge message check."
+    ) {
       write({
         type: "tool_execution_start",
         timestamp: 1733234567890,

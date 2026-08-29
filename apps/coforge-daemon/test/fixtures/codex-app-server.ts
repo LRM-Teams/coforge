@@ -79,7 +79,10 @@ function handle(request: Request): void {
       method: "item/agentMessage/delta",
       params: { turnId, itemId: "message-1", delta: "Codex response" },
     });
-    if (textInput(request.params) === "finish") {
+    if (
+      textInput(request.params) === "finish" ||
+      textInput(request.params) === "New message available. Run coforge message check."
+    ) {
       write({
         method: "item/started",
         timestamp: "2026-01-02T03:04:05.000Z",

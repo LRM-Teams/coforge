@@ -102,3 +102,38 @@ message LocalRpcResponse {
   string method = 1;
   bytes payload = 2;
 }
+
+message LocalAgentMessageRequest {
+  string request_id = 1;
+  string context = 2;
+  string operation = 3;
+  string target = 4;
+  string body = 5;
+}
+
+message AgentMessageRecord {
+  string id = 1;
+  uint64 sequence = 2;
+  string sender = 3;
+  string target = 4;
+  string body = 5;
+  string created_at = 6;
+}
+
+message MessageAttentionSummary {
+  string target = 1;
+  uint32 pending_count = 2;
+  uint64 first_pending_sequence = 3;
+  uint64 latest_sequence = 4;
+  optional string latest_sender = 5;
+  repeated string flags = 6;
+}
+
+message AgentMessageResponse {
+  string request_id = 1;
+  bool accepted = 2;
+  uint32 attention_count = 3;
+  repeated AgentMessageRecord messages = 4;
+  string message_id = 5;
+  repeated MessageAttentionSummary summaries = 6;
+}

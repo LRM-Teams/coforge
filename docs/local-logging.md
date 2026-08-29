@@ -4,7 +4,7 @@
 
 更新时间：2026-08-27
 
-本文定义 `coforge-computer`、`coforge-daemon`、workspace worker 和 Agent runtime process 的本地诊断日志。日志是可删除的运行诊断数据，不是消息、delivery、授权或审计的 canonical source of truth。
+本文定义 `coforge-computer`、`coforge-daemon`、daemon 和 Agent runtime process 的本地诊断日志。日志是可删除的运行诊断数据，不是消息、delivery、授权或审计的 canonical source of truth。
 
 ## 1. 框架选择
 
@@ -20,14 +20,13 @@ LogTape 的社区规模小于传统 Node.js logger，但当前需求直接使用
 
 ## 2. 进程和日志命名
 
-| 名称 | 软件角色 | 日志中的 `process_role` |
-| --- | --- | --- |
-| `coforge-computer` | 用户安装入口和 machine-level supervisor application | `computer` |
-| `coforge-daemon` | OS/Computer 托管的唯一 supervisor daemon | `supervisor` |
-| workspace worker | daemon 监督、一个逻辑 Workspace 一个实例的常驻子进程 | `workspace-worker` |
-| Agent runtime process | workspace worker 启动并跨 prompt 复用的 provider execution process | `agent-runtime` |
+| 名称                  | 软件角色                                                 | 日志中的 `process_role` |
+| --------------------- | -------------------------------------------------------- | ----------------------- |
+| `coforge-computer`    | 用户安装入口和 machine-level supervisor application      | `computer`              |
+| `coforge-daemon`      | OS/Computer 托管的唯一 daemon                            | `daemon`                |
+| Agent runtime process | daemon 启动并跨 prompt 复用的 provider execution process | `agent-runtime`         |
 
-`computer` 是本地产品入口，不称为 daemon；`daemon` 只用于被 Computer/OS 管理的后台服务，不再用于 workspace 子进程；“resident”只描述生命周期，不是进程类型；`Agent` 是产品中的逻辑协作者，不可用来指代 OS 进程。
+`computer` 是本地产品入口；`daemon` 只用于后台服务；`Agent` 是产品中的逻辑协作者，不可用来指代 OS 进程。
 
 ## 3. 本地目录和分类
 
@@ -39,14 +38,14 @@ CoForge data directory 和 `logs/` 权限必须限制为当前用户，Unix mode
 
 每个 hierarchical category 写独立 LogTape rotating file sink；业务模块只取得 category logger，不直接配置 sink。Computer 和 Daemon 分别拥有自己的 sink，不允许两个 OS 进程并发 append 同一个文件：
 
-| Owner / category | Dedicated directory and files | 内容 |
-| --- | --- | --- |
-| Computer / `coforge.computer` | `computer/computer.jsonl[.1…5]` | install/upgrade、interactive command lifecycle、daemon start/stop 和 health observation |
-| Computer / `coforge.computer.security` | `computer/security.jsonl[.1…5]` | login、credential-store、local control authorization 和 policy violation |
-| Daemon / `coforge.daemon` | `daemon/daemon.jsonl[.1…5]` | supervisor lifecycle、配置加载结果、worker reconciliation、Agent capacity 与 Runtime lease 事件 |
-| Daemon / `coforge.daemon.security` | `daemon/security.jsonl[.1…5]` | workspace/Agent authorization、credential boundary 和 policy violation |
-| Daemon / `coforge.workspace` | `daemon/workspace-worker.jsonl[.1…5]` | worker lifecycle、WSS/reconnect、delivery accept/replay 和本地 spool 状态 |
-| Daemon / `coforge.agent` | `daemon/agent-runtime.jsonl[.1…5]` | Agent runtime process lifecycle、provider handshake、skills discovery、interrupt 和退出状态 |
+| Owner / category                       | Dedicated directory and files      | 内容                                                                                        |
+| -------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------- |
+| Computer / `coforge.computer`          | `computer/computer.jsonl[.1…5]`    | install/upgrade、interactive command lifecycle、daemon start/stop 和 health observation     |
+| Computer / `coforge.computer.security` | `computer/security.jsonl[.1…5]`    | login、credential-store、local control authorization 和 policy violation                    |
+| Daemon / `coforge.daemon`              | `daemon/daemon.jsonl[.1…5]`        | supervisor lifecycle、配置加载结果、Agent runtime lifecycle 事件                            |
+| Daemon / `coforge.daemon.security`     | `daemon/security.jsonl[.1…5]`      | workspace/Agent authorization、credential boundary 和 policy violation                      |
+| Daemon / `coforge.workspace`           | `daemon/workspace.jsonl[.1…5]`     | Workspace lifecycle、WSS/reconnect、delivery accept/replay 和本地 spool 状态                |
+| Daemon / `coforge.agent`               | `daemon/agent-runtime.jsonl[.1…5]` | Agent runtime process lifecycle、provider handshake、skills discovery、interrupt 和退出状态 |
 
 所有 workspace 和 Agent 共用固定分类，通过稳定 id 关联；不得按 workspace/Agent 动态创建无上限目录或 sink。Computer 与 Daemon 通过 `machine_id`、`workspace_id` 和 `request_id` 关联记录，不通过共写文件关联。每个 process directory 只包含该进程拥有的日志，retention cleanup 不得影响另一进程或无关文件。
 
@@ -62,12 +61,12 @@ CoForge data directory 和 `logs/` 权限必须限制为当前用户，Unix mode
   "event": "agent_runtime:started",
   "service": "coforge-daemon",
   "version": "0.1.0",
-  "process_role": "workspace-worker",
+  "process_role": "daemon",
   "pid": 1234
 }
 ```
 
-可选关联字段使用稳定名称：`machine_id`、`workspace_id`、`agent_id`、`runtime_id`、`provider`、`delivery_id`、`client_message_id`、`request_id`、`attempt`、`duration_ms`、`exit_code` 和 `signal`。缺失值省略，不写 `null` 占位。异常只保存稳定 `error_code`、安全的 `error_message` 和必要 stack；跨进程原始 envelope 不直接展开进 record。
+可选关联字段使用稳定名称：`machine_id`、`workspace_id`、`agent_id`、`runtime_id`、`provider`、`delivery_id`、`request_id`、`attempt`、`duration_ms`、`exit_code` 和 `signal`。缺失值省略，不写 `null` 占位。异常只保存稳定 `error_code`、安全的 `error_message` 和必要 stack；跨进程原始 envelope 不直接展开进 record。
 
 event 使用低基数、过去式的 `namespace:action` name，例如 `daemon:started`、`workspace_worker:restarted`、`agent_runtime:skills_loaded`。动态 id、provider error text 和路径不得拼入 event name。
 

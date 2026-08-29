@@ -5,6 +5,7 @@ export const DEV_BROWSER_USER: BrowserUser = {
   email: "dev@coforge.local",
   name: "Dev User",
   authingSub: "dev-skip-auth",
+  username: "dev-user",
 };
 
 export function isDevSkipAuthEnabled(env: NodeJS.ProcessEnv = process.env): boolean {

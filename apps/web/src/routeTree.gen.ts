@@ -14,13 +14,19 @@ import { Route as HealthRouteImport } from './routes/health'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppComputersRouteImport } from './routes/_app/computers'
+import { Route as AppMessagesRouteImport } from './routes/_app/messages'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as ApiAgentApiKeysRouteImport } from './routes/api/agent-api-keys'
+import { Route as ApiAgentMessagesRouteImport } from './routes/api/agent-messages'
 import { Route as ApiJwksRouteImport } from './routes/api/jwks'
 import { Route as ApiMeRouteImport } from './routes/api/me'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AuthLogoutRouteImport } from './routes/auth/logout'
+import { Route as AppMessagesIndexRouteImport } from './routes/_app/messages.index'
+import { Route as AppMessagesAgentIdRouteImport } from './routes/_app/messages.$agentId'
 import { Route as ApiInternalCentrifugoRouteImport } from './routes/api/internal/centrifugo'
+import { Route as ApiInternalCentrifugoAgentActivityRouteImport } from './routes/api/internal/centrifugo-agent-activity'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -46,10 +52,25 @@ const AppComputersRoute = AppComputersRouteImport.update({
   path: '/computers',
   getParentRoute: () => AppRoute,
 } as any)
+const AppMessagesRoute = AppMessagesRouteImport.update({
+  id: '/messages',
+  path: '/messages',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
   getParentRoute: () => AppRoute,
+} as any)
+const ApiAgentApiKeysRoute = ApiAgentApiKeysRouteImport.update({
+  id: '/api/agent-api-keys',
+  path: '/api/agent-api-keys',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentMessagesRoute = ApiAgentMessagesRouteImport.update({
+  id: '/api/agent-messages',
+  path: '/api/agent-messages',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiJwksRoute = ApiJwksRouteImport.update({
   id: '/api/jwks',
@@ -76,37 +97,64 @@ const AuthLogoutRoute = AuthLogoutRouteImport.update({
   path: '/auth/logout',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppMessagesIndexRoute = AppMessagesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppMessagesRoute,
+} as any)
+const AppMessagesAgentIdRoute = AppMessagesAgentIdRouteImport.update({
+  id: '/$agentId',
+  path: '/$agentId',
+  getParentRoute: () => AppMessagesRoute,
+} as any)
 const ApiInternalCentrifugoRoute = ApiInternalCentrifugoRouteImport.update({
   id: '/api/internal/centrifugo',
   path: '/api/internal/centrifugo',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiInternalCentrifugoAgentActivityRoute =
+  ApiInternalCentrifugoAgentActivityRouteImport.update({
+    id: '/api/internal/centrifugo-agent-activity',
+    path: '/api/internal/centrifugo-agent-activity',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/computers': typeof AppComputersRoute
+  '/messages': typeof AppMessagesRouteWithChildren
   '/settings': typeof AppSettingsRoute
+  '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
+  '/api/agent-messages': typeof ApiAgentMessagesRoute
   '/api/jwks': typeof ApiJwksRoute
   '/api/me': typeof ApiMeRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
+  '/messages/$agentId': typeof AppMessagesAgentIdRoute
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
+  '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
+  '/messages/': typeof AppMessagesIndexRoute
 }
 export interface FileRoutesByTo {
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/computers': typeof AppComputersRoute
   '/settings': typeof AppSettingsRoute
+  '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
+  '/api/agent-messages': typeof ApiAgentMessagesRoute
   '/api/jwks': typeof ApiJwksRoute
   '/api/me': typeof ApiMeRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
   '/': typeof AppIndexRoute
+  '/messages/$agentId': typeof AppMessagesAgentIdRoute
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
+  '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
+  '/messages': typeof AppMessagesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -114,14 +162,20 @@ export interface FileRoutesById {
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/_app/computers': typeof AppComputersRoute
+  '/_app/messages': typeof AppMessagesRouteWithChildren
   '/_app/settings': typeof AppSettingsRoute
+  '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
+  '/api/agent-messages': typeof ApiAgentMessagesRoute
   '/api/jwks': typeof ApiJwksRoute
   '/api/me': typeof ApiMeRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/messages/$agentId': typeof AppMessagesAgentIdRoute
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
+  '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
+  '/_app/messages/': typeof AppMessagesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -130,52 +184,72 @@ export interface FileRouteTypes {
     | '/health'
     | '/login'
     | '/computers'
+    | '/messages'
     | '/settings'
+    | '/api/agent-api-keys'
+    | '/api/agent-messages'
     | '/api/jwks'
     | '/api/me'
     | '/auth/callback'
     | '/auth/login'
     | '/auth/logout'
+    | '/messages/$agentId'
     | '/api/internal/centrifugo'
+    | '/api/internal/centrifugo-agent-activity'
+    | '/messages/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/health'
     | '/login'
     | '/computers'
     | '/settings'
+    | '/api/agent-api-keys'
+    | '/api/agent-messages'
     | '/api/jwks'
     | '/api/me'
     | '/auth/callback'
     | '/auth/login'
     | '/auth/logout'
     | '/'
+    | '/messages/$agentId'
     | '/api/internal/centrifugo'
+    | '/api/internal/centrifugo-agent-activity'
+    | '/messages'
   id:
     | '__root__'
     | '/_app'
     | '/health'
     | '/login'
     | '/_app/computers'
+    | '/_app/messages'
     | '/_app/settings'
+    | '/api/agent-api-keys'
+    | '/api/agent-messages'
     | '/api/jwks'
     | '/api/me'
     | '/auth/callback'
     | '/auth/login'
     | '/auth/logout'
     | '/_app/'
+    | '/_app/messages/$agentId'
     | '/api/internal/centrifugo'
+    | '/api/internal/centrifugo-agent-activity'
+    | '/_app/messages/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   HealthRoute: typeof HealthRoute
   LoginRoute: typeof LoginRoute
+  ApiAgentApiKeysRoute: typeof ApiAgentApiKeysRoute
+  ApiAgentMessagesRoute: typeof ApiAgentMessagesRoute
   ApiJwksRoute: typeof ApiJwksRoute
   ApiMeRoute: typeof ApiMeRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthLogoutRoute: typeof AuthLogoutRoute
   ApiInternalCentrifugoRoute: typeof ApiInternalCentrifugoRoute
+  ApiInternalCentrifugoAgentActivityRoute: typeof ApiInternalCentrifugoAgentActivityRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -215,12 +289,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppComputersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/messages': {
+      id: '/_app/messages'
+      path: '/messages'
+      fullPath: '/messages'
+      preLoaderRoute: typeof AppMessagesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings': {
       id: '/_app/settings'
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/api/agent-api-keys': {
+      id: '/api/agent-api-keys'
+      path: '/api/agent-api-keys'
+      fullPath: '/api/agent-api-keys'
+      preLoaderRoute: typeof ApiAgentApiKeysRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent-messages': {
+      id: '/api/agent-messages'
+      path: '/api/agent-messages'
+      fullPath: '/api/agent-messages'
+      preLoaderRoute: typeof ApiAgentMessagesRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/jwks': {
       id: '/api/jwks'
@@ -257,6 +352,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLogoutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/messages/': {
+      id: '/_app/messages/'
+      path: '/'
+      fullPath: '/messages/'
+      preLoaderRoute: typeof AppMessagesIndexRouteImport
+      parentRoute: typeof AppMessagesRoute
+    }
+    '/_app/messages/$agentId': {
+      id: '/_app/messages/$agentId'
+      path: '/$agentId'
+      fullPath: '/messages/$agentId'
+      preLoaderRoute: typeof AppMessagesAgentIdRouteImport
+      parentRoute: typeof AppMessagesRoute
+    }
     '/api/internal/centrifugo': {
       id: '/api/internal/centrifugo'
       path: '/api/internal/centrifugo'
@@ -264,17 +373,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiInternalCentrifugoRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/internal/centrifugo-agent-activity': {
+      id: '/api/internal/centrifugo-agent-activity'
+      path: '/api/internal/centrifugo-agent-activity'
+      fullPath: '/api/internal/centrifugo-agent-activity'
+      preLoaderRoute: typeof ApiInternalCentrifugoAgentActivityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
+interface AppMessagesRouteChildren {
+  AppMessagesAgentIdRoute: typeof AppMessagesAgentIdRoute
+  AppMessagesIndexRoute: typeof AppMessagesIndexRoute
+}
+
+const AppMessagesRouteChildren: AppMessagesRouteChildren = {
+  AppMessagesAgentIdRoute: AppMessagesAgentIdRoute,
+  AppMessagesIndexRoute: AppMessagesIndexRoute,
+}
+
+const AppMessagesRouteWithChildren = AppMessagesRoute._addFileChildren(
+  AppMessagesRouteChildren,
+)
+
 interface AppRouteChildren {
   AppComputersRoute: typeof AppComputersRoute
+  AppMessagesRoute: typeof AppMessagesRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppComputersRoute: AppComputersRoute,
+  AppMessagesRoute: AppMessagesRouteWithChildren,
   AppSettingsRoute: AppSettingsRoute,
   AppIndexRoute: AppIndexRoute,
 }
@@ -285,12 +417,16 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   HealthRoute: HealthRoute,
   LoginRoute: LoginRoute,
+  ApiAgentApiKeysRoute: ApiAgentApiKeysRoute,
+  ApiAgentMessagesRoute: ApiAgentMessagesRoute,
   ApiJwksRoute: ApiJwksRoute,
   ApiMeRoute: ApiMeRoute,
   AuthCallbackRoute: AuthCallbackRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthLogoutRoute: AuthLogoutRoute,
   ApiInternalCentrifugoRoute: ApiInternalCentrifugoRoute,
+  ApiInternalCentrifugoAgentActivityRoute:
+    ApiInternalCentrifugoAgentActivityRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

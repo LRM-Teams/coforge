@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { LocalDaemonLauncher } from "./launcher";
-import type { DaemonLauncher, DaemonStopper, WorkspaceWorkerConfig } from "./launcher";
+import type { DaemonLauncher, DaemonStopper, DaemonWorkspaceConfig } from "./launcher";
 
 type CommandRunner = (command: string[]) => Promise<number>;
 
@@ -47,7 +47,7 @@ export class SystemdUserDaemonHost implements DaemonLauncher, DaemonStopper {
     });
   }
 
-  async ensureStarted(config: WorkspaceWorkerConfig): Promise<void> {
+  async ensureStarted(config: DaemonWorkspaceConfig): Promise<void> {
     await this.#writeFile(this.#unitPath, this.#unit);
     await this.#run(["systemctl", "--user", "daemon-reload"]);
     await this.#run(["systemctl", "--user", "enable", "coforge-daemon.service"]);

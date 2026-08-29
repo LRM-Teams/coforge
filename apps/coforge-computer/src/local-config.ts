@@ -12,6 +12,7 @@ export interface ComputerConfig {
   loadCurrentProfile(): Promise<CurrentProfile>;
   saveWorkspace(workspace: WorkspaceSelection): Promise<string>;
   saveRegistration?(registration: RegisteredWorkspaceConnection): Promise<string>;
+  loadRegistration?(): Promise<RegisteredWorkspaceConnection | null>;
   discardRegistration(registration: RegisteredWorkspaceConnection): Promise<void>;
 }
 
@@ -40,8 +41,7 @@ export class FileComputerConfig implements ComputerConfig {
   }
 
   async saveRegistration(registration: RegisteredWorkspaceConnection): Promise<string> {
-    const directoryName = Buffer.from(registration.id, "utf8").toString("base64url");
-    const configPath = join(this.directory, "workspaces", directoryName, "config.json");
+    const configPath = join(this.directory, "workspace", "config.json");
     await writeJson(configPath, {
       workspace_id: registration.id,
       computer_id: registration.computerId,
@@ -49,12 +49,22 @@ export class FileComputerConfig implements ComputerConfig {
     return configPath;
   }
 
+  async loadRegistration(): Promise<RegisteredWorkspaceConnection | null> {
+    try {
+      const value = JSON.parse(
+        await readFile(join(this.directory, "workspace", "config.json"), "utf8"),
+      ) as Record<string, unknown>;
+      if (typeof value.workspace_id !== "string" || typeof value.computer_id !== "string")
+        return null;
+      return { id: value.workspace_id, slug: value.workspace_id, computerId: value.computer_id };
+    } catch {
+      return null;
+    }
+  }
+
   async discardRegistration(registration: RegisteredWorkspaceConnection): Promise<void> {
-    // Registration files are written atomically. A future credential-backed
-    // implementation may replace this with an atomic transaction/rollback.
-    const { rm } = await import("node:fs/promises");
-    const directoryName = Buffer.from(registration.id, "utf8").toString("base64url");
-    await rm(join(this.directory, "workspaces", directoryName), { recursive: true, force: true });
+    // Kept as a compatibility no-op. Switching never deletes prior local state.
+    void registration;
   }
 }
 

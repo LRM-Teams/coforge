@@ -1,11 +1,12 @@
 # CoForge database schema
 
-Status: approved setup identity schema plus discussion draft messaging schema
+Status: approved setup identity schema plus approved DirectConversation MVP slice
 
 Database: PostgreSQL 16+
 
-This schema models direct messages and group chats with the same conversation,
-participant, and message tables. It intentionally keeps Agent execution
+This schema currently models only User↔Agent direct messages. Group chat is
+explicitly deferred and has no database kind, role, or broadcast fields. It
+intentionally keeps Agent execution
 `run`/`event` data out of the messaging core.
 
 ## Implementation contract
@@ -47,7 +48,19 @@ apps/web/
 
 ### Approved setup identity models
 
-Setup persistence consists of exactly four PostgreSQL models: `Workspace`,
+`User` is the internal business subject with a stable UUID and required unique
+internal `username`. Public user targets are `@${User.username}`; provider
+subjects are never usernames. Existing users are deterministically backfilled
+as `user-` plus the full hyphenless UUID. On first identity creation a valid
+Authing `preferred_username` is preferred; otherwise the backend derives a
+normalized email local-part with a stable suffix from the already-generated
+User UUID. The username is not changed by later logins. `UserIdentity` maps
+an external provider and subject to that User; provider subjects are never
+business foreign keys. Membership, Agent ownership, and Computer ownership use
+the internal User UUID. Existing rows are backfilled by the migration before
+the legacy external column is removed.
+
+Setup persistence consists of `User`, `UserIdentity`, `Workspace`,
 `WorkspaceMembership`, `Computer`, and `WorkspaceComputer`. `WorkspaceComputer`
 is the durable binding and contains the workspace/computer foreign keys. Its
 database `id` is an internal storage primary key; the business identity is the
@@ -55,6 +68,12 @@ composite `(workspaceId, computerId)` key. That unique constraint makes
 repeated setup converge on the same binding. There is no registration-idempotency table, token hash, or
 temporary registration state. JWTs are stateless: every authorized retry may
 issue a fresh worker JWT for the existing binding.
+
+`AgentApiKey` stores only the SHA-256 `apiKeyHash` plus its Agent, Workspace,
+owner, and Computer binding; plaintext `sk_agent_...` values are returned once
+and never persisted. Key creation locks the owning Agent row with PostgreSQL
+`FOR UPDATE`, revokes all active keys for that Agent, and inserts the replacement
+inside one transaction. Exact-key revocation remains idempotent.
 
 The repository must use database `upsert` operations and explicit unique-conflict
 handling, never placeholder UUID rows. Concurrent requests may both reach the
@@ -71,15 +90,12 @@ erDiagram
     MESSAGE ||--o{ MESSAGE_ATTACHMENT : has
     MESSAGE ||--o{ MESSAGE_REACTION : receives
     CONVERSATION_PARTICIPANT ||--o{ MESSAGE_REACTION : creates
-    MESSAGE ||--o{ AGENT_MESSAGE_DELIVERY : targets
 ```
 
-### `conversation`
+### `conversation` (DirectConversation only)
 
-One row represents either a direct conversation (`kind = direct`) or a group
-conversation (`kind = group`). `next_message_seq` allocates a monotonically
-increasing sequence inside the conversation. Clients paginate and maintain read
-watermarks by this sequence rather than by timestamps.
+One row represents a User↔Agent direct conversation. `directKey` is unique per
+workspace and derived from the two stable subject UUIDs in lexical order.
 
 For a direct conversation, the service derives `direct_key` from the two
 normalized subjects in stable lexical order. A suitable input is
@@ -89,12 +105,18 @@ DM converge on one conversation, including when it has been archived. The
 service should reopen that canonical DM instead of creating a second history.
 Group conversations have a null `direct_key`.
 
-### `conversation_participant`
+### `conversation_member`
 
-A subject is currently either a workspace member or an Agent. A participant row
-is retained when someone leaves or is removed, so old sender and read-state
-references remain valid. Rejoining changes `state` back to `active` rather than
-inserting another row.
+A subject is either a User or an Agent through real nullable foreign keys, with a
+database XOR check. The MVP creates exactly two members and validates both
+workspace membership and Agent ownership before creation.
+
+The database also carries `workspaceId` on the member and enforces composite
+foreign keys to `(Conversation.id, Conversation.workspaceId)` and
+`(Agent.id, Agent.workspaceId)`. Prisma represents these relations; the XOR
+condition itself is PostgreSQL-only because Prisma schema relations cannot
+express a `CHECK` constraint. The migration is therefore the source of truth
+for `ConversationMember_subject_check`.
 
 `last_read_seq` is the scalable default for read receipts: every message at or
 below the watermark is read. It avoids one receipt row per person per group
@@ -103,17 +125,30 @@ requires them.
 
 Application invariants:
 
-- a direct conversation must have exactly two active participants;
-- a group must have at least one active owner;
-- only active participants may send new messages;
-- participant subjects must belong to the same workspace as the conversation.
+- a direct conversation must have exactly two members, one User and one Agent;
+- only conversation members may send new messages;
+- member subjects must belong to the same workspace as the conversation;
+- group conversations are not implemented in this MVP.
 
 ### `message`
 
-`message` is the canonical, durable chat record. `client_message_id` provides
-idempotency for client retries. `seq` is assigned atomically from the owning
-conversation. A soft-deleted message keeps its identity and sequence so replies,
-pagination, and delivery rows do not break.
+`Message` is the canonical, durable chat record. Its current columns include
+`id`, `conversationId`, `workspaceId`, `senderMemberId`, `body`, `sequence`, and
+`createdAt`; it has no client-request identifier or database uniqueness
+constraint for send idempotency. `sequence` is assigned atomically within the
+owning conversation and is unique with `conversationId`.
+
+Agent→Web send retries carry a stable `request_id`. For the MVP, Web keeps the
+request result in bounded, expiring Redis idempotency state and returns that
+same result when the same authorized sender retries the request. Redis loss may
+lose this short-term deduplication state; PostgreSQL does not persist
+`request_id`, and this decision does not add a Prisma model, column, migration,
+or unique constraint for request idempotency.
+
+The MVP stores `workspaceId` on each message solely to support composite foreign
+keys: both its conversation and its sender member must have that workspace and
+the sender member must therefore belong to that conversation. This is a
+database integrity field, not a second application tenancy concept.
 
 The baseline supports text/Markdown in `body_text` and structured messages in
 `body_json`. Attachments store metadata and an object-storage key, never the
@@ -161,62 +196,45 @@ the committed message and requester visibility. Neither adapter may persist its
 returned bearer URL, and a content replacement receives a new `attachment_id`
 and object key rather than overwriting the object behind an existing row.
 
-### `agent_message_delivery`
+### Agent attention and recovery
 
-This is the per-Agent delivery ledger for canonical messages. It is not a
-command mailbox and it has no claim or lease fields.
-
-Each targeted Agent receives one row with a database-assigned `seq`. PostgreSQL
-uses one identity sequence for all deliveries, so concurrent inserts do not
-collide and no counter table or row lock is needed. Gaps are valid; each Agent's
-subset remains monotonic and can be replayed in `seq` order. After commit, the
-backend may offer the delivery to an online workspace worker. The worker
-returns a durable-accept response only after it has inserted the delivery
-into its local durable inbox, or confirmed that the same `delivery_id` is
-already there. The exact response method and envelope remain gated by the
-separate wire-protocol approval. ACK therefore means **durably accepted by the
-local runtime**, not **Agent run completed** or handed to ACP.
-
-The server accepts an ACK only when workspace, Agent, delivery ID, and sequence
-match, then sets `acked_at`. On reconnect or retry it resends unacknowledged rows
-with their original sequence. The local durable inbox uniquely constrains
-`delivery_id`, turning a repeated offer into an idempotent no-op before ACK. A
-WebSocket connection outbox remains an in-memory write queue and is not
-represented by a database table.
-
-The local inbox/outbox schema is intentionally deferred to a later discussion;
-it is not part of this cloud data-model draft.
+The current MVP has no complete per-Agent delivery-ledger table and no local
+durable message inbox/outbox. The canonical `Message` plus each conversation
+member's read boundary is the recovery model. A daemon ACK means only that
+`CodeAgentSession`/`notify` successfully accepted the volatile attention; it
+does not mean an Agent run completed. Agent read/send uses the independent
+HTTPS RPC, and a logical send retries the same `request_id` after an uncertain
+result. The daemon's existing status/activity spool is separate from message
+delivery and is not changed by this decision.
 
 ## Atomic write paths
 
 ### Send a canonical message
 
-1. Start a transaction and lock the conversation row.
-2. Verify the sender is an active participant.
-3. Read and increment `conversation.next_message_seq` with `UPDATE ... RETURNING`.
-4. Insert `message`, treating a duplicate `(sender_participant_id,
-   client_message_id)` as an idempotent retry.
-5. Insert one `agent_message_delivery` per targeted Agent; PostgreSQL assigns
-   each row's delivery sequence.
-6. Commit, then attempt online WebSocket delivery. Failed or skipped sends remain
-   discoverable as `acked_at IS NULL`.
+1. Check or reserve the authorized sender's stable `request_id` in the bounded,
+   expiring Redis idempotency state; return its stored result on a retry.
+2. Verify that the sender is one of the User↔Agent direct conversation's two
+   members.
+3. Start a transaction, lock the conversation row, read the current maximum
+   `Message.sequence`, and allocate the next value.
+4. Insert `Message`; there is no
+   database request-id uniqueness check.
+5. Commit and record the result for `request_id` in Redis, then publish a
+   volatile attention to the targeted online Agent.
+   Missed attention is recovered from canonical Message/read state, not a
+   delivery-ledger row.
 
-Example message-sequence allocation:
-
-```sql
-UPDATE conversation
-SET next_message_seq = next_message_seq + 1,
-    updated_at = now()
-WHERE workspace_id = $1 AND id = $2
-RETURNING next_message_seq - 1 AS seq;
-```
+The current sequence allocator serializes writers by locking the conversation
+row before reading `MAX(Message.sequence) + 1`. `Conversation` has no stored
+next-sequence counter; `(conversationId, sequence)` is the database uniqueness
+constraint.
 
 ### Create or find a direct conversation
 
-Insert `conversation(kind = 'direct', direct_key = ...)` and its two participant
-rows in one transaction. On a unique-key conflict, select the existing canonical
-conversation by `(workspace_id, direct_key)`. The service must prevent a member
-or Agent from opening a DM with itself unless that becomes an explicit feature.
+Insert `Conversation(workspaceId, directKey)` and its User and Agent
+`ConversationMember` rows. On a unique-key conflict, select the existing
+canonical conversation by `(workspaceId, directKey)`. There is no conversation
+kind column because the current schema supports only User↔Agent direct chat.
 
 ## Identity boundaries
 
@@ -231,16 +249,14 @@ constrained now.
 - Use keyset pagination on `(conversation_id, seq)`; do not use timestamp offset
   pagination for message history.
 - Query inbox membership through the active-participant partial index.
-- Query pending Agent delivery through `(workspace_id, agent_id, seq) WHERE
-  acked_at IS NULL`.
-- Keep canonical messages and delivery rows long enough to satisfy replay and
-  audit requirements. If hard deletion is required, delete delivery, reaction,
+- Keep canonical messages long enough to satisfy read-boundary recovery and
+  audit requirements. If hard deletion is required, delete reaction,
   attachment, and message data as one explicit retention workflow.
 - Treat `body_json` as versioned application data. Do not use it as a substitute
   for columns needed by relational filters or integrity rules.
 
-The messaging table design remains a discussion draft and is not included in the
-setup migration. Setup-owned identity and Workspace connection tables are
+The DirectConversation, ConversationMember, and Message tables are included in
+the `20260828000003_direct_conversations` migration. Setup-owned identity and Workspace connection tables are
 implemented separately under `apps/web/prisma/schema.prisma` and its migration.
 The project-level data-access choice is recorded in
 [`ADR 0003`](adr/0003-prisma-as-postgresql-data-access.md): approved

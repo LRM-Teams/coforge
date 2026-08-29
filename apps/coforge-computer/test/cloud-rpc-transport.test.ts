@@ -6,7 +6,6 @@ import {
   cloudWebSocketEndpoint,
   type CentrifugeClient,
   type CentrifugeFactory,
-  UnconfiguredComputerWorkspaceRpcTransport,
 } from "../src/cloud-rpc-transport";
 
 const request = {
@@ -130,24 +129,4 @@ test("cloud websocket endpoint uses the Centrifugo websocket path", () => {
   expect(cloudWebSocketEndpoint("http://cloud.example/api")).toBe(
     "ws://cloud.example/connection/websocket",
   );
-});
-
-test("workspace RPC transport fails closed while methods are not approved", async () => {
-  const transport = new UnconfiguredComputerWorkspaceRpcTransport();
-  await expect(
-    transport.listAccessible("https://cloud.example", {
-      accessToken: "not-printed",
-      tokenType: "Bearer",
-    }),
-  ).rejects.toMatchObject({ code: "SETUP_WORKSPACE_RPC_UNAVAILABLE" });
-  await expect(
-    transport.getBySlug(
-      "https://cloud.example",
-      {
-        accessToken: "not-printed",
-        tokenType: "Bearer",
-      },
-      "team",
-    ),
-  ).rejects.toMatchObject({ code: "SETUP_WORKSPACE_RPC_UNAVAILABLE" });
 });

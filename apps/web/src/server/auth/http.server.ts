@@ -8,6 +8,8 @@ import {
   type BrowserUser,
   type TokenExchanger,
 } from "./browser-login.server";
+import { UserIdentityRepository } from "./user-identity.repository.server";
+import { getDatabaseClient } from "../db/client.server";
 
 export function handleLoginStart(input: {
   config: AuthingConfig;
@@ -28,6 +30,7 @@ export async function handleLoginCallback(input: {
   config: AuthingConfig;
   sessionSecret: string;
   authing?: TokenExchanger;
+  resolveUser?: Parameters<typeof completeBrowserLogin>[0]["resolveUser"];
 }): Promise<Response> {
   const url = new URL(input.request.url);
   const code = url.searchParams.get("code") ?? "";
@@ -41,6 +44,18 @@ export async function handleLoginCallback(input: {
       state,
       cookieHeader: input.request.headers.get("cookie") ?? "",
       authing: input.authing ?? createAuthingExchanger(input.config),
+      resolveUser:
+        input.resolveUser ??
+        (() => {
+          const db = getDatabaseClient();
+          if (!db) return undefined;
+          const identities = new UserIdentityRepository(db);
+          return (identity) =>
+            identities.resolve(identity.provider, identity.subject, {
+              email: identity.email,
+              preferredUsername: identity.preferredUsername,
+            });
+        })(),
     });
     return redirect("/", {
       "set-cookie": [completed.sessionCookie, completed.clearStateCookie],

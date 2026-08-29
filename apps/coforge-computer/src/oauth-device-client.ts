@@ -21,7 +21,6 @@ export class OAuthDeviceClient implements DeviceAuthorizationClient {
   readonly #clientId: string;
   readonly #scope: string;
   #tokenEndpoint: string | null = null;
-  #workspacesEndpoint: string | null = null;
 
   constructor(input: { clientId: string; scope: string; fetch?: Fetch }) {
     this.#clientId = input.clientId;
@@ -37,10 +36,6 @@ export class OAuthDeviceClient implements DeviceAuthorizationClient {
       "device authorization endpoint",
     );
     this.#tokenEndpoint = normalizeEndpoint(metadata.token_endpoint, "token endpoint");
-    this.#workspacesEndpoint =
-      metadata.coforge_workspaces_endpoint === undefined
-        ? null
-        : normalizeEndpoint(metadata.coforge_workspaces_endpoint, "CoForge workspaces endpoint");
 
     const response = await this.#request(deviceAuthorizationEndpoint, {
       method: "POST",
@@ -96,35 +91,6 @@ export class OAuthDeviceClient implements DeviceAuthorizationClient {
     return { status: "authorized", credential };
   }
 
-  async listWorkspaces(credential: Credential): Promise<AccessibleWorkspace[]> {
-    if (!this.#workspacesEndpoint) {
-      throw loginError(
-        "AUTH_WORKSPACE_LIST_FAILED",
-        "OAuth metadata does not advertise the CoForge workspaces endpoint.",
-      );
-    }
-    return await this.#requestWorkspaces(this.#workspacesEndpoint, credential);
-  }
-
-  async listWorkspacesForServer(
-    serverUrl: string,
-    credential: Credential,
-  ): Promise<AccessibleWorkspace[]> {
-    const issuer = normalizeServerUrl(serverUrl);
-    const metadata = await this.#discover(issuer);
-    if (metadata.coforge_workspaces_endpoint === undefined) {
-      throw loginError(
-        "AUTH_WORKSPACE_LIST_FAILED",
-        "OAuth metadata does not advertise the CoForge workspaces endpoint.",
-      );
-    }
-    const endpoint = normalizeEndpoint(
-      metadata.coforge_workspaces_endpoint,
-      "CoForge workspaces endpoint",
-    );
-    return await this.#requestWorkspaces(endpoint, credential);
-  }
-
   async getWorkspaceForServer(
     serverUrl: string,
     credential: Credential,
@@ -132,16 +98,9 @@ export class OAuthDeviceClient implements DeviceAuthorizationClient {
   ): Promise<AccessibleWorkspace> {
     const issuer = normalizeServerUrl(serverUrl);
     const metadata = await this.#discover(issuer);
-    if (metadata.coforge_workspaces_endpoint === undefined) {
-      throw loginError(
-        "AUTH_WORKSPACE_GET_FAILED",
-        "OAuth metadata does not advertise the CoForge Workspace endpoint.",
-      );
-    }
-    const endpoint = normalizeEndpoint(
-      metadata.coforge_workspaces_endpoint,
-      "CoForge workspaces endpoint",
-    );
+    if (metadata.coforge_workspaces_endpoint === undefined)
+      throw loginError("AUTH_WORKSPACE_GET_FAILED", "CoForge Workspace lookup is unavailable.");
+    const endpoint = normalizeEndpoint(metadata.coforge_workspaces_endpoint, "Workspace endpoint");
     const workspaceEndpoint = new URL(
       `${encodeURIComponent(workspaceSlug)}/`,
       endpoint.endsWith("/") ? endpoint : `${endpoint}/`,
@@ -169,29 +128,6 @@ export class OAuthDeviceClient implements DeviceAuthorizationClient {
     const metadata = await readJson<OAuthMetadata>(discoveryResponse, "OAuth discovery");
     if (metadata.issuer !== issuer) throw new Error("OAuth discovery issuer mismatch");
     return metadata;
-  }
-
-  async #requestWorkspaces(
-    endpoint: string,
-    credential: Credential,
-  ): Promise<AccessibleWorkspace[]> {
-    const response = await this.#request(endpoint, {
-      headers: { authorization: `${credential.tokenType} ${credential.accessToken}` },
-    });
-    if (!response.ok) {
-      throw loginError(
-        "AUTH_WORKSPACE_LIST_FAILED",
-        `Could not list accessible Workspaces (HTTP ${response.status}).`,
-      );
-    }
-    try {
-      const body = (await response.json()) as { workspaces?: unknown };
-      if (!Array.isArray(body.workspaces)) throw new Error("workspaces is missing");
-      return body.workspaces.map(readWorkspace);
-    } catch (error) {
-      if (error instanceof CliError) throw error;
-      throw loginError("AUTH_WORKSPACE_LIST_FAILED", "The Workspace list response is invalid.");
-    }
   }
 
   async #request(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

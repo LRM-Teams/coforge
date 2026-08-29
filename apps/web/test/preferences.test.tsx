@@ -1,6 +1,7 @@
-import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
+import "./dom-setup";
+
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { useState } from "react";
-import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { RouterContextProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -12,11 +13,6 @@ import { getRouter } from "@/router";
 
 const signedInUser = { name: "Frank An", email: "frank@example.com" };
 
-try {
-  GlobalRegistrator.register({ url: "http://localhost/en" });
-} catch {
-  // Another test file may have registered Happy DOM first.
-}
 overwriteGetLocale(() => "en");
 
 beforeEach(() => {
@@ -26,7 +22,6 @@ beforeEach(() => {
 });
 
 afterEach(cleanup);
-afterAll(() => GlobalRegistrator.unregister().catch(() => undefined));
 
 function renderShell() {
   return render(
