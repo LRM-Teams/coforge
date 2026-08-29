@@ -28,11 +28,7 @@ import {
 import { ComputerRegistrationClient } from "@coforge/protocol";
 import { createDaemonHost, resolveDaemonExecutablePath } from "@coforge/daemon";
 import { discoverExternalRuntimes } from "./runtime/inventory";
-import { createTerminalWorkspacePicker, type WorkspacePickerKey } from "./workspace/picker";
-import {
-  createWorkspaceCatalogFromRpc,
-  type ComputerWorkspaceRpcTransport,
-} from "./workspace/catalog";
+import { createWorkspaceLookup } from "./workspace/lookup";
 import { registrationIdempotencyKey } from "./registration/idempotency-key";
 import { writeSetupResult } from "./cli/setup-output";
 import { createCommand as createClientCommand } from "./daemon-client";
@@ -46,46 +42,6 @@ const RELEASE_KEY = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAv+p12qm4iWEzQxMHxwm3gMmm2J86UYuUEp4Viy115bA=
 -----END PUBLIC KEY-----`;
 
-function createWorkspacePickerKeyboard() {
-  let onKey: ((key: WorkspacePickerKey) => void) | undefined;
-  const input = process.stdin;
-  const onData = (chunk: string | Uint8Array) => {
-    const value = typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
-    for (let index = 0; index < value.length; index += 1) {
-      const sequence = value.slice(index);
-      const key = sequence.startsWith("\x1b[A")
-        ? "up"
-        : sequence.startsWith("\x1b[B")
-          ? "down"
-          : sequence.startsWith("\x1b")
-            ? "escape"
-            : value[index] === "\r" || value[index] === "\n"
-              ? "return"
-              : value[index] === "q" || value[index] === "\u0003"
-                ? "quit"
-                : undefined;
-      if (key) {
-        index += key === "up" || key === "down" ? 2 : 0;
-        onKey?.(key);
-      }
-    }
-  };
-  return {
-    start(handler: (key: WorkspacePickerKey) => void) {
-      onKey = handler;
-      input.setRawMode?.(true);
-      input.resume();
-      input.on("data", onData);
-    },
-    stop() {
-      input.off("data", onData);
-      input.setRawMode?.(false);
-      input.pause();
-      onKey = undefined;
-    },
-  };
-}
-
 export interface LoginCommand {
   run(serverUrl: string, options: { json: boolean }): Promise<void>;
 }
@@ -96,11 +52,6 @@ export interface SetupCommand {
     options: { json: boolean; serverUrl?: string },
   ): Promise<void>;
 }
-
-export type SetupWorkspaceClient = Pick<
-  OAuthDeviceClient,
-  "listWorkspacesForServer" | "getWorkspaceForServer"
->;
 
 export interface UpdateCommand {
   install(version: string): Promise<void>;
@@ -146,7 +97,7 @@ export async function runCli(
     .exitOverride();
   program
     .command("login")
-    .description("Sign in to CoForge and list accessible Workspaces.")
+    .description("Sign in to CoForge without selecting a Workspace.")
     .option("--server <url>", "CoForge server URL", DEFAULT_SERVER_URL)
     .option("--json", "write one stable JSON result to stdout")
     .action((options: { server: string; json?: boolean }) => {
@@ -156,15 +107,13 @@ export async function runCli(
     });
   program
     .command("setup")
-    .description("Configure one accessible Workspace for this Computer.")
+    .description("Configure the Workspace supplied by the setup intent.")
     .option("--server <url>", "CoForge server URL", DEFAULT_SERVER_URL)
-    .option("--workspace <slug>", "stable Workspace slug")
     .option("--json", "write one stable JSON result to stdout")
-    .addHelpText("after", "\nExample:\n  $ coforge-computer setup --workspace my-workspace")
-    .action((options: { workspace?: string; server: string; json?: boolean }, command: Command) => {
+    .action((options: { server: string; json?: boolean }, command: Command) => {
       setupSelected = true;
       json = options.json ?? false;
-      return dependencies.setup.run(options.workspace, {
+      return dependencies.setup.run(readSetupIntentWorkspace(), {
         serverUrl: command.getOptionValueSource("server") === "cli" ? options.server : undefined,
         json,
       });
@@ -244,6 +193,22 @@ export async function runCli(
   return 0;
 }
 
+/** Workspace pages/installer bootstrap this value; it is not user input. */
+function readSetupIntentWorkspace(): string | undefined {
+  const raw = process.env.COFORGE_SETUP_INTENT;
+  if (!raw) return undefined;
+  try {
+    const intent: unknown = JSON.parse(raw);
+    if (typeof intent === "object" && intent !== null && "workspaceSlug" in intent) {
+      const slug = (intent as { workspaceSlug?: unknown }).workspaceSlug;
+      return typeof slug === "string" && slug.length > 0 ? slug : undefined;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function requireUpdater(dependencies: CliDependencies): UpdateCommand {
   if (!dependencies.updater) throw new Error("Updater is unavailable in this build");
   return dependencies.updater;
@@ -291,9 +256,6 @@ export function createSetupCommand(
     clientId: "coforge-computer",
     scope: "openid offline_access",
   }),
-  workspaceClient:
-    | SetupWorkspaceClient
-    | ComputerWorkspaceRpcTransport = new CentrifugoWorkspaceRpcTransport(),
 ): SetupCommand {
   const credentials = new NativeCredentialStore();
   const platform = currentComputerPlatform();
@@ -335,7 +297,6 @@ export function createSetupCommand(
           writeLine: io.stdout,
           writeProgressLine: io.stderr,
           suppressFinalResult: true,
-          skipWorkspaceListing: true,
           sleep: Bun.sleep,
         });
         await login.run({ serverUrl, json: false });
@@ -348,16 +309,7 @@ export function createSetupCommand(
         return credential;
       },
     },
-    catalog: createWorkspaceCatalogFromRpc(
-      "listAccessible" in workspaceClient
-        ? workspaceClient
-        : {
-            listAccessible: (serverUrl, credential) =>
-              workspaceClient.listWorkspacesForServer(serverUrl, credential),
-            getBySlug: (serverUrl, credential, slug) =>
-              workspaceClient.getWorkspaceForServer(serverUrl, credential, slug),
-          },
-    ),
+    workspaceLookup: createWorkspaceLookup(new CentrifugoWorkspaceRpcTransport()),
     registrationFactory: (serverUrl, credential) => ({
       register: (request) =>
         new ComputerRegistrationClient(
@@ -369,12 +321,6 @@ export function createSetupCommand(
     }),
     launcher: (serverUrl) =>
       createDaemonLauncher(platform.os, installDirectory, stateDirectory, serverUrl),
-    selectWorkspace:
-      process.stdin.isTTY && process.stderr.isTTY
-        ? createTerminalWorkspacePicker(createWorkspacePickerKeyboard())
-        : async () => {
-            throw setupError("SETUP_WORKSPACE_REQUIRED", "A Workspace is required for this setup.");
-          },
   });
   return {
     async run(workspaceSlug, options) {

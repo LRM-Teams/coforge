@@ -215,49 +215,6 @@ test("token polling converts the runtime abort timeout into a retryable result",
   });
 });
 
-test("setup discovers and uses only the approved Workspaces endpoint", async () => {
-  const requests: Array<{ url: string; authorization: string | null }> = [];
-  const responses = [
-    Response.json({
-      issuer: "https://auth.example",
-      device_authorization_endpoint: "https://auth.example/device",
-      token_endpoint: "https://auth.example/token",
-      coforge_workspaces_endpoint: "https://auth.example/api/v1/workspaces",
-    }),
-    Response.json({
-      workspaces: [{ id: "ws_01", slug: "alpha", name: "Alpha Team" }],
-    }),
-  ];
-  const client = new OAuthDeviceClient({
-    clientId: "coforge-computer",
-    scope: "openid offline_access",
-    fetch: async (input, init) => {
-      requests.push({
-        url: String(input),
-        authorization: new Headers(init?.headers).get("authorization"),
-      });
-      return responses.shift()!;
-    },
-  });
-
-  await expect(
-    client.listWorkspacesForServer("https://auth.example", {
-      accessToken: "access-secret",
-      tokenType: "Bearer",
-    }),
-  ).resolves.toEqual([{ id: "ws_01", slug: "alpha", name: "Alpha Team" }]);
-  expect(requests).toEqual([
-    {
-      url: "https://auth.example/.well-known/oauth-authorization-server",
-      authorization: null,
-    },
-    {
-      url: "https://auth.example/api/v1/workspaces",
-      authorization: "Bearer access-secret",
-    },
-  ]);
-});
-
 test("setup fetches one Workspace by slug instead of listing all Workspaces", async () => {
   const requests: string[] = [];
   const responses = [
@@ -291,7 +248,7 @@ test("setup fetches one Workspace by slug instead of listing all Workspaces", as
   ]);
 });
 
-test("login completes against a reproducible local device-code server and lists workspaces", async () => {
+test("login completes against a reproducible local device-code server without querying Workspaces", async () => {
   const requests: Array<{ path: string; authorization: string | null }> = [];
   let server: ReturnType<typeof Bun.serve>;
   server = Bun.serve({
@@ -305,7 +262,6 @@ test("login completes against a reproducible local device-code server and lists 
           issuer,
           device_authorization_endpoint: `${issuer}/oauth/device`,
           token_endpoint: `${issuer}/oauth/token`,
-          coforge_workspaces_endpoint: `${issuer}/api/v1/workspaces`,
         });
       }
       if (url.pathname === "/oauth/device") {
@@ -320,30 +276,22 @@ test("login completes against a reproducible local device-code server and lists 
       if (url.pathname === "/oauth/token") {
         return Response.json({ access_token: "access-secret", token_type: "Bearer" });
       }
-      if (url.pathname === "/api/v1/workspaces") {
-        return Response.json({
-          workspaces: [{ id: "ws_01", slug: "alpha", name: "Alpha Team" }],
-        });
-      }
       return new Response("not found", { status: 404 });
     },
   });
 
   try {
-    const result = await new ComputerLogin({
+    await new ComputerLogin({
       client: new OAuthDeviceClient({ clientId: "coforge-computer", scope: "openid" }),
       store: { async save() {} },
       config: { async saveCurrentProfile() {} },
       writeLine: () => undefined,
       sleep: async () => undefined,
     }).run({ serverUrl: `http://localhost:${server.port}` });
-
-    expect(result.workspaces).toEqual([{ id: "ws_01", slug: "alpha", name: "Alpha Team" }]);
     expect(requests).toEqual([
       { path: "/.well-known/oauth-authorization-server", authorization: null },
       { path: "/oauth/device", authorization: null },
       { path: "/oauth/token", authorization: null },
-      { path: "/api/v1/workspaces", authorization: "Bearer access-secret" },
     ]);
     expect(requests.map(({ path }) => path)).not.toContain("/api/v1/workspace-registrations");
   } finally {

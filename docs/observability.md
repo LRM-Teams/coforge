@@ -12,7 +12,7 @@
 
 ## 结构化日志
 
-所有 Computer、Daemon、workspace worker、Web/backend、Centrifugo 管理侧和运维脚本输出一条事件一行 JSON。默认写 stderr，由运行环境收集；CLI 的人读结果仍写 stdout，不能把日志混入机器可读结果。
+所有 Computer、Daemon、Web/backend、Centrifugo 管理侧和运维脚本输出一条事件一行 JSON。默认写 stderr，由运行环境收集；CLI 的人读结果仍写 stdout，不能把日志混入机器可读结果。
 
 保留字段：
 
@@ -42,12 +42,12 @@
 
 事件名和标签必须低基数。禁止把 request ID、消息 ID、URL、文件名或任意用户输入作为 metric label 或 event name。
 
-## Agent 状态与活动事件
+## Agent 状态与活动上报通道
 
-Agent 的业务状态只有 `online` 和 `offline`，并由 workspace worker 本地的 Agent
+Agent 的业务状态只有 `online` 和 `offline`，并由 daemon 本地的 Agent
 runtime process 派生。`agent:status` 是低频状态转换事件，只在值发生变化时发送：进程
 成功启动并可接收工作后发送 `agent:status(status=online)`；进程退出或被停止后发送
-`agent:status(status=offline)`。两个事件都通过 Workspace Worker 的 WSS 发送。服务端和
+`agent:status(status=offline)`。`agent:status` 与 `agent:activity` 是两个独立的上报通道（两类消息），都通过 daemon 的 WSS 发送。Activity 使用专用的 `activity:<workspace_id>` namespace 做 best-effort publication；服务端和
 前端不得从某个错误字符串推导第三种状态，也不得在每个 activity 上重复发送 status。
 
 Agent runtime 的生命周期明细和诊断通过 `agent:activity` 上报，而不是扩展状态。为使
@@ -63,7 +63,7 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 | `activity` | 稳定类型，例如 `running_command`、`reading_file`、`using_tool`、`error` |
 | `level` | `info`、`warning` 或 `error` |
 | `message` | 命令、workspace-relative 文件路径或 provider 原始诊断文本 |
-| `occurred_at` | workspace worker 记录的 UTC RFC 3339 时间 |
+| `occurred_at` | daemon 记录的 UTC RFC 3339 时间 |
 
 第一批 activity 类型只定义实际需要的过程记录，不预先枚举 Agent 状态机：
 
@@ -113,8 +113,8 @@ message: <目标文件路径>
 status。重启是在停止后再次记录 `starting`，成功后发送 `agent:status(online)`。一次 turn 完成后记录
 `turn_completed`，没有执行中的 turn 时再记录 `idle`；这些 activity 不改变 Agent status。
 
-事件 envelope 还必须包含 `agent_id`、`runtime_id`、关联的 `connection_id`、唯一
-`event_id` 和该 connection 作用域内单调递增的 `sequence`。错误/警告
+Activity envelope 包含 `request_id`、`workspace_id`、`agent_id` 和上述固定业务字段；
+`request_id` 只用于关联诊断，不提供去重、顺序或恢复保证。错误/警告
 使用 `activity=error|warning`、对应的 `level`，并把 provider 返回的原始文本放在
 `message`。原始文本必须保留 provider 的原始语言和 wording，不得翻译、改写或用
 CoForge 自己的文案替换。`message` 只做必要的 secret 脱敏，
@@ -125,16 +125,14 @@ online 变为 offline 时，才发送 `agent:status(status=offline)`。如果进
 后遇到错误或警告，通过 `agent:activity` 上报；只有进程随后退出时才发送
 `agent:status(status=offline)`。
 
-### WSS 顺序与重连
+### WSS Activity 发送
 
-WebSocket 只保证单条连接存活期间的发送顺序，不能单独解决断线重连和重复投递。因此
-workspace worker 必须先把 `agent:status` 和 `agent:activity` 写入本地 durable spool，
-再通过该 Workspace Connection 的 WSS 按 `sequence` 顺序发送。status 与 activity 共用
-同一条 sequence，不为两类事件维护两套计数器。重连时从服务端确认的 sequence 继续 replay，
-较大的 sequence 不得越过尚未确认的较小 sequence；重复发送由 `event_id` 或
-`(workspace_id, computer_id, sequence)` 幂等去重。服务端保存和转发给 Web 时必须保留 sequence，Web
-按 sequence 排序并去重；发现 gap 时等待 replay，不自行猜测或重排成另一种状态。不同
-Workspace Connection 之间没有全局顺序保证。
+Activity 是观测数据，不采用可靠消息语义。Daemon 调用 Centrifugo client publication 后
+立即继续，不等待业务确认；断线、权限拒绝、publish proxy 或 observer 失败时直接丢弃，
+不重试、不写 spool、不在重连后 replay，也不影响 Agent 生命周期、状态或聊天消息。
+Centrifugo 仅在 `activity` namespace 开启 publish proxy；Backend 根据服务端附加的连接
+metadata 校验 Workspace、Computer、Agent 与 payload scope，并禁止 Daemon 向 control
+channel 发布。单条连接通常保留发送次序，但消费者不得依赖 Activity 完整、有序或唯一。
 
 错误至少覆盖这些归类：可执行文件不存在或无权限、工作目录或 skills 初始化失败、
 provider 初始化/认证失败、模型或 reasoning 配置不支持、Agent capacity 不足、进程
@@ -173,11 +171,11 @@ diff 或 prompt。
 | `coforge_health_checks_total` | counter | 按 `service`, `check`, `outcome` 聚合 |
 | `coforge_connections` | gauge | 当前连接数，按 `service` 和受控连接类型聚合 |
 | `coforge_reconnects_total` | counter | 有界重连次数与结果 |
-| `coforge_delivery_pending` | gauge | 本地 durable spool 或 delivery ledger 的待处理数量 |
-| `coforge_delivery_acks_total` | counter | durable accept/ACK 结果，不表示 Agent 任务完成 |
+| `coforge_attention_pending` | gauge | 当前进程内等待交给 Agent session 的易失 attention 数量；重启后不恢复 |
+| `coforge_attention_acks_total` | counter | `CodeAgentSession`/`notify` 接受易失 attention 的 ACK 结果；不表示 durable accept 或 Agent 任务完成 |
 | `coforge_restarts_total` | counter | 子进程或依赖重启次数 |
 
-业务消息正文、用户标识、object key、URL、token 和高基数 ID 不得进入指标标签。指标无法替代 PostgreSQL canonical 状态、daemon spool 或审计记录。
+业务消息正文、用户标识、object key、URL、token 和高基数 ID 不得进入指标标签。指标无法替代 PostgreSQL canonical Message/read state 或审计记录；Activity 指标不代表完整历史，attention 指标也不是消息 inbox、outbox 或 delivery ledger。
 
 ## 关联与故障定位
 
@@ -192,7 +190,7 @@ MVP 默认保留结构化运行日志 30 天、审计/发布证据 90 天；部�
 ## 实施顺序
 
 1. 先在 Web/backend、Computer 和 Daemon 统一 JSON logger、request ID 和敏感字段过滤。
-2. 再为 workspace worker 和 Centrifugo 管理面接入同一事件字段与 liveness/readiness seam。
+2. 再为 daemon 和 Centrifugo 管理面接入同一事件字段与 liveness/readiness seam。
 3. 最后接入指标采集与告警；在没有真实消费者前不锁定 tracing vendor 或云厂商协议。
 
 架构总览与进程职责见 [`docs/architecture.md`](architecture.md)。

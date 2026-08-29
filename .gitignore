@@ -4,6 +4,8 @@ dist/
 apps/web/src/paraglide/
 apps/web/generated/
 .amp/portals/*
+.amp/e2e/
+infra/secrets/
 .env
 .mise.local.toml
 .DS_Store

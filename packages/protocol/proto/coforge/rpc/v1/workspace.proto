@@ -31,3 +31,84 @@ message Workspace {
   string slug = 2;
   string name = 3;
 }
+
+// Versioned server-to-daemon intent.
+message AgentStartIntent {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string agent_id = 4;
+  string provider = 5;
+  string model = 6;
+  string reasoning = 7;
+  string session_id = 8;
+}
+
+// Versioned server-to-daemon canonical direct message delivery.
+message AgentMessageDelivery {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string message_id = 3;
+  string workspace_id = 4;
+  string conversation_id = 5;
+  string agent_id = 6;
+  string body = 7;
+  string method = 8;
+  string delivery_id = 9;
+  uint64 sequence = 10;
+  // Public target identity; never expose internal agent/user ids to Agents.
+  string target = 11;
+  string latest_sender = 12;
+}
+
+message AgentMessageDeliveryAck {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string delivery_id = 3;
+  string message_id = 4;
+  string workspace_id = 5;
+  string agent_id = 6;
+  uint64 sequence = 7;
+  string method = 8;
+}
+
+// Versioned daemon-to-server Agent activity. Agent status remains a separate
+// concern in the daemon/runtime contract; this payload carries activity data.
+message AgentActivity {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string agent_id = 4;
+  string activity = 5;
+  string level = 6;
+  string message = 7;
+  string occurred_at = 8;
+  string message_id = 9;
+  string conversation_id = 10;
+}
+
+message AgentMessageRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string agent_id = 3;
+  string operation = 4;
+  string target = 5;
+  string body = 6;
+  string workspace_id = 7;
+}
+message CloudAgentMessageRecord {
+  string id = 1;
+  uint64 sequence = 2;
+  string sender = 3;
+  string body = 4;
+  string created_at = 5;
+  string target = 6;
+}
+message CloudAgentMessageResponse {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  bool accepted = 3;
+  uint32 attention_count = 4;
+  repeated CloudAgentMessageRecord messages = 5;
+  string message_id = 6;
+}

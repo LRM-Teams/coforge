@@ -34,7 +34,6 @@ export type AccessibleWorkspace = {
 export interface DeviceAuthorizationClient {
   authorize(serverUrl: string): Promise<DeviceAuthorization>;
   pollToken(deviceCode: string, timeoutMilliseconds?: number): Promise<TokenPollResult>;
-  listWorkspaces(credential: Credential): Promise<AccessibleWorkspace[]>;
 }
 
 export interface CredentialStore {
@@ -49,7 +48,6 @@ export type ComputerLoginOptions = {
   writeProgressLine?: (line: string) => void;
   openVerificationPage?: (url: string) => Promise<void>;
   suppressFinalResult?: boolean;
-  skipWorkspaceListing?: boolean;
   sleep: (milliseconds: number) => Promise<void>;
   now?: () => number;
   colors?: Pick<typeof pc, "bold" | "cyan" | "green">;
@@ -58,10 +56,7 @@ export type ComputerLoginOptions = {
 export class ComputerLogin {
   constructor(private readonly options: ComputerLoginOptions) {}
 
-  async run(input: {
-    serverUrl: string;
-    json?: boolean;
-  }): Promise<{ serverUrl: string; workspaces: AccessibleWorkspace[] }> {
+  async run(input: { serverUrl: string; json?: boolean }): Promise<{ serverUrl: string }> {
     const serverUrl = normalizeServerUrl(input.serverUrl);
     const colors = this.options.colors ?? pc;
     const writeInstruction = input.json
@@ -113,9 +108,6 @@ export class ComputerLogin {
     } catch {
       throw loginError("AUTH_PROFILE_WRITE_FAILED", "Could not save the current login profile.");
     }
-    const workspaces = this.options.skipWorkspaceListing
-      ? []
-      : await this.options.client.listWorkspaces(token.credential);
     if (this.options.suppressFinalResult) {
       // Setup owns the final output because authentication is an internal step.
     } else if (input.json) {
@@ -123,21 +115,14 @@ export class ComputerLogin {
         JSON.stringify({
           ok: true,
           server_url: serverUrl,
-          workspaces,
           binding_created: false,
           daemon_started: false,
         }),
       );
     } else {
-      this.options.writeLine(`Workspaces:  ${workspaces.length}`);
-      for (const workspace of workspaces) {
-        this.options.writeLine(
-          `  - ${terminalText(workspace.name)} (${terminalText(workspace.slug)})`,
-        );
-      }
       this.options.writeLine("Result:      Login complete. No Workspace registration was created.");
     }
-    return { serverUrl, workspaces };
+    return { serverUrl };
   }
 }
 

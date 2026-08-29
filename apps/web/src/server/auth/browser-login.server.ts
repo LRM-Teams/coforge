@@ -3,7 +3,14 @@ export type BrowserUser = {
   email: string;
   name: string;
   authingSub: string;
+  username: string;
 };
+export type InternalUserResolver = (input: {
+  provider: string;
+  subject: string;
+  email: string;
+  preferredUsername?: string;
+}) => Promise<{ id: string; username: string }>;
 
 export type AuthingConfig = {
   appId: string;
@@ -27,6 +34,7 @@ export type TokenExchanger = {
     email?: string | null;
     name?: string | null;
     nickname?: string | null;
+    preferred_username?: string | null;
   }>;
 };
 
@@ -84,6 +92,7 @@ export async function completeBrowserLogin(input: {
   state: string;
   cookieHeader: string;
   authing: TokenExchanger;
+  resolveUser?: InternalUserResolver;
   now?: () => number;
 }): Promise<{ user: BrowserUser; sessionCookie: string; clearStateCookie: string }> {
   const now = input.now ?? Date.now;
@@ -103,8 +112,20 @@ export async function completeBrowserLogin(input: {
   const profile = await input.authing.fetchUserInfo(tokens.accessToken);
   const email = profile.email?.trim().toLowerCase();
   if (!email) throw new Error("email is required");
+  const resolved = input.resolveUser
+    ? await input.resolveUser({
+        provider: "authing",
+        subject: profile.sub,
+        email,
+        ...(profile.preferred_username ? { preferredUsername: profile.preferred_username } : {}),
+      })
+    : {
+        id: testOnlyStableInternalUserId("authing", profile.sub),
+        username: `user-${testOnlyStableInternalUserId("authing", profile.sub).replaceAll("-", "")}`,
+      };
   const user: BrowserUser = {
-    id: userIdFromAuthingSub(profile.sub),
+    id: resolved.id,
+    username: resolved.username,
     email,
     name: profile.name?.trim() || profile.nickname?.trim() || email.split("@")[0] || email,
     authingSub: profile.sub,
@@ -125,6 +146,16 @@ export async function completeBrowserLogin(input: {
   };
 }
 
+// The real callback supplies the persistence resolver. This deterministic fallback
+// keeps the pure authentication seam usable without a database in unit tests.
+function testOnlyStableInternalUserId(provider: string, subject: string): string {
+  const bytes = Array.from(sha256Bytes(`coforge-internal-user:${provider}:${subject}`));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
 export function readBrowserSession(input: {
   sessionSecret: string;
   cookieHeader: string;
@@ -141,6 +172,7 @@ export function readBrowserSession(input: {
     email: session.email,
     name: session.name,
     authingSub: session.authingSub,
+    username: session.username,
   };
 }
 
@@ -195,18 +227,10 @@ export function createAuthingExchanger(config: AuthingConfig): TokenExchanger {
         email?: string | null;
         name?: string | null;
         nickname?: string | null;
+        preferred_username?: string | null;
       };
     },
   };
-}
-
-function userIdFromAuthingSub(sub: string): string {
-  const hash = sha256Bytes(`coforge-user:${sub}`);
-  const bytes = Array.from(hash);
-  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  const hex = bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
 function sign(payload: object, secret: string): string {

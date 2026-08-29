@@ -36,7 +36,8 @@ export const SETUP_HINTS = {
     "The approved CoForge RPC transport is not available in this build.",
   SETUP_WORKSPACE_RPC_UNAVAILABLE:
     "Workspace queries are not available until their approved CoForge RPC methods are defined and implemented.",
-  SETUP_WORKSPACE_REQUIRED: "Run setup with `--workspace <slug>` when prompts are unavailable.",
+  SETUP_WORKSPACE_REQUIRED:
+    "Open setup from the Workspace page so its setup intent supplies the target Workspace.",
   SETUP_WORKSPACE_NOT_FOUND: "Check the Workspace slug and your account access, then rerun setup.",
 } as const;
 

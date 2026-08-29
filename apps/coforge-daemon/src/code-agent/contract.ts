@@ -1,7 +1,7 @@
 import type { AgentActivity } from "../agent-runtime/agent-activity";
 import type { RuntimeProvider } from "@coforge/protocol";
 
-/** Provider-neutral seam owned by each workspace worker. */
+/** Provider-neutral seam owned by the daemon's Agent runtime manager. */
 export type CodeAgentProvider = RuntimeProvider;
 
 export type AgentRuntimeConfig = Readonly<{
@@ -19,7 +19,9 @@ export type AgentRuntimeEvent =
   | { type: "completed"; status: "completed" | "interrupted" | "failed" };
 
 export interface CodeAgentSession {
-  prompt(text: string): Promise<void>;
+  sendMessage(message: string): Promise<void>;
+  /** Non-canonical wakeup; contains no message body. */
+  notify?(notice: string): Promise<void>;
   subscribe(listener: (event: AgentRuntimeEvent) => void): () => void;
   interrupt(): Promise<void>;
   onExit(listener: () => void): () => void;
@@ -28,6 +30,8 @@ export interface CodeAgentSession {
 
 export interface CodeAgentStartOptions {
   agentWorkspaceDirectory: string;
+  /** Existing provider session to resume; adapters own provider-specific semantics. */
+  sessionId?: string;
   runtime?: AgentRuntimeConfig;
   environment?: Readonly<Record<string, string>>;
 }

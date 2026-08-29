@@ -4,6 +4,13 @@ export const COMPUTER_REGISTER_PROTOCOL_MAJOR = 1 as const;
 export const WORKSPACE_LIST_METHOD = "workspace:list" as const;
 export const WORKSPACE_GET_METHOD = "workspace:get" as const;
 export const WORKSPACE_WORKER_READY_METHOD = "workspace_worker:ready" as const;
+export const AGENT_START_METHOD = "agent:start" as const;
+export const AGENT_MESSAGE_METHOD = "agent:deliver" as const;
+export const AGENT_MESSAGE_ACK_METHOD = "agent:deliver:ack" as const;
+export const AGENT_MESSAGE_CHECK_METHOD = "agent:message:check" as const;
+export const AGENT_MESSAGE_READ_METHOD = "agent:message:read" as const;
+export const AGENT_MESSAGE_SEND_METHOD = "agent:message:send" as const;
+export const AGENT_ACTIVITY_METHOD = "agent:activity" as const;
 export const WORKSPACE_PROTOCOL_MAJOR = COMPUTER_REGISTER_PROTOCOL_MAJOR;
 export type Workspace = { id: string; slug: string; name: string };
 
@@ -52,6 +59,70 @@ export type WorkspaceWorkerReadyRequest = {
   computerId: string;
   workerInstanceId: string;
   startedAt: number;
+};
+export type AgentStartIntent = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  agentId: string;
+  provider: RuntimeProvider;
+  model: string;
+  reasoning: string;
+  sessionId?: string;
+};
+export type AgentMessageDelivery = {
+  protocolMajor: number;
+  requestId: string;
+  messageId: string;
+  deliveryId: string;
+  sequence: number;
+  workspaceId: string;
+  conversationId: string;
+  agentId: string;
+  body: string;
+  method: typeof AGENT_MESSAGE_METHOD;
+  target?: string;
+  latestSender?: string;
+};
+export type AgentMessageDeliveryAck = Omit<
+  AgentMessageDelivery,
+  "body" | "conversationId" | "method" | "requestId"
+> & { method: typeof AGENT_MESSAGE_ACK_METHOD; requestId: string };
+export type AgentActivity = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  agentId: string;
+  activity: string;
+  level: "info" | "warning" | "error";
+  message: string;
+  messageId?: string;
+  conversationId?: string;
+  occurredAt?: string;
+};
+export type AgentMessageRequest = {
+  protocolMajor: number;
+  requestId: string;
+  agentId: string;
+  workspaceId: string;
+  operation: "read" | "send";
+  target: string;
+  body?: string;
+};
+export type CloudAgentMessageResponse = {
+  protocolMajor: number;
+  requestId: string;
+  accepted: boolean;
+  attentionCount: number;
+  messageId?: string;
+  messages: {
+    id: string;
+    sequence: number;
+    sender: string;
+    body: string;
+    createdAt: string;
+    target: string;
+  }[];
 };
 
 export interface ComputerRegisterTransport {
@@ -103,6 +174,10 @@ export {
   decodeDaemonCommandRequest,
   encodeDaemonCommandResponse,
   decodeDaemonCommandResponse,
+  encodeLocalAgentMessageRequest,
+  decodeLocalAgentMessageRequest,
+  encodeAgentMessageResponse,
+  decodeAgentMessageResponse,
 } from "./local-daemon";
 export type {
   DaemonHandshakeRequest,
@@ -113,5 +188,21 @@ export type {
   LocalRpcResponse,
   DaemonCommandRequest,
   DaemonCommandResponse,
+  LocalAgentMessageRequest,
+  AgentMessageResponse,
 } from "./local-daemon";
 export { encodeWorkspaceWorkerReadyRequest, decodeWorkspaceWorkerReadyRequest } from "./codec";
+export {
+  encodeAgentStartIntent,
+  decodeAgentStartIntent,
+  encodeAgentMessageDelivery,
+  decodeAgentMessageDelivery,
+  encodeAgentMessageDeliveryAck,
+  decodeAgentMessageDeliveryAck,
+  encodeAgentActivity,
+  decodeAgentActivity,
+  encodeAgentMessageRequest,
+  decodeAgentMessageRequest,
+  encodeCloudAgentMessageResponse,
+  decodeCloudAgentMessageResponse,
+} from "./codec";

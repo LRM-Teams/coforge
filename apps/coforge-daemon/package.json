@@ -11,10 +11,11 @@
     "lint": "oxlint .",
     "typecheck": "tsc --noEmit",
     "check": "bun run format:check && bun run lint && bun run typecheck",
-    "build": "bun build --compile ./index.ts --outfile ./dist/coforge-daemon"
+    "build": "bun build --compile ../../packages/cli/src/cli.ts --outfile ./dist/coforge && bun build --compile ./index.ts --outfile ./dist/coforge-daemon"
   },
   "dependencies": {
     "@coforge/agent": "0.1.0",
+    "@coforge/cli": "workspace:*",
     "@coforge/protocol": "workspace:*",
     "centrifuge": "5.2.1"
   },

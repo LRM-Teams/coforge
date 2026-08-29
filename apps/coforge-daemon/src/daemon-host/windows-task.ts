@@ -1,5 +1,5 @@
 import { LocalDaemonLauncher } from "./launcher";
-import type { DaemonLauncher, DaemonStopper, WorkspaceWorkerConfig } from "./launcher";
+import type { DaemonLauncher, DaemonStopper, DaemonWorkspaceConfig } from "./launcher";
 
 type CommandRunner = (command: string[]) => Promise<number>;
 
@@ -29,7 +29,7 @@ export class WindowsUserDaemonHost implements DaemonLauncher, DaemonStopper {
     });
   }
 
-  async ensureStarted(config: WorkspaceWorkerConfig): Promise<void> {
+  async ensureStarted(config: DaemonWorkspaceConfig): Promise<void> {
     const result = await this.#run([
       "schtasks.exe",
       "/Create",

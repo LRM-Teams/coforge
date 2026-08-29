@@ -27,7 +27,7 @@ src/
 │   └── rollback/
 ├── setup/                          # Computer setup business flow
 ├── auth/                           # device-code authorization and credentials
-├── workspace/                      # Workspace catalog and target selection
+├── workspace/                      # Direct Workspace lookup for setup intent
 ├── registration/                   # Computer registration request/use case
 ├── runtime/                        # runtime inventory and detection ports
 ├── machine/                        # machine identity and platform metadata
@@ -48,10 +48,9 @@ only when a real boundary is needed.
   runtimes, build registration payloads, read config files, or encode RPC.
 - `setup/` owns the Computer setup business flow. It coordinates domain ports
   without knowing Commander or terminal output formatting.
-- `workspace/` owns reusable Workspace operations. `WorkspaceCatalog` owns
-  `listAccessible`/`getBySlug`; `WorkspacePicker` owns cursor-based terminal
-  selection only; a resolved `WorkspaceTarget` is passed upward. Do not put
-  Workspace retrieval inside `commands/setup`.
+- `workspace/` owns the direct Workspace lookup used by setup intent. Computer
+  never lists or interactively selects Workspaces; do not add a picker or a
+  list-selection flow.
 - `auth/`, `runtime/`, `machine/`, `registration/`, and `daemon/` each own the
   responsibility named by the folder. Their public methods should express
   that responsibility, while transport, filesystem, and subprocess details
@@ -80,13 +79,11 @@ client, or command-specific copy of an existing domain operation.
   the same flow, uses a Workspace-page setup intent, registers the Computer,
   binds one Workspace, and starts (or reuses) the Daemon automatically. The
   user must never be asked to run `coforge-daemon` separately.
-- Do not ask users to enter a Workspace ID. Setup accepts the human-readable
-  Workspace slug through `setup --workspace <slug>`. When the flag is omitted,
-  the application may obtain accessible Workspaces through `WorkspaceCatalog`
-  and let `WorkspacePicker` provide cursor-based selection; that interaction
-  must remain outside the command's business logic.
+- Do not ask users to enter a Workspace ID or slug. Setup receives the target
+  Workspace from a Workspace-page setup intent/deep link/installer parameter;
+  missing intent fails stably.
 - Computer has no long-lived cloud WebSocket. It communicates with Daemon over
-  local RPC; each Daemon-supervised workspace worker owns its own cloud WSS
+  local RPC; each Daemon-supervised daemon owns its own cloud WSS
   connection and uses the versioned CoForge RPC/Protobuf protocol.
 - User authorization may authorize the one-time Computer registration, but
   User credentials must not be persisted by Daemon or exposed to Agent

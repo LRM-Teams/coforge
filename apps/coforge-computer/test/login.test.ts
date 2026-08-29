@@ -30,13 +30,6 @@ test("login completes the device-code flow and persists the credential", async (
         },
       };
     },
-    async listWorkspaces(credential) {
-      events.push(`workspaces:${credential.accessToken}`);
-      return [
-        { id: "ws_01", slug: "alpha", name: "Alpha Team" },
-        { id: "ws_02", slug: "beta", name: "Beta Team" },
-      ];
-    },
   };
   const store: CredentialStore = {
     async save(serverUrl, credential) {
@@ -62,10 +55,6 @@ test("login completes the device-code flow and persists the credential", async (
 
   expect(result).toEqual({
     serverUrl: "https://coforge.example",
-    workspaces: [
-      { id: "ws_01", slug: "alpha", name: "Alpha Team" },
-      { id: "ws_02", slug: "beta", name: "Beta Team" },
-    ],
   });
   expect(output).toEqual([
     "CoForge Computer login",
@@ -75,9 +64,6 @@ test("login completes the device-code flow and persists the credential", async (
     "Verify at:   https://auth.example/activate",
     "User code:   ABCD-EFGH",
     "",
-    "Workspaces:  2",
-    "  - Alpha Team (alpha)",
-    "  - Beta Team (beta)",
     "Result:      Login complete. No Workspace registration was created.",
   ]);
   expect(progress).toEqual(["Waiting for authorization…"]);
@@ -86,7 +72,6 @@ test("login completes the device-code flow and persists the credential", async (
     "poll:device-secret",
     "save:https://coforge.example:access-secret",
     "profile:https://coforge.example",
-    "workspaces:access-secret",
   ]);
 });
 
@@ -111,9 +96,6 @@ test("login opens the verification page and still prints fallback instructions",
           credential: { accessToken: "access-secret", tokenType: "Bearer" },
         };
       },
-      async listWorkspaces() {
-        return [];
-      },
     },
     store: { async save() {} },
     config,
@@ -133,7 +115,7 @@ test("login opens the verification page and still prints fallback instructions",
 test("JSON login writes exactly one stable stdout object without secrets", async () => {
   const stdout: string[] = [];
   const stderr: string[] = [];
-  const result = await new ComputerLogin({
+  await new ComputerLogin({
     client: {
       async authorize() {
         return {
@@ -150,9 +132,6 @@ test("JSON login writes exactly one stable stdout object without secrets", async
           credential: { accessToken: "access-secret", tokenType: "Bearer" },
         } as const;
       },
-      async listWorkspaces() {
-        return [{ id: "ws_01", slug: "alpha", name: "Alpha Team" }];
-      },
     },
     store: { async save() {} },
     config,
@@ -161,64 +140,16 @@ test("JSON login writes exactly one stable stdout object without secrets", async
     sleep: async () => undefined,
     colors: pc.createColors(false),
   }).run({ serverUrl: "https://coforge.example", json: true });
-
-  expect(result.workspaces).toHaveLength(1);
   expect(stdout).toHaveLength(1);
   expect(JSON.parse(stdout[0]!)).toEqual({
     ok: true,
     server_url: "https://coforge.example",
-    workspaces: [{ id: "ws_01", slug: "alpha", name: "Alpha Team" }],
     binding_created: false,
     daemon_started: false,
   });
   expect(stdout.join("\n")).not.toContain("access-secret");
   expect(stdout.join("\n")).not.toContain("device-secret");
   expect(stderr).toContain("Waiting for authorization…");
-});
-
-test("human login strips terminal controls from Workspace labels while JSON preserves data", async () => {
-  const workspace = {
-    id: "ws_01",
-    slug: "alpha\u001b[31mPWN",
-    name: "Alpha\u001b]0;PWN\u0007 Team",
-  };
-  const createLogin = (stdout: string[], stderr: string[]) =>
-    new ComputerLogin({
-      client: {
-        async authorize() {
-          return {
-            deviceCode: "device-secret",
-            userCode: "ABCD-EFGH",
-            verificationUri: "https://auth.example/activate",
-            expiresInSeconds: 600,
-            intervalSeconds: 5,
-          };
-        },
-        async pollToken() {
-          return {
-            status: "authorized",
-            credential: { accessToken: "access-secret", tokenType: "Bearer" },
-          } as const;
-        },
-        async listWorkspaces() {
-          return [workspace];
-        },
-      },
-      store: { async save() {} },
-      config,
-      writeLine: (line) => stdout.push(line),
-      writeProgressLine: (line) => stderr.push(line),
-      sleep: async () => undefined,
-      colors: pc.createColors(false),
-    });
-  const humanOutput: string[] = [];
-  await createLogin(humanOutput, []).run({ serverUrl: "https://coforge.example" });
-  const jsonOutput: string[] = [];
-  await createLogin(jsonOutput, []).run({ serverUrl: "https://coforge.example", json: true });
-
-  expect(humanOutput.join("\n")).not.toContain("\u001b");
-  expect(humanOutput.join("\n")).not.toContain("\u0007");
-  expect(JSON.parse(jsonOutput[0]!).workspaces).toEqual([workspace]);
 });
 
 test("login waits at the server interval while authorization is pending", async () => {
@@ -241,9 +172,6 @@ test("login waits at the server interval while authorization is pending", async 
         status: "authorized",
         credential: { accessToken: "access-secret", tokenType: "Bearer" },
       };
-    },
-    async listWorkspaces() {
-      return [];
     },
   };
 
@@ -281,9 +209,6 @@ test("login increases the polling interval after slow_down", async () => {
         status: "authorized",
         credential: { accessToken: "access-secret", tokenType: "Bearer" },
       };
-    },
-    async listWorkspaces() {
-      return [];
     },
   };
 
@@ -327,9 +252,6 @@ test("login backs off after a polling timeout and bounds each request by the dea
         credential: { accessToken: "access-secret", tokenType: "Bearer" },
       };
     },
-    async listWorkspaces() {
-      return [];
-    },
   };
 
   await new ComputerLogin({
@@ -367,9 +289,6 @@ test("login stops when a timed-out poll consumes the remaining device-code lifet
         now += timeoutMilliseconds!;
         return { status: "network_timeout" };
       },
-      async listWorkspaces() {
-        throw new Error("must not list workspaces");
-      },
     },
     store: { async save() {} },
     config,
@@ -400,9 +319,6 @@ test("login reports a stable error when the device code expires locally", async 
       },
       async pollToken() {
         throw new Error("must not poll");
-      },
-      async listWorkspaces() {
-        throw new Error("must not list workspaces");
       },
     },
     store: { async save() {} },

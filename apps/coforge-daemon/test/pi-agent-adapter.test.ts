@@ -21,7 +21,7 @@ test("Pi loads skills before running in a child process behind the code-agent se
     const events: AgentRuntimeEvent[] = [];
     const unsubscribe = session.subscribe((event) => events.push(event));
 
-    await session.prompt("finish");
+    await session.sendMessage("finish");
     await waitForEvent(events, "completed");
     expect(events).toEqual([
       { type: "text-delta", text: "Pi response" },
@@ -41,7 +41,7 @@ test("Pi loads skills before running in a child process behind the code-agent se
     ]);
 
     events.length = 0;
-    await session.prompt("wait");
+    await session.sendMessage("wait");
     await session.interrupt();
     await waitForEvent(events, "completed");
     expect(events.at(-1)).toEqual({ type: "completed", status: "interrupted" });
@@ -75,8 +75,35 @@ test("Pi rejects overlapping prompts and dispose cannot wait on provider interru
       agentWorkspaceDirectory,
       environment: { COFORGE_DECLARED_TEST_VALUE: "allowed" },
     });
-    await session.prompt("ignore-abort");
-    await expect(session.prompt("overlap")).rejects.toThrow("already running");
+    await session.sendMessage("ignore-abort");
+    await expect(session.sendMessage("overlap")).rejects.toThrow("already running");
+    await session.dispose();
+  } finally {
+    await rm(agentWorkspaceDirectory, { recursive: true, force: true });
+  }
+});
+
+test("Pi sends notifications through the prompt protocol and rejects them while busy", async () => {
+  const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-pi-notify-"));
+  const adapter = new PiAgentAdapter({
+    command: [process.execPath, new URL("./fixtures/pi-rpc.ts", import.meta.url).pathname],
+  });
+
+  try {
+    const session = await adapter.start({
+      agentWorkspaceDirectory,
+      environment: { COFORGE_DECLARED_TEST_VALUE: "allowed" },
+    });
+    const events: AgentRuntimeEvent[] = [];
+    session.subscribe((event) => events.push(event));
+    await session.notify!("New message available. Run coforge message check.");
+    await waitForEvent(events, "completed");
+    expect(events.at(-1)).toEqual({ type: "completed", status: "completed" });
+
+    await session.sendMessage("wait");
+    await expect(
+      session.notify!("New message available. Run coforge message check."),
+    ).rejects.toThrow("already running");
     await session.dispose();
   } finally {
     await rm(agentWorkspaceDirectory, { recursive: true, force: true });
@@ -98,8 +125,8 @@ test("Pi rejects prompts after its resident Agent runtime process exits", async 
       },
     });
     await Bun.sleep(20);
-    await expect(session.prompt("after-exit")).rejects.toThrow("exited unexpectedly");
-    await expect(session.prompt("still-exited")).rejects.toThrow("exited unexpectedly");
+    await expect(session.sendMessage("after-exit")).rejects.toThrow("exited unexpectedly");
+    await expect(session.sendMessage("still-exited")).rejects.toThrow("exited unexpectedly");
     await session.dispose();
   } finally {
     await rm(agentWorkspaceDirectory, { recursive: true, force: true });

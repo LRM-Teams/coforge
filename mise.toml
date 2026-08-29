@@ -40,6 +40,10 @@ run = "./scripts/dev-backend.sh"
 [tasks."test:web"]
 run = "bun run --cwd packages/protocol generate && cd apps/web && bun run test"
 
+[tasks."test:e2e:agent-direct-message"]
+description = "Run the managed Agent direct-message end-to-end slice"
+run = "amp orb services ensure >/dev/null && ./scripts/e2e/run-agent-direct-message.sh"
+
 [tasks."check:web"]
 run = "bun run --cwd packages/protocol generate && cd apps/web && bun run check"
 

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://inlang.com/schema/inlang-message-format",
+  "messages_title": "消息",
+  "messages_agent_list_label": "智能体会话",
+  "messages_agents_action": "智能体",
+  "messages_empty_title": "暂无可私聊的智能体",
+  "messages_empty_description": "可用的智能体会话将显示在这里。",
+  "conversation_history": "消息记录",
+  "conversation_empty_title": "暂无消息",
+  "conversation_empty_description": "发送消息以开始私聊。",
+  "conversation_message_label": "消息",
+  "conversation_message_placeholder": "输入消息…",
+  "conversation_send": "发送",
+  "conversation_sending": "发送中…",
+  "conversation_send_error": "消息发送失败，请重试。",
+  "conversation_auto_refresh": "回复会自动刷新。"
+}

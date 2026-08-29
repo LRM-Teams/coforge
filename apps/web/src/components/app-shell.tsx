@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { formatForDisplay, useHotkey } from "@tanstack/react-hotkeys";
 import { Link } from "@tanstack/react-router";
-import { CircleUserRound, Monitor, PanelLeft, Users } from "lucide-react";
+import { CircleUserRound, MessageCircle, Monitor, PanelLeft, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -97,6 +97,18 @@ export function AppShell({ user, children }: { user: AppUser; children: React.Re
             >
               <Users aria-hidden="true" className="size-4" />
               {m.navigation_members()}
+            </Link>
+            <Link
+              to="/messages"
+              activeProps={{
+                className:
+                  "relative flex h-11 items-center gap-2.5 rounded-[4px] bg-sidebar-accent px-2 text-sm text-sidebar-accent-foreground before:absolute before:-left-3 before:h-5 before:w-0.5 before:rounded-r-full before:bg-brand md:h-9",
+                "aria-current": "page",
+              }}
+              className="flex h-11 items-center gap-2.5 rounded-[4px] px-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground md:h-9"
+            >
+              <MessageCircle aria-hidden="true" className="size-4" />
+              {m.navigation_messages()}
             </Link>
             <Link
               to="/computers"

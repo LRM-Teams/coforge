@@ -18,7 +18,7 @@ CoForge 让用户通过 Web 私聊或群聊多个 code agent，同时把 Agent �
 - 云端业务控制面、实时传输面与本地执行面边界清晰；
 - 先以最少服务跑通纵向链路，不提前引入 Kubernetes 或微服务拆分。
 
-首版是消息系统，不是命令或工作流平台。核心对象保持为 conversation、participant、message、per-Agent delivery 与 workspace connection；run、stream event、generic job 和 workflow 暂不进入骨架核心。
+首版是消息系统，不是命令或工作流平台。当前垂直切片只支持一个 Workspace 内 User↔Agent 的 DirectConversation、ConversationMember 和 Message；群聊暂不进入 MVP。run、stream event、generic job 和 workflow 暂不进入骨架核心。
 
 ## 2. 总体拓扑
 
@@ -34,28 +34,25 @@ flowchart LR
     Web -->|authorize · issue delivery URL| Delivery
     Delivery -->|direct read or authenticated origin fetch| OSS
     Web <-->|Centrifugo RPC Handler · server API| Realtime
-    Realtime <--> Redis[(Redis<br/>broker · presence · hot history)]
+    Realtime <--> Redis[(Redis<br/>transport state · message request idempotency)]
+    Web <-->|short-lived request idempotency| Redis
 
     subgraph Host[用户机器]
         Computer[coforge-computer<br/>独立进程]
         Daemon[coforge-daemon<br/>独立进程]
-        WD1[workspace worker A<br/>常驻子进程 · workspace A]
-        WD2[workspace worker B<br/>常驻子进程 · workspace B]
-        Agent1[Code agent runtime]
-        Agent2[Code agent runtime]
+        Agent1[Agent runtime A<br/>OS child process]
+        Agent2[Agent runtime B<br/>OS child process]
 
         Computer <-->|Unix domain socket| Daemon
-        Daemon -->|spawn / supervise| WD1
-        Daemon -->|spawn / supervise| WD2
-        WD1 <-->|provider-neutral adapter| Agent1
-        WD2 <-->|provider-neutral adapter| Agent2
+        Daemon -->|spawn / supervise| Agent1
+        Daemon -->|spawn / supervise| Agent2
     end
 
-    Realtime <-->|outbound WSS + RPC| WD1
-    Realtime <-->|outbound WSS + RPC| WD2
+    Realtime <-->|one outbound WSS: delivery/control| Daemon
+    Daemon -->|HTTPS Agent message read/send| Web
 ```
 
-`Web/backend ↔ Centrifugo` 最终使用 HTTP 还是 gRPC、Handler/API schema 与 RPC namespace 尚未定型；图中只固定职责与数据方向，不固定 wire protocol。这里的 `Centrifugo RPC Handler` 是 Web/backend 内部接收和分派请求的组件，不是独立业务服务；认证、授权、Use Case、持久化和 Token 签发仍归 Web/backend。
+`Web/backend ↔ Centrifugo` 的 Handler/API schema 与 RPC namespace 尚未定型；图中只固定职责与数据方向，不固定其内部 wire protocol。这里的 `Centrifugo RPC Handler` 是 Web/backend 内部接收和分派请求的组件，不是独立业务服务；认证、授权、Use Case、持久化和 Token 签发仍归 Web/backend。
 
 ## 3. 包与进程不是同一个层级
 
@@ -65,7 +62,7 @@ flowchart LR
 apps/
 ├── coforge-computer/
 └── coforge-daemon/
-    └── 内部实现 workspace worker 子进程角色
+    └── 内部实现 Agent runtime 子进程角色
 
 packages/
 └── agent/
@@ -74,14 +71,14 @@ packages/
 
 必须保持以下区别：
 
-| 名称 | 发布边界 | 运行时关系 | 核心职责 |
-| --- | --- | --- | --- |
-| `coforge-computer` | 独立 app package；唯一面向用户的本地安装入口，并依赖 `coforge-daemon` package | 独立 OS 进程 | 机器身份、安装升级、启动/停止和健康检查 coforge-daemon |
-| `coforge-daemon` | 独立 app package；作为 Computer 的构建/分发依赖随 Computer 安装，不单独提供用户安装入口 | 独立 OS 进程 | 对齐期望/实际 workspace 集合，管理子进程生命周期和崩溃恢复 |
-| workspace worker | 不独立发布 | coforge-daemon 监督的常驻子进程；一个实例对应一个逻辑 workspace | 维护该 workspace 的 WSS、投递边界、code-agent adapter 和 Agent 生命周期 |
-| `@coforge/agent` | 可独立打包的 runtime package；是 coforge-daemon 的精确版本依赖，不是 app 或用户安装入口 | workspace worker 启动的常驻独立 Agent runtime process | 封装 Pi SDK、内置 extensions、skills 和 Pi-specific runner |
+| 名称                  | 发布边界                                                                                | 运行时关系                          | 核心职责                                                   |
+| --------------------- | --------------------------------------------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------- |
+| `coforge-computer`    | 独立 app package；唯一面向用户的本地安装入口，并依赖 `coforge-daemon` package           | 独立 OS 进程                        | 机器身份、安装升级、启动/停止和健康检查 coforge-daemon     |
+| `coforge-daemon`      | 独立 app package；作为 Computer 的构建/分发依赖随 Computer 安装，不单独提供用户安装入口 | 独立 OS 进程                        | 对齐期望/实际 workspace 集合，管理子进程生命周期和崩溃恢复 |
+| Agent runtime process | 不独立发布                                                                              | coforge-daemon 直接监督的 OS 子进程 | provider-neutral adapter 后的 Agent 执行                   |
+| `@coforge/agent`      | 可独立打包的 runtime package；不是 app 或用户安装入口                                   | daemon 启动的 Agent runtime process | 封装 Pi SDK、内置 extensions、skills 和 Pi-specific runner |
 
-因此禁止为 workspace worker 新增第三个 app package。需要隔离的是运行时进程，而不是发布包。
+因此禁止为 daemon 新增第三个 app package。需要隔离的是运行时进程，而不是发布包。
 
 源码、可独立打包边界、运行时边界与用户安装边界不是同一层级。仓库保留两个 app package；`coforge-computer` 在 package/build 层依赖 `coforge-daemon`，Daemon 再依赖精确版本的 `@coforge/agent`。monorepo 开发时 Bun workspace 链接本地 package，发布时 Daemon 安装同版本的独立 package artifact。发布流水线为每个平台组装一个 Computer installation bundle，其中包含已验证兼容的 Computer、Daemon 和内置 Agent payload。用户只安装、升级和调用 Computer，Daemon 和 Agent runner 都不进入用户 PATH，但仍作为独立 OS 进程运行。bundle 的具体封装形式属于后续实现选择；无论采用哪种形式，都不能把这些运行时职责合并为一个进程。
 
@@ -107,11 +104,14 @@ Caddy 不理解 conversation、message、Agent 或 workspace 业务。
 - 用户、机器与 workspace 的鉴权和授权；
 - 私聊/群聊 conversation 与 participant；
 - canonical message 的创建、持久化和路由决策；
-- 每个目标 Agent 的 delivery ledger；
+- 使用 Redis 对消息发送 `request_id` 做短期幂等抑制；
+- 向目标 Agent 发送易失 attention，并以 canonical Message/read boundary 支持恢复；
 - 普通业务 API、Web 页面和 PostgreSQL migration（统一使用 Prisma，详见 [ADR 0003](adr/0003-prisma-as-postgresql-data-access.md)）；
 - 接收并保存 Agent response/stream，再推送给会话参与者。
 
 初始实现使用 Bun 1.4 与 TanStack Start，不使用 Next.js。前期保持模块化单体，只有出现清晰的扩缩容或故障隔离需求时才拆服务。生产构建使用 Nitro 的 Bun preset 生成自包含 server output，并以非 root 用户运行在不可变 Docker image 中；Nitro 3 adapter 当前仍是 beta，进入 production 前必须验证构建、启动、健康检查、优雅停止及 PostgreSQL/Centrifugo 集成路径。
+
+消息发送方生成并在同一消息重试中复用 `request_id`。Web/backend 使用现有 Redis，以 Workspace、`user`/`agent` sender kind、稳定 sender ID 和 `request_id` 组成 key，通过带短 TTL 的原子 processing claim 抑制并发重复持久化；成功结果保留 24 小时。User→Agent 的 canonical Message 持久化在幂等执行内，Centrifugo attention publication 在外；publication 失败不影响 canonical Message，后续由 Message/read boundary 恢复。Redis 缺失或不可用时发送 fail closed，但读取不依赖 Redis。PostgreSQL Message 仍是 canonical 数据，Redis 不承担 durable replay。该短期 MVP 明确保留 PostgreSQL commit 与 Redis 结果写入之间的双写崩溃窗口；claim 过期后可能重复创建 Message，不声称提供永久 exactly-once。
 
 ### Standalone Centrifugo：实时传输面
 
@@ -122,14 +122,40 @@ Caddy 不理解 conversation、message、Agent 或 workspace 业务。
 
 Centrifugo 不拥有业务规则，不直接读写 PostgreSQL，不适配具体 Agent，也不把 hot history 或传输 ACK 解释为 durable truth。详细边界见 [ADR 0001](adr/0001-standalone-centrifugo-and-compose-data-services.md)。
 
+Daemon 到 Web/backend 的 Agent message read/send 使用独立的 HTTPS RPC
+seam，并携带 Daemon workspace token；该 seam 的 URL 是 daemon connection
+config 的 `serverHttpUrl`（启动时可由 `COFORGE_SERVER_HTTP_URL` 注入）。未配置
+时请求 fail closed，绝不回退到 WSS。Server→Daemon 的 delivery、ready、ACK
+和 heartbeat/control 仍使用 daemon 唯一的 outbound WSS/RPC 连接。
+
+Agent runtime 的授权分层如下：Web/backend 每次 launch 签发一次明文只返回
+一次的 `sk_agent_...` Agent API key，仅由 Daemon 的 Credential Proxy registration 保存，
+并用于 Daemon→Web/backend 的 Agent message HTTPS RPC。子进程环境和本地
+CLI 只得到生命周期绑定的 opaque `sfp_...` Proxy token；二者不是同一类
+授权材料，也没有 wall-clock expiry。Agent API key 绑定签发请求的 `computer_id`；
+Agent message 鉴权要求同时提供的 Daemon JWT 与 key 记录属于同一 Computer。
+每次签发在 PostgreSQL 事务中锁定 Agent row，先撤销该 Agent 的全部旧 active key，
+再创建新 key，因此崩溃遗留 key 会在下次 launch 回收，跨 backend 并发签发也按
+Agent 串行。停止、退出或 shutdown 时仍按 exact key 撤销。
+Daemon 通过受 Workspace Worker credential 保护的 Agent API key HTTP
+route 签发和撤销该 key；远端撤销失败必须按失败返回，不能宣称
+成功。本地 Proxy registration 无论远端结果如何都先撤销。WSS 仍只负责
+Server→Daemon delivery/control，不承载该 HTTPS API key 交换；本地不引入 durable outbox。
+
 ### PostgreSQL：云端持久状态
+
+业务授权的主体是 Web/backend 自己的 Internal User（稳定 UUID）。Authing
+或其他身份提供商的 subject 只在登录映射边界通过 UserIdentity 解析，不能
+作为 WorkspaceMembership、Agent 或 Computer 的业务外键。
+Internal User 同时拥有稳定、全局唯一且登录后不变的 `username`；公开用户目标
+统一表示为 `@username`，不得把 provider subject 或内部 UUID 暴露为聊天目标。
 
 PostgreSQL 的首要领域对象是：
 
+- `agent`（Agent 元数据属于 Web/backend；Daemon 只消费启动意图中的 runtime config）
 - `conversation`
 - `participant`
 - `message`
-- `agent_message_delivery`
 
 `run` 表示一次 Agent 执行，`event` 表示执行中的流式片段、工具或状态记录；二者不是 delivery 的核心，不应在骨架阶段过早锁死。最终表名、字段、索引与 migration 内容由 backend 设计评审确定，数据访问标准为 Prisma。
 
@@ -203,95 +229,88 @@ handshake。Daemon 不注册为系统级服务，也不开放 TCP 管理端口�
 
 `login [--server <url>]` 仍可用于单独重新认证，但普通用户不需要先执行它。推荐入口是单个 `setup` 流程：没有 User credential 时在流程内部完成 OAuth 2.0 Device Authorization Grant；先通过 RFC 8414 metadata 发现 device authorization 与 token endpoint，再按 RFC 8628 展示 user code、轮询并处理 `authorization_pending` / `slow_down`。轮询连接超时后降低请求频率并重试，单次请求必须受 device-code 剩余有效期约束。凭据不进入命令参数或日志。
 
-MVP OAuth client 使用 `client_id = coforge-computer` 与 `scope = openid offline_access`。Workspace 页面为当前 Workspace 创建一次性 setup intent，并通过 CoForge Computer setup deep link 或安装器参数传入；用户不输入 Workspace ID/slug，也不在 Computer 端选择 Workspace。`UserAccessToken` 仅用于 Computer 注册；注册响应中的 `WorkspaceWorkerToken` 是供 Workspace Worker 连接云端使用的 token，不假设其底层格式。`AgentToken` 是独立的 Agent credential；三者不可混用。credential 通过 Bun 的跨平台原生 credential API 写入 macOS Keychain、Linux Secret Service 或 Windows Credential Manager，不允许自动降级为明文文件。Linux 无可用 Secret Service 时 setup 以稳定错误失败并提示用户启动或解锁系统凭据服务。
+MVP OAuth client 使用 `client_id = coforge-computer` 与 `scope = openid offline_access`。Workspace 页面为当前 Workspace 创建一次性 setup intent，并通过 CoForge Computer setup deep link 或安装器参数传入；用户不输入 Workspace ID/slug，也不在 Computer 端选择 Workspace。`UserAccessToken` 仅用于 Computer 注册；注册响应中的 `DaemonToken` 是供 Daemon 连接云端使用的 token，不假设其底层格式。Agent API key 是独立的 Agent 授权材料；三者不可混用。持久 credential 通过 Bun 的跨平台原生 credential API 写入 macOS Keychain、Linux Secret Service 或 Windows Credential Manager，不允许自动降级为明文文件。Linux 无可用 Secret Service 时 setup 以稳定错误失败并提示用户启动或解锁系统凭据服务。
 
-`setup` 创建或恢复 setup intent 指定的一个 Workspace–Computer connection，为该 Workspace 选择 `workspace_root` 并让 Daemon 启动它自己的 workspace worker。用户不提供 Workspace 参数，也不进行 Workspace 选择；为第二个 Workspace 注册时，必须从第二个 Workspace 页面重新发起 setup。
+`setup` 创建或恢复 setup intent 指定的一个 Workspace–Computer connection，为该 Workspace 选择 `workspace_root` 并让 Daemon 启动其唯一的 Workspace 云连接。当前 daemon MVP 只持久化一条可替换的 daemon config；协议字段仍保留既有兼容名称。
 
-`machine_id` 是机器的稳定身份，跨 Computer、Daemon 与 workspace worker 的重启和升级保持不变。Computer 注册属于 setup 中的用户主动授权操作，并通过 `computer:register` RPC 完成；其精确 envelope、payload、幂等键和 machine proof 按 [ADR 0004](adr/0004-computer-daemon-rpc-topology-and-protobuf.md) 的实现 packet 固定。
+`machine_id` 是机器的稳定身份，跨 Computer、Daemon 与 daemon 的重启和升级保持不变。Computer 注册属于 setup 中的用户主动授权操作，并通过 `computer:register` RPC 完成；其精确 envelope、payload、幂等键和 machine proof 按 [ADR 0004](adr/0004-computer-daemon-rpc-topology-and-protobuf.md) 的实现 packet 固定。
 
 ### coforge-daemon
 
-coforge-daemon 是唯一由 OS/Computer 托管的 supervisor daemon，管理一台机器上所有已注册逻辑 workspace 的常驻 workspace worker；Computer 不维护云端长期 WebSocket，每个 workspace worker 独立持有一条 WSS。`daemon` 专指这个顶层后台服务；`worker` 专指受其监督、可被替换的 workspace 常驻子进程；`Agent runtime process` 专指 provider execution process：
+coforge-daemon 是唯一由 OS/Computer 托管的 daemon。单 Workspace MVP 中 daemon 直接持有一条云端 WSS、处理 server ready/intent flow，并管理多个独立 Agent runtime OS child process；不存在 Daemon、DaemonSupervisor 或 RuntimePool 抽象。Computer 只管理 daemon。
 
 ```text
-coforge-daemon 1 ──监督──> N 常驻 workspace worker
-workspace worker 1 <──绑定──> 1 逻辑 workspace
-workspace worker 1 ──管理──> N Agent ──各自拥有──> 1 Agent workspace 目录
+coforge-daemon 1 ──管理──> 1 配置 Workspace
+daemon 1 ──管理──> N Agent runtime process
+daemon 1 ──管理──> N Agent ──各自拥有──> 1 Agent workspace 目录
 Agent 1 ──执行于──> 1 常驻 Agent runtime process
 ```
 
-一个逻辑 workspace 分配到这台机器后，coforge-daemon 为其维持一个 workspace worker。常驻表示该子进程在两条消息之间也保持运行；进程崩溃或升级后可以被替换，但新的进程仍使用同一个稳定 `workspace_id`，不会因此创建新的 Workspace。
+单一逻辑 Workspace 配置到这台机器后，coforge-daemon 直接维持其云端连接。每个 Agent runtime 是独立的 provider execution child process，可被停止或替换；新的进程仍使用同一个稳定 `workspace_id`，不会因此创建新的 Workspace。
 
-coforge-daemon 负责期望状态与实际状态收敛、子进程创建/回收、崩溃恢复、Agent capacity 和版本兼容，但不直接解析各家 Agent 的输出协议。Agent capacity 是 machine-level Daemon 拥有、可在多个 workspace worker 之间分配的 Agent runtime 资源额度。Daemon 通过唯一共享的 `AgentRuntimePool` 管理这项额度；每个 workspace worker 只拥有一个 `AgentProcessManager`，由它在启动 Agent runtime 前向共享池申请容量，并在 runtime 停止后归还。workspace worker 不创建或持有独立容量池。容量配置按显式配置、`COFORGE_AGENT_CAPACITY` 环境变量、机器资源计算值的顺序解析；无效的显式值或环境变量必须直接失败，不能静默回退。排队与公平策略按实际需求逐步实现，不预先扩展状态或跨进程协议。
+coforge-daemon 负责单一配置、WSS 生命周期、子进程创建/回收和版本兼容，但不直接解析各家 Agent 的输出协议。MVP 不设置 capacity pool、排队或跨 Workspace 调度。
 
-Computer 的云端在线状态由当前 workspace worker WSS 连接集合实时派生：该 Computer 至少有一个 workspace worker WSS 在线时，该 Computer 在线。具体连接如何关联稳定的服务端 Computer 记录由后续 registration 与认证设计确定；`online` 与 `last_seen_at` 不作为这项状态的持久化真相。
+Computer 的云端在线状态由 daemon 的单条 Workspace WSS 连接实时派生；`online` 与 `last_seen_at` 不作为持久化真相。
 
-### workspace worker 与 code-agent adapter
+### daemon-owned Agent runtime 与 code-agent adapter
 
 Provider identity 的唯一来源是 shared protocol/domain 的 `RUNTIME_PROVIDER`
 常量及其 `RuntimeProvider` 类型；`RuntimeMetadata.kind` 仍独立区分
 `builtin` 与 `external`，不新增 UI 或协议命令。
 
-每个 workspace worker 是独立子进程，只能管理同一个 `workspace_id` 下的 Agent。每个 Agent 在本机拥有稳定的 Agent workspace，规范相对路径是 `workspaces/<workspace_id>/agents/<agent_id>`；`workspace_id` 与 `agent_id` 必须是不可变身份，目录不能由名称、provider、session 或进程 ID 派生。该目录是 Agent runtime process 的 cwd，在 runtime 重启、workspace worker 替换和 provider 切换时保留；只有明确的、用户确认的本机数据重置才能删除。worker 只能访问这些已声明目录和允许的环境变量。workspace worker 通过 provider-neutral code-agent adapter 管理 Agent runtime，对上层暴露统一的启动、发送、中断、销毁和事件语义。每个 Agent runtime process 是 workspace worker 启动、在多次 prompt 之间复用并在显式销毁前保持存活的独立子进程。Agent control protocol 是 adapter 内部可替换的实现细节；可以使用 provider 正式支持的 native protocol、SDK child runner 或 ACP，不作为上层 architecture contract。
+Daemon 直接管理同一 `workspace_id` 下的多个 Agent。每个 Agent 在本机拥有稳定的 Agent workspace，规范相对路径是 `workspaces/<workspace_id>/agents/<agent_id>`；`workspace_id` 与 `agent_id` 必须是不可变身份，目录不能由名称、provider、session 或进程 ID 派生。该目录是 Agent runtime process 的 cwd；daemon 只能访问这些已声明目录和允许的环境变量。daemon 通过 provider-neutral code-agent adapter 管理 Agent runtime，对上层暴露统一的启动、发送、中断、销毁以及状态/活动语义。每个 Agent runtime process 是独立的 OS child process。Agent control protocol 是 adapter 内部可替换的实现细节；可以使用 provider 正式支持的 native protocol、SDK child runner 或 ACP，不作为上层 architecture contract。
 
-一台 Computer 始终随 Daemon 交付内置 Pi runtime；此外允许存在零个或多个用户安装的 code-agent runtime。内置 Pi 不通过本机扫描发现，而由已验证的 release/package metadata 声明；用户安装的 Codex 与 Claude Code 才需要检测可执行文件和版本。Agent 对产品和 Web 只暴露 `online`、`offline` 两种业务状态：Agent runtime process 存在且由 AgentProcessManager 持有时为 `online`，进程退出或被停止后为 `offline`。该状态从本地进程生命周期派生，不单独维护或持久化。workspace worker 使用两个事件上报 Agent 信息：`agent:status` 只携带 `online` 或 `offline`，`agent:activity` 携带 starting、stopping、turn、工具、错误和警告明细；两者都通过该 Workspace Worker 的 WSS 发送，activity 不新增 Agent 状态。每个 Workspace Connection 为 status 与 activity 分配同一条单调递增 sequence，先写入 worker durable spool，再按 sequence 顺序发送；重连 replay 不得跳过更早事件，服务端按 event_id/sequence 幂等去重。不同 Workspace Connection 之间不承诺全局顺序。没有可用的用户 runtime 不阻止 Computer 或 Daemon 启动，安装并配置合适 runtime 前不能执行对应 Agent。
+一台 Computer 始终随 Daemon 交付内置 Pi runtime；此外允许存在零个或多个用户安装的 code-agent runtime。内置 Pi 不通过本机扫描发现，而由已验证的 release/package metadata 声明；用户安装的 Codex 与 Claude Code 才需要检测可执行文件和版本。Agent 对产品和 Web 只暴露 `online`、`offline` 两种业务状态：Agent runtime process 存在且由 AgentProcessManager 持有时为 `online`，进程退出或被停止后为 `offline`。该状态从本地进程生命周期派生，不单独维护或持久化。daemon 使用两个上报通道提供 Agent 信息：`agent:status` 只携带 `online` 或 `offline`，`agent:activity` 携带 starting、stopping、turn、工具、错误和警告明细；activity 不新增 Agent 状态。Activity 是观测数据：Daemon 通过 WSS 向专用 `activity:<workspace_id>` namespace 发起 best-effort publication，不等待业务确认、不重试、不写本地 spool，失败也不影响 Agent 生命周期或消息处理。Centrifugo publish proxy 只负责校验可信连接 metadata、Workspace、Computer、Agent 与 payload scope；Backend 观察失败仍允许丢弃。Activity 允许丢失、重复和乱序，不承担 Agent 状态或业务事实。没有可用的用户 runtime 不阻止 Computer 或 Daemon 启动，安装并配置合适 runtime 前不能执行对应 Agent。
 
-首批 adapter 使用常驻 CoForge Agent、Codex 与 Claude Code 子进程。`@coforge/agent` 是可独立打包并随 Daemon 交付的内置 Agent runtime，当前使用官方 Pi SDK 创建 session，并复用 Pi SDK 的 JSONL run mode 作为 daemon adapter 的内部 control。Codex 和 Claude Code 不随 CoForge 打包；adapter 从用户环境的 `PATH` 启动用户已安装、登录和配置的 `codex` / `claude` CLI，分别使用官方 app-server JSONL stdio 与 print-mode 双向 stream-json。CoForge 分配给 Agent 的 Skills 必须在启动前写入该 Agent workspace 下 provider 原生的 project scope：Pi 为 `.pi/skills/<skill>/SKILL.md`，Codex 为 `.agents/skills/<skill>/SKILL.md`，Claude Code 为 `.claude/skills/<skill>/SKILL.md`。CoForge 不复制、改写或接管用户 HOME 下的 provider 全局 Skills；各 CLI 按自身规则继续发现它们。三侧都必须在报告启动成功前完成 skills discovery：CoForge Agent 先完成 Pi `ResourceLoader` reload，Codex adapter 先执行 `skills/list(forceReload: true)` 再创建 thread，Claude Code adapter 完成 stream control `initialize` 并确认返回已加载的 commands/skills。control protocol 不固定为长期架构。选择、版本、license、失败边界和回滚见 [ADR 0002](adr/0002-provider-native-code-agent-subprocesses.md)。Agent provider 的特殊 command、envelope、事件与错误逻辑必须留在各自 package/adapter 内，不能泄漏到 Centrifugo、Web/backend 或共享领域模型。
+首批 adapter 使用常驻 CoForge Agent、Codex 与 Claude Code 子进程。`@coforge/agent` 是可独立打包并随 Daemon 交付的内置 Agent runtime，当前使用官方 Pi SDK 创建 session，并复用 Pi SDK 的 JSONL run mode 作为 daemon adapter 的内部 control。Codex 和 Claude Code 不随 CoForge 打包；adapter 从用户环境的 `PATH` 启动用户已安装、登录和配置的 `codex` / `claude` CLI，分别使用官方 app-server JSONL stdio 与 print-mode 双向 stream-json。CoForge 分配给 Agent 的 Skills 必须在启动前写入该 Agent workspace 下 provider 原生的 project scope：Pi 为 `.pi/skills/<skill>/SKILL.md`，Codex 为 `.agents/skills/<skill>/SKILL.md`，Claude Code 为 `.claude/skills/<skill>/SKILL.md`。CoForge 不复制、改写或接管用户 HOME 下的 provider 全局 Skills；各 CLI 按自身规则继续发现它们。三侧都必须在报告启动成功前完成 skills discovery：CoForge Agent 先完成 Pi `ResourceLoader` reload，Codex adapter 先执行 `skills/list(forceReload: true)` 再创建 thread，Claude Code adapter 完成 stream control `initialize` 并确认返回已加载的 commands/skills。control protocol 不固定为长期架构。选择、版本、license、失败边界和回滚见 [ADR 0002](adr/0002-provider-native-code-agent-subprocesses.md)。Agent provider 的特殊 command、envelope、活动与错误逻辑必须留在各自 package/adapter 内，不能泄漏到 Centrifugo、Web/backend 或共享领域模型。
 
-**提案：每个 workspace worker 拥有独立的本地 SQLite spool。** 它存放已接管的 inbound delivery、等待云端确认的 Agent response、重连 cursor 与最小去重状态。数据库放在应用数据目录而不是用户仓库内；加密、保留期限与损坏恢复需要单独 ADR。
+Agent start intent (`agent:start`) 使用现有 `coforge.rpc.v1` WSS/RPC control path；intent 必须包含完整 runtime config，并以 workspace_id 做 scope 校验。无 session_id 创建新 session，有 session_id 由 adapter 尝试 provider resume；adapter 无法确认 resume 时必须返回明确错误，不得伪造成功。`agent:activity` 复用同一条 daemon WSS，但只向受限 Activity namespace 做 best-effort publication，不走业务 RPC。
 
 ## 6. 消息投递语义
 
-Multica 的 delivery / ACK 机制用于验证故障模式，不作为 1:1 实现模板。CoForge 使用自己的协议 vocabulary，并补齐 Agent response 从间歇联网设备返回云端的对称可靠性。
+当前 MVP 不引入本地 durable message inbox/outbox 或完整的 per-Agent delivery ledger。云端 canonical Message 与每个参与者的 read boundary 是消息恢复真相；Agent Activity 不进入本地 spool，也不 replay。
 
 稳定身份分为：
 
 - `message_id`：云端 canonical message 的身份；
 - `conversation_seq`：云端分配的会话总顺序；
-- `delivery_id`：一条 message 到一个目标 Agent 的稳定投递身份；
-- `client_message_id`：消息发送方生成的幂等键，跨断线重试不变；
+- `request_id`：消息发送方生成的幂等键，跨断线重试不变；
 - connection id 与 attempt number：只用于诊断，不承担业务身份。
 
 ### 6.1 云端到 Agent
 
-1. backend 在同一事务内持久化 canonical message，并为每个目标 Agent 创建 delivery；
-2. backend 通过 Centrifugo server API 发布 delivery offer；Centrifugo 不读取 PostgreSQL 或自行决定目标；
-3. Centrifugo 经目标 workspace worker 自己的 WSS 转发该 offer；
-4. workspace worker 先按 `delivery_id` 写入本地 durable inbox，再返回 accepted ACK；
-5. backend 校验 workspace、Agent、delivery id 与 sequence 后记录接管时间；
-6. workspace worker 按 Agent context 顺序交给 code-agent adapter；重连时由 backend 按原 sequence replay 未确认 delivery。
-
-accepted ACK 只表示“本机已耐久接管”，不表示 Agent 已执行完成。ACK 丢失会触发相同 `delivery_id` 的重发，本地唯一约束把它变成幂等 no-op。
+1. backend 先持久化 canonical Message，再通过 Centrifugo 向目标 daemon 发布 attention；Centrifugo 不读取 PostgreSQL 或自行决定目标；
+2. daemon 按 Workspace、conversation 与 Agent scope 定位 `CodeAgentSession`，调用 provider-neutral `notify`；
+3. 只有 `CodeAgentSession`/`notify` 成功接受 attention 后，daemon 才返回 ACK；拒绝或失败不得 ACK；
+4. ACK 只表示 attention 已被当前 Agent session 接受，不表示 Agent 执行开始、完成或产生 response；
+5. attention 是易失提示，断线、进程退出或 ACK 丢失都可能造成丢失或重复。恢复时 Agent 通过独立 HTTPS read RPC，以云端 canonical Message 和 read boundary 找回尚未读取的消息，而不是依赖本地 inbox。
 
 ### 6.2 Agent 到云端
 
-1. Agent 最终 response 先写入 workspace worker 的 durable outbox，并生成稳定 `client_message_id`；
-2. workspace worker 经 WSS RPC 发送 `message:publish`；
-3. Centrifugo 通过 Web/backend 内部的 `Centrifugo RPC Handler` 转交业务 RPC；backend 用 `(sender_participant_id, client_message_id)` 幂等提交 canonical response；
-4. backend 返回 `message:committed(client_message_id, message_id, conversation_seq)`；
-5. workspace worker 收到确认后标记本地 outbox 项已提交。断线时持续重试相同 `client_message_id`。
+1. Agent 通过 daemon Credential Proxy 的独立 HTTPS RPC 读取消息和发送 response，不经 WSS message publish；
+2. 每次逻辑 send 生成稳定 `request_id`，网络失败或结果未知时以相同 `request_id` 重试；
+3. Web/backend 用 Workspace、稳定 sender identity 与 `request_id` 组成 Redis 幂等 scope，再提交 canonical response；
+4. backend 返回已提交的 `message_id` 与 `conversation_seq`。MVP 不为该请求增加本地 durable outbox。
 
 共同语义：
 
-- transport 是 at-least-once，不声称 end-to-end exactly-once execution；
 - response、Agent execution 状态与 delivery ACK 是不同维度；
-- WebSocket 连接内写队列与通知只负责提速，不是 durable source of truth；
-- 队列满时必须背压或断开并 replay，不能静默丢弃 durable delivery；
+- WebSocket attention 与连接内写队列只负责唤醒，不是 durable source of truth；
+- attention 丢失后的恢复依赖 canonical Message/read boundary；
 - 不使用数据库 command mailbox 或 claim/lease，除非先形成新的架构决策。
 
 ## 7. 端到端链路
 
 ```text
-用户私聊/群聊消息
+用户 User↔Agent 私聊消息（群聊暂不支持）
 → Web/backend：鉴权、会话成员校验、canonical message 持久化、路由
-→ standalone Centrifugo：WSS/RPC 传输
-→ 目标 workspace worker：durable inbox、去重、接管与 ACK
+→ standalone Centrifugo：唯一 `agent` channel 上的 `agent:message` publication
+→ 目标 daemon：通过 payload 的 `agent_id` 查找本地 runtime，并校验 Workspace/conversation scope
 → provider-neutral code-agent adapter
 → provider-specific control（当前为 CoForge Agent SDK runner / Codex app-server / Claude Code stream-json，可替换）
 → 常驻 Agent runtime process
-→ response 写入本地 durable outbox
-→ standalone Centrifugo：WSS/RPC 转发
-→ Web/backend：按 client_message_id 幂等持久化并推送给 conversation participants
+→ Agent 通过独立 HTTPS RPC read/send，并为同一 send 重用 request_id
+→ Web/backend：按 request_id 幂等持久化并推送给 conversation participants
 ```
 
 ## 8. 工具链与版本治理
@@ -300,14 +319,14 @@ accepted ACK 只表示“本机已耐久接管”，不表示 Agent 已执行完
 
 当前初始基线为：
 
-| 组件 | 技术基线 |
-| --- | --- |
-| Edge | Caddy 2.11.4 |
-| 实时传输 | Standalone Centrifugo OSS |
-| Web/backend | Bun 1.4 + TanStack Start + Nitro Bun preset |
-| 本地 app/runtime | Bun 1.4 |
-| CI workflow 检查 | actionlint 1.7.12 + ShellCheck 0.11.0 |
-| 数据库 | PostgreSQL（开发 Docker；生产可托管）+ Prisma |
+| 组件             | 技术基线                                      |
+| ---------------- | --------------------------------------------- |
+| Edge             | Caddy 2.11.4                                  |
+| 实时传输         | Standalone Centrifugo OSS                     |
+| Web/backend      | Bun 1.4 + TanStack Start + Nitro Bun preset   |
+| 本地 app/runtime | Bun 1.4                                       |
+| CI workflow 检查 | actionlint 1.7.12 + ShellCheck 0.11.0         |
+| 数据库           | PostgreSQL（开发 Docker；生产可托管）+ Prisma |
 
 精确版本以 `mise.toml` 为准。升级版本时必须同时更新锁文件、CI 和本文，不能只改本机环境。
 
@@ -326,7 +345,7 @@ accepted ACK 只表示“本机已耐久接管”，不表示 Agent 已执行完
 - 凭据不得进入仓库、日志、命令行参数或生成物；
 - Unix socket 使用最小文件权限并验证对端身份；
 - Agent 只能在声明的 Agent workspace 目录中运行；
-- Caddy、Centrifugo、backend 和本地进程都需要结构化日志和关联 id，但日志不得包含 secret；Computer、Daemon、workspace worker 和 Agent runtime process 的本地分类、滚动、保留、脱敏与失败契约见 [本地日志契约](local-logging.md)，代码实现尚未开始；
+- Caddy、Centrifugo、backend 和本地进程都需要结构化日志和关联 id，但日志不得包含 secret；Computer、Daemon、daemon 和 Agent runtime process 的本地分类、滚动、保留、脱敏与失败契约见 [本地日志契约](local-logging.md)，代码实现尚未开始；
 - 开发与 validation 阶段先使用 Docker PostgreSQL 与托管 PostgreSQL，不引入 Kubernetes。
 - WebSocket 依附于 TCP，所属 Centrifugo 进程死亡时一定会断开；保证目标是 committed message 不丢、自动重连、按序 replay 与重复抑制，而不是宣称连接永不断。
 
@@ -343,10 +362,9 @@ accepted ACK 只表示“本机已耐久接管”，不表示 Agent 已执行完
 
 ## 11. 协议提案与待决 ADR
 
-daemon 到 cloud 使用版本化 typed RPC over WSS，不照搬 Multica 事件名。建议的最小方法族：
+Server→Daemon delivery/control 使用版本化 typed RPC over WSS，不照搬 Multica 事件名；Agent→Web message read/send 则使用前述独立 HTTPS RPC。WSS 建议的最小方法族：
 
 - `session:hello` / `session:ready` / `session:resume`
-- `message:publish` / `message:committed`
 - `heartbeat:ping` / `heartbeat:pong`
 
 每个 envelope 携带 protocol version、request id、workspace/session scope 与必要 deadline。未知 major version 必须拒绝；minor capability 在 handshake 协商。浏览器 API 与 cloud internal RPC 是独立契约，“daemon 不用 HTTP”不禁止浏览器用 HTTPS 完成认证、bootstrap 和普通读取。
@@ -355,26 +373,36 @@ daemon 到 cloud 使用版本化 typed RPC over WSS，不照搬 Multica 事件�
 
 1. Protobuf package、生成工具与 envelope 的 exact schema；
 2. Centrifugo 到 Web/backend 的 Handler/API schema 和跨副本连接定位；
-3. SQLite schema、加密、保留与损坏恢复；
-4. `conversation_seq` 的并发分配；
-5. 除 ADR-0002 已批准 Pi/Codex/Claude Code 最小映射外，新增 provider 的 capability mapping 与 cancellation；
-6. reconnect、drain deadline 与可测量恢复 SLO；
-7. 设备身份、密钥轮换与 workspace revoke。
+3. `conversation_seq` 的并发分配；
+4. 除 ADR-0002 已批准 Pi/Codex/Claude Code 最小映射外，新增 provider 的 capability mapping 与 cancellation；
+5. reconnect、drain deadline 与可测量恢复 SLO；
+6. 设备身份、密钥轮换与 workspace revoke。
 
-## 12. 首批故障验证
+## 12. 单 active Workspace 切换
 
-1. 重复 delivery offer 在本地接管后最多进入 code-agent adapter 一次；
-2. workspace worker 接管后崩溃，重启能从 local inbox 继续；
-3. Agent response 离线排队，重连后只形成一条 canonical message；
-4. Centrifugo 在 publish 中途死亡，重试不产生双写；
+Computer 始终只保存一个 active Workspace binding。setup 使用 Workspace 页面传入的
+单一 setup intent 直接解析目标，不查询列表、不提供 Picker；切换时先通过 daemon `stopAll`
+停止旧 Workspace 的 Agent 进程与 cloud WSS，再配置并启动新 Workspace，最后
+原子替换本地 binding。失败时旧 binding 不会被静默删除，并报告稳定错误。
+当前注册协议没有 server-side unregister wire method，因此这里的 unregister
+仅覆盖本地 binding、credential 与运行时清理；远端撤销需要后续协议支持。
+
+## 13. 首批故障验证
+
+以下是后续验证项；attention 丢失后的 canonical Message/read-boundary 恢复链路尚未完整实现，不能视为已经具备：
+
+1. `notify` 拒绝或失败时不 ACK，成功接受后 ACK，但 ACK 不代表 Agent 执行完成；
+2. daemon 断线或重启造成 attention 丢失后，Agent 能通过 HTTPS read RPC 与 read boundary 找回未读 canonical Message；
+3. 重复 attention 不造成不可控的重复 Agent 执行；
+4. Agent→Web send 在结果未知时以相同 `request_id` 重试并收敛到同一 canonical Message；
 5. 单副本滚动时另一副本接受重连；
-6. 内部 wakeup 丢失后仍能由 reconciliation / replay 修复；
+6. Agent Activity 发布失败或断线时被丢弃，不阻塞 Agent，重连后也不 replay；
 7. 跨重连保持 conversation 顺序；
-8. workspace revoke 后停止 replay 与 code-agent 执行。
+8. workspace revoke 后停止 attention、恢复读取与 code-agent 执行。
 
-## 13. 参考，不是模板
+## 14. 参考，不是模板
 
 - [Multica Agent message delivery contract](https://github.com/LRM-Teams/multica/blob/dev/docs/agent-message-delivery-contract.md)
 - [Multica Computer/Daemon/WorkspaceDaemon ownership ADR](https://github.com/LRM-Teams/multica/blob/dev/docs/adr/0020-converge-computer-daemon-workspace-daemon.md)
 
-CoForge 保留其中已验证的 ownership 与 ACK 原则，同时增加双向本地 outbox、幂等 Agent-response publish、版本协商和自己的协议 vocabulary。
+这些资料只提供故障模式与 ownership 的历史参考。CoForge 当前 MVP 采用本文定义的易失 attention ACK、canonical Message/read-boundary 恢复，以及独立 HTTPS Agent read/send，不继承 Multica 的 durable inbox/outbox 或 delivery-ledger 设计。

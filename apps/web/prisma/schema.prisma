@@ -8,31 +8,102 @@ datasource db {
 }
 
 model Workspace {
-  id        String                @id @default(uuid()) @db.Uuid
-  slug      String                @unique
-  name      String
-  members   WorkspaceMembership[]
-  computers WorkspaceComputer[]
-  createdAt DateTime              @default(now())
-  updatedAt DateTime              @updatedAt
+  id                  String                 @id @default(uuid()) @db.Uuid
+  slug                String                 @unique
+  name                String
+  members             WorkspaceMembership[]
+  computers           WorkspaceComputer[]
+  agents              Agent[]
+  agentApiKeys        AgentApiKey[]
+  conversations       Conversation[]
+  conversationMembers ConversationMember[]
+  messageDeliveries   AgentMessageDelivery[]
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+}
+
+model User {
+  id                  String                @id @default(uuid()) @db.Uuid
+  username            String                @unique
+  createdAt           DateTime              @default(now())
+  identities          UserIdentity[]
+  memberships         WorkspaceMembership[]
+  agents              Agent[]
+  agentApiKeys        AgentApiKey[]
+  computers           Computer[]
+  conversationMembers ConversationMember[]
+}
+
+model UserIdentity {
+  id              String @id @default(uuid()) @db.Uuid
+  userId          String @db.Uuid
+  provider        String
+  providerSubject String
+  user            User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerSubject])
+  @@index([userId])
+}
+
+model Agent {
+  id            String                 @id @default(uuid()) @db.Uuid
+  workspaceId   String                 @db.Uuid
+  name          String
+  displayName   String
+  createdAt     DateTime               @default(now())
+  ownerId       String                 @db.Uuid
+  runtimeConfig Json
+  workspace     Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner         User                   @relation(fields: [ownerId], references: [id])
+  conversations ConversationMember[]
+  deliveries    AgentMessageDelivery[]
+  apiKeys       AgentApiKey[]
+
+  @@unique([workspaceId, name])
+  @@unique([id, workspaceId])
+  @@index([workspaceId, ownerId])
+  @@index([workspaceId, createdAt])
+}
+
+model AgentApiKey {
+  id          String    @id @default(uuid()) @db.Uuid
+  apiKeyHash  String    @unique
+  agentId     String    @db.Uuid
+  workspaceId String    @db.Uuid
+  ownerId     String    @db.Uuid
+  computerId  String    @db.Uuid
+  revokedAt   DateTime?
+  disabledAt  DateTime?
+  createdAt   DateTime  @default(now())
+  agent       Agent     @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner       User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  computer    Computer  @relation(fields: [computerId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, workspaceId])
+  @@index([ownerId])
+  @@index([computerId])
 }
 
 model WorkspaceMembership {
-  workspaceId    String    @db.Uuid
-  externalUserId String
-  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspaceId String    @db.Uuid
+  userId      String    @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@id([workspaceId, externalUserId])
-  @@index([externalUserId])
+  @@id([workspaceId, userId])
+  @@index([userId])
 }
 
 model Computer {
-  id          String              @id @default(uuid()) @db.Uuid
-  ownerUserId String
-  machineId   String
-  workspaces  WorkspaceComputer[]
+  id         String              @id @default(uuid()) @db.Uuid
+  ownerId    String              @db.Uuid
+  machineId  String
+  workspaces WorkspaceComputer[]
+  agentApiKeys AgentApiKey[]
+  owner      User                @relation(fields: [ownerId], references: [id])
 
-  @@unique([ownerUserId, machineId])
+  @@unique([ownerId, machineId])
 }
 
 model WorkspaceComputer {
@@ -44,4 +115,73 @@ model WorkspaceComputer {
   createdAt   DateTime  @default(now())
 
   @@unique([workspaceId, computerId])
+}
+
+model Conversation {
+  id          String                 @id @default(uuid()) @db.Uuid
+  workspaceId String                 @db.Uuid
+  directKey   String
+  createdAt   DateTime               @default(now())
+  workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members     ConversationMember[]
+  messages    Message[]
+  deliveries  AgentMessageDelivery[]
+
+  @@unique([workspaceId, directKey])
+  @@unique([id, workspaceId])
+  @@index([workspaceId])
+}
+
+model ConversationMember {
+  id             String       @id @default(uuid()) @db.Uuid
+  conversationId String       @db.Uuid
+  workspaceId    String       @db.Uuid
+  userId         String?      @db.Uuid
+  agentId        String?      @db.Uuid
+  conversation   Conversation @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user           User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent          Agent?       @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  messages       Message[]
+
+  @@unique([id, conversationId, workspaceId])
+  @@unique([conversationId, userId])
+  @@unique([conversationId, agentId])
+  @@index([workspaceId, userId])
+  @@index([workspaceId, agentId])
+}
+
+model Message {
+  id             String                 @id @default(uuid()) @db.Uuid
+  conversationId String                 @db.Uuid
+  workspaceId    String                 @db.Uuid
+  senderMemberId String                 @db.Uuid
+  body           String
+  sequence       Int
+  createdAt      DateTime               @default(now())
+  conversation   Conversation           @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  sender         ConversationMember     @relation(fields: [senderMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Restrict)
+  deliveries     AgentMessageDelivery[]
+
+  @@unique([conversationId, sequence])
+  @@index([conversationId, createdAt])
+}
+
+model AgentMessageDelivery {
+  deliveryId     String       @id @default(uuid()) @db.Uuid
+  messageId      String       @db.Uuid
+  workspaceId    String       @db.Uuid
+  conversationId String       @db.Uuid
+  agentId        String       @db.Uuid
+  sequence       Int
+  receivedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  message        Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent          Agent        @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  conversation   Conversation @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+
+  @@unique([messageId, agentId])
+  @@unique([deliveryId, workspaceId])
+  @@index([workspaceId, agentId, receivedAt])
 }

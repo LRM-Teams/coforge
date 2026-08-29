@@ -16,7 +16,8 @@ import {
 import type { DaemonHandshakeResponse } from "@coforge/protocol";
 
 export interface DaemonLauncher {
-  ensureStarted(input: WorkspaceWorkerConfig): Promise<void>;
+  ensureStarted(input: DaemonWorkspaceConfig): Promise<void>;
+  stopAll?(): Promise<void>;
 }
 export interface DaemonCommandRunner {
   ensureRunning(): Promise<void>;
@@ -25,7 +26,7 @@ export interface DaemonCommandRunner {
 export interface DaemonStopper {
   stop(): Promise<void>;
 }
-export type WorkspaceWorkerConfig = {
+export type DaemonWorkspaceConfig = {
   workspaceId: string;
   computerId: string;
   workspaceRoot: string;
@@ -73,7 +74,11 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
     this.#process = undefined;
   }
 
-  async ensureStarted(input: WorkspaceWorkerConfig): Promise<void> {
+  async stopAll(): Promise<void> {
+    await this.command("stop");
+  }
+
+  async ensureStarted(input: DaemonWorkspaceConfig): Promise<void> {
     if (await this.#handshake(input)) return;
     this.#spawn(this.options.executablePath, this.options.socketPath);
     const deadline = Date.now() + this.#timeoutMilliseconds;
@@ -126,7 +131,7 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
     }
   }
 
-  async #handshake(config?: WorkspaceWorkerConfig): Promise<boolean> {
+  async #handshake(config?: DaemonWorkspaceConfig): Promise<boolean> {
     let connection: LocalDaemonConnection;
     try {
       connection = await this.#connect(this.options.socketPath);

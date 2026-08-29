@@ -53,7 +53,7 @@ test("replace_listener_on_port stops the process holding that port", async () =>
   );
 
   await Bun.sleep(150);
-  const before = await fetch(`http://127.0.0.1:${port}/`);
+  const before = await Bun.fetch(`http://127.0.0.1:${port}/`);
   expect(before.status).toBe(200);
   expect(await before.text()).toBe("old");
 
@@ -68,7 +68,7 @@ test("replace_listener_on_port stops the process holding that port", async () =>
       return new Response("new");
     },
   });
-  const after = await fetch(`http://127.0.0.1:${port}/`);
+  const after = await Bun.fetch(`http://127.0.0.1:${port}/`);
   expect(await after.text()).toBe("new");
   await replacement.stop(true);
 });

@@ -30,14 +30,15 @@ authenticated `GET` with the device grant's bearer credential and expects:
 }
 ```
 
-The canonical command is `setup --workspace <slug>`. If no login credential
-exists, setup performs the OAuth device flow inline, then registers the
-Computer through the CoForge RPC transport. A second Workspace is configured
-with another explicit setup invocation.
+The canonical flow is setup launched by a Workspace page setup intent (deep
+link or installer parameter). Computer never lists or asks the user to choose a
+Workspace. If no login credential exists, setup performs the OAuth device flow
+inline, then registers the Computer through the CoForge RPC transport.
 
-Each Workspace receives its own `workspaces/<encoded-id>/config.json`; the file
-contains only the stable `workspace_id`. The slug and display name are used for
-selection and output but are not persisted as relationship keys. `setup --json`
+Computer stores one active registration only. Switching Workspace first stops
+the daemon and its Agent runtimes/WSS, then durably replaces the local binding;
+failures retain the old binding. The config contains only the stable
+`workspace_id`. `setup --json`
 keeps stdout to one stable result object and sends interactive prompts to
 stderr. Setup registers the Computer and creates the server-side Workspace–Computer
 registration through the approved CoForge RPC flow, then automatically starts (or reuses)

@@ -18,6 +18,22 @@ client:
     audience: coforge-centrifugo
     issuer: coforge
 
+channel:
+  proxy:
+    publish:
+      endpoint: ${CENTRIFUGO_VAR_ACTIVITY_PROXY_ENDPOINT}
+      timeout: 1s
+      binary_encoding: true
+      include_connection_meta: true
+      http:
+        static_headers:
+          X-CoForge-Centrifugo-Proxy-Secret: ${CENTRIFUGO_VAR_RPC_PROXY_SECRET}
+  namespaces:
+    - name: workspace
+    - name: activity
+      publish_proxy_enabled: true
+      publication_data_format: binary
+
 rpc:
   proxy:
     endpoint: http://host.docker.internal:8789/api/internal/centrifugo
@@ -30,6 +46,8 @@ rpc:
   without_namespace:
     proxy_enabled: true
   namespaces:
+    - name: agent
+      proxy_enabled: true
     - name: computer
       proxy_enabled: true
     - name: workspace

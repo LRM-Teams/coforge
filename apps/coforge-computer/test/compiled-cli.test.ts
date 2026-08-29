@@ -45,7 +45,7 @@ test("compiled login help documents the stable automation options", () => {
 
   expect(result.exitCode).toBe(0);
   expect(result.stdout.toString()).toContain("Usage: coforge-computer login [options]");
-  expect(result.stdout.toString()).toContain("Sign in to CoForge and list accessible Workspaces.");
+  expect(result.stdout.toString()).toContain("Sign in to CoForge without selecting a Workspace.");
   expect(result.stdout.toString()).not.toContain("register");
   expect(result.stdout.toString()).toContain("--server <url>");
   expect(result.stdout.toString()).toContain("--json");
@@ -154,7 +154,7 @@ test("compiled login strips terminal controls from device authorization instruct
 
 test("compiled setup reports a stable authentication failure without claiming success", () => {
   const result = Bun.spawnSync({
-    cmd: [executable, "setup", "--workspace", "workspace-a"],
+    cmd: [executable, "setup"],
     env: { ...process.env, XDG_CONFIG_HOME: directory },
     stdout: "pipe",
     stderr: "pipe",

@@ -1,21 +1,15 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { startDaemonLocalRpcServer } from "./src/local-rpc";
-import { AgentRuntimePool } from "./src/agent-capacity/agent-runtime-pool";
+import { startAgentProxy } from "./src/agent-proxy";
 import { createCodeAgentAdapter } from "./src/code-agent/registry";
-import { createWorkspaceWorkerFactory } from "./src/workspace-worker/worker";
-import { WorkspaceWorkerSupervisor } from "./src/workspace-worker/supervisor";
-import type { AgentAdapterFactory } from "./src/agent-runtime/agent-process-manager";
-import { resolveAgentCapacity } from "./src/agent-capacity/policy";
-import { NativeWorkspaceWorkerCredentialStore } from "./src/workspace-worker/credential-store";
-import type { WorkspaceWorkerCloudTransportFactory } from "./src/cloud-transport/workspace-worker-cloud-transport";
-import type { WorkspaceWorkerCredentialStore } from "./src/workspace-worker/credential-store";
-import { WorkspaceRegistry } from "./src/persistence/workspace-registry";
-import { recoverWorkspaceConnections } from "./src/recovery";
+import { DaemonRuntime } from "./src/daemon-runtime/runtime";
+import { NativeDaemonCredentialStore } from "./src/credentials/credential-store";
+import { DaemonConfigStore } from "./src/persistence/daemon-config";
 import {
-  CentrifugoWorkspaceWorkerTransport,
-  defaultCentrifugeWorkspaceWorkerClientFactory,
-} from "./src/cloud-transport/workspace-worker-cloud-transport";
+  CentrifugoWorkspaceTransport,
+  defaultCentrifugeWorkspaceClientFactory,
+} from "./src/cloud-transport/workspace-cloud-transport";
 
 export type {
   AgentRuntimeConfig,
@@ -31,6 +25,7 @@ export { CodexAgentAdapter } from "./src/code-agent/codex/adapter";
 export { PiAgentAdapter } from "./src/code-agent/pi/adapter";
 export { createDaemonHost } from "./src/daemon-host";
 export { startDaemonLocalRpcServer } from "./src/local-rpc";
+export { startAgentProxy } from "./src/agent-proxy";
 export {
   LaunchdDaemonHost,
   launchdPlist,
@@ -43,13 +38,11 @@ export type {
   DaemonLauncher,
   DaemonCommandRunner,
   DaemonStopper,
-  WorkspaceWorkerConfig,
+  DaemonWorkspaceConfig,
 } from "./src/daemon-host/launcher";
-export { WorkspaceRegistry } from "./src/persistence/workspace-registry";
-export { recoverWorkspaceConnections } from "./src/recovery";
-export { AgentRuntimePool } from "./src/agent-capacity/agent-runtime-pool";
-export type { AgentRuntimeHandle } from "./src/agent-capacity/agent-runtime-pool";
+export { DaemonConfigStore } from "./src/persistence/daemon-config";
 export { AgentProcessManager } from "./src/agent-runtime/agent-process-manager";
+export { agentWorkspaceDirectory } from "./src/agent-runtime/agent-workspace-path";
 export { AgentStateMachine } from "./src/agent-runtime/agent-state-machine";
 export { createAgentActivity } from "./src/agent-runtime/agent-activity";
 export type {
@@ -67,61 +60,24 @@ export type {
   AgentStateTransition,
   AgentStatus as AgentStateStatus,
 } from "./src/agent-runtime/agent-state-machine";
+export { DaemonRuntime } from "./src/daemon-runtime/runtime";
+export { AgentMessageAttentionIndex } from "./src/daemon-runtime/agent-message-attention-index";
+export type { DaemonConfig, WorkspaceConfig } from "./src/daemon-runtime/runtime";
 export {
-  computedAgentCapacityPolicy,
-  readDefaultAgentResources,
-  resolveAgentCapacity,
-} from "./src/agent-capacity/policy";
+  InMemoryDaemonCredentialStore,
+  NativeDaemonCredentialStore,
+} from "./src/credentials/credential-store";
+export type { DaemonCredentialStore } from "./src/credentials/credential-store";
 export type {
-  AgentCapacityPolicy,
-  AgentResourceSnapshot,
-  ResolveAgentCapacityOptions,
-} from "./src/agent-capacity/policy";
+  WorkspaceCloudTransport,
+  WorkspaceCloudTransportConfig,
+  WorkspaceCloudTransportFactory,
+  AgentMessageHttpClient,
+} from "./src/cloud-transport/workspace-cloud-transport";
 export {
-  WorkspaceWorkerSupervisor,
-  type WorkspaceConnection,
-  type WorkspaceWorker,
-  type WorkerFactory,
-  type WorkspaceWorkerInfo,
-} from "./src/workspace-worker/supervisor";
-export { validateWorkspaceRoot } from "./src/workspace-worker/supervisor";
-export { createWorkspaceWorkerFactory, WorkspaceWorkerImpl } from "./src/workspace-worker/worker";
-export {
-  InMemoryWorkspaceWorkerCredentialStore,
-  NativeWorkspaceWorkerCredentialStore,
-} from "./src/workspace-worker/credential-store";
-export type { WorkspaceWorkerCredentialStore } from "./src/workspace-worker/credential-store";
-export type {
-  WorkspaceWorkerCloudTransport,
-  WorkspaceWorkerCloudTransportConfig,
-  WorkspaceWorkerCloudTransportFactory,
-} from "./src/cloud-transport/workspace-worker-cloud-transport";
-export {
-  CentrifugoWorkspaceWorkerTransport,
-  defaultCentrifugeWorkspaceWorkerClientFactory,
-} from "./src/cloud-transport/workspace-worker-cloud-transport";
-
-/** Assemble the daemon's shared capacity and provider-neutral worker factory. */
-export function createDaemonWorkerFactory(options: {
-  configuredCapacity?: number;
-  environment?: Readonly<Record<string, string | undefined>>;
-  createAdapter?: AgentAdapterFactory;
-  credentials?: WorkspaceWorkerCredentialStore;
-  transportFactory: WorkspaceWorkerCloudTransportFactory;
-}) {
-  const pool = new AgentRuntimePool(
-    resolveAgentCapacity({
-      configuredCapacity: options?.configuredCapacity,
-      environment: options?.environment,
-    }),
-  );
-  return createWorkspaceWorkerFactory({
-    pool,
-    createAdapter: options?.createAdapter ?? createCodeAgentAdapter,
-    credentials: options?.credentials ?? new NativeWorkspaceWorkerCredentialStore(),
-    transportFactory: options.transportFactory,
-  });
-}
+  CentrifugoWorkspaceTransport,
+  defaultCentrifugeWorkspaceClientFactory,
+} from "./src/cloud-transport/workspace-cloud-transport";
 
 if (import.meta.main) {
   const socketIndex = Bun.argv.indexOf("--socket");
@@ -132,36 +88,92 @@ if (import.meta.main) {
     console.error("coforge-daemon requires --socket");
     process.exit(2);
   }
-  const credentials = new NativeWorkspaceWorkerCredentialStore();
-  const registry = new WorkspaceRegistry(stateDirectory ?? join(homedir(), ".coforge", "daemon"));
-  const supervisor = new WorkspaceWorkerSupervisor(
-    {
-      create: createDaemonWorkerFactory({
+  const credentials = new NativeDaemonCredentialStore();
+  const configStore = new DaemonConfigStore(
+    stateDirectory ?? join(homedir(), ".coforge", "daemon"),
+  );
+  let runtime: DaemonRuntime | undefined;
+  const agentProxy = startAgentProxy({
+    runtime: {
+      agentMessage: (...args) =>
+        runtime?.agentMessage(...args) ??
+        Promise.reject(new Error("daemon runtime is not running")),
+      issueAgentContext: (agentId) => {
+        if (!runtime) throw new Error("daemon runtime is not running");
+        return runtime.issueAgentContext(agentId);
+      },
+    },
+  });
+  process.env.COFORGE_AGENT_PROXY_URL = agentProxy.url;
+  let config = await configStore.load();
+  const daemon = {
+    async configure(connection: Parameters<DaemonRuntime["start"]>[0]) {
+      // A configure request is the Workspace-page replacement operation. Stop
+      // the old connection and all children before adopting the new identity.
+      await runtime?.stop();
+      config = {
+        ...connection,
+        serverHttpUrl: connection.serverHttpUrl ?? Bun.env.COFORGE_SERVER_HTTP_URL,
+      };
+      runtime = new DaemonRuntime(
+        config,
+        createCodeAgentAdapter,
         credentials,
-        transportFactory: {
+        {
           create: () =>
-            new CentrifugoWorkspaceWorkerTransport(
+            new CentrifugoWorkspaceTransport(
               Bun.env.COFORGE_CLOUD_WEBSOCKET_ENDPOINT ?? "",
-              defaultCentrifugeWorkspaceWorkerClientFactory,
+              defaultCentrifugeWorkspaceClientFactory,
             ),
         },
-      }),
+        agentProxy,
+      );
     },
-    registry,
-  );
+    async start() {
+      if (config) {
+        runtime ??= new DaemonRuntime(
+          config,
+          createCodeAgentAdapter,
+          credentials,
+          {
+            create: () =>
+              new CentrifugoWorkspaceTransport(
+                Bun.env.COFORGE_CLOUD_WEBSOCKET_ENDPOINT ?? "",
+                defaultCentrifugeWorkspaceClientFactory,
+              ),
+          },
+          agentProxy,
+        );
+        await runtime.start(config);
+      }
+    },
+    async stopAll() {
+      await runtime?.stop();
+      runtime = undefined;
+    },
+    async restart() {
+      await this.stopAll();
+      await this.start();
+    },
+  };
   const localRpc = await startDaemonLocalRpcServer({
     socketPath,
     validateCredential: (credential) => credential.length > 0,
-    runtime: supervisor,
+    runtime: daemon,
     credentials,
-    registry,
+    configStore,
   });
-  await recoverWorkspaceConnections(registry, supervisor);
+  try {
+    await daemon.start();
+  } catch {
+    console.error("coforge-daemon: failed to recover configured Workspace");
+  }
   let shuttingDown = false;
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    await supervisor.shutdown();
+    await daemon.stopAll();
+    agentProxy.close();
     await localRpc.close();
     resolveShutdown();
   };

@@ -11,12 +11,12 @@ The project is in its architecture-validation phase.
 
 ```text
 Browser -> Caddy -> TanStack Start / Bun backend -> PostgreSQL
-              \--> standalone Centrifugo <-WSS- workspace worker
+              \--> standalone Centrifugo <-one WSS- coforge-daemon
                           |      |
                        Redis    | HTTP/gRPC proxy + server API
                                 +---- backend
 
-coforge-computer <-Unix socket-> coforge-daemon -> N workspace workers -> resident Agent runtimes
+coforge-computer <-Unix socket-> coforge-daemon -> N Agent runtime OS children
 
 Runtime inventory metadata uses `provider + kind` as the runtime identity (for
 example, `pi:builtin` and `pi:external` may coexist on one Computer). Runtime
@@ -35,8 +35,9 @@ provide UI runtime selection or add a protocol command for it.
 Only `coforge-computer` and `coforge-daemon` are local app packages. The
 Computer package depends on the Daemon package for build and distribution, so
 users install one Computer distribution containing both compatible payloads.
-Computer and Daemon still run as independent OS processes. A workspace worker
-is an isolated process implemented inside `coforge-daemon`, not a third app.
+Computer and Daemon still run as independent OS processes. The daemon owns one
+Workspace connection and directly manages Agent runtime child processes; there
+is no WorkspaceWorker layer or Computer-to-Agent operation.
 The independently packable `@coforge/agent` runtime package uses the Pi SDK and
 is installed as an exact Daemon dependency; it is not a user installation
 entry point.
@@ -59,7 +60,7 @@ Computer and Daemon share the single LogTape-based contract documented in
 apps/web                Web UI and backend control plane
 apps/web/prisma         Planned Prisma schema and migrations
 apps/coforge-computer   Machine-level setup and supervisor
-apps/coforge-daemon     Workspace worker supervisor and code-agent adapters
+apps/coforge-daemon     Single-workspace daemon and code-agent adapters
 packages/agent          Independently packable built-in Agent runtime using Pi SDK
 docs                    Architecture, ADRs, and data-model documentation
 packages                Shared and independently packable runtime packages
@@ -89,6 +90,11 @@ frozen-lockfile mode. Runtime versions continue to come from `mise.toml`.
 Standalone Centrifugo and Redis now have a local Docker Compose deployment in
 [`infra/README.md`](infra/README.md). PostgreSQL and Backend proxy/API wiring
 remain separate implementation slices.
+
+Computer has exactly one active Workspace binding. Setup receives one external
+Workspace setup intent; Computer never lists or selects Workspaces. Switching
+stops the old daemon runtime/WSS/Agents, replaces only the active config, and
+retains old local data, credentials, and Agent directories.
 
 ## Development workflow
 

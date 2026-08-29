@@ -20,7 +20,12 @@ const config = {
   redirectUri: "http://localhost:3000/auth/callback",
 };
 
-function fakeAuthing(user: { sub: string; email?: string; name?: string }): TokenExchanger {
+function fakeAuthing(user: {
+  sub: string;
+  email?: string;
+  name?: string;
+  preferred_username?: string;
+}): TokenExchanger {
   return {
     async exchangeAuthorizationCode(input) {
       if (input.code !== "valid-code") throw new Error("invalid authorization code");
@@ -97,6 +102,38 @@ test("the same Authing subject maps to the same CoForge user", async () => {
   const first = await loginAs("authing-user-1", "ada@example.com");
   const second = await loginAs("authing-user-1", "ada@example.com");
   expect(first.user.id).toBe(second.user.id);
+});
+
+test("passes Authing preferred_username to first-identity resolution and stores username", async () => {
+  const started = startBrowserLogin({ config, sessionSecret });
+  const state = new URL(started.authorizationUrl).searchParams.get("state")!;
+  let profile: unknown;
+  const completed = await completeBrowserLogin({
+    config,
+    sessionSecret,
+    code: "valid-code",
+    state,
+    cookieHeader: cookieHeader(started.stateCookie),
+    authing: fakeAuthing({
+      sub: "provider-subject-not-a-username",
+      email: "ada@example.com",
+      preferred_username: "ada",
+    }),
+    resolveUser: async (input) => {
+      profile = input;
+      return { id: "00000000-0000-5000-8000-000000000002", username: "ada" };
+    },
+  });
+  expect(profile).toEqual({
+    provider: "authing",
+    subject: "provider-subject-not-a-username",
+    email: "ada@example.com",
+    preferredUsername: "ada",
+  });
+  expect(completed.user.username).toBe("ada");
+  expect(
+    readBrowserSession({ sessionSecret, cookieHeader: cookieHeader(completed.sessionCookie) }),
+  ).toMatchObject({ username: "ada" });
 });
 
 test("completeBrowserLogin rejects a mismatched or missing state", async () => {
