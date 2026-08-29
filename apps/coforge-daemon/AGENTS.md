@@ -78,16 +78,17 @@ boundary, then update this map if the ownership changes.
   as `spawn`, `writeFrame`, `readFrame`, `flush`, and `reconnect`.
 - Do not combine responsibilities in names or methods such as
   `startWorkerAndParseClaudeOutput` or `reserveCapacityAndWriteSocketFrame`.
-- Keep status and activity message contracts small, versioned, ordered, and
-  normalized before they cross the cloud protocol boundary. Preserve provider
-  error/warning text except for required secret redaction.
+- Keep status and activity message contracts small, versioned, and normalized
+  before they cross the cloud protocol boundary. Activity is best effort and
+  may be lost or reordered; preserve provider error/warning text except for
+  required secret redaction.
 
 ## Tests and implementation workflow
 
 - Establish the module's public seam before implementation and test it without
   the CLI or real provider process where possible.
-- Add regression coverage for state transitions, ordered activity delivery,
-  reconnect/replay, IPC request
+- Add regression coverage for state transitions, best-effort activity isolation,
+  status reconnect/replay, IPC request
   validation, and provider adapter close/failure paths.
 - Use Bun and the repository's `mise` tasks. Do not introduce Node runtime
   APIs or a second process framework. Run daemon tests, checks, and build before

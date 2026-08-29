@@ -39,7 +39,7 @@ describe("Workspace Worker JWT", () => {
       workspace_id: "workspace-1",
       computer_id: "computer-1",
     });
-    expect(verified.payload.channels).toEqual(["workspace:workspace-1"]);
+    expect(verified.payload.channels).toEqual(["workspace:workspace-1", "activity:workspace-1"]);
     expect(await verifyWorkspaceWorkerToken(token, environment)).toEqual({
       userId: "user-1",
       workspaceId: "workspace-1",

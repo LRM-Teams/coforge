@@ -204,8 +204,8 @@ member's read boundary is the recovery model. A daemon ACK means only that
 `CodeAgentSession`/`notify` successfully accepted the volatile attention; it
 does not mean an Agent run completed. Agent read/send uses the independent
 HTTPS RPC, and a logical send retries the same `request_id` after an uncertain
-result. The daemon's existing status/activity spool is separate from message
-delivery and is not changed by this decision.
+result. Agent Activity is a best-effort observation and has no local spool or
+database recovery role.
 
 ## Atomic write paths
 

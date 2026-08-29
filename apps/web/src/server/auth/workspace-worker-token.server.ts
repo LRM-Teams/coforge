@@ -27,7 +27,7 @@ export function createWorkspaceWorkerTokenIssuer(
         workspace_id: workspaceId,
         computer_id: computerId,
         meta: { workspace_id: workspaceId, computer_id: computerId },
-        channels: [`workspace:${workspaceId}`],
+        channels: [`workspace:${workspaceId}`, `activity:${workspaceId}`],
       })
         .setProtectedHeader({ alg: "EdDSA", kid: config.keyId, typ: "JWT" })
         .setSubject(principal.userId)

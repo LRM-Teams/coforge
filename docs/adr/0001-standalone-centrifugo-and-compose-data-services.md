@@ -9,7 +9,7 @@ CoForge MVP 使用 Caddy 作为唯一公网 edge、standalone Centrifugo OSS 作
 
 该组件边界由 Frank 在 `#coforge` seq 767/773/774 批准，并由 LRM-1581 的固定证据验证：文档 HEAD [`4e0a4bcc6a0c636af287abbbb6a443f29fc4cd4b`](https://github.com/LRM-Teams/coforge/commit/4e0a4bcc6a0c636af287abbbb6a443f29fc4cd4b)，已独立复现的行为 SHA [`6a39086e5e73f91cf9b287306f20164c3edcb8c5`](https://github.com/LRM-Teams/coforge/commit/6a39086e5e73f91cf9b287306f20164c3edcb8c5)。证据是 disposable spike，不是 production wire、schema、migration 或部署配置。
 
-> **Amended 2026-08-29:** 后续批准的 MVP 消息语义取代本 ADR 中关于 per-Agent delivery ledger、message durable inbox/outbox spool 与 durable-accept ACK 的表述：当前 ACK 仅表示 `CodeAgentSession`/`notify` 成功接受易失 attention；恢复依赖云端 canonical Message/read boundary；Agent read/send 使用独立 HTTPS RPC 并以相同 `request_id` 重试。本 ADR 保留为当时的组件与验证历史，不重写原决定。status/activity durable spool 的独立既有决定不受此修订影响。
+> **Amended 2026-08-29:** 后续批准的 MVP 消息语义取代本 ADR 中关于 per-Agent delivery ledger、message durable inbox/outbox spool 与 durable-accept ACK 的表述：当前 ACK 仅表示 `CodeAgentSession`/`notify` 成功接受易失 attention；恢复依赖云端 canonical Message/read boundary；Agent read/send 使用独立 HTTPS RPC 并以相同 `request_id` 重试。后续又确认 Agent Activity 只是 best-effort 观测，经受限 Centrifugo Activity namespace 发布，不等待业务确认、不重试或 spool。本 ADR 保留为当时的组件与验证历史，不重写原决定。
 
 ## 决定
 

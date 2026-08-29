@@ -44,7 +44,7 @@ export interface WorkspaceCloudTransport {
   stop(): Promise<void>;
   onAgentStart?(callback: (intent: AgentStartIntent) => void): () => void;
   onAgentMessage?(callback: (message: AgentMessageDelivery) => void): () => void;
-  sendAgentActivity?(activity: AgentActivity): Promise<void>;
+  sendAgentActivity?(activity: AgentActivity): void;
   sendAgentDeliveryAck?(ack: AgentMessageDeliveryAck): Promise<void>;
   agentMessage?(
     request: AgentMessageRequest,
@@ -171,13 +171,13 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
     };
   }
 
-  async sendAgentActivity(activity: AgentActivity): Promise<void> {
-    if (!this.#connected || !this.#client?.publish)
-      throw new Error("cloud transport is not connected");
-    await this.#client.publish(
-      this.#workspaceChannel(activity.workspaceId),
-      encodeAgentActivity(activity),
-    );
+  sendAgentActivity(activity: AgentActivity): void {
+    if (!this.#connected || !this.#client?.publish) return;
+    void this.#client
+      .publish(this.#activityChannel(activity.workspaceId), encodeAgentActivity(activity))
+      .catch(() => {
+        // Activity is an observation. Failure must not block Agent work or be retried.
+      });
   }
   async sendAgentDeliveryAck(ack: AgentMessageDeliveryAck): Promise<void> {
     if (!this.#connected || !this.#client) throw new Error("cloud transport is not connected");
@@ -225,6 +225,10 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
 
   #workspaceChannel(workspaceId: string): string {
     return `workspace:${workspaceId}`;
+  }
+
+  #activityChannel(workspaceId: string): string {
+    return `activity:${workspaceId}`;
   }
 
   #handleAgentPublication(data: Uint8Array, workspaceId: string): void {

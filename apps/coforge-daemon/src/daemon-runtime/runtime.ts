@@ -228,11 +228,7 @@ export class DaemonRuntime {
         throw new Error(`Agent runtime is stopping: ${agentId}`);
       }
       const emit = (activity: AgentActivity) => {
-        const delivery = this.#transport.sendAgentActivity?.(activity);
-        void delivery?.catch(() => {
-          // Cloud delivery is best effort at this seam; process cleanup must
-          // not depend on a disconnected transport.
-        });
+        this.#transport.sendAgentActivity?.(activity);
       };
       const unsubscribe = runtime.session.subscribe((runtimeEvent) => {
         emit({
@@ -300,7 +296,7 @@ export class DaemonRuntime {
         { provider: intent.provider, model: intent.model, reasoning: intent.reasoning },
         intent.sessionId,
       );
-      await this.#transport.sendAgentActivity?.({
+      this.#transport.sendAgentActivity?.({
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
         requestId: intent.requestId,
         workspaceId: intent.workspaceId,
@@ -311,7 +307,7 @@ export class DaemonRuntime {
       });
       return runtime;
     } catch (error) {
-      await this.#transport.sendAgentActivity?.({
+      this.#transport.sendAgentActivity?.({
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
         requestId: intent.requestId,
         workspaceId: intent.workspaceId,

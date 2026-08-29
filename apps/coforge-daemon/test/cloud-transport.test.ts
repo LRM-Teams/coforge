@@ -5,6 +5,7 @@ import {
 } from "../src/cloud-transport/workspace-cloud-transport";
 import {
   AGENT_MESSAGE_ACK_METHOD,
+  decodeAgentActivity,
   decodeAgentMessageDeliveryAck,
   encodeAgentStartIntent,
 } from "@coforge/protocol";
@@ -63,6 +64,57 @@ test("sends delivery ACK through the RPC method, not a publication", async () =>
   expect(calls).toHaveLength(1);
   expect(calls[0]?.method).toBe(AGENT_MESSAGE_ACK_METHOD);
   expect(decodeAgentMessageDeliveryAck(calls[0]!.data)).toMatchObject(ack);
+});
+
+test("publishes Agent activity best effort on its restricted channel", async () => {
+  const fake = fakeClient();
+  const publications: Array<{ channel: string; data: Uint8Array }> = [];
+  fake.client.publish = async (channel, data) => {
+    publications.push({ channel, data });
+    throw new Error("activity observer unavailable");
+  };
+  const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  const activity = {
+    protocolMajor: 1,
+    requestId: "activity-1",
+    workspaceId: config.workspaceId,
+    agentId: "agent-1",
+    activity: "using_tool",
+    level: "info",
+    message: "Running a tool",
+    occurredAt: "2026-08-29T00:00:00.000Z",
+  } as const;
+
+  expect(transport.sendAgentActivity(activity)).toBeUndefined();
+  await Promise.resolve();
+
+  expect(publications).toHaveLength(1);
+  expect(publications[0]?.channel).toBe(`activity:${config.workspaceId}`);
+  expect(decodeAgentActivity(publications[0]!.data)).toMatchObject(activity);
+});
+
+test("drops Agent activity while disconnected", () => {
+  const fake = fakeClient();
+  let publications = 0;
+  fake.client.publish = async () => {
+    publications++;
+  };
+  const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
+
+  expect(
+    transport.sendAgentActivity({
+      protocolMajor: 1,
+      requestId: "activity-1",
+      workspaceId: config.workspaceId,
+      agentId: "agent-1",
+      activity: "starting",
+      level: "info",
+      message: "Starting",
+      occurredAt: "2026-08-29T00:00:00.000Z",
+    }),
+  ).toBeUndefined();
+  expect(publications).toBe(0);
 });
 
 const config = {
