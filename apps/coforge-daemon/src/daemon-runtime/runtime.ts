@@ -176,6 +176,7 @@ export class DaemonRuntime {
     agentId: string,
     config: AgentRuntimeConfig,
     sessionId?: string,
+    requestId: string = crypto.randomUUID(),
   ): Promise<AgentRuntime> {
     if (this.#stopping || !this.#started)
       return Promise.reject(new Error("daemon runtime is not running"));
@@ -187,7 +188,7 @@ export class DaemonRuntime {
       return Promise.reject(new Error(`Agent runtime is already online: ${agentId}`));
 
     // Register the launch before its first await so concurrent starts cannot mint twice.
-    const launch = this.#launchAgent(agentId, config, sessionId).finally(() => {
+    const launch = this.#launchAgent(agentId, config, sessionId, requestId).finally(() => {
       this.#agentLaunches.delete(agentId);
     });
     this.#agentLaunches.set(agentId, launch);
@@ -198,9 +199,19 @@ export class DaemonRuntime {
     agentId: string,
     config: AgentRuntimeConfig,
     sessionId?: string,
+    requestId: string = crypto.randomUUID(),
   ): Promise<AgentRuntime> {
     const launch = { launchId: crypto.randomUUID(), clientSeq: 0, stopping: false };
     this.#currentActivityLaunches.set(agentId, launch);
+    this.#emitAgentActivity(agentId, launch, {
+      protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+      requestId,
+      workspaceId: this.#connection.workspaceId,
+      agentId,
+      activity: "starting",
+      level: "info",
+      message: "Agent runtime is starting.",
+    });
     let agentApiKey: string | undefined;
     let stage: "credential" | "runtime" = "credential";
     try {
@@ -253,6 +264,7 @@ export class DaemonRuntime {
             message: safeRuntimeActivityMessage(
               runtimeEvent.activity.activity,
               runtimeEvent.activity.level,
+              runtimeEvent.activity.message,
             ),
           });
           return;
@@ -323,23 +335,12 @@ export class DaemonRuntime {
       throw new Error("unsupported agent protocol major");
     if (intent.workspaceId !== this.#connection.workspaceId)
       throw new Error("agent intent targets another Workspace");
-    const runtime = await this.startAgent(
+    return this.startAgent(
       intent.agentId,
       { provider: intent.provider, model: intent.model, reasoning: intent.reasoning },
       intent.sessionId,
+      intent.requestId,
     );
-    const launch = this.#currentActivityLaunches.get(intent.agentId);
-    if (launch)
-      this.#emitAgentActivity(intent.agentId, launch, {
-        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-        requestId: intent.requestId,
-        workspaceId: intent.workspaceId,
-        agentId: intent.agentId,
-        activity: "starting",
-        level: "info",
-        message: "Agent runtime started",
-      });
-    return runtime;
   }
 
   async handleAgentMessage(message: AgentMessageDelivery): Promise<void> {
@@ -562,8 +563,8 @@ export class DaemonRuntime {
   }
 }
 
-function safeRuntimeActivityMessage(activity: string, level: string): string {
-  if (level === "error") return "Code agent process failed.";
+function safeRuntimeActivityMessage(activity: string, level: string, message: string): string {
+  if (level === "error" || level === "warning") return message;
   if (activity === "running_command") return "Agent is running a command.";
   if (activity === "reading_file") return "Agent is reading a file.";
   if (activity === "writing_file") return "Agent is writing a file.";

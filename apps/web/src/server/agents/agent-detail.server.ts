@@ -49,7 +49,7 @@ export class AgentDetailQuery {
       computer: latest
         ? { id: latest.computerId, label: computerLabel(latest.computerId) }
         : undefined,
-      latestError: latest?.level === "error" ? latest : undefined,
+      latestError: activity.find((entry) => entry.level === "error"),
       activity,
     };
   }

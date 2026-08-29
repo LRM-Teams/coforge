@@ -121,8 +121,8 @@ Activity envelope 包含 `request_id`、`workspace_id`、`agent_id` 和上述固
 stale rejection；当前保证来自 Daemon 的 current-launch gate。
 生命周期错误使用 `activity=launch_failed|stop_failed` 和 `level=error`，只发送稳定、
 脱敏且可操作的原因，不上传命令参数、绝对路径、凭据或 stderr。provider 错误/警告
-使用 `activity=error|warning` 和对应的 `level`；Daemon 把 provider 文本映射成稳定类别
-文案，不上传 token、prompt、命令、路径、完整响应或 provider 原始 stderr。启动阶段如果进程未达到可接收工作状态，不能
+使用 `activity=error|warning` 和对应的 `level`；adapter 必须先移除 token、prompt、命令、
+路径、完整响应和 stderr，再保留安全错误文本的原始语言与 wording。启动阶段如果进程未达到可接收工作状态，不能
 发送 `agent:status(status=online)`，并通过 `agent:activity` 记录启动明细。如果启动失败，
 通过 `agent:activity` 记录启动错误；只有原本为 online 的进程因此退出，或状态确实从
 online 变为 offline 时，才发送 `agent:status(status=offline)`。如果进程已经 online
@@ -157,8 +157,9 @@ provider 初始化/认证失败、模型或 reasoning 配置不支持、Agent ca
 Web 在 `src/features/agents/` 内实现 activity timeline，按 `activity` 选择本地化标签和
 图标，统一显示 `message` 和 `occurred_at`。`running_command` 使用终端语义；
 `reading_file`、`writing_file`、`editing_file` 使用对应文件操作语义；`warning` 和
-`error` 使用对应视觉级别。业务标签可以按当前界面语言本地化。未知 activity 必须使用
-通用 activity 样式显示 Daemon 生成的稳定安全文案，不能丢弃整条记录；前端不得尝试
+`error` 使用对应视觉级别。业务标签可以按当前界面语言本地化，安全的 provider 错误或
+警告文本保持原始语言与 wording。未知 activity 必须使用通用 activity 样式显示安全
+文案，不能丢弃整条记录；前端不得尝试
 渲染未上报的命令、路径、文件内容、diff 或 prompt。
 
 ## 健康与就绪探针

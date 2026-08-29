@@ -1,8 +1,4 @@
-// Bun.spawn has no documented process-group/session option. The Bun-supported
-// Node compatibility spawn supplies detached process groups on Unix.
-// oxlint-disable-next-line no-restricted-imports
-import { spawn } from "node:child_process";
-import { readdir, readFile } from "node:fs/promises";
+type ProcessSignal = "SIGINT" | "SIGKILL" | "SIGTERM";
 
 export interface OwnedChildProcess {
   readonly pid: number | undefined;
@@ -11,7 +7,7 @@ export interface OwnedChildProcess {
   readonly stdin: { write(value: string): boolean; end(): void; flush(): Promise<void> };
   readonly stdout: AsyncIterable<Uint8Array>;
   readonly stderr: AsyncIterable<Uint8Array>;
-  kill(signal?: NodeJS.Signals): void;
+  kill(signal?: ProcessSignal): void;
 }
 
 export interface OwnedProcessTree {
@@ -56,69 +52,33 @@ export class ProcessTreeOwner implements ProcessTreeSpawner {
     if (this.platform === "win32") {
       throw new Error("Windows Agent process isolation is unavailable");
     }
-    const spawned = spawn(command[0]!, command.slice(1), {
+    const spawned = Bun.spawn({
+      cmd: [...command],
       cwd,
       env: { ...environment },
-      stdio: ["pipe", "pipe", "pipe"],
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
       detached: true,
       windowsHide: true,
     });
-    const exited = new Promise<number>((resolve) => {
-      let settled = false;
-      const settle = (code: number) => {
-        if (settled) return;
-        settled = true;
-        resolve(code);
-      };
-      spawned.once("error", () => settle(1));
-      // `exit` confirms the direct child was reaped without waiting for pipe file
-      // descriptors that may still be inherited by descendants.
-      spawned.once("exit", (code) => settle(code ?? 1));
-    });
-    let drainPending: Promise<void> | undefined;
     const child: OwnedChildProcess = {
       get pid() {
         return spawned.pid;
       },
-      exited,
+      exited: spawned.exited,
       get exitCode() {
         return spawned.exitCode;
       },
       stdin: {
         write: (value) => {
-          if (spawned.stdin.destroyed || !spawned.stdin.writable)
-            throw new Error("child stdin is closed");
-          const accepted = spawned.stdin.write(value);
-          if (!accepted && !drainPending) {
-            drainPending = new Promise<void>((resolve, reject) => {
-              const cleanup = () => {
-                spawned.stdin.off("drain", onDrain);
-                spawned.stdin.off("error", onError);
-                spawned.stdin.off("close", onClose);
-              };
-              const onDrain = () => {
-                cleanup();
-                resolve();
-              };
-              const onError = (error: Error) => {
-                cleanup();
-                reject(error);
-              };
-              const onClose = () => {
-                cleanup();
-                reject(new Error("child stdin closed before drain"));
-              };
-              spawned.stdin.once("drain", onDrain);
-              spawned.stdin.once("error", onError);
-              spawned.stdin.once("close", onClose);
-            }).finally(() => {
-              drainPending = undefined;
-            });
-          }
-          return accepted;
+          spawned.stdin.write(value);
+          return true;
         },
         end: () => spawned.stdin.end(),
-        flush: () => drainPending ?? Promise.resolve(),
+        flush: async () => {
+          await spawned.stdin.flush();
+        },
       },
       stdout: spawned.stdout,
       stderr: spawned.stderr,
@@ -160,10 +120,13 @@ export class ProcessTreeOwner implements ProcessTreeSpawner {
 
   async #treeExists(pid: number): Promise<boolean> {
     if (this.platform === "linux") {
-      for (const entry of await readdir("/proc")) {
+      for await (const entry of new Bun.Glob("[0-9]*").scan({
+        cwd: "/proc",
+        onlyFiles: false,
+      })) {
         if (!/^\d+$/.test(entry)) continue;
         try {
-          const stat = await readFile(`/proc/${entry}/stat`, "utf8");
+          const stat = await Bun.file(`/proc/${entry}/stat`).text();
           const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
           const state = fields[0];
           const processGroup = Number(fields[2]);

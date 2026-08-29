@@ -31,9 +31,9 @@ describe("Agent detail", () => {
           computerId: "computer-old",
           launchId: "launch-1",
           clientSeq: 1,
-          activity: "started",
-          level: "info",
-          message: "Started",
+          activity: "launch_failed",
+          level: "error",
+          message: "Agent runtime could not be started.",
           occurredAt: new Date("2026-08-29T01:00:00Z"),
           createdAt: new Date("2026-08-29T01:00:01Z"),
         },
@@ -44,7 +44,7 @@ describe("Agent detail", () => {
     expect(result?.owner.username).toBe("alice");
     expect(result?.runtimeConfig).toEqual({ provider: "codex", model: "gpt-5", reasoning: "high" });
     expect(result?.computer).toEqual({ id: "computer-12345678", label: "computer…5678" });
-    expect(result?.latestError).toBeUndefined();
+    expect(result?.latestError?.id).toBe("activity-1");
     expect(result?.activity.map((entry) => entry.id)).toEqual(["activity-2", "activity-1"]);
   });
 

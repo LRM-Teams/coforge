@@ -667,11 +667,21 @@ describe("DaemonRuntime", () => {
         occurredAt: "2026-08-29T00:00:00.000Z",
       },
     });
+    sessions[0]!.event({
+      type: "activity",
+      activity: {
+        activity: "error",
+        level: "error",
+        message: "Provider request failed safely.",
+        occurredAt: "2026-08-29T00:00:00.500Z",
+      },
+    });
     const firstLaunch = activities[0]!.launchId;
     expect(firstLaunch).not.toBe("");
     expect(activities.every((activity) => activity.launchId === firstLaunch)).toBe(true);
-    expect(activities.map(({ clientSeq }) => clientSeq)).toEqual([1, 2]);
+    expect(activities.map(({ clientSeq }) => clientSeq)).toEqual([1, 2, 3]);
     expect(activities[1]!.message).toBe("Agent is running a command.");
+    expect(activities[2]!.message).toBe("Provider request failed safely.");
     expect(JSON.stringify(activities)).not.toContain("secret");
     expect(JSON.stringify(activities)).not.toContain("/private/path");
 
@@ -689,6 +699,7 @@ describe("DaemonRuntime", () => {
     expect(activities.map(({ activity }) => activity)).toEqual([
       "starting",
       "running_command",
+      "error",
       "stopped",
     ]);
 
@@ -745,12 +756,12 @@ describe("DaemonRuntime", () => {
     await expect(runtime.startAgent("agent-a", config)).rejects.toThrow(
       "process tree did not exit",
     );
-    expect(activities).toHaveLength(1);
-    expect(activities[0]).toMatchObject({
+    expect(activities.map(({ activity }) => activity)).toEqual(["starting", "launch_failed"]);
+    expect(activities[1]).toMatchObject({
       agentId: "agent-a",
       activity: "launch_failed",
       level: "error",
-      clientSeq: 1,
+      clientSeq: 2,
       message: "Agent process cleanup could not be confirmed. Replacement launch is blocked.",
     });
     await expect(runtime.startAgent("agent-a", config)).rejects.toThrow("stopping");

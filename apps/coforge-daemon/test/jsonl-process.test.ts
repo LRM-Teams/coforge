@@ -61,32 +61,31 @@ test("invalid child output permanently fails current and future requests", async
   }
 });
 
-test("startup failure closes the session and permits the manager to retry", async () => {
-  const events: string[] = [];
+test("startup spawn failure permits the manager to retry", async () => {
   let starts = 0;
   const manager = new AgentProcessManager(() => ({
     provider: "pi",
     async start() {
       starts++;
-      const process = new JsonlProcess([`coforge-missing-${crypto.randomUUID()}`], tmpdir(), {
-        PATH: globalThis.process.env.PATH ?? "",
-      });
-      process.onFailure(() => events.push("failure"));
-      process.onClose(() => events.push("close"));
-      return sessionFor(process);
+      return sessionFor(
+        new JsonlProcess([`coforge-missing-${crypto.randomUUID()}`], tmpdir(), {
+          PATH: globalThis.process.env.PATH ?? "",
+        }),
+      );
     },
   }));
   const runtime = { provider: "pi", model: "default", reasoning: "balanced" } as const;
   const workspace = `${tmpdir()}/coforge-startup-failure-${crypto.randomUUID()}`;
 
-  await manager.start("agent-1", runtime, workspace);
-  await waitUntil(() => manager.status("agent-1") === "offline");
-  expect(events).toEqual(["failure", "close"]);
+  await expect(manager.start("agent-1", runtime, workspace)).rejects.toThrow(
+    "Executable not found",
+  );
   expect(manager.size).toBe(0);
 
-  await manager.start("agent-1", runtime, workspace);
+  await expect(manager.start("agent-1", runtime, workspace)).rejects.toThrow(
+    "Executable not found",
+  );
   expect(starts).toBe(2);
-  await waitUntil(() => manager.status("agent-1") === "offline");
 });
 
 test("startup cleanup probe failure blocks a replacement", async () => {
