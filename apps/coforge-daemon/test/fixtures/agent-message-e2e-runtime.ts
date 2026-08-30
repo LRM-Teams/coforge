@@ -1,5 +1,11 @@
 export {};
 
+const descendant = Bun.spawn({
+  cmd: [process.execPath, "-e", "setInterval(() => {}, 1000)"],
+  stdin: "ignore",
+  stdout: "ignore",
+  stderr: "ignore",
+});
 const decoder = new TextDecoder();
 let buffer = "";
 
@@ -18,6 +24,10 @@ async function handle(command: { id: string; type: string; message?: string }) {
   if (command.type === "get_state" || command.type === "get_commands") {
     write({ type: "response", id: command.id, command: command.type, success: true, data: {} });
     await Bun.write(".e2e-agent-pid", String(process.pid));
+    await Bun.write(
+      ".e2e-agent-processes.json",
+      JSON.stringify({ directPid: process.pid, descendantPid: descendant.pid }),
+    );
     return;
   }
   if (command.type === "prompt") {
@@ -41,6 +51,36 @@ async function handle(command: { id: string; type: string; message?: string }) {
             retriedMessageId: retried.messageId,
           }),
         );
+        write({
+          type: "tool_execution_start",
+          toolCallId: "e2e-command",
+          toolName: "bash",
+          args: { command: "printf e2e-activity" },
+        });
+        write({
+          type: "tool_execution_start",
+          toolCallId: "e2e-read",
+          toolName: "read",
+          args: { path: "/workspace/e2e-read.ts" },
+        });
+        write({
+          type: "tool_execution_start",
+          toolCallId: "e2e-write",
+          toolName: "write",
+          args: { path: "/workspace/e2e-write.ts" },
+        });
+        write({
+          type: "tool_execution_start",
+          toolCallId: "e2e-edit",
+          toolName: "edit",
+          args: { path: "/workspace/e2e-edit.ts" },
+        });
+        write({
+          type: "tool_execution_start",
+          toolCallId: "e2e-tool",
+          toolName: "web_search",
+          args: { query: "CoForge" },
+        });
         write({ type: "agent_settled" });
       } catch {
         process.exit(1);

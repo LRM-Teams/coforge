@@ -30,6 +30,7 @@ for _ in $(seq 1 60); do
   if (: </dev/tcp/127.0.0.1/5432) 2>/dev/null; then break; fi
   sleep 1
 done
+bun run --cwd "$root/packages/protocol" generate
 cd "$root/apps/web"
 bun run db:migrate:deploy
 NODE_ENV=production bun run build

@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { encodeAgentActivity } from "@coforge/protocol";
 import { PrismaClient } from "../generated/client";
 import { DEV_BROWSER_USER } from "../src/server/auth/dev-skip-auth.server";
 import {
@@ -13,8 +15,12 @@ import {
   PrismaComputerConnectionRepository,
   PrismaWorkspaceAccess,
 } from "../src/server/db/repositories/setup.repositories.server";
-import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
+import {
+  PrismaAgentRepository,
+  RepositoryAgentAuthorization,
+} from "../src/server/db/repositories/agent.repositories.server";
 import { AgentCollection } from "../src/server/agents/agent-collection.server";
+import { CloudAgentUseCase } from "../src/server/agents/cloud-agent.server";
 import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
 import { SendDirectMessage } from "../src/server/conversations/direct-message.server";
 import { RedisMessageRequestIdempotency } from "../src/server/conversations/redis-message-request-idempotency.server";
@@ -85,7 +91,13 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
   });
   const created = await new AgentCollection(agents, { start: async () => undefined }).create(
     { userId: DEV_BROWSER_USER.id, workspaceId },
-    { name: "e2e-agent", displayName: "E2E Agent", provider: "pi" },
+    {
+      name: "e2e-agent",
+      displayName: "E2E Agent",
+      provider: "pi",
+      model: "e2e-model",
+      reasoning: "balanced",
+    },
   );
   const keyProbe = await fetch("http://127.0.0.1:8789/api/agent-api-keys", {
     method: "POST",
@@ -135,9 +147,16 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
       serverHttpUrl: "http://127.0.0.1:8789",
     });
     await waitFor(() => runtime!.agentProcessManager.size === 1);
-    const pidPath = join(workspaceRoot, workspaceId, "agents", created.agent.id, ".e2e-agent-pid");
+    const agentWorkspace = join(workspaceRoot, workspaceId, "agents", created.agent.id);
+    const pidPath = join(agentWorkspace, ".e2e-agent-pid");
+    const processesPath = join(agentWorkspace, ".e2e-agent-processes.json");
     await waitFor(async () => Bun.file(pidPath).exists());
     expect(Number(await Bun.file(pidPath).text())).not.toBe(process.pid);
+    const firstProcesses = await readProcesses(processesPath);
+    expect(firstProcesses.directPid).not.toBe(process.pid);
+    expect(firstProcesses.descendantPid).not.toBe(firstProcesses.directPid);
+    expect(pidExists(firstProcesses.directPid)).toBe(true);
+    expect(pidExists(firstProcesses.descendantPid)).toBe(true);
     const completionPath = join(
       workspaceRoot,
       workspaceId,
@@ -181,18 +200,163 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
     expect(await db.agentMessageDelivery.count()).toBe(1);
     expect((await db.agentMessageDelivery.findFirst())?.receivedAt).toBeInstanceOf(Date);
 
+    await waitFor(
+      async () => (await db.agentActivity.count({ where: { agentId: created.agent.id } })) >= 7,
+    );
+    const firstLaunchActivity = await db.agentActivity.findMany({
+      where: { agentId: created.agent.id },
+      orderBy: { clientSeq: "asc" },
+    });
+    const firstLaunchId = firstLaunchActivity[0]!.launchId;
+    expect(firstLaunchActivity.map(({ launchId }) => launchId)).toEqual([
+      firstLaunchId,
+      firstLaunchId,
+      firstLaunchId,
+      firstLaunchId,
+      firstLaunchId,
+      firstLaunchId,
+      firstLaunchId,
+    ]);
+    expect(firstLaunchActivity.map(({ clientSeq }) => clientSeq)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(firstLaunchActivity.map(({ activity }) => activity)).toEqual([
+      "starting",
+      "running_command",
+      "reading_file",
+      "writing_file",
+      "editing_file",
+      "using_tool",
+      "turn_completed",
+    ]);
+    expect(firstLaunchActivity[1]!.message).toBe("printf e2e-activity");
+    expect(firstLaunchActivity.slice(2, 6).map(({ message }) => message)).toEqual([
+      "/workspace/e2e-read.ts",
+      "/workspace/e2e-write.ts",
+      "/workspace/e2e-edit.ts",
+      "web_search",
+    ]);
+    expect(
+      firstLaunchActivity.every(({ computerId }) => computerId === registration.computerId),
+    ).toBe(true);
+
+    await runtime.stopAgent(created.agent.id);
+    await waitFor(
+      () => !pidExists(firstProcesses.directPid) && !pidExists(firstProcesses.descendantPid),
+    );
+    expect(runtime.agentProcessManager.size).toBe(0);
+    await rm(processesPath, { force: true });
+
+    await new CloudAgentUseCase(
+      new RepositoryAgentAuthorization(agents),
+      createCentrifugoServerApi(),
+      async () => undefined,
+    ).start(
+      {
+        protocolMajor: 1,
+        requestId: crypto.randomUUID(),
+        workspaceId,
+        agentId: created.agent.id,
+        provider: "pi",
+        model: "e2e-model",
+        reasoning: "balanced",
+      },
+      DEV_BROWSER_USER.id,
+    );
+    await waitFor(async () => Bun.file(processesPath).exists());
+    const replacementProcesses = await readProcesses(processesPath);
+    expect(replacementProcesses.directPid).not.toBe(firstProcesses.directPid);
+    expect(replacementProcesses.descendantPid).not.toBe(firstProcesses.descendantPid);
+    expect(pidExists(replacementProcesses.directPid)).toBe(true);
+    expect(pidExists(replacementProcesses.descendantPid)).toBe(true);
+    await waitFor(
+      async () =>
+        (await db.agentActivity.count({
+          where: { agentId: created.agent.id, launchId: { not: firstLaunchId } },
+        })) >= 1,
+    );
+    const replacementActivity = await db.agentActivity.findFirstOrThrow({
+      where: { agentId: created.agent.id, launchId: { not: firstLaunchId } },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(replacementActivity.clientSeq).toBe(1);
+    expect(replacementActivity.activity).toBe("starting");
+
+    const errorMessage = "E2E provider failure shown without hiding runtime configuration.";
+    const errorActivity = encodeAgentActivity({
+      protocolMajor: 1,
+      requestId: crypto.randomUUID(),
+      workspaceId,
+      agentId: created.agent.id,
+      activity: "error",
+      level: "error",
+      message: errorMessage,
+      occurredAt: new Date().toISOString(),
+      launchId: replacementActivity.launchId,
+      clientSeq: 50,
+    });
+    const activityProbe = await fetch(
+      "http://127.0.0.1:8789/api/internal/centrifugo-agent-activity",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-coforge-centrifugo-proxy-secret": requireEnvironment(
+            "COFORGE_CENTRIFUGO_PROXY_SECRET",
+          ),
+        },
+        body: JSON.stringify({
+          user: registration.computerId,
+          channel: `activity:${workspaceId}`,
+          b64data: bytesToBase64(errorActivity),
+          meta: { workspace_id: workspaceId, computer_id: registration.computerId },
+        }),
+      },
+    );
+    expect(activityProbe.status).toBe(200);
+    await waitFor(
+      async () =>
+        (await db.agentActivity.count({
+          where: { agentId: created.agent.id, message: errorMessage },
+        })) === 1,
+    );
+
     const page = await fetch(`http://127.0.0.1:8789/messages/${created.agent.id}`);
     expect(page.status).toBe(200);
     const html = await page.text();
     expect(html).toContain("E2E User message");
     expect(html).toContain("E2E Agent reply");
+
+    const profile = await fetch(`http://127.0.0.1:8789/agents/${created.agent.id}?tab=profile`);
+    expect(profile.status).toBe(200);
+    const profileHtml = await profile.text();
+    expect(profileHtml).toContain("E2E Agent");
+    expect(profileHtml).toContain(registration.computerId.slice(0, 8));
+    expect(profileHtml).toContain("e2e-model");
+    expect(profileHtml).toContain("balanced");
+    expect(profileHtml).toContain(errorMessage);
+
+    const activityPage = await fetch(
+      `http://127.0.0.1:8789/agents/${created.agent.id}?tab=activity`,
+    );
+    expect(activityPage.status).toBe(200);
+    const activityHtml = await activityPage.text();
+    expect(activityHtml).toContain(errorMessage);
+    expect(activityHtml).toContain("Running command");
+    expect(activityHtml).toContain("Reading file");
+    expect(activityHtml).toContain("Writing file");
+    expect(activityHtml).toContain("Editing file");
+    expect(activityHtml).toContain("Using tool");
+    expect(activityHtml).toContain("printf e2e-activity");
+    expect(activityHtml).toContain("/workspace/e2e-read.ts");
+    expect(activityHtml).toContain("/workspace/e2e-write.ts");
+    expect(activityHtml).toContain("/workspace/e2e-edit.ts");
+    expect(activityHtml).toContain("web_search");
   } finally {
     await runtime.stop();
     proxy.close();
     redis.close();
     await db.$disconnect();
   }
-}, 30_000);
+}, 40_000);
 
 function requireEnvironment(name: string) {
   const value = process.env[name];
@@ -206,4 +370,29 @@ async function waitFor(check: () => boolean | Promise<boolean>) {
     if (Date.now() >= deadline) throw new Error("timed out waiting for E2E state");
     await Bun.sleep(50);
   }
+}
+
+async function readProcesses(path: string) {
+  await waitFor(async () => Bun.file(path).exists());
+  return (await Bun.file(path).json()) as { directPid: number; descendantPid: number };
+}
+
+function pidExists(pid: number) {
+  try {
+    process.kill(pid, 0);
+    if (process.platform === "linux") {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[0] !== "Z";
+    }
+    return true;
+  } catch (error) {
+    if ((error as { code?: string }).code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
 }

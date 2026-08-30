@@ -21,7 +21,7 @@ client:
 channel:
   proxy:
     publish:
-      endpoint: ${CENTRIFUGO_VAR_ACTIVITY_PROXY_ENDPOINT}
+      endpoint: http://host.docker.internal:8789/api/internal/centrifugo-agent-activity
       timeout: 1s
       binary_encoding: true
       include_connection_meta: true

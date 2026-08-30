@@ -11,7 +11,8 @@
     "lint": "oxlint .",
     "typecheck": "tsc --noEmit",
     "check": "bun run format:check && bun run lint && bun run typecheck",
-    "build": "bun build --compile ../../packages/cli/src/cli.ts --outfile ./dist/coforge && bun build --compile ./index.ts --outfile ./dist/coforge-daemon"
+    "build": "bun build --compile ../../packages/cli/src/cli.ts --outfile ./dist/coforge && bun build --compile ./index.ts --outfile ./dist/coforge-daemon",
+    "pretest": "bun run build"
   },
   "dependencies": {
     "@coforge/agent": "0.1.0",

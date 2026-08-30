@@ -565,11 +565,15 @@ export class DaemonRuntime {
 
 function safeRuntimeActivityMessage(activity: string, level: string, message: string): string {
   if (level === "error" || level === "warning") return message;
-  if (activity === "running_command") return "Agent is running a command.";
-  if (activity === "reading_file") return "Agent is reading a file.";
-  if (activity === "writing_file") return "Agent is writing a file.";
-  if (activity === "editing_file") return "Agent is editing a file.";
-  if (activity === "using_tool") return "Agent is using a tool.";
+  if (activity === "running_command") return [...message].slice(0, 100).join("");
+  if (
+    activity === "reading_file" ||
+    activity === "writing_file" ||
+    activity === "editing_file" ||
+    activity === "using_tool"
+  ) {
+    return message;
+  }
   return "Agent activity observed.";
 }
 
