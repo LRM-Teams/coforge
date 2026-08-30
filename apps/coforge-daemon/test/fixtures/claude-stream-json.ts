@@ -3,7 +3,20 @@ export {};
 const exitsOnInterrupt = process.argv.includes("exit-on-interrupt");
 const decoder = new TextDecoder();
 let buffer = "";
-write({ type: "system", subtype: "init", session_id: "fixture-session" });
+write({
+  type: "system",
+  subtype: "init",
+  session_id: "fixture-session",
+  models: [
+    {
+      value: "claude-sonnet-5",
+      displayName: "Sonnet 5",
+      description: "Fast and capable",
+      supportedEffortLevels: ["low", "medium", "high"],
+      defaultEffortLevel: "high",
+    },
+  ],
+});
 process.on("SIGINT", () => {
   if (exitsOnInterrupt) process.exit(130);
   write({ type: "result", subtype: "success" });

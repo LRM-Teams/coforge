@@ -52,8 +52,8 @@ export class WorkspaceAgentRecovery {
     private readonly api: CentrifugoServerApi,
   ) {}
 
-  async recoverWorkspace(workspaceId: string) {
-    const agents = await this.agents.listInWorkspace(workspaceId);
+  async recoverWorkspace(workspaceId: string, computerId: string) {
+    const agents = await this.agents.listForComputer(workspaceId, computerId);
     for (const agent of agents) {
       await this.api.publish(
         workspaceAgentChannel(workspaceId),
@@ -61,6 +61,7 @@ export class WorkspaceAgentRecovery {
           protocolMajor: 1,
           requestId: crypto.randomUUID(),
           workspaceId,
+          computerId,
           agentId: agent.id,
           ...readRuntimeConfig(agent),
         }),

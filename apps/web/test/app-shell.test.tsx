@@ -20,12 +20,35 @@ const agent = {
   createdAt: "2026-08-20T12:00:00.000Z",
   runtimeConfig: { provider: "codex" as const, model: "gpt-5" },
 };
+const computers = [
+  {
+    id: "computer-1",
+    machineId: "machine-1",
+    runtimes: [{ provider: "codex" }, { provider: "claude-code" }],
+    modelCatalogs: [
+      {
+        provider: "claude-code",
+        models: [
+          {
+            id: "sonnet",
+            displayName: "Sonnet",
+            description: "",
+            modelProvider: "",
+            reasoningEfforts: ["low", "high"],
+            defaultReasoning: "high",
+            recommended: true,
+          },
+        ],
+      },
+    ],
+  },
+];
 
 function renderShell(agents = [agent], onCreate = async () => ({ startPublished: true })) {
   return render(
     <RouterContextProvider router={getRouter()}>
       <AppShell user={user}>
-        <AgentsContent agents={agents} onCreate={onCreate} />
+        <AgentsContent agents={agents} computers={computers} onCreate={onCreate} />
       </AppShell>
     </RouterContextProvider>,
   ).container.innerHTML;
@@ -43,6 +66,7 @@ function renderAgents(
   render(
     <AgentsContent
       agents={agents}
+      computers={computers}
       onCreate={onCreate}
       defaultCreateDialogOpen={defaultCreateDialogOpen}
     />,
@@ -102,10 +126,14 @@ test("shows an empty state", () => {
 test("submits the public creation form callback", async () => {
   const onCreate = mock(async () => ({ startPublished: true }));
   renderAgents([], onCreate, true);
+  expect(await page().findByRole("option", { name: "Pi (Built-in)" })).toBeTruthy();
   fireEvent.change(await page().findByLabelText("Name"), { target: { value: "build-helper" } });
   fireEvent.change(page().getByLabelText("Display name"), { target: { value: "Build Helper" } });
   fireEvent.change(page().getByLabelText("Runtime provider"), { target: { value: "claude-code" } });
-  fireEvent.change(page().getByLabelText(/Model/), { target: { value: "sonnet" } });
+  fireEvent.change(page().getByLabelText(/Model/), {
+    target: { value: JSON.stringify(["", "sonnet"]) },
+  });
+  fireEvent.change(page().getByLabelText(/Reasoning/), { target: { value: "high" } });
   fireEvent.click(page().getByRole("button", { name: "Create agent" }));
   await waitFor(() =>
     expect(onCreate).toHaveBeenCalledWith({
@@ -113,7 +141,8 @@ test("submits the public creation form callback", async () => {
       displayName: "Build Helper",
       provider: "claude-code",
       model: "sonnet",
-      reasoning: "",
+      reasoning: "high",
+      computerId: "computer-1",
     }),
   );
 });

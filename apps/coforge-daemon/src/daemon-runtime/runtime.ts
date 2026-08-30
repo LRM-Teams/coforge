@@ -26,6 +26,10 @@ import {
 } from "@coforge/protocol";
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentMessageAttentionIndex } from "./agent-message-attention-index";
+import {
+  discoverCodeAgentInventory,
+  type CodeAgentInventory,
+} from "../code-agent/runtime-inventory";
 
 export function generateRuntimeInstanceId(): string {
   return crypto.randomUUID();
@@ -45,6 +49,7 @@ export class DaemonRuntime {
   #activityEnabled = false;
   #unsubscribeAgentStart: (() => void) | undefined;
   #unsubscribeAgentMessage: (() => void) | undefined;
+  #unsubscribeReconnect: (() => void) | undefined;
   readonly #messageAttention: AgentMessageAttentionIndex;
   readonly #runtimeInstanceId = generateRuntimeInstanceId();
   readonly #startedAt = Date.now();
@@ -75,6 +80,7 @@ export class DaemonRuntime {
       issue(agentId: string, agentApiKey: string): string;
       revoke(token: string): void;
     },
+    private readonly discoverCodeAgents: () => Promise<CodeAgentInventory> = discoverCodeAgentInventory,
   ) {
     this.#connection = connection;
     this.#agentProcessManager = new AgentProcessManager(createAdapter);
@@ -130,6 +136,9 @@ export class DaemonRuntime {
       void this.handleAgentMessage(message).catch(() => {});
     };
     try {
+      this.#unsubscribeReconnect = this.#transport.onReconnect?.(() => {
+        void this.#reportCodeAgents(connection).catch(() => {});
+      });
       await this.#transport.start(token, {
         workspaceId: connection.workspaceId,
         computerId: connection.computerId,
@@ -147,6 +156,7 @@ export class DaemonRuntime {
         workerInstanceId: this.#runtimeInstanceId,
         startedAt: this.#startedAt,
       });
+      await this.#reportCodeAgents(connection).catch(() => {});
       if (this.#stopping) {
         pending.length = 0;
         return;
@@ -164,12 +174,25 @@ export class DaemonRuntime {
       this.#unsubscribeAgentStart = undefined;
       this.#unsubscribeAgentMessage?.();
       this.#unsubscribeAgentMessage = undefined;
+      this.#unsubscribeReconnect?.();
+      this.#unsubscribeReconnect = undefined;
       pending.length = 0;
       this.#started = false;
       // A transport may retain partial state after a failed start; never reuse it.
       this.#transport = this.#transportFactory.create(this.#connection);
       throw error;
     }
+  }
+
+  async #reportCodeAgents(connection: DaemonConfig): Promise<void> {
+    const inventory = await this.discoverCodeAgents();
+    await this.#transport.updateCodeAgents?.({
+      protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+      requestId: crypto.randomUUID(),
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      ...inventory,
+    });
   }
 
   startAgent(
@@ -335,9 +358,16 @@ export class DaemonRuntime {
       throw new Error("unsupported agent protocol major");
     if (intent.workspaceId !== this.#connection.workspaceId)
       throw new Error("agent intent targets another Workspace");
+    if (intent.computerId && intent.computerId !== this.#connection.computerId)
+      throw new Error("agent intent targets another Computer");
     return this.startAgent(
       intent.agentId,
-      { provider: intent.provider, model: intent.model, reasoning: intent.reasoning },
+      {
+        provider: intent.provider,
+        model: intent.model,
+        modelProvider: intent.modelProvider,
+        reasoning: intent.reasoning,
+      },
       intent.sessionId,
       intent.requestId,
     );
@@ -516,6 +546,8 @@ export class DaemonRuntime {
     this.#unsubscribeAgentStart = undefined;
     this.#unsubscribeAgentMessage?.();
     this.#unsubscribeAgentMessage = undefined;
+    this.#unsubscribeReconnect?.();
+    this.#unsubscribeReconnect = undefined;
     for (const token of this.#agentProxyTokens.values()) this.#agentProxy?.revoke(token);
     this.#agentProxyTokens.clear();
     this.#agentContexts.clear();

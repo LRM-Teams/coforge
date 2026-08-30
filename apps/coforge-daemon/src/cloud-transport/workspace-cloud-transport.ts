@@ -5,9 +5,12 @@ import {
   encodeAgentActivity,
   encodeAgentMessageDeliveryAck,
   encodeWorkspaceWorkerReadyRequest,
+  encodeWorkspaceWorkerCodeAgentsUpdateRequest,
   WORKSPACE_WORKER_READY_METHOD,
+  WORKSPACE_WORKER_CODE_AGENTS_UPDATE_METHOD,
   AGENT_MESSAGE_ACK_METHOD,
   type WorkspaceWorkerReadyRequest,
+  type WorkspaceWorkerCodeAgentsUpdateRequest,
   type AgentActivity,
   type AgentStartIntent,
   type AgentMessageDelivery,
@@ -41,7 +44,9 @@ export interface AgentMessageHttpClient {
 export interface WorkspaceCloudTransport {
   start(token: string, config: WorkspaceCloudTransportConfig): Promise<void>;
   ready(request: WorkspaceWorkerReadyRequest): Promise<void>;
+  updateCodeAgents?(request: WorkspaceWorkerCodeAgentsUpdateRequest): Promise<void>;
   stop(): Promise<void>;
+  onReconnect?(callback: () => void): () => void;
   onAgentStart?(callback: (intent: AgentStartIntent) => void): () => void;
   onAgentMessage?(callback: (message: AgentMessageDelivery) => void): () => void;
   sendAgentActivity?(activity: AgentActivity): void;
@@ -118,6 +123,7 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
   #agentMessageListener: ((message: AgentMessageDelivery) => void) | undefined;
   #token = "";
   #lastReadyRequest: WorkspaceWorkerReadyRequest | undefined;
+  #reconnectListener: (() => void) | undefined;
   readonly #pendingActivity = new Map<string, AgentActivity>();
   readonly #supersededActivityLaunches = new Map<string, Set<string>>();
 
@@ -150,10 +156,12 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
         this.#hasConnected = true;
         this.#flushPendingActivity(client);
         if (reconnect && this.#lastReadyRequest) {
-          void this.#sendReady(client, this.#lastReadyRequest).catch(() => {
-            // A reconnect handshake is best effort. A later reconnect retries
-            // the last successful runtime registration.
-          });
+          void this.#sendReady(client, this.#lastReadyRequest)
+            .then(() => this.#reconnectListener?.())
+            .catch(() => {
+              // A reconnect handshake is best effort. A later reconnect retries
+              // the last successful runtime registration.
+            });
         }
         resolve();
       });
@@ -177,6 +185,13 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
     this.#agentMessageListener = callback;
     return () => {
       if (this.#agentMessageListener === callback) this.#agentMessageListener = undefined;
+    };
+  }
+
+  onReconnect(callback: () => void): () => void {
+    this.#reconnectListener = callback;
+    return () => {
+      if (this.#reconnectListener === callback) this.#reconnectListener = undefined;
     };
   }
 
@@ -288,6 +303,14 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
     this.#lastReadyRequest = request;
   }
 
+  async updateCodeAgents(request: WorkspaceWorkerCodeAgentsUpdateRequest): Promise<void> {
+    if (!this.#connected || !this.#client) throw new Error("cloud transport is not connected");
+    await this.#client.rpc(
+      WORKSPACE_WORKER_CODE_AGENTS_UPDATE_METHOD,
+      encodeWorkspaceWorkerCodeAgentsUpdateRequest(request),
+    );
+  }
+
   async #sendReady(
     client: CentrifugeWorkspaceClient,
     request: WorkspaceWorkerReadyRequest,
@@ -303,6 +326,7 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
     this.#agentStartListener = undefined;
     this.#agentMessageListener = undefined;
     this.#lastReadyRequest = undefined;
+    this.#reconnectListener = undefined;
     this.#pendingActivity.clear();
     this.#supersededActivityLaunches.clear();
     client?.disconnect();

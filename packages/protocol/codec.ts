@@ -8,6 +8,7 @@ import {
   RUNTIME_PROVIDER,
   type ComputerRegisterRequest,
   type ComputerRegisterResponse,
+  type CodeAgentModelCatalog,
   type RuntimeProvider,
 } from "./index";
 import {
@@ -16,7 +17,10 @@ import {
   WorkspaceListRequestSchema,
   WorkspaceListResponseSchema,
 } from "./gen/coforge/rpc/v1/workspace_pb";
-import { WorkspaceWorkerReadyRequestSchema } from "./gen/coforge/rpc/v1/computer_register_pb";
+import {
+  WorkspaceWorkerCodeAgentsUpdateRequestSchema,
+  WorkspaceWorkerReadyRequestSchema,
+} from "./gen/coforge/rpc/v1/computer_register_pb";
 import {
   AgentStartIntentSchema,
   AgentMessageDeliverySchema,
@@ -34,7 +38,55 @@ import type {
   CloudAgentMessageResponse,
 } from "./index";
 import { AGENT_MESSAGE_METHOD, AGENT_MESSAGE_ACK_METHOD } from "./index";
-import type { WorkspaceWorkerReadyRequest } from "./index";
+import type {
+  RuntimeMetadata,
+  WorkspaceWorkerCodeAgentsUpdateRequest,
+  WorkspaceWorkerReadyRequest,
+} from "./index";
+
+const runtimeMetadata = (runtime: RuntimeMetadata) => ({
+  ...runtime,
+  kind: runtime.kind === "builtin" ? RuntimeKind.BUILTIN : RuntimeKind.EXTERNAL,
+});
+
+const decodedRuntimeMetadata = (runtime: {
+  provider: string;
+  version: string;
+  kind: RuntimeKind;
+}): RuntimeMetadata => ({
+  provider: parseRuntimeProvider(runtime.provider),
+  version: runtime.version,
+  kind: runtime.kind === RuntimeKind.BUILTIN ? "builtin" : "external",
+});
+
+const modelCatalog = (catalog: CodeAgentModelCatalog) => ({
+  provider: catalog.provider,
+  models: catalog.models,
+});
+
+const decodedModelCatalog = (catalog: {
+  provider: string;
+  models: Array<{
+    id: string;
+    displayName: string;
+    description: string;
+    modelProvider: string;
+    reasoningEfforts: string[];
+    defaultReasoning: string;
+    recommended: boolean;
+  }>;
+}): CodeAgentModelCatalog => ({
+  provider: parseRuntimeProvider(catalog.provider),
+  models: catalog.models.map((model) => ({
+    id: model.id,
+    displayName: model.displayName,
+    description: model.description,
+    modelProvider: model.modelProvider,
+    reasoningEfforts: [...model.reasoningEfforts],
+    defaultReasoning: model.defaultReasoning,
+    recommended: model.recommended,
+  })),
+});
 
 export function encodeWorkspaceWorkerReadyRequest(value: WorkspaceWorkerReadyRequest): Uint8Array {
   return toBinary(
@@ -51,6 +103,33 @@ export function decodeWorkspaceWorkerReadyRequest(bytes: Uint8Array): WorkspaceW
   return { ...value, startedAt: Number(value.startedAt) };
 }
 
+export function encodeWorkspaceWorkerCodeAgentsUpdateRequest(
+  value: WorkspaceWorkerCodeAgentsUpdateRequest,
+): Uint8Array {
+  return toBinary(
+    WorkspaceWorkerCodeAgentsUpdateRequestSchema,
+    create(WorkspaceWorkerCodeAgentsUpdateRequestSchema, {
+      ...value,
+      runtimes: value.runtimes.map(runtimeMetadata),
+      catalogs: value.catalogs.map(modelCatalog),
+    }),
+  );
+}
+
+export function decodeWorkspaceWorkerCodeAgentsUpdateRequest(
+  bytes: Uint8Array,
+): WorkspaceWorkerCodeAgentsUpdateRequest {
+  const value = fromBinary(WorkspaceWorkerCodeAgentsUpdateRequestSchema, bytes);
+  return {
+    protocolMajor: value.protocolMajor,
+    requestId: value.requestId,
+    workspaceId: value.workspaceId,
+    computerId: value.computerId,
+    runtimes: value.runtimes.map(decodedRuntimeMetadata),
+    catalogs: value.catalogs.map(decodedModelCatalog),
+  };
+}
+
 export function encodeAgentStartIntent(value: AgentStartIntent): Uint8Array {
   return toBinary(AgentStartIntentSchema, create(AgentStartIntentSchema, value));
 }
@@ -61,9 +140,16 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
   if (!["pi", "codex", "claude-code"].includes(v.provider))
     throw new Error(`unsupported runtime provider: ${v.provider}`);
   return {
-    ...v,
+    protocolMajor: v.protocolMajor,
+    requestId: v.requestId,
+    workspaceId: v.workspaceId,
+    agentId: v.agentId,
     provider: v.provider as AgentStartIntent["provider"],
-    sessionId: v.sessionId || undefined,
+    model: v.model,
+    modelProvider: v.modelProvider,
+    reasoning: v.reasoning,
+    ...(v.sessionId ? { sessionId: v.sessionId } : {}),
+    computerId: v.computerId || undefined,
   };
 }
 export function encodeAgentMessageDelivery(value: AgentMessageDelivery): Uint8Array {
@@ -281,10 +367,7 @@ export function encodeComputerRegisterRequest(value: ComputerRegisterRequest): U
     ComputerRegisterRequestSchema,
     create(ComputerRegisterRequestSchema, {
       ...value,
-      runtimes: value.runtimes.map((runtime) => ({
-        ...runtime,
-        kind: runtime.kind === "builtin" ? RuntimeKind.BUILTIN : RuntimeKind.EXTERNAL,
-      })),
+      runtimes: value.runtimes.map(runtimeMetadata),
     }),
   );
 }
@@ -300,11 +383,7 @@ export function decodeComputerRegisterRequest(bytes: Uint8Array): ComputerRegist
     osVersion: value.osVersion,
     computerVersion: value.computerVersion,
     registrationIdempotencyKey: value.registrationIdempotencyKey,
-    runtimes: value.runtimes.map((runtime) => ({
-      provider: parseRuntimeProvider(runtime.provider),
-      version: runtime.version,
-      kind: runtime.kind === RuntimeKind.BUILTIN ? "builtin" : "external",
-    })),
+    runtimes: value.runtimes.map(decodedRuntimeMetadata),
   };
 }
 

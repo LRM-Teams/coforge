@@ -63,6 +63,14 @@ _Avoid_: Workspace, repository, provider home, runtime directory
 A short-lived execution and audit identity for one Agent in one Workspace runtime session. Its configuration selects a provider, model, and reasoning behavior; provider-specific adapters translate that configuration into the native runtime settings. It never inherits User or Computer authority.
 _Avoid_: Agent token, code-agent installation
 
+**Code Agent installation**:
+An external provider executable, currently Codex or Claude Code, discovered from the Daemon's effective PATH on one Computer. Its reported provider and version form a replaceable observation, not a credential or Agent runtime. Built-in Pi is not part of this inventory.
+_Avoid_: Agent runtime, Computer registration, built-in Agent
+
+**Code Agent model catalog**:
+The replaceable model and reasoning selection metadata advertised for one Code Agent provider on one Computer. Pi entries also carry the underlying model provider needed to disambiguate model IDs. A listed model is a supported selection, not proof that the current account is entitled to run it. The catalog validates Agent runtime configuration; it is not a credential or global model registry.
+_Avoid_: static model list, Agent runtime, provider credential
+
 **Agent API key**:
 A server-issued key authorizing one Agent on one Computer to call the Agent message interface. A new launch replaces every active key for the same Agent, and the key never enters the Agent child process.
 _Avoid_: Agent token, Agent credential

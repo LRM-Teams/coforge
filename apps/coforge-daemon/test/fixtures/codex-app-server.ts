@@ -4,6 +4,8 @@ import { join } from "node:path";
 const expectedSkill = process.argv
   .find((argument) => argument.startsWith("expected-skill="))
   ?.slice(15);
+const expectsCoforgeEnvironment = process.argv.includes("expected-coforge-environment");
+const expectsRuntimeConfig = process.argv.includes("expected-runtime-config");
 const skillsDirectory = join(process.cwd(), ".agents", "skills");
 let skills: string[] = [];
 try {
@@ -44,6 +46,29 @@ function handle(request: Request): void {
     initialized = true;
     return;
   }
+  if (request.method === "model/list" && request.id && initialized) {
+    write({
+      id: request.id,
+      result: {
+        data: [
+          {
+            model: "gpt-5.6-sol",
+            displayName: "GPT-5.6 Sol",
+            description: "Primary coding model",
+            isDefault: true,
+            supportedReasoningEfforts: [
+              { reasoningEffort: "low" },
+              { reasoningEffort: "medium" },
+              { reasoningEffort: "high" },
+            ],
+            defaultReasoningEffort: "low",
+          },
+        ],
+        nextCursor: null,
+      },
+    });
+    return;
+  }
   if (request.method === "skills/list" && request.id && initialized) {
     skillsLoaded = true;
     const cwds = request.params?.cwds;
@@ -64,6 +89,14 @@ function handle(request: Request): void {
     return;
   }
   if (request.method === "thread/start" && request.id && initialized && skillsLoaded) {
+    if (expectsCoforgeEnvironment && !hasCoforgeEnvironmentPolicy(request.params)) {
+      write({ id: request.id, error: { message: "missing CoForge shell environment policy" } });
+      return;
+    }
+    if (expectsRuntimeConfig && !hasRuntimeConfig(request.params)) {
+      write({ id: request.id, error: { message: "missing selected runtime config" } });
+      return;
+    }
     write({ id: request.id, result: { thread: { id: "thread-1" } } });
     return;
   }
@@ -141,6 +174,31 @@ function textInput(params: Record<string, unknown> | undefined): string | undefi
   const first = input[0];
   if (first === null || typeof first !== "object") return undefined;
   return (first as { text?: string }).text;
+}
+
+function hasCoforgeEnvironmentPolicy(params: Record<string, unknown> | undefined): boolean {
+  const config = record(params?.config);
+  const policy = record(config?.shell_environment_policy);
+  const filters = record(policy?.filters);
+  return (
+    config?.allow_login_shell === false &&
+    policy?.inherit === "all" &&
+    policy.ignore_default_excludes === false &&
+    filters?.["COFORGE_*"] === "include" &&
+    filters.PATH === "include" &&
+    filters.HOME === "include"
+  );
+}
+
+function hasRuntimeConfig(params: Record<string, unknown> | undefined): boolean {
+  const config = record(params?.config);
+  return params?.model === "gpt-5.6-sol" && config?.model_reasoning_effort === "high";
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 function write(value: unknown): void {

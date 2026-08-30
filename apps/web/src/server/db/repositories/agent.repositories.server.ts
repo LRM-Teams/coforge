@@ -4,6 +4,7 @@ import { RUNTIME_PROVIDER, type RuntimeProvider } from "@coforge/protocol";
 export type AgentRuntimeConfig = {
   provider: RuntimeProvider;
   model: string;
+  modelProvider: string;
   reasoning: string;
 };
 
@@ -14,6 +15,7 @@ export type AgentRecord = {
   displayName: string;
   createdAt: Date;
   ownerId: string;
+  computerId?: string;
   runtimeConfig: AgentRuntimeConfig;
 };
 
@@ -31,6 +33,7 @@ function mapAgent(agent: {
   displayName: string;
   createdAt: Date;
   ownerId: string;
+  computerId: string | null;
   runtimeConfig: unknown;
 }): AgentRecord {
   const value = agent.runtimeConfig;
@@ -38,15 +41,27 @@ function mapAgent(agent: {
     throw new Error(`Agent ${agent.id} has invalid runtime config`);
   const provider = runtimeProvider(Reflect.get(value, "provider"));
   const model = Reflect.get(value, "model");
+  const modelProvider = Reflect.get(value, "modelProvider");
   const reasoning = Reflect.get(value, "reasoning");
   if (!provider || typeof model !== "string" || typeof reasoning !== "string")
     throw new Error(`Agent ${agent.id} has invalid runtime config`);
-  return { ...agent, runtimeConfig: { provider, model, reasoning } };
+  const { computerId, ...fields } = agent;
+  return {
+    ...fields,
+    ...(computerId ? { computerId } : {}),
+    runtimeConfig: {
+      provider,
+      model,
+      modelProvider: typeof modelProvider === "string" ? modelProvider : "",
+      reasoning,
+    },
+  };
 }
 
 export interface AgentRepository {
   getById(id: string): Promise<AgentRecord | undefined>;
   listInWorkspace(workspaceId: string): Promise<AgentRecord[]>;
+  listForComputer(workspaceId: string, computerId: string): Promise<AgentRecord[]>;
   listOwnedInWorkspace(workspaceId: string, ownerId: string): Promise<AgentRecord[]>;
   create(input: Omit<AgentRecord, "id" | "createdAt">): Promise<AgentRecord>;
 }
@@ -62,6 +77,14 @@ export class PrismaAgentRepository implements AgentRepository {
   async listInWorkspace(workspaceId: string) {
     const agents = await this.db.agent.findMany({
       where: { workspaceId },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+    return agents.map(mapAgent);
+  }
+
+  async listForComputer(workspaceId: string, computerId: string) {
+    const agents = await this.db.agent.findMany({
+      where: { workspaceId, OR: [{ computerId }, { computerId: null }] },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
     return agents.map(mapAgent);

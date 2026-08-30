@@ -89,13 +89,19 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
     workspaceId,
     computerId: registration.computerId,
   });
-  const created = await new AgentCollection(agents, { start: async () => undefined }).create(
+  const created = await new AgentCollection(
+    agents,
+    { start: async () => undefined },
+    { canRun: async () => true },
+  ).create(
     { userId: DEV_BROWSER_USER.id, workspaceId },
     {
       name: "e2e-agent",
       displayName: "E2E Agent",
       provider: "pi",
+      computerId: registration.computerId,
       model: "e2e-model",
+      modelProvider: "e2e-provider",
       reasoning: "balanced",
     },
   );
@@ -150,7 +156,14 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
     const agentWorkspace = join(workspaceRoot, workspaceId, "agents", created.agent.id);
     const pidPath = join(agentWorkspace, ".e2e-agent-pid");
     const processesPath = join(agentWorkspace, ".e2e-agent-processes.json");
+    const runtimeConfigPath = join(agentWorkspace, ".e2e-runtime-config.json");
     await waitFor(async () => Bun.file(pidPath).exists());
+    await waitFor(async () => Bun.file(runtimeConfigPath).exists());
+    expect(await Bun.file(runtimeConfigPath).json()).toEqual({
+      modelProvider: "e2e-provider",
+      model: "e2e-model",
+      reasoning: "balanced",
+    });
     expect(Number(await Bun.file(pidPath).text())).not.toBe(process.pid);
     const firstProcesses = await readProcesses(processesPath);
     expect(firstProcesses.directPid).not.toBe(process.pid);
@@ -257,6 +270,7 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
         agentId: created.agent.id,
         provider: "pi",
         model: "e2e-model",
+        modelProvider: "e2e-provider",
         reasoning: "balanced",
       },
       DEV_BROWSER_USER.id,

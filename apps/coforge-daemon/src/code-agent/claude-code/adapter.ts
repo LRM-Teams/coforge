@@ -30,8 +30,13 @@ export class ClaudeCodeAgentAdapter implements CodeAgentAdapter {
   }
 
   async start(options: CodeAgentStartOptions): Promise<CodeAgentSession> {
+    const command = [
+      ...this.#command,
+      ...(options.runtime?.model ? ["--model", options.runtime.model] : []),
+      ...(options.runtime?.reasoning ? ["--effort", options.runtime.reasoning] : []),
+    ];
     const process = new JsonlProcess(
-      this.#command,
+      command,
       options.agentWorkspaceDirectory,
       agentEnvironment(options.environment),
     );

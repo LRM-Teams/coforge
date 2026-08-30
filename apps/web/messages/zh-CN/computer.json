@@ -19,5 +19,7 @@
   "computer_install_step_description": "在电脑上打开终端并运行以下命令。",
   "computer_install_note": "安装程序运行期间请保持此窗口打开。安装完成后，电脑会自动连接。",
   "computer_copy_command": "复制安装命令",
-  "computer_command_copied": "命令已复制"
+  "computer_command_copied": "命令已复制",
+  "computer_connected_list": "已连接的电脑",
+  "computer_no_code_agents": "未检测到外部 Code Agent"
 }

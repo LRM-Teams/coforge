@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test";
 import { ComputerRegistrationClient, RUNTIME_PROVIDER } from "./index";
-import { decodeComputerRegisterRequest, encodeComputerRegisterRequest } from "./codec";
+import {
+  decodeComputerRegisterRequest,
+  decodeAgentStartIntent,
+  decodeWorkspaceWorkerCodeAgentsUpdateRequest,
+  encodeAgentStartIntent,
+  encodeComputerRegisterRequest,
+  encodeWorkspaceWorkerCodeAgentsUpdateRequest,
+} from "./codec";
 
 test("computer registration sends the stable method and rejects incompatible majors", async () => {
   const calls: unknown[] = [];
@@ -78,4 +85,73 @@ test("provider and kind together identify runtimes", () => {
     "pi:builtin",
     "pi:external",
   ]);
+});
+
+test("workspace worker code-agent inventory round trips as a complete external snapshot", () => {
+  const request = {
+    protocolMajor: 1,
+    requestId: "inventory-1",
+    workspaceId: "workspace-1",
+    computerId: "computer-1",
+    runtimes: [
+      { provider: RUNTIME_PROVIDER.CODEX, version: "0.151.0", kind: "external" as const },
+      {
+        provider: RUNTIME_PROVIDER.CLAUDE_CODE,
+        version: "2.1.0",
+        kind: "external" as const,
+      },
+    ],
+    catalogs: [
+      {
+        provider: RUNTIME_PROVIDER.CODEX,
+        models: [
+          {
+            id: "gpt-5.6-sol",
+            displayName: "GPT-5.6 Sol",
+            description: "Primary coding model",
+            modelProvider: "openai",
+            reasoningEfforts: ["low", "medium", "high"],
+            defaultReasoning: "low",
+            recommended: true,
+          },
+        ],
+      },
+      {
+        provider: RUNTIME_PROVIDER.PI,
+        models: [
+          {
+            id: "claude-sonnet-4-6",
+            displayName: "Claude Sonnet 4.6",
+            description: "",
+            modelProvider: "anthropic",
+            reasoningEfforts: ["off", "low", "medium", "high"],
+            defaultReasoning: "medium",
+            recommended: false,
+          },
+        ],
+      },
+    ],
+  };
+
+  expect(
+    decodeWorkspaceWorkerCodeAgentsUpdateRequest(
+      encodeWorkspaceWorkerCodeAgentsUpdateRequest(request),
+    ),
+  ).toEqual(request);
+});
+
+test("Agent start preserves the model provider required by Pi", () => {
+  const intent = {
+    protocolMajor: 1,
+    requestId: "start-1",
+    workspaceId: "workspace-1",
+    computerId: "computer-1",
+    agentId: "agent-1",
+    provider: RUNTIME_PROVIDER.PI,
+    model: "claude-sonnet-4-6",
+    modelProvider: "anthropic",
+    reasoning: "high",
+  };
+
+  expect(decodeAgentStartIntent(encodeAgentStartIntent(intent))).toEqual(intent);
 });

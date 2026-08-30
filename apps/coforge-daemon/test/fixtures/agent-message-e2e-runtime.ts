@@ -8,6 +8,7 @@ const descendant = Bun.spawn({
 });
 const decoder = new TextDecoder();
 let buffer = "";
+const runtimeConfig = { modelProvider: "", model: "", reasoning: "" };
 
 for await (const chunk of Bun.stdin.stream()) {
   buffer += decoder.decode(chunk, { stream: true });
@@ -15,12 +16,29 @@ for await (const chunk of Bun.stdin.stream()) {
   while (newline >= 0) {
     const line = buffer.slice(0, newline).replace(/\r$/, "");
     buffer = buffer.slice(newline + 1);
-    if (line) await handle(JSON.parse(line) as { id: string; type: string; message?: string });
+    if (line)
+      await handle(
+        JSON.parse(line) as {
+          id: string;
+          type: string;
+          message?: string;
+          provider?: string;
+          modelId?: string;
+          level?: string;
+        },
+      );
     newline = buffer.indexOf("\n");
   }
 }
 
-async function handle(command: { id: string; type: string; message?: string }) {
+async function handle(command: {
+  id: string;
+  type: string;
+  message?: string;
+  provider?: string;
+  modelId?: string;
+  level?: string;
+}) {
   if (command.type === "get_state" || command.type === "get_commands") {
     write({ type: "response", id: command.id, command: command.type, success: true, data: {} });
     await Bun.write(".e2e-agent-pid", String(process.pid));
@@ -28,6 +46,19 @@ async function handle(command: { id: string; type: string; message?: string }) {
       ".e2e-agent-processes.json",
       JSON.stringify({ directPid: process.pid, descendantPid: descendant.pid }),
     );
+    return;
+  }
+  if (command.type === "set_model") {
+    runtimeConfig.modelProvider = command.provider ?? "";
+    runtimeConfig.model = command.modelId ?? "";
+    await Bun.write(".e2e-runtime-config.json", JSON.stringify(runtimeConfig));
+    write({ type: "response", id: command.id, command: command.type, success: true });
+    return;
+  }
+  if (command.type === "set_thinking_level") {
+    runtimeConfig.reasoning = command.level ?? "";
+    await Bun.write(".e2e-runtime-config.json", JSON.stringify(runtimeConfig));
+    write({ type: "response", id: command.id, command: command.type, success: true });
     return;
   }
   if (command.type === "prompt") {

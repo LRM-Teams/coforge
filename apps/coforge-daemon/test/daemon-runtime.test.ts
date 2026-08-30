@@ -43,10 +43,47 @@ afterAll(() => rm(workspaceRoot, { recursive: true, force: true }));
 const config: AgentRuntimeConfig = {
   provider: "pi",
   model: "default",
+  modelProvider: "anthropic",
   reasoning: "balanced",
 };
 
 describe("DaemonRuntime", () => {
+  test("reports a fresh external Code Agent snapshot on daemon start", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const updates: unknown[] = [];
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({ provider: "pi", start: async () => sessionSpy() }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async updateCodeAgents(request) {
+            updates.push(request);
+          },
+          async stop() {},
+        }),
+      },
+      undefined,
+      async () => ({
+        runtimes: [{ provider: "codex", version: "0.151.0", kind: "external" }],
+        catalogs: [{ provider: "codex", models: [] }],
+      }),
+    );
+
+    await runtime.start(connection);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      runtimes: [{ provider: "codex", version: "0.151.0", kind: "external" }],
+      catalogs: [{ provider: "codex", models: [] }],
+    });
+    await runtime.stop();
+  });
+
   test("passes the persisted server HTTP URL to the Agent API key client", async () => {
     const configuredConnection = {
       ...connection,

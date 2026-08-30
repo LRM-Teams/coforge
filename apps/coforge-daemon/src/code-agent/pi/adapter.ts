@@ -9,15 +9,19 @@ import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
 
+export function builtinPiCommand(): readonly string[] {
+  return [
+    process.execPath,
+    new URL("../../../node_modules/.bin/coforge-agent", import.meta.url).pathname,
+  ];
+}
+
 export class PiAgentAdapter implements CodeAgentAdapter {
   readonly provider = RUNTIME_PROVIDER.PI;
   readonly #command: readonly string[];
 
   constructor(options: { command?: readonly string[] } = {}) {
-    this.#command = options.command ?? [
-      process.execPath,
-      new URL("../../../node_modules/.bin/coforge-agent", import.meta.url).pathname,
-    ];
+    this.#command = options.command ?? builtinPiCommand();
   }
 
   async start(options: CodeAgentStartOptions): Promise<CodeAgentSession> {
@@ -30,6 +34,18 @@ export class PiAgentAdapter implements CodeAgentAdapter {
     try {
       await process.request({ type: "get_state" });
       await process.request({ type: "get_commands" });
+      if (options.runtime?.model) {
+        if (!options.runtime.modelProvider)
+          throw new Error("Pi model provider is required when a model is selected");
+        await process.request({
+          type: "set_model",
+          provider: options.runtime.modelProvider,
+          modelId: options.runtime.model,
+        });
+      }
+      if (options.runtime?.reasoning) {
+        await process.request({ type: "set_thinking_level", level: options.runtime.reasoning });
+      }
       return session;
     } catch (error) {
       await process.dispose();

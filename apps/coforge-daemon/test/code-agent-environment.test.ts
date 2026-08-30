@@ -14,8 +14,9 @@ test("daemon distribution provides coforge for Agent PATH lookup", async () => {
   const executable = join(import.meta.dir, "../dist/coforge");
   expect(await Bun.file(executable).exists()).toBe(true);
 
-  const result = Bun.spawnSync([executable, "message", "check"], {
+  const result = Bun.spawnSync(["coforge", "message", "check"], {
     cwd: "/tmp",
+    env: agentEnvironment(undefined),
     stdout: "pipe",
     stderr: "pipe",
   });

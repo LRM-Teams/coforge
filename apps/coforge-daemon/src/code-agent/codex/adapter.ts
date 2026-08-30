@@ -41,8 +41,32 @@ export class CodexAgentAdapter implements CodeAgentAdapter {
         method: "thread/start",
         params: {
           cwd: options.agentWorkspaceDirectory,
+          ...(options.runtime?.model ? { model: options.runtime.model } : {}),
           approvalPolicy: "never",
           sandbox: "workspace-write",
+          config: {
+            ...(options.runtime?.reasoning
+              ? { model_reasoning_effort: options.runtime.reasoning }
+              : {}),
+            allow_login_shell: false,
+            shell_environment_policy: {
+              inherit: "all",
+              ignore_default_excludes: false,
+              filters: {
+                "COFORGE_*": "include",
+                HOME: "include",
+                PATH: "include",
+                XDG_CONFIG_HOME: "include",
+                XDG_DATA_HOME: "include",
+                XDG_CACHE_HOME: "include",
+                TMPDIR: "include",
+                TEMP: "include",
+                TMP: "include",
+                LANG: "include",
+                LC_ALL: "include",
+              },
+            },
+          },
           ephemeral: true,
           serviceName: "coforge_daemon",
         },

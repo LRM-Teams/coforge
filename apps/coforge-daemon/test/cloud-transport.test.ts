@@ -215,6 +215,9 @@ test("resends the last successful ready request after reconnect", async () => {
     return new Uint8Array();
   };
   const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
+  let reconnect!: () => void;
+  const reconnected = new Promise<void>((resolve) => (reconnect = resolve));
+  transport.onReconnect(reconnect);
   await transport.start("secret", config);
   expect(readyCalls).toHaveLength(0);
   await transport.ready({
@@ -227,7 +230,7 @@ test("resends the last successful ready request after reconnect", async () => {
   });
 
   fake.connect();
-  await Promise.resolve();
+  await reconnected;
 
   expect(readyCalls).toHaveLength(2);
   expect(readyCalls[1]).toEqual(readyCalls[0]!);

@@ -4,6 +4,8 @@ export const COMPUTER_REGISTER_PROTOCOL_MAJOR = 1 as const;
 export const WORKSPACE_LIST_METHOD = "workspace:list" as const;
 export const WORKSPACE_GET_METHOD = "workspace:get" as const;
 export const WORKSPACE_WORKER_READY_METHOD = "workspace_worker:ready" as const;
+export const WORKSPACE_WORKER_CODE_AGENTS_UPDATE_METHOD =
+  "workspace_worker:code_agents_update" as const;
 export const AGENT_START_METHOD = "agent:start" as const;
 export const AGENT_MESSAGE_METHOD = "agent:deliver" as const;
 export const AGENT_MESSAGE_ACK_METHOD = "agent:deliver:ack" as const;
@@ -34,6 +36,19 @@ export type RuntimeMetadata = {
   /** Defaults to external when decoding a pre-kind payload. */
   kind: RuntimeKind;
 };
+export type CodeAgentModelMetadata = {
+  id: string;
+  displayName: string;
+  description: string;
+  modelProvider: string;
+  reasoningEfforts: string[];
+  defaultReasoning: string;
+  recommended: boolean;
+};
+export type CodeAgentModelCatalog = {
+  provider: RuntimeProvider;
+  models: CodeAgentModelMetadata[];
+};
 export type ComputerRegisterRequest = {
   protocolMajor: number;
   requestId: string;
@@ -60,13 +75,23 @@ export type WorkspaceWorkerReadyRequest = {
   workerInstanceId: string;
   startedAt: number;
 };
+export type WorkspaceWorkerCodeAgentsUpdateRequest = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  computerId: string;
+  runtimes: RuntimeMetadata[];
+  catalogs: CodeAgentModelCatalog[];
+};
 export type AgentStartIntent = {
   protocolMajor: number;
   requestId: string;
   workspaceId: string;
+  computerId?: string;
   agentId: string;
   provider: RuntimeProvider;
   model: string;
+  modelProvider?: string;
   reasoning: string;
   sessionId?: string;
 };
@@ -193,7 +218,12 @@ export type {
   LocalAgentMessageRequest,
   AgentMessageResponse,
 } from "./local-daemon";
-export { encodeWorkspaceWorkerReadyRequest, decodeWorkspaceWorkerReadyRequest } from "./codec";
+export {
+  encodeWorkspaceWorkerReadyRequest,
+  decodeWorkspaceWorkerReadyRequest,
+  encodeWorkspaceWorkerCodeAgentsUpdateRequest,
+  decodeWorkspaceWorkerCodeAgentsUpdateRequest,
+} from "./codec";
 export {
   encodeAgentStartIntent,
   decodeAgentStartIntent,

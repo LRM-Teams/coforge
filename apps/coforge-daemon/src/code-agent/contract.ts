@@ -7,6 +7,7 @@ export type CodeAgentProvider = RuntimeProvider;
 export type AgentRuntimeConfig = Readonly<{
   provider: CodeAgentProvider;
   model: string;
+  modelProvider?: string;
   reasoning: string;
 }>;
 
