@@ -149,6 +149,12 @@ export type CloudAgentMessageResponse = {
     body: string;
     createdAt: string;
     target: string;
+    attachment?: {
+      id: string;
+      fileName: string;
+      contentType: string;
+      sizeBytes: number;
+    };
   }[];
 };
 

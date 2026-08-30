@@ -162,6 +162,8 @@ PostgreSQL 的首要领域对象是：
 
 ### Alibaba Cloud OSS：聊天附件数据面
 
+当前验证实现先使用 Web/backend 私有本地文件目录（`COFORGE_ATTACHMENT_STORAGE_DIR`）保存附件字节，PostgreSQL 只保存稳定 object key 和 metadata。它不支持多 backend 共享、对象复制、孤立上传自动清理或直接上传；生产部署仍必须切换到下述 private OSS adapter。客户端通过能力接口读取服务端限制，因此切换 adapter 不改变消息附件契约。
+
 首个 OSS bucket 只承载聊天图片与文件附件，必须保持 `private`。Bucket 不使用 `public-read` 或 `public-read-write`；公开头像和 Web 静态资源以后使用独立 bucket，不能与聊天附件混放。浏览器与 OSS 之间的文件传输使用 HTTPS 数据面，不经过 Centrifugo，也不改变 daemon 只使用 WSS/RPC 的传输边界。
 
 计划中的 production CDN 文件访问边界是 `https://cdn.coforge.cn/files/{object_key}`。`cdn.coforge.cn` 复用一张证书和 CDN edge，但 `/files/` 必须使用独立 private attachment bucket、RAM 权限、条件回源、鉴权/缓存规则与日志；不得与 `/releases/` 的 origin 或策略 fallback。CDN 域名不接收应用登录 cookie，应用 cookie 必须保持 host-only，CDN 也不得向 origin 转发 Cookie。CDN 配置完成前，Direct OSS adapter 仍可返回短时 provider URL；客户端把 delivery URL 视为 opaque value，数据库仍只保存 object key，因此切换到 CDN 不需要数据库 migration、对象复制或客户端发版。Bucket 名称、Region、实际 endpoint 与域名启用时间属于部署配置，确认前不得写死；启用中国内地 custom domain 前，部署检查必须确认域名已经完成 ICP 备案。

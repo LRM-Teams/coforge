@@ -6,8 +6,10 @@ import {
   encodeAgentMessageDeliveryAck,
   decodeAgentMessageDelivery,
   decodeAgentMessageResponse,
+  decodeCloudAgentMessageResponse,
   encodeAgentMessageDelivery,
   encodeAgentMessageResponse,
+  encodeCloudAgentMessageResponse,
 } from "./index";
 
 test("round-trips an Agent direct message delivery", () => {
@@ -61,4 +63,30 @@ test("round-trips daemon-local message attention summaries", () => {
     messageId: "",
   };
   expect(decodeAgentMessageResponse(encodeAgentMessageResponse(response))).toEqual(response);
+});
+
+test("round-trips attachment metadata in Agent message history", () => {
+  const value = {
+    protocolMajor: 1,
+    requestId: "request-attachment",
+    accepted: true,
+    attentionCount: 0,
+    messages: [
+      {
+        id: "message-attachment",
+        sequence: 1,
+        sender: "@frank",
+        body: "see file",
+        createdAt: "2026-08-30T00:00:00Z",
+        target: "@agent",
+        attachment: {
+          id: "attachment-1",
+          fileName: "report.pdf",
+          contentType: "application/pdf",
+          sizeBytes: 42,
+        },
+      },
+    ],
+  };
+  expect(decodeCloudAgentMessageResponse(encodeCloudAgentMessageResponse(value))).toEqual(value);
 });

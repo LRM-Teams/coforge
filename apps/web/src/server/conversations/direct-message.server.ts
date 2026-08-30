@@ -23,6 +23,7 @@ export class SendDirectMessage {
     senderMemberId: string;
     senderUserId: string;
     body: string;
+    attachmentId?: string;
   }) {
     if (!input.requestId || !input.body) throw new Error("invalid direct message");
     const message = await this.idempotency.execute(
@@ -38,6 +39,7 @@ export class SendDirectMessage {
           input.senderMemberId,
           input.senderUserId,
           input.body,
+          input.attachmentId,
         ),
     );
     await this.publishUserMessageToAgent(input.requestId, input.conversationId, message);

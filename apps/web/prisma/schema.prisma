@@ -19,6 +19,7 @@ model Workspace {
   conversationMembers ConversationMember[]
   messageDeliveries   AgentMessageDelivery[]
   agentActivity       AgentActivity[]
+  attachments         Attachment[]
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 }
@@ -33,6 +34,7 @@ model User {
   agentApiKeys        AgentApiKey[]
   computers           Computer[]
   conversationMembers ConversationMember[]
+  attachments         Attachment[]
 }
 
 model UserIdentity {
@@ -179,6 +181,7 @@ model Conversation {
   members     ConversationMember[]
   messages    Message[]
   deliveries  AgentMessageDelivery[]
+  attachments Attachment[]
 
   @@unique([workspaceId, directKey])
   @@unique([id, workspaceId])
@@ -215,9 +218,30 @@ model Message {
   conversation   Conversation           @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   sender         ConversationMember     @relation(fields: [senderMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Restrict)
   deliveries     AgentMessageDelivery[]
+  attachment     Attachment?
 
   @@unique([conversationId, sequence])
   @@index([conversationId, createdAt])
+}
+
+model Attachment {
+  id             String       @id @default(uuid()) @db.Uuid
+  workspaceId    String       @db.Uuid
+  conversationId String       @db.Uuid
+  uploaderId     String       @db.Uuid
+  messageId      String?      @unique @db.Uuid
+  objectKey      String       @unique
+  fileName       String
+  contentType    String
+  sizeBytes      Int
+  createdAt      DateTime     @default(now())
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation   Conversation @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  uploader       User         @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  message        Message?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, workspaceId])
+  @@index([uploaderId])
 }
 
 model AgentMessageDelivery {

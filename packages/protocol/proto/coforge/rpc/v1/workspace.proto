@@ -107,6 +107,13 @@ message CloudAgentMessageRecord {
   string body = 4;
   string created_at = 5;
   string target = 6;
+  AttachmentMetadata attachment = 7;
+}
+message AttachmentMetadata {
+  string id = 1;
+  string file_name = 2;
+  string content_type = 3;
+  uint64 size_bytes = 4;
 }
 message CloudAgentMessageResponse {
   uint32 protocol_major = 1;

@@ -93,3 +93,19 @@ export function createAgentMessageHttpHandler() {
       }),
   });
 }
+
+export async function authenticateAgentHttpRequest(request: Request) {
+  const db = getDatabaseClient();
+  if (!db) throw new CentrifugoRpcAuthenticationError();
+  return authenticateAgentMessageRequest(request, {
+    agentApiKeys: new PrismaAgentApiKeyRepository(db),
+    verifyDaemonToken: (token) => verifyWorkspaceWorkerToken(token),
+    computerBelongsToWorkspace: async (workspaceId, computerId) =>
+      Boolean(
+        await db.workspaceComputer.findUnique({
+          where: { workspaceId_computerId: { workspaceId, computerId } },
+          select: { id: true },
+        }),
+      ),
+  });
+}

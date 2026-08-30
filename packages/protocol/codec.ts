@@ -244,7 +244,13 @@ export function encodeCloudAgentMessageResponse(value: CloudAgentMessageResponse
     create(CloudAgentMessageResponseSchema, {
       ...value,
       messageId: value.messageId ?? "",
-      messages: value.messages.map((m) => ({ ...m, sequence: BigInt(m.sequence) })),
+      messages: value.messages.map((m) => ({
+        ...m,
+        sequence: BigInt(m.sequence),
+        attachment: m.attachment
+          ? { ...m.attachment, sizeBytes: BigInt(m.attachment.sizeBytes) }
+          : undefined,
+      })),
     }),
   );
 }
@@ -255,8 +261,25 @@ export function decodeCloudAgentMessageResponse(bytes: Uint8Array): CloudAgentMe
     requestId: v.requestId,
     accepted: v.accepted,
     attentionCount: v.attentionCount,
-    messageId: v.messageId || undefined,
-    messages: v.messages.map((m) => ({ ...m, sequence: Number(m.sequence) })),
+    ...(v.messageId ? { messageId: v.messageId } : {}),
+    messages: v.messages.map((m) => ({
+      id: m.id,
+      sequence: Number(m.sequence),
+      sender: m.sender,
+      body: m.body,
+      createdAt: m.createdAt,
+      target: m.target,
+      ...(m.attachment?.id
+        ? {
+            attachment: {
+              id: m.attachment.id,
+              fileName: m.attachment.fileName,
+              contentType: m.attachment.contentType,
+              sizeBytes: Number(m.attachment.sizeBytes),
+            },
+          }
+        : {}),
+    })),
   };
 }
 export function decodeAgentActivity(bytes: Uint8Array): AgentActivity {
