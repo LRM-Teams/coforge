@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 
 import { buttonVariants } from "@/components/ui/button";
 import { m } from "@/paraglide/messages";
+import { formatDateForDisplay } from "@/lib/dates";
 
 export type AgentView = {
   id: string;
@@ -21,7 +22,7 @@ const providerLabels = {
   "claude-code": "Claude Code",
 };
 
-export function AgentCard({ agent }: { agent: AgentView }) {
+export function AgentCard({ agent, timeZone }: { agent: AgentView; timeZone: string | null }) {
   const createdAt = new Date(agent.createdAt);
   const runtime = agent.runtimeConfig.model
     ? `${providerLabels[agent.runtimeConfig.provider]} / ${agent.runtimeConfig.model}`
@@ -58,7 +59,7 @@ export function AgentCard({ agent }: { agent: AgentView }) {
       <footer className="mt-auto flex items-center gap-2 border-t pt-3 text-xs text-muted-foreground">
         <CalendarDays aria-hidden="true" className="size-3.5" />
         <span>{m.agent_created()}</span>
-        <time dateTime={createdAt.toISOString()}>{createdAt.toLocaleDateString()}</time>
+        <time dateTime={createdAt.toISOString()}>{formatDateForDisplay(createdAt, timeZone)}</time>
       </footer>
     </article>
   );

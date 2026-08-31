@@ -41,11 +41,13 @@ function runtimeProvider(value: FormDataEntryValue | null): CreateAgentInput["pr
 export function AgentsContent({
   agents,
   computers,
+  timeZone = null,
   onCreate,
   defaultCreateDialogOpen = false,
 }: {
   agents: AgentView[];
   computers: ComputerOption[];
+  timeZone?: string | null;
   onCreate: (input: CreateAgentInput) => Promise<{ startPublished: boolean }>;
   defaultCreateDialogOpen?: boolean;
 }) {
@@ -139,7 +141,7 @@ export function AgentsContent({
       {filteredAgents.length ? (
         <section className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredAgents.map((agent) => (
-            <AgentCard key={agent.id} agent={agent} />
+            <AgentCard key={agent.id} agent={agent} timeZone={timeZone} />
           ))}
         </section>
       ) : (

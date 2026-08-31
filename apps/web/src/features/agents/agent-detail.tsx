@@ -3,10 +3,19 @@ import { Link } from "@tanstack/react-router";
 
 import { buttonVariants } from "@/components/ui/button";
 import { m } from "@/paraglide/messages";
+import { formatDateForDisplay } from "@/lib/dates";
 
 type Detail = Awaited<ReturnType<typeof import("./agents.functions").getAgentDetail>>;
 
-export function AgentDetail({ detail, tab }: { detail: Detail; tab: "profile" | "activity" }) {
+export function AgentDetail({
+  detail,
+  tab,
+  timeZone,
+}: {
+  detail: Detail;
+  tab: "profile" | "activity";
+  timeZone: string | null;
+}) {
   return (
     <main className="flex-1 p-4 sm:p-5 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -47,18 +56,22 @@ export function AgentDetail({ detail, tab }: { detail: Detail; tab: "profile" | 
           </div>
         </div>
       )}
-      {tab === "profile" ? <Profile detail={detail} /> : <Activity detail={detail} />}
+      {tab === "profile" ? (
+        <Profile detail={detail} timeZone={timeZone} />
+      ) : (
+        <Activity detail={detail} timeZone={timeZone} />
+      )}
     </main>
   );
 }
 
-function Profile({ detail }: { detail: Detail }) {
+function Profile({ detail, timeZone }: { detail: Detail; timeZone: string | null }) {
   const fields = [
     [m.agent_profile_id(), detail.id],
     [m.agent_profile_name(), detail.name],
     [m.agent_profile_display_name(), detail.displayName],
     [m.agent_profile_owner(), `@${detail.owner.username}`],
-    [m.agent_profile_created(), new Date(detail.createdAt).toLocaleString()],
+    [m.agent_profile_created(), formatDateForDisplay(detail.createdAt, timeZone)],
   ];
   return (
     <div className="mt-6 grid gap-5 lg:grid-cols-2">
@@ -96,7 +109,7 @@ function Profile({ detail }: { detail: Detail }) {
   );
 }
 
-function Activity({ detail }: { detail: Detail }) {
+function Activity({ detail, timeZone }: { detail: Detail; timeZone: string | null }) {
   if (!detail.activity.length)
     return (
       <div className="mt-6 rounded-xl border border-dashed p-10 text-center">
@@ -115,7 +128,7 @@ function Activity({ detail }: { detail: Detail }) {
             className="whitespace-nowrap text-xs tabular-nums text-muted-foreground sm:pt-0.5"
             dateTime={new Date(entry.occurredAt).toISOString()}
           >
-            {new Date(entry.occurredAt).toLocaleString()}
+            {formatDateForDisplay(entry.occurredAt, timeZone)}
           </time>
           <span className="flex items-center gap-2 font-medium">
             <span
