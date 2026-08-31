@@ -76,9 +76,7 @@ export function AppShell({ user, children }: { user: AppUser; children: React.Re
           {/* The 8px gutter plus the 1px card border, so the logo sits on the
               same line as every page title. */}
           <div className="mt-px flex h-14 items-center justify-between">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground">
-              C
-            </div>
+            <img src="/logo.svg" alt="CoForge" className="size-8" />
             <Tooltip>
               <TooltipTrigger
                 render={
