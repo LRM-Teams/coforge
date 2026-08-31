@@ -84,7 +84,7 @@ test("shows the primary navigation with Members selected", () => {
   expect(markup.indexOf("Messages")).toBeLessThan(markup.indexOf("Computers"));
   expect(markup).toContain('href="/en/messages"');
   expect(markup).toContain('aria-label="Current user"');
-  expect(markup).toContain(">F</button>");
+  expect(markup).toContain(">F</span>");
   expect(markup).toContain('aria-current="page"');
 });
 
@@ -106,7 +106,6 @@ test("renders persisted Agent fields without fabricated details", () => {
 
   expect(markup).toContain("<header");
   expect(markup).toContain("<main");
-  expect(markup).toContain("Agents");
   expect(markup).toContain("Agent overview");
   expect(markup).toContain("New agent");
   expect(markup).toContain("Search agents");
@@ -155,6 +154,30 @@ test("shows a deferred-start notice after creation", async () => {
   expect((await page().findByRole("status")).textContent).toBe(
     "Agent created. It will start when Daemon reconnects.",
   );
+});
+
+test("collapsing the sidebar keeps navigation and the user menu reachable", () => {
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <AppShell user={user}>
+        <AgentsContent
+          agents={[agent]}
+          computers={computers}
+          onCreate={async () => ({ startPublished: true })}
+        />
+      </AppShell>
+    </RouterContextProvider>,
+  );
+
+  fireEvent.click(page().getByRole("button", { name: "Hide sidebar" }));
+
+  // Exactly one of each stays in the DOM, so the collapsed copies never
+  // duplicate the sidebar's links for assistive technology.
+  expect(page().getAllByRole("navigation", { name: "Primary navigation" }).length).toBe(1);
+  expect(page().getAllByLabelText("Current user").length).toBe(1);
+  for (const name of ["Members", "Messages", "Computers"]) {
+    expect(page().getByRole("link", { name }).getAttribute("href")).toBeTruthy();
+  }
 });
 
 test("renders the same shell from the Simplified Chinese catalog", () => {

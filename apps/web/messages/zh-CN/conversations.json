@@ -13,5 +13,7 @@
   "conversation_send": "发送",
   "conversation_sending": "发送中…",
   "conversation_send_error": "消息发送失败，请重试。",
-  "conversation_auto_refresh": "回复会自动刷新。"
+  "conversation_auto_refresh": "回复会自动刷新。",
+  "conversation_attachment_label": "添加附件",
+  "conversation_you": "我"
 }
