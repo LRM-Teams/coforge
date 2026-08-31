@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { MessagesSquare } from "lucide-react";
 
@@ -9,11 +9,15 @@ import { m } from "@/paraglide/messages";
 type ConversationAgent = { id: string; name: string; displayName: string };
 
 /**
- * Two panels on the app's ground: the agent list and the conversation.
- *
- * Below `md` they take turns, driven by the URL rather than local state: the
- * list is the whole page at `/messages`, and opening an agent replaces it with
- * the conversation, which carries a way back.
+ * Lets the conversation put the "back to the list" control in its own header
+ * band. `/messages` redirects to the first agent, so the panes cannot be driven
+ * by the URL; the layout owns the state and shares the way back.
+ */
+const BackToAgentsContext = createContext<(() => void) | undefined>(undefined);
+
+/**
+ * Two panels on the app's ground: the agent list and the conversation. Below
+ * `md` they take turns, since only one fits.
  */
 export function ConversationLayout({
   agents,
@@ -24,13 +28,16 @@ export function ConversationLayout({
   selectedAgentId?: string;
   children: ReactNode;
 }) {
+  const [showMobileAgents, setShowMobileAgents] = useState(!selectedAgentId);
+  const listHidden = Boolean(selectedAgentId) && !showMobileAgents;
+
   return (
     <main className="flex h-svh min-w-0 gap-2 p-2">
       <nav
         aria-label={m.messages_agent_list_label()}
         className={cn(
           "min-w-0 flex-col overflow-hidden rounded-xl border bg-card md:flex md:w-72 md:shrink-0",
-          selectedAgentId ? "hidden" : "flex w-full",
+          listHidden ? "hidden" : "flex w-full",
         )}
       >
         <div className="flex h-14 shrink-0 items-center border-b px-5">
@@ -46,6 +53,7 @@ export function ConversationLayout({
                   to="/messages/$agentId"
                   params={{ agentId: agent.id }}
                   aria-current={selected ? "page" : undefined}
+                  onClick={() => setShowMobileAgents(false)}
                   className={cn(
                     "flex min-w-0 items-center gap-3 rounded-lg px-2.5 py-2.5 hover:bg-muted",
                     selected && "bg-muted",
@@ -66,10 +74,12 @@ export function ConversationLayout({
       <section
         className={cn(
           "min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card md:flex",
-          selectedAgentId ? "flex" : "hidden",
+          showMobileAgents ? "hidden" : "flex",
         )}
       >
-        {children}
+        <BackToAgentsContext value={() => setShowMobileAgents(true)}>
+          {children}
+        </BackToAgentsContext>
       </section>
     </main>
   );
@@ -77,14 +87,20 @@ export function ConversationLayout({
 
 /** Returns to the agent list on small screens, where only one panel fits. */
 export function BackToAgents() {
+  const back = useContext(BackToAgentsContext);
+  if (!back) {
+    return null;
+  }
+
   return (
-    <Link
-      to="/messages"
+    <button
+      type="button"
+      onClick={back}
       aria-label={m.messages_agents_action()}
       className="-ml-1 flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-muted md:hidden"
     >
       <MessagesSquare aria-hidden="true" className="size-4" />
-    </Link>
+    </button>
   );
 }
 

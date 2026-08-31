@@ -147,7 +147,7 @@ export function DirectConversation({
                     </div>
                   )}
                   <div
-                    data-message
+                    data-message={own ? "own" : "other"}
                     className={cn("flex gap-3", own ? "flex-col items-end" : "items-start")}
                   >
                     {!own && <Avatar people={[{ name: message.senderName }]} size="md" />}
@@ -168,12 +168,7 @@ export function DirectConversation({
                           {timeLabel(message.createdAt)}
                         </time>
                       </p>
-                      <div
-                        className={cn(
-                          "w-fit max-w-full rounded-lg px-4 py-2.5 text-sm leading-5 font-medium whitespace-pre-wrap",
-                          own ? "bg-message-own text-foreground" : "bg-muted",
-                        )}
-                      >
+                      <div className="w-fit max-w-full rounded-lg bg-muted px-4 py-2.5 text-sm leading-5 font-medium whitespace-pre-wrap">
                         {message.body}
                         {message.attachment && (
                           <a

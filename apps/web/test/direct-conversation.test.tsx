@@ -66,9 +66,13 @@ test("renders persisted messages in sequence order with distinct senders", () =>
   const messages = page.getByRole("list").querySelectorAll("[data-message]");
   expect(messages[0]?.textContent).toContain("Please check");
   expect(messages[1]?.textContent).toContain("Checked");
-  // The two sides are told apart by the bubble surface, not by position alone.
-  expect(messages[0]?.querySelector(".bg-message-own")).toBeTruthy();
-  expect(messages[1]?.querySelector(".bg-muted")).toBeTruthy();
+  // Every bubble now shares one surface, so the sides are told apart by
+  // authorship: the viewer's own message is labelled and carries no avatar.
+  expect(messages[0]?.getAttribute("data-message")).toBe("own");
+  expect(messages[1]?.getAttribute("data-message")).toBe("other");
+  expect(messages[0]?.textContent).toContain("You");
+  expect(messages[0]?.querySelector("[aria-hidden]")).toBeNull();
+  expect(messages[1]?.textContent).toContain("Release Helper");
 });
 
 test("renders an attachment as a downloadable history link", () => {
