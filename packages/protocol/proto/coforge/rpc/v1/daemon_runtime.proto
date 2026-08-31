@@ -11,7 +11,7 @@ message DaemonRuntimeConfigureRequest {
   reserved 4;
   reserved "connection_id";
   string workspace_root = 5;
-  string daemon_token = 6;
+  string daemon_api_key = 6;
   string computer_id = 7;
 }
 

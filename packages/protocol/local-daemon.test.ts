@@ -41,7 +41,7 @@ describe("local daemon RPC", () => {
       workspaceId: "workspace-1",
       computerId: "computer-1",
       workspaceRoot: "/workspaces/workspace-1",
-      daemonToken: "worker-secret",
+      daemonApiKey: "worker-secret",
     };
     expect(
       decodeDaemonRuntimeConfigureRequest(encodeDaemonRuntimeConfigureRequest(request)),

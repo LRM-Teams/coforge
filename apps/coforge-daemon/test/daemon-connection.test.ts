@@ -71,6 +71,20 @@ test("sends delivery ACK through the RPC method, not a publication", async () =>
   expect(decodeAgentMessageDeliveryAck(calls[1]!.data)).toMatchObject(ack);
 });
 
+test("sends the Daemon API key as Connect Proxy data instead of a JWT token", async () => {
+  const fake = fakeClient();
+  let connection: { token: string; data?: Uint8Array } | undefined;
+  const transport = new DaemonConnection("wss://cloud.example", (_endpoint, token, data) => {
+    connection = { token, data };
+    return fake.client;
+  });
+  await transport.start("daemon-api-key", config);
+  expect(connection?.token).toBe("");
+  expect(JSON.parse(new TextDecoder().decode(connection?.data))).toEqual({
+    daemonApiKey: "daemon-api-key",
+  });
+});
+
 test("publishes Agent activity best effort on its restricted channel", async () => {
   const fake = fakeClient();
   const publications: Array<{ channel: string; data: Uint8Array }> = [];
@@ -321,7 +335,8 @@ test("uses the configured HTTP seam for Agent messages and never falls back to W
   expect(requests).toHaveLength(1);
   expect(requests[0]).toMatchObject({
     url: "https://server.example/api/agent-messages",
-    token: "daemon-token",
+    agentApiKey: "daemon-token",
+    daemonApiKey: "daemon-token",
     request: { operation: "read", target: "@ada" },
   });
 

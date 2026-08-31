@@ -6,7 +6,8 @@ import {
 } from "#/server/agents/agent-api-key.server";
 import { PrismaAgentApiKeyRepository } from "#/server/db/repositories/agent-api-key.repositories.server";
 import { getDatabaseClient } from "#/server/db/client.server";
-import { verifyDaemonToken } from "#/server/auth/daemon-token.server";
+import { verifyDaemonApiKey } from "#/server/auth/daemon-api-key.server";
+import { PrismaDaemonApiKeyRepository } from "#/server/db/repositories/daemon-api-key.repositories.server";
 
 export const Route = createFileRoute("/api/agent-api-keys")({
   server: {
@@ -15,9 +16,14 @@ export const Route = createFileRoute("/api/agent-api-keys")({
         const header = request.headers.get("authorization");
         if (!header?.startsWith("Bearer "))
           return Response.json({ error: "unauthorized" }, { status: 401 });
-        let principal: Awaited<ReturnType<typeof verifyDaemonToken>>;
+        let principal: Awaited<ReturnType<typeof verifyDaemonApiKey>>;
         try {
-          principal = await verifyDaemonToken(header.slice(7).trim());
+          const db = getDatabaseClient();
+          if (!db) throw new Error("database unavailable");
+          principal = await verifyDaemonApiKey(
+            header.slice(7).trim(),
+            new PrismaDaemonApiKeyRepository(db),
+          );
         } catch {
           return Response.json({ error: "unauthorized" }, { status: 401 });
         }
@@ -59,9 +65,14 @@ export const Route = createFileRoute("/api/agent-api-keys")({
         const header = request.headers.get("authorization");
         if (!header?.startsWith("Bearer "))
           return Response.json({ error: "unauthorized" }, { status: 401 });
-        let principal: Awaited<ReturnType<typeof verifyDaemonToken>>;
+        let principal: Awaited<ReturnType<typeof verifyDaemonApiKey>>;
         try {
-          principal = await verifyDaemonToken(header.slice(7).trim());
+          const db = getDatabaseClient();
+          if (!db) throw new Error("database unavailable");
+          principal = await verifyDaemonApiKey(
+            header.slice(7).trim(),
+            new PrismaDaemonApiKeyRepository(db),
+          );
         } catch {
           return Response.json({ error: "unauthorized" }, { status: 401 });
         }

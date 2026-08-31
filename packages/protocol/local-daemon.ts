@@ -183,7 +183,7 @@ export type DaemonRuntimeConfigureRequest = {
   requestId: string;
   workspaceId: string;
   workspaceRoot: string;
-  daemonToken: string;
+  daemonApiKey: string;
   computerId: string;
 };
 export type DaemonRuntimeConfigureResponse = {
@@ -232,7 +232,7 @@ export function decodeDaemonRuntimeConfigureRequest(
     requestId: v.requestId,
     workspaceId: v.workspaceId,
     workspaceRoot: v.workspaceRoot,
-    daemonToken: v.daemonToken,
+    daemonApiKey: v.daemonApiKey,
     computerId: v.computerId,
   };
 }

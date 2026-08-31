@@ -34,7 +34,7 @@ import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
 } from "../db/repositories/agent.repositories.server";
-import { createDaemonTokenIssuer } from "../auth/daemon-token.server";
+import { createDaemonApiKeyFactory } from "../auth/daemon-api-key.server";
 import {
   createAgentStartMethod,
   createAgentDeliveryAckMethod,
@@ -49,13 +49,14 @@ import {
   AGENT_MESSAGE_SEND_METHOD,
 } from "@coforge/protocol";
 import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
-import { verifyDaemonToken } from "../auth/daemon-token.server";
+import { verifyDaemonApiKey } from "../auth/daemon-api-key.server";
 import {
   authenticateAgentApiKey,
   isAgentApiKeyBoundToComputer,
 } from "../agents/agent-api-key.server";
 import { PrismaAgentApiKeyRepository } from "../db/repositories/agent-api-key.repositories.server";
 import { PrismaComputerRuntimeRepository } from "../db/repositories/computer-runtime.repositories.server";
+import { PrismaDaemonApiKeyRepository } from "../db/repositories/daemon-api-key.repositories.server";
 
 const unavailable: CentrifugoRpcError = {
   code: 503,
@@ -67,22 +68,26 @@ const unavailableMethod: CentrifugoRpcMethod = () => unavailable;
 async function requireAuthenticatedCentrifugoUser(
   request: { user?: string; meta?: Record<string, unknown> },
   context: Request,
+  daemonApiKeys: import("../auth/daemon-api-key.server").DaemonApiKeyRepository,
 ) {
-  const header = context.headers.get("authorization");
-  if (header?.startsWith("Bearer ")) {
+  const daemonHeader = context.headers.get("authorization");
+  if (daemonHeader?.startsWith("Bearer ")) {
     try {
-      return await verifyDaemonToken(header.slice("Bearer ".length).trim());
+      return await verifyDaemonApiKey(daemonHeader.slice("Bearer ".length).trim(), daemonApiKeys);
     } catch {
       const db = getDatabaseClient();
       if (db) {
         try {
+          const agentHeader = context.headers.get("x-coforge-agent-api-key");
+          if (!agentHeader?.startsWith("Bearer ")) throw new Error("Agent API key missing");
           const record = await authenticateAgentApiKey(
-            header.slice("Bearer ".length).trim(),
+            agentHeader.slice("Bearer ".length).trim(),
             new PrismaAgentApiKeyRepository(db),
           );
-          const daemonHeader = context.headers.get("x-coforge-daemon-authorization");
-          if (!daemonHeader?.startsWith("Bearer ")) throw new Error("daemon credential missing");
-          const daemon = await verifyDaemonToken(daemonHeader.slice("Bearer ".length).trim());
+          const daemon = await verifyDaemonApiKey(
+            daemonHeader.slice("Bearer ".length).trim(),
+            daemonApiKeys,
+          );
           if (
             !isAgentApiKeyBoundToComputer(record, daemon) ||
             !(await db.workspaceComputer.findUnique({
@@ -140,7 +145,7 @@ export function createCentrifugoRpcHandler() {
     const registration = new ComputerRegistrar({
       workspaceAccess: access,
       computers: new PrismaComputerConnectionRepository(db),
-      tokenIssuer: createDaemonTokenIssuer(),
+      daemonApiKeyFactory: createDaemonApiKeyFactory(new PrismaDaemonApiKeyRepository(db)),
     });
     const agentRepository = new PrismaAgentRepository(db);
     const agentAuthorization = new RepositoryAgentAuthorization(agentRepository);
@@ -177,7 +182,8 @@ export function createCentrifugoRpcHandler() {
           agentAuthorization,
         ),
       },
-      authenticateEnvelope: requireAuthenticatedCentrifugoUser,
+      authenticateEnvelope: (request, context) =>
+        requireAuthenticatedCentrifugoUser(request, context, new PrismaDaemonApiKeyRepository(db)),
       authorizeProxyRequest: authorizeCentrifugoProxy,
     });
   }
@@ -195,7 +201,12 @@ export function createCentrifugoRpcHandler() {
       [AGENT_MESSAGE_READ_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_SEND_METHOD]: unavailableMethod,
     },
-    authenticateEnvelope: requireAuthenticatedCentrifugoUser,
+    authenticateEnvelope: (request, context) =>
+      requireAuthenticatedCentrifugoUser(request, context, {
+        replaceActive: async () => {},
+        findByHash: async () => undefined,
+        markUsed: async () => {},
+      }),
     authorizeProxyRequest: authorizeCentrifugoProxy,
   });
 }

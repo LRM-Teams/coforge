@@ -40,8 +40,8 @@ export interface DaemonConnectionConfig {
 export interface AgentMessageHttpClient {
   request(input: {
     url: string;
-    token: string;
-    daemonToken: string;
+    agentApiKey: string;
+    daemonApiKey: string;
     request: AgentMessageRequest;
   }): Promise<CloudAgentMessageResponse>;
 }
@@ -99,24 +99,26 @@ interface CentrifugeWorkspaceSubscription {
 export type CentrifugeWorkspaceClientFactory = (
   endpoint: string,
   token: string,
+  data?: Uint8Array,
 ) => CentrifugeWorkspaceClient;
 
 export const defaultCentrifugeWorkspaceClientFactory: CentrifugeWorkspaceClientFactory = (
   endpoint,
-  token,
+  _token,
+  data,
 ) =>
   new Centrifuge(endpoint, {
-    token,
+    data,
     websocket: globalThis.WebSocket,
   }) as unknown as CentrifugeWorkspaceClient;
 
 export const defaultAgentMessageHttpClient: AgentMessageHttpClient = {
-  async request({ url, token, daemonToken, request }) {
+  async request({ url, agentApiKey, daemonApiKey, request }) {
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${token}`,
-        "x-coforge-daemon-authorization": `Bearer ${daemonToken}`,
+        authorization: `Bearer ${daemonApiKey}`,
+        "x-coforge-agent-api-key": `Bearer ${agentApiKey}`,
         "content-type": "application/json",
       },
       body: JSON.stringify({
@@ -158,7 +160,11 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#token = _token;
     this.#serverHttpUrl = config.serverHttpUrl ?? "";
     if (this.#connected) return;
-    const client = this.clientFactory(this.endpoint, _token);
+    const client = this.clientFactory(
+      this.endpoint,
+      "",
+      new TextEncoder().encode(JSON.stringify({ daemonApiKey: _token })),
+    );
     this.#client = client;
     const workspaceChannel = this.#workspaceChannel(config.workspaceId);
     if (!client.newSubscription) {
@@ -285,8 +291,8 @@ export class DaemonConnection implements DaemonConnectionClient {
     if (!this.#serverHttpUrl) throw new Error("Agent message HTTP endpoint is not configured");
     return this.agentMessageHttpClient.request({
       url: `${new URL(this.#serverHttpUrl).origin}/api/agent-messages`,
-      token: agentApiKey ?? this.#token,
-      daemonToken: this.#token,
+      agentApiKey: agentApiKey ?? this.#token,
+      daemonApiKey: this.#token,
       request,
     });
   }
@@ -298,8 +304,8 @@ export class DaemonConnection implements DaemonConnectionClient {
       `${new URL(this.#serverHttpUrl).origin}/api/agent/attachments/${encodeURIComponent(attachmentId)}`,
       {
         headers: {
-          authorization: `Bearer ${agentApiKey ?? this.#token}`,
-          "x-coforge-daemon-authorization": `Bearer ${this.#token}`,
+          authorization: `Bearer ${this.#token}`,
+          "x-coforge-agent-api-key": `Bearer ${agentApiKey ?? this.#token}`,
         },
       },
     );

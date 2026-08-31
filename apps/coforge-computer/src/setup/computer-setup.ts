@@ -177,7 +177,7 @@ export class ComputerSetup {
           workspaceId: response.workspaceId,
           computerId: response.computerId,
           workspaceRoot: this.options.workspaceRoot,
-          daemonToken: response.daemonToken,
+          daemonApiKey: response.daemonApiKey,
         });
       } catch (error) {
         if (error instanceof CliError) throw error;

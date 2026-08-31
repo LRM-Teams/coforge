@@ -65,9 +65,10 @@ Setup persistence consists of `User`, `UserIdentity`, `Workspace`,
 is the durable binding and contains the workspace/computer foreign keys. Its
 database `id` is an internal storage primary key; the business identity is the
 composite `(workspaceId, computerId)` key. That unique constraint makes
-repeated setup converge on the same binding. There is no registration-idempotency table, token hash, or
-temporary registration state. JWTs are stateless: every authorized retry may
-issue a fresh worker JWT for the existing binding.
+repeated setup converge on the same binding. `DaemonApiKey` stores only the
+hash of the long-lived, revocable Daemon API key and its Workspace/Computer
+binding; the plaintext key is returned once and persisted only in the native
+credential store.
 
 `AgentApiKey` stores only the SHA-256 `apiKeyHash` plus its Agent, Workspace,
 owner, and Computer binding; plaintext `sk_agent_...` values are returned once
@@ -80,7 +81,8 @@ handling, never placeholder UUID rows. Concurrent requests may both reach the
 upserts, but PostgreSQL uniqueness ensures one Computer and one
 WorkspaceComputer binding; a deployment with stronger all-or-nothing behavior
 may wrap the operations in a transaction. Token issuance occurs after the
-durable binding is found or created, so an issuer failure is safely retryable.
+durable binding is found or created, so an API-key creation failure is safely
+retryable.
 
 ```mermaid
 erDiagram

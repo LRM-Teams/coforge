@@ -16,7 +16,7 @@ test("Windows daemon task runs at the current user's logon", async () => {
       workspaceId: "w",
       computerId: "computer",
       workspaceRoot: "/w",
-      daemonToken: "secret",
+      daemonApiKey: "secret",
     })
     .catch(() => undefined);
   expect(commands[0]).toContain("ONLOGON");

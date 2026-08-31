@@ -76,7 +76,7 @@ export type ComputerRegisterResponse = {
   requestId: string;
   computerId: string;
   workspaceId: string;
-  daemonToken: string;
+  daemonApiKey: string;
 };
 export type DaemonRuntimeReadyRequest = {
   protocolMajor: number;

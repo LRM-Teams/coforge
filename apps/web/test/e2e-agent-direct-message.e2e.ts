@@ -6,7 +6,11 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { encodeAgentActivity } from "@coforge/protocol";
 import { PrismaClient } from "../generated/client";
 import { DEV_BROWSER_USER } from "../src/server/auth/dev-skip-auth.server";
-import { createDaemonTokenIssuer, verifyDaemonToken } from "../src/server/auth/daemon-token.server";
+import {
+  createDaemonApiKeyFactory,
+  verifyDaemonApiKey,
+} from "../src/server/auth/daemon-api-key.server";
+import { PrismaDaemonApiKeyRepository } from "../src/server/db/repositories/daemon-api-key.repositories.server";
 import { ComputerRegistrar } from "../src/server/computers/registration.server";
 import {
   PrismaComputerConnectionRepository,
@@ -40,7 +44,7 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
   const redis = new Bun.RedisClient(requireEnvironment("REDIS_URL"));
   await db.$executeRawUnsafe(
-    'TRUNCATE TABLE "AgentApiKey", "AgentMessageDelivery", "Message", "ConversationMember", "Conversation", "Agent", "WorkspaceComputer", "Computer", "WorkspaceMembership", "UserIdentity", "User", "Workspace" CASCADE',
+    'TRUNCATE TABLE "agent_api_keys", "daemon_api_keys", "agent_message_deliveries", "messages", "conversation_members", "conversations", "agents", "workspace_computers", "computers", "workspace_memberships", "user_identities", "users", "workspaces", "attachments" CASCADE',
   );
   await redis.send("FLUSHDB", []);
   await rm(workspaceRoot, { recursive: true, force: true });
@@ -64,7 +68,7 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
   const registration = await new ComputerRegistrar({
     workspaceAccess: new PrismaWorkspaceAccess(db),
     computers: new PrismaComputerConnectionRepository(db),
-    tokenIssuer: createDaemonTokenIssuer(),
+    daemonApiKeyFactory: createDaemonApiKeyFactory(new PrismaDaemonApiKeyRepository(db)),
   }).register(
     {
       protocolMajor: 1,
@@ -81,7 +85,9 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
   );
 
   const agents = new PrismaAgentRepository(db);
-  expect(await verifyDaemonToken(registration.daemonToken)).toEqual({
+  expect(
+    await verifyDaemonApiKey(registration.daemonApiKey, new PrismaDaemonApiKeyRepository(db)),
+  ).toEqual({
     userId: DEV_BROWSER_USER.id,
     workspaceId,
     computerId: registration.computerId,
@@ -105,7 +111,7 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
   const keyProbe = await fetch("http://127.0.0.1:8789/api/agent-api-keys", {
     method: "POST",
     headers: {
-      authorization: `Bearer ${registration.daemonToken}`,
+      authorization: `Bearer ${registration.daemonApiKey}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({ agentId: created.agent.id, workspaceId }),
@@ -115,7 +121,7 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
   await db.agentApiKey.deleteMany({ where: { apiKeyHash: { not: "" } } });
 
   const credentials = new InMemoryDaemonCredentialStore();
-  await credentials.save(workspaceId, registration.computerId, registration.daemonToken);
+  await credentials.save(workspaceId, registration.computerId, registration.daemonApiKey);
   let runtime: DaemonRuntime | undefined;
   const proxy = startAgentProxy({
     runtime: {

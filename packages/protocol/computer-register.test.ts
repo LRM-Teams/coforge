@@ -19,7 +19,7 @@ test("computer registration sends the stable method and rejects incompatible maj
         requestId: payload.requestId,
         computerId: "c",
         workspaceId: "w",
-        daemonToken: "secret",
+        daemonApiKey: "secret",
       };
     },
   });

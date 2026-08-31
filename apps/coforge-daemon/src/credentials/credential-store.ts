@@ -4,12 +4,12 @@ import { join } from "node:path";
 
 /** Daemon-owned storage for the credential used by one cloud connection. */
 export interface DaemonCredentialStore {
-  save(workspaceId: string, computerId: string, token: string): Promise<void>;
+  save(workspaceId: string, computerId: string, apiKey: string): Promise<void>;
   load(workspaceId: string, computerId: string): Promise<string | null>;
   delete(workspaceId: string, computerId: string): Promise<void>;
 }
 
-/** Stores the daemon's Workspace token in its private local state directory. */
+/** Stores the Daemon API key in its private local state directory. */
 export class FileDaemonCredentialStore implements DaemonCredentialStore {
   readonly #directory: string;
 
@@ -19,12 +19,12 @@ export class FileDaemonCredentialStore implements DaemonCredentialStore {
     this.#directory = join(directory, "credentials");
   }
 
-  async save(workspaceId: string, computerId: string, token: string): Promise<void> {
+  async save(workspaceId: string, computerId: string, apiKey: string): Promise<void> {
     const path = this.#path(workspaceId, computerId);
     await mkdir(this.#directory, { recursive: true, mode: 0o700 });
     await chmod(this.#directory, 0o700);
     const temporary = `${path}.${crypto.randomUUID()}.tmp`;
-    await writeFile(temporary, `${token}\n`, { encoding: "utf8", mode: 0o600 });
+    await writeFile(temporary, `${apiKey}\n`, { encoding: "utf8", mode: 0o600 });
     await chmod(temporary, 0o600);
     await rename(temporary, path);
     await chmod(path, 0o600);
@@ -32,8 +32,8 @@ export class FileDaemonCredentialStore implements DaemonCredentialStore {
 
   async load(workspaceId: string, computerId: string): Promise<string | null> {
     try {
-      const token = (await readFile(this.#path(workspaceId, computerId), "utf8")).trim();
-      return token || null;
+      const apiKey = (await readFile(this.#path(workspaceId, computerId), "utf8")).trim();
+      return apiKey || null;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw error;
@@ -47,7 +47,7 @@ export class FileDaemonCredentialStore implements DaemonCredentialStore {
   #path(workspaceId: string, computerId: string): string {
     return join(
       this.#directory,
-      `${encodeURIComponent(workspaceId)}-${encodeURIComponent(computerId)}.token`,
+      `${encodeURIComponent(workspaceId)}-${encodeURIComponent(computerId)}.api-key`,
     );
   }
 }
@@ -56,8 +56,8 @@ export class FileDaemonCredentialStore implements DaemonCredentialStore {
 export class InMemoryDaemonCredentialStore implements DaemonCredentialStore {
   readonly #tokens = new Map<string, string>();
 
-  async save(workspaceId: string, computerId: string, token: string): Promise<void> {
-    this.#tokens.set(`${workspaceId}:${computerId}`, token);
+  async save(workspaceId: string, computerId: string, apiKey: string): Promise<void> {
+    this.#tokens.set(`${workspaceId}:${computerId}`, apiKey);
   }
   async load(workspaceId: string, computerId: string): Promise<string | null> {
     return this.#tokens.get(`${workspaceId}:${computerId}`) ?? null;

@@ -185,15 +185,15 @@ async function handleConnection(
             request.workspaceId,
             request.computerId,
             request.workspaceRoot,
-            request.daemonToken,
+            request.daemonApiKey,
           ].every(Boolean) &&
-          (await validateCredential(request.daemonToken));
+          (await validateCredential(request.daemonApiKey));
         if (valid) {
           const saved = await credentials.load(request.workspaceId, request.computerId);
           const previousConfig = await configStore?.load();
-          const credentialChanged = saved !== request.daemonToken;
+          const credentialChanged = saved !== request.daemonApiKey;
           if (credentialChanged) {
-            await credentials.save(request.workspaceId, request.computerId, request.daemonToken);
+            await credentials.save(request.workspaceId, request.computerId, request.daemonApiKey);
           }
           const connection = {
             workspaceId: request.workspaceId,

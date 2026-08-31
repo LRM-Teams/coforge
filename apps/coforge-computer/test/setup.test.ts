@@ -233,7 +233,7 @@ test("setup uses an explicit server for catalog and registration", async () => {
             requestId: request.requestId,
             computerId: "c",
             workspaceId: "w",
-            daemonToken: "t",
+            daemonApiKey: "t",
           };
         },
       };
@@ -270,7 +270,7 @@ test("setup sends a direct slug to registration without listing Workspaces", asy
           requestId: request.requestId,
           computerId: "computer-id",
           workspaceId: "workspace-id-a",
-          daemonToken: "daemon-secret",
+          daemonApiKey: "daemon-secret",
         };
       },
     }),
@@ -303,7 +303,7 @@ test("setup forwards discovered runtime metadata to registration", async () => {
           requestId: request.requestId,
           computerId: "computer-id",
           workspaceId: "workspace-id-a",
-          daemonToken: "daemon-secret",
+          daemonApiKey: "daemon-secret",
         };
       },
     }),
@@ -417,7 +417,7 @@ function createSetup(overrides: Partial<ComputerSetupOptions> = {}): ComputerSet
           computerId: "computer-id",
           workspaceId:
             request.workspaceSlug === "workspace-b" ? "workspace-id-b" : "workspace-id-a",
-          daemonToken: "daemon-secret",
+          daemonApiKey: "daemon-secret",
         };
       },
     }),

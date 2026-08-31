@@ -34,6 +34,7 @@ import { Route as ApiAgentAttachmentUploadCapabilitiesRouteImport } from './rout
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments.$attachmentId'
 import { Route as ApiInternalCentrifugoRouteImport } from './routes/api/internal/centrifugo'
 import { Route as ApiInternalCentrifugoAgentActivityRouteImport } from './routes/api/internal/centrifugo-agent-activity'
+import { Route as ApiInternalCentrifugoConnectRouteImport } from './routes/api/internal/centrifugo-connect'
 import { Route as ApiAgentAttachmentsAttachmentIdRouteImport } from './routes/api/agent/attachments.$attachmentId'
 import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/workspaces.$slug'
 
@@ -165,6 +166,12 @@ const ApiInternalCentrifugoAgentActivityRoute =
     path: '/api/internal/centrifugo-agent-activity',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiInternalCentrifugoConnectRoute =
+  ApiInternalCentrifugoConnectRouteImport.update({
+    id: '/api/internal/centrifugo-connect',
+    path: '/api/internal/centrifugo-connect',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAgentAttachmentsAttachmentIdRoute =
   ApiAgentAttachmentsAttachmentIdRouteImport.update({
     id: '/api/agent/attachments/$attachmentId',
@@ -201,6 +208,7 @@ export interface FileRoutesByFullPath {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
+  '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
   '/messages/': typeof AppMessagesIndexRoute
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
@@ -228,6 +236,7 @@ export interface FileRoutesByTo {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
+  '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
   '/messages': typeof AppMessagesIndexRoute
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
@@ -258,6 +267,7 @@ export interface FileRoutesById {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
+  '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
   '/_app/messages/': typeof AppMessagesIndexRoute
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
@@ -288,6 +298,7 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
+    | '/api/internal/centrifugo-connect'
     | '/messages/'
     | '/api/agent/attachments/$attachmentId'
     | '/api/e2e/workspaces/$slug'
@@ -315,6 +326,7 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
+    | '/api/internal/centrifugo-connect'
     | '/messages'
     | '/api/agent/attachments/$attachmentId'
     | '/api/e2e/workspaces/$slug'
@@ -344,6 +356,7 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
+    | '/api/internal/centrifugo-connect'
     | '/_app/messages/'
     | '/api/agent/attachments/$attachmentId'
     | '/api/e2e/workspaces/$slug'
@@ -367,6 +380,7 @@ export interface RootRouteChildren {
   ApiAgentAttachmentUploadCapabilitiesRoute: typeof ApiAgentAttachmentUploadCapabilitiesRoute
   ApiInternalCentrifugoRoute: typeof ApiInternalCentrifugoRoute
   ApiInternalCentrifugoAgentActivityRoute: typeof ApiInternalCentrifugoAgentActivityRoute
+  ApiInternalCentrifugoConnectRoute: typeof ApiInternalCentrifugoConnectRoute
   ApiAgentAttachmentsAttachmentIdRoute: typeof ApiAgentAttachmentsAttachmentIdRoute
   ApiE2eWorkspacesSlugRoute: typeof ApiE2eWorkspacesSlugRoute
 }
@@ -548,6 +562,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiInternalCentrifugoAgentActivityRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/internal/centrifugo-connect': {
+      id: '/api/internal/centrifugo-connect'
+      path: '/api/internal/centrifugo-connect'
+      fullPath: '/api/internal/centrifugo-connect'
+      preLoaderRoute: typeof ApiInternalCentrifugoConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/attachments/$attachmentId': {
       id: '/api/agent/attachments/$attachmentId'
       path: '/api/agent/attachments/$attachmentId'
@@ -630,6 +651,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiInternalCentrifugoRoute: ApiInternalCentrifugoRoute,
   ApiInternalCentrifugoAgentActivityRoute:
     ApiInternalCentrifugoAgentActivityRoute,
+  ApiInternalCentrifugoConnectRoute: ApiInternalCentrifugoConnectRoute,
   ApiAgentAttachmentsAttachmentIdRoute: ApiAgentAttachmentsAttachmentIdRoute,
   ApiE2eWorkspacesSlugRoute: ApiE2eWorkspacesSlugRoute,
 }

@@ -481,7 +481,7 @@ export function decodeComputerRegisterResponse(bytes: Uint8Array): ComputerRegis
     requestId: value.requestId,
     computerId: value.computerId,
     workspaceId: value.workspaceId,
-    daemonToken: value.daemonToken,
+    daemonApiKey: value.daemonApiKey,
   };
 }
 

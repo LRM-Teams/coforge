@@ -51,6 +51,7 @@ services:
       - >-
         export CENTRIFUGO_HTTP_API_KEY="$$(cat /run/secrets/centrifugo_http_api_key)";
         export CENTRIFUGO_CLIENT_TOKEN_JWKS_PUBLIC_ENDPOINT="$${COFORGE_WORKER_JWKS_ENDPOINT:-http://host.docker.internal:8789/api/jwks}";
+        export CENTRIFUGO_CLIENT_PROXY_CONNECT_ENDPOINT="$${COFORGE_CONNECT_PROXY_ENDPOINT:-http://host.docker.internal:8789/api/internal/centrifugo-connect}";
         export CENTRIFUGO_RPC_PROXY_ENDPOINT="$${COFORGE_RPC_PROXY_ENDPOINT:-http://host.docker.internal:8789/api/internal/centrifugo}";
         export CENTRIFUGO_CHANNEL_PROXY_PUBLISH_ENDPOINT="$${COFORGE_ACTIVITY_PROXY_ENDPOINT:-http://host.docker.internal:8789/api/internal/centrifugo-agent-activity}";
         export CENTRIFUGO_VAR_RPC_PROXY_SECRET="$$(cat /run/secrets/centrifugo_proxy_secret)";

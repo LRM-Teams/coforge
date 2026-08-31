@@ -24,7 +24,7 @@ manually.
 - `setup` is launched with a Workspace-page setup intent; the user does not
   provide a slug or choose from a list in Computer.
 - Setup never presents Workspace selection, including on an interactive TTY.
-- `UserAccessToken` 仅用于 Computer 注册；`DaemonToken` 是供 Daemon Runtime 连接云端使用的 token，不假设其底层格式；`AgentToken` 是独立的 Agent credential。三者不可混用，也不得打印。
+- `UserAccessToken` 仅用于 Computer 注册；`DaemonApiKey` 是供 Daemon 连接云端使用的长期 API key；`AgentToken` 是独立的 Agent credential。三者不可混用，也不得打印。
 
 ## Scope
 
@@ -49,7 +49,7 @@ Add the first shared protocol slice under `packages/protocol`:
 - include protocol major, request ID, workspace slug, machine ID, platform,
   OS version, Computer version, and discovered external runtime metadata;
 - return the server-assigned Computer ID and Workspace ID (the composite binding identity), and the
-  `DaemonToken` used by the Daemon Runtime to connect to the cloud;
+  `DaemonApiKey` used by the Daemon to connect to the cloud;
 - preserve unknown fields and reject unknown protocol majors;
 - make retries safe with a stable registration idempotency key;
 - keep transport mechanics outside the shared package. The client must use
@@ -61,7 +61,7 @@ cloud WebSocket code in this slice.
 ### 3. Persistence
 
 - Do not write the Workspace connection before registration succeeds.
-- Store the returned registration and `DaemonToken` atomically using the
+- Store the returned registration and `DaemonApiKey` atomically using the
   existing platform-native configuration/credential boundaries.
 - Do not persist the User refresh token in the Daemon credential location.
 - A failed registration must leave no new registration or partial credential.

@@ -35,5 +35,5 @@ message ComputerRegisterResponse {
   string workspace_id = 4;
   reserved 5;
   reserved "connection_id";
-  string daemon_token = 6;
+  string daemon_api_key = 6;
 }

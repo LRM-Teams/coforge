@@ -15,6 +15,7 @@ model Workspace {
   computers           WorkspaceComputer[]
   agents              Agent[]
   agentApiKeys        AgentApiKey[]
+  daemonApiKeys       DaemonApiKey[]
   conversations       Conversation[]
   conversationMembers ConversationMember[]
   messageDeliveries   AgentMessageDelivery[]
@@ -22,6 +23,7 @@ model Workspace {
   attachments         Attachment[]
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
+  @@map("workspaces")
 }
 
 model User {
@@ -33,9 +35,11 @@ model User {
   memberships         WorkspaceMembership[]
   agents              Agent[]
   agentApiKeys        AgentApiKey[]
+  daemonApiKeys       DaemonApiKey[]
   computers           Computer[]
   conversationMembers ConversationMember[]
   attachments         Attachment[]
+  @@map("users")
 }
 
 model UserIdentity {
@@ -47,6 +51,7 @@ model UserIdentity {
 
   @@unique([provider, providerSubject])
   @@index([userId])
+  @@map("user_identities")
 }
 
 model Agent {
@@ -71,6 +76,7 @@ model Agent {
   @@index([workspaceId, ownerId])
   @@index([workspaceId, createdAt])
   @@index([computerId])
+  @@map("agents")
 }
 
 model AgentActivity {
@@ -91,6 +97,7 @@ model AgentActivity {
 
   @@unique([agentId, launchId, clientSeq])
   @@index([workspaceId, agentId, occurredAt(sort: Desc), clientSeq(sort: Desc)])
+  @@map("agent_activities")
 }
 
 model AgentApiKey {
@@ -111,6 +118,25 @@ model AgentApiKey {
   @@index([agentId, workspaceId])
   @@index([ownerId])
   @@index([computerId])
+  @@map("agent_api_keys")
+}
+
+model DaemonApiKey {
+  id          String    @id @default(uuid()) @db.Uuid
+  apiKeyHash  String    @unique @map("api_key_hash")
+  workspaceId String    @db.Uuid @map("workspace_id")
+  computerId  String    @db.Uuid @map("computer_id")
+  ownerId     String    @db.Uuid @map("owner_id")
+  revokedAt   DateTime? @map("revoked_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  lastUsedAt  DateTime? @map("last_used_at")
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  computer    Computer  @relation(fields: [computerId], references: [id], onDelete: Cascade)
+  owner       User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, computerId])
+  @@index([ownerId])
+  @@map("daemon_api_keys")
 }
 
 model WorkspaceMembership {
@@ -121,6 +147,7 @@ model WorkspaceMembership {
 
   @@id([workspaceId, userId])
   @@index([userId])
+  @@map("workspace_memberships")
 }
 
 model Computer {
@@ -132,10 +159,12 @@ model Computer {
   modelCatalogs ComputerModelCatalog[]
   agents        Agent[]
   agentApiKeys AgentApiKey[]
+  daemonApiKeys DaemonApiKey[]
   agentActivity AgentActivity[]
   owner         User                @relation(fields: [ownerId], references: [id])
 
   @@unique([ownerId, machineId])
+  @@map("computers")
 }
 
 model ComputerRuntime {
@@ -149,6 +178,7 @@ model ComputerRuntime {
 
   @@unique([computerId, provider])
   @@index([computerId])
+  @@map("computer_runtimes")
 }
 
 model ComputerModelCatalog {
@@ -161,6 +191,7 @@ model ComputerModelCatalog {
 
   @@unique([computerId, provider])
   @@index([computerId])
+  @@map("computer_model_catalogs")
 }
 
 model WorkspaceComputer {
@@ -172,6 +203,7 @@ model WorkspaceComputer {
   createdAt   DateTime  @default(now())
 
   @@unique([workspaceId, computerId])
+  @@map("workspace_computers")
 }
 
 model Conversation {
@@ -188,6 +220,7 @@ model Conversation {
   @@unique([workspaceId, directKey])
   @@unique([id, workspaceId])
   @@index([workspaceId])
+  @@map("conversations")
 }
 
 model ConversationMember {
@@ -207,6 +240,7 @@ model ConversationMember {
   @@unique([conversationId, agentId])
   @@index([workspaceId, userId])
   @@index([workspaceId, agentId])
+  @@map("conversation_members")
 }
 
 model Message {
@@ -224,6 +258,7 @@ model Message {
 
   @@unique([conversationId, sequence])
   @@index([conversationId, createdAt])
+  @@map("messages")
 }
 
 model Attachment {
@@ -244,6 +279,7 @@ model Attachment {
 
   @@index([conversationId, workspaceId])
   @@index([uploaderId])
+  @@map("attachments")
 }
 
 model AgentMessageDelivery {
@@ -263,4 +299,5 @@ model AgentMessageDelivery {
   @@unique([messageId, agentId])
   @@unique([deliveryId, workspaceId])
   @@index([workspaceId, agentId, receivedAt])
+  @@map("agent_message_deliveries")
 }

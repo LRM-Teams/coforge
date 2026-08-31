@@ -28,7 +28,7 @@ test("systemd user service is installed and started without a system service", a
       workspaceId: "w",
       computerId: "computer",
       workspaceRoot: "/w",
-      daemonToken: "secret",
+      daemonApiKey: "secret",
     })
     .catch(() => undefined);
   expect(commands.slice(0, 3)).toEqual([

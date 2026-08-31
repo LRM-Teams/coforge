@@ -5,9 +5,10 @@ import {
   isAgentApiKeyBoundToComputer,
   type AgentApiKeyRepository,
 } from "./agent-api-key.server";
-import { verifyDaemonToken } from "../auth/daemon-token.server";
+import { verifyDaemonApiKey } from "../auth/daemon-api-key.server";
 import { getDatabaseClient } from "../db/client.server";
 import { PrismaAgentApiKeyRepository } from "../db/repositories/agent-api-key.repositories.server";
+import { PrismaDaemonApiKeyRepository } from "../db/repositories/daemon-api-key.repositories.server";
 import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
@@ -26,20 +27,20 @@ export async function authenticateAgentMessageRequest(
   request: Request,
   dependencies: {
     agentApiKeys: AgentApiKeyRepository;
-    verifyDaemonToken(token: string): Promise<DaemonPrincipal>;
+    verifyDaemonApiKey(token: string): Promise<DaemonPrincipal>;
     computerBelongsToWorkspace(workspaceId: string, computerId: string): Promise<boolean>;
   },
 ) {
   try {
-    const agentAuthorization = request.headers.get("authorization");
-    const daemonAuthorization = request.headers.get("x-coforge-daemon-authorization");
+    const daemonAuthorization = request.headers.get("authorization");
+    const agentAuthorization = request.headers.get("x-coforge-agent-api-key");
     if (!agentAuthorization?.startsWith("Bearer ") || !daemonAuthorization?.startsWith("Bearer "))
       throw new Error("credentials missing");
     const record = await authenticateAgentApiKey(
       agentAuthorization.slice(7).trim(),
       dependencies.agentApiKeys,
     );
-    const daemon = await dependencies.verifyDaemonToken(daemonAuthorization.slice(7).trim());
+    const daemon = await dependencies.verifyDaemonApiKey(daemonAuthorization.slice(7).trim());
     if (
       !isAgentApiKeyBoundToComputer(record, daemon) ||
       !(await dependencies.computerBelongsToWorkspace(daemon.workspaceId, daemon.computerId))
@@ -64,6 +65,7 @@ export function createAgentMessageHttpHandler() {
   const authorization = new RepositoryAgentAuthorization(new PrismaAgentRepository(db));
   const centrifugo = createCentrifugoServerApi();
   const agentApiKeys = new PrismaAgentApiKeyRepository(db);
+  const daemonApiKeys = new PrismaDaemonApiKeyRepository(db);
   return new CentrifugoRpcHandler({
     methods: {
       [AGENT_MESSAGE_READ_METHOD]: createAgentMessageMethod(
@@ -82,7 +84,7 @@ export function createAgentMessageHttpHandler() {
     authenticateEnvelope: (_envelope, request) =>
       authenticateAgentMessageRequest(request, {
         agentApiKeys,
-        verifyDaemonToken: (token) => verifyDaemonToken(token),
+        verifyDaemonApiKey: (token) => verifyDaemonApiKey(token, daemonApiKeys),
         computerBelongsToWorkspace: async (workspaceId, computerId) =>
           Boolean(
             await db.workspaceComputer.findUnique({
@@ -99,7 +101,7 @@ export async function authenticateAgentHttpRequest(request: Request) {
   if (!db) throw new CentrifugoRpcAuthenticationError();
   return authenticateAgentMessageRequest(request, {
     agentApiKeys: new PrismaAgentApiKeyRepository(db),
-    verifyDaemonToken: (token) => verifyDaemonToken(token),
+    verifyDaemonApiKey: (token) => verifyDaemonApiKey(token, new PrismaDaemonApiKeyRepository(db)),
     computerBelongsToWorkspace: async (workspaceId, computerId) =>
       Boolean(
         await db.workspaceComputer.findUnique({
