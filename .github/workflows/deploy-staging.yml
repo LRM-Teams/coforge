@@ -139,6 +139,17 @@ jobs:
           chmod 600 "$ssh_dir/key"
           echo "SSH_DIR=$ssh_dir" >> "$GITHUB_ENV"
 
+      - name: Log in to the image registry
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | \
+            ssh -i "$SSH_DIR/key" \
+              -o UserKnownHostsFile="$SSH_DIR/known_hosts" \
+              -o BatchMode=yes \
+              "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" \
+              "docker login ghcr.io --user '${{ github.repository_owner }}' --password-stdin"
+
       - name: Copy deployment assets
         run: |
           tar -czf "$REMOTE_ASSETS" \
