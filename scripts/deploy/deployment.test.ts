@@ -165,9 +165,7 @@ describe("renderAuditRecord", () => {
 
 describe("remote-deploy.sh compose invocation shape", () => {
   test("places compose global arguments before every subcommand", async () => {
-    const script = await Bun.file(
-      new URL("./remote-deploy.sh", import.meta.url),
-    ).text();
+    const script = await Bun.file(new URL("./remote-deploy.sh", import.meta.url)).text();
     const misplaced = script
       .split("\n")
       .filter((line) => line.includes("${COMPOSE_ARGS[@]}"))
@@ -180,15 +178,13 @@ describe("remote-deploy.sh compose invocation shape", () => {
   });
 
   test("keeps the migration container output off the key=value report", async () => {
-    const script = await Bun.file(
-      new URL("./remote-deploy.sh", import.meta.url),
-    ).text();
+    const script = await Bun.file(new URL("./remote-deploy.sh", import.meta.url)).text();
     const runIndex = script
       .split("\n")
       .findIndex((line) => line.includes('compose "${COMPOSE_ARGS[@]}" run'));
     expect(runIndex).toBeGreaterThanOrEqual(0);
     const runBlock = script
-      .slice(script.indexOf("compose \"${COMPOSE_ARGS[@]}\" run"))
+      .slice(script.indexOf('compose "${COMPOSE_ARGS[@]}" run'))
       .split("then")[0];
     // The script itself arrives on stdin over SSH; the container must not
     // inherit it (it would consume the rest of the deploy script), and its
