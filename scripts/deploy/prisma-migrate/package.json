@@ -1,0 +1,7 @@
+{
+  "name": "migrate",
+  "private": true,
+  "dependencies": {
+    "prisma": "7.10.0"
+  }
+}

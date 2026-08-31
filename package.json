@@ -12,7 +12,9 @@
     "check:oss-cdn": "bunx oxfmt --check scripts/verify-oss-cdn.ts scripts/verify-oss-cdn.test.ts && bunx oxlint scripts/verify-oss-cdn.ts scripts/verify-oss-cdn.test.ts",
     "verify:oss-cdn": "bun scripts/verify-oss-cdn.ts",
     "build": "bun run --cwd packages/protocol generate && bun run --filter \"*\" --if-present build",
-    "check": "actionlint && bun run --cwd packages/protocol generate && bun run --filter \"*\" --if-present check"
+    "check": "actionlint && bun run --cwd packages/protocol generate && bun run --filter \"*\" --if-present check",
+    "test:deploy": "bun test scripts/deploy/deployment.test.ts",
+    "check:deploy": "bunx oxfmt --check scripts/deploy && bunx oxlint scripts/deploy && mise exec -- shellcheck scripts/deploy/remote-deploy.sh"
   },
   "devDependencies": {
     "@bufbuild/buf": "1.72.0",

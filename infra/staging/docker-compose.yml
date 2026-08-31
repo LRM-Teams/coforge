@@ -1,0 +1,160 @@
+# Cloud staging environment for the approved cloud application track.
+#
+# Project: coforge-staging (every invocation must pass -p coforge-staging).
+# Caddy owns the only public entry (443); application ports stay private and
+# reach the host only through loopback diagnostics. Images resolve by immutable
+# digest: the deploy script writes COFORGE_WEB_IMAGE into .env.
+name: coforge-staging
+
+services:
+  caddy:
+    image: caddy:2.10.2@sha256:df17219f4add3e4b1f0cafe3912eb97da96e38963faf018a92f39a868d1f888c
+    command:
+      - caddy
+      - run
+      - --config
+      - /etc/caddy/Caddyfile
+      - --adapter
+      - caddyfile
+    ports:
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - coforge
+    depends_on:
+      web:
+        condition: service_healthy
+      centrifugo:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    image: ${COFORGE_WEB_IMAGE:?COFORGE_WEB_IMAGE must resolve to an immutable digest}
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?deploy script writes .env}
+      REDIS_URL: ${REDIS_URL:?deploy script writes .env}
+      COFORGE_CENTRIFUGO_API_URL: http://centrifugo:8000/api
+      COFORGE_CENTRIFUGO_API_KEY: ${COFORGE_CENTRIFUGO_API_KEY:?deploy script writes .env}
+      COFORGE_CENTRIFUGO_PROXY_SECRET: ${COFORGE_CENTRIFUGO_PROXY_SECRET:?deploy script writes .env}
+      COFORGE_WORKER_JWT_KEY_ID: ${COFORGE_WORKER_JWT_KEY_ID:?deploy script writes .env}
+      COFORGE_WORKER_JWT_PRIVATE_JWK: ${COFORGE_WORKER_JWT_PRIVATE_JWK:?deploy script writes .env}
+    ports:
+      # loopback diagnostics only; never public
+      - "127.0.0.1:18080:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      centrifugo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    networks:
+      - coforge
+    restart: unless-stopped
+
+  centrifugo:
+    image: centrifugo/centrifugo:v6.9.2@sha256:cf06f711d81cae515a8789cac241595e038653fd7cf99270e0b4e14059183032
+    command:
+      - sh
+      - -c
+      - >-
+        export CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY="$$(cat /run/secrets/centrifugo_token_hmac_secret_key)";
+        export CENTRIFUGO_HTTP_API_KEY="$$(cat /run/secrets/centrifugo_http_api_key)";
+        export CENTRIFUGO_VAR_RPC_PROXY_SECRET="$$(cat /run/secrets/centrifugo_proxy_secret)";
+        export CENTRIFUGO_ENGINE_REDIS_ADDRESS="redis://:$$(cat /run/secrets/redis_password)@redis:6379";
+        exec centrifugo -c /centrifugo/config.yaml
+    ports:
+      - "127.0.0.1:18000:8000"
+    volumes:
+      - ./centrifugo:/centrifugo:ro
+    secrets:
+      - centrifugo_token_hmac_secret_key
+      - centrifugo_http_api_key
+      - centrifugo_proxy_secret
+      - redis_password
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - coforge
+    restart: unless-stopped
+
+  redis:
+    image: redis:8.2.6@sha256:b0ae7835ccef4872b65d82202b944a45235dafb2cfc82a1dc32ae9ad58ebfd30
+    command:
+      - sh
+      - -c
+      - exec redis-server --appendonly yes --requirepass "$$(cat /run/secrets/redis_password)"
+    secrets:
+      - redis_password
+    volumes:
+      - coforge_staging_redis_data:/data
+    networks:
+      - coforge
+    healthcheck:
+      test: ["CMD-SHELL", "export REDISCLI_AUTH=\"$(cat /run/secrets/redis_password)\"; redis-cli --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18.6@sha256:253a1c96c9f96d2a7c30f1396f9cb7c2ce105ee6c2886c6b48d1ce9fdfcc01aa
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: coforge
+      POSTGRES_DB: coforge
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets:
+      - postgres_password
+    volumes:
+      - coforge_staging_postgres_data:/var/lib/postgresql
+    networks:
+      - coforge
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coforge -d coforge"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+networks:
+  coforge: {}
+
+volumes:
+  caddy_data: {}
+  caddy_config: {}
+  coforge_staging_redis_data:
+    name: coforge_staging_redis_data
+  coforge_staging_postgres_data:
+    name: coforge_staging_postgres_data
+
+secrets:
+  redis_password:
+    file: ./secrets/redis_password
+  postgres_password:
+    file: ./secrets/postgres_password
+  centrifugo_token_hmac_secret_key:
+    file: ./secrets/centrifugo_token_hmac_secret_key
+  centrifugo_http_api_key:
+    file: ./secrets/centrifugo_http_api_key
+  centrifugo_proxy_secret:
+    file: ./secrets/centrifugo_proxy_secret

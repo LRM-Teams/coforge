@@ -1,0 +1,15 @@
+# Caddy owns the only public entry: trusted HTTPS on 443.
+# Port 80 is intentionally unreachable: no plaintext, not even redirects.
+{
+	admin off
+	auto_https disable_redirects
+}
+
+staging.coforge.cn {
+	# Realtime transport stays standalone Centrifugo; everything else is the
+	# web application. Route order: explicit realtime prefixes first.
+	@realtime path /connection/*
+	reverse_proxy @realtime centrifugo:8000
+
+	reverse_proxy web:3000
+}

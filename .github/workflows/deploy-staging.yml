@@ -1,0 +1,236 @@
+name: Deploy staging
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+env:
+  IMAGE_REPOSITORY: lrm-teams/coforge/coforge-web
+  REMOTE_ROOT: /home/deploy/coforge-staging
+
+jobs:
+  gates:
+    name: Repository gates (check, test, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: jdx/mise-action@v4
+        with:
+          install: false
+
+      - name: Install toolchain
+        run: mise install
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check, test, and build
+        run: |
+          mise run check
+          mise run test
+          mise run build
+
+  image:
+    name: Build one immutable image
+    needs: gates
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 20
+    outputs:
+      image: ${{ steps.identity.outputs.image }}
+      deployment_id: ${{ steps.validate.outputs.deployment_id }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: jdx/mise-action@v4
+        with:
+          install: false
+
+      - name: Install toolchain
+        run: mise install
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push the immutable digest
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: true
+          outputs: type=image,name=ghcr.io/${{ env.IMAGE_REPOSITORY }},push-by-digest=true,name-canonical=true
+
+      - name: Record the immutable identity
+        id: identity
+        run: |
+          echo "image=ghcr.io/${{ env.IMAGE_REPOSITORY }}@${{ steps.push.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+      - name: Tag the commit identity
+        run: |
+          docker buildx imagetools create \
+            -t "ghcr.io/${{ env.IMAGE_REPOSITORY }}:sha-${{ github.sha }}" \
+            "ghcr.io/${{ env.IMAGE_REPOSITORY }}@${{ steps.push.outputs.digest }}"
+
+      - name: Validate the identity
+        id: validate
+        run: |
+          id="$(bun scripts/deploy/deployment.ts validate --image "${{ steps.identity.outputs.image }}")"
+          echo "deployment_id=${id#deployment_id=}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy the tested digest to staging
+    needs: image
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 15
+    env:
+      DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+      DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+      REMOTE_ASSETS: ${{ github.workspace }}/assets.tgz
+    steps:
+      - uses: actions/checkout@v6
+      - name: Mark the start time
+        run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Prepare the SSH identity
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+          DEPLOY_HOST_KEY: ${{ secrets.DEPLOY_SSH_HOST_KEY }}
+        run: |
+          if [ "$DEPLOY_SSH_USER" != "deploy" ]; then
+            echo "DEPLOY_SSH_USER must be the non-root deploy identity" >&2
+            exit 1
+          fi
+          ssh_dir="$(mktemp -d)"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$ssh_dir/key"
+          printf '%s %s\n' "$DEPLOY_SSH_HOST" "$DEPLOY_HOST_KEY" > "$ssh_dir/known_hosts"
+          chmod 700 "$ssh_dir" "$ssh_dir/known_hosts"
+          chmod 600 "$ssh_dir/key"
+          echo "SSH_DIR=$ssh_dir" >> "$GITHUB_ENV"
+
+      - name: Copy deployment assets
+        run: |
+          tar -czf "$REMOTE_ASSETS" \
+            infra/staging/docker-compose.yml \
+            infra/staging/caddy/Caddyfile \
+            infra/staging/centrifugo/config.yaml \
+            scripts/deploy/remote-deploy.sh
+          ssh -i "$SSH_DIR/key" \
+            -o UserKnownHostsFile="$SSH_DIR/known_hosts" \
+            -o BatchMode=yes \
+            "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" \
+            "mkdir -p $REMOTE_ROOT && tar -xzf - -C $REMOTE_ROOT" < "$REMOTE_ASSETS"
+
+      - name: Deploy the tested digest
+        env:
+          IMAGE: ${{ needs.image.outputs.image }}
+        run: |
+          {
+            ssh -i "$SSH_DIR/key" \
+              -o UserKnownHostsFile="$SSH_DIR/known_hosts" \
+              -o BatchMode=yes \
+              "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" \
+              "mkdir -p \$(dirname '$REMOTE_ROOT/state.env') && bash -s -- \
+                --image '$IMAGE' \
+                --compose-file '$REMOTE_ROOT/infra/staging/docker-compose.yml' \
+                --secrets-dir '$REMOTE_ROOT/infra/staging/secrets' \
+                --state-file '$REMOTE_ROOT/state.env' \
+                --web-health-url http://127.0.0.1:18080/health \
+                --public-health-url https://staging.coforge.cn/health" \
+                < scripts/deploy/remote-deploy.sh
+          } > remote-report.env
+
+      - name: Check the remote outcome
+        run: |
+          expected_keys='health_result|outcome|previous_web_image|rollback_target'
+          seen="$(cut -d= -f1 remote-report.env | grep -v '^$' | sort | uniq | paste -sd'|')"
+          if [ "$seen" != "$expected_keys" ]; then
+            echo "remote report keys mismatch: $seen" >&2
+            exit 1
+          fi
+          {
+            echo "outcome=$(sed -n 's/^outcome=//p' remote-report.env)"
+            echo "previous_web_image=$(sed -n 's/^previous_web_image=//p' remote-report.env)"
+            echo "health_result=$(sed -n 's/^health_result=//p' remote-report.env)"
+            echo "rollback_target=$(sed -n 's/^rollback_target=//p' remote-report.env)"
+          } >> "$GITHUB_OUTPUT"
+        id: outcome
+
+      - name: Fail on an unhealthy deployment
+        run: |
+          if [ "${{ steps.outcome.outputs.outcome }}" != "healthy" ]; then
+            echo "deployment outcome: ${{ steps.outcome.outputs.outcome }}" >&2
+            exit 1
+          fi
+
+      - name: Verify public readiness
+        run: |
+          curl --fail --silent --show-error --max-time 10 \
+            "https://staging.coforge.cn/health" >/dev/null
+
+      - name: Verify port 80 stays unreachable
+        run: |
+          if curl --silent --max-time 10 "http://staging.coforge.cn/" >/dev/null 2>&1; then
+            echo "port 80 answered; public plaintext must stay unreachable" >&2
+            exit 1
+          fi
+
+      - name: Smoke the realtime route
+        run: |
+          code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            -H 'Connection: Upgrade' \
+            -H 'Upgrade: websocket' \
+            -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+            -H 'Sec-WebSocket-Version: 13' \
+            --max-time 10 \
+            'https://staging.coforge.cn/connection/websocket')"
+          echo "realtime route answered with HTTP $code (any response proves the WSS path)"
+          [ "$code" != "000" ]
+
+      - name: Record the release record
+        if: always()
+        run: |
+          previous="$(sed -n 's/^previous_web_image=//p' remote-report.env 2>/dev/null || true)"
+          bun scripts/deploy/deployment.ts record \
+            --records-file deployment-records.jsonl \
+            --deployment-id "${{ needs.image.outputs.deployment_id }}" \
+            --source-commit "${{ github.sha }}" \
+            --artifact-identity "${{ needs.image.outputs.image }}" \
+            --environment staging \
+            --workflow-run "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --previous-digest "${previous##*@}" \
+            --rollback-target "${{ steps.outcome.outputs.rollback_target }}" \
+            --health-result "${{ steps.outcome.outputs.health_result || 'verification was interrupted before health checks ran' }}" \
+            --started-at "${{ env.DEPLOY_STARTED_AT }}" \
+            --outcome "${{ steps.outcome.outputs.outcome || 'interrupted' }}"
+
+      - name: Upload the release record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-records
+          path: deployment-records.jsonl
+          retention-days: 90

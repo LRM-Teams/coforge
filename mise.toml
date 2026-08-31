@@ -56,6 +56,12 @@ run = "bun run --cwd packages/protocol generate && cd apps/web && bun run check"
 [tasks."build:web"]
 run = "bun run --cwd packages/protocol generate && cd apps/web && bun run build"
 
+[tasks."test:deploy"]
+run = "bun run test:deploy"
+
+[tasks."check:deploy"]
+run = "bun run check:deploy"
+
 [tasks."test:oss-cdn"]
 run = "bun run test:oss-cdn"
 
