@@ -10,7 +10,7 @@ export type LaunchdDaemonHostOptions = {
   executablePath: string;
   socketPath: string;
   stateDirectory?: string;
-  cloudWebSocketEndpoint?: string;
+  daemonConnectionEndpoint?: string;
   homeDirectory: string;
   uid: number;
   writeFile?: (path: string, content: string) => Promise<void>;
@@ -87,14 +87,14 @@ export function launchdPlist(input: {
   executablePath: string;
   socketPath: string;
   stateDirectory?: string;
-  cloudWebSocketEndpoint?: string;
+  daemonConnectionEndpoint?: string;
 }): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key><string>${xml(input.label)}</string>
-  ${input.cloudWebSocketEndpoint ? `<key>EnvironmentVariables</key><dict><key>COFORGE_CLOUD_WEBSOCKET_ENDPOINT</key><string>${xml(input.cloudWebSocketEndpoint)}</string></dict>` : ""}
+  ${input.daemonConnectionEndpoint ? `<key>EnvironmentVariables</key><dict><key>COFORGE_DAEMON_CONNECTION_ENDPOINT</key><string>${xml(input.daemonConnectionEndpoint)}</string></dict>` : ""}
   <key>ProgramArguments</key>
   <array><string>${xml(input.executablePath)}</string><string>--socket</string><string>${xml(input.socketPath)}</string>${input.stateDirectory ? `<string>--state-directory</string><string>${xml(input.stateDirectory)}</string>` : ""}</array>
   <key>RunAtLoad</key><true/>

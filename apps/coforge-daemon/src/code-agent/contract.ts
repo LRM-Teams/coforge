@@ -19,6 +19,27 @@ export type AgentRuntimeEvent =
   | { type: "tool-end"; id: string; isError: boolean }
   | { type: "completed"; status: "completed" | "interrupted" | "failed" };
 
+export type UsageWindow = Readonly<{
+  usedPercent: number;
+  windowDurationMinutes: number;
+  resetsAt: string;
+}>;
+
+export type UsageSnapshot = Readonly<{
+  provider: CodeAgentProvider;
+  planType?: string;
+  primary?: UsageWindow;
+  secondary?: UsageWindow;
+  credits?: Readonly<{ hasCredits: boolean; unlimited: boolean }>;
+}>;
+
+export interface CodeAgentUsageReader {
+  readUsage(options: {
+    workingDirectory: string;
+    timeoutMs?: number;
+  }): Promise<UsageSnapshot | null>;
+}
+
 export class AgentProcessCleanupError extends Error {
   constructor() {
     super("code agent process tree did not exit");
@@ -47,4 +68,8 @@ export interface CodeAgentStartOptions {
 export interface CodeAgentAdapter {
   readonly provider: CodeAgentProvider;
   start(options: CodeAgentStartOptions): Promise<CodeAgentSession>;
+  readUsage?(options: {
+    workingDirectory: string;
+    timeoutMs?: number;
+  }): Promise<UsageSnapshot | null>;
 }

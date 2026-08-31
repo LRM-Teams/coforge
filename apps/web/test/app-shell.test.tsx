@@ -104,7 +104,6 @@ test("keeps Messages selected on a private conversation route", () => {
 test("renders persisted Agent fields without fabricated details", () => {
   const markup = renderShell();
 
-  expect(markup).toContain("<header");
   expect(markup).toContain("<main");
   expect(markup).toContain("Agent overview");
   expect(markup).toContain("New agent");

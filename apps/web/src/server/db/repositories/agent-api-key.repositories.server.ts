@@ -6,7 +6,7 @@ export class PrismaAgentApiKeyRepository implements AgentApiKeyRepository {
 
   async replaceActive(record: AgentApiKeyRecord): Promise<void> {
     await this.db.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT "id" FROM "Agent" WHERE "id" = ${record.agentId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT "id" FROM "agents" WHERE "id" = ${record.agentId}::uuid FOR UPDATE`;
       await tx.agentApiKey.updateMany({
         where: {
           agentId: record.agentId,

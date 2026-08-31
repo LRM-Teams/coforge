@@ -30,7 +30,7 @@ export type DaemonWorkspaceConfig = {
   workspaceId: string;
   computerId: string;
   workspaceRoot: string;
-  daemonToken: string;
+  daemonApiKey: string;
 };
 
 export type LocalDaemonConnection = {
@@ -169,7 +169,7 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
                 workspaceId: config.workspaceId,
                 computerId: config.computerId,
                 workspaceRoot: config.workspaceRoot,
-                daemonToken: config.daemonToken,
+                daemonApiKey: config.daemonApiKey,
               }),
             }),
           ),

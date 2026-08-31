@@ -7,7 +7,7 @@ import { join } from "path";
 import { OAuthDeviceClient } from "./oauth-device-client";
 import { ComputerLogin } from "./login";
 import { CliError, loginError, setupError } from "./errors";
-import { NativeCredentialStore } from "./credential-store";
+import { FileCredentialStore } from "./credential-store";
 import {
   resolveComputerBinaryDirectory,
   resolveComputerInstallDirectory,
@@ -23,10 +23,15 @@ import { FileMachineIdFallback, resolveMachineId } from "./machine-id";
 import {
   CentrifugoComputerRegisterTransport,
   CentrifugoWorkspaceRpcTransport,
-  cloudWebSocketEndpoint,
+  resolveCentrifugoWebSocketEndpoint,
+  resolveDaemonConnectionEndpoint,
 } from "./cloud-rpc-transport";
 import { ComputerRegistrationClient } from "@coforge/protocol";
-import { createDaemonHost, resolveDaemonExecutablePath } from "@coforge/daemon";
+import {
+  createDaemonHost,
+  LocalDaemonLauncher,
+  resolveDaemonExecutablePath,
+} from "@coforge/daemon";
 import { createWorkspaceLookup } from "./workspace/lookup";
 import { registrationIdempotencyKey } from "./registration/idempotency-key";
 import { writeSetupResult } from "./cli/setup-output";
@@ -169,14 +174,18 @@ export async function runCli(
         : loginSelected
           ? loginError("AUTH_FAILED", "Login failed.")
           : setupSelected
-            ? setupError("SETUP_FAILED", "Workspace setup failed.")
+            ? setupError("SETUP_FAILED", "Workspace setup failed.", "computer-registration", error)
             : null;
     if (failure) {
       if (json) {
         io.stdout(
           JSON.stringify({
             ok: false,
-            error: { code: failure.code, message: failure.message, hint: failure.hint },
+            error: {
+              code: failure.code,
+              message: failure.message,
+              hint: failure.hint,
+            },
           }),
         );
       } else {
@@ -235,7 +244,7 @@ function createLoginCommand(
       clientId: "coforge-computer",
       scope: "openid offline_access",
     }),
-    store: new NativeCredentialStore(),
+    store: new FileCredentialStore(),
     config,
     writeLine: io.stdout,
     writeProgressLine: io.stderr,
@@ -256,7 +265,7 @@ export function createSetupCommand(
     scope: "openid offline_access",
   }),
 ): SetupCommand {
-  const credentials = new NativeCredentialStore();
+  const credentials = new FileCredentialStore();
   const platform = currentComputerPlatform();
   const stateDirectory = resolveComputerStateDirectory({
     platform: platform.os,
@@ -308,12 +317,14 @@ export function createSetupCommand(
         return credential;
       },
     },
-    workspaceLookup: createWorkspaceLookup(new CentrifugoWorkspaceRpcTransport()),
+    workspaceLookup: createWorkspaceLookup(
+      new CentrifugoWorkspaceRpcTransport(undefined, resolveCentrifugoWebSocketEndpoint),
+    ),
     registrationFactory: (serverUrl, credential) => ({
       register: (request) =>
         new ComputerRegistrationClient(
           new CentrifugoComputerRegisterTransport(
-            cloudWebSocketEndpoint(serverUrl),
+            resolveCentrifugoWebSocketEndpoint(serverUrl),
             credential.accessToken,
           ),
         ).register(request),
@@ -339,12 +350,27 @@ function createDaemonLauncher(
   stateDirectory: string,
   serverUrl: string,
 ) {
+  if (process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1") {
+    return new LocalDaemonLauncher({
+      executablePath:
+        process.env.COFORGE_E2E_DAEMON_EXECUTABLE ??
+        resolveDaemonExecutablePath({ installRoot: installDirectory, platform }),
+      socketPath: resolveDaemonSocketPath({ platform, stateDirectory }),
+    });
+  }
   return createDaemonHost({
     platform,
-    executablePath: resolveDaemonExecutablePath({ installRoot: installDirectory, platform }),
+    executablePath:
+      process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1" && process.env.COFORGE_E2E_DAEMON_EXECUTABLE
+        ? process.env.COFORGE_E2E_DAEMON_EXECUTABLE
+        : resolveDaemonExecutablePath({ installRoot: installDirectory, platform }),
     socketPath: resolveDaemonSocketPath({ platform, stateDirectory }),
     stateDirectory,
-    cloudWebSocketEndpoint: cloudWebSocketEndpoint(serverUrl),
+    daemonConnectionEndpoint:
+      process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1" &&
+      process.env.COFORGE_E2E_DAEMON_CONNECTION_ENDPOINT
+        ? process.env.COFORGE_E2E_DAEMON_CONNECTION_ENDPOINT
+        : resolveDaemonConnectionEndpoint(serverUrl),
     homeDirectory: homedir(),
     uid: process.getuid?.() ?? 0,
   });

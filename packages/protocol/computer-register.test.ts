@@ -19,7 +19,7 @@ test("computer registration sends the stable method and rejects incompatible maj
         requestId: payload.requestId,
         computerId: "c",
         workspaceId: "w",
-        daemonToken: "secret",
+        daemonApiKey: "secret",
       };
     },
   });
@@ -52,7 +52,9 @@ test("registration codec encodes builtin and external kinds explicitly", () => {
     osVersion: "1",
     computerVersion: "1",
     registrationIdempotencyKey: "i",
-    runtimes: [{ provider: RUNTIME_PROVIDER.PI, version: "1", kind: "builtin" as const }],
+    runtimes: [
+      { provider: RUNTIME_PROVIDER.PI, version: "1", displayName: "Pi", kind: "builtin" as const },
+    ],
   } satisfies Parameters<ComputerRegistrationClient["register"]>[0];
   expect(decodeComputerRegisterRequest(encodeComputerRegisterRequest(request)).runtimes).toEqual(
     request.runtimes,
@@ -78,8 +80,18 @@ test("registration codec encodes builtin and external kinds explicitly", () => {
 
 test("provider and kind together identify runtimes", () => {
   const runtimes = [
-    { provider: RUNTIME_PROVIDER.PI, version: "builtin", kind: "builtin" as const },
-    { provider: RUNTIME_PROVIDER.PI, version: "1.0.0", kind: "external" as const },
+    {
+      provider: RUNTIME_PROVIDER.PI,
+      version: "builtin",
+      displayName: "Pi",
+      kind: "builtin" as const,
+    },
+    {
+      provider: RUNTIME_PROVIDER.PI,
+      version: "1.0.0",
+      displayName: "Pi external",
+      kind: "external" as const,
+    },
   ];
   expect(runtimes.map(({ provider, kind }) => `${provider}:${kind}`)).toEqual([
     "pi:builtin",
@@ -94,10 +106,16 @@ test("daemon runtime code-agent inventory round trips as a complete external sna
     workspaceId: "workspace-1",
     computerId: "computer-1",
     runtimes: [
-      { provider: RUNTIME_PROVIDER.CODEX, version: "0.151.0", kind: "external" as const },
+      {
+        provider: RUNTIME_PROVIDER.CODEX,
+        version: "0.151.0",
+        displayName: "Codex",
+        kind: "external" as const,
+      },
       {
         provider: RUNTIME_PROVIDER.CLAUDE_CODE,
         version: "2.1.0",
+        displayName: "Claude Code",
         kind: "external" as const,
       },
     ],

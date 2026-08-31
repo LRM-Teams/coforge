@@ -3,7 +3,9 @@ import { COMPUTER_REGISTER_METHOD, RUNTIME_PROVIDER } from "@coforge/protocol";
 import { encodeComputerRegisterRequest } from "@coforge/protocol/codec";
 import {
   CentrifugoComputerRegisterTransport,
-  cloudWebSocketEndpoint,
+  centrifugoWebSocketEndpoint,
+  daemonConnectionEndpoint,
+  resolveCentrifugoWebSocketEndpoint,
   type CentrifugeClient,
   type CentrifugeFactory,
 } from "../src/cloud-rpc-transport";
@@ -16,7 +18,14 @@ const request = {
   platform: "linux",
   osVersion: "1",
   computerVersion: "1",
-  runtimes: [{ provider: RUNTIME_PROVIDER.PI, version: "1.0.0", kind: "external" as const }],
+  runtimes: [
+    {
+      provider: RUNTIME_PROVIDER.PI,
+      version: "1.0.0",
+      displayName: "Pi",
+      kind: "external" as const,
+    },
+  ],
   registrationIdempotencyKey: "registration-1",
 };
 
@@ -25,7 +34,7 @@ const response = {
   requestId: request.requestId,
   computerId: "computer-1",
   workspaceId: "workspace-1",
-  daemonToken: "worker-secret",
+  daemonApiKey: "worker-secret",
 };
 
 function encodedResponse() {
@@ -35,7 +44,7 @@ function encodedResponse() {
     response.computerId,
     response.workspaceId,
     `${response.workspaceId}:${response.computerId}`,
-    response.daemonToken,
+    response.daemonApiKey,
   ].entries()) {
     const encoded = new TextEncoder().encode(value);
     bytes.push(0x12 + index * 8, encoded.length, ...encoded);
@@ -122,11 +131,31 @@ test("register transport rejects RPC failures and disconnects", async () => {
   expect(disconnects).toBe(1);
 });
 
-test("cloud websocket endpoint uses the Centrifugo websocket path", () => {
-  expect(cloudWebSocketEndpoint("https://cloud.example/api?tenant=one")).toBe(
+test("Centrifugo websocket endpoint uses the Centrifugo websocket path", () => {
+  expect(centrifugoWebSocketEndpoint("https://cloud.example/api?tenant=one")).toBe(
     "wss://cloud.example/connection/websocket?tenant=one",
   );
-  expect(cloudWebSocketEndpoint("http://cloud.example/api")).toBe(
+  expect(centrifugoWebSocketEndpoint("http://cloud.example/api")).toBe(
     "ws://cloud.example/connection/websocket",
   );
+});
+
+test("Daemon connection endpoint uses the DaemonCore /daemon/connect path", () => {
+  expect(daemonConnectionEndpoint("https://staging.example/api?tenant=one")).toBe(
+    "wss://staging.example/daemon/connect?tenant=one",
+  );
+});
+
+test("E2E-only websocket override splits RPC from the Web HTTP server", () => {
+  expect(
+    resolveCentrifugoWebSocketEndpoint("http://localhost:8789", {
+      COFORGE_E2E_ALLOW_DEVICE_AUTH: "1",
+      COFORGE_E2E_CENTRIFUGO_ENDPOINT: "ws://localhost:8000/connection/websocket",
+    }),
+  ).toBe("ws://localhost:8000/connection/websocket");
+  expect(
+    resolveCentrifugoWebSocketEndpoint("http://localhost:8789", {
+      COFORGE_E2E_CENTRIFUGO_ENDPOINT: "ws://localhost:8000/connection/websocket",
+    }),
+  ).toBe("ws://localhost:8789/connection/websocket");
 });

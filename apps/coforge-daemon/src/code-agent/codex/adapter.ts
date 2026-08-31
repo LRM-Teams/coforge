@@ -4,6 +4,8 @@ import type {
   CodeAgentSession,
   CodeAgentStartOptions,
 } from "../contract";
+import type { UsageSnapshot } from "../contract";
+import { readCodexUsage } from "./usage";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
@@ -15,6 +17,16 @@ export class CodexAgentAdapter implements CodeAgentAdapter {
 
   constructor(options: { command?: readonly string[] } = {}) {
     this.#command = options.command ?? ["codex", "app-server"];
+  }
+
+  async readUsage(options: {
+    workingDirectory: string;
+    timeoutMs?: number;
+  }): Promise<UsageSnapshot | null> {
+    return readCodexUsage(options.workingDirectory, {
+      command: this.#command,
+      timeoutMs: options.timeoutMs,
+    });
   }
 
   async start(options: CodeAgentStartOptions): Promise<CodeAgentSession> {

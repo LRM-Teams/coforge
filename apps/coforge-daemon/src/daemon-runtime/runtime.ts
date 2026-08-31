@@ -1,4 +1,5 @@
 import type { AgentRuntimeConfig, CodeAgentProvider } from "../code-agent/contract";
+import { mkdirSync } from "node:fs";
 import { AgentProcessCleanupError } from "../code-agent/contract";
 import {
   AgentProcessManager,
@@ -15,9 +16,9 @@ export type DaemonConfig = {
 export type WorkspaceConfig = DaemonConfig;
 import type { DaemonCredentialStore } from "../credentials/credential-store";
 import type {
-  WorkspaceCloudTransport,
-  WorkspaceCloudTransportFactory,
-} from "../cloud-transport/workspace-cloud-transport";
+  DaemonConnectionClient,
+  DaemonConnectionClientFactory,
+} from "../connection/daemon-connection";
 import {
   WORKSPACE_PROTOCOL_MAJOR,
   type AgentActivity,
@@ -31,6 +32,7 @@ import {
   discoverCodeAgentInventory,
   type CodeAgentInventory,
 } from "../code-agent/runtime-inventory";
+import { createCodeAgentAdapter } from "../code-agent/registry";
 
 export function generateRuntimeInstanceId(): string {
   return crypto.randomUUID();
@@ -41,8 +43,8 @@ export class DaemonRuntime {
   readonly #connection: DaemonConfig;
   readonly #agentProcessManager: AgentProcessManager;
   readonly #credentials: DaemonCredentialStore;
-  readonly #transportFactory: WorkspaceCloudTransportFactory;
-  #transport: WorkspaceCloudTransport;
+  readonly #transportFactory: DaemonConnectionClientFactory;
+  #transport: DaemonConnectionClient;
   #startPromise: Promise<void> | undefined;
   #stopPromise: Promise<void> | undefined;
   #started = false;
@@ -51,6 +53,7 @@ export class DaemonRuntime {
   #unsubscribeAgentStart: (() => void) | undefined;
   #unsubscribeAgentMessage: (() => void) | undefined;
   #unsubscribeReconnect: (() => void) | undefined;
+  #unsubscribeUsageScan: (() => void) | undefined;
   readonly #messageAttention: AgentMessageAttentionIndex;
   readonly #runtimeInstanceId = generateRuntimeInstanceId();
   readonly #startedAt = Date.now();
@@ -75,7 +78,7 @@ export class DaemonRuntime {
     connection: DaemonConfig,
     createAdapter: AgentAdapterFactory,
     credentials: DaemonCredentialStore,
-    transportFactory: WorkspaceCloudTransportFactory,
+    transportFactory: DaemonConnectionClientFactory,
     agentProxy?: {
       url: string;
       issue(agentId: string, agentApiKey: string): string;
@@ -100,6 +103,53 @@ export class DaemonRuntime {
     return this.#agentProcessManager;
   }
 
+  async scanUsage(
+    provider: import("@coforge/protocol").RuntimeProvider,
+  ): Promise<import("@coforge/protocol").UsageScanResponse> {
+    const protocolMajor = 1;
+    if (!this.#started) throw new Error("daemon runtime is not running");
+    if (provider !== "codex" && provider !== "claude-code")
+      return {
+        protocolMajor,
+        requestId: "",
+        accepted: false,
+        status: "unsupported",
+        message: "Pi usage scanning is unsupported",
+      };
+    const adapter = createCodeAgentAdapter(provider);
+    if (!adapter.readUsage)
+      return { protocolMajor, requestId: "", accepted: false, status: "unsupported" };
+    try {
+      const snapshot = await adapter.readUsage({
+        workingDirectory: this.#connection.workspaceRoot,
+        timeoutMs: 10_000,
+      });
+      return snapshot
+        ? {
+            protocolMajor,
+            requestId: "",
+            accepted: true,
+            status: "available",
+            snapshotJson: new TextEncoder().encode(JSON.stringify(snapshot)),
+          }
+        : {
+            protocolMajor,
+            requestId: "",
+            accepted: false,
+            status: "reauth",
+            message: "Provider usage is unavailable",
+          };
+    } catch (error) {
+      return {
+        protocolMajor,
+        requestId: "",
+        accepted: false,
+        status: "error",
+        message: error instanceof Error ? error.message : "Usage scan failed",
+      };
+    }
+  }
+
   start(connection: DaemonConfig): Promise<void> {
     if (
       connection.workspaceId !== this.#connection.workspaceId ||
@@ -118,6 +168,7 @@ export class DaemonRuntime {
   }
 
   async #start(connection: DaemonConfig): Promise<void> {
+    mkdirSync(connection.workspaceRoot, { recursive: true });
     const token = await this.#credentials.load(connection.workspaceId, connection.computerId);
     if (!token) throw new Error("Workspace credential is missing");
     const pending: Array<AgentStartIntent | AgentMessageDelivery> = [];
@@ -140,13 +191,26 @@ export class DaemonRuntime {
       this.#unsubscribeReconnect = this.#transport.onReconnect?.(() => {
         void this.#reportCodeAgents(connection).catch(() => {});
       });
+      this.#unsubscribeUsageScan = this.#transport.onUsageScan?.(async (request) => {
+        if (request.computerId !== connection.computerId) return;
+        const result = await this.scanUsage(request.provider);
+        await this.#transport.sendUsageScanResult?.({
+          ...result,
+          requestId: request.requestId,
+          workspaceId: connection.workspaceId,
+          computerId: connection.computerId,
+          provider: request.provider,
+        });
+      });
+      // Register publication listeners before the ready RPC. The server may
+      // recover persisted Agents immediately as part of that RPC.
+      this.#unsubscribeAgentStart = this.#transport.onAgentStart?.(receiveAgentStart);
+      this.#unsubscribeAgentMessage = this.#transport.onAgentMessage?.(receiveAgentMessage);
       await this.#transport.start(token, {
         workspaceId: connection.workspaceId,
         computerId: connection.computerId,
         serverHttpUrl: connection.serverHttpUrl,
       });
-      this.#unsubscribeAgentStart = this.#transport.onAgentStart?.(receiveAgentStart);
-      this.#unsubscribeAgentMessage = this.#transport.onAgentMessage?.(receiveAgentMessage);
       await this.#transport.ready({
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
         requestId: crypto.randomUUID(),
@@ -175,6 +239,8 @@ export class DaemonRuntime {
       this.#unsubscribeAgentStart = undefined;
       this.#unsubscribeAgentMessage?.();
       this.#unsubscribeAgentMessage = undefined;
+      this.#unsubscribeUsageScan?.();
+      this.#unsubscribeUsageScan = undefined;
       this.#unsubscribeReconnect?.();
       this.#unsubscribeReconnect = undefined;
       pending.length = 0;
@@ -489,7 +555,7 @@ export class DaemonRuntime {
       const attention = this.#messageAttention
         .check(agentId)
         .filter((item) => !request.target || item.target === request.target);
-      if (!this.#transport.agentMessage) throw new Error("cloud transport is not connected");
+      if (!this.#transport.agentMessage) throw new Error("daemon connection is not connected");
       if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
       const messages = [] as import("@coforge/protocol").AgentMessageRecord[];
       for (const item of attention) {
@@ -517,7 +583,7 @@ export class DaemonRuntime {
         messageId: "",
       };
     }
-    if (!this.#transport.agentMessage) throw new Error("cloud transport is not connected");
+    if (!this.#transport.agentMessage) throw new Error("daemon connection is not connected");
     if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
     const result = await this.#transport.agentMessage(
       {
@@ -552,7 +618,7 @@ export class DaemonRuntime {
     const agentId = [...this.#agentContexts.entries()].find(([, value]) => value === context)?.[0];
     if (!agentId) throw new Error("invalid agent local context");
     if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
-    if (!this.#transport.agentAttachment) throw new Error("cloud transport is not connected");
+    if (!this.#transport.agentAttachment) throw new Error("daemon connection is not connected");
     return this.#transport.agentAttachment(attachmentId, agentApiKey);
   }
 
@@ -578,6 +644,8 @@ export class DaemonRuntime {
     this.#unsubscribeAgentStart = undefined;
     this.#unsubscribeAgentMessage?.();
     this.#unsubscribeAgentMessage = undefined;
+    this.#unsubscribeUsageScan?.();
+    this.#unsubscribeUsageScan = undefined;
     this.#unsubscribeReconnect?.();
     this.#unsubscribeReconnect = undefined;
     for (const token of this.#agentProxyTokens.values()) this.#agentProxy?.revoke(token);
@@ -644,7 +712,7 @@ function safeRuntimeActivityMessage(activity: string, level: string, message: st
 export function createDaemonRuntime(input: {
   createAdapter: AgentAdapterFactory;
   credentials: DaemonCredentialStore;
-  transportFactory: WorkspaceCloudTransportFactory;
+  transportFactory: DaemonConnectionClientFactory;
 }): (connection: DaemonConfig) => DaemonRuntime {
   return (connection) =>
     new DaemonRuntime(connection, input.createAdapter, input.credentials, input.transportFactory);

@@ -1,0 +1,16 @@
+ALTER TABLE "Workspace" RENAME TO "workspaces";
+ALTER TABLE "User" RENAME TO "users";
+ALTER TABLE "UserIdentity" RENAME TO "user_identities";
+ALTER TABLE "Agent" RENAME TO "agents";
+ALTER TABLE "AgentActivity" RENAME TO "agent_activities";
+ALTER TABLE "AgentApiKey" RENAME TO "agent_api_keys";
+ALTER TABLE "WorkspaceMembership" RENAME TO "workspace_memberships";
+ALTER TABLE "Computer" RENAME TO "computers";
+ALTER TABLE "ComputerRuntime" RENAME TO "computer_runtimes";
+ALTER TABLE "ComputerModelCatalog" RENAME TO "computer_model_catalogs";
+ALTER TABLE "WorkspaceComputer" RENAME TO "workspace_computers";
+ALTER TABLE "Conversation" RENAME TO "conversations";
+ALTER TABLE "ConversationMember" RENAME TO "conversation_members";
+ALTER TABLE "Message" RENAME TO "messages";
+ALTER TABLE "Attachment" RENAME TO "attachments";
+ALTER TABLE "AgentMessageDelivery" RENAME TO "agent_message_deliveries";

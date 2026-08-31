@@ -13,7 +13,7 @@ export function createDaemonHost(input: {
   executablePath: string;
   socketPath: string;
   stateDirectory?: string;
-  cloudWebSocketEndpoint?: string;
+  daemonConnectionEndpoint?: string;
   homeDirectory: string;
   uid: number;
 }): DaemonLauncher & DaemonStopper & DaemonCommandRunner {

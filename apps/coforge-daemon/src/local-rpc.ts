@@ -14,6 +14,9 @@ import {
   LOCAL_RPC_METHODS,
   decodeLocalAgentMessageRequest,
   encodeAgentMessageResponse,
+  decodeUsageScanRequest,
+  encodeUsageScanResponse,
+  type UsageScanResponse,
   type AgentMessageResponse,
 } from "@coforge/protocol";
 import type { DaemonConfig } from "./daemon-runtime/runtime";
@@ -33,6 +36,7 @@ type DaemonRuntimePort = Partial<{
     context: string,
     request: import("@coforge/protocol").LocalAgentMessageRequest,
   ): Promise<unknown>;
+  scanUsage(provider: string): Promise<UsageScanResponse>;
 }>;
 
 export async function startDaemonLocalRpcServer(input: {
@@ -128,6 +132,24 @@ async function handleConnection(
             }),
           ),
         );
+      } else if (envelope.method === LOCAL_RPC_METHODS.USAGE_SCAN) {
+        const request = decodeUsageScanRequest(envelope.payload);
+        if (request.protocolMajor !== 1 || !request.requestId || !request.provider)
+          throw new Error("invalid usage scan request");
+        const result = await runtime.scanUsage?.(request.provider);
+        if (!result) throw new Error("usage scanning is unavailable");
+        socket.write(
+          frameLocalRpc(
+            encodeLocalRpcResponse({
+              method: envelope.method,
+              payload: encodeUsageScanResponse({
+                ...result,
+                requestId: request.requestId,
+                protocolMajor: 1,
+              }),
+            }),
+          ),
+        );
       } else if (
         envelope.method === LOCAL_RPC_METHODS.START ||
         envelope.method === LOCAL_RPC_METHODS.STOP ||
@@ -163,15 +185,15 @@ async function handleConnection(
             request.workspaceId,
             request.computerId,
             request.workspaceRoot,
-            request.daemonToken,
+            request.daemonApiKey,
           ].every(Boolean) &&
-          (await validateCredential(request.daemonToken));
+          (await validateCredential(request.daemonApiKey));
         if (valid) {
           const saved = await credentials.load(request.workspaceId, request.computerId);
           const previousConfig = await configStore?.load();
-          const credentialChanged = saved !== request.daemonToken;
+          const credentialChanged = saved !== request.daemonApiKey;
           if (credentialChanged) {
-            await credentials.save(request.workspaceId, request.computerId, request.daemonToken);
+            await credentials.save(request.workspaceId, request.computerId, request.daemonApiKey);
           }
           const connection = {
             workspaceId: request.workspaceId,

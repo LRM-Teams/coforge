@@ -52,7 +52,7 @@ test("reuses a running daemon after a successful local handshake", async () => {
     workspaceId: "w",
     computerId: "computer",
     workspaceRoot: "/w",
-    daemonToken: "daemon-credential",
+    daemonApiKey: "daemon-credential",
   });
   expect(spawned).toBe(false);
 });
@@ -104,7 +104,7 @@ test("starts the daemon and waits for its handshake", async () => {
     workspaceId: "w",
     computerId: "computer",
     workspaceRoot: "/w",
-    daemonToken: "daemon-credential",
+    daemonApiKey: "daemon-credential",
   });
   expect(spawned).toBe(true);
   expect(attempts).toBe(2);

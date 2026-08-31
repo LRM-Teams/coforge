@@ -18,12 +18,12 @@ class MemoryAgentApiKeys implements AgentApiKeyRepository {
   async revoke() {}
 }
 
-const request = (agentToken?: string, daemonToken?: string) =>
+const request = (agentToken?: string, daemonApiKey?: string) =>
   new Request("https://server.example/api/agent-messages", {
     method: "POST",
     headers: {
-      ...(agentToken ? { authorization: `Bearer ${agentToken}` } : {}),
-      ...(daemonToken ? { "x-coforge-daemon-authorization": `Bearer ${daemonToken}` } : {}),
+      ...(daemonApiKey ? { authorization: `Bearer ${daemonApiKey}` } : {}),
+      ...(agentToken ? { "x-coforge-agent-api-key": `Bearer ${agentToken}` } : {}),
     },
   });
 
@@ -39,7 +39,7 @@ describe("Agent message HTTP authentication", () => {
     });
     const principal = await authenticateAgentMessageRequest(request(apiKey, "daemon-token"), {
       agentApiKeys: keys,
-      verifyDaemonToken: async (token) => {
+      verifyDaemonApiKey: async (token) => {
         if (token !== "daemon-token") throw new Error("invalid");
         return { userId: "owner-a", workspaceId: "workspace-a", computerId: "computer-a" };
       },
@@ -64,7 +64,7 @@ describe("Agent message HTTP authentication", () => {
     });
     const dependencies = {
       agentApiKeys: keys,
-      verifyDaemonToken: async (token: string) => {
+      verifyDaemonApiKey: async (token: string) => {
         if (token !== "daemon-token") throw new Error("invalid");
         return { userId: "owner-a", workspaceId: "workspace-a", computerId: "computer-a" };
       },
@@ -96,14 +96,14 @@ describe("Agent message HTTP authentication", () => {
       await expect(
         authenticateAgentMessageRequest(request(apiKey, "daemon-token"), {
           agentApiKeys: keys,
-          verifyDaemonToken: async () => daemon,
+          verifyDaemonApiKey: async () => daemon,
           computerBelongsToWorkspace: async () => true,
         }),
       ).rejects.toThrow();
     await expect(
       authenticateAgentMessageRequest(request(apiKey, "daemon-token"), {
         agentApiKeys: keys,
-        verifyDaemonToken: async () => ({
+        verifyDaemonApiKey: async () => ({
           userId: "owner-a",
           workspaceId: "workspace-a",
           computerId: "computer-a",

@@ -9,7 +9,7 @@ export type Workspace = { readonly id: string; readonly slug: string };
 export type ComputerRegistration = {
   readonly computerId: string;
   readonly workspaceId: string;
-  readonly daemonToken: string;
+  readonly daemonApiKey: string;
 };
 
 export interface WorkspaceAccess {
@@ -23,10 +23,10 @@ export interface ComputerConnectionRepository {
     principal: AuthenticatedPrincipal;
     workspace: Workspace;
     request: ComputerRegisterRequest;
-  }): Promise<Omit<ComputerRegistration, "daemonToken">>;
+  }): Promise<Omit<ComputerRegistration, "daemonApiKey">>;
 }
-export interface DaemonTokenIssuer {
-  issue(input: {
+export interface DaemonApiKeyFactory {
+  create(input: {
     principal: AuthenticatedPrincipal;
     workspaceId: string;
     computerId: string;
@@ -47,7 +47,7 @@ export class ComputerRegistrar {
     private readonly deps: {
       workspaceAccess: WorkspaceAccess;
       computers: ComputerConnectionRepository;
-      tokenIssuer: DaemonTokenIssuer;
+      daemonApiKeyFactory: DaemonApiKeyFactory;
     },
   ) {}
 
@@ -63,14 +63,14 @@ export class ComputerRegistrar {
     );
     if (!workspace) throw new ComputerRegistrationError(403, "workspace access denied");
     const connection = await this.deps.computers.create({ principal, workspace, request });
-    const token = await this.deps.tokenIssuer.issue({
+    const daemonApiKey = await this.deps.daemonApiKeyFactory.create({
       principal,
       workspaceId: workspace.id,
       computerId: connection.computerId,
     });
     return {
       ...connection,
-      daemonToken: token,
+      daemonApiKey,
       protocolMajor: COMPUTER_REGISTER_PROTOCOL_MAJOR,
       requestId: request.requestId,
     };

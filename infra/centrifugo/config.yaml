@@ -17,6 +17,14 @@ client:
     jwks_public_endpoint: http://host.docker.internal:8789/api/jwks
     audience: coforge-centrifugo
     issuer: coforge
+  proxy:
+    connect:
+      enabled: true
+      endpoint: http://host.docker.internal:8789/api/internal/centrifugo-connect
+      timeout: 5s
+      http:
+        static_headers:
+          X-CoForge-Centrifugo-Proxy-Secret: ${CENTRIFUGO_VAR_RPC_PROXY_SECRET}
 
 channel:
   proxy:
@@ -52,5 +60,5 @@ rpc:
       proxy_enabled: true
     - name: workspace
       proxy_enabled: true
-    - name: daemon_runtime
+    - name: daemon
       proxy_enabled: true

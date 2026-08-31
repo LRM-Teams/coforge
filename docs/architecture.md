@@ -123,7 +123,7 @@ Caddy 不理解 conversation、message、Agent 或 workspace 业务。
 Centrifugo 不拥有业务规则，不直接读写 PostgreSQL，不适配具体 Agent，也不把 hot history 或传输 ACK 解释为 durable truth。详细边界见 [ADR 0001](adr/0001-standalone-centrifugo-and-compose-data-services.md)。
 
 Daemon 到 Web/backend 的 Agent message read/send 使用独立的 HTTPS RPC
-seam，并携带 Daemon workspace token；该 seam 的 URL 是 daemon connection
+边界，并携带 Daemon API key；该边界的 URL 是 daemon connection
 config 的 `serverHttpUrl`（启动时可由 `COFORGE_SERVER_HTTP_URL` 注入）。未配置
 时请求 fail closed，绝不回退到 WSS。Server→Daemon 的 delivery、ready、ACK
 和 heartbeat/control 仍使用 daemon 唯一的 outbound WSS/RPC 连接。
@@ -133,14 +133,18 @@ Agent runtime 的授权分层如下：Web/backend 每次 launch 签发一次明�
 并用于 Daemon→Web/backend 的 Agent message HTTPS RPC。子进程环境和本地
 CLI 只得到生命周期绑定的 opaque `sfp_...` Proxy token；二者不是同一类
 授权材料，也没有 wall-clock expiry。Agent API key 绑定签发请求的 `computer_id`；
-Agent message 鉴权要求同时提供的 Daemon JWT 与 key 记录属于同一 Computer。
+Agent message 鉴权要求同时提供的 Daemon API key 与 key 记录属于同一 Computer。
 每次签发在 PostgreSQL 事务中锁定 Agent row，先撤销该 Agent 的全部旧 active key，
 再创建新 key，因此崩溃遗留 key 会在下次 launch 回收，跨 backend 并发签发也按
 Agent 串行。停止、退出或 shutdown 时仍按 exact key 撤销。
-Daemon 通过受 Daemon Runtime credential 保护的 Agent API key HTTP
+Daemon 通过受 Daemon API key 保护的 Agent API key HTTP
 route 签发和撤销该 key；远端撤销失败必须按失败返回，不能宣称
-成功。本地 Proxy registration 无论远端结果如何都先撤销。WSS 仍只负责
-Server→Daemon delivery/control，不承载该 HTTPS API key 交换；本地不引入 durable outbox。
+成功。本地 Proxy registration 无论远端结果如何都先撤销。Daemon WSS 建连使用
+Centrifugo 官方 Connect Proxy：Daemon API key 通过 SDK connect data 发送，由
+Web/backend 校验 hash、撤销状态和 Workspace/Computer 绑定后返回连接身份及允许的
+Workspace subscription。普通 Daemon HTTPS 请求使用 `Authorization: Bearer
+<daemon-api-key>`。用户授权的 Computer 注册仍可使用独立的用户 JWT；它不是
+Daemon API key，也不会持久化到 Daemon。本地不引入 durable outbox。
 
 ### PostgreSQL：云端持久状态
 
@@ -232,9 +236,9 @@ handshake。Daemon 不注册为系统级服务，也不开放 TCP 管理端口�
 
 `login [--server <url>]` 仍可用于单独重新认证，但普通用户不需要先执行它。推荐入口是单个 `setup` 流程：没有 User credential 时在流程内部完成 OAuth 2.0 Device Authorization Grant；先通过 RFC 8414 metadata 发现 device authorization 与 token endpoint，再按 RFC 8628 展示 user code、轮询并处理 `authorization_pending` / `slow_down`。轮询连接超时后降低请求频率并重试，单次请求必须受 device-code 剩余有效期约束。凭据不进入命令参数或日志。
 
-MVP OAuth client 使用 `client_id = coforge-computer` 与 `scope = openid offline_access`。Workspace 页面为当前 Workspace 创建一次性 setup intent，并通过 CoForge Computer setup deep link 或安装器参数传入；用户不输入 Workspace ID/slug，也不在 Computer 端选择 Workspace。`UserAccessToken` 仅用于 Computer 注册；注册响应中的 `DaemonToken` 是供 Daemon 连接云端使用的 token，不假设其底层格式。Agent API key 是独立的 Agent 授权材料；三者不可混用。持久 credential 通过 Bun 的跨平台原生 credential API 写入 macOS Keychain、Linux Secret Service 或 Windows Credential Manager，不允许自动降级为明文文件。Linux 无可用 Secret Service 时 setup 以稳定错误失败并提示用户启动或解锁系统凭据服务。
+MVP OAuth client 使用 `client_id = coforge-computer` 与 `scope = openid offline_access`。Workspace 页面为当前 Workspace 创建一次性 setup intent，并通过 CoForge Computer setup deep link 或安装器参数传入；用户不输入 Workspace ID/slug，也不在 Computer 端选择 Workspace。`UserAccessToken` 仅用于 Computer 注册；注册响应中的 `DaemonApiKey` 是供 Daemon 连接云端的长期、可撤销 API key。Agent API key 是独立的 Agent 授权材料；三者不可混用。持久 credential 通过 Bun 的跨平台原生 credential API 写入 macOS Keychain、Linux Secret Service 或 Windows Credential Manager，不允许自动降级为明文文件。Linux 无可用 Secret Service 时 setup 以稳定错误失败并提示用户启动或解锁系统凭据服务。
 
-`setup` 创建或恢复 setup intent 指定的一个 Workspace–Computer connection，为该 Workspace 选择 `workspace_root` 并让 Daemon 启动其唯一的 Workspace 云连接。当前 daemon MVP 只持久化一条可替换的 daemon config；协议字段仍保留既有兼容名称。
+`setup` 创建或恢复 setup intent 指定的一个 Workspace–Computer connection，为该 Workspace 选择 `workspace_root` 并让 Daemon 启动其唯一的 Workspace 云连接。当前 daemon MVP 只持久化一条可替换的 daemon config；协议字段按当前 API key 命名，不保留旧字段兼容层。
 
 `machine_id` 是机器的稳定身份，跨 Computer、Daemon 与 daemon 的重启和升级保持不变。Computer 注册属于 setup 中的用户主动授权操作，并通过 `computer:register` RPC 完成；其精确 envelope、payload、幂等键和 machine proof 按 [ADR 0004](adr/0004-computer-daemon-rpc-topology-and-protobuf.md) 的实现 packet 固定。
 
@@ -371,7 +375,6 @@ Agent start intent (`agent:start`) 使用现有 `coforge.rpc.v1` WSS/RPC control
 Server→Daemon delivery/control 使用版本化 typed RPC over WSS，不照搬 Multica 事件名；Agent→Web message read/send 则使用前述独立 HTTPS RPC。WSS 建议的最小方法族：
 
 - `session:hello` / `session:ready` / `session:resume`
-- `heartbeat:ping` / `heartbeat:pong`
 
 每个 envelope 携带 protocol version、request id、workspace/session scope 与必要 deadline。未知 major version 必须拒绝；minor capability 在 handshake 协商。浏览器 API 与 cloud internal RPC 是独立契约，“daemon 不用 HTTP”不禁止浏览器用 HTTPS 完成认证、bootstrap 和普通读取。
 

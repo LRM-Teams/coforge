@@ -14,7 +14,7 @@ Web/backend
   │ 鉴权 → 校验 ConversationMember → 事务保存 Message + conversationSeq
   │ 事务提交后通过唯一 Agent transport channel 通知 Daemon
   ▼
-Daemon cloud transport（WSS/RPC，at-least-once）
+Daemon connection（WSS/RPC，at-least-once）
   │ pending → accepted（CodeAgentSession 已接收责任）→ injected（已调用 session）
   ▼
 provider-neutral CodeAgentSession.sendMessage(message)
@@ -148,4 +148,4 @@ delivery ledger。若未来故障证据证明需要 durable 接管记录，必�
 
 ## 参考代码与基线
 
-相关现状见 [`docs/architecture.md`](architecture.md)、[`docs/database-schema.md`](database-schema.md)、`apps/web/prisma/schema.prisma`、`packages/protocol/proto/coforge/rpc/v1/workspace.proto`、Web 的 direct-message use case，以及 Daemon 的 `cloud-transport`、`daemon-runtime`、`agent-runtime`、`code-agent/contract.ts`。这些代码显示当前链路仍在实现中，不能反向扩大本文已确认范围。
+相关现状见 [`docs/architecture.md`](architecture.md)、[`docs/database-schema.md`](database-schema.md)、`apps/web/prisma/schema.prisma`、`packages/protocol/proto/coforge/rpc/v1/workspace.proto`、Web 的 direct-message use case，以及 Daemon 的 `connection`、`daemon-runtime`、`agent-runtime`、`code-agent/contract.ts`。这些代码显示当前链路仍在实现中，不能反向扩大本文已确认范围。

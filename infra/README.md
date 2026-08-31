@@ -9,9 +9,10 @@ This Compose project starts three separate containers:
 Redis is reachable on the private Compose network and from the host only through
 `127.0.0.1:${REDIS_PORT:-6379}`; it is never bound to a public interface. It uses a Docker
 secret for its password. Centrifugo's HTTP API key and the backend proxy
-shared secret are also mounted as Docker secrets. Worker connection JWTs are
-verified through the backend's public JWKS endpoint; Centrifugo does not hold
-the Worker signing private key.
+shared secret are also mounted as Docker secrets. Daemon connections use the
+backend Connect Proxy and a Daemon API key supplied in connection data;
+Centrifugo does not hold the private key used by the separate Computer
+registration flow.
 Centrifugo exposes its WebSocket and internal HTTP endpoint on the configured
 local port (default `8000`). The RPC proxy and JWKS endpoints are configured
 for a Web backend on the local host. Set

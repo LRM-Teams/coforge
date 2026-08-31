@@ -49,8 +49,11 @@ services:
       - sh
       - -c
       - >-
-        export CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY="$$(cat /run/secrets/centrifugo_token_hmac_secret_key)";
         export CENTRIFUGO_HTTP_API_KEY="$$(cat /run/secrets/centrifugo_http_api_key)";
+        export CENTRIFUGO_CLIENT_PROXY_CONNECT_ENDPOINT="$${COFORGE_CONNECT_PROXY_ENDPOINT:-http://host.docker.internal:8789/api/internal/centrifugo-connect}";
+        export CENTRIFUGO_RPC_PROXY_ENDPOINT="$${COFORGE_RPC_PROXY_ENDPOINT:-http://host.docker.internal:8789/api/internal/centrifugo}";
+        export CENTRIFUGO_CHANNEL_PROXY_PUBLISH_ENDPOINT="$${COFORGE_ACTIVITY_PROXY_ENDPOINT:-http://host.docker.internal:8789/api/internal/centrifugo-agent-activity}";
+        export CENTRIFUGO_VAR_RPC_PROXY_SECRET="$$(cat /run/secrets/centrifugo_proxy_secret)";
         export CENTRIFUGO_ENGINE_REDIS_ADDRESS="redis://:$$(cat /run/secrets/redis_password)@redis:6379";
         exec centrifugo -c /centrifugo/config.yaml
     ports:
@@ -58,9 +61,11 @@ services:
     volumes:
       - ./centrifugo:/centrifugo:ro
     secrets:
-      - centrifugo_token_hmac_secret_key
       - centrifugo_http_api_key
+      - centrifugo_proxy_secret
       - redis_password
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - centrifugo
     depends_on:
@@ -88,8 +93,8 @@ volumes:
 secrets:
   redis_password:
     file: ./secrets/redis_password
-  centrifugo_token_hmac_secret_key:
-    file: ./secrets/centrifugo_token_hmac_secret_key
+  centrifugo_proxy_secret:
+    file: ./secrets/centrifugo_proxy_secret
   centrifugo_http_api_key:
     file: ./secrets/centrifugo_http_api_key
   postgres_password:

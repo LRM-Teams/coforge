@@ -1,16 +1,21 @@
 import { Centrifuge } from "centrifuge/build/protobuf";
 import {
   decodeAgentStartIntent,
+  decodeDaemonRuntimeUsageScanRequest,
+  encodeDaemonRuntimeUsageScanResponse,
   decodeAgentMessageDelivery,
   encodeAgentActivity,
   encodeAgentMessageDeliveryAck,
   encodeDaemonRuntimeReadyRequest,
   encodeDaemonRuntimeCodeAgentsUpdateRequest,
   DAEMON_RUNTIME_READY_METHOD,
+  DAEMON_CONNECTION_STATUS_METHOD,
   DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD,
+  DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD,
   AGENT_MESSAGE_ACK_METHOD,
   type DaemonRuntimeReadyRequest,
   type DaemonRuntimeCodeAgentsUpdateRequest,
+  type DaemonRuntimeUsageScanRequest,
   type AgentActivity,
   type AgentStartIntent,
   type AgentMessageDelivery,
@@ -24,8 +29,8 @@ import {
 } from "@coforge/protocol";
 import { isAgentApiKey } from "../credentials/agent-api-key";
 
-/** Configuration identifying the daemon's Workspace cloud connection. */
-export interface WorkspaceCloudTransportConfig {
+/** Configuration identifying the daemon's Workspace connection. */
+export interface DaemonConnectionConfig {
   workspaceId: string;
   computerId: string;
   /** Server HTTP origin used only for Agent read/send RPCs. */
@@ -35,17 +40,21 @@ export interface WorkspaceCloudTransportConfig {
 export interface AgentMessageHttpClient {
   request(input: {
     url: string;
-    token: string;
-    daemonToken: string;
+    agentApiKey: string;
+    daemonApiKey: string;
     request: AgentMessageRequest;
   }): Promise<CloudAgentMessageResponse>;
 }
 
-/** Provider-neutral port for the daemon's Workspace cloud connection. */
-export interface WorkspaceCloudTransport {
-  start(token: string, config: WorkspaceCloudTransportConfig): Promise<void>;
+/** Provider-neutral client contract for the daemon's Workspace connection. */
+export interface DaemonConnectionClient {
+  start(token: string, config: DaemonConnectionConfig): Promise<void>;
   ready(request: DaemonRuntimeReadyRequest): Promise<void>;
   updateCodeAgents?(request: DaemonRuntimeCodeAgentsUpdateRequest): Promise<void>;
+  onUsageScan?(callback: (request: DaemonRuntimeUsageScanRequest) => Promise<void>): () => void;
+  sendUsageScanResult?(
+    response: import("@coforge/protocol").DaemonRuntimeUsageScanResponse,
+  ): Promise<void>;
   stop(): Promise<void>;
   onReconnect?(callback: () => void): () => void;
   onAgentStart?(callback: (intent: AgentStartIntent) => void): () => void;
@@ -61,9 +70,9 @@ export interface WorkspaceCloudTransport {
   revokeAgentApiKey?(agentApiKey: string): Promise<void>;
 }
 
-/** Creates the transport owned by the daemon. */
-export interface WorkspaceCloudTransportFactory {
-  create(config: WorkspaceCloudTransportConfig): WorkspaceCloudTransport;
+/** Creates the Daemon connection client owned by the daemon. */
+export interface DaemonConnectionClientFactory {
+  create(config: DaemonConnectionConfig): DaemonConnectionClient;
 }
 
 export interface CentrifugeWorkspaceClient {
@@ -78,29 +87,38 @@ export interface CentrifugeWorkspaceClient {
   disconnect(): void;
   rpc(method: string, data: Uint8Array): Promise<unknown>;
   publish?(channel: string, data: Uint8Array): Promise<unknown>;
+  newSubscription?(channel: string): CentrifugeWorkspaceSubscription;
+}
+
+interface CentrifugeWorkspaceSubscription {
+  on(event: "publication", callback: (publication: { data: Uint8Array }) => void): void;
+  subscribe(): void;
+  unsubscribe(): void;
 }
 
 export type CentrifugeWorkspaceClientFactory = (
   endpoint: string,
   token: string,
+  data?: Uint8Array,
 ) => CentrifugeWorkspaceClient;
 
 export const defaultCentrifugeWorkspaceClientFactory: CentrifugeWorkspaceClientFactory = (
   endpoint,
-  token,
+  _token,
+  data,
 ) =>
   new Centrifuge(endpoint, {
-    token,
+    data,
     websocket: globalThis.WebSocket,
   }) as unknown as CentrifugeWorkspaceClient;
 
 export const defaultAgentMessageHttpClient: AgentMessageHttpClient = {
-  async request({ url, token, daemonToken, request }) {
+  async request({ url, agentApiKey, daemonApiKey, request }) {
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${token}`,
-        "x-coforge-daemon-authorization": `Bearer ${daemonToken}`,
+        authorization: `Bearer ${daemonApiKey}`,
+        "x-coforge-agent-api-key": `Bearer ${agentApiKey}`,
         "content-type": "application/json",
       },
       body: JSON.stringify({
@@ -116,9 +134,10 @@ export const defaultAgentMessageHttpClient: AgentMessageHttpClient = {
   },
 };
 
-/** A lifecycle-only Centrifugo connection; business RPC is intentionally not implemented here. */
-export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
+/** The Daemon's single connection for its configured Workspace. */
+export class DaemonConnection implements DaemonConnectionClient {
   #client: CentrifugeWorkspaceClient | undefined;
+  #workspaceSubscription: CentrifugeWorkspaceSubscription | undefined;
   #connected = false;
   #hasConnected = false;
   #agentStartListener: ((intent: AgentStartIntent) => void) | undefined;
@@ -137,18 +156,35 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
     if (!endpoint) throw new Error("cloud endpoint not configured");
   }
 
-  async start(_token: string, config: WorkspaceCloudTransportConfig): Promise<void> {
+  async start(_token: string, config: DaemonConnectionConfig): Promise<void> {
     this.#token = _token;
     this.#serverHttpUrl = config.serverHttpUrl ?? "";
     if (this.#connected) return;
-    const client = this.clientFactory(this.endpoint, _token);
+    const client = this.clientFactory(
+      this.endpoint,
+      "",
+      new TextEncoder().encode(JSON.stringify({ daemonApiKey: _token })),
+    );
     this.#client = client;
-    client.on("publication", ({ channel, data }) => {
-      if (client !== this.#client || channel !== this.#workspaceChannel(config.workspaceId)) return;
-      this.#handleAgentPublication(data, config.workspaceId);
+    const workspaceChannel = this.#workspaceChannel(config.workspaceId);
+    if (!client.newSubscription) {
+      client.on("publication", ({ channel, data }) => {
+        if (client !== this.#client || channel !== workspaceChannel) return;
+        this.#handleAgentPublication(data, config.workspaceId);
+      });
+    }
+    const subscription = client.newSubscription?.(workspaceChannel);
+    this.#workspaceSubscription = subscription;
+    subscription?.on("publication", ({ data }) => {
+      if (client === this.#client) {
+        this.#handleAgentPublication(data, config.workspaceId);
+      }
     });
+    subscription?.subscribe();
     client.on("disconnected", () => {
-      if (client === this.#client) this.#connected = false;
+      if (client === this.#client) {
+        this.#connected = false;
+      }
     });
     await new Promise<void>((resolve, reject) => {
       client.on("connected", () => {
@@ -156,6 +192,18 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
         const reconnect = this.#hasConnected;
         this.#connected = true;
         this.#hasConnected = true;
+        void client
+          .rpc(
+            DAEMON_CONNECTION_STATUS_METHOD,
+            new TextEncoder().encode(
+              JSON.stringify({
+                workspaceId: config.workspaceId,
+                computerId: config.computerId,
+                online: true,
+              }),
+            ),
+          )
+          .catch(() => {});
         this.#flushPendingActivity(client);
         if (reconnect && this.#lastReadyRequest) {
           void this.#sendReady(client, this.#lastReadyRequest)
@@ -170,6 +218,8 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
       client.on("error", reject);
       client.connect();
     }).catch((error) => {
+      subscription?.unsubscribe();
+      this.#workspaceSubscription = undefined;
       client.disconnect();
       this.#client = undefined;
       throw error;
@@ -230,32 +280,32 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
     }
   }
   async sendAgentDeliveryAck(ack: AgentMessageDeliveryAck): Promise<void> {
-    if (!this.#connected || !this.#client) throw new Error("cloud transport is not connected");
+    if (!this.#connected || !this.#client) throw new Error("daemon connection is not connected");
     await this.#client.rpc(AGENT_MESSAGE_ACK_METHOD, encodeAgentMessageDeliveryAck(ack));
   }
   async agentMessage(
     request: AgentMessageRequest,
     agentApiKey?: string,
   ): Promise<CloudAgentMessageResponse> {
-    if (!this.#connected) throw new Error("cloud transport is not connected");
+    if (!this.#connected) throw new Error("daemon connection is not connected");
     if (!this.#serverHttpUrl) throw new Error("Agent message HTTP endpoint is not configured");
     return this.agentMessageHttpClient.request({
       url: `${new URL(this.#serverHttpUrl).origin}/api/agent-messages`,
-      token: agentApiKey ?? this.#token,
-      daemonToken: this.#token,
+      agentApiKey: agentApiKey ?? this.#token,
+      daemonApiKey: this.#token,
       request,
     });
   }
 
   async agentAttachment(attachmentId: string, agentApiKey?: string): Promise<Response> {
-    if (!this.#connected) throw new Error("cloud transport is not connected");
+    if (!this.#connected) throw new Error("daemon connection is not connected");
     if (!this.#serverHttpUrl) throw new Error("Agent attachment endpoint is not configured");
     return fetch(
       `${new URL(this.#serverHttpUrl).origin}/api/agent/attachments/${encodeURIComponent(attachmentId)}`,
       {
         headers: {
-          authorization: `Bearer ${agentApiKey ?? this.#token}`,
-          "x-coforge-daemon-authorization": `Bearer ${this.#token}`,
+          authorization: `Bearer ${this.#token}`,
+          "x-coforge-agent-api-key": `Bearer ${agentApiKey ?? this.#token}`,
         },
       },
     );
@@ -297,6 +347,13 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
 
   #handleAgentPublication(data: Uint8Array, workspaceId: string): void {
     try {
+      const usage = decodeDaemonRuntimeUsageScanRequest(data);
+      if (usage.protocolMajor === 1 && usage.workspaceId === workspaceId && usage.computerId) {
+        void this.#usageScanListener?.(usage);
+        return;
+      }
+    } catch {}
+    try {
       try {
         const message = decodeAgentMessageDelivery(data);
         if (message.protocolMajor !== 1 || message.workspaceId !== workspaceId)
@@ -313,14 +370,31 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
     }
   }
 
+  #usageScanListener: ((request: DaemonRuntimeUsageScanRequest) => Promise<void>) | undefined;
+  onUsageScan(callback: (request: DaemonRuntimeUsageScanRequest) => Promise<void>): () => void {
+    this.#usageScanListener = callback;
+    return () => {
+      if (this.#usageScanListener === callback) this.#usageScanListener = undefined;
+    };
+  }
+  async sendUsageScanResult(
+    response: import("@coforge/protocol").DaemonRuntimeUsageScanResponse,
+  ): Promise<void> {
+    if (!this.#connected || !this.#client) throw new Error("daemon connection is not connected");
+    await this.#client.rpc(
+      DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD,
+      encodeDaemonRuntimeUsageScanResponse(response),
+    );
+  }
+
   async ready(request: DaemonRuntimeReadyRequest): Promise<void> {
-    if (!this.#connected || !this.#client) throw new Error("cloud transport is not connected");
+    if (!this.#connected || !this.#client) throw new Error("daemon connection is not connected");
     await this.#sendReady(this.#client, request);
     this.#lastReadyRequest = request;
   }
 
   async updateCodeAgents(request: DaemonRuntimeCodeAgentsUpdateRequest): Promise<void> {
-    if (!this.#connected || !this.#client) throw new Error("cloud transport is not connected");
+    if (!this.#connected || !this.#client) throw new Error("daemon connection is not connected");
     await this.#client.rpc(
       DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD,
       encodeDaemonRuntimeCodeAgentsUpdateRequest(request),
@@ -336,6 +410,8 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
 
   async stop(): Promise<void> {
     const client = this.#client;
+    this.#workspaceSubscription?.unsubscribe();
+    this.#workspaceSubscription = undefined;
     this.#client = undefined;
     this.#connected = false;
     this.#hasConnected = false;

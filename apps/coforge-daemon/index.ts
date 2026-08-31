@@ -4,12 +4,12 @@ import { startDaemonLocalRpcServer } from "./src/local-rpc";
 import { startAgentProxy } from "./src/agent-proxy";
 import { createCodeAgentAdapter } from "./src/code-agent/registry";
 import { DaemonRuntime } from "./src/daemon-runtime/runtime";
-import { NativeDaemonCredentialStore } from "./src/credentials/credential-store";
+import { FileDaemonCredentialStore } from "./src/credentials/credential-store";
 import { DaemonConfigStore } from "./src/persistence/daemon-config";
 import {
-  CentrifugoWorkspaceTransport,
+  DaemonConnection,
   defaultCentrifugeWorkspaceClientFactory,
-} from "./src/cloud-transport/workspace-cloud-transport";
+} from "./src/connection/daemon-connection";
 
 export type {
   AgentRuntimeConfig,
@@ -22,6 +22,8 @@ export type {
 export { createCodeAgentAdapter } from "./src/code-agent/registry";
 export { ClaudeCodeAgentAdapter } from "./src/code-agent/claude-code/adapter";
 export { CodexAgentAdapter } from "./src/code-agent/codex/adapter";
+export { readCodexUsage } from "./src/code-agent/codex/usage";
+export { readClaudeCodeUsage } from "./src/code-agent/claude-code/usage";
 export { PiAgentAdapter } from "./src/code-agent/pi/adapter";
 export { createDaemonHost } from "./src/daemon-host";
 export { startDaemonLocalRpcServer } from "./src/local-rpc";
@@ -65,19 +67,19 @@ export { AgentMessageAttentionIndex } from "./src/daemon-runtime/agent-message-a
 export type { DaemonConfig, WorkspaceConfig } from "./src/daemon-runtime/runtime";
 export {
   InMemoryDaemonCredentialStore,
-  NativeDaemonCredentialStore,
+  FileDaemonCredentialStore,
 } from "./src/credentials/credential-store";
 export type { DaemonCredentialStore } from "./src/credentials/credential-store";
 export type {
-  WorkspaceCloudTransport,
-  WorkspaceCloudTransportConfig,
-  WorkspaceCloudTransportFactory,
+  DaemonConnectionClient,
+  DaemonConnectionConfig,
+  DaemonConnectionClientFactory,
   AgentMessageHttpClient,
-} from "./src/cloud-transport/workspace-cloud-transport";
+} from "./src/connection/daemon-connection";
 export {
-  CentrifugoWorkspaceTransport,
+  DaemonConnection,
   defaultCentrifugeWorkspaceClientFactory,
-} from "./src/cloud-transport/workspace-cloud-transport";
+} from "./src/connection/daemon-connection";
 
 if (import.meta.main) {
   const socketIndex = Bun.argv.indexOf("--socket");
@@ -88,7 +90,7 @@ if (import.meta.main) {
     console.error("coforge-daemon requires --socket");
     process.exit(2);
   }
-  const credentials = new NativeDaemonCredentialStore();
+  const credentials = new FileDaemonCredentialStore();
   const configStore = new DaemonConfigStore(
     stateDirectory ?? join(homedir(), ".coforge", "daemon"),
   );
@@ -124,13 +126,14 @@ if (import.meta.main) {
         credentials,
         {
           create: () =>
-            new CentrifugoWorkspaceTransport(
-              Bun.env.COFORGE_CLOUD_WEBSOCKET_ENDPOINT ?? "",
+            new DaemonConnection(
+              Bun.env.COFORGE_DAEMON_CONNECTION_ENDPOINT ?? "",
               defaultCentrifugeWorkspaceClientFactory,
             ),
         },
         agentProxy,
       );
+      await runtime.start(config);
     },
     async start() {
       if (config) {
@@ -140,8 +143,8 @@ if (import.meta.main) {
           credentials,
           {
             create: () =>
-              new CentrifugoWorkspaceTransport(
-                Bun.env.COFORGE_CLOUD_WEBSOCKET_ENDPOINT ?? "",
+              new DaemonConnection(
+                Bun.env.COFORGE_DAEMON_CONNECTION_ENDPOINT ?? "",
                 defaultCentrifugeWorkspaceClientFactory,
               ),
           },

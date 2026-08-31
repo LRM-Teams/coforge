@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as DotwellKnownOauthAuthorizationServerRouteImport } from './routes/[.]well-known.oauth-authorization-server'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppComputersRouteImport } from './routes/_app/computers'
 import { Route as AppMessagesRouteImport } from './routes/_app/messages'
@@ -24,6 +25,8 @@ import { Route as ApiMeRouteImport } from './routes/api/me'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AuthLogoutRouteImport } from './routes/auth/logout'
+import { Route as OauthDeviceRouteImport } from './routes/oauth/device'
+import { Route as OauthTokenRouteImport } from './routes/oauth/token'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
 import { Route as AppMessagesIndexRouteImport } from './routes/_app/messages.index'
 import { Route as AppMessagesAgentIdRouteImport } from './routes/_app/messages.$agentId'
@@ -31,7 +34,9 @@ import { Route as ApiAgentAttachmentUploadCapabilitiesRouteImport } from './rout
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments.$attachmentId'
 import { Route as ApiInternalCentrifugoRouteImport } from './routes/api/internal/centrifugo'
 import { Route as ApiInternalCentrifugoAgentActivityRouteImport } from './routes/api/internal/centrifugo-agent-activity'
+import { Route as ApiInternalCentrifugoConnectRouteImport } from './routes/api/internal/centrifugo-connect'
 import { Route as ApiAgentAttachmentsAttachmentIdRouteImport } from './routes/api/agent/attachments.$attachmentId'
+import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/workspaces.$slug'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -47,6 +52,12 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DotwellKnownOauthAuthorizationServerRoute =
+  DotwellKnownOauthAuthorizationServerRouteImport.update({
+    id: '/.well-known/oauth-authorization-server',
+    path: '/.well-known/oauth-authorization-server',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -107,6 +118,16 @@ const AuthLogoutRoute = AuthLogoutRouteImport.update({
   path: '/auth/logout',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OauthDeviceRoute = OauthDeviceRouteImport.update({
+  id: '/oauth/device',
+  path: '/oauth/device',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OauthTokenRoute = OauthTokenRouteImport.update({
+  id: '/oauth/token',
+  path: '/oauth/token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppAgentsAgentIdRoute = AppAgentsAgentIdRouteImport.update({
   id: '/agents/$agentId',
   path: '/agents/$agentId',
@@ -145,17 +166,29 @@ const ApiInternalCentrifugoAgentActivityRoute =
     path: '/api/internal/centrifugo-agent-activity',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiInternalCentrifugoConnectRoute =
+  ApiInternalCentrifugoConnectRouteImport.update({
+    id: '/api/internal/centrifugo-connect',
+    path: '/api/internal/centrifugo-connect',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAgentAttachmentsAttachmentIdRoute =
   ApiAgentAttachmentsAttachmentIdRouteImport.update({
     id: '/api/agent/attachments/$attachmentId',
     path: '/api/agent/attachments/$attachmentId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiE2eWorkspacesSlugRoute = ApiE2eWorkspacesSlugRouteImport.update({
+  id: '/api/e2e/workspaces/$slug',
+  path: '/api/e2e/workspaces/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
+  '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
   '/computers': typeof AppComputersRoute
   '/messages': typeof AppMessagesRouteWithChildren
   '/settings': typeof AppSettingsRoute
@@ -167,18 +200,23 @@ export interface FileRoutesByFullPath {
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
+  '/oauth/device': typeof OauthDeviceRoute
+  '/oauth/token': typeof OauthTokenRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
   '/api/agent/attachment-upload-capabilities': typeof ApiAgentAttachmentUploadCapabilitiesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
+  '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
   '/messages/': typeof AppMessagesIndexRoute
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
+  '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
 }
 export interface FileRoutesByTo {
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
+  '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
   '/computers': typeof AppComputersRoute
   '/settings': typeof AppSettingsRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
@@ -189,6 +227,8 @@ export interface FileRoutesByTo {
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
+  '/oauth/device': typeof OauthDeviceRoute
+  '/oauth/token': typeof OauthTokenRoute
   '/': typeof AppIndexRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
@@ -196,14 +236,17 @@ export interface FileRoutesByTo {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
+  '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
   '/messages': typeof AppMessagesIndexRoute
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
+  '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
+  '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
   '/_app/computers': typeof AppComputersRoute
   '/_app/messages': typeof AppMessagesRouteWithChildren
   '/_app/settings': typeof AppSettingsRoute
@@ -215,6 +258,8 @@ export interface FileRoutesById {
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
+  '/oauth/device': typeof OauthDeviceRoute
+  '/oauth/token': typeof OauthTokenRoute
   '/_app/': typeof AppIndexRoute
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/_app/messages/$agentId': typeof AppMessagesAgentIdRoute
@@ -222,8 +267,10 @@ export interface FileRoutesById {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
+  '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
   '/_app/messages/': typeof AppMessagesIndexRoute
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
+  '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -231,6 +278,7 @@ export interface FileRouteTypes {
     | '/'
     | '/health'
     | '/login'
+    | '/.well-known/oauth-authorization-server'
     | '/computers'
     | '/messages'
     | '/settings'
@@ -242,18 +290,23 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/auth/login'
     | '/auth/logout'
+    | '/oauth/device'
+    | '/oauth/token'
     | '/agents/$agentId'
     | '/messages/$agentId'
     | '/api/agent/attachment-upload-capabilities'
     | '/api/attachments/$attachmentId'
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
+    | '/api/internal/centrifugo-connect'
     | '/messages/'
     | '/api/agent/attachments/$attachmentId'
+    | '/api/e2e/workspaces/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/health'
     | '/login'
+    | '/.well-known/oauth-authorization-server'
     | '/computers'
     | '/settings'
     | '/api/agent-api-keys'
@@ -264,6 +317,8 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/auth/login'
     | '/auth/logout'
+    | '/oauth/device'
+    | '/oauth/token'
     | '/'
     | '/agents/$agentId'
     | '/messages/$agentId'
@@ -271,13 +326,16 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
+    | '/api/internal/centrifugo-connect'
     | '/messages'
     | '/api/agent/attachments/$attachmentId'
+    | '/api/e2e/workspaces/$slug'
   id:
     | '__root__'
     | '/_app'
     | '/health'
     | '/login'
+    | '/.well-known/oauth-authorization-server'
     | '/_app/computers'
     | '/_app/messages'
     | '/_app/settings'
@@ -289,6 +347,8 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/auth/login'
     | '/auth/logout'
+    | '/oauth/device'
+    | '/oauth/token'
     | '/_app/'
     | '/_app/agents/$agentId'
     | '/_app/messages/$agentId'
@@ -296,14 +356,17 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
+    | '/api/internal/centrifugo-connect'
     | '/_app/messages/'
     | '/api/agent/attachments/$attachmentId'
+    | '/api/e2e/workspaces/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   HealthRoute: typeof HealthRoute
   LoginRoute: typeof LoginRoute
+  DotwellKnownOauthAuthorizationServerRoute: typeof DotwellKnownOauthAuthorizationServerRoute
   ApiAgentApiKeysRoute: typeof ApiAgentApiKeysRoute
   ApiAgentMessagesRoute: typeof ApiAgentMessagesRoute
   ApiAttachmentsRoute: typeof ApiAttachmentsRouteWithChildren
@@ -312,10 +375,14 @@ export interface RootRouteChildren {
   AuthCallbackRoute: typeof AuthCallbackRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthLogoutRoute: typeof AuthLogoutRoute
+  OauthDeviceRoute: typeof OauthDeviceRoute
+  OauthTokenRoute: typeof OauthTokenRoute
   ApiAgentAttachmentUploadCapabilitiesRoute: typeof ApiAgentAttachmentUploadCapabilitiesRoute
   ApiInternalCentrifugoRoute: typeof ApiInternalCentrifugoRoute
   ApiInternalCentrifugoAgentActivityRoute: typeof ApiInternalCentrifugoAgentActivityRoute
+  ApiInternalCentrifugoConnectRoute: typeof ApiInternalCentrifugoConnectRoute
   ApiAgentAttachmentsAttachmentIdRoute: typeof ApiAgentAttachmentsAttachmentIdRoute
+  ApiE2eWorkspacesSlugRoute: typeof ApiE2eWorkspacesSlugRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -339,6 +406,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.well-known/oauth-authorization-server': {
+      id: '/.well-known/oauth-authorization-server'
+      path: '/.well-known/oauth-authorization-server'
+      fullPath: '/.well-known/oauth-authorization-server'
+      preLoaderRoute: typeof DotwellKnownOauthAuthorizationServerRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/': {
@@ -425,6 +499,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthLogoutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/oauth/device': {
+      id: '/oauth/device'
+      path: '/oauth/device'
+      fullPath: '/oauth/device'
+      preLoaderRoute: typeof OauthDeviceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/oauth/token': {
+      id: '/oauth/token'
+      path: '/oauth/token'
+      fullPath: '/oauth/token'
+      preLoaderRoute: typeof OauthTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/agents/$agentId': {
       id: '/_app/agents/$agentId'
       path: '/agents/$agentId'
@@ -474,11 +562,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiInternalCentrifugoAgentActivityRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/internal/centrifugo-connect': {
+      id: '/api/internal/centrifugo-connect'
+      path: '/api/internal/centrifugo-connect'
+      fullPath: '/api/internal/centrifugo-connect'
+      preLoaderRoute: typeof ApiInternalCentrifugoConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/attachments/$attachmentId': {
       id: '/api/agent/attachments/$attachmentId'
       path: '/api/agent/attachments/$attachmentId'
       fullPath: '/api/agent/attachments/$attachmentId'
       preLoaderRoute: typeof ApiAgentAttachmentsAttachmentIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/e2e/workspaces/$slug': {
+      id: '/api/e2e/workspaces/$slug'
+      path: '/api/e2e/workspaces/$slug'
+      fullPath: '/api/e2e/workspaces/$slug'
+      preLoaderRoute: typeof ApiE2eWorkspacesSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -532,6 +634,8 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   HealthRoute: HealthRoute,
   LoginRoute: LoginRoute,
+  DotwellKnownOauthAuthorizationServerRoute:
+    DotwellKnownOauthAuthorizationServerRoute,
   ApiAgentApiKeysRoute: ApiAgentApiKeysRoute,
   ApiAgentMessagesRoute: ApiAgentMessagesRoute,
   ApiAttachmentsRoute: ApiAttachmentsRouteWithChildren,
@@ -540,13 +644,26 @@ const rootRouteChildren: RootRouteChildren = {
   AuthCallbackRoute: AuthCallbackRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthLogoutRoute: AuthLogoutRoute,
+  OauthDeviceRoute: OauthDeviceRoute,
+  OauthTokenRoute: OauthTokenRoute,
   ApiAgentAttachmentUploadCapabilitiesRoute:
     ApiAgentAttachmentUploadCapabilitiesRoute,
   ApiInternalCentrifugoRoute: ApiInternalCentrifugoRoute,
   ApiInternalCentrifugoAgentActivityRoute:
     ApiInternalCentrifugoAgentActivityRoute,
+  ApiInternalCentrifugoConnectRoute: ApiInternalCentrifugoConnectRoute,
   ApiAgentAttachmentsAttachmentIdRoute: ApiAgentAttachmentsAttachmentIdRoute,
+  ApiE2eWorkspacesSlugRoute: ApiE2eWorkspacesSlugRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
+}

@@ -22,7 +22,7 @@ const config = {
   workspaceId: "workspace-a",
   computerId: "computer-a",
   workspaceRoot: "/workspaces/workspace-a",
-  daemonToken: "daemon-secret",
+  daemonApiKey: "daemon-secret",
 };
 
 class FakeCredentialStore implements DaemonCredentialStore {
@@ -72,7 +72,7 @@ test("daemon stores configured connection metadata without its token", async () 
   const saved: WorkspaceConfig[] = [];
   const server = await startDaemonLocalRpcServer({
     socketPath,
-    validateCredential: (credential) => credential === config.daemonToken,
+    validateCredential: (credential) => credential === config.daemonApiKey,
     runtime: { configure: async () => {} },
     credentials: new InMemoryDaemonCredentialStore(),
     configStore: {
@@ -120,7 +120,7 @@ test("daemon rejects an invalid handshake credential", async () => {
     sleep: async () => {},
   });
 
-  await expect(launcher.ensureStarted({ ...config, daemonToken: "wrong" })).rejects.toThrow(
+  await expect(launcher.ensureStarted({ ...config, daemonApiKey: "wrong" })).rejects.toThrow(
     "did not accept",
   );
   expect(registrations).toBe(0);
@@ -217,8 +217,8 @@ test("daemon rotates a changed token before configuring and does not rewrite an 
   });
   servers.push(server);
   const launcher = new LocalDaemonLauncher({ executablePath: "/unused", socketPath });
-  await launcher.ensureStarted({ ...config, daemonToken: "new-token" });
-  await launcher.ensureStarted({ ...config, daemonToken: "new-token" });
+  await launcher.ensureStarted({ ...config, daemonApiKey: "new-token" });
+  await launcher.ensureStarted({ ...config, daemonApiKey: "new-token" });
   expect(credentials.token).toBe("new-token");
   expect(credentials.saves).toBe(1);
   expect(configured).toBe(2);
@@ -258,7 +258,7 @@ test("daemon restores the old token when configuration persistence fails", async
       spawn: () => {},
       timeoutMilliseconds: 0,
     });
-    await expect(launcher.ensureStarted({ ...config, daemonToken: "new-token" })).rejects.toThrow(
+    await expect(launcher.ensureStarted({ ...config, daemonApiKey: "new-token" })).rejects.toThrow(
       "did not accept",
     );
     expect(credentials.token).toBe("old-token");

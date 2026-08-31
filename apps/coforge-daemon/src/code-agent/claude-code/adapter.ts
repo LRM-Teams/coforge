@@ -8,6 +8,8 @@ import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
+import type { UsageSnapshot } from "../contract";
+import { readClaudeCodeUsage } from "./usage";
 
 export class ClaudeCodeAgentAdapter implements CodeAgentAdapter {
   readonly provider = RUNTIME_PROVIDER.CLAUDE_CODE;
@@ -27,6 +29,16 @@ export class ClaudeCodeAgentAdapter implements CodeAgentAdapter {
       "dontAsk",
       "--no-session-persistence",
     ];
+  }
+
+  async readUsage(options: {
+    workingDirectory: string;
+    timeoutMs?: number;
+  }): Promise<UsageSnapshot | null> {
+    return readClaudeCodeUsage(options.workingDirectory, {
+      command: this.#command.slice(0, 1),
+      timeoutMs: options.timeoutMs,
+    });
   }
 
   async start(options: CodeAgentStartOptions): Promise<CodeAgentSession> {

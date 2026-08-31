@@ -54,3 +54,18 @@ message AgentMessageResponse {
   string message_id = 5;
   repeated MessageAttentionSummary summaries = 6;
 }
+
+message UsageScanRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string provider = 3;
+}
+
+message UsageScanResponse {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  bool accepted = 3;
+  string status = 4;
+  string message = 5;
+  bytes snapshot_json = 6;
+}

@@ -6,6 +6,9 @@ const expectedSkill = process.argv
   ?.slice(15);
 const expectsCoforgeEnvironment = process.argv.includes("expected-coforge-environment");
 const expectsRuntimeConfig = process.argv.includes("expected-runtime-config");
+const usageUnavailable = process.argv.includes("usage-unavailable");
+const usageUnsupported = process.argv.includes("usage-unsupported");
+const usageTimeout = process.argv.includes("usage-timeout");
 const skillsDirectory = join(process.cwd(), ".agents", "skills");
 let skills: string[] = [];
 try {
@@ -44,6 +47,28 @@ function handle(request: Request): void {
   }
   if (request.method === "initialized") {
     initialized = true;
+    return;
+  }
+  if (request.method === "account/rateLimits/read" && request.id) {
+    if (usageTimeout) return;
+    if (usageUnavailable || usageUnsupported) {
+      write({ id: request.id, error: { code: "not_logged_in", message: "not logged in" } });
+      return;
+    }
+    write({
+      id: request.id,
+      result: {
+        planType: "plus",
+        rateLimits: {
+          primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: 1_735_780_800 },
+          secondary: {
+            usedPercent: 75,
+            windowDurationMins: 10_080,
+            resetsAt: "2026-01-09T00:00:00.000Z",
+          },
+        },
+      },
+    });
     return;
   }
   if (request.method === "model/list" && request.id && initialized) {

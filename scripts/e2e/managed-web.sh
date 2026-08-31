@@ -22,6 +22,7 @@ COFORGE_CENTRIFUGO_API_KEY=$(<"$secrets/centrifugo_http_api_key")
 export COFORGE_CENTRIFUGO_PROXY_SECRET
 COFORGE_CENTRIFUGO_PROXY_SECRET=$(<"$secrets/centrifugo_proxy_secret")
 export COFORGE_DEV_SKIP_AUTH=1
+export COFORGE_E2E_ALLOW_DEVICE_AUTH=1
 export NODE_ENV=development
 export HOST=0.0.0.0
 export PORT

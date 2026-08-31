@@ -12,9 +12,9 @@ import { AgentProcessCleanupError } from "../src/code-agent/contract";
 import type { WorkspaceConfig } from "../src/daemon-runtime/runtime";
 import { InMemoryDaemonCredentialStore } from "../src/credentials/credential-store";
 import {
-  CentrifugoWorkspaceTransport,
+  DaemonConnection,
   type CentrifugeWorkspaceClient,
-} from "../src/cloud-transport/workspace-cloud-transport";
+} from "../src/connection/daemon-connection";
 import { startAgentProxy, type AgentProxy } from "../src/agent-proxy";
 
 function sessionSpy() {
@@ -68,7 +68,9 @@ describe("DaemonRuntime", () => {
       },
       undefined,
       async () => ({
-        runtimes: [{ provider: "codex", version: "0.151.0", kind: "external" }],
+        runtimes: [
+          { provider: "codex", version: "0.151.0", displayName: "Codex", kind: "external" },
+        ],
         catalogs: [{ provider: "codex", models: [] }],
       }),
     );
@@ -78,7 +80,7 @@ describe("DaemonRuntime", () => {
     expect(updates[0]).toMatchObject({
       workspaceId: connection.workspaceId,
       computerId: connection.computerId,
-      runtimes: [{ provider: "codex", version: "0.151.0", kind: "external" }],
+      runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex", kind: "external" }],
       catalogs: [{ provider: "codex", models: [] }],
     });
     await runtime.stop();
@@ -109,7 +111,7 @@ describe("DaemonRuntime", () => {
       () => ({ provider: "pi", start: async () => sessionSpy() }),
       credentials,
       {
-        create: () => new CentrifugoWorkspaceTransport("wss://cloud.example", () => client),
+        create: () => new DaemonConnection("wss://cloud.example", () => client),
       },
     );
     try {
@@ -1057,7 +1059,7 @@ describe("DaemonRuntime", () => {
       {
         create: () => {
           transportsCreated++;
-          return new CentrifugoWorkspaceTransport("wss://cloud.example", () => connectedClient());
+          return new DaemonConnection("wss://cloud.example", () => connectedClient());
         },
       },
     );

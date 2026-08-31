@@ -234,7 +234,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       throw new Error("only User-Agent direct conversations are supported");
     const message = await this.db.$transaction(async (tx) => {
       // Serialize sequence allocators for this conversation before observing MAX(sequence).
-      await tx.$queryRaw`SELECT "id" FROM "Conversation" WHERE "id" = ${conversationId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${conversationId}::uuid FOR UPDATE`;
       const last = await tx.message.findFirst({
         where: { conversationId },
         orderBy: { sequence: "desc" },
@@ -347,7 +347,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     if (!sender || !user) throw new Error("agent is not a conversation member");
     const result = await this.db.$transaction(async (tx) => {
       // Serialize sequence allocators for this conversation before observing MAX(sequence).
-      await tx.$queryRaw`SELECT "id" FROM "Conversation" WHERE "id" = ${conversationId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${conversationId}::uuid FOR UPDATE`;
       const last = await tx.message.findFirst({
         where: { conversationId },
         orderBy: { sequence: "desc" },

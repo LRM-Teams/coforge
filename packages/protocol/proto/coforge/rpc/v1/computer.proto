@@ -18,8 +18,7 @@ message ComputerRegisterRequest {
 message RuntimeMetadata {
   string provider = 1;
   string version = 2;
-  reserved 3;
-  reserved "capabilities";
+  string display_name = 3;
   RuntimeKind kind = 4;
 }
 
@@ -36,5 +35,5 @@ message ComputerRegisterResponse {
   string workspace_id = 4;
   reserved 5;
   reserved "connection_id";
-  string daemon_token = 6;
+  string daemon_api_key = 6;
 }

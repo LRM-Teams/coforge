@@ -67,11 +67,22 @@ export class ComputerSetup {
         "A server URL is required when no login profile exists.",
       );
     }
-    const credential =
-      (await this.options.credentials.load(serverUrl)) ??
-      (this.options.authenticate
-        ? await this.options.authenticate.authenticate(serverUrl, input.json ?? false)
-        : null);
+    let storedCredential: Credential | null;
+    try {
+      storedCredential = await this.options.credentials.load(serverUrl);
+    } catch (error) {
+      if (error instanceof CliError) throw error;
+      throw setupError("SETUP_CREDENTIALS_FAILED", "Could not read the local login credential.");
+    }
+    let credential: Credential | null = storedCredential;
+    if (!credential && this.options.authenticate) {
+      try {
+        credential = await this.options.authenticate.authenticate(serverUrl, input.json ?? false);
+      } catch (error) {
+        if (error instanceof CliError) throw error;
+        throw setupError("SETUP_OAUTH_FAILED", "OAuth login could not be completed.");
+      }
+    }
     if (!credential)
       throw setupError("SETUP_NOT_LOGGED_IN", "No login credential exists for the current server.");
     if (!profile && this.options.config.saveCurrentProfile) {
@@ -98,7 +109,11 @@ export class ComputerSetup {
           `Workspace '${input.workspaceSlug}' was not found or is not accessible.`,
         );
       }
-      throw error;
+      if (error instanceof CliError) throw error;
+      throw setupError(
+        "SETUP_WORKSPACE_LOOKUP_FAILED",
+        "Could not look up the requested Workspace.",
+      );
     }
 
     let configPath: string;
@@ -108,23 +123,32 @@ export class ComputerSetup {
       | undefined;
     try {
       const metadata = await this.options.metadataProvider.get();
-      const response = await this.options.registrationFactory(serverUrl, credential).register({
-        protocolMajor: 1,
-        requestId: this.options.idempotencyKeyProvider.create(
-          serverUrl,
-          input.workspaceSlug ?? workspace.slug,
-        ),
-        workspaceSlug: workspace.slug,
-        machineId: metadata.machineId,
-        platform: metadata.platform,
-        osVersion: metadata.osVersion,
-        computerVersion: metadata.computerVersion,
-        runtimes: metadata.runtimes,
-        registrationIdempotencyKey: this.options.idempotencyKeyProvider.create(
-          serverUrl,
-          `${input.workspaceSlug ?? workspace.slug}:${metadata.machineId}`,
-        ),
-      });
+      let response: Awaited<ReturnType<ComputerRegistrationClient["register"]>>;
+      try {
+        response = await this.options.registrationFactory(serverUrl, credential).register({
+          protocolMajor: 1,
+          requestId: this.options.idempotencyKeyProvider.create(
+            serverUrl,
+            input.workspaceSlug ?? workspace.slug,
+          ),
+          workspaceSlug: workspace.slug,
+          machineId: metadata.machineId,
+          platform: metadata.platform,
+          osVersion: metadata.osVersion,
+          computerVersion: metadata.computerVersion,
+          runtimes: metadata.runtimes,
+          registrationIdempotencyKey: this.options.idempotencyKeyProvider.create(
+            serverUrl,
+            `${input.workspaceSlug ?? workspace.slug}:${metadata.machineId}`,
+          ),
+        });
+      } catch (error) {
+        if (error instanceof CliError) throw error;
+        throw setupError(
+          "SETUP_COMPUTER_REGISTER_FAILED",
+          "Computer registration could not be completed.",
+        );
+      }
       workspace = { id: response.workspaceId, slug: workspace.slug, name: workspace.name };
       registeredRegistration = {
         id: response.workspaceId,
@@ -148,16 +172,34 @@ export class ComputerSetup {
       ) {
         await launcher.stopAll();
       }
-      await launcher.ensureStarted({
-        workspaceId: response.workspaceId,
-        computerId: response.computerId,
-        workspaceRoot: this.options.workspaceRoot,
-        daemonToken: response.daemonToken,
-      });
-      configPath = await this.options.config.saveRegistration(registeredRegistration);
+      try {
+        await launcher.ensureStarted({
+          workspaceId: response.workspaceId,
+          computerId: response.computerId,
+          workspaceRoot: this.options.workspaceRoot,
+          daemonApiKey: response.daemonApiKey,
+        });
+      } catch (error) {
+        if (error instanceof CliError) throw error;
+        throw setupError("SETUP_DAEMON_START_FAILED", "The Daemon could not be started.");
+      }
+      try {
+        configPath = await this.options.config.saveRegistration(registeredRegistration);
+      } catch (error) {
+        if (error instanceof CliError) throw error;
+        throw setupError(
+          "SETUP_CONFIG_WRITE_FAILED",
+          "Could not save the Workspace configuration.",
+        );
+      }
     } catch (error) {
       if (error instanceof CliError) throw error;
-      throw setupError("SETUP_CONFIG_WRITE_FAILED", "Could not save the Workspace configuration.");
+      throw setupError(
+        "SETUP_COMPUTER_REGISTER_FAILED",
+        "Computer registration could not be completed.",
+        "computer-registration",
+        error,
+      );
     }
 
     return { workspace, configPath };

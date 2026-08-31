@@ -1,4 +1,9 @@
-import { AGENT_START_METHOD } from "@coforge/protocol";
+import {
+  AGENT_START_METHOD,
+  encodeDaemonRuntimeUsageScanRequest,
+  type RuntimeProvider,
+} from "@coforge/protocol";
+import { getUsageCache, type UsageCache } from "./usage-cache.server";
 
 export type CentrifugoServerApi = {
   publish(channel: string, data: Uint8Array): Promise<void>;
@@ -38,3 +43,18 @@ export function createCentrifugoServerApi(env = process.env): CentrifugoServerAp
  */
 export const workspaceAgentChannel = (workspaceId: string) => `workspace:${workspaceId}`;
 export { AGENT_START_METHOD };
+export function createUsageScan(
+  api: CentrifugoServerApi,
+  input: { workspaceId: string; computerId: string; provider: RuntimeProvider },
+  cache: UsageCache = getUsageCache(),
+): Promise<string> {
+  const requestId = crypto.randomUUID();
+  return (async () => {
+    await cache.put({ ...input, scanId: requestId, status: "pending" });
+    await api.publish(
+      workspaceAgentChannel(input.workspaceId),
+      encodeDaemonRuntimeUsageScanRequest({ protocolMajor: 1, requestId, ...input }),
+    );
+    return requestId;
+  })();
+}

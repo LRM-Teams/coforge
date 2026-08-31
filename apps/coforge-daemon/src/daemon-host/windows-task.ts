@@ -14,14 +14,14 @@ export class WindowsUserDaemonHost implements DaemonLauncher, DaemonStopper {
     executablePath: string;
     socketPath: string;
     stateDirectory?: string;
-    cloudWebSocketEndpoint?: string;
+    daemonConnectionEndpoint?: string;
     run?: CommandRunner;
   }) {
     this.#taskName = options.taskName ?? "CoForge Daemon";
     this.#run = options.run ?? runCommand;
     const daemonCommand = `"${options.executablePath.replaceAll('"', '""')}" --socket ${options.socketPath}${options.stateDirectory ? ` --state-directory "${options.stateDirectory}"` : ""}`;
-    this.#command = options.cloudWebSocketEndpoint
-      ? `cmd.exe /d /s /c "set COFORGE_CLOUD_WEBSOCKET_ENDPOINT=${options.cloudWebSocketEndpoint}&& ${daemonCommand}"`
+    this.#command = options.daemonConnectionEndpoint
+      ? `cmd.exe /d /s /c "set COFORGE_DAEMON_CONNECTION_ENDPOINT=${options.daemonConnectionEndpoint}&& ${daemonCommand}"`
       : daemonCommand;
     this.#local = new LocalDaemonLauncher({
       executablePath: options.executablePath,

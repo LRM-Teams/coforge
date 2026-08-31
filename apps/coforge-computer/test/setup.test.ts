@@ -122,6 +122,63 @@ test("setup authenticates inside the same flow when no credential exists", async
   expect(authenticated).toEqual(["https://coforge.example:true"]);
 });
 
+test("setup reports OAuth failures with a stable actionable code", async () => {
+  const setup = createSetup({
+    credentials: {
+      async load() {
+        return null;
+      },
+    },
+    authenticate: {
+      async authenticate() {
+        throw new Error("access token leaked");
+      },
+    },
+  });
+  await expect(setup.run({ workspaceSlug: "workspace-a" })).rejects.toMatchObject({
+    code: "SETUP_OAUTH_FAILED",
+    message: "OAuth login could not be completed.",
+  });
+});
+
+test("setup reports credential store failures without exposing diagnostics", async () => {
+  const setup = createSetup({
+    credentials: {
+      async load() {
+        throw new Error("token=secret");
+      },
+    },
+  });
+  await expect(setup.run({ workspaceSlug: "workspace-a" })).rejects.toMatchObject({
+    code: "SETUP_CREDENTIALS_FAILED",
+    message: "Could not read the local login credential.",
+  });
+});
+
+test("setup keeps registration and daemon failures distinct", async () => {
+  const registrationFailed = createSetup({
+    registrationFactory: () => ({
+      async register() {
+        throw new Error("rpc token=secret");
+      },
+    }),
+  });
+  await expect(registrationFailed.run({ workspaceSlug: "workspace-a" })).rejects.toMatchObject({
+    code: "SETUP_COMPUTER_REGISTER_FAILED",
+  });
+
+  const daemonFailed = createSetup({
+    launcher: {
+      async ensureStarted() {
+        throw new Error("spawn failed");
+      },
+    },
+  });
+  await expect(daemonFailed.run({ workspaceSlug: "workspace-a" })).rejects.toMatchObject({
+    code: "SETUP_DAEMON_START_FAILED",
+  });
+});
+
 test("setup authenticates and saves the profile when no profile exists", async () => {
   const calls: string[] = [];
   const setup = createSetup({
@@ -176,7 +233,7 @@ test("setup uses an explicit server for catalog and registration", async () => {
             requestId: request.requestId,
             computerId: "c",
             workspaceId: "w",
-            daemonToken: "t",
+            daemonApiKey: "t",
           };
         },
       };
@@ -213,7 +270,7 @@ test("setup sends a direct slug to registration without listing Workspaces", asy
           requestId: request.requestId,
           computerId: "computer-id",
           workspaceId: "workspace-id-a",
-          daemonToken: "daemon-secret",
+          daemonApiKey: "daemon-secret",
         };
       },
     }),
@@ -232,7 +289,9 @@ test("setup forwards discovered runtime metadata to registration", async () => {
           osVersion: "bun-test",
           computerVersion: "test",
           machineId: "linux:test-machine-id",
-          runtimes: [{ provider: "codex", version: "1.2.3", kind: "external" }],
+          runtimes: [
+            { provider: "codex", version: "1.2.3", displayName: "Codex", kind: "external" },
+          ],
         };
       },
     },
@@ -244,14 +303,16 @@ test("setup forwards discovered runtime metadata to registration", async () => {
           requestId: request.requestId,
           computerId: "computer-id",
           workspaceId: "workspace-id-a",
-          daemonToken: "daemon-secret",
+          daemonApiKey: "daemon-secret",
         };
       },
     }),
   });
 
   await setup.run({ workspaceSlug: "workspace-a" });
-  expect(runtimes).toEqual([{ provider: "codex", version: "1.2.3", kind: "external" }]);
+  expect(runtimes).toEqual([
+    { provider: "codex", version: "1.2.3", displayName: "Codex", kind: "external" },
+  ]);
 });
 
 test("setup preserves the previous registration when the Daemon launcher fails", async () => {
@@ -276,7 +337,7 @@ test("setup preserves the previous registration when the Daemon launcher fails",
   });
 
   await expect(setup.run({ workspaceSlug: "workspace-a" })).rejects.toMatchObject({
-    code: "SETUP_CONFIG_WRITE_FAILED",
+    code: "SETUP_DAEMON_START_FAILED",
   });
   expect(discarded).toEqual([]);
 });
@@ -356,7 +417,7 @@ function createSetup(overrides: Partial<ComputerSetupOptions> = {}): ComputerSet
           computerId: "computer-id",
           workspaceId:
             request.workspaceSlug === "workspace-b" ? "workspace-id-b" : "workspace-id-a",
-          daemonToken: "daemon-secret",
+          daemonApiKey: "daemon-secret",
         };
       },
     }),
