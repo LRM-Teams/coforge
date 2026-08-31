@@ -1,4 +1,4 @@
-# Non-secret Centrifugo configuration for the coforge-test Compose project.
+# Non-secret Centrifugo configuration for the coforge-staging Compose project.
 # Secret values are supplied by Compose secrets; the RPC proxy secret reaches
 # the process through the CENTRIFUGO_VAR_RPC_PROXY_SECRET env export.
 # Endpoints point at the in-network web backend instead of the host.

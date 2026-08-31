@@ -109,7 +109,7 @@ describe("renderAuditRecord", () => {
     source_commit: "493a0c5",
     track: "cloud",
     artifact_identity: registryImage,
-    environment: "test",
+    environment: "staging",
     workflow_run: "https://github.com/LRM-Teams/coforge/actions/runs/33350525525",
     previous_digest: null,
     rollback_target: null,

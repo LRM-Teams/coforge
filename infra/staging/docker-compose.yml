@@ -1,10 +1,10 @@
-# Cloud test environment for the approved cloud application track.
+# Cloud staging environment for the approved cloud application track.
 #
-# Project: coforge-test (every invocation must pass -p coforge-test).
+# Project: coforge-staging (every invocation must pass -p coforge-staging).
 # Caddy owns the only public entry (443); application ports stay private and
 # reach the host only through loopback diagnostics. Images resolve by immutable
 # digest: the deploy script writes COFORGE_WEB_IMAGE into .env.
-name: coforge-test
+name: coforge-staging
 
 services:
   caddy:
@@ -103,7 +103,7 @@ services:
     secrets:
       - redis_password
     volumes:
-      - coforge_test_redis_data:/data
+      - coforge_staging_redis_data:/data
     networks:
       - coforge
     healthcheck:
@@ -125,7 +125,7 @@ services:
     secrets:
       - postgres_password
     volumes:
-      - coforge_test_postgres_data:/var/lib/postgresql
+      - coforge_staging_postgres_data:/var/lib/postgresql
     networks:
       - coforge
     healthcheck:
@@ -142,10 +142,10 @@ networks:
 volumes:
   caddy_data: {}
   caddy_config: {}
-  coforge_test_redis_data:
-    name: coforge_test_redis_data
-  coforge_test_postgres_data:
-    name: coforge_test_postgres_data
+  coforge_staging_redis_data:
+    name: coforge_staging_redis_data
+  coforge_staging_postgres_data:
+    name: coforge_staging_postgres_data
 
 secrets:
   redis_password:

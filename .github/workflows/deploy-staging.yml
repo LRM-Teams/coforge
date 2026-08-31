@@ -1,4 +1,4 @@
-name: Deploy test
+name: Deploy staging
 
 on:
   push:
@@ -9,18 +9,18 @@ permissions:
   packages: write
 
 concurrency:
-  group: deploy-test
+  group: deploy-staging
   cancel-in-progress: false
 
 env:
   IMAGE_REPOSITORY: lrm-teams/coforge/coforge-web
-  REMOTE_ROOT: /home/deploy/coforge-test
+  REMOTE_ROOT: /home/deploy/coforge-staging
 
 jobs:
   image:
     name: Build one immutable image
     runs-on: ubuntu-latest
-    environment: test
+    environment: staging
     timeout-minutes: 20
     outputs:
       image: ${{ steps.identity.outputs.image }}
@@ -69,10 +69,10 @@ jobs:
           echo "deployment_id=$id" >> "$GITHUB_OUTPUT"
 
   deploy:
-    name: Deploy the tested digest to test
+    name: Deploy the tested digest to staging
     needs: image
     runs-on: ubuntu-latest
-    environment: test
+    environment: staging
     timeout-minutes: 15
     env:
       DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
@@ -100,9 +100,9 @@ jobs:
       - name: Copy deployment assets
         run: |
           tar -czf "$REMOTE_ASSETS" \
-            infra/test/docker-compose.yml \
-            infra/test/caddy/Caddyfile \
-            infra/test/centrifugo/config.yaml \
+            infra/staging/docker-compose.yml \
+            infra/staging/caddy/Caddyfile \
+            infra/staging/centrifugo/config.yaml \
             scripts/deploy/remote-deploy.sh
           ssh -i "$SSH_DIR/key" \
             -o UserKnownHostsFile="$SSH_DIR/known_hosts" \
@@ -121,11 +121,11 @@ jobs:
               "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" \
               "mkdir -p \$(dirname '$REMOTE_ROOT/state.env') && bash -s -- \
                 --image '$IMAGE' \
-                --compose-file '$REMOTE_ROOT/infra/test/docker-compose.yml' \
-                --secrets-dir '$REMOTE_ROOT/infra/test/secrets' \
+                --compose-file '$REMOTE_ROOT/infra/staging/docker-compose.yml' \
+                --secrets-dir '$REMOTE_ROOT/infra/staging/secrets' \
                 --state-file '$REMOTE_ROOT/state.env' \
                 --web-health-url http://127.0.0.1:18080/health \
-                --public-health-url https://test.coforge.cn/health" \
+                --public-health-url https://staging.coforge.cn/health" \
                 < scripts/deploy/remote-deploy.sh
           } > remote-report.env
 
@@ -155,7 +155,7 @@ jobs:
       - name: Verify public readiness
         run: |
           curl --fail --silent --show-error --max-time 10 \
-            "https://test.coforge.cn/health" >/dev/null
+            "https://staging.coforge.cn/health" >/dev/null
 
       - name: Record the release record
         if: always()
@@ -166,7 +166,7 @@ jobs:
             --deployment-id "${{ needs.image.outputs.deployment_id }}" \
             --source-commit "${{ github.sha }}" \
             --artifact-identity "${{ needs.image.outputs.image }}" \
-            --environment test \
+            --environment staging \
             --workflow-run "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --previous-digest "${previous##*@}" \
             --rollback-target "${{ steps.outcome.outputs.rollback_target }}" \

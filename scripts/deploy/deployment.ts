@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Deployment identity helpers for the coforge-test Compose project.
+ * Deployment identity helpers for the coforge-staging Compose project.
  *
  * The canonical contract lives in docs/release.md ("Release identity and
  * evidence" and "Audit records"): one immutable image per `main` commit,
@@ -115,7 +115,7 @@ export interface DeploymentRecord {
   readonly source_commit: string;
   readonly track: "cloud";
   readonly artifact_identity: string;
-  readonly environment: "test" | "production";
+  readonly environment: "staging" | "production";
   readonly workflow_run: string;
   readonly previous_digest: string | null;
   readonly rollback_target: string | null;
@@ -266,8 +266,8 @@ async function run(): Promise<void> {
           throw new Error(`--${key} is required`);
         }
       }
-      if (values.get("environment") !== "test") {
-        throw new Error("only test environment records can be written by an agent");
+      if (values.get("environment") !== "staging") {
+        throw new Error("only staging environment records can be written by an agent");
       }
       const outcome = values.get("outcome") as DeploymentOutcome;
       const previous = values.get("previous-digest") ?? "";
@@ -276,7 +276,7 @@ async function run(): Promise<void> {
         source_commit: values.get("source-commit") ?? "",
         track: "cloud",
         artifact_identity: values.get("artifact-identity") ?? "",
-        environment: "test",
+        environment: "staging",
         workflow_run: values.get("workflow-run") ?? "",
         previous_digest: previous === "" ? null : previous,
         rollback_target: values.get("rollback-target") || null,

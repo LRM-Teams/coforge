@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy one immutable image digest to the coforge-test Compose project.
+# Deploy one immutable image digest to the coforge-staging Compose project.
 #
 # This script runs on the target host only. It consumes the release contract
 # in docs/release.md: one immutable digest per deployment, the previous healthy
@@ -9,12 +9,12 @@
 #
 # Usage:
 #   remote-deploy.sh --image REGISTRY/REPOSITORY@sha256:... \
-#     --compose-file /opt/coforge/test/docker-compose.yml \
-#     --secrets-dir /opt/coforge/test/secrets \
-#     --state-file /opt/coforge/test/state.env \
+#     --compose-file ~/coforge-staging/infra/staging/docker-compose.yml \
+#     --secrets-dir ~/coforge-staging/infra/staging/secrets \
+#     --state-file ~/coforge-staging/state.env \
 #     --web-health-url http://127.0.0.1:18080/health \
-#     --public-health-url https://test.coforge.cn/health \
-#     [--project coforge-test] [--timeout 120]
+#     --public-health-url https://staging.coforge.cn/health \
+#     [--project coforge-staging] [--timeout 120]
 set -euo pipefail
 
 usage() {
@@ -22,7 +22,7 @@ usage() {
 	exit 2
 }
 
-project=coforge-test
+project=coforge-staging
 timeout=120
 image=
 compose_file=

@@ -5,7 +5,7 @@
 	auto_https disable_redirects
 }
 
-test.coforge.cn {
+staging.coforge.cn {
 	# Realtime transport stays standalone Centrifugo; everything else is the
 	# web application. Route order: explicit realtime prefixes first.
 	@realtime path /connection/*

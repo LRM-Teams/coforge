@@ -1,6 +1,6 @@
 # CoForge release contract
 
-Status: approved workflow contract; the cloud test deployment workflow is implemented; production stays disabled behind the human approval gate
+Status: approved workflow contract; the cloud staging deployment workflow is implemented; production stays disabled behind the human approval gate
 
 Updated: 2026-08-26
 
@@ -21,9 +21,11 @@ implements this contract without duplicating it.
 - Build each release candidate once for a `main` commit and give it an immutable
   identity: a registry digest for a cloud image, or a release-set digest plus
   per-bundle and per-payload checksums for the local Computer distribution.
-- Publish `main` candidates to the track's isolated `test` environment or
-  distribution channel. A test target never pretends to be production.
-- When production is introduced, promote the exact artifact that passed test.
+- Publish `main` candidates to the track's isolated `staging` environment or
+  `test` distribution channel. A pre-production target never pretends to be
+  production.
+- When production is introduced, promote the exact artifact that passed
+  staging.
   Do not rebuild, repackage, or substitute a mutable tag or channel alias.
 - A human authorizes the exact production artifact identity. An Agent may
   prepare, trigger, monitor, verify, and report the promotion, but must stop if
@@ -33,10 +35,10 @@ implements this contract without duplicating it.
 - Keep application ports private. Caddy owns the public HTTPS/WSS entry point;
   a routine application release must not rewrite shared Caddy configuration.
 - Do not expose public plaintext HTTP for CoForge, including redirect-only
-  listeners. The test deployment verifies that port 80 is unreachable while
+  listeners. The staging deployment verifies that port 80 is unreachable while
   trusted HTTPS/WSS on 443 remains healthy.
 
-The `test` name does not weaken security. Login, token, attachment, and WSS
+The `staging` name does not weaken security. Login, token, attachment, and WSS
 traffic still require valid HTTPS, least-privilege credentials, secret
 redaction, and a non-root deployment identity.
 
@@ -44,7 +46,7 @@ redaction, and a non-root deployment identity.
 
 | Track | Candidate identity | Test target | Production effect |
 | --- | --- | --- | --- |
-| Cloud application | Full `registry/repository@sha256:...` image reference | `test` GitHub Environment and Compose project | Deploy the same digest to production Compose |
+| Cloud application | Full `registry/repository@sha256:...` image reference | `staging` GitHub Environment and Compose project | Deploy the same digest to production Compose |
 | Local Computer distribution | Release-set digest, both component-manifest digests, and every platform installation-bundle checksum | Test release set selected by `channels.json` | Select the same tested release-set and bundle bytes in production |
 
 The daemon runtime role is released inside `coforge-daemon`; it is not a third local
@@ -86,7 +88,7 @@ Every deployment or local-distribution publication record must identify:
 | `track` | Cloud application or local Computer distribution |
 | `artifact_identity` | Cloud image digest or local release-set, changed-component, and both component-manifest digests |
 | `artifact_members` | Image reference or component versions plus platform installation-bundle names, sizes, SHA-256 checksums, and signatures |
-| `environment_or_channel` | Isolated `test` or `production` target |
+| `environment_or_channel` | Isolated `staging` or `production` target |
 | `workflow_run` | GitHub Actions run URL or stable run ID; host-initiated rollback uses the explicit `manual` sentinel |
 | `previous_identity` | Last known healthy digest/manifest, or an explicit bootstrap marker; cloud JSONL names this `previous_digest` |
 | `verification_result` | Track-specific internal, public, shared-ingress, running-identity, install, upgrade, and integrity evidence; cloud JSONL names this `health_result` |
@@ -103,18 +105,18 @@ process payloads also match their recorded digests.
 
 ## Cloud environment model
 
-| Concern | `test` | `production` |
+| Concern | `staging` | `production` |
 | --- | --- | --- |
 | Trigger | Successful push to `main` | Promotion request for a tested digest |
 | Authorization | Automatic | Human approves the exact digest; Agent executes |
-| Artifact | Newly built immutable digest | Same digest already healthy in `test` |
-| GitHub Environment | `test` | `production` |
-| Compose project | `coforge-test` | `coforge-production` |
+| Artifact | Newly built immutable digest | Same digest already healthy in `staging` |
+| GitHub Environment | `staging` | `production` |
+| Compose project | `coforge-staging` | `coforge-production` |
 | Concurrency | One deployment at a time | One deployment at a time |
 | Rollback target | Previous healthy digest or empty bootstrap state | Previous healthy digest or approved bootstrap state |
 
 GitHub Environment secrets, variables, protection, deployment history, and
-concurrency are independent from the Git branch model. Test and production
+concurrency are independent from the Git branch model. Staging and production
 must use separate secrets, databases, volumes, networks, internal ports, and
 public endpoints when both environments exist.
 
@@ -124,7 +126,7 @@ base-plus-environment configuration before mutation. Environment secrets must
 not be committed, echoed, placed in command arguments, or copied into release
 records.
 
-The MVP provisions only `test`. Production stays disabled until it has an
+The MVP provisions only `staging`. Production stays disabled until it has an
 independent environment configuration and an enforceable human approval gate.
 GitHub currently limits required reviewers for private repositories on some
 plans; if the repository plan cannot enforce the gate, do not substitute an
@@ -280,7 +282,7 @@ Computer and Daemon versions are independent. An implementation may offer a
 friendlier exact selector only when it resolves unambiguously to a signed
 release-set digest and one platform bundle.
 
-## Main to test
+## Main to staging
 
 ### Cloud application
 
@@ -289,7 +291,7 @@ The automated cloud path is:
 1. Run the repository test, check, and build gates for the `main` commit.
 2. Build and push the service image once, tagged with the full commit SHA.
 3. Capture the pushed image digest as a workflow output and deployment record.
-4. Enter the `test` GitHub Environment and its environment-specific
+4. Enter the `staging` GitHub Environment and its environment-specific
    concurrency group.
 5. Validate the Compose configuration, set the service image to the exact
    digest, pull it, and recreate the affected service with `--no-build`.
@@ -368,14 +370,14 @@ change both component digests, offer Daemon as a separate user installation, or
 treat one component's evidence as approval for the entire newly assembled
 bundle.
 
-## Test to production
+## Staging to production
 
 ### Cloud application
 
 Cloud production promotion is a two-party operation:
 
 1. An Agent prepares a promotion request containing the exact digest, source
-   commit, test deployment run, test health result, change summary, known
+   commit, staging deployment run, staging health result, change summary, known
    risks, migration compatibility, production configuration revision, and
    previous healthy production digest.
 2. A human approves or rejects that exact digest through the protected
@@ -383,7 +385,7 @@ Cloud production promotion is a two-party operation:
    promotion cannot satisfy the human gate.
 3. After approval, the Agent runs or resumes the production workflow. The job
    verifies that its digest matches the approved digest and that the same
-   digest is still recorded healthy in `test`.
+   digest is still recorded healthy in `staging`.
 4. The workflow deploys the digest with the production Compose project. It
    does not rebuild the image.
 5. The Agent monitors internal and external health, records the result, and
@@ -526,7 +528,7 @@ digest unless a separately approved incident policy says otherwise.
 ## Audit records
 
 Keep both the platform's deployment or publication record and the durable
-release record defined above for every test release, production promotion,
+release record defined above for every staging or test release, production promotion,
 failed attempt, and rollback. Record the human approver and exact approved
 artifact identity for production, the previous and resulting identities,
 verification evidence, rollback trigger and result, and the final observed
@@ -574,7 +576,7 @@ The obsolete custom Go realtime-gateway, its ECS Compose deployment, and its
 test workflow have been removed. The approved standalone Centrifugo, Redis,
 PostgreSQL, and Backend deployment is not implemented yet. Until a focused
 implementation defines immutable artifacts, verification, audit evidence, and
-rollback for that complete stack, neither test nor production cloud deployment
+rollback for that complete stack, neither staging nor production cloud deployment
 has a repository-supported operator path. The release Skill must stop rather
 than reconstruct or invoke the removed gateway workflow.
 
