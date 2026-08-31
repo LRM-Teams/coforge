@@ -26,7 +26,8 @@ src/
 ├── code-agent/                     # provider-neutral contract and adapters
 │   ├── codex/
 │   ├── claude-code/
-│   └── pi/
+│   ├── pi/
+│   └── runtime-inventory.ts        # external provider discovery
 ├── persistence/                    # durable spool and local daemon state
 └── platform/                       # OS-specific process-tree and socket primitives
 ```
@@ -55,13 +56,15 @@ boundary, then update this map if the ownership changes.
   records, not additional statuses.
 - `code-agent/` adapts installed provider processes into the provider-neutral
   contract. Higher layers must consume normalized status and activity messages and
-  must not parse Claude, Codex, or Pi output. Built-in Pi is not scanned from
-  PATH; user-installed Pi may be detected by the Computer external inventory.
-  Runtime metadata uses `kind: builtin` for the release-provided Pi and
-  `kind: external` for PATH-installed runtimes. The current registration flow
-  has no Computer/Daemon metadata merge point, so the daemon-owned builtin
-  metadata remains an explicit runtime seam rather than being invented into
-  registration.
+  must not parse Claude, Codex, or Pi output. This module inventories external
+  Codex and Claude Code installations from Daemon's effective PATH at startup
+  and after reconnect. Built-in Pi is neither scanned nor reported in Computer
+  inventory. It also discovers the model catalogs available to the current Pi,
+  and Codex accounts, reports the maintained Claude Code model catalog when
+  Claude Code is installed, and translates persisted model/reasoning selections
+  into each provider's native startup configuration. Claude Code model
+  inventory must not launch the CLI to infer a dynamic catalog because its
+  machine-readable initialization does not provide a dependable list.
 - `persistence/` owns durable local state and spool semantics. A connection
   outbox is not durable storage.
 - `platform/` contains OS-specific details only. Do not leak platform APIs

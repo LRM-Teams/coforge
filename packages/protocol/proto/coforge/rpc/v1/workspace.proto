@@ -42,6 +42,8 @@ message AgentStartIntent {
   string model = 6;
   string reasoning = 7;
   string session_id = 8;
+  string computer_id = 9;
+  string model_provider = 10;
 }
 
 // Versioned server-to-daemon canonical direct message delivery.

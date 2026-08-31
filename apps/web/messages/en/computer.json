@@ -19,5 +19,7 @@
   "computer_install_step_description": "Open a terminal on your computer and run this command.",
   "computer_install_note": "Keep this window open while the installer runs. Your computer will connect automatically when installation is complete.",
   "computer_copy_command": "Copy install command",
-  "computer_command_copied": "Command copied"
+  "computer_command_copied": "Command copied",
+  "computer_connected_list": "Connected computers",
+  "computer_no_code_agents": "No external Code Agents detected"
 }

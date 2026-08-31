@@ -6,7 +6,13 @@ import {
 import { ComputerRegistrationError } from "../computers/registration.server";
 import { WorkspaceQueryError, WorkspaceQueryUseCase } from "../workspaces/query.server";
 import { decodeWorkspaceGetRequest, decodeWorkspaceListRequest } from "@coforge/protocol/codec";
-import { decodeWorkspaceWorkerReadyRequest, decodeAgentStartIntent } from "@coforge/protocol";
+import {
+  decodeAgentStartIntent,
+  decodeWorkspaceWorkerCodeAgentsUpdateRequest,
+  decodeWorkspaceWorkerReadyRequest,
+  type CodeAgentModelCatalog,
+  type RuntimeMetadata,
+} from "@coforge/protocol";
 import { CloudAgentUseCase } from "../agents/cloud-agent.server";
 import { decodeAgentMessageDeliveryAck } from "@coforge/protocol";
 import { decodeAgentMessageRequest, encodeCloudAgentMessageResponse } from "@coforge/protocol";
@@ -109,7 +115,9 @@ export function createAgentMessageMethod(
 }
 
 export const createWorkspaceWorkerReadyMethod =
-  (recovery?: { recoverWorkspace(workspaceId: string): Promise<void> }): CentrifugoRpcMethod =>
+  (recovery?: {
+    recoverWorkspace(workspaceId: string, computerId: string): Promise<void>;
+  }): CentrifugoRpcMethod =>
   async (payload, metadata) => {
     const request = decodeWorkspaceWorkerReadyRequest(payload);
     if (
@@ -126,12 +134,73 @@ export const createWorkspaceWorkerReadyMethod =
     )
       return { code: 400, message: "invalid workspace worker ready request" };
     try {
-      await recovery?.recoverWorkspace(request.workspaceId);
+      await recovery?.recoverWorkspace(request.workspaceId, request.computerId);
       return new Uint8Array();
     } catch {
       return { code: 503, message: "Agent start recovery failed" };
     }
   };
+
+export function createWorkspaceWorkerCodeAgentsUpdateMethod(inventory: {
+  replace(
+    scope: { workspaceId: string; computerId: string },
+    runtimes: RuntimeMetadata[],
+    catalogs: CodeAgentModelCatalog[],
+  ): Promise<unknown>;
+}): CentrifugoRpcMethod {
+  return async (payload, metadata) => {
+    const request = decodeWorkspaceWorkerCodeAgentsUpdateRequest(payload);
+    if (
+      !metadata.principal.userId ||
+      metadata.principal.workspaceId !== request.workspaceId ||
+      metadata.principal.computerId !== request.computerId
+    )
+      return { code: 403, message: "workspace worker identity is not authorized" };
+    if (
+      request.protocolMajor !== 1 ||
+      !request.requestId ||
+      request.runtimes.some(
+        (runtime) =>
+          runtime.kind !== "external" || runtime.provider === "pi" || !runtime.version.trim(),
+      ) ||
+      !validModelCatalogs(request.catalogs)
+    )
+      return { code: 400, message: "invalid Code Agent inventory" };
+    try {
+      await inventory.replace(
+        { workspaceId: request.workspaceId, computerId: request.computerId },
+        request.runtimes,
+        request.catalogs,
+      );
+      return new Uint8Array();
+    } catch {
+      return { code: 503, message: "Code Agent inventory update failed" };
+    }
+  };
+}
+
+function validModelCatalogs(catalogs: CodeAgentModelCatalog[]): boolean {
+  if (
+    catalogs.length > 3 ||
+    new Set(catalogs.map((catalog) => catalog.provider)).size !== catalogs.length
+  )
+    return false;
+  return catalogs.every(
+    (catalog) =>
+      catalog.models.length <= 200 &&
+      catalog.models.every(
+        (model) =>
+          model.id.length > 0 &&
+          model.id.length <= 200 &&
+          model.displayName.length <= 200 &&
+          model.description.length <= 2_000 &&
+          model.modelProvider.length <= 100 &&
+          model.defaultReasoning.length <= 100 &&
+          model.reasoningEfforts.length <= 20 &&
+          model.reasoningEfforts.every((effort) => effort.length > 0 && effort.length <= 100),
+      ),
+  );
+}
 
 export function createWorkspaceListMethod(useCase: WorkspaceQueryUseCase): CentrifugoRpcMethod {
   return (payload, metadata) =>

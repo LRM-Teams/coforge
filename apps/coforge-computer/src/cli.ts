@@ -27,7 +27,6 @@ import {
 } from "./cloud-rpc-transport";
 import { ComputerRegistrationClient } from "@coforge/protocol";
 import { createDaemonHost, resolveDaemonExecutablePath } from "@coforge/daemon";
-import { discoverExternalRuntimes } from "./runtime/inventory";
 import { createWorkspaceLookup } from "./workspace/lookup";
 import { registrationIdempotencyKey } from "./registration/idempotency-key";
 import { writeSetupResult } from "./cli/setup-output";
@@ -283,7 +282,7 @@ export function createSetupCommand(
             platform: platform.os,
             fallback: new FileMachineIdFallback(join(stateDirectory, "machine-id")),
           }),
-          runtimes: await discoverExternalRuntimes(),
+          runtimes: [],
         };
       },
     },

@@ -3,6 +3,7 @@ import {
   CentrifugoRpcAuthenticationError,
   CentrifugoRpcHandler,
   createAgentMessageMethod,
+  createWorkspaceWorkerCodeAgentsUpdateMethod,
   createWorkspaceWorkerReadyMethod,
   type CentrifugoRpcMethod,
 } from "../src/server/centrifugo/rpc-handler.server";
@@ -10,6 +11,7 @@ import { createCentrifugoRpcHandler } from "../src/server/centrifugo/rpc-composi
 import {
   decodeCloudAgentMessageResponse,
   encodeAgentMessageRequest,
+  encodeWorkspaceWorkerCodeAgentsUpdateRequest,
   encodeWorkspaceWorkerReadyRequest,
 } from "@coforge/protocol";
 
@@ -45,11 +47,38 @@ const principal = (agentId?: string) => ({
 });
 
 describe("CentrifugoRpcHandler", () => {
+  test("replaces the exact Computer's external Code Agent snapshot", async () => {
+    const updates: unknown[] = [];
+    const method = createWorkspaceWorkerCodeAgentsUpdateMethod({
+      replace: async (scope, runtimes, catalogs) => updates.push({ scope, runtimes, catalogs }),
+    });
+    const payload = encodeWorkspaceWorkerCodeAgentsUpdateRequest({
+      protocolMajor: 1,
+      requestId: "inventory-1",
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      runtimes: [{ provider: "codex", version: "0.151.0", kind: "external" }],
+      catalogs: [{ provider: "codex", models: [] }],
+    });
+
+    expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
+    expect(updates).toEqual([
+      {
+        scope: { workspaceId: "workspace-1", computerId: "computer-1" },
+        runtimes: [{ provider: "codex", version: "0.151.0", kind: "external" }],
+        catalogs: [{ provider: "codex", models: [] }],
+      },
+    ]);
+    expect(
+      await method(payload, { principal: { ...principal(), computerId: "computer-2" } }),
+    ).toEqual({ code: 403, message: "workspace worker identity is not authorized" });
+  });
+
   test("starts every existing Workspace Agent after the exact Computer reports ready", async () => {
-    const recovered: string[] = [];
+    const recovered: string[][] = [];
     const method = createWorkspaceWorkerReadyMethod({
-      recoverWorkspace: async (workspaceId) => {
-        recovered.push(workspaceId);
+      recoverWorkspace: async (workspaceId, computerId) => {
+        recovered.push([workspaceId, computerId]);
       },
     });
     const payload = encodeWorkspaceWorkerReadyRequest({
@@ -62,13 +91,13 @@ describe("CentrifugoRpcHandler", () => {
     });
 
     expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
-    expect(recovered).toEqual(["workspace-1"]);
+    expect(recovered).toEqual([["workspace-1", "computer-1"]]);
     expect(
       await method(payload, {
         principal: { ...principal(), computerId: "another-computer" },
       }),
     ).toEqual({ code: 403, message: "workspace worker identity is not authorized" });
-    expect(recovered).toEqual(["workspace-1"]);
+    expect(recovered).toEqual([["workspace-1", "computer-1"]]);
   });
 
   test("rejects Agent message access by a Daemon principal without an Agent identity", async () => {

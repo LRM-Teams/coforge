@@ -1,4 +1,4 @@
-import { AlertCircle, Bot, CircleDot, Monitor } from "lucide-react";
+import { AlertCircle, Bot, Monitor } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
 import { buttonVariants } from "@/components/ui/button";
@@ -35,7 +35,7 @@ export function AgentDetail({ detail, tab }: { detail: Detail; tab: "profile" | 
           </Link>
         ))}
       </nav>
-      {detail.latestError && (
+      {tab === "profile" && detail.latestError && (
         <div
           role="alert"
           className="mt-6 flex items-start gap-3 rounded-xl border border-destructive/50 bg-destructive/5 p-4 text-sm"
@@ -105,46 +105,50 @@ function Activity({ detail }: { detail: Detail }) {
       </div>
     );
   return (
-    <ol className="mt-6 space-y-3">
+    <ol className="mt-6 list-none divide-y">
       {detail.activity.map((entry) => (
         <li
           key={entry.id}
-          className={`rounded-xl border bg-card p-4 ${entry.level === "error" ? "border-destructive/50" : ""}`}
+          className="grid gap-1 py-2 sm:grid-cols-[max-content_max-content_minmax(0,1fr)] sm:items-start sm:gap-3"
         >
-          <div className="flex items-start gap-3">
-            {entry.level === "error" ? (
-              <AlertCircle className="mt-0.5 size-4 text-destructive" />
-            ) : (
-              <CircleDot className="mt-0.5 size-4 text-muted-foreground" />
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap justify-between gap-2">
-                <span className="font-medium">{activityLabel(entry.activity, entry.level)}</span>
-                <time
-                  className="text-xs text-muted-foreground"
-                  dateTime={new Date(entry.occurredAt).toISOString()}
-                >
-                  {new Date(entry.occurredAt).toLocaleString()}
-                </time>
-              </div>
-              <p
-                className={`mt-2 whitespace-pre-wrap break-words text-sm ${entry.level === "error" ? "text-destructive" : "text-muted-foreground"}`}
-              >
-                {entry.message}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground">
-                <span>{entry.activity}</span>
-                <span>{entry.level}</span>
-                <span>
-                  {m.agent_activity_launch()} {entry.launchId}
-                </span>
-              </div>
-            </div>
-          </div>
+          <time
+            className="whitespace-nowrap text-xs tabular-nums text-muted-foreground sm:pt-0.5"
+            dateTime={new Date(entry.occurredAt).toISOString()}
+          >
+            {new Date(entry.occurredAt).toLocaleString()}
+          </time>
+          <span className="flex items-center gap-2 font-medium">
+            <span
+              aria-hidden="true"
+              className={`size-1.5 shrink-0 rounded-full ${activityDotClass(entry.activity, entry.level)}`}
+            />
+            <span className={entry.level === "error" ? "text-destructive" : undefined}>
+              {activityLabel(entry.activity, entry.level)}
+            </span>
+          </span>
+          {showsActivityMessage(entry.activity) && (
+            <p
+              className={`whitespace-pre-wrap break-words text-sm ${entry.level === "error" ? "text-destructive" : "text-muted-foreground"}`}
+            >
+              {entry.message}
+            </p>
+          )}
         </li>
       ))}
     </ol>
   );
+}
+
+function showsActivityMessage(activity: string) {
+  return activity !== "starting" && activity !== "stopped" && activity !== "turn_completed";
+}
+
+function activityDotClass(activity: string, level: string) {
+  if (level === "error") return "bg-destructive";
+  if (activity === "starting") return "bg-amber-500";
+  if (activity === "stopped") return "bg-muted-foreground";
+  if (activity === "turn_completed") return "bg-emerald-500";
+  return "bg-blue-500";
 }
 
 function activityLabel(activity: string, level: string) {
@@ -152,7 +156,10 @@ function activityLabel(activity: string, level: string) {
   if (activity === "starting") return m.agent_activity_starting();
   if (activity === "stopped") return m.agent_activity_stopped();
   if (activity === "turn_completed") return m.agent_activity_completed();
-  if (activity === "using_tool" || activity === "running_command")
-    return m.agent_activity_running();
+  if (activity === "running_command") return m.agent_activity_running_command();
+  if (activity === "reading_file") return m.agent_activity_reading_file();
+  if (activity === "writing_file") return m.agent_activity_writing_file();
+  if (activity === "editing_file") return m.agent_activity_editing_file();
+  if (activity === "using_tool") return m.agent_activity_using_tool();
   return `${m.agent_activity_other()}: ${activity}`;
 }

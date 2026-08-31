@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { m } from "@/paraglide/messages";
+import type { CodeAgentModelMetadata } from "@coforge/protocol";
 import { AgentCard, type AgentView } from "./agent-card";
 
 export type CreateAgentInput = {
@@ -19,7 +20,16 @@ export type CreateAgentInput = {
   displayName: string;
   provider: "pi" | "codex" | "claude-code";
   model?: string;
+  modelProvider?: string;
   reasoning: string;
+  computerId: string;
+};
+
+type ComputerOption = {
+  id: string;
+  machineId: string;
+  runtimes: { provider: string }[];
+  modelCatalogs: { provider: string; models: CodeAgentModelMetadata[] }[];
 };
 
 function runtimeProvider(value: FormDataEntryValue | null): CreateAgentInput["provider"] {
@@ -30,10 +40,12 @@ function runtimeProvider(value: FormDataEntryValue | null): CreateAgentInput["pr
 
 export function AgentsContent({
   agents,
+  computers,
   onCreate,
   defaultCreateDialogOpen = false,
 }: {
   agents: AgentView[];
+  computers: ComputerOption[];
   onCreate: (input: CreateAgentInput) => Promise<{ startPublished: boolean }>;
   defaultCreateDialogOpen?: boolean;
 }) {
@@ -42,6 +54,20 @@ export function AgentsContent({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [deferredStart, setDeferredStart] = useState(false);
+  const [computerId, setComputerId] = useState(computers[0]?.id ?? "");
+  const [provider, setProvider] = useState<CreateAgentInput["provider"]>("pi");
+  const [modelKey, setModelKey] = useState("");
+  const selectedComputer = computers.find((computer) => computer.id === computerId);
+  const availableProviders = [
+    "pi",
+    ...(selectedComputer?.runtimes.map((runtime) => runtime.provider) ?? []),
+  ];
+  const selectedCatalog = selectedComputer?.modelCatalogs.find(
+    (catalog) => catalog.provider === provider,
+  );
+  const selectedModel = selectedCatalog?.models.find(
+    (model) => modelOptionValue(model) === modelKey,
+  );
   const filteredAgents = agents.filter((agent) =>
     `${agent.displayName} ${agent.name}`.toLowerCase().includes(search.trim().toLowerCase()),
   );
@@ -62,9 +88,11 @@ export function AgentsContent({
       const result = await onCreate({
         name,
         displayName,
-        provider: runtimeProvider(form.get("provider")),
-        model: String(form.get("model") ?? "").trim() || undefined,
-        reasoning: "",
+        provider,
+        model: selectedModel?.id,
+        modelProvider: selectedModel?.modelProvider || undefined,
+        reasoning: String(form.get("reasoning") ?? "").trim(),
+        computerId: String(form.get("computerId") ?? ""),
       });
       formElement.reset();
       setOpen(false);
@@ -84,7 +112,7 @@ export function AgentsContent({
           <h1 className="text-xl font-semibold tracking-tight">{m.content_title()}</h1>
           <p className="mt-2 text-sm text-muted-foreground">{m.content_description()}</p>
         </div>
-        <Button onClick={() => setOpen(true)}>
+        <Button onClick={() => setOpen(true)} disabled={!computers.length}>
           <Plus aria-hidden="true" data-icon="inline-start" />
           {m.header_new_agent()}
         </Button>
@@ -151,41 +179,95 @@ export function AgentsContent({
                 />
               </div>
               <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
-                <label className="grid gap-1.5 text-sm">
+                <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
+                  {m.agent_form_computer()}
+                  <select
+                    name="computerId"
+                    required
+                    value={computerId}
+                    onChange={(event) => {
+                      setComputerId(event.target.value);
+                      setProvider("pi");
+                      setModelKey("");
+                    }}
+                    className="h-9 min-w-0 rounded-md border bg-background px-3"
+                  >
+                    {computers.map((computer) => (
+                      <option key={computer.id} value={computer.id}>
+                        {computer.machineId}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid min-w-0 gap-1.5 text-sm">
                   {m.agent_form_name()}
                   <input
                     name="name"
                     required
                     pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-                    className="h-9 rounded-md border bg-background px-3 outline-none focus:ring-2 focus:ring-ring/30"
+                    className="h-9 min-w-0 rounded-md border bg-background px-3 outline-none focus:ring-2 focus:ring-ring/30"
                   />
                 </label>
-                <label className="grid gap-1.5 text-sm">
+                <label className="grid min-w-0 gap-1.5 text-sm">
                   {m.agent_form_display_name()}
                   <input
                     name="displayName"
                     required
-                    className="h-9 rounded-md border bg-background px-3 outline-none focus:ring-2 focus:ring-ring/30"
+                    className="h-9 min-w-0 rounded-md border bg-background px-3 outline-none focus:ring-2 focus:ring-ring/30"
                   />
                 </label>
-                <label className="grid gap-1.5 text-sm">
+                <label className="grid min-w-0 gap-1.5 text-sm">
                   {m.agent_form_provider()}
                   <select
                     name="provider"
-                    defaultValue="pi"
-                    className="h-9 rounded-md border bg-background px-3"
+                    value={provider}
+                    onChange={(event) => {
+                      setProvider(runtimeProvider(event.target.value));
+                      setModelKey("");
+                    }}
+                    className="h-9 min-w-0 rounded-md border bg-background px-3"
                   >
-                    <option value="pi">Pi</option>
-                    <option value="codex">Codex</option>
-                    <option value="claude-code">Claude Code</option>
+                    {availableProviders.includes("pi") && (
+                      <option value="pi">{m.agent_provider_pi_builtin()}</option>
+                    )}
+                    {availableProviders.includes("codex") && <option value="codex">Codex</option>}
+                    {availableProviders.includes("claude-code") && (
+                      <option value="claude-code">Claude Code</option>
+                    )}
                   </select>
                 </label>
-                <label className="grid gap-1.5 text-sm">
+                <label className="grid min-w-0 gap-1.5 text-sm">
                   {m.agent_form_model()} <span className="sr-only">{m.agent_optional()}</span>
-                  <input
+                  <select
                     name="model"
-                    className="h-9 rounded-md border bg-background px-3 outline-none focus:ring-2 focus:ring-ring/30"
-                  />
+                    value={modelKey}
+                    onChange={(event) => setModelKey(event.target.value)}
+                    className="h-9 min-w-0 rounded-md border bg-background px-3"
+                  >
+                    <option value="">{m.agent_form_provider_default()}</option>
+                    {selectedCatalog?.models.map((model) => (
+                      <option key={modelOptionValue(model)} value={modelOptionValue(model)}>
+                        {model.modelProvider
+                          ? `${model.modelProvider} / ${model.displayName}`
+                          : model.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
+                  {m.agent_form_reasoning()} <span className="sr-only">{m.agent_optional()}</span>
+                  <select
+                    name="reasoning"
+                    disabled={!selectedModel?.reasoningEfforts.length}
+                    className="h-9 min-w-0 rounded-md border bg-background px-3 disabled:opacity-60"
+                  >
+                    <option value="">{m.agent_form_provider_default()}</option>
+                    {selectedModel?.reasoningEfforts.map((effort) => (
+                      <option key={effort} value={effort}>
+                        {effort}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 {error && (
                   <p role="alert" className="text-sm text-destructive sm:col-span-2">
@@ -207,4 +289,8 @@ export function AgentsContent({
       </Dialog>
     </main>
   );
+}
+
+function modelOptionValue(model: CodeAgentModelMetadata): string {
+  return JSON.stringify([model.modelProvider, model.id]);
 }

@@ -43,10 +43,47 @@ afterAll(() => rm(workspaceRoot, { recursive: true, force: true }));
 const config: AgentRuntimeConfig = {
   provider: "pi",
   model: "default",
+  modelProvider: "anthropic",
   reasoning: "balanced",
 };
 
 describe("DaemonRuntime", () => {
+  test("reports a fresh external Code Agent snapshot on daemon start", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const updates: unknown[] = [];
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({ provider: "pi", start: async () => sessionSpy() }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async updateCodeAgents(request) {
+            updates.push(request);
+          },
+          async stop() {},
+        }),
+      },
+      undefined,
+      async () => ({
+        runtimes: [{ provider: "codex", version: "0.151.0", kind: "external" }],
+        catalogs: [{ provider: "codex", models: [] }],
+      }),
+    );
+
+    await runtime.start(connection);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatchObject({
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      runtimes: [{ provider: "codex", version: "0.151.0", kind: "external" }],
+      catalogs: [{ provider: "codex", models: [] }],
+    });
+    await runtime.stop();
+  });
+
   test("passes the persisted server HTTP URL to the Agent API key client", async () => {
     const configuredConnection = {
       ...connection,
@@ -589,7 +626,7 @@ describe("DaemonRuntime", () => {
     }
   });
 
-  test("publishes only current-launch Activity with one launch id and increasing sequence", async () => {
+  test("publishes current-launch command and tool Activity details", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const activities: import("@coforge/protocol").AgentActivity[] = [];
@@ -663,8 +700,45 @@ describe("DaemonRuntime", () => {
       activity: {
         activity: "running_command",
         level: "info",
-        message: 'curl -H "Authorization: Bearer secret" /private/path',
+        message:
+          "printf 012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789",
         occurredAt: "2026-08-29T00:00:00.000Z",
+      },
+    });
+    sessions[0]!.event({
+      type: "activity",
+      activity: {
+        activity: "reading_file",
+        level: "info",
+        message: "/workspace/src/input.ts",
+        occurredAt: "2026-08-29T00:00:00.100Z",
+      },
+    });
+    sessions[0]!.event({
+      type: "activity",
+      activity: {
+        activity: "writing_file",
+        level: "info",
+        message: "/workspace/src/output.ts",
+        occurredAt: "2026-08-29T00:00:00.200Z",
+      },
+    });
+    sessions[0]!.event({
+      type: "activity",
+      activity: {
+        activity: "editing_file",
+        level: "info",
+        message: "/workspace/src/existing.ts",
+        occurredAt: "2026-08-29T00:00:00.300Z",
+      },
+    });
+    sessions[0]!.event({
+      type: "activity",
+      activity: {
+        activity: "using_tool",
+        level: "info",
+        message: "WebSearch query=CoForge",
+        occurredAt: "2026-08-29T00:00:00.400Z",
       },
     });
     sessions[0]!.event({
@@ -679,11 +753,17 @@ describe("DaemonRuntime", () => {
     const firstLaunch = activities[0]!.launchId;
     expect(firstLaunch).not.toBe("");
     expect(activities.every((activity) => activity.launchId === firstLaunch)).toBe(true);
-    expect(activities.map(({ clientSeq }) => clientSeq)).toEqual([1, 2, 3]);
-    expect(activities[1]!.message).toBe("Agent is running a command.");
-    expect(activities[2]!.message).toBe("Provider request failed safely.");
-    expect(JSON.stringify(activities)).not.toContain("secret");
-    expect(JSON.stringify(activities)).not.toContain("/private/path");
+    expect(activities.map(({ clientSeq }) => clientSeq)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(activities[1]!.message).toBe(
+      "printf 012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012",
+    );
+    expect(activities.slice(2, 6).map(({ message }) => message)).toEqual([
+      "/workspace/src/input.ts",
+      "/workspace/src/output.ts",
+      "/workspace/src/existing.ts",
+      "WebSearch query=CoForge",
+    ]);
+    expect(activities[6]!.message).toBe("Provider request failed safely.");
 
     const stopping = runtime.stopAgent("agent-a");
     sessions[0]!.event({
@@ -699,6 +779,10 @@ describe("DaemonRuntime", () => {
     expect(activities.map(({ activity }) => activity)).toEqual([
       "starting",
       "running_command",
+      "reading_file",
+      "writing_file",
+      "editing_file",
+      "using_tool",
       "error",
       "stopped",
     ]);

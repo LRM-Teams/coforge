@@ -62,7 +62,7 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 | --- | --- |
 | `activity` | 稳定类型，例如 `running_command`、`reading_file`、`using_tool`、`error` |
 | `level` | `info`、`warning` 或 `error` |
-| `message` | Daemon 生成的稳定、安全类别文案；不包含 provider 参数或原始诊断文本 |
+| `message` | `running_command` 保留命令前 100 个 Unicode 字符；文件读写、编辑和工具 Activity 完整保留 adapter 消息；错误和警告使用 adapter 处理后的诊断文本 |
 | `occurred_at` | daemon 记录的 UTC RFC 3339 时间 |
 | `launch_id` | 每次实际 OS process launch 的新身份；替换后不得复用 |
 | `client_seq` | 同一 `launch_id` 内从 1 开始严格递增的 daemon 序号 |
@@ -88,11 +88,13 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 event: agent:activity
 activity: running_command
 level: info
-message: Agent is running a command.
+message: bun test apps/coforge-daemon/test/daemon-runtime.test.ts
 ```
 
 `activity=running_command` 表示 Agent runtime 正在执行命令；持久化的 `message` 使用
-稳定类别文案，不包含命令文本，不把 activity 类型和命令内容拼入 event name。后续需要记录启动、工具
+provider 上报命令的前 100 个 Unicode 字符，超出部分由 Daemon 截断，不把 activity 类型
+和命令内容拼入 event name。命令前 100 个字符不做参数脱敏，可能包含命令参数中的敏感
+文本。后续需要记录启动、工具
 调用或其他执行明细时，沿用 `agent:activity`，增加新的 discriminator 值和对应字段，
 不增加 Agent 业务状态。Code Agent 的文件工具调用必须记录，至少包括：
 
@@ -100,14 +102,14 @@ message: Agent is running a command.
 event: agent:activity
 activity: reading_file | writing_file | editing_file
 level: info
-message: <对应操作的稳定类别文案>
+message: <adapter 上报的完整原始消息>
 ```
 
 `reading_file`、`writing_file` 和 `editing_file` 分别表示读取文件、创建/覆盖文件和修改
-文件。Daemon 不向云端发送文件路径、文件内容、完整 diff、prompt、绝对路径或隐藏在参数
-中的 secret。其他 Code Agent 工具也通过 `agent:activity` 记录稳定工具类别，provider-specific
-工具名不能扩散到上层状态模型。暂未纳入统一分类的工具使用 `activity=using_tool`；不能
-因为 provider 增加工具就丢弃事件，也不能把其参数或目标摘要持久化。
+文件。Daemon 完整保留这三类 Activity 的 adapter `message`，不截断、替换或额外脱敏。
+其他 Code Agent 工具也通过 `agent:activity` 记录；暂未纳入统一分类的工具使用
+`activity=using_tool`，其 adapter `message` 同样完整保留。这里的原始消息是 adapter 已经
+归一化后交给 Daemon 的消息，不是 provider 的完整协议事件。
 
 进程生命周期和 turn 生命周期必须按实际发生顺序记录。例如启动成功的顺序是
 `agent:activity(starting)`、`agent:status(online)`；停止时记录
@@ -155,12 +157,15 @@ provider 初始化/认证失败、模型或 reasoning 配置不支持、Agent ca
 ### Web 展示契约
 
 Web 在 `src/features/agents/` 内实现 activity timeline，按 `activity` 选择本地化标签和
-图标，统一显示 `message` 和 `occurred_at`。`running_command` 使用终端语义；
+动作名称。每条 Activity 在 UI 中只显示时间、动作和有实际明细的 `message`；`starting`、
+`stopped` 和 `turn_completed` 不重复显示固定生命周期文案。不显示 `level`、`launch_id`、
+`client_seq` 或原始 activity discriminator；`level` 只用于视觉强调。
+`running_command` 使用终端语义；
 `reading_file`、`writing_file`、`editing_file` 使用对应文件操作语义；`warning` 和
 `error` 使用对应视觉级别。业务标签可以按当前界面语言本地化，安全的 provider 错误或
 警告文本保持原始语言与 wording。未知 activity 必须使用通用 activity 样式显示安全
-文案，不能丢弃整条记录；前端不得尝试
-渲染未上报的命令、路径、文件内容、diff 或 prompt。
+文案，不能丢弃整条记录；前端显示 Daemon 已截断的命令，并完整显示文件操作和工具
+Activity 的 `message`，但不得自行补充 adapter 未上报的内容。
 
 ## 健康与就绪探针
 

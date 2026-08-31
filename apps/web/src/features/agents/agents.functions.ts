@@ -20,14 +20,52 @@ function dependencies(userId: string) {
   const db = getDatabaseClient();
   if (!db) throw new Error("Agent persistence is unavailable");
   const agents = new PrismaAgentRepository(db);
-  const collection = new AgentCollection(agents, {
-    start: (intent, ownerId) =>
-      new CloudAgentUseCase(
-        new RepositoryAgentAuthorization(agents),
-        createCentrifugoServerApi(),
-        async () => {},
-      ).start(intent, ownerId),
-  });
+  const collection = new AgentCollection(
+    agents,
+    {
+      start: (intent, ownerId) =>
+        new CloudAgentUseCase(
+          new RepositoryAgentAuthorization(agents),
+          createCentrifugoServerApi(),
+          async () => {},
+        ).start(intent, ownerId),
+    },
+    {
+      canRun: async (workspaceId, computerId, config) => {
+        const connection = await db.workspaceComputer.findFirst({
+          where: { workspaceId, computerId },
+          select: {
+            computer: {
+              select: {
+                runtimes: { where: { provider: config.provider }, select: { id: true } },
+                modelCatalogs: {
+                  where: { provider: config.provider },
+                  select: { models: true },
+                },
+              },
+            },
+          },
+        });
+        if (!connection) return false;
+        if (config.provider !== RUNTIME_PROVIDER.PI && connection.computer.runtimes.length === 0)
+          return false;
+        if (!config.model) return !config.modelProvider && !config.reasoning;
+        const models = connection.computer.modelCatalogs[0]?.models;
+        if (!Array.isArray(models)) return false;
+        return models.some((value) => {
+          if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+          const id = Reflect.get(value, "id");
+          const modelProvider = Reflect.get(value, "modelProvider");
+          const efforts = Reflect.get(value, "reasoningEfforts");
+          return (
+            id === config.model &&
+            modelProvider === config.modelProvider &&
+            (!config.reasoning || (Array.isArray(efforts) && efforts.includes(config.reasoning)))
+          );
+        });
+      },
+    },
+  );
   return db.workspaceMembership
     .findFirst({
       where: { userId },
@@ -47,7 +85,9 @@ function validateCreateInput(data: unknown): AgentCreateInput {
   const displayName = Reflect.get(data, "displayName");
   const provider = Reflect.get(data, "provider");
   const model = Reflect.get(data, "model");
+  const modelProvider = Reflect.get(data, "modelProvider");
   const reasoning = Reflect.get(data, "reasoning");
+  const computerId = Reflect.get(data, "computerId");
   if (typeof name !== "string" || typeof displayName !== "string")
     throw new Error("Agent name and displayName must be strings");
   if (
@@ -58,9 +98,13 @@ function validateCreateInput(data: unknown): AgentCreateInput {
     throw new Error("Agent provider is not supported");
   if (model !== undefined && typeof model !== "string")
     throw new Error("Agent model must be a string");
+  if (modelProvider !== undefined && typeof modelProvider !== "string")
+    throw new Error("Agent modelProvider must be a string");
   if (reasoning !== undefined && typeof reasoning !== "string")
     throw new Error("Agent reasoning must be a string");
-  return { name, displayName, provider, model, reasoning };
+  if (typeof computerId !== "string" || !computerId)
+    throw new Error("Agent computerId is required");
+  return { name, displayName, provider, model, modelProvider, reasoning, computerId };
 }
 
 export const listAgents = createServerFn({ method: "GET" }).handler(async () => {

@@ -46,12 +46,22 @@ mock.module("@/features/agents/agents.functions", () => ({
       occurredAt: new Date("2026-08-29T00:00:01Z"),
       createdAt: new Date("2026-08-29T00:00:02Z"),
     };
+    const starting = {
+      ...failure,
+      id: "activity-2",
+      clientSeq: 1,
+      activity: "starting",
+      level: "info",
+      message: "Agent runtime is starting.",
+      occurredAt: new Date("2026-08-29T00:00:00Z"),
+      createdAt: new Date("2026-08-29T00:00:01Z"),
+    };
     return {
       ...agents[0],
       owner: { id: "user-1", username: "route-tester" },
       computer: { id: failure.computerId, label: "computer…5678" },
       latestError: failure,
-      activity: [failure],
+      activity: [failure, starting],
     };
   }),
   listAgents,
@@ -119,9 +129,14 @@ test("an Agent profile shows its Computer, runtime configuration, and latest fai
   expect(page.getByRole("alert").textContent).toContain("Agent runtime could not be started.");
 });
 
-test("an Agent Activity tab shows persisted failure details", async () => {
+test("an Agent Activity tab shows only time, action, and message", async () => {
   const { page } = await renderRoute("/agents/agent-1?tab=activity");
-  expect(page.getByText("launch_failed")).toBeTruthy();
-  expect(page.getAllByText("Agent runtime could not be started.").length).toBeGreaterThan(0);
-  expect(page.getByText(/launch-1/)).toBeTruthy();
+  expect(page.getByText("Failed")).toBeTruthy();
+  expect(page.getByText("Starting")).toBeTruthy();
+  expect(page.getAllByText("Agent runtime could not be started.")).toHaveLength(1);
+  expect(page.queryByText("Agent runtime is starting.")).toBeNull();
+  expect(document.querySelector("time")?.getAttribute("datetime")).toBe("2026-08-29T00:00:01.000Z");
+  expect(page.queryByText("launch_failed")).toBeNull();
+  expect(page.queryByText(/launch-1/)).toBeNull();
+  expect(page.queryByText("error")).toBeNull();
 });

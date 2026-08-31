@@ -15,7 +15,14 @@ for await (const chunk of Bun.stdin.stream()) {
   }
 }
 
-function handle(command: { id: string; type: string; message?: string }): void {
+function handle(command: {
+  id: string;
+  type: string;
+  message?: string;
+  provider?: string;
+  modelId?: string;
+  level?: string;
+}): void {
   if (command.type === "get_state") {
     const environmentIsRestricted =
       process.env.COFORGE_DECLARED_TEST_VALUE === "allowed" &&
@@ -47,6 +54,44 @@ function handle(command: { id: string; type: string; message?: string }): void {
       },
     });
     if (process.env.COFORGE_EXIT_AFTER_READY === "1") setTimeout(() => process.exit(1), 0);
+    return;
+  }
+  if (command.type === "get_available_models") {
+    write({
+      type: "response",
+      id: command.id,
+      command: "get_available_models",
+      success: true,
+      data: {
+        models: [
+          {
+            id: "claude-sonnet-4-6",
+            name: "Claude Sonnet 4.6",
+            provider: "anthropic",
+            reasoning: true,
+            thinkingLevelMap: { off: "off", low: "low", medium: "medium", high: "high" },
+          },
+        ],
+      },
+    });
+    return;
+  }
+  if (command.type === "set_model") {
+    write({
+      type: "response",
+      id: command.id,
+      command: "set_model",
+      success: command.provider === "anthropic" && command.modelId === "claude-sonnet-4-6",
+    });
+    return;
+  }
+  if (command.type === "set_thinking_level") {
+    write({
+      type: "response",
+      id: command.id,
+      command: "set_thinking_level",
+      success: command.level === "high",
+    });
     return;
   }
   if (command.type === "prompt") {

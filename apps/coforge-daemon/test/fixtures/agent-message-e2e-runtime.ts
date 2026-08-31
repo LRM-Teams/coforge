@@ -1,7 +1,14 @@
 export {};
 
+const descendant = Bun.spawn({
+  cmd: [process.execPath, "-e", "setInterval(() => {}, 1000)"],
+  stdin: "ignore",
+  stdout: "ignore",
+  stderr: "ignore",
+});
 const decoder = new TextDecoder();
 let buffer = "";
+const runtimeConfig = { modelProvider: "", model: "", reasoning: "" };
 
 for await (const chunk of Bun.stdin.stream()) {
   buffer += decoder.decode(chunk, { stream: true });
@@ -9,15 +16,49 @@ for await (const chunk of Bun.stdin.stream()) {
   while (newline >= 0) {
     const line = buffer.slice(0, newline).replace(/\r$/, "");
     buffer = buffer.slice(newline + 1);
-    if (line) await handle(JSON.parse(line) as { id: string; type: string; message?: string });
+    if (line)
+      await handle(
+        JSON.parse(line) as {
+          id: string;
+          type: string;
+          message?: string;
+          provider?: string;
+          modelId?: string;
+          level?: string;
+        },
+      );
     newline = buffer.indexOf("\n");
   }
 }
 
-async function handle(command: { id: string; type: string; message?: string }) {
+async function handle(command: {
+  id: string;
+  type: string;
+  message?: string;
+  provider?: string;
+  modelId?: string;
+  level?: string;
+}) {
   if (command.type === "get_state" || command.type === "get_commands") {
     write({ type: "response", id: command.id, command: command.type, success: true, data: {} });
     await Bun.write(".e2e-agent-pid", String(process.pid));
+    await Bun.write(
+      ".e2e-agent-processes.json",
+      JSON.stringify({ directPid: process.pid, descendantPid: descendant.pid }),
+    );
+    return;
+  }
+  if (command.type === "set_model") {
+    runtimeConfig.modelProvider = command.provider ?? "";
+    runtimeConfig.model = command.modelId ?? "";
+    await Bun.write(".e2e-runtime-config.json", JSON.stringify(runtimeConfig));
+    write({ type: "response", id: command.id, command: command.type, success: true });
+    return;
+  }
+  if (command.type === "set_thinking_level") {
+    runtimeConfig.reasoning = command.level ?? "";
+    await Bun.write(".e2e-runtime-config.json", JSON.stringify(runtimeConfig));
+    write({ type: "response", id: command.id, command: command.type, success: true });
     return;
   }
   if (command.type === "prompt") {
@@ -41,6 +82,36 @@ async function handle(command: { id: string; type: string; message?: string }) {
             retriedMessageId: retried.messageId,
           }),
         );
+        write({
+          type: "tool_execution_start",
+          toolCallId: "e2e-command",
+          toolName: "bash",
+          args: { command: "printf e2e-activity" },
+        });
+        write({
+          type: "tool_execution_start",
+          toolCallId: "e2e-read",
+          toolName: "read",
+          args: { path: "/workspace/e2e-read.ts" },
+        });
+        write({
+          type: "tool_execution_start",
+          toolCallId: "e2e-write",
+          toolName: "write",
+          args: { path: "/workspace/e2e-write.ts" },
+        });
+        write({
+          type: "tool_execution_start",
+          toolCallId: "e2e-edit",
+          toolName: "edit",
+          args: { path: "/workspace/e2e-edit.ts" },
+        });
+        write({
+          type: "tool_execution_start",
+          toolCallId: "e2e-tool",
+          toolName: "web_search",
+          args: { query: "CoForge" },
+        });
         write({ type: "agent_settled" });
       } catch {
         process.exit(1);

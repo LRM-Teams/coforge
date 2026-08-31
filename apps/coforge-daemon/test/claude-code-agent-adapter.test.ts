@@ -41,6 +41,12 @@ test("Claude Code starts the user's installed CLI from PATH in streaming mode", 
   try {
     const session = await new ClaudeCodeAgentAdapter().start({
       agentWorkspaceDirectory,
+      runtime: {
+        provider: "claude-code",
+        model: "claude-sonnet-5",
+        modelProvider: "",
+        reasoning: "high",
+      },
       environment: {
         PATH: binDirectory,
         COFORGE_BUN_EXEC: process.execPath,
@@ -51,6 +57,9 @@ test("Claude Code starts the user's installed CLI from PATH in streaming mode", 
     });
     expect(await readFile(argumentsFile, "utf8")).toContain(
       "-p --input-format stream-json --output-format stream-json",
+    );
+    expect(await readFile(argumentsFile, "utf8")).toContain(
+      "--model claude-sonnet-5 --effort high",
     );
     await session.dispose();
   } finally {

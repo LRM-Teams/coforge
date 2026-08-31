@@ -14,13 +14,17 @@ function repository(): AgentRepository {
       displayName: "Builder",
       ownerId: "u1",
       createdAt: new Date(),
-      runtimeConfig: { provider: "pi", model: "", reasoning: "" },
+      runtimeConfig: { provider: "pi", model: "", modelProvider: "", reasoning: "" },
     },
   ];
   return {
     getById: async (id) => records.find((agent) => agent.id === id),
     listInWorkspace: async (workspaceId) =>
       records.filter((agent) => agent.workspaceId === workspaceId),
+    listForComputer: async (workspaceId, computerId) =>
+      records.filter(
+        (agent) => agent.workspaceId === workspaceId && agent.computerId === computerId,
+      ),
     listOwnedInWorkspace: async (workspaceId, ownerId) =>
       records.filter((agent) => agent.workspaceId === workspaceId && agent.ownerId === ownerId),
     create: async (input) => {

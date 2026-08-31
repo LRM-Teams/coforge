@@ -14,11 +14,15 @@ import { getDatabaseClient } from "../db/client.server";
 import { PrismaWorkspaceAccess } from "../db/repositories/setup.repositories.server";
 import {
   createComputerRegistrationMethod,
+  createWorkspaceWorkerCodeAgentsUpdateMethod,
   createWorkspaceGetMethod,
   createWorkspaceListMethod,
   createWorkspaceWorkerReadyMethod,
 } from "./rpc-handler.server";
-import { WORKSPACE_WORKER_READY_METHOD } from "@coforge/protocol";
+import {
+  WORKSPACE_WORKER_CODE_AGENTS_UPDATE_METHOD,
+  WORKSPACE_WORKER_READY_METHOD,
+} from "@coforge/protocol";
 import { WorkspaceQueryUseCase } from "../workspaces/query.server";
 import { ComputerRegistrar } from "../computers/registration.server";
 import { PrismaComputerConnectionRepository } from "../db/repositories/setup.repositories.server";
@@ -47,6 +51,7 @@ import {
   isAgentApiKeyBoundToComputer,
 } from "../agents/agent-api-key.server";
 import { PrismaAgentApiKeyRepository } from "../db/repositories/agent-api-key.repositories.server";
+import { PrismaComputerRuntimeRepository } from "../db/repositories/computer-runtime.repositories.server";
 
 const unavailable: CentrifugoRpcError = {
   code: 503,
@@ -146,6 +151,9 @@ export function createCentrifugoRpcHandler() {
         [WORKSPACE_WORKER_READY_METHOD]: createWorkspaceWorkerReadyMethod(
           new WorkspaceAgentRecovery(agentRepository, centrifugo),
         ),
+        [WORKSPACE_WORKER_CODE_AGENTS_UPDATE_METHOD]: createWorkspaceWorkerCodeAgentsUpdateMethod(
+          new PrismaComputerRuntimeRepository(db),
+        ),
         [AGENT_START_METHOD]: createAgentStartMethod(
           new CloudAgentUseCase(agentAuthorization, centrifugo, async () => {}),
         ),
@@ -175,6 +183,7 @@ export function createCentrifugoRpcHandler() {
       [WORKSPACE_LIST_METHOD]: unavailableMethod,
       [WORKSPACE_GET_METHOD]: unavailableMethod,
       [WORKSPACE_WORKER_READY_METHOD]: createWorkspaceWorkerReadyMethod(),
+      [WORKSPACE_WORKER_CODE_AGENTS_UPDATE_METHOD]: unavailableMethod,
       [AGENT_START_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_ACK_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_READ_METHOD]: unavailableMethod,

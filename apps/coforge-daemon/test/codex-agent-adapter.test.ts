@@ -19,11 +19,21 @@ test("Codex loads skills before running app-server behind the code-agent seam", 
       process.execPath,
       new URL("./fixtures/codex-app-server.ts", import.meta.url).pathname,
       "expected-skill=fixture-skill",
+      "expected-coforge-environment",
+      "expected-runtime-config",
     ],
   });
 
   try {
-    const session = await adapter.start({ agentWorkspaceDirectory });
+    const session = await adapter.start({
+      agentWorkspaceDirectory,
+      runtime: {
+        provider: "codex",
+        model: "gpt-5.6-sol",
+        modelProvider: "",
+        reasoning: "high",
+      },
+    });
     const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
 

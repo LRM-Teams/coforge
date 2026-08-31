@@ -93,6 +93,30 @@ message WorkspaceWorkerReadyRequest {
   int64 started_at = 6;
 }
 
+message WorkspaceWorkerCodeAgentsUpdateRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  repeated RuntimeMetadata runtimes = 5;
+  repeated CodeAgentModelCatalog catalogs = 6;
+}
+
+message CodeAgentModelCatalog {
+  string provider = 1;
+  repeated CodeAgentModelMetadata models = 2;
+}
+
+message CodeAgentModelMetadata {
+  string id = 1;
+  string display_name = 2;
+  string description = 3;
+  string model_provider = 4;
+  repeated string reasoning_efforts = 5;
+  string default_reasoning = 6;
+  bool recommended = 7;
+}
+
 message LocalRpcRequest {
   string method = 1;
   bytes payload = 2;

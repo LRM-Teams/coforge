@@ -17,6 +17,12 @@ test("Pi loads skills before running in a child process behind the code-agent se
     const session = await adapter.start({
       agentWorkspaceDirectory,
       environment: { COFORGE_DECLARED_TEST_VALUE: "allowed" },
+      runtime: {
+        provider: "pi",
+        model: "claude-sonnet-4-6",
+        modelProvider: "anthropic",
+        reasoning: "high",
+      },
     });
     const events: AgentRuntimeEvent[] = [];
     const unsubscribe = session.subscribe((event) => events.push(event));

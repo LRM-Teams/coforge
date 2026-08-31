@@ -19,7 +19,7 @@ const CLI_BIN_DIRECTORIES = [
   // workspace node_modules, also works when Computer launches an installed
   // release from another directory.
   dirname(process.execPath),
-  new URL("../../../dist/", import.meta.url).pathname,
+  new URL("../../dist/", import.meta.url).pathname,
   new URL("../../../../node_modules/.bin/", import.meta.url).pathname,
 ] as const;
 

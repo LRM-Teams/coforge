@@ -9,10 +9,11 @@ describe("CloudAgentUseCase", () => {
       {
         getById: async () => undefined,
         listOwnedInWorkspace: async () => [],
+        listInWorkspace: async () => [],
         create: async () => {
           throw new Error("not used");
         },
-        listInWorkspace: async () => [
+        listForComputer: async () => [
           {
             id: "agent-1",
             workspaceId: "workspace-1",
@@ -23,6 +24,7 @@ describe("CloudAgentUseCase", () => {
             runtimeConfig: {
               provider: RUNTIME_PROVIDER.CLAUDE_CODE,
               model: "sonnet",
+              modelProvider: "",
               reasoning: "high",
             },
           },
@@ -35,11 +37,12 @@ describe("CloudAgentUseCase", () => {
       },
     );
 
-    await recovery.recoverWorkspace("workspace-1");
+    await recovery.recoverWorkspace("workspace-1", "computer-1");
 
     expect(payloads).toHaveLength(1);
     expect(decodeAgentStartIntent(payloads[0]!)).toMatchObject({
       workspaceId: "workspace-1",
+      computerId: "computer-1",
       agentId: "agent-1",
       provider: "claude-code",
       model: "sonnet",

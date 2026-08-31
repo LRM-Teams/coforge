@@ -42,7 +42,13 @@ run = "bun run --cwd packages/protocol generate && cd apps/web && bun run test"
 
 [tasks."test:e2e:agent-direct-message"]
 description = "Run the managed Agent direct-message end-to-end slice"
-run = "amp orb services ensure >/dev/null && ./scripts/e2e/run-agent-direct-message.sh"
+run = """
+amp orb services ensure >/dev/null || {
+  curl --fail --silent http://127.0.0.1:8000/health >/dev/null
+  curl --fail --silent http://127.0.0.1:8789/health >/dev/null
+}
+./scripts/e2e/run-agent-direct-message.sh
+"""
 
 [tasks."check:web"]
 run = "bun run --cwd packages/protocol generate && cd apps/web && bun run check"
