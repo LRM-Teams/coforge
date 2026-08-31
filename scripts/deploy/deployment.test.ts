@@ -190,6 +190,10 @@ describe("remote-deploy.sh compose invocation shape", () => {
     const runBlock = script
       .slice(script.indexOf("compose \"${COMPOSE_ARGS[@]}\" run"))
       .split("then")[0];
+    // The script itself arrives on stdin over SSH; the container must not
+    // inherit it (it would consume the rest of the deploy script), and its
+    // output must not corrupt the key=value report on stdout.
+    expect(runBlock).toContain("</dev/null");
     expect(runBlock).toContain("1>&2");
   });
 });
