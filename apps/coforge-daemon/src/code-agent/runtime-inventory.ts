@@ -13,6 +13,7 @@ export interface ExternalCodeAgentProbe {
   spawn(executable: string): {
     stdout: ReadableStream<Uint8Array>;
     exited: Promise<number>;
+    kill?(): void;
   };
 }
 
@@ -36,8 +37,16 @@ export async function discoverExternalCodeAgents(
     if (!executable) continue;
     try {
       const process = probe.spawn(executable);
-      const output = await new Response(process.stdout).text();
-      if ((await process.exited) !== 0) continue;
+      const { output, exitCode } = await Promise.race([
+        Promise.all([new Response(process.stdout).text(), process.exited]).then(
+          ([output, exitCode]) => ({ output, exitCode }),
+        ),
+        Bun.sleep(5_000).then(() => {
+          process.kill?.();
+          throw new Error("runtime version probe timed out");
+        }),
+      ]);
+      if (exitCode !== 0) continue;
       const version = output.trim().split(/\s+/).pop();
       if (version) runtimes.push({ provider, version, kind: "external" });
     } catch {
