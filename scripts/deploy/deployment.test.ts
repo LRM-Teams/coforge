@@ -163,6 +163,23 @@ describe("renderAuditRecord", () => {
   });
 });
 
+describe("remote-deploy.sh compose invocation shape", () => {
+  test("places compose global arguments before every subcommand", async () => {
+    const script = await Bun.file(
+      new URL("./remote-deploy.sh", import.meta.url),
+    ).text();
+    const misplaced = script
+      .split("\n")
+      .filter((line) => line.includes("${COMPOSE_ARGS[@]}"))
+      .filter(
+        (line) =>
+          !/docker compose "\$\{COMPOSE_ARGS\[@\]\}" \w+/.test(line) &&
+          !line.includes("COMPOSE_ARGS=("),
+      );
+    expect(misplaced).toEqual([]);
+  });
+});
+
 describe("parseRemoteOutputs", () => {
   test("parses a healthy report", () => {
     const outputs = parseRemoteOutputs(

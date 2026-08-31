@@ -230,7 +230,7 @@ fi
 
 docker compose "${COMPOSE_ARGS[@]}" pull --quiet web
 
-if ! docker compose run "${COMPOSE_ARGS[@]}" --rm --entrypoint sh web \
+if ! docker compose "${COMPOSE_ARGS[@]}" run --rm --entrypoint sh web \
 	-c 'cd .migrate && bun node_modules/prisma/build/index.js migrate deploy'; then
 	report "$last_healthy" "failed: migration deploy failed" "failed" ""
 	exit 0
