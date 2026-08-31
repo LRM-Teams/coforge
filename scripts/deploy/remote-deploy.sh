@@ -187,7 +187,7 @@ rollback() {
 	local target="$1"
 	if [ -n "$target" ]; then
 		write_deploy_env "$target"
-		docker compose "${COMPOSE_ARGS[@]}" up -d --wait --wait-timeout "$timeout" web
+		docker compose "${COMPOSE_ARGS[@]}" up -d --wait --wait-timeout "$timeout" web >/dev/null
 		if wait_for_health; then
 			printf 'rolled back to the previous healthy digest\n' >&2
 			return 0
@@ -228,7 +228,7 @@ if ! docker compose "${COMPOSE_ARGS[@]}" config --quiet; then
 	exit 0
 fi
 
-docker compose "${COMPOSE_ARGS[@]}" pull --quiet web
+docker compose "${COMPOSE_ARGS[@]}" pull --quiet web >/dev/null
 
 if ! docker compose "${COMPOSE_ARGS[@]}" run --rm --entrypoint sh web \
 	-c 'cd .migrate && bun node_modules/prisma/build/index.js migrate deploy' </dev/null 1>&2; then
@@ -236,7 +236,7 @@ if ! docker compose "${COMPOSE_ARGS[@]}" run --rm --entrypoint sh web \
 	exit 0
 fi
 
-if ! docker compose "${COMPOSE_ARGS[@]}" up -d --wait --wait-timeout "$timeout"; then
+if ! docker compose "${COMPOSE_ARGS[@]}" up -d --wait --wait-timeout "$timeout" >/dev/null; then
 	fail_deployment "failed: candidate failed health verification"
 fi
 
