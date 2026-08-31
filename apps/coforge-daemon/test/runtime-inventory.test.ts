@@ -44,6 +44,23 @@ describe("external Code Agent inventory", () => {
     ).resolves.toEqual([]);
   });
 
+  test("does not wait indefinitely for a runtime version probe", async () => {
+    let killed = false;
+    const probe: ExternalCodeAgentProbe = {
+      which: (name) => (name === "codex" ? "/bin/codex" : undefined),
+      spawn: () => ({
+        stdout: new ReadableStream(),
+        exited: new Promise(() => {}),
+        kill: () => {
+          killed = true;
+        },
+      }),
+    };
+
+    await expect(discoverExternalCodeAgents(probe)).resolves.toEqual([]);
+    expect(killed).toBe(true);
+  }, 6_000);
+
   test("discovers Codex and Pi catalogs and reports the maintained Claude Code catalog", async () => {
     const fixture = (name: string) =>
       [process.execPath, new URL(`./fixtures/${name}`, import.meta.url).pathname] as const;
