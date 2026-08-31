@@ -3,8 +3,8 @@ import { dirname } from "node:path";
 import {
   decodeDaemonHandshakeRequest,
   decodeDaemonCommandRequest,
-  decodeWorkspaceWorkerConfigureRequest,
-  encodeWorkspaceWorkerConfigureResponse,
+  decodeDaemonRuntimeConfigureRequest,
+  encodeDaemonRuntimeConfigureResponse,
   encodeDaemonHandshakeResponse,
   encodeDaemonCommandResponse,
   frameLocalRpc,
@@ -156,26 +156,22 @@ async function handleConnection(
           ),
         );
       } else if (envelope.method === LOCAL_RPC_METHODS.CONFIGURE) {
-        const request = decodeWorkspaceWorkerConfigureRequest(envelope.payload);
+        const request = decodeDaemonRuntimeConfigureRequest(envelope.payload);
         const valid =
           request.protocolMajor === 1 &&
           [
             request.workspaceId,
             request.computerId,
             request.workspaceRoot,
-            request.workspaceWorkerToken,
+            request.daemonToken,
           ].every(Boolean) &&
-          (await validateCredential(request.workspaceWorkerToken));
+          (await validateCredential(request.daemonToken));
         if (valid) {
           const saved = await credentials.load(request.workspaceId, request.computerId);
           const previousConfig = await configStore?.load();
-          const credentialChanged = saved !== request.workspaceWorkerToken;
+          const credentialChanged = saved !== request.daemonToken;
           if (credentialChanged) {
-            await credentials.save(
-              request.workspaceId,
-              request.computerId,
-              request.workspaceWorkerToken,
-            );
+            await credentials.save(request.workspaceId, request.computerId, request.daemonToken);
           }
           const connection = {
             workspaceId: request.workspaceId,
@@ -204,7 +200,7 @@ async function handleConnection(
           frameLocalRpc(
             encodeLocalRpcResponse({
               method: LOCAL_RPC_METHODS.CONFIGURE,
-              payload: encodeWorkspaceWorkerConfigureResponse({
+              payload: encodeDaemonRuntimeConfigureResponse({
                 protocolMajor: 1,
                 requestId: request.requestId,
                 accepted: valid,

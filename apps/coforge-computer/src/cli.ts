@@ -137,15 +137,15 @@ export async function runCli(
     .action(() => requireUpdater(dependencies).rollback());
   program
     .command("start")
-    .description("Start the Daemon and all configured Workspace Workers.")
+    .description("Start the Daemon and all configured Daemon Runtimes.")
     .action(() => requireDaemon(dependencies).start());
   program
     .command("stop")
-    .description("Stop the Daemon and all Workspace Workers.")
+    .description("Stop the Daemon and all Daemon Runtimes.")
     .action(() => requireDaemon(dependencies).stop());
   program
     .command("restart")
-    .description("Restart the Daemon and all configured Workspace Workers.")
+    .description("Restart the Daemon and all configured Daemon Runtimes.")
     .action(() => requireDaemon(dependencies).restart());
   program
     .command("logs")

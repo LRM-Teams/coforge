@@ -23,8 +23,8 @@ test("retries reuse the unique binding and receive a fresh stateless JWT", async
   });
   const first = await registrar.register(request, { userId: "u" });
   const second = await registrar.register(request, { userId: "u" });
-  expect(first.workspaceWorkerToken).toBe("jwt-1");
-  expect(second.workspaceWorkerToken).toBe("jwt-2");
+  expect(first.daemonToken).toBe("jwt-1");
+  expect(second.daemonToken).toBe("jwt-2");
 });
 
 test("rejects unauthenticated or inaccessible setup", async () => {

@@ -1,8 +1,8 @@
 import { importJWK, jwtVerify, SignJWT, type JWK } from "jose";
 
-import type { WorkspaceWorkerTokenIssuer } from "../computers/registration.server";
+import type { DaemonTokenIssuer } from "../computers/registration.server";
 
-export type WorkspaceWorkerTokenClaims = {
+export type DaemonTokenClaims = {
   readonly workspaceId: string;
   readonly computerId: string;
 };
@@ -15,9 +15,9 @@ type WorkerJwtConfig = {
   readonly lifetimeSeconds: number;
 };
 
-export function createWorkspaceWorkerTokenIssuer(
+export function createDaemonTokenIssuer(
   environment: Record<string, string | undefined> = process.env,
-): WorkspaceWorkerTokenIssuer {
+): DaemonTokenIssuer {
   const config = readWorkerJwtConfig(environment);
   let keyPromise: ReturnType<typeof importJWK> | undefined;
   return {
@@ -42,7 +42,7 @@ export function createWorkspaceWorkerTokenIssuer(
 }
 
 /** Verify the bearer token supplied by the Centrifugo proxy. */
-export async function verifyWorkspaceWorkerToken(
+export async function verifyDaemonToken(
   token: string,
   environment: Record<string, string | undefined> = process.env,
 ): Promise<{ userId: string; workspaceId: string; computerId: string }> {
@@ -58,7 +58,7 @@ export async function verifyWorkspaceWorkerToken(
     typeof payload.workspace_id !== "string" ||
     typeof payload.computer_id !== "string"
   )
-    throw new Error("workspace worker JWT is missing identity claims");
+    throw new Error("daemon runtime JWT is missing identity claims");
   return {
     userId: payload.sub,
     workspaceId: payload.workspace_id,
@@ -66,7 +66,7 @@ export async function verifyWorkspaceWorkerToken(
   };
 }
 
-export async function workspaceWorkerJwks(
+export async function daemonRuntimeJwks(
   environment: Record<string, string | undefined> = process.env,
 ): Promise<{ keys: JWK[] }> {
   const config = readWorkerJwtConfig(environment);
@@ -87,15 +87,15 @@ export async function workspaceWorkerJwks(
 function readWorkerJwtConfig(environment: Record<string, string | undefined>): WorkerJwtConfig {
   const privateJwkValue = environment.COFORGE_WORKER_JWT_PRIVATE_JWK;
   const keyId = environment.COFORGE_WORKER_JWT_KEY_ID;
-  if (!privateJwkValue || !keyId) throw new Error("Workspace Worker JWT is not configured");
+  if (!privateJwkValue || !keyId) throw new Error("Daemon Runtime JWT is not configured");
   let privateJwk: JWK;
   try {
     privateJwk = JSON.parse(privateJwkValue) as JWK;
   } catch {
-    throw new Error("Workspace Worker JWT private JWK is invalid");
+    throw new Error("Daemon Runtime JWT private JWK is invalid");
   }
   if (privateJwk.kty !== "OKP" || privateJwk.crv !== "Ed25519" || typeof privateJwk.d !== "string")
-    throw new Error("Workspace Worker JWT private JWK must be an Ed25519 private key");
+    throw new Error("Daemon Runtime JWT private JWK must be an Ed25519 private key");
   return {
     privateJwk,
     keyId,
@@ -108,6 +108,6 @@ function readWorkerJwtConfig(environment: Record<string, string | undefined>): W
 function readLifetime(value: string | undefined): number {
   const lifetime = value ? Number(value) : 900;
   if (!Number.isSafeInteger(lifetime) || lifetime < 60 || lifetime > 86_400)
-    throw new Error("Workspace Worker JWT lifetime must be between 60 and 86400 seconds");
+    throw new Error("Daemon Runtime JWT lifetime must be between 60 and 86400 seconds");
   return lifetime;
 }

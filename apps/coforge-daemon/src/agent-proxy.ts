@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { isAgentApiKey } from "./credentials/agent-api-key";
 
 export type AgentProxy = {
   url: string;
@@ -8,7 +9,6 @@ export type AgentProxy = {
 };
 
 const LOCAL_PROXY_TOKEN = /^sfp_[A-Za-z0-9_-]{43}$/;
-const AGENT_API_KEY = /^sk_agent_[A-Za-z0-9_-]{43}$/;
 
 /** One daemon-local HTTP boundary shared by all Agent child processes. */
 export function startAgentProxy(input: {
@@ -18,6 +18,7 @@ export function startAgentProxy(input: {
       request: import("@coforge/protocol").LocalAgentMessageRequest,
       agentApiKey: string,
     ): Promise<unknown>;
+    agentAttachment?(context: string, attachmentId: string, agentApiKey: string): Promise<Response>;
     issueAgentContext?: (agentId: string, context?: string) => string;
   };
   port?: number;
@@ -32,15 +33,37 @@ export function startAgentProxy(input: {
   const server = Bun.serve({
     port: input.port ?? 0,
     async fetch(request) {
-      if (request.method !== "POST" || new URL(request.url).pathname !== "/agent/message")
+      const requestUrl = new URL(request.url);
+      if (
+        (request.method !== "POST" || requestUrl.pathname !== "/agent/message") &&
+        (request.method !== "GET" || requestUrl.pathname !== "/agent/attachment")
+      )
         return new Response("not found", { status: 404 });
-      if (request.headers.get("content-type")?.toLowerCase() !== "application/json")
-        return new Response("unsupported media type", { status: 415 });
       const authorization = request.headers.get("authorization");
       const candidate = authorization?.match(/^Bearer (.+)$/)?.[1];
       const token = candidate && LOCAL_PROXY_TOKEN.test(candidate) ? candidate : undefined;
       const binding = token ? contexts.get(token) : undefined;
       if (!binding) return new Response("unauthorized", { status: 401 });
+      if (requestUrl.pathname === "/agent/attachment") {
+        const attachmentId = requestUrl.searchParams.get("attachmentId");
+        if (!attachmentId || !input.runtime.agentAttachment)
+          return new Response("bad request", { status: 400 });
+        try {
+          const response = await input.runtime.agentAttachment(
+            binding.context,
+            attachmentId,
+            binding.agentApiKey,
+          );
+          return new Response(response.body, {
+            status: response.status,
+            headers: response.headers,
+          });
+        } catch {
+          return new Response("attachment download failed", { status: 502 });
+        }
+      }
+      if (request.headers.get("content-type")?.toLowerCase() !== "application/json")
+        return new Response("unsupported media type", { status: 415 });
       try {
         const contentLength = request.headers.get("content-length");
         if (contentLength && (!/^\d+$/.test(contentLength) || Number(contentLength) > maxBodyBytes))
@@ -84,7 +107,7 @@ export function startAgentProxy(input: {
   return {
     url: `http://127.0.0.1:${server.port}/agent/message`,
     issue(agentId, agentApiKey) {
-      if (!AGENT_API_KEY.test(agentApiKey)) throw new Error("invalid Agent API key");
+      if (!isAgentApiKey(agentApiKey)) throw new Error("invalid Agent API key");
       const token = `sfp_${randomBytes(32).toString("base64url")}`;
       const context = input.runtime.issueAgentContext?.(agentId, token) || token;
       contexts.set(token, { agentId, context, agentApiKey });

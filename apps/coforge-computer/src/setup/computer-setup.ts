@@ -152,7 +152,7 @@ export class ComputerSetup {
         workspaceId: response.workspaceId,
         computerId: response.computerId,
         workspaceRoot: this.options.workspaceRoot,
-        workspaceWorkerToken: response.workspaceWorkerToken,
+        daemonToken: response.daemonToken,
       });
       configPath = await this.options.config.saveRegistration(registeredRegistration);
     } catch (error) {

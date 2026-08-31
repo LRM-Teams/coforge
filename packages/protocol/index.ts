@@ -3,9 +3,9 @@ export const COMPUTER_REGISTER_METHOD = "computer:register" as const;
 export const COMPUTER_REGISTER_PROTOCOL_MAJOR = 1 as const;
 export const WORKSPACE_LIST_METHOD = "workspace:list" as const;
 export const WORKSPACE_GET_METHOD = "workspace:get" as const;
-export const WORKSPACE_WORKER_READY_METHOD = "workspace_worker:ready" as const;
-export const WORKSPACE_WORKER_CODE_AGENTS_UPDATE_METHOD =
-  "workspace_worker:code_agents_update" as const;
+export const DAEMON_RUNTIME_READY_METHOD = "daemon_runtime:ready" as const;
+export const DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD =
+  "daemon_runtime:code_agents_update" as const;
 export const AGENT_START_METHOD = "agent:start" as const;
 export const AGENT_MESSAGE_METHOD = "agent:deliver" as const;
 export const AGENT_MESSAGE_ACK_METHOD = "agent:deliver:ack" as const;
@@ -65,9 +65,9 @@ export type ComputerRegisterResponse = {
   requestId: string;
   computerId: string;
   workspaceId: string;
-  workspaceWorkerToken: string;
+  daemonToken: string;
 };
-export type WorkspaceWorkerReadyRequest = {
+export type DaemonRuntimeReadyRequest = {
   protocolMajor: number;
   requestId: string;
   workspaceId: string;
@@ -75,7 +75,7 @@ export type WorkspaceWorkerReadyRequest = {
   workerInstanceId: string;
   startedAt: number;
 };
-export type WorkspaceWorkerCodeAgentsUpdateRequest = {
+export type DaemonRuntimeCodeAgentsUpdateRequest = {
   protocolMajor: number;
   requestId: string;
   workspaceId: string;
@@ -192,17 +192,17 @@ export {
   frameLocalRpc,
   readLocalRpcFrame,
   readLocalRpcFrames,
-  WORKSPACE_WORKER_CONFIGURE_METHOD,
+  DAEMON_RUNTIME_CONFIGURE_METHOD,
   LOCAL_RPC_PROTOCOL_MAJOR,
   LOCAL_RPC_METHODS,
   encodeLocalRpcRequest,
   decodeLocalRpcRequest,
   encodeLocalRpcResponse,
   decodeLocalRpcResponse,
-  encodeWorkspaceWorkerConfigureRequest,
-  decodeWorkspaceWorkerConfigureRequest,
-  encodeWorkspaceWorkerConfigureResponse,
-  decodeWorkspaceWorkerConfigureResponse,
+  encodeDaemonRuntimeConfigureRequest,
+  decodeDaemonRuntimeConfigureRequest,
+  encodeDaemonRuntimeConfigureResponse,
+  decodeDaemonRuntimeConfigureResponse,
   encodeDaemonCommandRequest,
   decodeDaemonCommandRequest,
   encodeDaemonCommandResponse,
@@ -211,12 +211,15 @@ export {
   decodeLocalAgentMessageRequest,
   encodeAgentMessageResponse,
   decodeAgentMessageResponse,
+  encodeLocalAttachment,
+  decodeLocalAttachment,
 } from "./local-daemon";
+export type { AgentMessageRecord } from "./local-daemon";
 export type {
   DaemonHandshakeRequest,
   DaemonHandshakeResponse,
-  WorkspaceWorkerConfigureRequest,
-  WorkspaceWorkerConfigureResponse,
+  DaemonRuntimeConfigureRequest,
+  DaemonRuntimeConfigureResponse,
   LocalRpcRequest,
   LocalRpcResponse,
   DaemonCommandRequest,
@@ -225,10 +228,10 @@ export type {
   AgentMessageResponse,
 } from "./local-daemon";
 export {
-  encodeWorkspaceWorkerReadyRequest,
-  decodeWorkspaceWorkerReadyRequest,
-  encodeWorkspaceWorkerCodeAgentsUpdateRequest,
-  decodeWorkspaceWorkerCodeAgentsUpdateRequest,
+  encodeDaemonRuntimeReadyRequest,
+  decodeDaemonRuntimeReadyRequest,
+  encodeDaemonRuntimeCodeAgentsUpdateRequest,
+  decodeDaemonRuntimeCodeAgentsUpdateRequest,
 } from "./codec";
 export {
   encodeAgentStartIntent,

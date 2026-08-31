@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package coforge.rpc.v1;
+
+import "coforge/rpc/v1/computer.proto";
+
+message DaemonRuntimeConfigureRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  reserved 4;
+  reserved "connection_id";
+  string workspace_root = 5;
+  string daemon_token = 6;
+  string computer_id = 7;
+}
+
+message DaemonRuntimeConfigureResponse {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  bool accepted = 3;
+}
+
+message DaemonRuntimeReadyRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string worker_instance_id = 5;
+  int64 started_at = 6;
+}
+
+message DaemonRuntimeCodeAgentsUpdateRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  repeated RuntimeMetadata runtimes = 5;
+  repeated CodeAgentModelCatalog catalogs = 6;
+}
+
+message CodeAgentModelCatalog {
+  string provider = 1;
+  repeated CodeAgentModelMetadata models = 2;
+}
+
+message CodeAgentModelMetadata {
+  string id = 1;
+  string display_name = 2;
+  string description = 3;
+  string model_provider = 4;
+  repeated string reasoning_efforts = 5;
+  string default_reasoning = 6;
+  bool recommended = 7;
+}

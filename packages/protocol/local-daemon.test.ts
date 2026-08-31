@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   decodeDaemonHandshakeRequest,
   decodeDaemonHandshakeResponse,
-  decodeWorkspaceWorkerConfigureRequest,
+  decodeDaemonRuntimeConfigureRequest,
   encodeDaemonHandshakeRequest,
   encodeDaemonHandshakeResponse,
-  encodeWorkspaceWorkerConfigureRequest,
+  encodeDaemonRuntimeConfigureRequest,
   frameLocalRpc,
   readLocalRpcFrame,
   readLocalRpcFrames,
@@ -41,10 +41,10 @@ describe("local daemon RPC", () => {
       workspaceId: "workspace-1",
       computerId: "computer-1",
       workspaceRoot: "/workspaces/workspace-1",
-      workspaceWorkerToken: "worker-secret",
+      daemonToken: "worker-secret",
     };
     expect(
-      decodeWorkspaceWorkerConfigureRequest(encodeWorkspaceWorkerConfigureRequest(request)),
+      decodeDaemonRuntimeConfigureRequest(encodeDaemonRuntimeConfigureRequest(request)),
     ).toEqual(request);
   });
 

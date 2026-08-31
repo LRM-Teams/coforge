@@ -9,7 +9,7 @@ export type Workspace = { readonly id: string; readonly slug: string };
 export type ComputerRegistration = {
   readonly computerId: string;
   readonly workspaceId: string;
-  readonly workspaceWorkerToken: string;
+  readonly daemonToken: string;
 };
 
 export interface WorkspaceAccess {
@@ -23,9 +23,9 @@ export interface ComputerConnectionRepository {
     principal: AuthenticatedPrincipal;
     workspace: Workspace;
     request: ComputerRegisterRequest;
-  }): Promise<Omit<ComputerRegistration, "workspaceWorkerToken">>;
+  }): Promise<Omit<ComputerRegistration, "daemonToken">>;
 }
-export interface WorkspaceWorkerTokenIssuer {
+export interface DaemonTokenIssuer {
   issue(input: {
     principal: AuthenticatedPrincipal;
     workspaceId: string;
@@ -47,7 +47,7 @@ export class ComputerRegistrar {
     private readonly deps: {
       workspaceAccess: WorkspaceAccess;
       computers: ComputerConnectionRepository;
-      tokenIssuer: WorkspaceWorkerTokenIssuer;
+      tokenIssuer: DaemonTokenIssuer;
     },
   ) {}
 
@@ -70,7 +70,7 @@ export class ComputerRegistrar {
     });
     return {
       ...connection,
-      workspaceWorkerToken: token,
+      daemonToken: token,
       protocolMajor: COMPUTER_REGISTER_PROTOCOL_MAJOR,
       requestId: request.requestId,
     };

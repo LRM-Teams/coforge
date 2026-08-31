@@ -52,5 +52,5 @@ rpc:
       proxy_enabled: true
     - name: workspace
       proxy_enabled: true
-    - name: workspace_worker
+    - name: daemon_runtime
       proxy_enabled: true

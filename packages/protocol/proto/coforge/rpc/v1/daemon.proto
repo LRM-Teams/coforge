@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package coforge.rpc.v1;
+
+message DaemonHandshakeRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+}
+
+message DaemonHandshakeResponse {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string daemon_id = 3;
+  bool accepted = 4;
+}
+
+message DaemonCommandRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+}
+
+message DaemonCommandResponse {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  bool accepted = 3;
+}

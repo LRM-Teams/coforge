@@ -5,7 +5,7 @@ import {
   isAgentApiKeyBoundToComputer,
   type AgentApiKeyRepository,
 } from "./agent-api-key.server";
-import { verifyWorkspaceWorkerToken } from "../auth/workspace-worker-token.server";
+import { verifyDaemonToken } from "../auth/daemon-token.server";
 import { getDatabaseClient } from "../db/client.server";
 import { PrismaAgentApiKeyRepository } from "../db/repositories/agent-api-key.repositories.server";
 import {
@@ -82,7 +82,7 @@ export function createAgentMessageHttpHandler() {
     authenticateEnvelope: (_envelope, request) =>
       authenticateAgentMessageRequest(request, {
         agentApiKeys,
-        verifyDaemonToken: (token) => verifyWorkspaceWorkerToken(token),
+        verifyDaemonToken: (token) => verifyDaemonToken(token),
         computerBelongsToWorkspace: async (workspaceId, computerId) =>
           Boolean(
             await db.workspaceComputer.findUnique({
@@ -99,7 +99,7 @@ export async function authenticateAgentHttpRequest(request: Request) {
   if (!db) throw new CentrifugoRpcAuthenticationError();
   return authenticateAgentMessageRequest(request, {
     agentApiKeys: new PrismaAgentApiKeyRepository(db),
-    verifyDaemonToken: (token) => verifyWorkspaceWorkerToken(token),
+    verifyDaemonToken: (token) => verifyDaemonToken(token),
     computerBelongsToWorkspace: async (workspaceId, computerId) =>
       Boolean(
         await db.workspaceComputer.findUnique({

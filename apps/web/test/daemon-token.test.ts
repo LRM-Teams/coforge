@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { exportJWK, generateKeyPair, jwtVerify } from "jose";
 
 import {
-  createWorkspaceWorkerTokenIssuer,
-  verifyWorkspaceWorkerToken,
-  workspaceWorkerJwks,
-} from "../src/server/auth/workspace-worker-token.server";
+  createDaemonTokenIssuer,
+  verifyDaemonToken,
+  daemonRuntimeJwks,
+} from "../src/server/auth/daemon-token.server";
 
-describe("Workspace Worker JWT", () => {
+describe("Daemon Runtime JWT", () => {
   test("issues an Ed25519 JWT that Centrifugo can verify from JWKS", async () => {
     const { privateKey, publicKey } = await generateKeyPair("EdDSA", { extractable: true });
     const privateJwk = await exportJWK(privateKey);
@@ -19,7 +19,7 @@ describe("Workspace Worker JWT", () => {
       COFORGE_WORKER_JWT_AUDIENCE: "coforge-centrifugo",
       COFORGE_WORKER_JWT_LIFETIME_SECONDS: "900",
     };
-    const token = await createWorkspaceWorkerTokenIssuer(environment).issue({
+    const token = await createDaemonTokenIssuer(environment).issue({
       principal: { userId: "user-1" },
       workspaceId: "workspace-1",
       computerId: "computer-1",
@@ -40,12 +40,12 @@ describe("Workspace Worker JWT", () => {
       computer_id: "computer-1",
     });
     expect(verified.payload.channels).toEqual(["workspace:workspace-1", "activity:workspace-1"]);
-    expect(await verifyWorkspaceWorkerToken(token, environment)).toEqual({
+    expect(await verifyDaemonToken(token, environment)).toEqual({
       userId: "user-1",
       workspaceId: "workspace-1",
       computerId: "computer-1",
     });
-    expect(await workspaceWorkerJwks(environment)).toEqual({
+    expect(await daemonRuntimeJwks(environment)).toEqual({
       keys: [{ ...publicJwk, kid: "worker-key-1", alg: "EdDSA", use: "sig", key_ops: ["verify"] }],
     });
   });

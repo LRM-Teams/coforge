@@ -8,8 +8,8 @@ import { WorkspaceQueryError, WorkspaceQueryUseCase } from "../workspaces/query.
 import { decodeWorkspaceGetRequest, decodeWorkspaceListRequest } from "@coforge/protocol/codec";
 import {
   decodeAgentStartIntent,
-  decodeWorkspaceWorkerCodeAgentsUpdateRequest,
-  decodeWorkspaceWorkerReadyRequest,
+  decodeDaemonRuntimeCodeAgentsUpdateRequest,
+  decodeDaemonRuntimeReadyRequest,
   type CodeAgentModelCatalog,
   type RuntimeMetadata,
 } from "@coforge/protocol";
@@ -114,25 +114,25 @@ export function createAgentMessageMethod(
   };
 }
 
-export const createWorkspaceWorkerReadyMethod =
+export const createDaemonRuntimeReadyMethod =
   (recovery?: {
     recoverWorkspace(workspaceId: string, computerId: string): Promise<void>;
   }): CentrifugoRpcMethod =>
   async (payload, metadata) => {
-    const request = decodeWorkspaceWorkerReadyRequest(payload);
+    const request = decodeDaemonRuntimeReadyRequest(payload);
     if (
       !metadata.principal.userId ||
       metadata.principal.workspaceId !== request.workspaceId ||
       metadata.principal.computerId !== request.computerId
     )
-      return { code: 403, message: "workspace worker identity is not authorized" };
+      return { code: 403, message: "daemon runtime identity is not authorized" };
     if (
       !request.workspaceId ||
       !request.computerId ||
       !request.workerInstanceId ||
       !request.requestId
     )
-      return { code: 400, message: "invalid workspace worker ready request" };
+      return { code: 400, message: "invalid daemon runtime ready request" };
     try {
       await recovery?.recoverWorkspace(request.workspaceId, request.computerId);
       return new Uint8Array();
@@ -141,7 +141,7 @@ export const createWorkspaceWorkerReadyMethod =
     }
   };
 
-export function createWorkspaceWorkerCodeAgentsUpdateMethod(inventory: {
+export function createDaemonRuntimeCodeAgentsUpdateMethod(inventory: {
   replace(
     scope: { workspaceId: string; computerId: string },
     runtimes: RuntimeMetadata[],
@@ -149,13 +149,13 @@ export function createWorkspaceWorkerCodeAgentsUpdateMethod(inventory: {
   ): Promise<unknown>;
 }): CentrifugoRpcMethod {
   return async (payload, metadata) => {
-    const request = decodeWorkspaceWorkerCodeAgentsUpdateRequest(payload);
+    const request = decodeDaemonRuntimeCodeAgentsUpdateRequest(payload);
     if (
       !metadata.principal.userId ||
       metadata.principal.workspaceId !== request.workspaceId ||
       metadata.principal.computerId !== request.computerId
     )
-      return { code: 403, message: "workspace worker identity is not authorized" };
+      return { code: 403, message: "daemon runtime identity is not authorized" };
     if (
       request.protocolMajor !== 1 ||
       !request.requestId ||

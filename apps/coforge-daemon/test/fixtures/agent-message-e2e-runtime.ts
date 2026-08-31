@@ -1,4 +1,4 @@
-export {};
+import { MIMEType } from "node:util";
 
 const descendant = Bun.spawn({
   cmd: [process.execPath, "-e", "setInterval(() => {}, 1000)"],
@@ -69,8 +69,31 @@ async function handle(command: {
         const target = checked.summaries?.[0]?.target;
         if (typeof target !== "string") throw new Error("attention target missing");
         const read = await call("read", "read-request", target);
-        if (!read.messages?.some(({ body }) => body === "E2E User message"))
-          throw new Error("canonical User message missing from read");
+        const message = read.messages?.find(({ body }) => body === "E2E User message");
+        if (!message) throw new Error("canonical User message missing from read");
+        let attachmentType: MIMEType;
+        try {
+          attachmentType = new MIMEType(message.attachment?.contentType ?? "");
+        } catch {
+          throw new Error("attachment metadata has an invalid MIME type");
+        }
+        if (
+          !message.attachment?.id ||
+          message.attachment.fileName !== "e2e-attachment.txt" ||
+          message.attachment.sizeBytes !== 22 ||
+          attachmentType.type !== "text" ||
+          attachmentType.subtype !== "plain"
+        )
+          throw new Error("attachment metadata missing from read");
+        const attachmentResponse = await fetch(
+          `${process.env.COFORGE_AGENT_PROXY_URL!.replace(/\/agent\/message$/, "/agent/attachment")}?attachmentId=${encodeURIComponent(message.attachment.id)}`,
+          { headers: { authorization: `Bearer ${process.env.COFORGE_AGENT_CONTEXT}` } },
+        );
+        const attachmentBody = await attachmentResponse.text();
+        if (!attachmentResponse.ok || attachmentBody !== "E2E attachment content")
+          throw new Error(
+            `attachment content missing from Agent download (${attachmentResponse.status}: ${attachmentBody})`,
+          );
         const first = await call("send", "agent-reply-request", target, "E2E Agent reply");
         const retried = await call("send", "agent-reply-request", target, "E2E Agent reply");
         if (!first.messageId || !retried.messageId)
@@ -113,7 +136,11 @@ async function handle(command: {
           args: { query: "CoForge" },
         });
         write({ type: "agent_settled" });
-      } catch {
+      } catch (error) {
+        await Bun.write(
+          ".e2e-agent-error",
+          error instanceof Error ? error.message : "Agent attachment E2E failed",
+        );
         process.exit(1);
       }
     }
@@ -142,7 +169,15 @@ async function call(
   if (!response.ok) throw new Error(`proxy failed: ${response.status}`);
   return (await response.json()) as {
     summaries?: Array<{ target?: string }>;
-    messages?: Array<{ body?: string }>;
+    messages?: Array<{
+      body?: string;
+      attachment?: {
+        id?: string;
+        fileName?: string;
+        contentType?: string;
+        sizeBytes?: number;
+      };
+    }>;
     messageId?: string;
   };
 }
