@@ -1,0 +1,182 @@
+name: Deploy test
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-test
+  cancel-in-progress: false
+
+env:
+  IMAGE_REPOSITORY: lrm-teams/coforge/coforge-web
+  REMOTE_ROOT: /opt/coforge
+
+jobs:
+  image:
+    name: Build one immutable image
+    runs-on: ubuntu-latest
+    environment: test
+    timeout-minutes: 20
+    outputs:
+      image: ${{ steps.identity.outputs.image }}
+      deployment_id: ${{ steps.validate.outputs.deployment_id }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: jdx/mise-action@v4
+        with:
+          install: false
+
+      - name: Install toolchain
+        run: mise install
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push the immutable digest
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: true
+          outputs: type=image,name=ghcr.io/${{ env.IMAGE_REPOSITORY }},push-by-digest=true,name-canonical=true
+
+      - name: Record the immutable identity
+        id: identity
+        run: |
+          echo "image=ghcr.io/${{ env.IMAGE_REPOSITORY }}@${{ steps.push.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate the identity
+        id: validate
+        run: |
+          id="$(bun scripts/deploy/deployment.ts validate --image "${{ steps.identity.outputs.image }}")"
+          echo "deployment_id=$id" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy the tested digest to test
+    needs: image
+    runs-on: ubuntu-latest
+    environment: test
+    timeout-minutes: 15
+    env:
+      DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+      DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+      REMOTE_ASSETS: ${{ github.workspace }}/assets.tgz
+    steps:
+      - uses: actions/checkout@v6
+      - name: Mark the start time
+        run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      - name: Prepare the SSH identity
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+          DEPLOY_HOST_KEY: ${{ secrets.DEPLOY_SSH_HOST_KEY }}
+        run: |
+          ssh_dir="$(mktemp -d)"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$ssh_dir/key"
+          printf '%s %s\n' "$DEPLOY_SSH_HOST" "$DEPLOY_HOST_KEY" > "$ssh_dir/known_hosts"
+          chmod 700 "$ssh_dir" "$ssh_dir/known_hosts"
+          chmod 600 "$ssh_dir/key"
+          echo "SSH_DIR=$ssh_dir" >> "$GITHUB_ENV"
+
+      - name: Copy deployment assets
+        run: |
+          tar -czf "$REMOTE_ASSETS" \
+            infra/test/docker-compose.yml \
+            infra/test/caddy/Caddyfile \
+            infra/test/centrifugo/config.yaml \
+            scripts/deploy/remote-deploy.sh
+          ssh -i "$SSH_DIR/key" \
+            -o UserKnownHostsFile="$SSH_DIR/known_hosts" \
+            -o BatchMode=yes \
+            "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" \
+            "mkdir -p $REMOTE_ROOT && tar -xzf - -C $REMOTE_ROOT" < "$REMOTE_ASSETS"
+
+      - name: Deploy the tested digest
+        env:
+          IMAGE: ${{ needs.image.outputs.image }}
+        run: |
+          {
+            ssh -i "$SSH_DIR/key" \
+              -o UserKnownHostsFile="$SSH_DIR/known_hosts" \
+              -o BatchMode=yes \
+              "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" \
+              "mkdir -p \$(dirname '$REMOTE_ROOT/state.env') && bash -s -- \
+                --image '$IMAGE' \
+                --compose-file '$REMOTE_ROOT/infra/test/docker-compose.yml' \
+                --secrets-dir '$REMOTE_ROOT/infra/test/secrets' \
+                --state-file '$REMOTE_ROOT/state.env' \
+                --web-health-url http://127.0.0.1:18080/health \
+                --public-health-url https://test.coforge.cn/health" \
+                < scripts/deploy/remote-deploy.sh
+          } > remote-report.env
+
+      - name: Check the remote outcome
+        run: |
+          expected_keys='health_result|outcome|previous_web_image|rollback_target'
+          seen="$(cut -d= -f1 remote-report.env | grep -v '^$' | sort | uniq | paste -sd'|')"
+          if [ "$seen" != "$expected_keys" ]; then
+            echo "remote report keys mismatch: $seen" >&2
+            exit 1
+          fi
+          {
+            echo "outcome=$(sed -n 's/^outcome=//p' remote-report.env)"
+            echo "previous_web_image=$(sed -n 's/^previous_web_image=//p' remote-report.env)"
+            echo "health_result=$(sed -n 's/^health_result=//p' remote-report.env)"
+            echo "rollback_target=$(sed -n 's/^rollback_target=//p' remote-report.env)"
+          } >> "$GITHUB_OUTPUT"
+        id: outcome
+
+      - name: Fail on an unhealthy deployment
+        run: |
+          if [ "${{ steps.outcome.outputs.outcome }}" != "healthy" ]; then
+            echo "deployment outcome: ${{ steps.outcome.outputs.outcome }}" >&2
+            exit 1
+          fi
+
+      - name: Verify public readiness
+        run: |
+          curl --fail --silent --show-error --max-time 10 \
+            "https://test.coforge.cn/health" >/dev/null
+
+      - name: Record the release record
+        if: always()
+        run: |
+          previous="$(sed -n 's/^previous_web_image=//p' remote-report.env 2>/dev/null || true)"
+          bun scripts/deploy/deployment.ts record \
+            --records-file deployment-records.jsonl \
+            --deployment-id "${{ needs.image.outputs.deployment_id }}" \
+            --source-commit "${{ github.sha }}" \
+            --artifact-identity "${{ needs.image.outputs.image }}" \
+            --environment test \
+            --workflow-run "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --previous-digest "${previous##*@}" \
+            --rollback-target "${{ steps.outcome.outputs.rollback_target }}" \
+            --health-result "${{ steps.outcome.outputs.health_result || 'verification was interrupted before health checks ran' }}" \
+            --started-at "${{ env.DEPLOY_STARTED_AT }}" \
+            --outcome "${{ steps.outcome.outputs.outcome || 'interrupted' }}"
+
+      - name: Upload the release record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-records
+          path: deployment-records.jsonl
+          retention-days: 90

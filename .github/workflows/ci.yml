@@ -40,6 +40,12 @@ jobs:
       - name: Check OSS/CDN acceptance verifier
         run: mise run check:oss-cdn
 
+      - name: Test deploy identity contracts
+        run: mise run test:deploy
+
+      - name: Check deploy scripts
+        run: mise run check:deploy
+
   computer:
     name: Computer
     runs-on: ubuntu-latest

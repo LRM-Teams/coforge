@@ -1,6 +1,6 @@
 # CoForge release contract
 
-Status: approved workflow contract; deployment automation is in progress
+Status: approved workflow contract; the cloud test deployment workflow is implemented; production stays disabled behind the human approval gate
 
 Updated: 2026-08-26
 
