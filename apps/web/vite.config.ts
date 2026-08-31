@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
 import { paraglideVitePlugin } from "@inlang/paraglide-js";
@@ -8,8 +9,18 @@ import { nitro } from "nitro/vite";
 
 import { paraglideOptions } from "./paraglide.config.ts";
 
+// Workspace packages resolve through bun's symlinked node_modules, which
+// rolldown's native resolver fails to follow in some Linux environments
+// (musl, overlayfs). Alias them explicitly.
+const workspaceAliases = {
+  "@coforge/protocol": fileURLToPath(new URL("../../packages/protocol", import.meta.url)),
+};
+
 const config = defineConfig({
-  resolve: { tsconfigPaths: true },
+  resolve: {
+    tsconfigPaths: true,
+    alias: workspaceAliases,
+  },
   server: {
     allowedHosts: [".onamp.dev"],
     host: "127.0.0.1",

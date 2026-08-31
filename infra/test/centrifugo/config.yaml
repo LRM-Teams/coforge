@@ -4,6 +4,8 @@
 # Endpoints point at the in-network web backend instead of the host.
 engine:
   type: redis
+  redis:
+    address: "redis:6379"
 
 health:
   enabled: true

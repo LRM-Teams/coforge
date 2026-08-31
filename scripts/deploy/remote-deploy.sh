@@ -105,12 +105,14 @@ write_deploy_env() {
 	env_file="$(cd "$(dirname "$compose_file")" && pwd)/.env"
 	umask 077
 	{
-		printf 'COFORGE_WEB_IMAGE=%s\n' "$web_image"
+			printf 'COFORGE_WEB_IMAGE=%s\n' "$web_image"
 		printf 'DATABASE_URL=postgresql://coforge:%s@postgres:5432/coforge\n' "$(cat "$secrets_dir/postgres_password")"
 		printf 'REDIS_URL=redis://:%s@redis:6379\n' "$(cat "$secrets_dir/redis_password")"
 		printf 'COFORGE_CENTRIFUGO_API_URL=http://centrifugo:8000/api\n'
 		printf 'COFORGE_CENTRIFUGO_API_KEY=%s\n' "$(cat "$secrets_dir/centrifugo_http_api_key")"
 		printf 'COFORGE_CENTRIFUGO_PROXY_SECRET=%s\n' "$(cat "$secrets_dir/centrifugo_proxy_secret")"
+		printf 'COFORGE_WORKER_JWT_KEY_ID=%s\n' "$(cat "$secrets_dir/worker_jwt_key_id")"
+		printf 'COFORGE_WORKER_JWT_PRIVATE_JWK=%s\n' "$(cat "$secrets_dir/worker_jwt_private_jwk")"
 	} >"$env_file"
 }
 

@@ -24,6 +24,12 @@ intentionally unreachable — no plaintext, not even redirects.
      centrifugo_http_api_key centrifugo_proxy_secret; do
      openssl rand -hex 32 > "secrets/$s"
    done
+   # Ed25519 private JWK (single-line JSON) for daemon-runtime tokens, plus a
+   # stable key id. Bun can generate it on the host through the pinned image:
+   docker run --rm -v "$PWD/secrets:/secrets" oven/bun:1.4.0-alpine bun -e \
+     'const k = await crypto.subtle.generateKey("Ed25519", true, ["sign","verify"]); \
+      await Bun.write("/secrets/worker_jwt_private_jwk", JSON.stringify(await crypto.subtle.exportKey("jwk", k)));'
+   printf 'coforge-test\n' > secrets/worker_jwt_key_id
    chmod 600 secrets/*
    ```
 4. Copy the tracked assets from this directory (`docker-compose.yml`,
