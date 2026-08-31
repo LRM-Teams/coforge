@@ -18,8 +18,9 @@ export const Route = createFileRoute("/api/attachments/$attachmentId")({
           });
           return new Response(Bun.file(path), {
             headers: {
-              "Content-Type": attachment.contentType,
-              "Content-Disposition": `inline; filename="${attachment.fileName.replace(/["\\\r\n]/g, "_")}"`,
+              "Content-Type": "application/octet-stream",
+              "Content-Disposition": `attachment; filename="${attachment.fileName.replace(/["\\\r\n]/g, "_")}"`,
+              "X-Content-Type-Options": "nosniff",
             },
           });
         } catch {

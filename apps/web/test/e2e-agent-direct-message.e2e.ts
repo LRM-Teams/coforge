@@ -219,6 +219,11 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
     const first = await sender.execute(input);
     const retried = await sender.execute(input);
     expect(retried.id).toBe(first.id);
+    const browserAttachment = await fetch(`http://127.0.0.1:8789/api/attachments/${attachment.id}`);
+    expect(browserAttachment.status).toBe(200);
+    expect(browserAttachment.headers.get("content-type")).toBe("application/octet-stream");
+    expect(browserAttachment.headers.get("content-disposition")).toContain("attachment");
+    expect(browserAttachment.headers.get("x-content-type-options")).toBe("nosniff");
 
     await waitFor(async () => Bun.file(completionPath).exists() || Bun.file(errorPath).exists());
     if (await Bun.file(errorPath).exists()) throw new Error(await Bun.file(errorPath).text());

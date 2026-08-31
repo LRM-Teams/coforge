@@ -36,6 +36,7 @@ export const Route = createFileRoute("/api/agent-api-keys")({
             id: body.agentId,
             workspaceId: body.workspaceId,
             ownerId: principal.userId,
+            computerId: principal.computerId,
             workspace: {
               members: { some: { userId: principal.userId } },
               computers: { some: { computerId: principal.computerId } },

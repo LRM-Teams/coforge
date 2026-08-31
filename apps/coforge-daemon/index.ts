@@ -98,6 +98,9 @@ if (import.meta.main) {
       agentMessage: (...args) =>
         runtime?.agentMessage(...args) ??
         Promise.reject(new Error("daemon runtime is not running")),
+      agentAttachment: (...args) =>
+        runtime?.agentAttachment(...args) ??
+        Promise.reject(new Error("daemon runtime is not running")),
       issueAgentContext: (agentId) => {
         if (!runtime) throw new Error("daemon runtime is not running");
         return runtime.issueAgentContext(agentId);
