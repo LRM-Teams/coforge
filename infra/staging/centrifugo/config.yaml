@@ -46,7 +46,7 @@ rpc:
     include_connection_meta: true
     http:
       static_headers:
-        X-CoForge-Centrifugo-Proxy-Secret: ${CENTRIGUGO_VAR_RPC_PROXY_SECRET}
+        X-CoForge-Centrifugo-Proxy-Secret: ${CENTRIFUGO_VAR_RPC_PROXY_SECRET}
   without_namespace:
     proxy_enabled: true
   namespaces:

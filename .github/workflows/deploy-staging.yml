@@ -17,8 +17,32 @@ env:
   REMOTE_ROOT: /home/deploy/coforge-staging
 
 jobs:
+  gates:
+    name: Repository gates (check, test, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: jdx/mise-action@v4
+        with:
+          install: false
+
+      - name: Install toolchain
+        run: mise install
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check, test, and build
+        run: |
+          mise run check
+          mise run test
+          mise run build
+
   image:
     name: Build one immutable image
+    needs: gates
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 20
@@ -62,11 +86,17 @@ jobs:
         run: |
           echo "image=ghcr.io/${{ env.IMAGE_REPOSITORY }}@${{ steps.push.outputs.digest }}" >> "$GITHUB_OUTPUT"
 
+      - name: Tag the commit identity
+        run: |
+          docker buildx imagetools create \
+            -t "ghcr.io/${{ env.IMAGE_REPOSITORY }}:sha-${{ github.sha }}" \
+            "ghcr.io/${{ env.IMAGE_REPOSITORY }}@${{ steps.push.outputs.digest }}"
+
       - name: Validate the identity
         id: validate
         run: |
           id="$(bun scripts/deploy/deployment.ts validate --image "${{ steps.identity.outputs.image }}")"
-          echo "deployment_id=$id" >> "$GITHUB_OUTPUT"
+          echo "deployment_id=${id#deployment_id=}" >> "$GITHUB_OUTPUT"
 
   deploy:
     name: Deploy the tested digest to staging
@@ -90,6 +120,10 @@ jobs:
           DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
           DEPLOY_HOST_KEY: ${{ secrets.DEPLOY_SSH_HOST_KEY }}
         run: |
+          if [ "$DEPLOY_SSH_USER" != "deploy" ]; then
+            echo "DEPLOY_SSH_USER must be the non-root deploy identity" >&2
+            exit 1
+          fi
           ssh_dir="$(mktemp -d)"
           printf '%s\n' "$DEPLOY_SSH_KEY" > "$ssh_dir/key"
           printf '%s %s\n' "$DEPLOY_SSH_HOST" "$DEPLOY_HOST_KEY" > "$ssh_dir/known_hosts"
@@ -156,6 +190,25 @@ jobs:
         run: |
           curl --fail --silent --show-error --max-time 10 \
             "https://staging.coforge.cn/health" >/dev/null
+
+      - name: Verify port 80 stays unreachable
+        run: |
+          if curl --silent --max-time 10 "http://staging.coforge.cn/" >/dev/null 2>&1; then
+            echo "port 80 answered; public plaintext must stay unreachable" >&2
+            exit 1
+          fi
+
+      - name: Smoke the realtime route
+        run: |
+          code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            -H 'Connection: Upgrade' \
+            -H 'Upgrade: websocket' \
+            -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+            -H 'Sec-WebSocket-Version: 13' \
+            --max-time 10 \
+            'https://staging.coforge.cn/connection/websocket')"
+          echo "realtime route answered with HTTP $code (any response proves the WSS path)"
+          [ "$code" != "000" ]
 
       - name: Record the release record
         if: always()

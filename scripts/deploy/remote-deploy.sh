@@ -91,8 +91,38 @@ read_state_value() {
 	grep -E "^$1=" "$state_file" 2>/dev/null | head -n 1 | cut -d= -f2- || true
 }
 
-current_image="$(read_state_value CURRENT_WEB_IMAGE)"
-previous_image="$(read_state_value PREVIOUS_WEB_IMAGE)"
+# Reads and validates the release state. A missing state file is only a
+# bootstrap when the environment is verifiably empty; otherwise fail closed.
+current_image=""
+previous_image=""
+if [ -f "$state_file" ]; then
+	current_image="$(read_state_value CURRENT_WEB_IMAGE)"
+	previous_image="$(read_state_value PREVIOUS_WEB_IMAGE)"
+	for value in "$current_image" "$previous_image"; do
+		if [ -n "$value" ] && ! printf '%s' "$value" | grep -Eq '@sha256:[0-9a-f]{64}$'; then
+			printf 'outcome=failed\nhealth_result=failed: release state file holds a non-digest image; refusing to mutate\nrollback_target=\nprevious_web_image=\n'
+			exit 0
+		fi
+	done
+else
+	if [ -n "$(docker compose "${COMPOSE_ARGS[@]}" ps -q web 2>/dev/null)" ]; then
+		printf 'outcome=failed\nhealth_result=failed: state file missing on a non-empty environment; refusing to guess bootstrap\nrollback_target=\nprevious_web_image=\n'
+		exit 0
+	fi
+fi
+
+# Fail closed on a malformed state file (truncated write, manual edit).
+if [ -f "$state_file" ]; then
+	for key in CURRENT_WEB_IMAGE PREVIOUS_WEB_IMAGE; do
+		if ! grep -qE "^$key=" "$state_file"; then
+			printf 'outcome=failed\nhealth_result=failed: release state is malformed; refusing to mutate\nrollback_target=\nprevious_web_image=\n'
+			exit 0
+		fi
+	done
+fi
+
+# The rollback target is the last known healthy image, not the one before it.
+last_healthy="$current_image"
 
 if [ -n "$current_image" ] && [ "$current_image" = "$image" ]; then
 	printf 'previous_web_image=%s\nhealth_result=healthy\noutcome=healthy\nrollback_target=\n' "$current_image"
@@ -145,9 +175,14 @@ verify_running_digest() {
 	local container
 	container="$(docker compose "${COMPOSE_ARGS[@]}" ps -q web)"
 	[ -n "$container" ] || return 1
-	[ "$(docker inspect --format '{{.Config.Image}}' "$container")" = "$image" ]
+	# The container must run the exact requested digest reference, and the
+	# local store must resolve that same immutable identity.
+	[ "$(docker inspect --format '{{.Config.Image}}' "$container")" = "$image" ] &&
+		docker image inspect "$image" >/dev/null 2>&1
 }
 
+# Roll back to the last healthy digest; with an empty environment, restore the
+# recorded empty bootstrap state by removing the failed candidate.
 rollback() {
 	local target="$1"
 	if [ -n "$target" ]; then
@@ -157,8 +192,27 @@ rollback() {
 			printf 'rolled back to the previous healthy digest\n' >&2
 			return 0
 		fi
+		return 1
 	fi
+	# Verified empty environment: remove the failed candidate completely.
+	docker compose "${COMPOSE_ARGS[@]}" down --remove-orphans >/dev/null 2>&1 || true
+	printf 'removed the failed bootstrap candidate; empty state restored\n' >&2
 	return 1
+}
+
+# One failure path for every failed check: roll back to the last healthy
+# digest, or restore the verified empty state when there is none.
+fail_deployment() {
+	local reason="$1"
+	if rollback "$last_healthy"; then
+		public_health || true
+		report "$last_healthy" "$reason" "rolled_back" "$last_healthy"
+	elif [ -z "$last_healthy" ]; then
+		report "" "$reason; restored the empty bootstrap state" "bootstrap_failed" ""
+	else
+		report "$last_healthy" "$reason and rollback failed" "failed" ""
+	fi
+	exit 0
 }
 
 report() {
@@ -167,40 +221,31 @@ report() {
 }
 
 write_deploy_env "$image"
+
+# Validate the rendered base-plus-environment configuration before mutating.
+if ! docker compose "${COMPOSE_ARGS[@]}" config --quiet; then
+	report "$current_image" "failed: compose configuration validation failed" "failed" ""
+	exit 0
+fi
+
 docker compose "${COMPOSE_ARGS[@]}" pull --quiet web
 
-if ! docker compose run "${COMPOSE_ARGS[@]}" --rm --entrypoint bun web node_modules/prisma/build/index.js \
-	migrate deploy --schema=apps/web/prisma/schema.prisma; then
-	report "$current_image" "failed: migration deploy failed" "failed" ""
+if ! docker compose run "${COMPOSE_ARGS[@]}" --rm --entrypoint sh web \
+	-c 'cd .migrate && bun node_modules/prisma/build/index.js migrate deploy'; then
+	report "$last_healthy" "failed: migration deploy failed" "failed" ""
 	exit 0
 fi
 
 if ! docker compose "${COMPOSE_ARGS[@]}" up -d --wait --wait-timeout "$timeout"; then
-	if rollback "$previous_image"; then
-		public_health || true
-		report "$previous_image" "failed: candidate failed health verification" "rolled_back" "$previous_image"
-	else
-		report "$current_image" "failed: candidate failed health verification and rollback failed" "failed" ""
-	fi
-	exit 0
+	fail_deployment "failed: candidate failed health verification"
 fi
 
 if ! verify_running_digest; then
-	if rollback "$previous_image"; then
-		report "$previous_image" "failed: running container digest mismatch" "rolled_back" "$previous_image"
-	else
-		report "$image" "failed: digest mismatch and rollback failed" "failed"
-	fi
-	exit 0
+	fail_deployment "failed: running container digest mismatch"
 fi
 
 if ! public_health; then
-	if rollback "$previous_image"; then
-		report "$previous_image" "failed: public readiness failed" "rolled_back" "$previous_image"
-	else
-		report "$current_image" "failed: public readiness failed and rollback failed" "failed" ""
-	fi
-	exit 0
+	fail_deployment "failed: public readiness failed"
 fi
 
 printf '%s\n' \
@@ -209,4 +254,4 @@ printf '%s\n' \
 chmod 600 "$state_file.tmp"
 mv "$state_file.tmp" "$state_file"
 
-report "$previous_image" "healthy" "healthy" "$previous_image"
+report "$current_image" "healthy" "healthy" "$current_image"

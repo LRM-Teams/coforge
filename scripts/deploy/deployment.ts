@@ -174,7 +174,7 @@ export function renderAuditRecord(record: DeploymentRecord): string {
 export interface RemoteOutputs {
   readonly previousWebImage: string | null;
   readonly healthResult: string;
-  readonly outcome: string;
+  readonly outcome: DeploymentOutcome;
   readonly rollbackTarget: string | null;
 }
 
@@ -207,9 +207,17 @@ export function parseRemoteOutputs(content: string): RemoteOutputs {
   return {
     previousWebImage: parseOptionalImage("previous", values.get("previous_web_image") ?? ""),
     healthResult: values.get("health_result") ?? "",
-    outcome: values.get("outcome") ?? "",
+    outcome: validateOutcome(values.get("outcome") ?? ""),
     rollbackTarget: parseOptionalImage("rollback", values.get("rollback_target") ?? ""),
   };
+}
+
+/** Fails closed on an outcome outside the recorded union. */
+function validateOutcome(value: string): DeploymentOutcome {
+  if (!DEPLOYMENT_OUTCOMES.includes(value as DeploymentOutcome)) {
+    throw new Error(`unexpected remote outcome`);
+  }
+  return value as DeploymentOutcome;
 }
 
 function isIsoTimestamp(value: string): boolean {

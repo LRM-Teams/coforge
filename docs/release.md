@@ -2,7 +2,7 @@
 
 Status: approved workflow contract; the cloud staging deployment workflow is implemented; production stays disabled behind the human approval gate
 
-Updated: 2026-08-26
+Updated: 2026-08-31
 
 This document is the canonical release specification for CoForge. It defines
 which artifact may move between environments, who authorizes that movement,
@@ -574,10 +574,9 @@ single-component transaction, signature, or per-user installation boundaries.
 
 The obsolete custom Go realtime-gateway, its ECS Compose deployment, and its
 test workflow have been removed. The approved standalone Centrifugo, Redis,
-PostgreSQL, and Backend deployment is not implemented yet. Until a focused
-implementation defines immutable artifacts, verification, audit evidence, and
-rollback for that complete stack, neither staging nor production cloud deployment
-has a repository-supported operator path. The release Skill must stop rather
+PostgreSQL, and Backend deployment is implemented for the `staging` cloud
+environment through the immutable-digest workflow above; production stays
+disabled behind the human approval gate. The release Skill must stop rather
 than reconstruct or invoke the removed gateway workflow.
 
 The local feed topology and `cdn.coforge.cn/releases/` consumer boundary above
