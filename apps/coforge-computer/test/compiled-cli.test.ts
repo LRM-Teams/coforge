@@ -152,7 +152,7 @@ test("compiled login strips terminal controls from device authorization instruct
   }
 });
 
-test("compiled setup reports a stable authentication failure without claiming success", () => {
+test("compiled setup reports a stable network failure without claiming success", () => {
   const result = Bun.spawnSync({
     cmd: [executable, "setup"],
     env: { ...process.env, XDG_CONFIG_HOME: directory },
@@ -161,8 +161,8 @@ test("compiled setup reports a stable authentication failure without claiming su
   });
 
   expect(result.exitCode).toBe(1);
-  expect(result.stdout.toString()).toBe("");
-  expect(result.stderr.toString()).toContain("AUTH_CREDENTIAL_STORE_UNAVAILABLE");
+  expect(result.stdout.toString()).toContain("CoForge Computer login");
+  expect(result.stderr.toString()).toContain("AUTH_NETWORK_ERROR");
   expect(result.stderr.toString()).toContain("Hint:");
   expect(result.stderr.toString()).not.toContain("registration was created");
 });

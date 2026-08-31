@@ -4,15 +4,18 @@ import {
   encodeComputerRegisterResponse,
 } from "@coforge/protocol/codec";
 import { ComputerRegistrationError } from "../computers/registration.server";
+import { setComputerStatus } from "./computer-status.server";
 import { WorkspaceQueryError, WorkspaceQueryUseCase } from "../workspaces/query.server";
 import { decodeWorkspaceGetRequest, decodeWorkspaceListRequest } from "@coforge/protocol/codec";
 import {
   decodeAgentStartIntent,
   decodeDaemonRuntimeCodeAgentsUpdateRequest,
   decodeDaemonRuntimeReadyRequest,
+  decodeDaemonRuntimeUsageScanResponse,
   type CodeAgentModelCatalog,
   type RuntimeMetadata,
 } from "@coforge/protocol";
+import { getUsageCache, type UsageSnapshot } from "./usage-cache.server";
 import { CloudAgentUseCase } from "../agents/cloud-agent.server";
 import { decodeAgentMessageDeliveryAck } from "@coforge/protocol";
 import { decodeAgentMessageRequest, encodeCloudAgentMessageResponse } from "@coforge/protocol";
@@ -141,6 +144,24 @@ export const createDaemonRuntimeReadyMethod =
     }
   };
 
+export function createDaemonConnectionStatusMethod(): CentrifugoRpcMethod {
+  return (payload, metadata) => {
+    const request = JSON.parse(new TextDecoder().decode(payload)) as {
+      workspaceId?: string;
+      computerId?: string;
+      online?: boolean;
+    };
+    if (
+      request.workspaceId !== metadata.principal.workspaceId ||
+      request.computerId !== metadata.principal.computerId ||
+      typeof request.online !== "boolean"
+    )
+      return { code: 403, message: "invalid daemon connection status" };
+    setComputerStatus(request.workspaceId, request.computerId, request.online);
+    return new Uint8Array();
+  };
+}
+
 export function createDaemonRuntimeCodeAgentsUpdateMethod(inventory: {
   replace(
     scope: { workspaceId: string; computerId: string },
@@ -177,6 +198,42 @@ export function createDaemonRuntimeCodeAgentsUpdateMethod(inventory: {
       return { code: 503, message: "Code Agent inventory update failed" };
     }
   };
+}
+
+export function createDaemonRuntimeUsageScanResultMethod(): CentrifugoRpcMethod {
+  return async (payload, metadata) => {
+    const response = decodeDaemonRuntimeUsageScanResponse(payload);
+    if (
+      !metadata.principal.userId ||
+      metadata.principal.workspaceId !== response.workspaceId ||
+      metadata.principal.computerId !== response.computerId
+    )
+      return { code: 403, message: "daemon runtime identity is not authorized" };
+    if (response.protocolMajor !== 1 || !response.requestId || !response.provider)
+      return { code: 400, message: "invalid usage scan result" };
+    const snapshot = response.snapshotJson
+      ? (JSON.parse(new TextDecoder().decode(response.snapshotJson)) as UsageSnapshot)
+      : undefined;
+    await getUsageCache().put({
+      workspaceId: response.workspaceId,
+      computerId: response.computerId,
+      provider: response.provider,
+      scanId: response.requestId,
+      status: usageStatus(response.status),
+      message: response.message,
+      snapshot,
+    });
+    return new Uint8Array();
+  };
+}
+
+function usageStatus(
+  value: string,
+): "available" | "unavailable" | "reauth" | "unsupported" | "error" {
+  if (value === "complete") return "available";
+  if (value === "unavailable" || value === "reauth" || value === "unsupported" || value === "error")
+    return value;
+  return "error";
 }
 
 function validModelCatalogs(catalogs: CodeAgentModelCatalog[]): boolean {

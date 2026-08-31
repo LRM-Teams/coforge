@@ -20,7 +20,7 @@ src/
 ├── daemon-application/             # daemon use cases and orchestration
 ├── local-rpc/                      # Computer↔Daemon IPC server and handlers
 ├── daemon-runtime/                 # daemon-owned single Workspace runtime
-├── cloud-transport/                # Worker WSS connection and reconnect loop
+├── connection/                    # Daemon WSS connection and reconnect loop
 ├── protocol/                       # daemon-side protocol ports/codecs
 ├── agent-runtime/                  # Agent state, activity, and process control
 ├── code-agent/                     # provider-neutral contract and adapters
@@ -44,10 +44,10 @@ boundary, then update this map if the ownership changes.
 - `daemon-host/` owns login-session startup behavior (launchd, systemd user,
   and Windows task integration). It does not own Computer commands.
 - `local-rpc/` owns the local Unix socket/named-pipe server, framing, request
-  validation, and RPC dispatch. It must not contain cloud transport logic.
+  validation, and RPC dispatch. It must not contain Daemon cloud connection logic.
 - `daemon-runtime/` owns the single Workspace's cloud connection and Agent
   runtime operations. There is no Daemon or runtime pool abstraction.
-- `cloud-transport/` owns the daemon's long-lived WSS connection, ordered
+- `connection/` owns the daemon's long-lived WSS connection, ordered
   replay, reconnect, and protocol transport mechanics. Domain decisions remain
   above it.
 - `agent-runtime/` owns Agent lifecycle and the finite state machine whose only

@@ -1,3 +1,7 @@
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 /** Daemon-owned storage for the credential used by one cloud connection. */
 export interface DaemonCredentialStore {
   save(workspaceId: string, computerId: string, token: string): Promise<void>;
@@ -5,35 +9,46 @@ export interface DaemonCredentialStore {
   delete(workspaceId: string, computerId: string): Promise<void>;
 }
 
-type Secrets = Pick<typeof Bun.secrets, "get" | "set" | "delete">;
+/** Stores the daemon's Workspace token in its private local state directory. */
+export class FileDaemonCredentialStore implements DaemonCredentialStore {
+  readonly #directory: string;
 
-// Keep the service identifier stable for existing OS keychain entries.
-const CREDENTIAL_SERVICE = "cn.coforge.daemon.daemon-runtime";
-
-/** Stores the daemon's Workspace token in the operating system credential store. */
-export class NativeDaemonCredentialStore implements DaemonCredentialStore {
-  constructor(private readonly secrets: Secrets = Bun.secrets) {}
+  constructor(
+    directory = process.env.COFORGE_DAEMON_HOME ?? join(homedir(), ".coforge", "daemon"),
+  ) {
+    this.#directory = join(directory, "credentials");
+  }
 
   async save(workspaceId: string, computerId: string, token: string): Promise<void> {
-    await this.secrets.set({
-      service: CREDENTIAL_SERVICE,
-      name: `${workspaceId}:${computerId}`,
-      value: token,
-    });
+    const path = this.#path(workspaceId, computerId);
+    await mkdir(this.#directory, { recursive: true, mode: 0o700 });
+    await chmod(this.#directory, 0o700);
+    const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+    await writeFile(temporary, `${token}\n`, { encoding: "utf8", mode: 0o600 });
+    await chmod(temporary, 0o600);
+    await rename(temporary, path);
+    await chmod(path, 0o600);
   }
 
   async load(workspaceId: string, computerId: string): Promise<string | null> {
-    return await this.secrets.get({
-      service: CREDENTIAL_SERVICE,
-      name: `${workspaceId}:${computerId}`,
-    });
+    try {
+      const token = (await readFile(this.#path(workspaceId, computerId), "utf8")).trim();
+      return token || null;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
   }
 
   async delete(workspaceId: string, computerId: string): Promise<void> {
-    await this.secrets.delete({
-      service: CREDENTIAL_SERVICE,
-      name: `${workspaceId}:${computerId}`,
-    });
+    await rm(this.#path(workspaceId, computerId), { force: true });
+  }
+
+  #path(workspaceId: string, computerId: string): string {
+    return join(
+      this.#directory,
+      `${encodeURIComponent(workspaceId)}-${encodeURIComponent(computerId)}.token`,
+    );
   }
 }
 

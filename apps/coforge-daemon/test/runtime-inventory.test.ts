@@ -4,6 +4,10 @@ import {
   discoverExternalCodeAgents,
   type ExternalCodeAgentProbe,
 } from "../src/code-agent/runtime-inventory";
+import {
+  probeClaudeCodeVersion,
+  resolveClaudeCodeExecutable,
+} from "../src/code-agent/claude-code/runtime";
 
 function probeFor(
   runtimes: Record<string, { path: string; version: string; exitCode?: number }>,
@@ -21,6 +25,53 @@ function probeFor(
 }
 
 describe("external Code Agent inventory", () => {
+  test("resolves Claude Code from PATH before any platform fallback", async () => {
+    await expect(resolveClaudeCodeExecutable(() => "/custom/bin/claude")).resolves.toBe(
+      "/custom/bin/claude",
+    );
+  });
+
+  test("parses Claude Code's version from its version output", async () => {
+    await expect(
+      probeClaudeCodeVersion("/bin/claude", () => ({
+        stdout: new Blob(["Claude Code 2.1.7 (build abc)\n"]).stream(),
+        exited: Promise.resolve(0),
+      })),
+    ).resolves.toBe("2.1.7");
+  });
+
+  test("does not inventory Claude Code when version probing fails", async () => {
+    let killed = false;
+    await expect(
+      probeClaudeCodeVersion("/bin/claude", () => ({
+        stdout: new Blob(["error\n"]).stream(),
+        exited: Promise.resolve(1),
+        kill: () => {
+          killed = true;
+        },
+      })),
+    ).resolves.toBeUndefined();
+    expect(killed).toBe(true);
+  });
+
+  test("kills a Claude Code version probe that exceeds its timeout", async () => {
+    let killed = false;
+    await expect(
+      probeClaudeCodeVersion(
+        "/bin/claude",
+        () => ({
+          stdout: new ReadableStream(),
+          exited: new Promise(() => {}),
+          kill: () => {
+            killed = true;
+          },
+        }),
+        10,
+      ),
+    ).resolves.toBeUndefined();
+    expect(killed).toBe(true);
+  });
+
   test("detects Codex and Claude Code without reporting Pi", async () => {
     const runtimes = await discoverExternalCodeAgents(
       probeFor({
@@ -31,8 +82,8 @@ describe("external Code Agent inventory", () => {
     );
 
     expect(runtimes).toEqual([
-      { provider: "codex", version: "0.151.0", kind: "external" },
-      { provider: "claude-code", version: "2.1.0", kind: "external" },
+      { provider: "codex", version: "0.151.0", displayName: "Codex", kind: "external" },
+      { provider: "claude-code", version: "2.1.0", displayName: "Claude Code", kind: "external" },
     ]);
   });
 
@@ -42,6 +93,20 @@ describe("external Code Agent inventory", () => {
         probeFor({ codex: { path: "/bin/codex", version: "", exitCode: 1 } }),
       ),
     ).resolves.toEqual([]);
+  });
+
+  test("uses the Codex app-server probe before reporting the runtime", async () => {
+    const probed: string[] = [];
+    const probe = probeFor({ codex: { path: "/bin/codex", version: "0.151.0" } });
+    probe.probe = async (provider, executable) => {
+      probed.push(`${provider}:${executable}`);
+      return "0.151.0";
+    };
+
+    await expect(discoverExternalCodeAgents(probe)).resolves.toEqual([
+      { provider: "codex", version: "0.151.0", displayName: "Codex", kind: "external" },
+    ]);
+    expect(probed).toEqual(["codex:/bin/codex"]);
   });
 
   test("does not wait indefinitely for a runtime version probe", async () => {

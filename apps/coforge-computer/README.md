@@ -70,6 +70,12 @@ TTY-safe emphasis without changing redirected output.
 Computer and Daemon data use separate directories under the user's home
 directory:
 
+Computer credential storage can be relocated with `COFORGE_COMPUTER_CREDENTIALS_DIR`
+(highest priority, used directly as the credential root) or
+`COFORGE_COMPUTER_HOME` (credentials default to its `credentials` child). These
+are state-directory controls, not Computer profiles. Without either variable,
+credentials are stored under `~/.coforge/computer/credentials/<server>.json`.
+
 | Platform | Computer directory                |
 | -------- | --------------------------------- |
 | Linux    | `~/.coforge/computer`             |

@@ -3,10 +3,20 @@ export const COMPUTER_REGISTER_METHOD = "computer:register" as const;
 export const COMPUTER_REGISTER_PROTOCOL_MAJOR = 1 as const;
 export const WORKSPACE_LIST_METHOD = "workspace:list" as const;
 export const WORKSPACE_GET_METHOD = "workspace:get" as const;
-export const DAEMON_RUNTIME_READY_METHOD = "daemon_runtime:ready" as const;
-export const DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD =
-  "daemon_runtime:code_agents_update" as const;
+export const DAEMON_RUNTIME_READY_METHOD = "daemon:runtime_ready" as const;
+export const DAEMON_CONNECTION_STATUS_METHOD = "daemon:connection_status" as const;
+export const DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD = "daemon:code_agents_update" as const;
+export const DAEMON_RUNTIME_USAGE_SCAN_METHOD = "daemon:usage_scan" as const;
+export const DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD = "daemon:usage_scan_result" as const;
 export const AGENT_START_METHOD = "agent:start" as const;
+export const AGENT_START_MESSAGE_TYPE = "coforge.rpc.v1.AgentStartIntent" as const;
+export const USAGE_SCAN_MESSAGE_TYPE = "coforge.rpc.v1.DaemonRuntimeUsageScanRequest" as const;
+export const USAGE_SCAN_RESPONSE_MESSAGE_TYPE =
+  "coforge.rpc.v1.DaemonRuntimeUsageScanResponse" as const;
+export type DaemonRuntimeMessageType =
+  | typeof AGENT_START_MESSAGE_TYPE
+  | typeof USAGE_SCAN_MESSAGE_TYPE
+  | typeof USAGE_SCAN_RESPONSE_MESSAGE_TYPE;
 export const AGENT_MESSAGE_METHOD = "agent:deliver" as const;
 export const AGENT_MESSAGE_ACK_METHOD = "agent:deliver:ack" as const;
 export const AGENT_MESSAGE_CHECK_METHOD = "agent:message:check" as const;
@@ -33,6 +43,7 @@ export type RuntimeProvider = (typeof RUNTIME_PROVIDER)[keyof typeof RUNTIME_PRO
 export type RuntimeMetadata = {
   provider: RuntimeProvider;
   version: string;
+  displayName: string;
   /** Defaults to external when decoding a pre-kind payload. */
   kind: RuntimeKind;
 };
@@ -82,6 +93,20 @@ export type DaemonRuntimeCodeAgentsUpdateRequest = {
   computerId: string;
   runtimes: RuntimeMetadata[];
   catalogs: CodeAgentModelCatalog[];
+};
+export type DaemonRuntimeUsageScanRequest = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  computerId: string;
+  provider: RuntimeProvider;
+  messageType?: DaemonRuntimeMessageType;
+};
+export type DaemonRuntimeUsageScanResponse = DaemonRuntimeUsageScanRequest & {
+  accepted: boolean;
+  status: string;
+  message?: string;
+  snapshotJson?: Uint8Array;
 };
 export type AgentStartIntent = {
   protocolMajor: number;
@@ -213,6 +238,10 @@ export {
   decodeAgentMessageResponse,
   encodeLocalAttachment,
   decodeLocalAttachment,
+  encodeUsageScanRequest,
+  decodeUsageScanRequest,
+  encodeUsageScanResponse,
+  decodeUsageScanResponse,
 } from "./local-daemon";
 export type { AgentMessageRecord } from "./local-daemon";
 export type {
@@ -226,12 +255,18 @@ export type {
   DaemonCommandResponse,
   LocalAgentMessageRequest,
   AgentMessageResponse,
+  UsageScanRequest,
+  UsageScanResponse,
 } from "./local-daemon";
 export {
   encodeDaemonRuntimeReadyRequest,
   decodeDaemonRuntimeReadyRequest,
   encodeDaemonRuntimeCodeAgentsUpdateRequest,
   decodeDaemonRuntimeCodeAgentsUpdateRequest,
+  encodeDaemonRuntimeUsageScanRequest,
+  decodeDaemonRuntimeUsageScanRequest,
+  encodeDaemonRuntimeUsageScanResponse,
+  decodeDaemonRuntimeUsageScanResponse,
 } from "./codec";
 export {
   encodeAgentStartIntent,

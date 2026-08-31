@@ -3,6 +3,57 @@ import { getRequest } from "@tanstack/react-start/server";
 import type { CodeAgentModelMetadata, RuntimeProvider } from "@coforge/protocol";
 import { requireBrowserUser } from "../../server/auth/require-user.server";
 import { getDatabaseClient } from "../../server/db/client.server";
+import {
+  createCentrifugoServerApi,
+  createUsageScan,
+} from "../../server/centrifugo/server-api.server";
+import { getUsageCache } from "../../server/centrifugo/usage-cache.server";
+import { getComputerStatus } from "../../server/centrifugo/computer-status.server";
+
+export const scanUsage = createServerFn({ method: "POST" })
+  .validator((data: { computerId: string; provider: RuntimeProvider }) => data)
+  .handler(async ({ data }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Computer persistence is unavailable");
+    const connection = await db.workspaceComputer.findFirst({
+      where: { computerId: data.computerId, workspace: { members: { some: { userId: user.id } } } },
+      select: {
+        workspaceId: true,
+        computerId: true,
+        computer: {
+          select: { runtimes: { where: { provider: data.provider }, select: { provider: true } } },
+        },
+      },
+    });
+    if (!connection || !connection.computer.runtimes.length)
+      throw new Error("runtime is not available");
+    const scanId = await createUsageScan(createCentrifugoServerApi(), {
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      provider: data.provider,
+    });
+    return { scanId, status: "pending" as const };
+  });
+
+export const readUsage = createServerFn({ method: "GET" })
+  .validator((data: { computerId: string; provider: RuntimeProvider }) => data)
+  .handler(async ({ data }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Computer persistence is unavailable");
+    const connection = await db.workspaceComputer.findFirst({
+      where: { computerId: data.computerId, workspace: { members: { some: { userId: user.id } } } },
+      select: { workspaceId: true },
+    });
+    if (!connection) throw new Error("computer is not available");
+    const record = await getUsageCache().get({
+      workspaceId: connection.workspaceId,
+      computerId: data.computerId,
+      provider: data.provider,
+    });
+    return record;
+  });
 
 export const listComputers = createServerFn({ method: "GET" }).handler(async () => {
   const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
@@ -24,7 +75,7 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
             machineId: true,
             runtimes: {
               where: { provider: { not: "pi" } },
-              select: { provider: true, version: true, observedAt: true },
+              select: { provider: true, version: true, displayName: true, observedAt: true },
               orderBy: { provider: "asc" },
             },
             modelCatalogs: {
@@ -39,6 +90,11 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
     .then((connections) =>
       connections.map(({ computer }) => ({
         ...computer,
+        online: getComputerStatus(membership.workspaceId, computer.id).online,
+        runtimes: computer.runtimes.map((runtime) => ({
+          ...runtime,
+          provider: runtimeProvider(runtime.provider),
+        })),
         modelCatalogs: computer.modelCatalogs
           .map((catalog) => ({
             provider: catalog.provider as RuntimeProvider,
@@ -85,4 +141,9 @@ function modelMetadata(value: unknown): CodeAgentModelMetadata[] | undefined {
     });
   }
   return models;
+}
+
+function runtimeProvider(value: string): RuntimeProvider {
+  if (value === "codex" || value === "claude-code" || value === "pi") return value;
+  throw new Error("Computer reported an unknown runtime provider");
 }

@@ -18,8 +18,7 @@ message ComputerRegisterRequest {
 message RuntimeMetadata {
   string provider = 1;
   string version = 2;
-  reserved 3;
-  reserved "capabilities";
+  string display_name = 3;
   RuntimeKind kind = 4;
 }
 

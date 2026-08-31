@@ -7,7 +7,7 @@ import type {
 import { WORKSPACE_GET_METHOD, WORKSPACE_PROTOCOL_MAJOR } from "@coforge/protocol";
 import type { ComputerWorkspaceRpcTransport } from "./workspace/lookup";
 import type { AccessibleWorkspace, Credential } from "./login";
-import { setupError } from "./errors";
+import { RemoteRpcError, safeErrorDetail, setupError, TransportError } from "./errors";
 import {
   encodeComputerRegisterRequest,
   decodeComputerRegisterResponse,
@@ -44,13 +44,31 @@ export class CentrifugoComputerRegisterTransport implements ComputerRegisterTran
   ): Promise<ComputerRegisterResponse> {
     const client = this.factory(this.endpoint, this.token);
     try {
-      await new Promise<void>((resolve, reject) => {
-        client.on("connected", resolve);
-        client.on("error", reject);
-        client.connect();
-      });
-      const response = await client.rpc(method, encodeComputerRegisterRequest(payload));
-      return decodeComputerRegisterResponse(response.data);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          client.on("connected", resolve);
+          client.on("error", reject);
+          client.connect();
+        });
+      } catch (error) {
+        throw new TransportError(
+          `Could not connect to the CoForge RPC service: ${safeErrorDetail(error)}`,
+          { cause: error },
+        );
+      }
+      try {
+        const response = await client.rpc(method, encodeComputerRegisterRequest(payload));
+        return decodeComputerRegisterResponse(response.data);
+      } catch (error) {
+        const detail = error as { code?: string | number; requestId?: string; message?: string };
+        throw new RemoteRpcError(
+          method,
+          detail.code,
+          detail.requestId ?? payload.requestId,
+          `The CoForge service rejected the Computer registration: ${safeErrorDetail(error)}`,
+          { cause: error },
+        );
+      }
     } finally {
       client.disconnect();
     }
@@ -58,7 +76,10 @@ export class CentrifugoComputerRegisterTransport implements ComputerRegisterTran
 }
 
 export class CentrifugoWorkspaceRpcTransport implements ComputerWorkspaceRpcTransport {
-  constructor(private readonly factory: CentrifugeFactory = defaultFactory) {}
+  constructor(
+    private readonly factory: CentrifugeFactory = defaultFactory,
+    private readonly endpointForServer: (serverUrl: string) => string = centrifugoWebSocketEndpoint,
+  ) {}
 
   async getBySlug(
     serverUrl: string,
@@ -67,7 +88,7 @@ export class CentrifugoWorkspaceRpcTransport implements ComputerWorkspaceRpcTran
   ): Promise<AccessibleWorkspace> {
     const requestId = crypto.randomUUID();
     const result = await this.call(
-      cloudWebSocketEndpoint(serverUrl),
+      this.endpointForServer(serverUrl),
       credential.accessToken,
       WORKSPACE_GET_METHOD,
       encodeWorkspaceGetRequest({
@@ -85,6 +106,7 @@ export class CentrifugoWorkspaceRpcTransport implements ComputerWorkspaceRpcTran
       throw setupError(
         "SETUP_WORKSPACE_NOT_FOUND",
         `Workspace '${slug}' was not found or is not accessible.`,
+        "workspace-lookup",
       );
     }
   }
@@ -92,12 +114,30 @@ export class CentrifugoWorkspaceRpcTransport implements ComputerWorkspaceRpcTran
   private async call(endpoint: string, token: string, method: string, payload: Uint8Array) {
     const client = this.factory(endpoint, token);
     try {
-      await new Promise<void>((resolve, reject) => {
-        client.on("connected", resolve);
-        client.on("error", reject);
-        client.connect();
-      });
-      return await client.rpc(method, payload);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          client.on("connected", resolve);
+          client.on("error", reject);
+          client.connect();
+        });
+      } catch (error) {
+        throw new TransportError(
+          `Could not connect to the CoForge RPC service: ${safeErrorDetail(error)}`,
+          { cause: error },
+        );
+      }
+      try {
+        return await client.rpc(method, payload);
+      } catch (error) {
+        const detail = error as { code?: string | number; requestId?: string };
+        throw new RemoteRpcError(
+          method,
+          detail.code,
+          detail.requestId,
+          `The CoForge service rejected the Workspace lookup: ${safeErrorDetail(error)}`,
+          { cause: error },
+        );
+      }
     } finally {
       client.disconnect();
     }
@@ -120,9 +160,36 @@ export class UnconfiguredComputerWorkspaceRpcTransport implements ComputerWorksp
   }
 }
 
-export function cloudWebSocketEndpoint(serverUrl: string): string {
+export function centrifugoWebSocketEndpoint(serverUrl: string, endpointOverride?: string): string {
+  if (endpointOverride) return endpointOverride;
   const url = new URL(serverUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = "/connection/websocket";
   return url.toString();
+}
+
+/**
+ * E2E-only split endpoint. OAuth and HTTP workspace URLs remain serverUrl;
+ * production has no override and keeps deriving WSS from that URL.
+ */
+export function resolveCentrifugoWebSocketEndpoint(serverUrl: string, env = Bun.env): string {
+  const override =
+    env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1" ? env.COFORGE_E2E_CENTRIFUGO_ENDPOINT : undefined;
+  return centrifugoWebSocketEndpoint(serverUrl, override);
+}
+
+/** DaemonCore's server connection endpoint; the staging backend owns this route. */
+export function daemonConnectionEndpoint(serverUrl: string): string {
+  const url = new URL(serverUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = "/daemon/connect";
+  return url.toString();
+}
+
+export function resolveDaemonConnectionEndpoint(serverUrl: string, env = Bun.env): string {
+  const override =
+    env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1"
+      ? env.COFORGE_E2E_DAEMON_CONNECTION_ENDPOINT
+      : undefined;
+  return override ?? daemonConnectionEndpoint(serverUrl);
 }

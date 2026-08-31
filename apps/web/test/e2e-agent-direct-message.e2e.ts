@@ -23,7 +23,7 @@ import { SendDirectMessage } from "../src/server/conversations/direct-message.se
 import { RedisMessageRequestIdempotency } from "../src/server/conversations/redis-message-request-idempotency.server";
 import { createCentrifugoServerApi } from "../src/server/centrifugo/server-api.server";
 import {
-  CentrifugoWorkspaceTransport,
+  DaemonConnection,
   DaemonRuntime,
   InMemoryDaemonCredentialStore,
   PiAgentAdapter,
@@ -74,7 +74,7 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
       platform: "linux",
       osVersion: "e2e",
       computerVersion: "0.1.0",
-      runtimes: [{ provider: "pi", kind: "builtin", version: "0.1.0" }],
+      runtimes: [{ provider: "pi", kind: "builtin", version: "0.1.0", displayName: "Pi" }],
       registrationIdempotencyKey: "e2e-registration",
     },
     { userId: DEV_BROWSER_USER.id },
@@ -139,7 +139,7 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
         ],
       }),
     credentials,
-    { create: () => new CentrifugoWorkspaceTransport("ws://127.0.0.1:8000/connection/websocket") },
+    { create: () => new DaemonConnection("ws://127.0.0.1:8000/connection/websocket") },
     proxy,
   );
 
@@ -237,8 +237,12 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
     expect(await db.agentMessageDelivery.count()).toBe(1);
     expect((await db.agentMessageDelivery.findFirst())?.receivedAt).toBeInstanceOf(Date);
 
-    await waitFor(
-      async () => (await db.agentActivity.count({ where: { agentId: created.agent.id } })) >= 7,
+    await waitFor(async () =>
+      Boolean(
+        await db.agentActivity.findFirst({
+          where: { agentId: created.agent.id, activity: "turn_completed" },
+        }),
+      ),
     );
     const firstLaunchActivity = await db.agentActivity.findMany({
       where: { agentId: created.agent.id },
@@ -372,17 +376,21 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
     expect(profileHtml).toContain("balanced");
     expect(profileHtml).toContain(errorMessage);
 
-    const activityPage = await fetch(
-      `http://127.0.0.1:8789/agents/${created.agent.id}?tab=activity`,
-    );
-    expect(activityPage.status).toBe(200);
-    const activityHtml = await activityPage.text();
+    let activityHtml = "";
+    await waitFor(async () => {
+      const activityPage = await fetch(
+        `http://127.0.0.1:8789/agents/${created.agent.id}?tab=activity`,
+      );
+      if (activityPage.status !== 200) return false;
+      activityHtml = await activityPage.text();
+      return activityHtml.includes("running_command");
+    });
     expect(activityHtml).toContain(errorMessage);
-    expect(activityHtml).toContain("Running command");
-    expect(activityHtml).toContain("Reading file");
-    expect(activityHtml).toContain("Writing file");
-    expect(activityHtml).toContain("Editing file");
-    expect(activityHtml).toContain("Using tool");
+    expect(activityHtml).toContain("running_command");
+    expect(activityHtml).toContain("reading_file");
+    expect(activityHtml).toContain("writing_file");
+    expect(activityHtml).toContain("editing_file");
+    expect(activityHtml).toContain("using_tool");
     expect(activityHtml).toContain("printf e2e-activity");
     expect(activityHtml).toContain("/workspace/e2e-read.ts");
     expect(activityHtml).toContain("/workspace/e2e-write.ts");

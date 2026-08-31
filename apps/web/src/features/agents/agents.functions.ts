@@ -90,6 +90,8 @@ function validateCreateInput(data: unknown): AgentCreateInput {
   const computerId = Reflect.get(data, "computerId");
   if (typeof name !== "string" || typeof displayName !== "string")
     throw new Error("Agent name and displayName must be strings");
+  if (!displayName.trim() || displayName.length > 200)
+    throw new Error("Agent displayName must be non-empty and at most 200 characters");
   if (
     provider !== RUNTIME_PROVIDER.PI &&
     provider !== RUNTIME_PROVIDER.CODEX &&

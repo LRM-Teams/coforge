@@ -1,63 +1,18 @@
 import { expect, test } from "bun:test";
-import { NativeDaemonCredentialStore } from "../src/credentials/credential-store";
+import { FileDaemonCredentialStore } from "../src/credentials/credential-store";
+import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-test("native Daemon Runtime credential store delegates to the OS secret store", async () => {
-  const calls: unknown[] = [];
-  const secrets = {
-    async set(input: unknown) {
-      calls.push(["set", input]);
-    },
-    async get(input: unknown) {
-      calls.push(["get", input]);
-      return "daemon-runtime-secret";
-    },
-    async delete(input: unknown) {
-      calls.push(["delete", input]);
-      return true;
-    },
-  };
-  const store = new NativeDaemonCredentialStore(secrets);
+test("Daemon credential store persists a private token file", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "coforge-daemon-credentials-"));
+  const store = new FileDaemonCredentialStore(directory);
 
   await store.save("workspace-a", "computer-a", "daemon-runtime-secret");
   await expect(store.load("workspace-a", "computer-a")).resolves.toBe("daemon-runtime-secret");
+  const path = join(directory, "credentials", "workspace-a-computer-a.token");
+  await expect(readFile(path, "utf8")).resolves.toBe("daemon-runtime-secret\n");
+  await expect(stat(path)).resolves.toMatchObject({ mode: 0o100600 });
   await store.delete("workspace-a", "computer-a");
-
-  expect(calls).toEqual([
-    [
-      "set",
-      {
-        service: "cn.coforge.daemon.daemon-runtime",
-        name: "workspace-a:computer-a",
-        value: "daemon-runtime-secret",
-      },
-    ],
-    [
-      "get",
-      {
-        service: "cn.coforge.daemon.daemon-runtime",
-        name: "workspace-a:computer-a",
-      },
-    ],
-    [
-      "delete",
-      {
-        service: "cn.coforge.daemon.daemon-runtime",
-        name: "workspace-a:computer-a",
-      },
-    ],
-  ]);
-});
-
-test("native Daemon Runtime credential store preserves secret-store failures", async () => {
-  const store = new NativeDaemonCredentialStore({
-    set: async () => {
-      throw new Error("secret service unavailable");
-    },
-    get: async () => null,
-    delete: async () => true,
-  });
-
-  await expect(store.save("workspace-a", "computer-a", "secret")).rejects.toThrow(
-    "secret service unavailable",
-  );
+  await expect(store.load("workspace-a", "computer-a")).resolves.toBeNull();
 });

@@ -30,6 +30,7 @@ export class PrismaComputerRuntimeRepository {
             computerId: scope.computerId,
             provider: runtime.provider,
             version: runtime.version,
+            displayName: runtime.displayName,
           })),
         });
       if (catalogs.length)

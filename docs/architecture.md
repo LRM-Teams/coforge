@@ -371,7 +371,6 @@ Agent start intent (`agent:start`) 使用现有 `coforge.rpc.v1` WSS/RPC control
 Server→Daemon delivery/control 使用版本化 typed RPC over WSS，不照搬 Multica 事件名；Agent→Web message read/send 则使用前述独立 HTTPS RPC。WSS 建议的最小方法族：
 
 - `session:hello` / `session:ready` / `session:resume`
-- `heartbeat:ping` / `heartbeat:pong`
 
 每个 envelope 携带 protocol version、request id、workspace/session scope 与必要 deadline。未知 major version 必须拒绝；minor capability 在 handshake 协商。浏览器 API 与 cloud internal RPC 是独立契约，“daemon 不用 HTTP”不禁止浏览器用 HTTPS 完成认证、bootstrap 和普通读取。
 

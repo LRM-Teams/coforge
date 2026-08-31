@@ -44,6 +44,8 @@ message AgentStartIntent {
   string session_id = 8;
   string computer_id = 9;
   string model_provider = 10;
+  // Explicit envelope discriminator; never infer message type from payload fields.
+  string message_type = 11;
 }
 
 // Versioned server-to-daemon canonical direct message delivery.

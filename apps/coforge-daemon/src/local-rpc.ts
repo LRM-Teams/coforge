@@ -14,6 +14,9 @@ import {
   LOCAL_RPC_METHODS,
   decodeLocalAgentMessageRequest,
   encodeAgentMessageResponse,
+  decodeUsageScanRequest,
+  encodeUsageScanResponse,
+  type UsageScanResponse,
   type AgentMessageResponse,
 } from "@coforge/protocol";
 import type { DaemonConfig } from "./daemon-runtime/runtime";
@@ -33,6 +36,7 @@ type DaemonRuntimePort = Partial<{
     context: string,
     request: import("@coforge/protocol").LocalAgentMessageRequest,
   ): Promise<unknown>;
+  scanUsage(provider: string): Promise<UsageScanResponse>;
 }>;
 
 export async function startDaemonLocalRpcServer(input: {
@@ -125,6 +129,24 @@ async function handleConnection(
             encodeLocalRpcResponse({
               method: envelope.method,
               payload: encodeAgentMessageResponse(result as AgentMessageResponse),
+            }),
+          ),
+        );
+      } else if (envelope.method === LOCAL_RPC_METHODS.USAGE_SCAN) {
+        const request = decodeUsageScanRequest(envelope.payload);
+        if (request.protocolMajor !== 1 || !request.requestId || !request.provider)
+          throw new Error("invalid usage scan request");
+        const result = await runtime.scanUsage?.(request.provider);
+        if (!result) throw new Error("usage scanning is unavailable");
+        socket.write(
+          frameLocalRpc(
+            encodeLocalRpcResponse({
+              method: envelope.method,
+              payload: encodeUsageScanResponse({
+                ...result,
+                requestId: request.requestId,
+                protocolMajor: 1,
+              }),
             }),
           ),
         );

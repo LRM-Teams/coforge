@@ -39,6 +39,28 @@ message DaemonRuntimeCodeAgentsUpdateRequest {
   repeated CodeAgentModelCatalog catalogs = 6;
 }
 
+message DaemonRuntimeUsageScanRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string provider = 5;
+  string message_type = 6;
+}
+
+message DaemonRuntimeUsageScanResponse {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string provider = 5;
+  bool accepted = 6;
+  string status = 7;
+  string message = 8;
+  bytes snapshot_json = 9;
+  string message_type = 10;
+}
+
 message CodeAgentModelCatalog {
   string provider = 1;
   repeated CodeAgentModelMetadata models = 2;

@@ -18,10 +18,14 @@ import {
   createWorkspaceGetMethod,
   createWorkspaceListMethod,
   createDaemonRuntimeReadyMethod,
+  createDaemonRuntimeUsageScanResultMethod,
+  createDaemonConnectionStatusMethod,
 } from "./rpc-handler.server";
 import {
   DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD,
   DAEMON_RUNTIME_READY_METHOD,
+  DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD,
+  DAEMON_CONNECTION_STATUS_METHOD,
 } from "@coforge/protocol";
 import { WorkspaceQueryUseCase } from "../workspaces/query.server";
 import { ComputerRegistrar } from "../computers/registration.server";
@@ -149,9 +153,11 @@ export function createCentrifugoRpcHandler() {
         [DAEMON_RUNTIME_READY_METHOD]: createDaemonRuntimeReadyMethod(
           new WorkspaceAgentRecovery(agentRepository, centrifugo),
         ),
+        [DAEMON_CONNECTION_STATUS_METHOD]: createDaemonConnectionStatusMethod(),
         [DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD]: createDaemonRuntimeCodeAgentsUpdateMethod(
           new PrismaComputerRuntimeRepository(db),
         ),
+        [DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD]: createDaemonRuntimeUsageScanResultMethod(),
         [AGENT_START_METHOD]: createAgentStartMethod(
           new CloudAgentUseCase(agentAuthorization, centrifugo, async () => {}),
         ),
@@ -181,7 +187,9 @@ export function createCentrifugoRpcHandler() {
       [WORKSPACE_LIST_METHOD]: unavailableMethod,
       [WORKSPACE_GET_METHOD]: unavailableMethod,
       [DAEMON_RUNTIME_READY_METHOD]: createDaemonRuntimeReadyMethod(),
+      [DAEMON_CONNECTION_STATUS_METHOD]: createDaemonConnectionStatusMethod(),
       [DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD]: unavailableMethod,
+      [DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD]: createDaemonRuntimeUsageScanResultMethod(),
       [AGENT_START_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_ACK_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_READ_METHOD]: unavailableMethod,

@@ -69,7 +69,6 @@ Daemon 是 supervisor，
 - `workspace:registration_activate`
 - `daemon_runtime:ready`
 - `daemon_runtime:resume`
-- `daemon_runtime:heartbeat`
 - `daemon_runtime:code_agents_update`
 - `computer:revoke`
 - `workspace:revoke`

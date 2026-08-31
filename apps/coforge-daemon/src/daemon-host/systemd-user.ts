@@ -17,7 +17,7 @@ export class SystemdUserDaemonHost implements DaemonLauncher, DaemonStopper {
     executablePath: string;
     socketPath: string;
     stateDirectory?: string;
-    cloudWebSocketEndpoint?: string;
+    daemonConnectionEndpoint?: string;
     writeFile?: (path: string, content: string) => Promise<void>;
     run?: CommandRunner;
   }) {
@@ -39,7 +39,7 @@ export class SystemdUserDaemonHost implements DaemonLauncher, DaemonStopper {
       options.executablePath,
       options.socketPath,
       options.stateDirectory,
-      options.cloudWebSocketEndpoint,
+      options.daemonConnectionEndpoint,
     );
     this.#local = new LocalDaemonLauncher({
       executablePath: options.executablePath,
@@ -74,13 +74,13 @@ export function systemdUserUnit(
   executablePath: string,
   socketPath: string,
   stateDirectory?: string,
-  cloudWebSocketEndpoint?: string,
+  daemonConnectionEndpoint?: string,
 ): string {
   return `[Unit]
 Description=CoForge Daemon
 
 [Service]
-${cloudWebSocketEndpoint ? `Environment=COFORGE_CLOUD_WEBSOCKET_ENDPOINT=${systemdEscape(cloudWebSocketEndpoint)}\n` : ""}ExecStart=${systemdEscape(executablePath)} --socket ${systemdEscape(socketPath)}${stateDirectory ? ` --state-directory ${systemdEscape(stateDirectory)}` : ""}
+${daemonConnectionEndpoint ? `Environment=COFORGE_DAEMON_CONNECTION_ENDPOINT=${systemdEscape(daemonConnectionEndpoint)}\n` : ""}ExecStart=${systemdEscape(executablePath)} --socket ${systemdEscape(socketPath)}${stateDirectory ? ` --state-directory ${systemdEscape(stateDirectory)}` : ""}
 Restart=on-failure
 RestartSec=2
 

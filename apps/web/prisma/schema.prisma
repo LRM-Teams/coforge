@@ -143,6 +143,7 @@ model ComputerRuntime {
   computerId String   @db.Uuid
   provider   String
   version    String
+  displayName String
   observedAt DateTime @default(now())
   computer   Computer @relation(fields: [computerId], references: [id], onDelete: Cascade)
 

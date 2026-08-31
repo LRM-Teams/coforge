@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import {
-  CentrifugoWorkspaceTransport,
+  DaemonConnection,
   type CentrifugeWorkspaceClient,
-} from "../src/cloud-transport/workspace-cloud-transport";
+} from "../src/connection/daemon-connection";
 import {
   AGENT_MESSAGE_ACK_METHOD,
   decodeAgentActivity,
@@ -50,7 +50,7 @@ test("sends delivery ACK through the RPC method, not a publication", async () =>
     published = true;
     return new Uint8Array();
   };
-  const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
   await transport.start("secret", config);
   const ack = {
     protocolMajor: 1,
@@ -64,9 +64,11 @@ test("sends delivery ACK through the RPC method, not a publication", async () =>
   } as const;
   await transport.sendAgentDeliveryAck(ack);
   expect(published).toBe(false);
-  expect(calls).toHaveLength(1);
-  expect(calls[0]?.method).toBe(AGENT_MESSAGE_ACK_METHOD);
-  expect(decodeAgentMessageDeliveryAck(calls[0]!.data)).toMatchObject(ack);
+  expect(calls.map(({ method }) => method)).toEqual([
+    "daemon:connection_status",
+    AGENT_MESSAGE_ACK_METHOD,
+  ]);
+  expect(decodeAgentMessageDeliveryAck(calls[1]!.data)).toMatchObject(ack);
 });
 
 test("publishes Agent activity best effort on its restricted channel", async () => {
@@ -76,7 +78,7 @@ test("publishes Agent activity best effort on its restricted channel", async () 
     publications.push({ channel, data });
     throw new Error("activity observer unavailable");
   };
-  const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
   await transport.start("secret", config);
   const activity = {
     protocolMajor: 1,
@@ -105,7 +107,7 @@ test("retains Agent activity in memory while disconnected", () => {
   fake.client.publish = async () => {
     publications++;
   };
-  const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
 
   expect(
     transport.sendAgentActivity({
@@ -130,7 +132,7 @@ test("retains only each Agent's newest activity while disconnected and flushes o
   fake.client.publish = async (_channel, data) => {
     publications.push(decodeAgentActivity(data));
   };
-  const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
   await transport.start("secret", config);
   fake.disconnect();
   const send = (agentId: string, launchId: string, clientSeq: number) =>
@@ -174,7 +176,7 @@ test("waits for connected and does not send a business payload", async () => {
       connected = true;
       fake.connect();
     }, 0);
-  const transport = new CentrifugoWorkspaceTransport(
+  const transport = new DaemonConnection(
     "wss://cloud.example/connection/websocket",
     () => fake.client,
   );
@@ -187,7 +189,7 @@ test("waits for connected and does not send a business payload", async () => {
 test("rejects connection failures", async () => {
   const fake = fakeClient();
   fake.client.connect = () => undefined;
-  const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
   const start = transport.start("secret", config);
   fake.fail(new Error("connection failed"));
   await expect(start).rejects.toThrow("connection failed");
@@ -195,7 +197,7 @@ test("rejects connection failures", async () => {
 
 test("stop is idempotent and a stopped transport can restart", async () => {
   const clients: ReturnType<typeof fakeClient>[] = [];
-  const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => {
+  const transport = new DaemonConnection("wss://cloud.example", () => {
     const fake = fakeClient();
     clients.push(fake);
     return fake.client;
@@ -214,7 +216,7 @@ test("resends the last successful ready request after reconnect", async () => {
     if (method === DAEMON_RUNTIME_READY_METHOD) readyCalls.push(data);
     return new Uint8Array();
   };
-  const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
   let reconnect!: () => void;
   const reconnected = new Promise<void>((resolve) => (reconnect = resolve));
   transport.onReconnect(reconnect);
@@ -238,7 +240,7 @@ test("resends the last successful ready request after reconnect", async () => {
 
 test("receives only its JWT server-side Workspace publications", async () => {
   const fake = fakeClient();
-  const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
   const started: string[] = [];
   transport.onAgentStart((intent) => started.push(intent.agentId));
   await transport.start("secret", config);
@@ -268,7 +270,7 @@ test("contains a reconnect ready failure and retries on the next reconnect", asy
     }
     return new Uint8Array();
   };
-  const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
   await transport.start("secret", config);
   await transport.ready({
     protocolMajor: 1,
@@ -298,7 +300,7 @@ test("uses the configured HTTP seam for Agent messages and never falls back to W
     messages: [],
     messageId: "",
   };
-  const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client, {
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
     request: async (input) => {
       requests.push(input);
       return response;
@@ -323,7 +325,7 @@ test("uses the configured HTTP seam for Agent messages and never falls back to W
     request: { operation: "read", target: "@ada" },
   });
 
-  const noEndpoint = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
+  const noEndpoint = new DaemonConnection("wss://cloud.example", () => fake.client);
   await noEndpoint.start("daemon-token", config);
   await expect(
     noEndpoint.agentMessage({
@@ -356,7 +358,7 @@ test("requests and revokes Agent API keys through the server API route", async (
     { preconnect: originalFetch.preconnect },
   );
   try {
-    const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
+    const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
     await transport.start("daemon-token", {
       ...config,
       serverHttpUrl: "https://server.example/api/internal/centrifugo",

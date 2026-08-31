@@ -7,6 +7,7 @@ import {
 import { agentEnvironment } from "./environment";
 import { JsonlProcess } from "./jsonl-process";
 import { builtinPiCommand } from "./pi/adapter";
+import { probeClaudeCodeVersion, resolveClaudeCodeExecutable } from "./claude-code/runtime";
 
 export interface ExternalCodeAgentProbe {
   which(name: string): string | undefined;
@@ -15,12 +16,44 @@ export interface ExternalCodeAgentProbe {
     exited: Promise<number>;
     kill?(): void;
   };
+  probe?(provider: RuntimeMetadata["provider"], executable: string): Promise<string | undefined>;
+  resolve?(
+    provider: RuntimeMetadata["provider"],
+    name: string,
+  ): string | undefined | Promise<string | undefined>;
 }
 
 const bunProbe: ExternalCodeAgentProbe = {
   which: (name) => Bun.which(name) ?? undefined,
   spawn: (executable) =>
     Bun.spawn({ cmd: [executable, "--version"], stdout: "pipe", stderr: "ignore" }),
+  probe: async (provider, executable) => {
+    if (provider !== RUNTIME_PROVIDER.CODEX) return undefined;
+    const child = new JsonlProcess(
+      [executable, "app-server"],
+      process.cwd(),
+      agentEnvironment(undefined),
+    );
+    try {
+      await within(
+        child.request({
+          method: "initialize",
+          params: {
+            clientInfo: { name: "coforge_daemon", title: "CoForge Daemon", version: "0.1.0" },
+            capabilities: { experimentalApi: false },
+          },
+        }),
+      );
+      await child.send({ method: "initialized", params: {} });
+    } finally {
+      await child.dispose().catch(() => undefined);
+    }
+    return readVersionWithBun(executable);
+  },
+  resolve: async (provider, name) =>
+    provider === RUNTIME_PROVIDER.CLAUDE_CODE
+      ? await resolveClaudeCodeExecutable((value) => Bun.which(value) ?? undefined)
+      : (Bun.which(name) ?? undefined),
 };
 
 const externalCodeAgents = [
@@ -33,9 +66,28 @@ export async function discoverExternalCodeAgents(
 ): Promise<RuntimeMetadata[]> {
   const runtimes: RuntimeMetadata[] = [];
   for (const { provider, executable: name } of externalCodeAgents) {
-    const executable = probe.which(name);
+    const executable = (await probe.resolve?.(provider, name)) ?? probe.which(name);
     if (!executable) continue;
     try {
+      const providerProbe =
+        provider === RUNTIME_PROVIDER.CODEX ? probe.probe?.(provider, executable) : undefined;
+      if (providerProbe !== undefined) {
+        const version = await within(providerProbe);
+        if (version)
+          runtimes.push({
+            provider,
+            version,
+            displayName: provider === RUNTIME_PROVIDER.CODEX ? "Codex" : "Claude Code",
+            kind: "external",
+          });
+        continue;
+      }
+      if (provider === RUNTIME_PROVIDER.CLAUDE_CODE) {
+        const version = await probeClaudeCodeVersion(executable, probe.spawn);
+        if (version)
+          runtimes.push({ provider, version, displayName: "Claude Code", kind: "external" });
+        continue;
+      }
       const process = probe.spawn(executable);
       const { output, exitCode } = await Promise.race([
         Promise.all([new Response(process.stdout).text(), process.exited]).then(
@@ -48,7 +100,13 @@ export async function discoverExternalCodeAgents(
       ]);
       if (exitCode !== 0) continue;
       const version = output.trim().split(/\s+/).pop();
-      if (version) runtimes.push({ provider, version, kind: "external" });
+      if (version)
+        runtimes.push({
+          provider,
+          version,
+          displayName: provider === RUNTIME_PROVIDER.CODEX ? "Codex" : "Claude Code",
+          kind: "external",
+        });
     } catch {
       // An executable without a usable version is not available inventory.
     }
@@ -158,6 +216,21 @@ function within<T>(promise: Promise<T>): Promise<T> {
     promise,
     Bun.sleep(5_000).then(() => Promise.reject(new Error("model catalog discovery timed out"))),
   ]);
+}
+
+async function readVersionWithBun(executable: string): Promise<string | undefined> {
+  const process = Bun.spawn({ cmd: [executable, "--version"], stdout: "pipe", stderr: "ignore" });
+  try {
+    const { output, exitCode } = await within(
+      Promise.all([new Response(process.stdout).text(), process.exited]).then(
+        ([output, exitCode]) => ({ output, exitCode }),
+      ),
+    );
+    if (exitCode !== 0) return undefined;
+    return output.trim().split(/\s+/).pop() || undefined;
+  } finally {
+    process.kill();
+  }
 }
 
 function piModel(value: unknown): CodeAgentModelMetadata | undefined {

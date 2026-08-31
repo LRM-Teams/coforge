@@ -15,8 +15,26 @@ terminal behavior.
 
 - Use `Bun.file` and `Bun.write` for ordinary file reads and writes when they
   are not coupled to permissions or atomic replacement.
+- Use `Bun.file(path).exists()` for asynchronous existence checks; do not add
+  `node:fs` only for a simple existence check.
+- Use `Bun.env` for environment access. Prefer `process.platform` for the
+  current OS; use `node:os` only for OS helpers with no Bun equivalent, such
+  as `homedir()` and `tmpdir()`.
 - Use `Bun.spawn`/`Bun.spawnSync` for child processes.
+- Use `Bun.which` to resolve executables on `PATH` instead of spawning `which`
+  or importing a command lookup package.
+- Use `Bun.$` for short, intentional shell pipelines only when argument
+  boundaries and shell behavior are explicit; use `Bun.spawn` for supervised
+  long-lived processes and protocol-driven children.
 - Use `Bun.listen`/`Bun.connect` for TCP, Unix sockets, and local IPC.
+- Use `Bun.serve` for Bun-owned HTTP/WebSocket servers. Keep framework-owned
+  HTTP handlers in the framework rather than wrapping them in `Bun.serve`.
+- Use `Bun.secrets` for new OS-keychain access when its platform behavior fits;
+  preserve the repository's credential-store abstraction at the domain
+  boundary.
+- Use `Bun.sql` or `Bun.redis` only when the owning module explicitly owns
+  direct database/Redis access; do not move Web/backend persistence into a
+  local app or daemon merely because Bun provides a client.
 - Use `Bun.CryptoHasher`, `Bun.hash`, or Web Crypto for new hashing and crypto
   work when their API fits the requirement. Keep `node:crypto` for PEM public
   key import and synchronous signature verification unless an equivalent

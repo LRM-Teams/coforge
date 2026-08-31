@@ -4,5 +4,6 @@ import { RUNTIME_PROVIDER, type RuntimeMetadata } from "@coforge/protocol";
 export const BUILTIN_PI_RUNTIME_METADATA: RuntimeMetadata = {
   provider: RUNTIME_PROVIDER.PI,
   version: "builtin",
+  displayName: "Pi",
   kind: "builtin",
 };

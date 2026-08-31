@@ -9,12 +9,23 @@ export function getRouter() {
     defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
     rewrite: {
-      input: ({ url }) => deLocalizeUrl(url),
-      output: ({ url }) => localizeUrl(url),
+      input: ({ url }) => (isNonLocalizedPath(url.pathname) ? url : deLocalizeUrl(url)),
+      output: ({ url }) => (isNonLocalizedPath(url.pathname) ? url : localizeUrl(url)),
     },
   });
 
   return router;
+}
+
+function isNonLocalizedPath(pathname: string): boolean {
+  return (
+    pathname === "/api" ||
+    pathname.startsWith("/api/") ||
+    pathname === "/oauth" ||
+    pathname.startsWith("/oauth/") ||
+    pathname === "/.well-known" ||
+    pathname.startsWith("/.well-known/")
+  );
 }
 
 declare module "@tanstack/react-router" {
