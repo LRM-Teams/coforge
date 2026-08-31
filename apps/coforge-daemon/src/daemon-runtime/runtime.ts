@@ -1,4 +1,5 @@
 import type { AgentRuntimeConfig, CodeAgentProvider } from "../code-agent/contract";
+import { mkdirSync } from "node:fs";
 import { AgentProcessCleanupError } from "../code-agent/contract";
 import {
   AgentProcessManager,
@@ -167,6 +168,7 @@ export class DaemonRuntime {
   }
 
   async #start(connection: DaemonConfig): Promise<void> {
+    mkdirSync(connection.workspaceRoot, { recursive: true });
     const token = await this.#credentials.load(connection.workspaceId, connection.computerId);
     if (!token) throw new Error("Workspace credential is missing");
     const pending: Array<AgentStartIntent | AgentMessageDelivery> = [];
