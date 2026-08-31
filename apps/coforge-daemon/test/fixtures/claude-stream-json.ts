@@ -3,6 +3,12 @@ export {};
 const exitsOnInterrupt = process.argv.includes("exit-on-interrupt");
 const decoder = new TextDecoder();
 let buffer = "";
+// Register the interrupt handler before the init record becomes visible to the
+// parent, so a SIGINT can never arrive while the handler is still unregistered.
+process.on("SIGINT", () => {
+  if (exitsOnInterrupt) process.exit(130);
+  write({ type: "result", subtype: "success" });
+});
 write({
   type: "system",
   subtype: "init",
@@ -16,10 +22,6 @@ write({
       defaultEffortLevel: "high",
     },
   ],
-});
-process.on("SIGINT", () => {
-  if (exitsOnInterrupt) process.exit(130);
-  write({ type: "result", subtype: "success" });
 });
 for await (const chunk of Bun.stdin.stream()) {
   buffer += decoder.decode(chunk, { stream: true });
