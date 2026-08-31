@@ -27,6 +27,7 @@ model Workspace {
 model User {
   id                  String                @id @default(uuid()) @db.Uuid
   username            String                @unique
+  timeZone            String?
   createdAt           DateTime              @default(now())
   identities          UserIdentity[]
   memberships         WorkspaceMembership[]

@@ -1,4 +1,4 @@
-import { Check, Languages, Moon, Sun, SunMoon } from "lucide-react";
+import { Check, Clock3, Languages, Moon, Sun, SunMoon } from "lucide-react";
 
 import { m } from "@/paraglide/messages";
 
@@ -8,15 +8,19 @@ type Theme = "system" | "light" | "dark";
 interface SettingsContentProps {
   locale: Locale;
   theme: Theme;
+  timeZone: string | null;
   onLocaleChange: (locale: Locale) => void;
   onThemeChange: (theme: Theme) => void;
+  onTimeZoneChange: (timeZone: string) => void;
 }
 
 export function SettingsContent({
   locale,
   theme,
+  timeZone,
   onLocaleChange,
   onThemeChange,
+  onTimeZoneChange,
 }: SettingsContentProps) {
   return (
     <main className="flex-1 p-4 sm:p-5 md:p-6">
@@ -48,6 +52,31 @@ export function SettingsContent({
               onClick={() => onLocaleChange("zh-CN")}
             />
           </div>
+        </section>
+
+        <section className="rounded-lg border bg-card p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <Clock3 aria-hidden="true" className="mt-0.5 size-4 text-muted-foreground" />
+            <div>
+              <h2 className="text-sm font-semibold">{m.preferences_time_zone()}</h2>
+            </div>
+          </div>
+          <label className="mt-5 grid gap-1.5 text-sm">
+            <span className="sr-only">{m.preferences_time_zone()}</span>
+            <select
+              aria-label={m.preferences_time_zone()}
+              value={timeZone ?? ""}
+              onChange={(event) => onTimeZoneChange(event.target.value)}
+              className="h-10 rounded-md border bg-background px-3"
+            >
+              <option value="">{m.preferences_system()}</option>
+              {TIME_ZONES.map((zone) => (
+                <option key={zone} value={zone}>
+                  {zone}
+                </option>
+              ))}
+            </select>
+          </label>
         </section>
 
         <section className="rounded-lg border bg-card p-4 sm:p-5">
@@ -88,6 +117,13 @@ export function SettingsContent({
     </main>
   );
 }
+
+const TIME_ZONES = Array.from(
+  new Set([
+    "UTC",
+    ...(typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : []),
+  ]),
+);
 
 function PreferenceButton({
   selected,

@@ -70,6 +70,10 @@ mock.module("@/features/conversations/conversations.functions", () => ({
   loadDirectConversation,
   sendDirectConversationMessage: mock(async () => {}),
 }));
+mock.module("@/features/settings/settings.functions", () => ({
+  getUserPreferences: mock(async () => ({ timeZone: null })),
+  saveUserTimeZone: mock(async () => ({ timeZone: null })),
+}));
 mock.module("@/server/auth/current-user", () => ({
   peekCurrentUser: mock(async () => undefined),
   requireCurrentUser: mock(async () => ({

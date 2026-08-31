@@ -46,14 +46,37 @@ function renderSettings() {
       <SettingsContent
         locale="en"
         theme={theme}
+        timeZone={null}
         onLocaleChange={() => {}}
         onThemeChange={changeTheme}
+        onTimeZoneChange={() => {}}
       />
     );
   }
 
   return render(<SettingsTestPage />);
 }
+
+test("selects a time zone and sends it to the persistence callback", () => {
+  let selected = "";
+  const view = render(
+    <SettingsContent
+      locale="en"
+      theme="system"
+      timeZone={null}
+      onLocaleChange={() => {}}
+      onThemeChange={() => {}}
+      onTimeZoneChange={(timeZone) => {
+        selected = timeZone;
+      }}
+    />,
+  );
+
+  fireEvent.change(view.getByRole("combobox", { name: "Time zone" }), {
+    target: { value: "Asia/Tokyo" },
+  });
+  expect(selected).toBe("Asia/Tokyo");
+});
 
 test("switches to dark mode and remembers the preference", async () => {
   const user = userEvent.setup({ document });

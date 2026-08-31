@@ -10,5 +10,6 @@
   "settings_title": "设置",
   "settings_description": "管理你的 CoForge 使用偏好。",
   "settings_language_description": "选择整个应用使用的语言。",
-  "settings_appearance_description": "选择 CoForge 在此设备上的显示方式。"
+  "settings_appearance_description": "选择 CoForge 在此设备上的显示方式。",
+  "preferences_time_zone": "时区"
 }

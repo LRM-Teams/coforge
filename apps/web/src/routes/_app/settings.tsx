@@ -1,17 +1,24 @@
 import { useEffect, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 
 import { SettingsContent } from "@/components/settings-content";
+import { getUserPreferences, saveUserTimeZone } from "@/features/settings/settings.functions";
 import { getLocale, setLocale } from "@/paraglide/runtime";
 
 type Theme = "system" | "light" | "dark";
 
 export const Route = createFileRoute("/_app/settings")({
+  loader: () => getUserPreferences(),
   component: SettingsPage,
 });
 
 function SettingsPage() {
   const [theme, setTheme] = useState<Theme>("system");
+  const { timeZone: savedTimeZone } = Route.useLoaderData();
+  const [timeZone, setTimeZone] = useState(savedTimeZone);
+  const saveTimeZone = useServerFn(saveUserTimeZone);
+  const router = useRouter();
   const locale = getLocale();
 
   useEffect(() => {
@@ -47,12 +54,20 @@ function SettingsPage() {
     applyTheme(nextTheme);
   }
 
+  async function changeTimeZone(nextTimeZone: string) {
+    const result = await saveTimeZone({ data: { timeZone: nextTimeZone || null } });
+    setTimeZone(result.timeZone);
+    await router.invalidate({ sync: true });
+  }
+
   return (
     <SettingsContent
       locale={locale}
       theme={theme}
+      timeZone={timeZone}
       onLocaleChange={setLocale}
       onThemeChange={changeTheme}
+      onTimeZoneChange={changeTimeZone}
     />
   );
 }
