@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 concurrency:
   group: deploy-test
@@ -13,7 +14,7 @@ concurrency:
 
 env:
   IMAGE_REPOSITORY: lrm-teams/coforge/coforge-web
-  REMOTE_ROOT: /opt/coforge
+  REMOTE_ROOT: /home/deploy/coforge-test
 
 jobs:
   image:
