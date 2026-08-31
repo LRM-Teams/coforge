@@ -37,7 +37,7 @@ Computer package depends on the Daemon package for build and distribution, so
 users install one Computer distribution containing both compatible payloads.
 Computer and Daemon still run as independent OS processes. The daemon owns one
 Workspace connection and directly manages Agent runtime child processes; there
-is no WorkspaceWorker layer or Computer-to-Agent operation.
+is no DaemonRuntime layer or Computer-to-Agent operation.
 The independently packable `@coforge/agent` runtime package uses the Pi SDK and
 is installed as an exact Daemon dependency; it is not a user installation
 entry point.

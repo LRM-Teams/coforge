@@ -14,14 +14,14 @@ import { getDatabaseClient } from "../db/client.server";
 import { PrismaWorkspaceAccess } from "../db/repositories/setup.repositories.server";
 import {
   createComputerRegistrationMethod,
-  createWorkspaceWorkerCodeAgentsUpdateMethod,
+  createDaemonRuntimeCodeAgentsUpdateMethod,
   createWorkspaceGetMethod,
   createWorkspaceListMethod,
-  createWorkspaceWorkerReadyMethod,
+  createDaemonRuntimeReadyMethod,
 } from "./rpc-handler.server";
 import {
-  WORKSPACE_WORKER_CODE_AGENTS_UPDATE_METHOD,
-  WORKSPACE_WORKER_READY_METHOD,
+  DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD,
+  DAEMON_RUNTIME_READY_METHOD,
 } from "@coforge/protocol";
 import { WorkspaceQueryUseCase } from "../workspaces/query.server";
 import { ComputerRegistrar } from "../computers/registration.server";
@@ -30,7 +30,7 @@ import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
 } from "../db/repositories/agent.repositories.server";
-import { createWorkspaceWorkerTokenIssuer } from "../auth/workspace-worker-token.server";
+import { createDaemonTokenIssuer } from "../auth/daemon-token.server";
 import {
   createAgentStartMethod,
   createAgentDeliveryAckMethod,
@@ -45,7 +45,7 @@ import {
   AGENT_MESSAGE_SEND_METHOD,
 } from "@coforge/protocol";
 import { PrismaDirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
-import { verifyWorkspaceWorkerToken } from "../auth/workspace-worker-token.server";
+import { verifyDaemonToken } from "../auth/daemon-token.server";
 import {
   authenticateAgentApiKey,
   isAgentApiKeyBoundToComputer,
@@ -67,7 +67,7 @@ async function requireAuthenticatedCentrifugoUser(
   const header = context.headers.get("authorization");
   if (header?.startsWith("Bearer ")) {
     try {
-      return await verifyWorkspaceWorkerToken(header.slice("Bearer ".length).trim());
+      return await verifyDaemonToken(header.slice("Bearer ".length).trim());
     } catch {
       const db = getDatabaseClient();
       if (db) {
@@ -78,9 +78,7 @@ async function requireAuthenticatedCentrifugoUser(
           );
           const daemonHeader = context.headers.get("x-coforge-daemon-authorization");
           if (!daemonHeader?.startsWith("Bearer ")) throw new Error("daemon credential missing");
-          const daemon = await verifyWorkspaceWorkerToken(
-            daemonHeader.slice("Bearer ".length).trim(),
-          );
+          const daemon = await verifyDaemonToken(daemonHeader.slice("Bearer ".length).trim());
           if (
             !isAgentApiKeyBoundToComputer(record, daemon) ||
             !(await db.workspaceComputer.findUnique({
@@ -138,7 +136,7 @@ export function createCentrifugoRpcHandler() {
     const registration = new ComputerRegistrar({
       workspaceAccess: access,
       computers: new PrismaComputerConnectionRepository(db),
-      tokenIssuer: createWorkspaceWorkerTokenIssuer(),
+      tokenIssuer: createDaemonTokenIssuer(),
     });
     const agentRepository = new PrismaAgentRepository(db);
     const agentAuthorization = new RepositoryAgentAuthorization(agentRepository);
@@ -148,10 +146,10 @@ export function createCentrifugoRpcHandler() {
         [COMPUTER_REGISTER_METHOD]: createComputerRegistrationMethod(registration),
         [WORKSPACE_LIST_METHOD]: createWorkspaceListMethod(query),
         [WORKSPACE_GET_METHOD]: createWorkspaceGetMethod(query),
-        [WORKSPACE_WORKER_READY_METHOD]: createWorkspaceWorkerReadyMethod(
+        [DAEMON_RUNTIME_READY_METHOD]: createDaemonRuntimeReadyMethod(
           new WorkspaceAgentRecovery(agentRepository, centrifugo),
         ),
-        [WORKSPACE_WORKER_CODE_AGENTS_UPDATE_METHOD]: createWorkspaceWorkerCodeAgentsUpdateMethod(
+        [DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD]: createDaemonRuntimeCodeAgentsUpdateMethod(
           new PrismaComputerRuntimeRepository(db),
         ),
         [AGENT_START_METHOD]: createAgentStartMethod(
@@ -182,8 +180,8 @@ export function createCentrifugoRpcHandler() {
       [COMPUTER_REGISTER_METHOD]: unavailableMethod,
       [WORKSPACE_LIST_METHOD]: unavailableMethod,
       [WORKSPACE_GET_METHOD]: unavailableMethod,
-      [WORKSPACE_WORKER_READY_METHOD]: createWorkspaceWorkerReadyMethod(),
-      [WORKSPACE_WORKER_CODE_AGENTS_UPDATE_METHOD]: unavailableMethod,
+      [DAEMON_RUNTIME_READY_METHOD]: createDaemonRuntimeReadyMethod(),
+      [DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD]: unavailableMethod,
       [AGENT_START_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_ACK_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_READ_METHOD]: unavailableMethod,

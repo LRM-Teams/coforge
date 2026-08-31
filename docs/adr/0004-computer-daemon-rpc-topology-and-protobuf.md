@@ -3,7 +3,7 @@ status: accepted
 date: 2026-08-27
 ---
 
-# Computer/Daemon 使用单一 Workspace worker RPC 连接
+# Computer/Daemon 使用单一 Daemon runtime RPC 连接
 
 CoForge Computer 是低频的用户操作入口，Daemon 才是机器级常驻进程。每个逻辑
 Workspace 需要独立的连接身份、重连状态、投递 cursor 和 durable spool；因此不能
@@ -17,7 +17,7 @@ session。
 - Daemon 的托管保持用户级边界：Linux/Windows 由 Computer 按需启动和复用；macOS
   由 Computer 安装用户级 `launchd` LaunchAgent，让系统负责登录启动和崩溃重启。
   不注册系统级服务，不要求 sudo，Computer 仍以本地 RPC handshake 确认 Daemon 已就绪。
-- 一个 `coforge-daemon` 监督零个或多个 workspace worker；每个 workspace worker
+- 一个 `coforge-daemon` 监督零个或多个 daemon runtime；每个 daemon runtime
   恰好绑定一个逻辑 Workspace，并独立持有一条到 Centrifugo 的 WSS 长连接。
 - Computer/Daemon 发往服务端的业务通信统一使用 CoForge 自定义 RPC；Computer 与
   Daemon 之间也使用版本化的本地 CoForge RPC。Computer/Daemon 不调用业务 REST
@@ -30,7 +30,7 @@ session。
 - Computer/Daemon 的业务 payload 使用 Protobuf。schema 通过 `.proto` 维护并生成
   TypeScript 类型；不同时维护 JSON fallback。
 - RPC method 使用 Centrifugo 原生 namespace boundary：`<namespace>:<method>`，例如
-  `computer:register`、`workspace_worker:ready`、`workspace_worker:code_agents_update`。
+  `computer:register`、`daemon_runtime:ready`、`daemon_runtime:code_agents_update`。
   日志 event name 也统一使用相同的 `namespace:action` 分隔规则。
 - setup 使用 Workspace 页面提供的可读 slug（例如 `lrm-team`），不暴露内部
   Workspace ID，也不在 Computer 端列出或选择 Workspace。服务端根据 slug 和当前
@@ -39,7 +39,7 @@ session。
 - Computer 注册是用户主动授权的操作，使用 User authorization context；注册后由
   Backend 颁发 Computer/Workspace session credential 给 Daemon。User credential
   不持久化到 Daemon，不进入 Agent runtime，也不用于普通 Daemon reconnect。
-- `workspace_worker:code_agents_update` 只上报需要探测的用户安装 runtime（当前为 Codex 和
+- `daemon_runtime:code_agents_update` 只上报需要探测的用户安装 runtime（当前为 Codex 和
   Claude Code）。内置 Pi runtime 随 Daemon/CoForge Agent payload 固定交付，不通过
   PATH 扫描，也不作为本机发现结果；其版本来自已验证的 release
   manifest/package metadata。
@@ -67,17 +67,17 @@ Daemon 是 supervisor，
 
 - `computer:register`
 - `workspace:registration_activate`
-- `workspace_worker:ready`
-- `workspace_worker:resume`
-- `workspace_worker:heartbeat`
-- `workspace_worker:code_agents_update`
+- `daemon_runtime:ready`
+- `daemon_runtime:resume`
+- `daemon_runtime:heartbeat`
+- `daemon_runtime:code_agents_update`
 - `computer:revoke`
 - `workspace:revoke`
 - `message:publish` / `message:committed`
 
-`workspace_worker:ready` 表示该 Worker 已完成本地启动、认证和 WSS 建立，可以接收该
+`daemon_runtime:ready` 表示该 Worker 已完成本地启动、认证和 WSS 建立，可以接收该
 Workspace 的业务消息；它不是用户登录，也不是 Agent runtime ready。断线恢复使用
-`workspace_worker:resume`。具体 field、错误码、capability、deadline、Protobuf package 和生成工具在实现前必须
+`daemon_runtime:resume`。具体 field、错误码、capability、deadline、Protobuf package 和生成工具在实现前必须
 通过协议兼容性检查。未知 major、错误 audience、缺少 required capability 和错误
 Workspace connection 必须 fail closed。
 

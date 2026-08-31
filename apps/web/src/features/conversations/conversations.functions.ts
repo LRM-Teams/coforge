@@ -22,13 +22,19 @@ function validateSend(data: unknown) {
   const { agentId } = validateAgent(data);
   const body = Reflect.get(data as object, "body");
   const requestId = Reflect.get(data as object, "requestId");
+  const attachmentId = Reflect.get(data as object, "attachmentId");
   if (typeof requestId !== "string" || !REQUEST_ID_PATTERN.test(requestId))
     throw new Error("requestId must be a UUID");
   if (typeof body !== "string") throw new Error("message body must be text");
   const text = body.trim();
   if (!text) throw new Error("message body is required");
   if (text.length > MAX_BODY_LENGTH) throw new Error("message body is too long");
-  return { agentId, requestId, body: text };
+  if (
+    attachmentId !== undefined &&
+    (typeof attachmentId !== "string" || !REQUEST_ID_PATTERN.test(attachmentId))
+  )
+    throw new Error("attachmentId must be a UUID");
+  return { agentId, requestId, body: text, attachmentId };
 }
 
 async function context(userId: string, agentId: string) {
@@ -73,5 +79,6 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
       senderMemberId: opened.senderMemberId,
       senderUserId: user.id,
       body: data.body,
+      attachmentId: data.attachmentId,
     });
   });

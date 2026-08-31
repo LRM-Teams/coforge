@@ -8,7 +8,7 @@ export interface DaemonCredentialStore {
 type Secrets = Pick<typeof Bun.secrets, "get" | "set" | "delete">;
 
 // Keep the service identifier stable for existing OS keychain entries.
-const CREDENTIAL_SERVICE = "cn.coforge.daemon.workspace-worker";
+const CREDENTIAL_SERVICE = "cn.coforge.daemon.daemon-runtime";
 
 /** Stores the daemon's Workspace token in the operating system credential store. */
 export class NativeDaemonCredentialStore implements DaemonCredentialStore {

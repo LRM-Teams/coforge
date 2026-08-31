@@ -43,14 +43,14 @@ keeps stdout to one stable result object and sends interactive prompts to
 stderr. Setup registers the Computer and creates the server-side Workspace–Computer
 registration through the approved CoForge RPC flow, then automatically starts (or reuses)
 the local Daemon after a Unix Socket handshake. The current Daemon slice accepts
-the handshake; Workspace worker supervision and the cloud RPC handler are still
+the handshake; Daemon runtime supervision and the cloud RPC handler are still
 separate implementation slices. The user does not run `coforge-daemon` separately.
-Computer does not maintain a cloud WebSocket; each Workspace worker owns its own
+Computer does not maintain a cloud WebSocket; each Daemon runtime owns its own
 cloud WSS connection.
 
 Use `coforge-computer start` to start or reuse the user-managed Daemon and
-configure every registered Workspace Worker. Use `coforge-computer stop` to
-stop that Daemon and, with it, all of its Workspace Workers. Use
+configure every registered Daemon Runtime. Use `coforge-computer stop` to
+stop that Daemon and, with it, all of its Daemon Runtimes. Use
 `coforge-computer restart` to perform both operations in order.
 
 Use `coforge-computer logs` to print existing Computer log files and follow

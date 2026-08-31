@@ -5,7 +5,7 @@ date: 2026-08-27
 
 # CoForge Agent、Codex 与 Claude Code 使用常驻独立子进程 adapter
 
-Frank 在 [Amp thread](https://ampcode.com/threads/T-01a040e2-d2ad-70ac-a080-fbabe1561e52) 中批准首批接入 Pi、Codex 与 Claude Code，并明确要求 Agent runtime 使用独立子进程；其中 Pi 是 CoForge 内置 runtime，Codex 与 Claude Code 必须复用用户已经安装、登录和配置的 CLI，不作为 Daemon SDK 或 binary 依赖。这个决定替代“所有 code agent 都必须经 ACP”这一未实现假设；workspace worker 对上仍只使用 provider-neutral code-agent interface，provider native protocol 不进入云端 wire、共享领域模型或其他 daemon 模块。
+Frank 在 [Amp thread](https://ampcode.com/threads/T-01a040e2-d2ad-70ac-a080-fbabe1561e52) 中批准首批接入 Pi、Codex 与 Claude Code，并明确要求 Agent runtime 使用独立子进程；其中 Pi 是 CoForge 内置 runtime，Codex 与 Claude Code 必须复用用户已经安装、登录和配置的 CLI，不作为 Daemon SDK 或 binary 依赖。这个决定替代“所有 code agent 都必须经 ACP”这一未实现假设；daemon runtime 对上仍只使用 provider-neutral code-agent interface，provider native protocol 不进入云端 wire、共享领域模型或其他 daemon 模块。
 
 ## 问题与约束
 
@@ -15,7 +15,7 @@ Pi、Codex 与 Claude Code 当前都没有统一的正式 ACP server。Pi 正式
 
 ## 决定
 
-- 每个 Pi、Codex 或 Claude Code session 运行在 workspace worker 启动的独立 Agent runtime process 中，cwd 是声明的 Agent workspace 目录；同一个 process 跨多次 prompt 常驻并复用，直到显式销毁。
+- 每个 Pi、Codex 或 Claude Code session 运行在 daemon runtime 启动的独立 Agent runtime process 中，cwd 是声明的 Agent workspace 目录；同一个 process 跨多次 prompt 常驻并复用，直到显式销毁。
 - Agent workspace 使用 `workspaces/<workspace_id>/agents/<agent_id>` 稳定相对路径，并跨 runtime 与 provider 变更保留。CoForge 分配的 Skills 在 process 启动前按 provider 的 project scope 写入该目录：Pi 使用 `.pi/skills`、Codex 使用 `.agents/skills`、Claude Code 使用 `.claude/skills`。HOME 下的 provider 全局 Skills 仍由用户和 provider CLI 管理，CoForge 不复制或改写。
 - Agent control protocol 只属于 adapter implementation，可以在不改变 `CodeAgentSession` interface 的前提下替换。
 - 内置 Pi 实现属于可独立打包的 `@coforge/agent`，不是 daemon 源码中的 provider fork。该 package 固定 Pi SDK 版本，拥有 Pi-specific runner、extensions 和 skills；Daemon 安装精确版本并通过 package 的 `coforge-agent` executable 启动它。
@@ -33,7 +33,7 @@ Pi、Codex 与 Claude Code 当前都没有统一的正式 ACP server。Pi 正式
 
 | Candidate | Maturity and compatibility | License | Decision |
 | --- | --- | --- | --- |
-| Pi SDK 同 workspace worker 进程 | 正式 SDK；package 声明 Node ≥22.19，核心 session path 已在 Bun 1.4 验证 | MIT | 拒绝作为 runtime ownership；故障和内存不与 workspace worker 隔离 |
+| Pi SDK 同 daemon runtime 进程 | 正式 SDK；package 声明 Node ≥22.19，核心 session path 已在 Bun 1.4 验证 | MIT | 拒绝作为 runtime ownership；故障和内存不与 daemon runtime 隔离 |
 | `@coforge/agent` SDK child runner | 独立 package 固定 Pi v0.84.3；使用正式 SDK runtime/resource loader/run mode，Bun 1.4 handshake 与 startup skill discovery 已验证 | CoForge package license 尚未决定；Pi 为 MIT | 当前实现 |
 | 用户安装的 Codex app-server 子进程 | 面向当前 Codex CLI v0.150.1 的正式 stdio integration；用户自行选择官方 standalone、Homebrew 或全局 npm 安装，Daemon 只依赖 `PATH` 与 stable app-server methods | Apache-2.0 | 当前实现；复用用户登录与配置，不随 CoForge 打包 |
 | 用户安装的 Claude Code stream-json 子进程 | 面向当前 Claude Code v2.1.247；CLI 正式支持双向 stream-json flags、partial output 和 skills init metadata，但 raw control envelope 没有独立稳定 schema | All rights reserved；受 Anthropic Commercial Terms 约束 | 当前实现；复用用户登录与配置，不随 CoForge 打包；protocol drift 风险高于 Codex app-server |
@@ -48,7 +48,7 @@ Pi、Codex 与 Claude Code 当前都没有统一的正式 ACP server。Pi 正式
 
 启动 handshake 失败、stdout 出现无效 JSON、stdin 不可写或子进程提前退出时，adapter 显式失败，不能回退到交互式 CLI parsing。销毁先关闭 stdin 并等待正常退出，超时后发送 SIGTERM；provider stderr 只被 drain，不自动写入可能泄漏 credential 的产品日志。
 
-回滚恢复前一组 Daemon 与 `@coforge/agent` artifact；Codex/Claude Code binary 仍由用户自己的安装渠道管理，不属于 CoForge release rollback。不得静默改用 workspace worker 同进程 SDK、自研 ACP bridge、内置 provider binary 或 PATH 以外的替代安装。已运行的 ephemeral CoForge Agent/Codex/Claude Code session 不构成 durable state，rollback 不承担 session migration。
+回滚恢复前一组 Daemon 与 `@coforge/agent` artifact；Codex/Claude Code binary 仍由用户自己的安装渠道管理，不属于 CoForge release rollback。不得静默改用 daemon runtime 同进程 SDK、自研 ACP bridge、内置 provider binary 或 PATH 以外的替代安装。已运行的 ephemeral CoForge Agent/Codex/Claude Code session 不构成 durable state，rollback 不承担 session migration。
 
 ## 验证门槛
 

@@ -4,9 +4,9 @@ import {
   decodeDaemonHandshakeResponse,
   decodeDaemonCommandResponse,
   encodeDaemonCommandRequest,
-  decodeWorkspaceWorkerConfigureResponse,
+  decodeDaemonRuntimeConfigureResponse,
   encodeDaemonHandshakeRequest,
-  encodeWorkspaceWorkerConfigureRequest,
+  encodeDaemonRuntimeConfigureRequest,
   frameLocalRpc,
   readLocalRpcFrame,
   encodeLocalRpcRequest,
@@ -30,7 +30,7 @@ export type DaemonWorkspaceConfig = {
   workspaceId: string;
   computerId: string;
   workspaceRoot: string;
-  workspaceWorkerToken: string;
+  daemonToken: string;
 };
 
 export type LocalDaemonConnection = {
@@ -163,20 +163,20 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
           frameLocalRpc(
             encodeLocalRpcRequest({
               method: LOCAL_RPC_METHODS.CONFIGURE,
-              payload: encodeWorkspaceWorkerConfigureRequest({
+              payload: encodeDaemonRuntimeConfigureRequest({
                 protocolMajor: 1,
                 requestId: configureId,
                 workspaceId: config.workspaceId,
                 computerId: config.computerId,
                 workspaceRoot: config.workspaceRoot,
-                workspaceWorkerToken: config.workspaceWorkerToken,
+                daemonToken: config.daemonToken,
               }),
             }),
           ),
         ),
       );
       if (responseEnvelope.method !== LOCAL_RPC_METHODS.CONFIGURE) return false;
-      const configured = decodeWorkspaceWorkerConfigureResponse(responseEnvelope.payload);
+      const configured = decodeDaemonRuntimeConfigureResponse(responseEnvelope.payload);
       return (
         configured.protocolMajor === 1 &&
         configured.requestId === configureId &&

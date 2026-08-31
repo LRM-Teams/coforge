@@ -1,5 +1,12 @@
 import type { Prisma, PrismaClient } from "../../../../generated/client";
 
+export type AttachmentMetadata = {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+};
+
 export type DirectConversationRepository = {
   userIdForUsername?(target: string): Promise<string>;
   getOrCreateUserAgent(
@@ -12,6 +19,7 @@ export type DirectConversationRepository = {
     senderMemberId: string,
     senderUserId: string,
     body: string,
+    attachmentId?: string,
   ): Promise<{
     id: string;
     body: string;
@@ -22,6 +30,7 @@ export type DirectConversationRepository = {
     agentId: string;
     target?: string;
     latestSender?: string;
+    attachment?: AttachmentMetadata;
   }>;
   receiveDeliveryAck?(input: {
     workspaceId: string;
@@ -42,12 +51,14 @@ export type DirectConversationRepository = {
       body: string;
       createdAt: Date;
       target: string;
+      attachment?: AttachmentMetadata;
     }[]
   >;
   sendAgentMessage?(
     conversationId: string,
     agentId: string,
     body: string,
+    attachmentId?: string,
   ): Promise<{
     id: string;
     body: string;
@@ -57,6 +68,7 @@ export type DirectConversationRepository = {
     workspaceId: string;
     agentId: string;
     target: string;
+    attachment?: AttachmentMetadata;
   }>;
   openForUser?(
     workspaceId: string,
@@ -73,6 +85,7 @@ export type DirectConversationRepository = {
       senderName: string;
       body: string;
       createdAt: Date;
+      attachment?: AttachmentMetadata;
     }>;
   }>;
 };
@@ -153,6 +166,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             sequence: true,
             body: true,
             createdAt: true,
+            attachment: {
+              select: { id: true, fileName: true, contentType: true, sizeBytes: true },
+            },
             sender: {
               select: {
                 userId: true,
@@ -181,6 +197,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           : message.sender.agent?.displayName || message.sender.agent?.name || "Agent",
         body: message.body,
         createdAt: message.createdAt,
+        attachment: message.attachment ?? undefined,
       })),
     };
   }
@@ -190,6 +207,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     senderMemberId: string,
     senderUserId: string,
     body: string,
+    attachmentId?: string,
   ) {
     const conversation = await this.db.conversation.findUnique({
       where: { id: conversationId },
@@ -223,12 +241,26 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         select: { sequence: true },
       });
       const sequence = (last?.sequence ?? 0) + 1;
+      if (attachmentId) {
+        const attachment = await tx.attachment.findFirst({
+          where: {
+            id: attachmentId,
+            conversationId,
+            workspaceId: conversation.workspaceId,
+            uploaderId: senderUserId,
+            messageId: null,
+          },
+          select: { id: true },
+        });
+        if (!attachment) throw new Error("attachment is not available for this message");
+      }
       return tx.message.create({
         data: {
           conversationId,
           workspaceId: conversation.workspaceId,
           senderMemberId,
           body,
+          attachment: attachmentId ? { connect: { id: attachmentId } } : undefined,
           sequence,
           deliveries: {
             create: {
@@ -245,6 +277,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           createdAt: true,
           sequence: true,
           deliveries: { select: { deliveryId: true } },
+          attachment: { select: { id: true, fileName: true, contentType: true, sizeBytes: true } },
         },
       });
     });
@@ -255,6 +288,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       agentId: agents[0].agentId,
       target: `@${agents[0].agent?.name ?? "unknown"}`,
       latestSender: `@${sender.user?.username}`,
+      attachment: message.attachment ?? undefined,
     };
   }
 
@@ -284,7 +318,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const rows = await this.db.message.findMany({
       where: { conversationId: conversation.id },
       orderBy: { sequence: "asc" },
-      include: { sender: { include: { agent: true } } },
+      include: { sender: { include: { agent: true } }, attachment: true },
     });
     return rows.map((m) => ({
       id: m.id,
@@ -293,10 +327,16 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       body: m.body,
       createdAt: m.createdAt,
       target,
+      attachment: m.attachment ?? undefined,
     }));
   }
 
-  async sendAgentMessage(conversationId: string, agentId: string, body: string) {
+  async sendAgentMessage(
+    conversationId: string,
+    agentId: string,
+    body: string,
+    attachmentId?: string,
+  ) {
     const conversation = await this.db.conversation.findUnique({
       where: { id: conversationId },
       include: { members: true },
@@ -320,6 +360,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           workspaceId: conversation.workspaceId,
           senderMemberId: sender.id,
           body,
+          attachment: attachmentId ? { connect: { id: attachmentId } } : undefined,
           sequence,
         },
         select: {
@@ -328,6 +369,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           createdAt: true,
           sequence: true,
           deliveries: { select: { deliveryId: true } },
+          attachment: { select: { id: true, fileName: true, contentType: true, sizeBytes: true } },
         },
       });
     });
@@ -338,6 +380,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       workspaceId: conversation.workspaceId,
       agentId,
       target: "",
+      attachment: result.attachment ?? undefined,
     };
   }
 }

@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import {
   decodeDaemonHandshakeRequest,
   encodeDaemonHandshakeResponse,
-  decodeWorkspaceWorkerConfigureRequest,
-  encodeWorkspaceWorkerConfigureResponse,
+  decodeDaemonRuntimeConfigureRequest,
+  encodeDaemonRuntimeConfigureResponse,
   decodeLocalRpcRequest,
   encodeLocalRpcResponse,
   LOCAL_RPC_METHODS,
@@ -20,10 +20,10 @@ test("reuses a running daemon after a successful local handshake", async () => {
       request: async (frame) => {
         const envelope = decodeLocalRpcRequest(readLocalRpcFrame(frame)!);
         if (envelope.method === LOCAL_RPC_METHODS.CONFIGURE) {
-          const request = decodeWorkspaceWorkerConfigureRequest(envelope.payload);
+          const request = decodeDaemonRuntimeConfigureRequest(envelope.payload);
           return encodeLocalRpcResponse({
             method: LOCAL_RPC_METHODS.CONFIGURE,
-            payload: encodeWorkspaceWorkerConfigureResponse({
+            payload: encodeDaemonRuntimeConfigureResponse({
               protocolMajor: 1,
               requestId: request.requestId,
               accepted: true,
@@ -52,7 +52,7 @@ test("reuses a running daemon after a successful local handshake", async () => {
     workspaceId: "w",
     computerId: "computer",
     workspaceRoot: "/w",
-    workspaceWorkerToken: "daemon-credential",
+    daemonToken: "daemon-credential",
   });
   expect(spawned).toBe(false);
 });
@@ -70,10 +70,10 @@ test("starts the daemon and waits for its handshake", async () => {
         request: async (frame: Uint8Array) => {
           const envelope = decodeLocalRpcRequest(readLocalRpcFrame(frame)!);
           if (envelope.method === LOCAL_RPC_METHODS.CONFIGURE) {
-            const request = decodeWorkspaceWorkerConfigureRequest(envelope.payload);
+            const request = decodeDaemonRuntimeConfigureRequest(envelope.payload);
             return encodeLocalRpcResponse({
               method: LOCAL_RPC_METHODS.CONFIGURE,
-              payload: encodeWorkspaceWorkerConfigureResponse({
+              payload: encodeDaemonRuntimeConfigureResponse({
                 protocolMajor: 1,
                 requestId: request.requestId,
                 accepted: true,
@@ -104,7 +104,7 @@ test("starts the daemon and waits for its handshake", async () => {
     workspaceId: "w",
     computerId: "computer",
     workspaceRoot: "/w",
-    workspaceWorkerToken: "daemon-credential",
+    daemonToken: "daemon-credential",
   });
   expect(spawned).toBe(true);
   expect(attempts).toBe(2);

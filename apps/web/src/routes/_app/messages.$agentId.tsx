@@ -26,8 +26,8 @@ function DirectConversationPage() {
     <DirectConversation
       key={selectedAgent?.id}
       conversation={conversation}
-      onSend={async (body, requestId) => {
-        await send({ data: { agentId, requestId, body } });
+      onSend={async (body, requestId, attachmentId) => {
+        await send({ data: { agentId, requestId, body, attachmentId } });
         await router.invalidate({ sync: true });
       }}
       onRefresh={() => router.invalidate({ sync: true })}

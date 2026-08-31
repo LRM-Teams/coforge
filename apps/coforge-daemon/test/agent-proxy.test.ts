@@ -99,3 +99,28 @@ test("Agent API key remains usable after an idle day without refresh", async () 
   proxy.revoke(token);
   expect((await request()).status).toBe(401);
 });
+
+test("proxy forwards an authorized attachment download without exposing the Agent API key", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => ({}),
+      agentAttachment: async (_context, attachmentId, apiKey) => {
+        expect(attachmentId).toBe("attachment-1");
+        expect(apiKey).toMatch(/^sk_agent_/);
+        return new Response("file contents", {
+          headers: { "content-type": "text/plain" },
+        });
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-1", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(
+    `${proxy.url.replace("/agent/message", "/agent/attachment")}\u003fattachmentId=attachment-1`,
+    {
+      headers: { authorization: `Bearer ${token}` },
+    },
+  );
+  expect(response.status).toBe(200);
+  expect(await response.text()).toBe("file contents");
+});

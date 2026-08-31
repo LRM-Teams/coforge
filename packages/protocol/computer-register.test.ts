@@ -3,10 +3,10 @@ import { ComputerRegistrationClient, RUNTIME_PROVIDER } from "./index";
 import {
   decodeComputerRegisterRequest,
   decodeAgentStartIntent,
-  decodeWorkspaceWorkerCodeAgentsUpdateRequest,
+  decodeDaemonRuntimeCodeAgentsUpdateRequest,
   encodeAgentStartIntent,
   encodeComputerRegisterRequest,
-  encodeWorkspaceWorkerCodeAgentsUpdateRequest,
+  encodeDaemonRuntimeCodeAgentsUpdateRequest,
 } from "./codec";
 
 test("computer registration sends the stable method and rejects incompatible majors", async () => {
@@ -19,7 +19,7 @@ test("computer registration sends the stable method and rejects incompatible maj
         requestId: payload.requestId,
         computerId: "c",
         workspaceId: "w",
-        workspaceWorkerToken: "secret",
+        daemonToken: "secret",
       };
     },
   });
@@ -87,7 +87,7 @@ test("provider and kind together identify runtimes", () => {
   ]);
 });
 
-test("workspace worker code-agent inventory round trips as a complete external snapshot", () => {
+test("daemon runtime code-agent inventory round trips as a complete external snapshot", () => {
   const request = {
     protocolMajor: 1,
     requestId: "inventory-1",
@@ -134,9 +134,7 @@ test("workspace worker code-agent inventory round trips as a complete external s
   };
 
   expect(
-    decodeWorkspaceWorkerCodeAgentsUpdateRequest(
-      encodeWorkspaceWorkerCodeAgentsUpdateRequest(request),
-    ),
+    decodeDaemonRuntimeCodeAgentsUpdateRequest(encodeDaemonRuntimeCodeAgentsUpdateRequest(request)),
   ).toEqual(request);
 });
 

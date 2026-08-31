@@ -4,13 +4,13 @@ import {
   decodeAgentMessageDelivery,
   encodeAgentActivity,
   encodeAgentMessageDeliveryAck,
-  encodeWorkspaceWorkerReadyRequest,
-  encodeWorkspaceWorkerCodeAgentsUpdateRequest,
-  WORKSPACE_WORKER_READY_METHOD,
-  WORKSPACE_WORKER_CODE_AGENTS_UPDATE_METHOD,
+  encodeDaemonRuntimeReadyRequest,
+  encodeDaemonRuntimeCodeAgentsUpdateRequest,
+  DAEMON_RUNTIME_READY_METHOD,
+  DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD,
   AGENT_MESSAGE_ACK_METHOD,
-  type WorkspaceWorkerReadyRequest,
-  type WorkspaceWorkerCodeAgentsUpdateRequest,
+  type DaemonRuntimeReadyRequest,
+  type DaemonRuntimeCodeAgentsUpdateRequest,
   type AgentActivity,
   type AgentStartIntent,
   type AgentMessageDelivery,
@@ -22,6 +22,7 @@ import {
   AGENT_MESSAGE_READ_METHOD,
   AGENT_MESSAGE_SEND_METHOD,
 } from "@coforge/protocol";
+import { isAgentApiKey } from "../credentials/agent-api-key";
 
 /** Configuration identifying the daemon's Workspace cloud connection. */
 export interface WorkspaceCloudTransportConfig {
@@ -43,8 +44,8 @@ export interface AgentMessageHttpClient {
 /** Provider-neutral port for the daemon's Workspace cloud connection. */
 export interface WorkspaceCloudTransport {
   start(token: string, config: WorkspaceCloudTransportConfig): Promise<void>;
-  ready(request: WorkspaceWorkerReadyRequest): Promise<void>;
-  updateCodeAgents?(request: WorkspaceWorkerCodeAgentsUpdateRequest): Promise<void>;
+  ready(request: DaemonRuntimeReadyRequest): Promise<void>;
+  updateCodeAgents?(request: DaemonRuntimeCodeAgentsUpdateRequest): Promise<void>;
   stop(): Promise<void>;
   onReconnect?(callback: () => void): () => void;
   onAgentStart?(callback: (intent: AgentStartIntent) => void): () => void;
@@ -55,6 +56,7 @@ export interface WorkspaceCloudTransport {
     request: AgentMessageRequest,
     agentApiKey?: string,
   ): Promise<CloudAgentMessageResponse>;
+  agentAttachment?(attachmentId: string, agentApiKey?: string): Promise<Response>;
   requestAgentApiKey?(input: { agentId: string; workspaceId: string }): Promise<string>;
   revokeAgentApiKey?(agentApiKey: string): Promise<void>;
 }
@@ -122,7 +124,7 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
   #agentStartListener: ((intent: AgentStartIntent) => void) | undefined;
   #agentMessageListener: ((message: AgentMessageDelivery) => void) | undefined;
   #token = "";
-  #lastReadyRequest: WorkspaceWorkerReadyRequest | undefined;
+  #lastReadyRequest: DaemonRuntimeReadyRequest | undefined;
   #reconnectListener: (() => void) | undefined;
   readonly #pendingActivity = new Map<string, AgentActivity>();
   readonly #supersededActivityLaunches = new Map<string, Set<string>>();
@@ -245,6 +247,20 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
     });
   }
 
+  async agentAttachment(attachmentId: string, agentApiKey?: string): Promise<Response> {
+    if (!this.#connected) throw new Error("cloud transport is not connected");
+    if (!this.#serverHttpUrl) throw new Error("Agent attachment endpoint is not configured");
+    return fetch(
+      `${new URL(this.#serverHttpUrl).origin}/api/agent/attachments/${encodeURIComponent(attachmentId)}`,
+      {
+        headers: {
+          authorization: `Bearer ${agentApiKey ?? this.#token}`,
+          "x-coforge-daemon-authorization": `Bearer ${this.#token}`,
+        },
+      },
+    );
+  }
+
   async requestAgentApiKey(input: { agentId: string; workspaceId: string }): Promise<string> {
     if (!this.#serverHttpUrl) throw new Error("Agent API key endpoint is not configured");
     const response = await fetch(`${new URL(this.#serverHttpUrl).origin}/api/agent-api-keys`, {
@@ -254,7 +270,7 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
     });
     if (!response.ok) throw new Error(`Agent API key request failed (${response.status})`);
     const value = (await response.json()) as { apiKey?: unknown };
-    if (typeof value.apiKey !== "string" || !/^sk_agent_[A-Za-z0-9_-]{43}$/.test(value.apiKey))
+    if (typeof value.apiKey !== "string" || !isAgentApiKey(value.apiKey))
       throw new Error("invalid Agent API key response");
     return value.apiKey;
   }
@@ -297,25 +313,25 @@ export class CentrifugoWorkspaceTransport implements WorkspaceCloudTransport {
     }
   }
 
-  async ready(request: WorkspaceWorkerReadyRequest): Promise<void> {
+  async ready(request: DaemonRuntimeReadyRequest): Promise<void> {
     if (!this.#connected || !this.#client) throw new Error("cloud transport is not connected");
     await this.#sendReady(this.#client, request);
     this.#lastReadyRequest = request;
   }
 
-  async updateCodeAgents(request: WorkspaceWorkerCodeAgentsUpdateRequest): Promise<void> {
+  async updateCodeAgents(request: DaemonRuntimeCodeAgentsUpdateRequest): Promise<void> {
     if (!this.#connected || !this.#client) throw new Error("cloud transport is not connected");
     await this.#client.rpc(
-      WORKSPACE_WORKER_CODE_AGENTS_UPDATE_METHOD,
-      encodeWorkspaceWorkerCodeAgentsUpdateRequest(request),
+      DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD,
+      encodeDaemonRuntimeCodeAgentsUpdateRequest(request),
     );
   }
 
   async #sendReady(
     client: CentrifugeWorkspaceClient,
-    request: WorkspaceWorkerReadyRequest,
+    request: DaemonRuntimeReadyRequest,
   ): Promise<void> {
-    await client.rpc(WORKSPACE_WORKER_READY_METHOD, encodeWorkspaceWorkerReadyRequest(request));
+    await client.rpc(DAEMON_RUNTIME_READY_METHOD, encodeDaemonRuntimeReadyRequest(request));
   }
 
   async stop(): Promise<void> {

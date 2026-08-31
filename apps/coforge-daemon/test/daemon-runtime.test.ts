@@ -582,6 +582,15 @@ describe("DaemonRuntime", () => {
           async start() {},
           async ready() {},
           async stop() {},
+          async agentMessage() {
+            return {
+              protocolMajor: 1,
+              requestId: "replacement",
+              accepted: true,
+              attentionCount: 0,
+              messages: [],
+            };
+          },
           async requestAgentApiKey() {
             return `sk_agent_${String.fromCharCode(96 + launchCount + 1).repeat(43)}`;
           },

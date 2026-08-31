@@ -6,10 +6,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { encodeAgentActivity } from "@coforge/protocol";
 import { PrismaClient } from "../generated/client";
 import { DEV_BROWSER_USER } from "../src/server/auth/dev-skip-auth.server";
-import {
-  createWorkspaceWorkerTokenIssuer,
-  verifyWorkspaceWorkerToken,
-} from "../src/server/auth/workspace-worker-token.server";
+import { createDaemonTokenIssuer, verifyDaemonToken } from "../src/server/auth/daemon-token.server";
 import { ComputerRegistrar } from "../src/server/computers/registration.server";
 import {
   PrismaComputerConnectionRepository,
@@ -67,7 +64,7 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
   const registration = await new ComputerRegistrar({
     workspaceAccess: new PrismaWorkspaceAccess(db),
     computers: new PrismaComputerConnectionRepository(db),
-    tokenIssuer: createWorkspaceWorkerTokenIssuer(),
+    tokenIssuer: createDaemonTokenIssuer(),
   }).register(
     {
       protocolMajor: 1,
@@ -84,7 +81,7 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
   );
 
   const agents = new PrismaAgentRepository(db);
-  expect(await verifyWorkspaceWorkerToken(registration.workspaceWorkerToken)).toEqual({
+  expect(await verifyDaemonToken(registration.daemonToken)).toEqual({
     userId: DEV_BROWSER_USER.id,
     workspaceId,
     computerId: registration.computerId,
@@ -108,7 +105,7 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
   const keyProbe = await fetch("http://127.0.0.1:8789/api/agent-api-keys", {
     method: "POST",
     headers: {
-      authorization: `Bearer ${registration.workspaceWorkerToken}`,
+      authorization: `Bearer ${registration.daemonToken}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({ agentId: created.agent.id, workspaceId }),
@@ -118,11 +115,12 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
   await db.agentApiKey.deleteMany({ where: { apiKeyHash: { not: "" } } });
 
   const credentials = new InMemoryDaemonCredentialStore();
-  await credentials.save(workspaceId, registration.computerId, registration.workspaceWorkerToken);
+  await credentials.save(workspaceId, registration.computerId, registration.daemonToken);
   let runtime: DaemonRuntime | undefined;
   const proxy = startAgentProxy({
     runtime: {
       agentMessage: (...args) => runtime!.agentMessage(...args),
+      agentAttachment: (...args) => runtime!.agentAttachment(...args),
       issueAgentContext: (agentId, context) => runtime!.issueAgentContext(agentId, context),
     },
   });
@@ -177,6 +175,13 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
       created.agent.id,
       ".e2e-agent-complete.json",
     );
+    const errorPath = join(
+      workspaceRoot,
+      workspaceId,
+      "agents",
+      created.agent.id,
+      ".e2e-agent-error",
+    );
 
     const conversations = new PrismaDirectConversationRepository(db);
     const opened = await conversations.openForUser(
@@ -184,6 +189,18 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
       DEV_BROWSER_USER.id,
       created.agent.id,
     );
+    const upload = new FormData();
+    upload.set("conversationId", opened.conversationId);
+    upload.set(
+      "file",
+      new File(["E2E attachment content"], "e2e-attachment.txt", { type: "text/plain" }),
+    );
+    const uploaded = await fetch("http://127.0.0.1:8789/api/attachments", {
+      method: "POST",
+      body: upload,
+    });
+    expect(uploaded.status).toBe(200);
+    const attachment = (await uploaded.json()) as { id: string };
     const sender = new SendDirectMessage(
       conversations,
       new RedisMessageRequestIdempotency(redis),
@@ -197,12 +214,19 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
       senderMemberId: opened.senderMemberId,
       senderUserId: DEV_BROWSER_USER.id,
       body: "E2E User message",
+      attachmentId: attachment.id,
     };
     const first = await sender.execute(input);
     const retried = await sender.execute(input);
     expect(retried.id).toBe(first.id);
+    const browserAttachment = await fetch(`http://127.0.0.1:8789/api/attachments/${attachment.id}`);
+    expect(browserAttachment.status).toBe(200);
+    expect(browserAttachment.headers.get("content-type")).toBe("application/octet-stream");
+    expect(browserAttachment.headers.get("content-disposition")).toContain("attachment");
+    expect(browserAttachment.headers.get("x-content-type-options")).toBe("nosniff");
 
-    await waitFor(async () => Bun.file(completionPath).exists());
+    await waitFor(async () => Bun.file(completionPath).exists() || Bun.file(errorPath).exists());
+    if (await Bun.file(errorPath).exists()) throw new Error(await Bun.file(errorPath).text());
     const completion = (await Bun.file(completionPath).json()) as {
       firstMessageId: string;
       retriedMessageId: string;

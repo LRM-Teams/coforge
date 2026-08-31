@@ -6,7 +6,7 @@ import {
 } from "#/server/agents/agent-api-key.server";
 import { PrismaAgentApiKeyRepository } from "#/server/db/repositories/agent-api-key.repositories.server";
 import { getDatabaseClient } from "#/server/db/client.server";
-import { verifyWorkspaceWorkerToken } from "#/server/auth/workspace-worker-token.server";
+import { verifyDaemonToken } from "#/server/auth/daemon-token.server";
 
 export const Route = createFileRoute("/api/agent-api-keys")({
   server: {
@@ -15,9 +15,9 @@ export const Route = createFileRoute("/api/agent-api-keys")({
         const header = request.headers.get("authorization");
         if (!header?.startsWith("Bearer "))
           return Response.json({ error: "unauthorized" }, { status: 401 });
-        let principal: Awaited<ReturnType<typeof verifyWorkspaceWorkerToken>>;
+        let principal: Awaited<ReturnType<typeof verifyDaemonToken>>;
         try {
-          principal = await verifyWorkspaceWorkerToken(header.slice(7).trim());
+          principal = await verifyDaemonToken(header.slice(7).trim());
         } catch {
           return Response.json({ error: "unauthorized" }, { status: 401 });
         }
@@ -36,6 +36,7 @@ export const Route = createFileRoute("/api/agent-api-keys")({
             id: body.agentId,
             workspaceId: body.workspaceId,
             ownerId: principal.userId,
+            computerId: principal.computerId,
             workspace: {
               members: { some: { userId: principal.userId } },
               computers: { some: { computerId: principal.computerId } },
@@ -58,9 +59,9 @@ export const Route = createFileRoute("/api/agent-api-keys")({
         const header = request.headers.get("authorization");
         if (!header?.startsWith("Bearer "))
           return Response.json({ error: "unauthorized" }, { status: 401 });
-        let principal: Awaited<ReturnType<typeof verifyWorkspaceWorkerToken>>;
+        let principal: Awaited<ReturnType<typeof verifyDaemonToken>>;
         try {
-          principal = await verifyWorkspaceWorkerToken(header.slice(7).trim());
+          principal = await verifyDaemonToken(header.slice(7).trim());
         } catch {
           return Response.json({ error: "unauthorized" }, { status: 401 });
         }

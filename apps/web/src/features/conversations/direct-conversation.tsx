@@ -14,6 +14,7 @@ export type DirectConversationView = {
     senderName: string;
     body: string;
     createdAt: Date | string;
+    attachment?: { id: string; fileName: string; contentType: string; sizeBytes: number };
   }>;
 };
 
@@ -23,12 +24,13 @@ export function DirectConversation({
   onRefresh,
 }: {
   conversation: DirectConversationView;
-  onSend: (body: string, requestId: string) => Promise<void>;
+  onSend: (body: string, requestId: string, attachmentId?: string) => Promise<void>;
   onRefresh: () => Promise<void>;
 }) {
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [file, setFile] = useState<File>();
   const historyRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef(false);
   const sendingRef = useRef(false);
@@ -61,7 +63,7 @@ export function DirectConversation({
 
   async function submit(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
-    const text = body.trim();
+    const text = body.trim() || file?.name || "";
     if (!text || sendingRef.current) return;
     sendingRef.current = true;
     setSending(true);
@@ -72,9 +74,19 @@ export function DirectConversation({
           ? retryRef.current
           : { body: text, requestId: crypto.randomUUID() };
       retryRef.current = request;
-      await onSend(text, request.requestId);
+      let attachmentId: string | undefined;
+      if (file) {
+        const form = new FormData();
+        form.set("conversationId", conversation.conversationId);
+        form.set("file", file);
+        const response = await fetch("/api/attachments", { method: "POST", body: form });
+        if (!response.ok) throw new Error(await response.text());
+        attachmentId = ((await response.json()) as { id: string }).id;
+      }
+      await onSend(text, request.requestId, attachmentId);
       retryRef.current = undefined;
       setBody("");
+      setFile(undefined);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : m.conversation_send_error());
     } finally {
@@ -127,6 +139,17 @@ export function DirectConversation({
                   }
                 >
                   {message.body}
+                  {message.attachment && (
+                    <a
+                      className="mt-2 block underline"
+                      href={`/api/attachments/${message.attachment.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {message.attachment.fileName} (
+                      {Math.ceil(message.attachment.sizeBytes / 1024)} KB)
+                    </a>
+                  )}
                 </div>
               </li>
             ))}
@@ -153,6 +176,14 @@ export function DirectConversation({
             placeholder={m.conversation_message_placeholder()}
             className="w-full resize-none rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/30"
           />
+          <label className="mt-2 block text-sm">
+            <span className="sr-only">Attachment</span>
+            <input
+              type="file"
+              disabled={sending}
+              onChange={(event) => setFile(event.target.files?.[0])}
+            />
+          </label>
           {error && (
             <p role="alert" className="mt-2 text-sm text-destructive">
               {error}
@@ -160,7 +191,7 @@ export function DirectConversation({
           )}
           <div className="mt-2 flex items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">{m.conversation_auto_refresh()}</p>
-            <Button type="submit" disabled={sending || !body.trim()}>
+            <Button type="submit" disabled={sending || (!body.trim() && !file)}>
               {sending ? m.conversation_sending() : m.conversation_send()}
             </Button>
           </div>

@@ -95,7 +95,7 @@ These instructions apply to the entire repository.
   supervision, and protocol encoding belong to reusable modules below the
   command layer.
 - Keep the abstraction gradient explicit: upper layers express business
-  intent (`setupComputer`, `registerComputer`, `startWorkspaceWorker`); middle
+  intent (`setupComputer`, `registerComputer`, `startDaemonRuntime`); middle
   layers coordinate domain operations (`getBySlug`, `buildRegistration`,
   `ensureStarted`); lower layers expose implementation details (`encode`,
   `writeFrame`, `spawn`, `flush`). Do not create cross-layer methods such as
@@ -187,12 +187,12 @@ These instructions apply to the entire repository.
 
 - The local product has exactly two app packages: `apps/coforge-computer` and `apps/coforge-daemon`; the Computer package depends on the Daemon package for build and distribution.
 - Users install only the Computer distribution. It must include the compatible Daemon payload; Daemon is not a second user-installed product or a public CLI entry point.
-- Never create `apps/workspace-worker`. A workspace worker is a supervised resident child-process role implemented and released inside `coforge-daemon`.
+- Never create another local app package. Daemon runtime supervision is implemented and released inside `coforge-daemon`.
 - `coforge-computer` and `coforge-daemon` are independent OS processes. Their local control channel is a Unix domain socket, not a TCP management port.
 - One coforge-daemon owns one persisted daemon configuration and one cloud Workspace connection.
 - `coforge-computer` does not maintain a long-lived cloud WebSocket. The daemon owns exactly one long-lived WSS connection for its configured Workspace.
 - Server→Daemon delivery/control uses versioned CoForge RPC over the daemon WSS. Agent→Web message read/send uses the separately authorized HTTPS RPC and retries a stable `request_id`; OAuth, installation, and release metadata are the other HTTPS exceptions. Do not add unrelated Computer/Daemon REST business endpoints.
-- Workspace workers adapt Codex, Claude Code, Pi, and other code-agent runtimes through provider-neutral code-agent adapters. Each adapter may use an officially supported native protocol, SDK child runner, or ACP; higher layers must not parse provider-specific output.
+- Daemon runtimes adapt Codex, Claude Code, Pi, and other code-agent runtimes through provider-neutral code-agent adapters. Each adapter may use an officially supported native protocol, SDK child runner, or ACP; higher layers must not parse provider-specific output.
 - Caddy owns public TLS and edge proxying. Standalone Centrifugo OSS owns WSS/RPC transport mechanics only. Web/backend owns authentication, conversations, persistence, and routing decisions.
 - PostgreSQL is accessed through Web/backend. Centrifugo must not acquire domain or database ownership.
 - Redis is Centrifugo broker/presence/hot-history state plus Web message-request idempotency state. PostgreSQL canonical Message/read state is the message recovery boundary; any daemon status spool does not make Agent Activity reliable.

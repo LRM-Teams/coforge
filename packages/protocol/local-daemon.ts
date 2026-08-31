@@ -2,20 +2,24 @@ import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   DaemonHandshakeRequestSchema,
   DaemonHandshakeResponseSchema,
-  WorkspaceWorkerConfigureRequestSchema,
-  WorkspaceWorkerConfigureResponseSchema,
   DaemonCommandRequestSchema,
   DaemonCommandResponseSchema,
+} from "./gen/coforge/rpc/v1/daemon_pb";
+import {
+  DaemonRuntimeConfigureRequestSchema,
+  DaemonRuntimeConfigureResponseSchema,
+} from "./gen/coforge/rpc/v1/daemon_runtime_pb";
+import {
   LocalRpcRequestSchema,
   LocalRpcResponseSchema,
   LocalAgentMessageRequestSchema,
   AgentMessageResponseSchema,
-} from "./gen/coforge/rpc/v1/computer_register_pb";
+} from "./gen/coforge/rpc/v1/local_rpc_pb";
 
 export const LOCAL_RPC_PROTOCOL_MAJOR = 1 as const;
 export const LOCAL_RPC_METHODS = {
   HANDSHAKE: "daemon:handshake",
-  CONFIGURE: "workspace-worker:configure",
+  CONFIGURE: "daemon-runtime:configure",
   START: "daemon:start",
   STOP: "daemon:stop",
   RESTART: "daemon:restart",
@@ -35,7 +39,38 @@ export type AgentMessageRecord = {
   target: string;
   body: string;
   createdAt: string;
+  attachment?: {
+    id: string;
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+  };
 };
+type LocalAttachment = NonNullable<AgentMessageRecord["attachment"]>;
+export function encodeLocalAttachment(value: LocalAttachment) {
+  return { ...value, sizeBytes: BigInt(value.sizeBytes) };
+}
+export function decodeLocalAttachment(
+  value:
+    | {
+        id: string;
+        fileName: string;
+        contentType: string;
+        sizeBytes: bigint;
+      }
+    | undefined,
+): { attachment?: LocalAttachment } {
+  return value?.id
+    ? {
+        attachment: {
+          id: value.id,
+          fileName: value.fileName,
+          contentType: value.contentType,
+          sizeBytes: Number(value.sizeBytes),
+        },
+      }
+    : {};
+}
 export type AgentMessageResponse = {
   requestId: string;
   accepted: boolean;
@@ -74,6 +109,7 @@ export function encodeAgentMessageResponse(value: AgentMessageResponse): Uint8Ar
         ...m,
         sequence: BigInt(m.sequence),
         createdAt: m.createdAt,
+        attachment: m.attachment ? encodeLocalAttachment(m.attachment) : undefined,
       })),
       summaries: value.summaries.map((summary) => ({
         ...summary,
@@ -105,20 +141,21 @@ export function decodeAgentMessageResponse(bytes: Uint8Array): AgentMessageRespo
       target: m.target,
       body: m.body,
       createdAt: m.createdAt,
+      ...decodeLocalAttachment(m.attachment),
     })),
   };
 }
 export const DAEMON_HANDSHAKE_METHOD = LOCAL_RPC_METHODS.HANDSHAKE;
-export const WORKSPACE_WORKER_CONFIGURE_METHOD = LOCAL_RPC_METHODS.CONFIGURE;
-export type WorkspaceWorkerConfigureRequest = {
+export const DAEMON_RUNTIME_CONFIGURE_METHOD = LOCAL_RPC_METHODS.CONFIGURE;
+export type DaemonRuntimeConfigureRequest = {
   protocolMajor: number;
   requestId: string;
   workspaceId: string;
   workspaceRoot: string;
-  workspaceWorkerToken: string;
+  daemonToken: string;
   computerId: string;
 };
-export type WorkspaceWorkerConfigureResponse = {
+export type DaemonRuntimeConfigureResponse = {
   protocolMajor: number;
   requestId: string;
   accepted: boolean;
@@ -147,39 +184,39 @@ export function decodeLocalRpcResponse(bytes: Uint8Array): LocalRpcResponse {
   return { method: value.method, payload: value.payload };
 }
 
-export function encodeWorkspaceWorkerConfigureRequest(
-  value: WorkspaceWorkerConfigureRequest,
+export function encodeDaemonRuntimeConfigureRequest(
+  value: DaemonRuntimeConfigureRequest,
 ): Uint8Array {
   return toBinary(
-    WorkspaceWorkerConfigureRequestSchema,
-    create(WorkspaceWorkerConfigureRequestSchema, value),
+    DaemonRuntimeConfigureRequestSchema,
+    create(DaemonRuntimeConfigureRequestSchema, value),
   );
 }
-export function decodeWorkspaceWorkerConfigureRequest(
+export function decodeDaemonRuntimeConfigureRequest(
   bytes: Uint8Array,
-): WorkspaceWorkerConfigureRequest {
-  const v = fromBinary(WorkspaceWorkerConfigureRequestSchema, bytes);
+): DaemonRuntimeConfigureRequest {
+  const v = fromBinary(DaemonRuntimeConfigureRequestSchema, bytes);
   return {
     protocolMajor: v.protocolMajor,
     requestId: v.requestId,
     workspaceId: v.workspaceId,
     workspaceRoot: v.workspaceRoot,
-    workspaceWorkerToken: v.workspaceWorkerToken,
+    daemonToken: v.daemonToken,
     computerId: v.computerId,
   };
 }
-export function encodeWorkspaceWorkerConfigureResponse(
-  value: WorkspaceWorkerConfigureResponse,
+export function encodeDaemonRuntimeConfigureResponse(
+  value: DaemonRuntimeConfigureResponse,
 ): Uint8Array {
   return toBinary(
-    WorkspaceWorkerConfigureResponseSchema,
-    create(WorkspaceWorkerConfigureResponseSchema, value),
+    DaemonRuntimeConfigureResponseSchema,
+    create(DaemonRuntimeConfigureResponseSchema, value),
   );
 }
-export function decodeWorkspaceWorkerConfigureResponse(
+export function decodeDaemonRuntimeConfigureResponse(
   bytes: Uint8Array,
-): WorkspaceWorkerConfigureResponse {
-  const v = fromBinary(WorkspaceWorkerConfigureResponseSchema, bytes);
+): DaemonRuntimeConfigureResponse {
+  const v = fromBinary(DaemonRuntimeConfigureResponseSchema, bytes);
   return { protocolMajor: v.protocolMajor, requestId: v.requestId, accepted: v.accepted };
 }
 

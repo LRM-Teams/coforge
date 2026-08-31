@@ -3,7 +3,7 @@ import {
   ComputerRegisterRequestSchema,
   ComputerRegisterResponseSchema,
   RuntimeKind,
-} from "./gen/coforge/rpc/v1/computer_register_pb";
+} from "./gen/coforge/rpc/v1/computer_pb";
 import {
   RUNTIME_PROVIDER,
   type ComputerRegisterRequest,
@@ -18,9 +18,9 @@ import {
   WorkspaceListResponseSchema,
 } from "./gen/coforge/rpc/v1/workspace_pb";
 import {
-  WorkspaceWorkerCodeAgentsUpdateRequestSchema,
-  WorkspaceWorkerReadyRequestSchema,
-} from "./gen/coforge/rpc/v1/computer_register_pb";
+  DaemonRuntimeCodeAgentsUpdateRequestSchema,
+  DaemonRuntimeReadyRequestSchema,
+} from "./gen/coforge/rpc/v1/daemon_runtime_pb";
 import {
   AgentStartIntentSchema,
   AgentMessageDeliverySchema,
@@ -38,10 +38,11 @@ import type {
   CloudAgentMessageResponse,
 } from "./index";
 import { AGENT_MESSAGE_METHOD, AGENT_MESSAGE_ACK_METHOD } from "./index";
+import { encodeLocalAttachment, decodeLocalAttachment } from "./local-daemon";
 import type {
   RuntimeMetadata,
-  WorkspaceWorkerCodeAgentsUpdateRequest,
-  WorkspaceWorkerReadyRequest,
+  DaemonRuntimeCodeAgentsUpdateRequest,
+  DaemonRuntimeReadyRequest,
 } from "./index";
 
 const runtimeMetadata = (runtime: RuntimeMetadata) => ({
@@ -88,27 +89,27 @@ const decodedModelCatalog = (catalog: {
   })),
 });
 
-export function encodeWorkspaceWorkerReadyRequest(value: WorkspaceWorkerReadyRequest): Uint8Array {
+export function encodeDaemonRuntimeReadyRequest(value: DaemonRuntimeReadyRequest): Uint8Array {
   return toBinary(
-    WorkspaceWorkerReadyRequestSchema,
-    create(WorkspaceWorkerReadyRequestSchema, {
+    DaemonRuntimeReadyRequestSchema,
+    create(DaemonRuntimeReadyRequestSchema, {
       ...value,
       startedAt: BigInt(value.startedAt),
     }),
   );
 }
 
-export function decodeWorkspaceWorkerReadyRequest(bytes: Uint8Array): WorkspaceWorkerReadyRequest {
-  const value = fromBinary(WorkspaceWorkerReadyRequestSchema, bytes);
+export function decodeDaemonRuntimeReadyRequest(bytes: Uint8Array): DaemonRuntimeReadyRequest {
+  const value = fromBinary(DaemonRuntimeReadyRequestSchema, bytes);
   return { ...value, startedAt: Number(value.startedAt) };
 }
 
-export function encodeWorkspaceWorkerCodeAgentsUpdateRequest(
-  value: WorkspaceWorkerCodeAgentsUpdateRequest,
+export function encodeDaemonRuntimeCodeAgentsUpdateRequest(
+  value: DaemonRuntimeCodeAgentsUpdateRequest,
 ): Uint8Array {
   return toBinary(
-    WorkspaceWorkerCodeAgentsUpdateRequestSchema,
-    create(WorkspaceWorkerCodeAgentsUpdateRequestSchema, {
+    DaemonRuntimeCodeAgentsUpdateRequestSchema,
+    create(DaemonRuntimeCodeAgentsUpdateRequestSchema, {
       ...value,
       runtimes: value.runtimes.map(runtimeMetadata),
       catalogs: value.catalogs.map(modelCatalog),
@@ -116,10 +117,10 @@ export function encodeWorkspaceWorkerCodeAgentsUpdateRequest(
   );
 }
 
-export function decodeWorkspaceWorkerCodeAgentsUpdateRequest(
+export function decodeDaemonRuntimeCodeAgentsUpdateRequest(
   bytes: Uint8Array,
-): WorkspaceWorkerCodeAgentsUpdateRequest {
-  const value = fromBinary(WorkspaceWorkerCodeAgentsUpdateRequestSchema, bytes);
+): DaemonRuntimeCodeAgentsUpdateRequest {
+  const value = fromBinary(DaemonRuntimeCodeAgentsUpdateRequestSchema, bytes);
   return {
     protocolMajor: value.protocolMajor,
     requestId: value.requestId,
@@ -244,7 +245,11 @@ export function encodeCloudAgentMessageResponse(value: CloudAgentMessageResponse
     create(CloudAgentMessageResponseSchema, {
       ...value,
       messageId: value.messageId ?? "",
-      messages: value.messages.map((m) => ({ ...m, sequence: BigInt(m.sequence) })),
+      messages: value.messages.map((m) => ({
+        ...m,
+        sequence: BigInt(m.sequence),
+        attachment: m.attachment ? encodeLocalAttachment(m.attachment) : undefined,
+      })),
     }),
   );
 }
@@ -255,8 +260,16 @@ export function decodeCloudAgentMessageResponse(bytes: Uint8Array): CloudAgentMe
     requestId: v.requestId,
     accepted: v.accepted,
     attentionCount: v.attentionCount,
-    messageId: v.messageId || undefined,
-    messages: v.messages.map((m) => ({ ...m, sequence: Number(m.sequence) })),
+    ...(v.messageId ? { messageId: v.messageId } : {}),
+    messages: v.messages.map((m) => ({
+      id: m.id,
+      sequence: Number(m.sequence),
+      sender: m.sender,
+      body: m.body,
+      createdAt: m.createdAt,
+      target: m.target,
+      ...decodeLocalAttachment(m.attachment),
+    })),
   };
 }
 export function decodeAgentActivity(bytes: Uint8Array): AgentActivity {
@@ -403,7 +416,7 @@ export function decodeComputerRegisterResponse(bytes: Uint8Array): ComputerRegis
     requestId: value.requestId,
     computerId: value.computerId,
     workspaceId: value.workspaceId,
-    workspaceWorkerToken: value.workspaceWorkerToken,
+    daemonToken: value.daemonToken,
   };
 }
 

@@ -9,7 +9,7 @@ import {
   decodeAgentMessageDeliveryAck,
   encodeAgentStartIntent,
 } from "@coforge/protocol";
-import { WORKSPACE_WORKER_READY_METHOD } from "@coforge/protocol";
+import { DAEMON_RUNTIME_READY_METHOD } from "@coforge/protocol";
 
 function fakeClient() {
   let connected = () => {};
@@ -211,7 +211,7 @@ test("resends the last successful ready request after reconnect", async () => {
   const fake = fakeClient();
   const readyCalls: Uint8Array[] = [];
   fake.client.rpc = async (method, data) => {
-    if (method === WORKSPACE_WORKER_READY_METHOD) readyCalls.push(data);
+    if (method === DAEMON_RUNTIME_READY_METHOD) readyCalls.push(data);
     return new Uint8Array();
   };
   const transport = new CentrifugoWorkspaceTransport("wss://cloud.example", () => fake.client);
@@ -262,7 +262,7 @@ test("contains a reconnect ready failure and retries on the next reconnect", asy
   const fake = fakeClient();
   let readyCalls = 0;
   fake.client.rpc = async (method) => {
-    if (method === WORKSPACE_WORKER_READY_METHOD) {
+    if (method === DAEMON_RUNTIME_READY_METHOD) {
       readyCalls++;
       if (readyCalls === 2) throw new Error("reconnect ready failed");
     }

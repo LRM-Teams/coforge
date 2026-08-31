@@ -47,7 +47,7 @@ redaction, and a non-root deployment identity.
 | Cloud application | Full `registry/repository@sha256:...` image reference | `test` GitHub Environment and Compose project | Deploy the same digest to production Compose |
 | Local Computer distribution | Release-set digest, both component-manifest digests, and every platform installation-bundle checksum | Test release set selected by `channels.json` | Select the same tested release-set and bundle bytes in production |
 
-The workspace worker role is released inside `coforge-daemon`; it is not a third local
+The daemon runtime role is released inside `coforge-daemon`; it is not a third local
 app package. `@coforge/agent` is independently packable for dependency and
 verification purposes, but the exact installed package remains part of the
 Daemon component payload rather than becoming a third user-facing component.

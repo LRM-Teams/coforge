@@ -28,5 +28,20 @@ export function connectLocal(
     check: (target?: string) => call("check", target),
     read: (target?: string) => call("read", target),
     send: (target?: string, body?: string) => call("send", target, body),
+    view: async (attachmentId: string) => {
+      if (!context) throw new Error("coforge agent context is not configured");
+      if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+        throw new Error("coforge agent context is invalid");
+      if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
+      const response = await fetch(
+        `${proxyUrl.replace(/\/agent\/message$/, "/agent/attachment")}\u003fattachmentId=${encodeURIComponent(attachmentId)}`,
+        { headers: { authorization: `Bearer ${context}` }, signal: AbortSignal.timeout(60_000) },
+      );
+      if (!response.ok) throw new Error(`attachment download failed (${response.status})`);
+      return {
+        bytes: new Uint8Array(await response.arrayBuffer()),
+        fileName: response.headers.get("content-disposition") ?? undefined,
+      };
+    },
   };
 }

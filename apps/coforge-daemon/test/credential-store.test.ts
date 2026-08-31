@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { NativeDaemonCredentialStore } from "../src/credentials/credential-store";
 
-test("native Workspace Worker credential store delegates to the OS secret store", async () => {
+test("native Daemon Runtime credential store delegates to the OS secret store", async () => {
   const calls: unknown[] = [];
   const secrets = {
     async set(input: unknown) {
@@ -9,7 +9,7 @@ test("native Workspace Worker credential store delegates to the OS secret store"
     },
     async get(input: unknown) {
       calls.push(["get", input]);
-      return "workspace-worker-secret";
+      return "daemon-runtime-secret";
     },
     async delete(input: unknown) {
       calls.push(["delete", input]);
@@ -18,37 +18,37 @@ test("native Workspace Worker credential store delegates to the OS secret store"
   };
   const store = new NativeDaemonCredentialStore(secrets);
 
-  await store.save("workspace-a", "computer-a", "workspace-worker-secret");
-  await expect(store.load("workspace-a", "computer-a")).resolves.toBe("workspace-worker-secret");
+  await store.save("workspace-a", "computer-a", "daemon-runtime-secret");
+  await expect(store.load("workspace-a", "computer-a")).resolves.toBe("daemon-runtime-secret");
   await store.delete("workspace-a", "computer-a");
 
   expect(calls).toEqual([
     [
       "set",
       {
-        service: "cn.coforge.daemon.workspace-worker",
+        service: "cn.coforge.daemon.daemon-runtime",
         name: "workspace-a:computer-a",
-        value: "workspace-worker-secret",
+        value: "daemon-runtime-secret",
       },
     ],
     [
       "get",
       {
-        service: "cn.coforge.daemon.workspace-worker",
+        service: "cn.coforge.daemon.daemon-runtime",
         name: "workspace-a:computer-a",
       },
     ],
     [
       "delete",
       {
-        service: "cn.coforge.daemon.workspace-worker",
+        service: "cn.coforge.daemon.daemon-runtime",
         name: "workspace-a:computer-a",
       },
     ],
   ]);
 });
 
-test("native Workspace Worker credential store preserves secret-store failures", async () => {
+test("native Daemon Runtime credential store preserves secret-store failures", async () => {
   const store = new NativeDaemonCredentialStore({
     set: async () => {
       throw new Error("secret service unavailable");

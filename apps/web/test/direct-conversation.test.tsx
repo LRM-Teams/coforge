@@ -69,6 +69,30 @@ test("renders persisted messages in sequence order with distinct senders", () =>
   expect(messages[0]?.className).not.toBe(messages[1]?.className);
 });
 
+test("renders an attachment as a downloadable history link", () => {
+  const { page } = renderConversation({
+    ...base,
+    messages: [
+      {
+        id: "one",
+        sequence: 1,
+        senderKind: "user",
+        senderName: "Frank",
+        body: "See attached",
+        createdAt: "2026-08-29T10:00:00Z",
+        attachment: {
+          id: "attachment-1",
+          fileName: "report.pdf",
+          contentType: "application/pdf",
+          sizeBytes: 2048,
+        },
+      },
+    ],
+  });
+  const link = page.getByRole("link", { name: /report\.pdf/ });
+  expect(link.getAttribute("href")).toBe("/api/attachments/attachment-1");
+});
+
 test("sends trimmed text and clears only after success", async () => {
   const user = userEvent.setup();
   const onSend = mock(async (_body: string, _requestId: string) => {});

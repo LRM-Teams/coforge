@@ -26,6 +26,7 @@ import {
 } from "@coforge/protocol";
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentMessageAttentionIndex } from "./agent-message-attention-index";
+import { isAgentApiKey } from "../credentials/agent-api-key";
 import {
   discoverCodeAgentInventory,
   type CodeAgentInventory,
@@ -488,18 +489,36 @@ export class DaemonRuntime {
       const attention = this.#messageAttention
         .check(agentId)
         .filter((item) => !request.target || item.target === request.target);
+      if (!this.#transport.agentMessage) throw new Error("cloud transport is not connected");
+      if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+      const messages = [] as import("@coforge/protocol").AgentMessageRecord[];
+      for (const item of attention) {
+        const result = await this.#transport.agentMessage(
+          {
+            protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+            requestId: request.requestId,
+            agentId,
+            workspaceId: this.#connection.workspaceId,
+            operation: "read",
+            target: item.target,
+          },
+          agentApiKey,
+        );
+        if (!result.accepted) continue;
+        messages.push(...result.messages);
+        this.#messageAttention.clear(agentId, item.target);
+      }
       return {
         requestId: request.requestId,
         accepted: true,
         attentionCount: attention.reduce((n, a) => n + a.pendingCount, 0),
         summaries: attention.map((item) => ({ ...item, flags: [...item.flags] })),
-        messages: [],
+        messages,
         messageId: "",
       };
     }
     if (!this.#transport.agentMessage) throw new Error("cloud transport is not connected");
-    if (!agentApiKey || !/^sk_agent_[A-Za-z0-9_-]{43}$/.test(agentApiKey))
-      throw new Error("Agent API key is missing");
+    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
     const result = await this.#transport.agentMessage(
       {
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
@@ -522,6 +541,19 @@ export class DaemonRuntime {
       messages: result.messages,
       summaries: [],
     };
+  }
+
+  async agentAttachment(
+    context: string,
+    attachmentId: string,
+    agentApiKey?: string,
+  ): Promise<Response> {
+    if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
+    const agentId = [...this.#agentContexts.entries()].find(([, value]) => value === context)?.[0];
+    if (!agentId) throw new Error("invalid agent local context");
+    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    if (!this.#transport.agentAttachment) throw new Error("cloud transport is not connected");
+    return this.#transport.agentAttachment(attachmentId, agentApiKey);
   }
 
   #contextFor(agentId: string): string {
