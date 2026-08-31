@@ -13,5 +13,7 @@
   "conversation_send": "Send",
   "conversation_sending": "Sending…",
   "conversation_send_error": "The message could not be sent. Try again.",
-  "conversation_auto_refresh": "Replies refresh automatically."
+  "conversation_auto_refresh": "Replies refresh automatically.",
+  "conversation_attachment_label": "Add attachment",
+  "conversation_you": "You"
 }

@@ -63,10 +63,12 @@ test("renders persisted messages in sequence order with distinct senders", () =>
       },
     ],
   });
-  const messages = page.getByRole("list").querySelectorAll("li");
+  const messages = page.getByRole("list").querySelectorAll("[data-message]");
   expect(messages[0]?.textContent).toContain("Please check");
   expect(messages[1]?.textContent).toContain("Checked");
-  expect(messages[0]?.className).not.toBe(messages[1]?.className);
+  // The two sides are told apart by the bubble surface, not by position alone.
+  expect(messages[0]?.querySelector(".bg-message-own")).toBeTruthy();
+  expect(messages[1]?.querySelector(".bg-muted")).toBeTruthy();
 });
 
 test("renders an attachment as a downloadable history link", () => {
