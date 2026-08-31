@@ -178,6 +178,20 @@ describe("remote-deploy.sh compose invocation shape", () => {
       );
     expect(misplaced).toEqual([]);
   });
+
+  test("keeps the migration container output off the key=value report", async () => {
+    const script = await Bun.file(
+      new URL("./remote-deploy.sh", import.meta.url),
+    ).text();
+    const runIndex = script
+      .split("\n")
+      .findIndex((line) => line.includes('compose "${COMPOSE_ARGS[@]}" run'));
+    expect(runIndex).toBeGreaterThanOrEqual(0);
+    const runBlock = script
+      .slice(script.indexOf("compose \"${COMPOSE_ARGS[@]}\" run"))
+      .split("then")[0];
+    expect(runBlock).toContain("1>&2");
+  });
 });
 
 describe("parseRemoteOutputs", () => {
