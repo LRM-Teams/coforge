@@ -6,7 +6,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: deploy-staging
@@ -46,6 +45,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
     outputs:
       image: ${{ steps.identity.outputs.image }}
       deployment_id: ${{ steps.validate.outputs.deployment_id }}
@@ -104,6 +106,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
     env:
       DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
       DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
@@ -148,7 +153,7 @@ jobs:
               -o UserKnownHostsFile="$SSH_DIR/known_hosts" \
               -o BatchMode=yes \
               "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" \
-              "docker login ghcr.io --user '${{ github.repository_owner }}' --password-stdin"
+              "docker login ghcr.io --username '${{ github.actor }}' --password-stdin"
 
       - name: Copy deployment assets
         run: |
