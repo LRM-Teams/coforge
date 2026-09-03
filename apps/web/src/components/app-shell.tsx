@@ -131,7 +131,7 @@ export function AppShell({
           <nav aria-label={m.navigation_label()} className="mt-5 flex flex-col gap-1 md:gap-2.5">
             <Link to="/agents" activeProps={navLinkActiveProps} className={navLinkClassName}>
               <Users aria-hidden="true" className="size-4" />
-              {m.navigation_members()}
+              {m.navigation_agents()}
             </Link>
             <Link to="/messages" activeProps={navLinkActiveProps} className={navLinkClassName}>
               <MessageCircle aria-hidden="true" className="size-4" />
@@ -199,7 +199,7 @@ export function AppShell({
                     render={
                       <Link
                         to="/agents"
-                        aria-label={m.navigation_members()}
+                        aria-label={m.navigation_agents()}
                         activeProps={railLinkActiveProps}
                         className={railLinkClassName}
                       >
@@ -207,7 +207,7 @@ export function AppShell({
                       </Link>
                     }
                   />
-                  <TooltipContent side="right">{m.navigation_members()}</TooltipContent>
+                  <TooltipContent side="right">{m.navigation_agents()}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger

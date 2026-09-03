@@ -44,7 +44,7 @@ test("shows real Agents as typed conversation links and highlights the selection
   expect(page.queryByText(/online|unread/i)).toBeNull();
 });
 
-test("shows the chat empty state without a Members action", () => {
+test("shows the chat empty state without an Agents action", () => {
   render(
     <RouterContextProvider router={getRouter()}>
       <ConversationLayout agents={[]}>
