@@ -50,6 +50,25 @@ instructions for the TanStack Start Web/backend modular monolith.
   injection. Local development uses the project's Docker PostgreSQL; managed
   PostgreSQL changes must not leak provider-specific details into domain code.
 
+### Prisma, repositories, and business rules
+
+- Prisma Repository 只负责查询、持久化、事务和数据库约束；不要在其中
+  编排完整业务流程。
+- 用户授权、产品规则和跨模块流程放在所属 feature 的 Use Case / Domain
+  模块中，并通过 Repository interface 调用数据访问。
+- Server Function 和 HTTP Route 只做认证、输入校验、依赖组装和调用 Use
+  Case，不要把业务流程直接写进去。
+- 本次遇到的具体问题：按用户名查找用户、创建会话、读取消息原先都在
+  `PrismaDirectConversationRepository` 中；以后应放在类似
+  `ReadDirectMessages` 的 Use Case 中，Repository 只接收已确定的
+  `conversationId` 并读取数据。
+- 不要为了形式主义给每个 Prisma 调用都增加一层；只有存在业务规则、复用
+  或测试价值时才抽取 Repository / Use Case。
+
+参考：
+https://www.prisma.io/docs/orm/prisma-client/queries/transactions
+https://martinfowler.com/eaaCatalog/repository.html
+
 ## Route and page organization
 
 - `src/routes/__root.tsx` owns the document shell: HTML, global head, global
