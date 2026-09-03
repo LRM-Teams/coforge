@@ -4,11 +4,13 @@ import type { RuntimeProvider } from "@coforge/protocol";
 
 import { AddComputerDialog } from "@/components/add-computer-dialog";
 import { ComputerContent } from "@/components/computer-content";
+import { AppPageError } from "@/features/workspaces/workspace-unavailable";
 import type { UsageView } from "@/components/runtime-usage";
 import { listComputers, readUsage, scanUsage } from "@/features/computers/computers.functions";
 
 export const Route = createFileRoute("/_app/computers")({
   loader: () => listComputers(),
+  errorComponent: AppPageError,
   component: ComputersPage,
 });
 

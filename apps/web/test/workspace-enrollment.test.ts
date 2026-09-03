@@ -54,6 +54,13 @@ test("an existing membership is left unchanged", async () => {
   expect(store.created).toEqual([{ slug: "team", name: "Team" }]);
 });
 
+test("looking up a missing membership does not create a Workspace", async () => {
+  const store = memoryStore();
+  const enrollment = new WorkspaceEnrollment(store);
+  expect(await enrollment.existingForUser(ada.id)).toBeNull();
+  expect(store.created).toEqual([]);
+});
+
 test("a taken username slug still creates a Workspace for that User", async () => {
   const store = memoryStore();
   await store.createWorkspace({ slug: "ada", name: "Taken" });

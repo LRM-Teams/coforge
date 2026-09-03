@@ -9,7 +9,7 @@ import {
 } from "../../server/centrifugo/server-api.server";
 import { getUsageCache } from "../../server/centrifugo/usage-cache.server";
 import { getComputerStatus } from "../../server/centrifugo/computer-status.server";
-import { workspaceIdForUser } from "../../server/workspaces/enrollment.server";
+import { requireExistingWorkspaceId } from "../../server/workspaces/enrollment.server";
 
 export const scanUsage = createServerFn({ method: "POST" })
   .validator((data: { computerId: string; provider: RuntimeProvider }) => data)
@@ -60,11 +60,7 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
   const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
   const db = getDatabaseClient();
   if (!db) throw new Error("Computer persistence is unavailable");
-  const workspaceId = await workspaceIdForUser(
-    db,
-    user,
-    getRequest().headers.get("accept-language") ?? "",
-  );
+  const workspaceId = await requireExistingWorkspaceId(db, user.id);
   return db.workspaceComputer
     .findMany({
       where: { workspaceId },

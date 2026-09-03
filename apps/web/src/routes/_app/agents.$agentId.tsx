@@ -4,6 +4,7 @@ import { AgentDetail } from "@/features/agents/agent-detail";
 import { getAgentDetail } from "@/features/agents/agents.functions";
 import { m } from "@/paraglide/messages";
 import { getUserPreferences } from "@/features/settings/settings.functions";
+import { AppPageError } from "@/features/workspaces/workspace-unavailable";
 
 function detailTab(value: unknown): "profile" | "activity" {
   if (value === "activity") return "activity";
@@ -22,16 +23,7 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
   pendingComponent: () => (
     <main className="flex-1 p-6 text-sm text-muted-foreground">{m.agent_detail_loading()}</main>
   ),
-  errorComponent: () => (
-    <main className="flex-1 p-6">
-      <div
-        role="alert"
-        className="rounded-xl border border-destructive/40 p-5 text-destructive-text"
-      >
-        {m.agent_detail_error()}
-      </div>
-    </main>
-  ),
+  errorComponent: AppPageError,
   component: AgentDetailPage,
 });
 

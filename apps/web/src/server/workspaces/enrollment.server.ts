@@ -1,4 +1,5 @@
 import type { PrismaClient } from "../../../generated/client";
+import { WORKSPACE_UNAVAILABLE } from "./workspace-unavailable";
 
 export type EnrollmentUser = { id: string; username: string; displayName: string };
 
@@ -27,6 +28,10 @@ export class WorkspaceEnrollment {
       if (!isUniqueConflict(error)) throw error;
     }
     return { workspaceId };
+  }
+
+  async existingForUser(userId: string): Promise<string | null> {
+    return this.store.findMembership(userId);
   }
 
   private async createOwnedWorkspace(
@@ -72,6 +77,19 @@ export class PrismaWorkspaceEnrollmentStore implements WorkspaceEnrollmentStore 
   async addMember(workspaceId: string, userId: string) {
     await this.db.workspaceMembership.create({ data: { workspaceId, userId } });
   }
+}
+
+export function findWorkspaceIdForUser(db: PrismaClient, userId: string): Promise<string | null> {
+  return new PrismaWorkspaceEnrollmentStore(db).findMembership(userId);
+}
+
+export async function requireExistingWorkspaceId(
+  db: PrismaClient,
+  userId: string,
+): Promise<string> {
+  const workspaceId = await findWorkspaceIdForUser(db, userId);
+  if (!workspaceId) throw new Error(WORKSPACE_UNAVAILABLE);
+  return workspaceId;
 }
 
 export function workspaceIdForUser(
