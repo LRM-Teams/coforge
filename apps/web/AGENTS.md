@@ -54,6 +54,9 @@ instructions for the TanStack Start Web/backend modular monolith.
 
 - `src/routes/__root.tsx` owns the document shell: HTML, global head, global
   providers, styles, `HeadContent`, and `Scripts`.
+- `src/features/errors/` owns safe user-facing error presentation. Unknown
+  exceptions must never be rendered directly; page-load failures use a local
+  route error component, while failures caused by user actions use toasts.
 - Use pathless layout routes for shared application chrome. The current app
   layout is `src/routes/_app.tsx`; it owns `AppShell` and renders `Outlet`.
 - Page routes under `src/routes/_app/` own their page component, loader,

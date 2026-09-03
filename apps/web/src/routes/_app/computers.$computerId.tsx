@@ -21,12 +21,9 @@ function ComputerDetailPage() {
   if (!computer) throw notFound();
 
   const scan = async (provider: RuntimeProvider) => {
-    const view = await scanRuntimeUsage(computerId, provider).catch(
-      (error: unknown): UsageView => ({
-        status: "error",
-        message: error instanceof Error ? error.message : undefined,
-      }),
-    );
+    const view = await scanRuntimeUsage(computerId, provider).catch((): UsageView => ({
+      status: "error",
+    }));
     setUsage((current) => ({
       ...current,
       [computerId]: { ...current[computerId], [provider]: view },

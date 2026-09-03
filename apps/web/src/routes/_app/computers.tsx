@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Outlet, createFileRoute, useParams } from "@tanstack/react-router";
 
-import { AppPageError } from "@/features/workspaces/workspace-unavailable";
 import { AddComputerDialog } from "@/features/computers/add-computer-dialog";
 import { ComputerLayout } from "@/features/computers/computer-layout";
 import { listComputers } from "@/features/computers/computers.functions";
+import { PageLoadError } from "@/features/errors/page-load-error";
 import { getUserPreferences } from "@/features/settings/settings.functions";
 
 export const Route = createFileRoute("/_app/computers")({
@@ -12,7 +12,7 @@ export const Route = createFileRoute("/_app/computers")({
     const [computers, preferences] = await Promise.all([listComputers(), getUserPreferences()]);
     return { computers, timeZone: preferences.timeZone };
   },
-  errorComponent: AppPageError,
+  errorComponent: PageLoadError,
   component: ComputersPage,
 });
 

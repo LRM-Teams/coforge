@@ -149,6 +149,38 @@ describe("DaemonRuntime", () => {
     await runtime.stop();
   });
 
+  test("does not expose a usage adapter exception in the scan response", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "codex",
+        async readUsage() {
+          throw new Error("provider token secret at 127.0.0.1");
+        },
+        async start() {
+          return sessionSpy();
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+        }),
+      },
+    );
+    await runtime.start(connection);
+
+    const result = await runtime.scanUsage("codex");
+    expect(result).toMatchObject({ status: "error", message: "Usage scan failed" });
+    expect(JSON.stringify(result)).not.toContain("secret");
+    expect(JSON.stringify(result)).not.toContain("127.0.0.1");
+    await runtime.stop();
+  });
+
   test("passes the persisted server HTTP URL to the Agent API key client", async () => {
     const configuredConnection = {
       ...connection,

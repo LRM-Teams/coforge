@@ -37,7 +37,11 @@
   "controls_cancel": "Cancel",
   "controls_back": "Back",
   "controls_next": "Next",
+  "controls_retry": "Try again",
+  "toast_dismiss": "Dismiss notification",
   "workspace_unavailable_title": "No Workspace yet",
   "workspace_unavailable_description": "This account is not a member of a Workspace. Sign out and sign in again to create one, or ask an administrator for access.",
-  "app_load_error": "This page could not be loaded."
+  "app_load_error": "This page could not be loaded.",
+  "app_load_error_description": "The service may be temporarily unavailable. Try again in a moment.",
+  "error_reference": "Error reference: {errorId}"
 }

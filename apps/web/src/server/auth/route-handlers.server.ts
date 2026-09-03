@@ -39,7 +39,7 @@ export function currentUserHandler({ request }: { request: Request }): Response 
     });
   } catch (error) {
     if (error instanceof AuthConfigError) {
-      return Response.json({ error: error.message }, { status: 503 });
+      return authUnavailableResponse();
     }
     throw error;
   }
@@ -57,8 +57,15 @@ function withAuthConfig(
     return handle(readAuthingConfig(process.env, origin), readSessionSecret(process.env));
   } catch (error) {
     if (error instanceof AuthConfigError) {
-      return new Response(error.message, { status: 503, headers: { "cache-control": "no-store" } });
+      return authUnavailableResponse();
     }
     throw error;
   }
+}
+
+function authUnavailableResponse(): Response {
+  return Response.json(
+    { code: "TEMPORARILY_UNAVAILABLE" },
+    { status: 503, headers: { "cache-control": "no-store" } },
+  );
 }

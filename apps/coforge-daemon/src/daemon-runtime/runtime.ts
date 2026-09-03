@@ -147,7 +147,7 @@ export class DaemonRuntime {
             status: "reauth",
             message: "Provider usage is unavailable",
           };
-    } catch (error) {
+    } catch {
       const snapshot = this.#currentObservedUsage(provider);
       if (snapshot)
         return {
@@ -162,7 +162,7 @@ export class DaemonRuntime {
         requestId: "",
         accepted: false,
         status: "error",
-        message: error instanceof Error ? error.message : "Usage scan failed",
+        message: "Usage scan failed",
       };
     }
   }

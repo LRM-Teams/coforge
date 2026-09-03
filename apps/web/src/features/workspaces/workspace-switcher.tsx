@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { Check, ChevronDown, Plus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useAppToast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogBackdrop,
@@ -21,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
 import {
   isReservedWorkspaceSlug,
@@ -42,7 +44,16 @@ export function WorkspaceSwitcher({
   onCreate?: (input: { name: string; slug: string }) => Promise<void>;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
+  const toast = useAppToast();
   const label = current?.name ?? m.workspace_unavailable_title();
+
+  async function select(slug: string) {
+    try {
+      await onSelect?.(slug);
+    } catch (error) {
+      toast.error(m.workspace_select_error(), error);
+    }
+  }
 
   return (
     <>
@@ -67,7 +78,7 @@ export function WorkspaceSwitcher({
               <DropdownMenuItem
                 key={workspace.id}
                 className="h-9 gap-2 px-2"
-                onClick={() => void onSelect?.(workspace.slug)}
+                onClick={() => void select(workspace.slug)}
               >
                 <WorkspaceMark name={workspace.name} />
                 <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
@@ -140,11 +151,10 @@ function CreateWorkspaceDialog({
       await onCreate({ name: name.trim(), slug: slug.trim() });
       close();
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "";
-      if (message === "workspace slug is taken") setError(m.workspace_slug_taken());
-      else if (message === "workspace slug is reserved") setError(m.workspace_slug_reserved());
-      else if (message === "workspace slug is invalid") setError(m.workspace_slug_invalid());
-      else setError(m.workspace_create_failed());
+      if (isAppError(cause) && cause.code === "CONFLICT") setError(m.workspace_slug_taken());
+      else if (isAppError(cause) && cause.code === "INVALID_INPUT")
+        setError(m.workspace_slug_invalid());
+      else setError(m.workspace_create_error());
     } finally {
       setSubmitting(false);
     }

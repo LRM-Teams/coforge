@@ -1,6 +1,6 @@
 import type { PrismaClient } from "../../../generated/client";
+import { AppError } from "../../lib/app-error";
 import { WorkspaceCatalog, PrismaWorkspaceCatalogStore } from "./catalog.server";
-import { WORKSPACE_UNAVAILABLE } from "./workspace-unavailable";
 
 export type EnrollmentUser = { id: string; username: string; displayName: string };
 
@@ -87,7 +87,7 @@ export async function requireExistingWorkspaceId(
     userId,
     preferredSlug,
   );
-  if (!selected) throw new Error(WORKSPACE_UNAVAILABLE);
+  if (!selected) throw new AppError("WORKSPACE_REQUIRED");
   return selected.id;
 }
 

@@ -14,5 +14,6 @@
   "preferences_time_zone": "时区",
   "preferences_time_zone_search": "搜索时区",
   "preferences_time_zone_search_placeholder": "按城市、时区或 UTC 偏移搜索…",
-  "preferences_time_zone_no_results": "未找到时区。"
+  "preferences_time_zone_no_results": "未找到时区。",
+  "settings_save_error": "偏好设置保存失败，请重试。"
 }
