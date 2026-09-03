@@ -94,6 +94,7 @@ test("shows the current Workspace below the logo", () => {
 });
 
 test("shows the primary navigation with Members selected", () => {
+  window.history.pushState({}, "", "/en/agents");
   const markup = renderShell();
 
   expect(markup).toContain("<aside");

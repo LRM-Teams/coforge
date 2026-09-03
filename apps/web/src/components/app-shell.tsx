@@ -129,7 +129,7 @@ export function AppShell({
           </div>
 
           <nav aria-label={m.navigation_label()} className="mt-5 flex flex-col gap-1 md:gap-2.5">
-            <Link to="/" activeProps={navLinkActiveProps} className={navLinkClassName}>
+            <Link to="/agents" activeProps={navLinkActiveProps} className={navLinkClassName}>
               <Users aria-hidden="true" className="size-4" />
               {m.navigation_members()}
             </Link>
@@ -198,7 +198,7 @@ export function AppShell({
                   <TooltipTrigger
                     render={
                       <Link
-                        to="/"
+                        to="/agents"
                         aria-label={m.navigation_members()}
                         activeProps={railLinkActiveProps}
                         className={railLinkClassName}

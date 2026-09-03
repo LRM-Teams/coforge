@@ -9,11 +9,11 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as HealthRouteImport } from './routes/health'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DotwellKnownOauthAuthorizationServerRouteImport } from './routes/[.]well-known.oauth-authorization-server'
-import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppComputersRouteImport } from './routes/_app/computers'
 import { Route as AppMessagesRouteImport } from './routes/_app/messages'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
@@ -27,6 +27,7 @@ import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AuthLogoutRouteImport } from './routes/auth/logout'
 import { Route as OauthDeviceRouteImport } from './routes/oauth/device'
 import { Route as OauthTokenRouteImport } from './routes/oauth/token'
+import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
 import { Route as AppComputersIndexRouteImport } from './routes/_app/computers.index'
 import { Route as AppComputersComputerIdRouteImport } from './routes/_app/computers.$computerId'
@@ -40,6 +41,11 @@ import { Route as ApiInternalCentrifugoConnectRouteImport } from './routes/api/i
 import { Route as ApiAgentAttachmentsAttachmentIdRouteImport } from './routes/api/agent/attachments.$attachmentId'
 import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/workspaces.$slug'
 
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppRoute = AppRouteImport.update({
   id: '/_app',
   getParentRoute: () => rootRouteImport,
@@ -60,11 +66,6 @@ const DotwellKnownOauthAuthorizationServerRoute =
     path: '/.well-known/oauth-authorization-server',
     getParentRoute: () => rootRouteImport,
   } as any)
-const AppIndexRoute = AppIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppComputersRoute = AppComputersRouteImport.update({
   id: '/computers',
   path: '/computers',
@@ -129,6 +130,11 @@ const OauthTokenRoute = OauthTokenRouteImport.update({
   id: '/oauth/token',
   path: '/oauth/token',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppAgentsIndexRoute = AppAgentsIndexRouteImport.update({
+  id: '/agents/',
+  path: '/agents/',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppAgentsAgentIdRoute = AppAgentsAgentIdRouteImport.update({
   id: '/agents/$agentId',
@@ -197,7 +203,7 @@ const ApiE2eWorkspacesSlugRoute = ApiE2eWorkspacesSlugRouteImport.update({
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof AppIndexRoute
+  '/': typeof IndexRoute
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
@@ -222,12 +228,14 @@ export interface FileRoutesByFullPath {
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
   '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
+  '/agents/': typeof AppAgentsIndexRoute
   '/computers/': typeof AppComputersIndexRoute
   '/messages/': typeof AppMessagesIndexRoute
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
 }
 export interface FileRoutesByTo {
+  '/': typeof IndexRoute
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
@@ -242,7 +250,6 @@ export interface FileRoutesByTo {
   '/auth/logout': typeof AuthLogoutRoute
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
-  '/': typeof AppIndexRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/computers/$computerId': typeof AppComputersComputerIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
@@ -251,6 +258,7 @@ export interface FileRoutesByTo {
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
   '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
+  '/agents': typeof AppAgentsIndexRoute
   '/computers': typeof AppComputersIndexRoute
   '/messages': typeof AppMessagesIndexRoute
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
@@ -258,6 +266,7 @@ export interface FileRoutesByTo {
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
@@ -275,7 +284,6 @@ export interface FileRoutesById {
   '/auth/logout': typeof AuthLogoutRoute
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
-  '/_app/': typeof AppIndexRoute
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/_app/computers/$computerId': typeof AppComputersComputerIdRoute
   '/_app/messages/$agentId': typeof AppMessagesAgentIdRoute
@@ -284,6 +292,7 @@ export interface FileRoutesById {
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
   '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
+  '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/computers/': typeof AppComputersIndexRoute
   '/_app/messages/': typeof AppMessagesIndexRoute
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
@@ -317,12 +326,14 @@ export interface FileRouteTypes {
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
     | '/api/internal/centrifugo-connect'
+    | '/agents/'
     | '/computers/'
     | '/messages/'
     | '/api/agent/attachments/$attachmentId'
     | '/api/e2e/workspaces/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/'
     | '/health'
     | '/login'
     | '/.well-known/oauth-authorization-server'
@@ -337,7 +348,6 @@ export interface FileRouteTypes {
     | '/auth/logout'
     | '/oauth/device'
     | '/oauth/token'
-    | '/'
     | '/agents/$agentId'
     | '/computers/$computerId'
     | '/messages/$agentId'
@@ -346,12 +356,14 @@ export interface FileRouteTypes {
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
     | '/api/internal/centrifugo-connect'
+    | '/agents'
     | '/computers'
     | '/messages'
     | '/api/agent/attachments/$attachmentId'
     | '/api/e2e/workspaces/$slug'
   id:
     | '__root__'
+    | '/'
     | '/_app'
     | '/health'
     | '/login'
@@ -369,7 +381,6 @@ export interface FileRouteTypes {
     | '/auth/logout'
     | '/oauth/device'
     | '/oauth/token'
-    | '/_app/'
     | '/_app/agents/$agentId'
     | '/_app/computers/$computerId'
     | '/_app/messages/$agentId'
@@ -378,6 +389,7 @@ export interface FileRouteTypes {
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
     | '/api/internal/centrifugo-connect'
+    | '/_app/agents/'
     | '/_app/computers/'
     | '/_app/messages/'
     | '/api/agent/attachments/$attachmentId'
@@ -385,6 +397,7 @@ export interface FileRouteTypes {
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
+  IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   HealthRoute: typeof HealthRoute
   LoginRoute: typeof LoginRoute
@@ -409,6 +422,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app': {
       id: '/_app'
       path: ''
@@ -436,13 +456,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/.well-known/oauth-authorization-server'
       preLoaderRoute: typeof DotwellKnownOauthAuthorizationServerRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/_app/': {
-      id: '/_app/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof AppIndexRouteImport
-      parentRoute: typeof AppRoute
     }
     '/_app/computers': {
       id: '/_app/computers'
@@ -534,6 +547,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/oauth/token'
       preLoaderRoute: typeof OauthTokenRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/agents/': {
+      id: '/_app/agents/'
+      path: '/agents'
+      fullPath: '/agents/'
+      preLoaderRoute: typeof AppAgentsIndexRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/agents/$agentId': {
       id: '/_app/agents/$agentId'
@@ -654,16 +674,16 @@ interface AppRouteChildren {
   AppComputersRoute: typeof AppComputersRouteWithChildren
   AppMessagesRoute: typeof AppMessagesRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRoute
-  AppIndexRoute: typeof AppIndexRoute
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
+  AppAgentsIndexRoute: typeof AppAgentsIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppComputersRoute: AppComputersRouteWithChildren,
   AppMessagesRoute: AppMessagesRouteWithChildren,
   AppSettingsRoute: AppSettingsRoute,
-  AppIndexRoute: AppIndexRoute,
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
+  AppAgentsIndexRoute: AppAgentsIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
@@ -681,6 +701,7 @@ const ApiAttachmentsRouteWithChildren = ApiAttachmentsRoute._addFileChildren(
 )
 
 const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   HealthRoute: HealthRoute,
   LoginRoute: LoginRoute,
