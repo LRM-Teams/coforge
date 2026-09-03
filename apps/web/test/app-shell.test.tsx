@@ -93,14 +93,15 @@ test("shows the current Workspace below the logo", () => {
   );
 });
 
-test("shows the primary navigation with Members selected", () => {
+test("shows the primary navigation with Agents selected", () => {
+  window.history.pushState({}, "", "/en/agents");
   const markup = renderShell();
 
   expect(markup).toContain("<aside");
-  expect(markup).toContain("Members");
+  expect(markup).toContain("Agents");
   expect(markup).toContain("Messages");
   expect(markup).toContain("Computers");
-  expect(markup.indexOf("Members")).toBeLessThan(markup.indexOf("Messages"));
+  expect(markup.indexOf("Agents")).toBeLessThan(markup.indexOf("Messages"));
   expect(markup.indexOf("Messages")).toBeLessThan(markup.indexOf("Computers"));
   expect(markup).toContain('href="/en/messages"');
   expect(markup).toContain('aria-label="Current user"');
@@ -195,7 +196,7 @@ test("collapsing the sidebar keeps navigation and the user menu reachable", () =
   // duplicate the sidebar's links for assistive technology.
   expect(page().getAllByRole("navigation", { name: "Primary navigation" }).length).toBe(1);
   expect(page().getAllByLabelText("Current user").length).toBe(1);
-  for (const name of ["Members", "Messages", "Computers"]) {
+  for (const name of ["Agents", "Messages", "Computers"]) {
     expect(page().getByRole("link", { name }).getAttribute("href")).toBeTruthy();
   }
 });
@@ -205,7 +206,7 @@ test("renders the same shell from the Simplified Chinese catalog", () => {
   const markup = renderShell();
   overwriteGetLocale(() => "en");
 
-  expect(markup).toContain("成员");
+  expect(markup).toContain("智能体");
   expect(markup).toContain("智能体汇总");
   expect(markup).toContain("新建智能体");
 });

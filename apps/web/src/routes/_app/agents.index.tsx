@@ -7,7 +7,7 @@ import { createAgent, listAgents } from "@/features/agents/agents.functions";
 import { listComputers } from "@/features/computers/computers.functions";
 import { getUserPreferences } from "@/features/settings/settings.functions";
 
-export const Route = createFileRoute("/_app/")({
+export const Route = createFileRoute("/_app/agents/")({
   loader: async () => {
     const [agents, computers, preferences] = await Promise.all([
       listAgents(),
