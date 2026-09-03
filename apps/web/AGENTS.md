@@ -111,6 +111,21 @@ instructions for the TanStack Start Web/backend modular monolith.
 
 ## Agent status and activity UI
 
+- **Localization boundary:** Every user-visible sentence, label, button name,
+  status, error, and accessibility label must come from the generated
+  Paraglide messages in `messages/<locale>/`. Do not put translated English or
+  Chinese text directly in TSX, feature modules, route files, or server
+  responses. Provider-owned names and messages, protocol values, URLs, and
+  language endonyms in a locale picker are not translations and may remain
+  source data. When adding a message, add it to every supported locale and
+  regenerate `src/paraglide` with `bun run generate-i18n`.
+- **Localization tests:** Test translated UI through the real message catalog
+  and exercise each supported locale for new user-visible behavior. Locale
+  resolution must be explicit at request/render boundaries; do not use a
+  process-wide locale override in application code. Tests that need to switch
+  Paraglide's process-wide test locale must restore it in `afterEach` and must
+  remain isolated from concurrent locale-sensitive tests.
+
 - `src/features/computers/computers.functions.ts` owns authenticated Computer
   listing and external runtime visibility mutations. Runtime visibility policy
   and persistence belong under `src/server/computers/` and
