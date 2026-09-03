@@ -37,6 +37,40 @@ test("shows the machine, its Code Agents, and an explicit no-snapshot usage stat
   expect(page.getByText("No snapshot yet")).toBeTruthy();
 });
 
+test("confirms a copy for a moment instead of staying copied", async () => {
+  const written: string[] = [];
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (value: string) => void written.push(value) },
+  });
+  render(<ComputerDetail computer={computer} onScanUsage={async () => undefined} />);
+  const page = within(document.body);
+
+  fireEvent.click(page.getByRole("button", { name: "Copy machine ID" }));
+  await waitFor(() => expect(written).toEqual(["macos:9f2c"]));
+  await waitFor(() => expect(page.getByRole("button", { name: "Machine ID copied" })).toBeTruthy());
+  await waitFor(() => expect(page.getByRole("button", { name: "Copy machine ID" })).toBeTruthy(), {
+    timeout: 4000,
+  });
+});
+
+test("leaves the machine id readable when the clipboard refuses", async () => {
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async () => {
+        throw new Error("not allowed in an insecure context");
+      },
+    },
+  });
+  render(<ComputerDetail computer={computer} onScanUsage={async () => undefined} />);
+  const page = within(document.body);
+
+  fireEvent.click(page.getByRole("button", { name: "Copy machine ID" }));
+  await waitFor(() => expect(page.getByRole("button", { name: "Copy machine ID" })).toBeTruthy());
+  expect(page.getByText("macos:9f2c")).toBeTruthy();
+});
+
 test("scans usage for the runtime the User asked about", async () => {
   const scanned: string[] = [];
   render(

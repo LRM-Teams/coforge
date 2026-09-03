@@ -92,7 +92,7 @@ export function RuntimeUsage({
         <div className="mt-3">
           {usage.snapshot?.planType && (
             <span className="inline-flex rounded-md bg-muted px-2 py-1 text-xs font-medium">
-              {formatPlan(usage.snapshot.planType)}
+              {formatPlan(usage.snapshot.planType)} {m.computer_usage_plan()}
             </span>
           )}
           <div className={usage.snapshot?.planType ? "mt-3 grid gap-2" : "grid gap-2"}>
@@ -136,7 +136,7 @@ function UsageWindow({
       ? window.status === "rate-limited"
         ? m.computer_usage_limit_reached()
         : m.computer_usage_available()
-      : `${window.usedPercent}% ${m.computer_usage_used()}`;
+      : m.computer_usage_used_percent({ percent: window.usedPercent });
 
   return (
     <div className="rounded-md border bg-muted/20 px-3 py-2.5">

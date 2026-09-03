@@ -41,6 +41,28 @@ test("usage scan is on demand and renders a real snapshot", async () => {
   await waitFor(() => expect(scans).toBe(1));
 });
 
+test("reads as Chinese rather than English word order in the Chinese catalog", () => {
+  overwriteGetLocale(() => "zh-CN");
+  render(
+    <RuntimeUsage
+      runtime={codex}
+      usage={{
+        status: "available",
+        snapshot: {
+          planType: "pro",
+          primary: { usedPercent: 42, resetsAt: "2026-09-01T00:00:00Z" },
+        },
+      }}
+      onScan={() => undefined}
+    />,
+  );
+  overwriteGetLocale(() => "en");
+
+  expect(document.body.textContent).toContain("已使用 42%");
+  expect(document.body.textContent).not.toContain("42% 已使用");
+  expect(document.body.textContent).toContain("Pro 套餐");
+});
+
 test("renders a Claude rate-limit observation without inventing a percentage", () => {
   render(
     <RuntimeUsage

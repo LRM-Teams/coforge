@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import type { RuntimeProvider } from "@coforge/protocol";
 
@@ -157,8 +157,17 @@ function ModelCatalog({
   );
 }
 
+const COPIED_FEEDBACK_MS = 2000;
+
 function CopyMachineId({ machineId }: { machineId: string }) {
   const [copied, setCopied] = useState(false);
+  // The confirmation is feedback for one press, not a state the button stays
+  // in, so it expires on its own and never outlives the panel.
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
 
   return (
     <Button
@@ -166,8 +175,14 @@ function CopyMachineId({ machineId }: { machineId: string }) {
       size="icon-sm"
       aria-label={copied ? m.computer_machine_id_copied() : m.computer_copy_machine_id()}
       onClick={async () => {
-        await navigator.clipboard.writeText(machineId);
-        setCopied(true);
+        // Clipboard access is refused outside a secure context, and a machine
+        // id the User can still read and select by hand is not worth an error.
+        try {
+          await navigator.clipboard.writeText(machineId);
+          setCopied(true);
+        } catch {
+          setCopied(false);
+        }
       }}
     >
       {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}

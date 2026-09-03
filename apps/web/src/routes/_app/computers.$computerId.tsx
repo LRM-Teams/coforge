@@ -3,11 +3,13 @@ import { createFileRoute, notFound, useLoaderData } from "@tanstack/react-router
 import type { RuntimeProvider } from "@coforge/protocol";
 
 import { ComputerDetail } from "@/features/computers/computer-detail";
+import { ComputerNotFound } from "@/features/computers/computer-not-found";
 import { scanRuntimeUsage } from "@/features/computers/usage-scan";
 import type { UsageView } from "@/features/computers/runtime-usage";
 
 export const Route = createFileRoute("/_app/computers/$computerId")({
   component: ComputerDetailPage,
+  notFoundComponent: ComputerNotFound,
 });
 
 function ComputerDetailPage() {
