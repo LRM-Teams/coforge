@@ -295,6 +295,24 @@ describe("staging Authing runtime injection", () => {
   });
 });
 
+test("GitHub workflows pin external actions to full commit SHAs", async () => {
+  for (const path of [
+    "../../.github/workflows/ci.yml",
+    "../../.github/workflows/deploy-staging.yml",
+  ]) {
+    const workflow = await Bun.file(new URL(path, import.meta.url)).text();
+    const references = workflow
+      .split("\n")
+      .map((line) => line.match(/^\s*-?\s*uses:\s*([^#\s]+)/)?.[1])
+      .filter((reference) => reference && !reference.startsWith("./"));
+
+    expect(references.length).toBeGreaterThan(0);
+    for (const reference of references) {
+      expect(reference).toMatch(/^[^@]+@[0-9a-f]{40}$/);
+    }
+  }
+});
+
 describe("parseRemoteOutputs", () => {
   test("parses a healthy report", () => {
     const outputs = parseRemoteOutputs(
