@@ -52,7 +52,7 @@ test("current user returns the signed-in CoForge user", async () => {
     cookieHeader: started.stateCookie.split(";", 1)[0] ?? "",
     authing: {
       async exchangeAuthorizationCode() {
-        return { accessToken: "authing-access" };
+        return { accessToken: "authing-access", idToken: "authing-id-token" };
       },
       async fetchUserInfo() {
         return { sub: "authing-user-1", email: "ada@example.com", name: "Ada" };
@@ -66,7 +66,9 @@ test("current user returns the signed-in CoForge user", async () => {
     sessionSecret,
   });
   expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ user: completed.user });
+  const body = await response.json();
+  expect(body).toEqual({ user: completed.user });
+  expect(JSON.stringify(body)).not.toContain("authing-id-token");
 });
 
 test("login callback stores a host-only session cookie and returns home", async () => {
@@ -144,6 +146,8 @@ test("logout clears the session cookie and signs the user out at Authing", () =>
   const response = handleLogout({
     origin: "http://localhost:3000",
     config,
+    sessionSecret,
+    cookieHeader: "",
   });
   expect(response.status).toBe(302);
   const location = response.headers.get("location");
@@ -157,6 +161,35 @@ test("logout clears the session cookie and signs the user out at Authing", () =>
     "http://localhost:3000/login",
   );
   expect(cookieHeader(response)).toContain("Max-Age=0");
+});
+
+test("logout includes the Authing id_token hint from the session cookie", async () => {
+  const started = startBrowserLogin({ config, sessionSecret });
+  const state = new URL(started.authorizationUrl).searchParams.get("state");
+  if (!state) throw new Error("state missing");
+  const completed = await completeBrowserLogin({
+    config,
+    sessionSecret,
+    code: "valid-code",
+    state,
+    cookieHeader: started.stateCookie.split(";", 1)[0] ?? "",
+    authing: {
+      async exchangeAuthorizationCode() {
+        return { accessToken: "authing-access", idToken: "authing-id-token" };
+      },
+      async fetchUserInfo() {
+        return { sub: "authing-user-1", email: "ada@example.com", name: "Ada" };
+      },
+    },
+  });
+  const response = handleLogout({
+    origin: "http://localhost:3000",
+    config,
+    sessionSecret,
+    cookieHeader: completed.sessionCookie.split(";", 1)[0] ?? "",
+  });
+  const authingLogout = new URL(response.headers.get("location") ?? "");
+  expect(authingLogout.searchParams.get("id_token_hint")).toBe("authing-id-token");
 });
 
 function cookieHeader(response: Response): string {

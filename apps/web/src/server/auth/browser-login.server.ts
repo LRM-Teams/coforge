@@ -28,7 +28,7 @@ export type TokenExchanger = {
     code: string;
     redirectUri: string;
     codeVerifier: string;
-  }): Promise<{ accessToken: string }>;
+  }): Promise<{ accessToken: string; idToken?: string }>;
   fetchUserInfo(accessToken: string): Promise<{
     sub: string;
     email?: string | null;
@@ -49,7 +49,7 @@ type SignedState = {
   exp: number;
 };
 
-type SignedSession = BrowserUser & { exp: number };
+type SignedSession = BrowserUser & { exp: number; idToken?: string };
 
 export function startBrowserLogin(input: {
   config: AuthingConfig;
@@ -133,6 +133,7 @@ export async function completeBrowserLogin(input: {
   const session: SignedSession = {
     ...user,
     exp: Math.floor(now() / 1000) + SESSION_TTL_SECONDS,
+    ...(tokens.idToken ? { idToken: tokens.idToken } : {}),
   };
   return {
     user,
@@ -179,20 +180,35 @@ export function readBrowserSession(input: {
 export function buildAuthingLogoutUrl(
   config: AuthingConfig,
   postLogoutRedirectUri: string,
+  idTokenHint?: string,
 ): string {
   const url = new URL(config.endSessionEndpoint);
   url.searchParams.set("client_id", config.appId);
   url.searchParams.set("post_logout_redirect_uri", postLogoutRedirectUri);
+  if (idTokenHint) url.searchParams.set("id_token_hint", idTokenHint);
   return url.toString();
 }
 
-export function endBrowserLogin(input: { config: AuthingConfig; postLogoutRedirectUri: string }): {
+export function endBrowserLogin(input: {
+  config: AuthingConfig;
+  postLogoutRedirectUri: string;
+  sessionSecret: string;
+  cookieHeader: string;
+}): {
   clearSessionCookie: string;
   authingLogoutUrl: string;
 } {
+  const session = readSigned<SignedSession>(
+    readCookie(input.cookieHeader, SESSION_COOKIE),
+    input.sessionSecret,
+  );
   return {
     clearSessionCookie: clearCookie(SESSION_COOKIE, input.config.redirectUri),
-    authingLogoutUrl: buildAuthingLogoutUrl(input.config, input.postLogoutRedirectUri),
+    authingLogoutUrl: buildAuthingLogoutUrl(
+      input.config,
+      input.postLogoutRedirectUri,
+      session?.idToken,
+    ),
   };
 }
 
@@ -211,11 +227,18 @@ export function createAuthingExchanger(config: AuthingConfig): TokenExchanger {
           code_verifier: input.codeVerifier,
         }),
       });
-      const body = (await response.json()) as { access_token?: string; error?: string };
+      const body = (await response.json()) as {
+        access_token?: string;
+        id_token?: string;
+        error?: string;
+      };
       if (!response.ok || !body.access_token) {
         throw new Error(body.error ?? "failed to exchange authorization code");
       }
-      return { accessToken: body.access_token };
+      return {
+        accessToken: body.access_token,
+        ...(body.id_token ? { idToken: body.id_token } : {}),
+      };
     },
     async fetchUserInfo(accessToken) {
       const response = await fetch(config.userinfoEndpoint, {
