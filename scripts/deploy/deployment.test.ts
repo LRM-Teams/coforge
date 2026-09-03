@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, test } from "bun:test";
 import {
   InvalidImageError,
@@ -9,6 +13,14 @@ import {
   renderAuditRecord,
   renderState,
 } from "./deployment";
+
+const authingRuntimeKeys = [
+  "AUTHING_APP_ID",
+  "AUTHING_APP_SECRET",
+  "AUTHING_ISSUER",
+  "AUTHING_REDIRECT_URI",
+  "COFORGE_SESSION_SECRET",
+] as const;
 
 const digest = `sha256:${"a".repeat(64)}`;
 const registryImage = `registry.cn-hangzhou.aliyuncs.com/coforge/web@${digest}`;
@@ -191,6 +203,96 @@ describe("remote-deploy.sh compose invocation shape", () => {
     // output must not corrupt the key=value report on stdout.
     expect(runBlock).toContain("</dev/null");
     expect(runBlock).toContain("1>&2");
+  });
+
+  test("writes Authing runtime env from the secrets directory into compose .env", async () => {
+    const root = await mkdtemp(join(tmpdir(), "coforge-write-deploy-env-"));
+    try {
+      const secretsDir = join(root, "secrets");
+      await mkdir(secretsDir, { mode: 0o700 });
+      await writeFile(join(root, "docker-compose.yml"), "name: coforge-staging\n");
+      const files: Record<string, string> = {
+        postgres_password: "pg-pass",
+        redis_password: "redis-pass",
+        centrifugo_http_api_key: "centrifugo-api",
+        centrifugo_proxy_secret: "centrifugo-proxy",
+        worker_jwt_key_id: "coforge-staging",
+        worker_jwt_private_jwk: '{"kty":"OKP"}',
+        authing_app_id: "staging-app-id",
+        authing_app_secret: "staging-app-secret",
+        authing_issuer: "https://coforge-dev.authing.cn/oidc",
+        authing_redirect_uri: "https://staging.coforge.cn/auth/callback",
+        coforge_session_secret: "staging-session-secret-at-least-32-chars",
+      };
+      for (const [name, value] of Object.entries(files)) {
+        await writeFile(join(secretsDir, name), value, { mode: 0o600 });
+      }
+
+      const script = await Bun.file(new URL("./remote-deploy.sh", import.meta.url)).text();
+      const start = script.indexOf("write_deploy_env() {");
+      const end = script.indexOf("\n}\n", start);
+      expect(start).toBeGreaterThanOrEqual(0);
+      expect(end).toBeGreaterThan(start);
+      const fn = script.slice(start, end + 2);
+
+      const proc = Bun.spawn(
+        [
+          "bash",
+          "-c",
+          [
+            "set -euo pipefail",
+            `compose_file=${JSON.stringify(join(root, "docker-compose.yml"))}`,
+            `secrets_dir=${JSON.stringify(secretsDir)}`,
+            fn,
+            `write_deploy_env ${JSON.stringify(registryImage)}`,
+          ].join("\n"),
+        ],
+        { stdout: "pipe", stderr: "pipe" },
+      );
+      const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+      expect(exitCode, stderr).toBe(0);
+
+      const envFile = await readFile(join(root, ".env"), "utf8");
+      expect(envFile).toContain("AUTHING_APP_ID=staging-app-id\n");
+      expect(envFile).toContain("AUTHING_APP_SECRET=staging-app-secret\n");
+      expect(envFile).toContain("AUTHING_ISSUER=https://coforge-dev.authing.cn/oidc\n");
+      expect(envFile).toContain("AUTHING_REDIRECT_URI=https://staging.coforge.cn/auth/callback\n");
+      expect(envFile).toContain(
+        "COFORGE_SESSION_SECRET=staging-session-secret-at-least-32-chars\n",
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("staging Authing runtime injection", () => {
+  test("compose passes Authing env into the web service", async () => {
+    const compose = await Bun.file(
+      new URL("../../infra/staging/docker-compose.yml", import.meta.url),
+    ).text();
+    const webStart = compose.indexOf("\n  web:\n");
+    const centrifugoStart = compose.indexOf("\n  centrifugo:\n");
+    expect(webStart).toBeGreaterThanOrEqual(0);
+    expect(centrifugoStart).toBeGreaterThan(webStart);
+    const webBlock = compose.slice(webStart, centrifugoStart);
+    for (const key of authingRuntimeKeys) {
+      expect(webBlock).toContain(`${key}: \${${key}:?deploy script writes .env}`);
+    }
+  });
+
+  test("deploy workflow copies Authing GitHub Environment values into the secrets directory", async () => {
+    const workflow = await Bun.file(
+      new URL("../../.github/workflows/deploy-staging.yml", import.meta.url),
+    ).text();
+    expect(workflow).toContain("vars.AUTHING_APP_ID");
+    expect(workflow).toContain("secrets.AUTHING_APP_SECRET");
+    expect(workflow).toContain("vars.AUTHING_ISSUER");
+    expect(workflow).toContain("vars.AUTHING_REDIRECT_URI");
+    expect(workflow).toContain("secrets.COFORGE_SESSION_SECRET");
+    expect(workflow).toContain("infra/staging/secrets");
+    expect(workflow).not.toMatch(/echo "\$AUTHING_APP_SECRET"/);
+    expect(workflow).not.toMatch(/echo "\$COFORGE_SESSION_SECRET"/);
   });
 });
 

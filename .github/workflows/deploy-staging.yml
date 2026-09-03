@@ -168,6 +168,38 @@ jobs:
             "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" \
             "mkdir -p $REMOTE_ROOT && tar -xzf - -C $REMOTE_ROOT" < "$REMOTE_ASSETS"
 
+      - name: Sync Authing runtime secrets
+        env:
+          AUTHING_APP_ID: ${{ vars.AUTHING_APP_ID }}
+          AUTHING_APP_SECRET: ${{ secrets.AUTHING_APP_SECRET }}
+          AUTHING_ISSUER: ${{ vars.AUTHING_ISSUER }}
+          AUTHING_REDIRECT_URI: ${{ vars.AUTHING_REDIRECT_URI }}
+          COFORGE_SESSION_SECRET: ${{ secrets.COFORGE_SESSION_SECRET }}
+        run: |
+          for name in AUTHING_APP_ID AUTHING_APP_SECRET AUTHING_ISSUER AUTHING_REDIRECT_URI COFORGE_SESSION_SECRET; do
+            eval "value=\${$name}"
+            if [ -z "$value" ]; then
+              echo "$name is missing from the staging GitHub Environment" >&2
+              exit 1
+            fi
+          done
+          tar_dir="$(mktemp -d)"
+          payload="$(mktemp)"
+          umask 077
+          printf '%s' "$AUTHING_APP_ID" > "$tar_dir/authing_app_id"
+          printf '%s' "$AUTHING_APP_SECRET" > "$tar_dir/authing_app_secret"
+          printf '%s' "$AUTHING_ISSUER" > "$tar_dir/authing_issuer"
+          printf '%s' "$AUTHING_REDIRECT_URI" > "$tar_dir/authing_redirect_uri"
+          printf '%s' "$COFORGE_SESSION_SECRET" > "$tar_dir/coforge_session_secret"
+          tar -czf "$payload" -C "$tar_dir" .
+          ssh -i "$SSH_DIR/key" \
+            -o UserKnownHostsFile="$SSH_DIR/known_hosts" \
+            -o BatchMode=yes \
+            "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" \
+            "mkdir -p $REMOTE_ROOT/infra/staging/secrets && tar -xzf - -C $REMOTE_ROOT/infra/staging/secrets && chmod 600 $REMOTE_ROOT/infra/staging/secrets/authing_app_id $REMOTE_ROOT/infra/staging/secrets/authing_app_secret $REMOTE_ROOT/infra/staging/secrets/authing_issuer $REMOTE_ROOT/infra/staging/secrets/authing_redirect_uri $REMOTE_ROOT/infra/staging/secrets/coforge_session_secret" \
+            < "$payload"
+          rm -rf "$tar_dir" "$payload"
+
       - name: Deploy the tested digest
         env:
           IMAGE: ${{ needs.image.outputs.image }}

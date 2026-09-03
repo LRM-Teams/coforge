@@ -66,7 +66,19 @@ public，镜像包默认公开，ECS 拉镜像不需要登录。
 | --- | --- |
 | `DEPLOY_SSH_HOST` / `DEPLOY_SSH_USER` / `DEPLOY_SSH_KEY` | 部署时连接服务器 |
 | `DEPLOY_SSH_HOST_KEY` | 服务器指纹校验 |
+| `AUTHING_APP_SECRET` | Web 登录换 token |
+| `COFORGE_SESSION_SECRET` | 云端 `coforge_session` 签名密钥，须与本机不同 |
+
+| 需要配的变量（staging 环境） | 用途 |
+| --- | --- |
+| `AUTHING_APP_ID` | Authing 应用 ID |
+| `AUTHING_ISSUER` | 例如 `https://coforge-dev.authing.cn/oidc` |
+| `AUTHING_REDIRECT_URI` | `https://staging.coforge.cn/auth/callback` |
 | `STAGING_PUBLIC_HEALTH_URL` | `https://staging.coforge.cn/health` |
+
+部署时 workflow 把 Authing 五项写入主机 `infra/staging/secrets/`，再由
+`remote-deploy.sh` 写进 Compose `.env`。改 GitHub Environment 后须重新部署才会进容器。
+不要把这些值提交进 git，也不要在主机 bootstrap 循环里用 `openssl` 生成它们。
 
 Production stays disabled: it needs its own environment, an enforceable human
 approval gate, and promotion of the exact digest that passed staging.

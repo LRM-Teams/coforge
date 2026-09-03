@@ -138,6 +138,11 @@ write_deploy_env() {
 			printf 'COFORGE_WEB_IMAGE=%s\n' "$web_image"
 		printf 'DATABASE_URL=postgresql://coforge:%s@postgres:5432/coforge\n' "$(cat "$secrets_dir/postgres_password")"
 		printf 'REDIS_URL=redis://:%s@redis:6379\n' "$(cat "$secrets_dir/redis_password")"
+		printf 'AUTHING_APP_ID=%s\n' "$(cat "$secrets_dir/authing_app_id")"
+		printf 'AUTHING_APP_SECRET=%s\n' "$(cat "$secrets_dir/authing_app_secret")"
+		printf 'AUTHING_ISSUER=%s\n' "$(cat "$secrets_dir/authing_issuer")"
+		printf 'AUTHING_REDIRECT_URI=%s\n' "$(cat "$secrets_dir/authing_redirect_uri")"
+		printf 'COFORGE_SESSION_SECRET=%s\n' "$(cat "$secrets_dir/coforge_session_secret")"
 		printf 'COFORGE_CENTRIFUGO_API_URL=http://centrifugo:8000/api\n'
 		printf 'COFORGE_CENTRIFUGO_API_KEY=%s\n' "$(cat "$secrets_dir/centrifugo_http_api_key")"
 		printf 'COFORGE_CENTRIFUGO_PROXY_SECRET=%s\n' "$(cat "$secrets_dir/centrifugo_proxy_secret")"
