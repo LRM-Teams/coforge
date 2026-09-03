@@ -54,7 +54,7 @@ export function RuntimeUsage({
         <div className="min-w-0">
           <p className="truncate font-medium">{runtime.displayName}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {m.computer_runtime_version()} {runtime.version}
+            {m.computer_runtime_version({ version: runtime.version })}
             {!unsupported && ` · ${m.computer_usage_title()}`}
           </p>
         </div>
@@ -92,7 +92,7 @@ export function RuntimeUsage({
         <div className="mt-3">
           {usage.snapshot?.planType && (
             <span className="inline-flex rounded-md bg-muted px-2 py-1 text-xs font-medium">
-              {formatPlan(usage.snapshot.planType)} {m.computer_usage_plan()}
+              {m.computer_usage_plan_name({ plan: formatPlan(usage.snapshot.planType) })}
             </span>
           )}
           <div className={usage.snapshot?.planType ? "mt-3 grid gap-2" : "grid gap-2"}>
@@ -160,7 +160,7 @@ function UsageWindow({
         </div>
       )}
       <p className="mt-2 text-xs text-muted-foreground">
-        {m.computer_usage_resets()} {formatDateForDisplay(window.resetsAt, timeZone)}
+        {m.computer_usage_resets_at({ time: formatDateForDisplay(window.resetsAt, timeZone) })}
       </p>
     </div>
   );

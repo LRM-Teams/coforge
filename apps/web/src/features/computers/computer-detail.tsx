@@ -92,8 +92,9 @@ export function ComputerDetail({
                     onScan={() => onScanUsage(runtime.provider)}
                   />
                   <p className="mt-3 text-xs text-muted-foreground">
-                    {m.computer_runtime_observed()}{" "}
-                    {formatDateForDisplay(runtime.observedAt, timeZone)}
+                    {m.computer_runtime_observed_at({
+                      time: formatDateForDisplay(runtime.observedAt, timeZone),
+                    })}
                   </p>
                   <ModelCatalog
                     models={
@@ -157,17 +158,28 @@ function ModelCatalog({
   );
 }
 
-const COPIED_FEEDBACK_MS = 2000;
+export const COPIED_FEEDBACK_MS = 2000;
 
-function CopyMachineId({ machineId }: { machineId: string }) {
-  const [copied, setCopied] = useState(false);
+export function CopyMachineId({
+  machineId,
+  feedbackMs = COPIED_FEEDBACK_MS,
+}: {
+  machineId: string;
+  feedbackMs?: number;
+}) {
+  // Counting presses rather than holding a boolean: pressing again inside the
+  // window is a new confirmation, and a boolean already true would not restart
+  // the timer, so the second press would inherit the first one's remaining ms.
+  const [copiedAt, setCopiedAt] = useState(0);
+  const copied = copiedAt > 0;
+
   // The confirmation is feedback for one press, not a state the button stays
   // in, so it expires on its own and never outlives the panel.
   useEffect(() => {
-    if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);
+    if (!copiedAt) return;
+    const timer = window.setTimeout(() => setCopiedAt(0), feedbackMs);
     return () => window.clearTimeout(timer);
-  }, [copied]);
+  }, [copiedAt, feedbackMs]);
 
   return (
     <Button
@@ -179,9 +191,9 @@ function CopyMachineId({ machineId }: { machineId: string }) {
         // id the User can still read and select by hand is not worth an error.
         try {
           await navigator.clipboard.writeText(machineId);
-          setCopied(true);
+          setCopiedAt((presses) => presses + 1);
         } catch {
-          setCopied(false);
+          setCopiedAt(0);
         }
       }}
     >
