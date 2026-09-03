@@ -49,6 +49,7 @@ test("login completes the device-code flow and persists the credential", async (
     },
     writeLine: (line) => output.push(line),
     writeProgressLine: (line) => progress.push(line),
+    openVerificationPage: async () => undefined,
     sleep: async () => undefined,
     colors: pc.createColors(false),
   }).run({ serverUrl: "https://coforge.example", json: false });
@@ -115,6 +116,7 @@ test("login opens the verification page and still prints fallback instructions",
 test("JSON login writes exactly one stable stdout object without secrets", async () => {
   const stdout: string[] = [];
   const stderr: string[] = [];
+  const opened: string[] = [];
   await new ComputerLogin({
     client: {
       async authorize() {
@@ -137,9 +139,13 @@ test("JSON login writes exactly one stable stdout object without secrets", async
     config,
     writeLine: (line) => stdout.push(line),
     writeProgressLine: (line) => stderr.push(line),
+    openVerificationPage: async (url) => {
+      opened.push(url);
+    },
     sleep: async () => undefined,
     colors: pc.createColors(false),
   }).run({ serverUrl: "https://coforge.example", json: true });
+  expect(opened).toEqual([]);
   expect(stdout).toHaveLength(1);
   expect(JSON.parse(stdout[0]!)).toEqual({
     ok: true,
@@ -180,6 +186,7 @@ test("login waits at the server interval while authorization is pending", async 
     store: { async save() {} },
     config,
     writeLine: () => undefined,
+    openVerificationPage: async () => undefined,
     sleep: async (milliseconds) => {
       sleeps.push(milliseconds);
     },
@@ -217,6 +224,7 @@ test("login increases the polling interval after slow_down", async () => {
     store: { async save() {} },
     config,
     writeLine: () => undefined,
+    openVerificationPage: async () => undefined,
     sleep: async (milliseconds) => {
       sleeps.push(milliseconds);
     },
@@ -259,6 +267,7 @@ test("login backs off after a polling timeout and bounds each request by the dea
     store: { async save() {} },
     config,
     writeLine: () => undefined,
+    openVerificationPage: async () => undefined,
     sleep: async (milliseconds) => {
       sleeps.push(milliseconds);
       now += milliseconds;
@@ -293,6 +302,7 @@ test("login stops when a timed-out poll consumes the remaining device-code lifet
     store: { async save() {} },
     config,
     writeLine: () => undefined,
+    openVerificationPage: async () => undefined,
     sleep: async (milliseconds) => {
       now += milliseconds;
     },
@@ -324,6 +334,7 @@ test("login reports a stable error when the device code expires locally", async 
     store: { async save() {} },
     config,
     writeLine: () => undefined,
+    openVerificationPage: async () => undefined,
     sleep: async () => undefined,
   });
 

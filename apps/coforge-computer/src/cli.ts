@@ -297,7 +297,7 @@ export function createSetupCommand(
     },
     idempotencyKeyProvider: { create: registrationIdempotencyKey },
     authenticate: {
-      async authenticate(serverUrl, _json) {
+      async authenticate(serverUrl, json) {
         const login = new ComputerLogin({
           client,
           store: credentials,
@@ -307,7 +307,7 @@ export function createSetupCommand(
           suppressFinalResult: true,
           sleep: Bun.sleep,
         });
-        await login.run({ serverUrl, json: false });
+        await login.run({ serverUrl, json });
         const credential = await credentials.load(serverUrl);
         if (!credential)
           throw setupError(
