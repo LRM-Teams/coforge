@@ -1,7 +1,7 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
-import { AppPageError } from "@/features/workspaces/workspace-unavailable";
+import { PageLoadError } from "@/features/errors/page-load-error";
 import { AgentsContent } from "@/features/agents/agents-content";
 import { createAgent, listAgents } from "@/features/agents/agents.functions";
 import { listComputers } from "@/features/computers/computers.functions";
@@ -16,7 +16,7 @@ export const Route = createFileRoute("/_app/agents/")({
     ]);
     return { agents, computers, timeZone: preferences.timeZone };
   },
-  errorComponent: AppPageError,
+  errorComponent: PageLoadError,
   component: AgentsPage,
 });
 

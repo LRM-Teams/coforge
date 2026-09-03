@@ -37,7 +37,11 @@
   "controls_cancel": "取消",
   "controls_back": "返回",
   "controls_next": "下一步",
+  "controls_retry": "重试",
+  "toast_dismiss": "关闭通知",
   "workspace_unavailable_title": "还没有工作空间",
   "workspace_unavailable_description": "当前账号还不是任何工作空间的成员。请退出后重新登录以创建，或请管理员授予访问权限。",
-  "app_load_error": "页面无法加载。"
+  "app_load_error": "页面无法加载。",
+  "app_load_error_description": "服务可能暂时不可用，请稍后重试。",
+  "error_reference": "错误编号：{errorId}"
 }

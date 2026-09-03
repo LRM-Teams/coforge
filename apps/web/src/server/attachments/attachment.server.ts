@@ -1,6 +1,7 @@
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { PrismaClient } from "../../../generated/client";
+import { AppError } from "../../lib/app-error";
 
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 export const ATTACHMENT_SESSION_SECONDS = 900;
@@ -33,12 +34,12 @@ export async function storeAttachment(
     file: File;
   },
 ) {
-  if (input.file.size > ATTACHMENT_MAX_BYTES) throw new Error("attachment exceeds maximum size");
+  if (input.file.size > ATTACHMENT_MAX_BYTES) throw new AppError("INVALID_INPUT");
   const conversation = await db.conversation.findFirst({
     where: { id: input.conversationId, members: { some: { userId: input.userId } } },
     select: { id: true, workspaceId: true },
   });
-  if (!conversation) throw new Error("conversation scope is not authorized");
+  if (!conversation) throw new AppError("ACCESS_DENIED");
   const id = crypto.randomUUID();
   const objectKey = `workspaces/${conversation.workspaceId}/attachments/${id}/original`;
   await mkdir(join(storageRoot(), conversation.workspaceId, "attachments", id), {
@@ -81,7 +82,7 @@ export async function readAuthorizedAttachment(
   },
 ) {
   const attachment = await db.attachment.findUnique({ where: { id: input.attachmentId } });
-  if (!attachment || !attachment.messageId) throw new Error("attachment not found");
+  if (!attachment || !attachment.messageId) throw new AppError("NOT_FOUND");
   const allowed = input.userId
     ? Boolean(
         await db.conversationMember.findFirst({
@@ -95,7 +96,7 @@ export async function readAuthorizedAttachment(
         })),
       );
   if (!allowed || (input.conversationId && input.conversationId !== attachment.conversationId))
-    throw new Error("attachment access is not authorized");
+    throw new AppError("ACCESS_DENIED");
   return {
     attachment,
     path: join(storageRoot(), attachment.workspaceId, "attachments", attachment.id, "original"),

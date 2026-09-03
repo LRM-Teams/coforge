@@ -38,6 +38,7 @@ export function RuntimeUsage({
   onScan: () => void;
 }) {
   const [scanning, setScanning] = useState(false);
+  const unsupported = usage?.status === "unsupported";
   const scan = async () => {
     setScanning(true);
     try {
@@ -53,24 +54,27 @@ export function RuntimeUsage({
         <div className="min-w-0">
           <p className="truncate font-medium">{runtime.displayName}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {m.computer_runtime_version()} {runtime.version} · {m.computer_usage_title()}
+            {m.computer_runtime_version()} {runtime.version}
+            {!unsupported && ` · ${m.computer_usage_title()}`}
           </p>
         </div>
-        <button
-          type="button"
-          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border bg-background px-2.5 text-xs font-medium transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
-          onClick={() => void scan()}
-          disabled={scanning}
-        >
-          <RefreshCw aria-hidden="true" className={scanning ? "size-3 animate-spin" : "size-3"} />
-          {scanning
-            ? m.computer_usage_scanning()
-            : usage?.snapshot
-              ? m.computer_usage_refresh()
-              : m.computer_usage_scan()}
-        </button>
+        {!unsupported && (
+          <button
+            type="button"
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border bg-background px-2.5 text-xs font-medium transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+            onClick={() => void scan()}
+            disabled={scanning}
+          >
+            <RefreshCw aria-hidden="true" className={scanning ? "size-3 animate-spin" : "size-3"} />
+            {scanning
+              ? m.computer_usage_scanning()
+              : usage?.snapshot
+                ? m.computer_usage_refresh()
+                : m.computer_usage_scan()}
+          </button>
+        )}
       </div>
-      {!usage ? (
+      {unsupported ? null : !usage ? (
         <div className="mt-3 rounded-md bg-muted/50 px-3 py-4 text-center">
           <p className="font-medium">{m.computer_usage_empty()}</p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -81,7 +85,7 @@ export function RuntimeUsage({
         <div className="mt-3 rounded-md border border-dashed px-3 py-3">
           <p className="font-medium">{m.computer_usage_unavailable()}</p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {usage.message ?? usageStatusLabel(usage.status)}
+            {usageStatusDescription(usage.status)}
           </p>
         </div>
       ) : (
@@ -109,6 +113,13 @@ export function RuntimeUsage({
       )}
     </div>
   );
+}
+
+function usageStatusDescription(status: Exclude<UsageView["status"], "available">): string {
+  if (status === "unsupported") return "";
+  if (status === "reauth") return m.computer_usage_reauth();
+  if (status === "unavailable") return m.computer_usage_unavailable_description();
+  return m.computer_usage_error();
 }
 
 function UsageWindow({
@@ -158,11 +169,4 @@ function UsageWindow({
 /** The provider's own plan name, which CoForge shows as the provider wrote it. */
 function formatPlan(plan: string) {
   return plan ? `${plan[0]!.toUpperCase()}${plan.slice(1)}` : plan;
-}
-
-function usageStatusLabel(status: UsageView["status"]): string {
-  if (status === "reauth") return m.computer_usage_status_reauth();
-  if (status === "unsupported") return m.computer_usage_status_unsupported();
-  if (status === "unavailable") return m.computer_usage_status_unavailable();
-  return m.computer_usage_status_error();
 }

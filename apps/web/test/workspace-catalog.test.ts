@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { AppError } from "../src/lib/app-error";
 
 import {
   WorkspaceCatalog,
@@ -50,21 +51,21 @@ test("falls back to the earliest Workspace when the preference is missing", asyn
 test("rejects a taken or reserved Workspace slug", async () => {
   const catalog = new WorkspaceCatalog(memoryStore());
   await catalog.createForUser(ada, { name: "Ada's Workspace", slug: "ada" });
-  await expect(catalog.createForUser(grace, { name: "Other", slug: "ada" })).rejects.toThrow(
-    "workspace slug is taken",
+  await expect(catalog.createForUser(grace, { name: "Other", slug: "ada" })).rejects.toEqual(
+    new AppError("CONFLICT"),
   );
-  await expect(catalog.createForUser(ada, { name: "Auth", slug: "auth" })).rejects.toThrow(
-    "workspace slug is reserved",
+  await expect(catalog.createForUser(ada, { name: "Auth", slug: "auth" })).rejects.toEqual(
+    new AppError("INVALID_INPUT"),
   );
 });
 
 test("rejects an invalid Workspace slug or empty name", async () => {
   const catalog = new WorkspaceCatalog(memoryStore());
-  await expect(catalog.createForUser(ada, { name: "Ada", slug: "Ada" })).rejects.toThrow(
-    "workspace slug is invalid",
+  await expect(catalog.createForUser(ada, { name: "Ada", slug: "Ada" })).rejects.toEqual(
+    new AppError("INVALID_INPUT"),
   );
-  await expect(catalog.createForUser(ada, { name: "   ", slug: "team" })).rejects.toThrow(
-    "workspace name is required",
+  await expect(catalog.createForUser(ada, { name: "   ", slug: "team" })).rejects.toEqual(
+    new AppError("INVALID_INPUT"),
   );
 });
 

@@ -106,8 +106,8 @@ export function AgentsContent({
       formElement.reset();
       setOpen(false);
       setDeferredStart(!result.startPublished);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : m.agent_form_server_error());
+    } catch {
+      setError(m.agent_form_server_error());
     } finally {
       setSubmitting(false);
     }

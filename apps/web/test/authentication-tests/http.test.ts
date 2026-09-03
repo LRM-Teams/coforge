@@ -154,7 +154,8 @@ test("login callback fails closed when the database is unavailable", async () =>
     expect(response.status).toBe(302);
     const location = new URL(response.headers.get("location") ?? "", "http://localhost:3000");
     expect(location.pathname).toBe("/login");
-    expect(location.searchParams.get("error")).toBe("database is required");
+    expect(location.searchParams.get("error")).toBe("login_failed");
+    expect(location.href).not.toContain("database");
     expect(
       response.headers
         .getSetCookie()
@@ -173,7 +174,7 @@ test("login callback returns to login when Authing state is invalid", async () =
     sessionSecret,
   });
   expect(response.status).toBe(302);
-  expect(response.headers.get("location")).toContain("/login?error=");
+  expect(response.headers.get("location")).toContain("/login?error=login_failed");
 });
 
 test("logout clears the session cookie and signs the user out at Authing", () => {

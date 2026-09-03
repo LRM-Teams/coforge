@@ -2,11 +2,11 @@ import { Outlet, createFileRoute, useParams } from "@tanstack/react-router";
 
 import { listAgents } from "@/features/agents/agents.functions";
 import { ConversationLayout } from "@/features/conversations/conversation-layout";
-import { AppPageError } from "@/features/workspaces/workspace-unavailable";
+import { PageLoadError } from "@/features/errors/page-load-error";
 
 export const Route = createFileRoute("/_app/messages")({
   loader: () => listAgents(),
-  errorComponent: AppPageError,
+  errorComponent: PageLoadError,
   component: MessagesPage,
 });
 

@@ -9,6 +9,7 @@ import {
   DirectConversation,
   type DirectConversationView,
 } from "@/features/conversations/direct-conversation";
+import { AppToastProvider } from "@/components/ui/toast";
 import { getRouter } from "@/router";
 
 afterEach(cleanup);
@@ -27,7 +28,9 @@ function renderConversation(
 ) {
   render(
     <RouterContextProvider router={getRouter()}>
-      <DirectConversation conversation={conversation} onSend={onSend} onRefresh={onRefresh} />
+      <AppToastProvider>
+        <DirectConversation conversation={conversation} onSend={onSend} onRefresh={onRefresh} />
+      </AppToastProvider>
     </RouterContextProvider>,
   );
   return { page: within(document.body), onSend, onRefresh };
@@ -138,7 +141,7 @@ test("Enter sends, Shift+Enter keeps the draft, and sending prevents duplicates"
   await waitFor(() => expect(composer.value).toBe(""));
 });
 
-test("reuses a requestId after failure until the draft is edited or succeeds", async () => {
+test("shows a safe toast and reuses a requestId after failure until the draft changes", async () => {
   const user = userEvent.setup();
   let attempt = 0;
   const onSend = mock(async (_body: string, _requestId: string) => {
@@ -150,7 +153,12 @@ test("reuses a requestId after failure until the draft is edited or succeeds", a
 
   await user.type(composer, "first");
   await user.click(page.getByRole("button", { name: "Send" }));
-  await waitFor(() => expect(page.getByRole("alert")).toBeTruthy());
+  await waitFor(() =>
+    expect(page.getByRole("region", { name: "Notifications" }).textContent).toContain(
+      "The message could not be sent. Try again.",
+    ),
+  );
+  expect(document.body.textContent).not.toContain("temporary failure");
   const failedRequestId = onSend.mock.calls[0]![1];
   await user.click(page.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(composer.value).toBe(""));
@@ -158,7 +166,11 @@ test("reuses a requestId after failure until the draft is edited or succeeds", a
 
   await user.type(composer, "second");
   await user.click(page.getByRole("button", { name: "Send" }));
-  await waitFor(() => expect(page.getByRole("alert")).toBeTruthy());
+  await waitFor(() =>
+    expect(
+      page.getByRole("region", { name: "Notifications" }).textContent?.match(/could not/g)?.length,
+    ).toBe(2),
+  );
   const secondFailedRequestId = onSend.mock.calls[2]![1];
   expect(secondFailedRequestId).not.toBe(failedRequestId);
   await user.type(composer, " edited");

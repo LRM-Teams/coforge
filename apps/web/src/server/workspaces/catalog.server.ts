@@ -1,4 +1,5 @@
 import type { PrismaClient } from "../../../generated/client";
+import { AppError } from "../../lib/app-error";
 
 import { isReservedWorkspaceSlug, isValidWorkspaceSlug } from "./workspace-slug";
 
@@ -30,14 +31,14 @@ export class WorkspaceCatalog {
     input: { name: string; slug: string },
   ): Promise<WorkspaceRecord> {
     const name = input.name.trim();
-    if (!name) throw new Error("workspace name is required");
+    if (!name) throw new AppError("INVALID_INPUT");
     const slug = input.slug.trim();
-    if (!isValidWorkspaceSlug(slug)) throw new Error("workspace slug is invalid");
-    if (isReservedWorkspaceSlug(slug)) throw new Error("workspace slug is reserved");
+    if (!isValidWorkspaceSlug(slug) || isReservedWorkspaceSlug(slug))
+      throw new AppError("INVALID_INPUT");
     try {
       return await this.store.createForUser({ slug, name, userId });
     } catch (error) {
-      if (isUniqueConflict(error)) throw new Error("workspace slug is taken");
+      if (isUniqueConflict(error)) throw new AppError("CONFLICT");
       throw new Error("workspace creation failed");
     }
   }

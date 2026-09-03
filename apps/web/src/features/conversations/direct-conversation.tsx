@@ -4,6 +4,7 @@ import { ArrowUp, FileText, Paperclip } from "lucide-react";
 import { BackToAgents } from "@/features/conversations/conversation-layout";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { useAppToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
@@ -34,8 +35,8 @@ export function DirectConversation({
 }) {
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
   const [file, setFile] = useState<File>();
+  const toast = useAppToast();
   const historyRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef(false);
   const sendingRef = useRef(false);
@@ -72,7 +73,6 @@ export function DirectConversation({
     if (!text || sendingRef.current) return;
     sendingRef.current = true;
     setSending(true);
-    setError("");
     try {
       const request =
         retryRef.current?.body === text
@@ -85,7 +85,7 @@ export function DirectConversation({
         form.set("conversationId", conversation.conversationId);
         form.set("file", file);
         const response = await fetch("/api/attachments", { method: "POST", body: form });
-        if (!response.ok) throw new Error(await response.text());
+        if (!response.ok) throw new Error("ATTACHMENT_UPLOAD_FAILED");
         attachmentId = ((await response.json()) as { id: string }).id;
       }
       await onSend(text, request.requestId, attachmentId);
@@ -93,7 +93,7 @@ export function DirectConversation({
       setBody("");
       setFile(undefined);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : m.conversation_send_error());
+      toast.error(m.conversation_send_error(), cause);
     } finally {
       sendingRef.current = false;
       setSending(false);
@@ -233,11 +233,6 @@ export function DirectConversation({
             >
               {m.controls_close()}
             </button>
-          </p>
-        )}
-        {error && (
-          <p role="alert" className="px-1 text-sm text-destructive-text">
-            {error}
           </p>
         )}
         <div className="flex items-center">

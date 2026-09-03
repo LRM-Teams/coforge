@@ -12,6 +12,8 @@
   "workspace_create_submit": "创建工作区",
   "workspace_create_submitting": "创建中…",
   "workspace_create_failed": "无法创建工作区，请重试。",
+  "workspace_create_error": "无法创建工作区，请重试。",
+  "workspace_select_error": "无法选择工作区，请重试。",
   "workspace_slug_invalid": "只能包含小写字母、数字和连字符。",
   "workspace_slug_taken": "该工作区 URL 已被占用。",
   "workspace_slug_reserved": "该工作区 URL 为系统保留。"

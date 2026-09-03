@@ -14,5 +14,6 @@
   "preferences_time_zone": "Time zone",
   "preferences_time_zone_search": "Search time zones",
   "preferences_time_zone_search_placeholder": "Search by city, time zone, or UTC offset…",
-  "preferences_time_zone_no_results": "No time zones found."
+  "preferences_time_zone_no_results": "No time zones found.",
+  "settings_save_error": "The preference could not be saved. Try again."
 }

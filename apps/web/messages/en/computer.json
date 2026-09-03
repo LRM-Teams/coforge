@@ -56,5 +56,8 @@
   "computer_usage_status_unavailable": "Usage is unavailable",
   "computer_usage_status_reauth": "Sign in to this Code Agent again",
   "computer_usage_status_error": "Usage scan failed",
-  "computer_usage_status_unsupported": "This Code Agent does not report usage"
+  "computer_usage_status_unsupported": "This Code Agent does not report usage",
+  "computer_usage_unavailable_description": "Usage is temporarily unavailable. Try again.",
+  "computer_usage_reauth": "Sign in to this Code Agent again, then retry the scan.",
+  "computer_usage_error": "Usage scan failed. Try again."
 }

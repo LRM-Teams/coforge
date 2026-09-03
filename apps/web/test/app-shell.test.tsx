@@ -6,6 +6,7 @@ import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/re
 import userEvent from "@testing-library/user-event";
 
 import { AppShell } from "@/components/app-shell";
+import { AppToastProvider } from "@/components/ui/toast";
 import { AgentsContent } from "@/features/agents/agents-content";
 import { overwriteGetLocale } from "@/paraglide/runtime";
 import { getRouter } from "@/router";
@@ -48,9 +49,11 @@ const computers = [
 function renderShell(agents = [agent], onCreate = async () => ({ startPublished: true })) {
   return render(
     <RouterContextProvider router={getRouter()}>
-      <AppShell user={user}>
-        <AgentsContent agents={agents} computers={computers} onCreate={onCreate} />
-      </AppShell>
+      <AppToastProvider>
+        <AppShell user={user}>
+          <AgentsContent agents={agents} computers={computers} onCreate={onCreate} />
+        </AppShell>
+      </AppToastProvider>
     </RouterContextProvider>,
   ).container.innerHTML;
 }
@@ -65,25 +68,29 @@ function renderAgents(
   defaultCreateDialogOpen = false,
 ) {
   render(
-    <AgentsContent
-      agents={agents}
-      computers={computers}
-      onCreate={onCreate}
-      defaultCreateDialogOpen={defaultCreateDialogOpen}
-    />,
+    <AppToastProvider>
+      <AgentsContent
+        agents={agents}
+        computers={computers}
+        onCreate={onCreate}
+        defaultCreateDialogOpen={defaultCreateDialogOpen}
+      />
+    </AppToastProvider>,
   );
 }
 
 test("shows the current Workspace below the logo", () => {
   render(
     <RouterContextProvider router={getRouter()}>
-      <AppShell
-        user={user}
-        workspaces={[{ id: "ws-1", slug: "lrm-team", name: "LRM-Team" }]}
-        currentWorkspace={{ id: "ws-1", slug: "lrm-team", name: "LRM-Team" }}
-      >
-        Page
-      </AppShell>
+      <AppToastProvider>
+        <AppShell
+          user={user}
+          workspaces={[{ id: "ws-1", slug: "lrm-team", name: "LRM-Team" }]}
+          currentWorkspace={{ id: "ws-1", slug: "lrm-team", name: "LRM-Team" }}
+        >
+          Page
+        </AppShell>
+      </AppToastProvider>
     </RouterContextProvider>,
   );
 
@@ -114,7 +121,9 @@ test("keeps Messages selected on a private conversation route", () => {
   const router = getRouter();
   render(
     <RouterContextProvider router={router}>
-      <AppShell user={user}>Conversation</AppShell>
+      <AppToastProvider>
+        <AppShell user={user}>Conversation</AppShell>
+      </AppToastProvider>
     </RouterContextProvider>,
   );
 
@@ -167,6 +176,26 @@ test("submits the public creation form callback", async () => {
   );
 });
 
+test("shows a safe form-local error when Agent creation fails", async () => {
+  renderAgents(
+    [],
+    async () => {
+      throw new Error("Can't reach database server at 127.0.0.1:15432");
+    },
+    true,
+  );
+  fireEvent.change(await page().findByLabelText("Name"), { target: { value: "helper" } });
+  fireEvent.change(page().getByLabelText("Display name"), { target: { value: "Helper" } });
+  fireEvent.click(page().getByRole("button", { name: "Create agent" }));
+
+  await waitFor(() =>
+    expect(page().getByRole("alert").textContent).toContain(
+      "The Agent could not be created. Try again.",
+    ),
+  );
+  expect(document.body.textContent).not.toContain("127.0.0.1");
+});
+
 test("shows a deferred-start notice after creation", async () => {
   renderAgents([], async () => ({ startPublished: false }), true);
   fireEvent.change(await page().findByLabelText("Name"), { target: { value: "helper" } });
@@ -180,13 +209,15 @@ test("shows a deferred-start notice after creation", async () => {
 test("collapsing the sidebar keeps navigation and the user menu reachable", () => {
   render(
     <RouterContextProvider router={getRouter()}>
-      <AppShell user={user}>
-        <AgentsContent
-          agents={[agent]}
-          computers={computers}
-          onCreate={async () => ({ startPublished: true })}
-        />
-      </AppShell>
+      <AppToastProvider>
+        <AppShell user={user}>
+          <AgentsContent
+            agents={[agent]}
+            computers={computers}
+            onCreate={async () => ({ startPublished: true })}
+          />
+        </AppShell>
+      </AppToastProvider>
     </RouterContextProvider>,
   );
 

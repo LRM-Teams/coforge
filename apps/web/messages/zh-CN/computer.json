@@ -56,5 +56,8 @@
   "computer_usage_status_unavailable": "无法获取用量",
   "computer_usage_status_reauth": "请重新登录该 Code Agent",
   "computer_usage_status_error": "用量扫描失败",
-  "computer_usage_status_unsupported": "该 Code Agent 不上报用量"
+  "computer_usage_status_unsupported": "该 Code Agent 不上报用量",
+  "computer_usage_unavailable_description": "暂时无法获取用量，请重试。",
+  "computer_usage_reauth": "请重新登录此 Code Agent，然后再次扫描。",
+  "computer_usage_error": "用量扫描失败，请重试。"
 }

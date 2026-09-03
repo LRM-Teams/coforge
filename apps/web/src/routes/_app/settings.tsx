@@ -3,13 +3,17 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
 import { SettingsContent } from "@/components/settings-content";
+import { useAppToast } from "@/components/ui/toast";
+import { PageLoadError } from "@/features/errors/page-load-error";
 import { getUserPreferences, saveUserTimeZone } from "@/features/settings/settings.functions";
 import { getLocale, setLocale } from "@/paraglide/runtime";
+import { m } from "@/paraglide/messages";
 
 type Theme = "system" | "light" | "dark";
 
 export const Route = createFileRoute("/_app/settings")({
   loader: () => getUserPreferences(),
+  errorComponent: PageLoadError,
   component: SettingsPage,
 });
 
@@ -19,6 +23,7 @@ function SettingsPage() {
   const [timeZone, setTimeZone] = useState(savedTimeZone);
   const saveTimeZone = useServerFn(saveUserTimeZone);
   const router = useRouter();
+  const toast = useAppToast();
   const locale = getLocale();
 
   useEffect(() => {
@@ -55,9 +60,13 @@ function SettingsPage() {
   }
 
   async function changeTimeZone(nextTimeZone: string) {
-    const result = await saveTimeZone({ data: { timeZone: nextTimeZone || null } });
-    setTimeZone(result.timeZone);
-    await router.invalidate({ sync: true });
+    try {
+      const result = await saveTimeZone({ data: { timeZone: nextTimeZone || null } });
+      setTimeZone(result.timeZone);
+      await router.invalidate({ sync: true });
+    } catch (cause) {
+      toast.error(m.settings_save_error(), cause);
+    }
   }
 
   return (

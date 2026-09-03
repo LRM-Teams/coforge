@@ -4,6 +4,8 @@ import { afterEach, expect, mock, test } from "bun:test";
 import { Match, RouterContextProvider, createMemoryHistory } from "@tanstack/react-router";
 import { act, cleanup, render, waitFor, within } from "@testing-library/react";
 
+import { AppToastProvider } from "@/components/ui/toast";
+
 const agents = [
   {
     id: "agent-1",
@@ -109,9 +111,11 @@ async function renderRoute(path: string) {
   });
   await act(() => router.load());
   render(
-    <RouterContextProvider router={router}>
-      <Match routeId="/_app" />
-    </RouterContextProvider>,
+    <AppToastProvider>
+      <RouterContextProvider router={router}>
+        <Match routeId="/_app" />
+      </RouterContextProvider>
+    </AppToastProvider>,
   );
   return { router, page: within(document.body) };
 }

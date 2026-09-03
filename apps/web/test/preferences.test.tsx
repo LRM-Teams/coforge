@@ -8,6 +8,7 @@ import userEvent from "@testing-library/user-event";
 
 import { AppShell } from "@/components/app-shell";
 import { SettingsContent } from "@/components/settings-content";
+import { AppToastProvider } from "@/components/ui/toast";
 import { overwriteGetLocale } from "@/paraglide/runtime";
 import { getRouter } from "@/router";
 
@@ -26,9 +27,11 @@ afterEach(cleanup);
 function renderShell() {
   return render(
     <RouterContextProvider router={getRouter()}>
-      <AppShell user={signedInUser}>
-        <div />
-      </AppShell>
+      <AppToastProvider>
+        <AppShell user={signedInUser}>
+          <div />
+        </AppShell>
+      </AppToastProvider>
     </RouterContextProvider>,
   );
 }

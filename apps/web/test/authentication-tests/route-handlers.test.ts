@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import { currentUserHandler, loginStartHandler } from "../../src/server/auth/route-handlers.server";
 
-test("login start returns 503 when Authing config is missing", () => {
+test("login start returns a safe 503 when Authing config is missing", async () => {
   const previous = {
     AUTHING_APP_ID: process.env.AUTHING_APP_ID,
     AUTHING_APP_SECRET: process.env.AUTHING_APP_SECRET,
@@ -20,12 +20,14 @@ test("login start returns 503 when Authing config is missing", () => {
     });
     expect(response).toBeInstanceOf(Response);
     expect((response as Response).status).toBe(503);
+    expect(await (response as Response).json()).toEqual({ code: "TEMPORARILY_UNAVAILABLE" });
+    expect((response as Response).headers.get("cache-control")).toBe("no-store");
   } finally {
     restoreEnv(previous);
   }
 });
 
-test("current user returns 503 when the session secret is missing", () => {
+test("current user returns a safe 503 when the session secret is missing", async () => {
   const previous = process.env.COFORGE_SESSION_SECRET;
   delete process.env.COFORGE_SESSION_SECRET;
   try {
@@ -33,6 +35,8 @@ test("current user returns 503 when the session secret is missing", () => {
       request: new Request("http://localhost:3000/api/me"),
     });
     expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ code: "TEMPORARILY_UNAVAILABLE" });
+    expect(response.headers.get("cache-control")).toBe("no-store");
   } finally {
     if (previous === undefined) delete process.env.COFORGE_SESSION_SECRET;
     else process.env.COFORGE_SESSION_SECRET = previous;

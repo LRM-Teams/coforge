@@ -1,4 +1,5 @@
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
+import { GlobalError } from "./features/errors/page-load-error";
 import { deLocalizeUrl, localizeUrl } from "./paraglide/runtime";
 import { routeTree } from "./routeTree.gen";
 
@@ -8,6 +9,7 @@ export function getRouter() {
     scrollRestoration: true,
     defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
+    defaultErrorComponent: GlobalError,
     rewrite: {
       input: ({ url }) => (isNonLocalizedPath(url.pathname) ? url : deLocalizeUrl(url)),
       output: ({ url }) => (isNonLocalizedPath(url.pathname) ? url : localizeUrl(url)),

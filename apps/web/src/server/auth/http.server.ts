@@ -11,6 +11,7 @@ import {
 } from "./browser-login.server";
 import { UserIdentityRepository } from "./user-identity.repository.server";
 import { getDatabaseClient } from "../db/client.server";
+import { toPublicServerError } from "../errors/public-error.server";
 import { workspaceIdForUser } from "../workspaces/enrollment.server";
 
 export function handleLoginStart(input: {
@@ -64,8 +65,8 @@ export async function handleLoginCallback(input: {
       "cache-control": "no-store",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "login failed";
-    return redirect(`${origin}/login?error=${encodeURIComponent(message)}`, {
+    toPublicServerError(error);
+    return redirect(`${origin}/login?error=login_failed`, {
       "cache-control": "no-store",
     });
   }

@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 
+import { AppError } from "../../lib/app-error";
 import { requireBrowserUser } from "../../server/auth/require-user.server";
 import { getDatabaseClient } from "../../server/db/client.server";
 import {
@@ -15,7 +16,7 @@ import { isValidWorkspaceSlug } from "../../server/workspaces/workspace-slug";
 
 function catalog() {
   const db = getDatabaseClient();
-  if (!db) throw new Error("Workspace persistence is unavailable");
+  if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
   return new WorkspaceCatalog(new PrismaWorkspaceCatalogStore(db));
 }
 
@@ -34,13 +35,13 @@ export const selectWorkspace = createServerFn({ method: "POST" })
   .validator((data: unknown) => {
     const slug = data && typeof data === "object" ? Reflect.get(data, "slug") : undefined;
     if (typeof slug !== "string" || !isValidWorkspaceSlug(slug))
-      throw new Error("workspace slug is invalid");
+      throw new AppError("INVALID_INPUT");
     return { slug };
   })
   .handler(async ({ data }) => {
     const user = currentUser();
     const selected = await catalog().selectForUser(user.id, data.slug);
-    if (!selected || selected.slug !== data.slug) throw new Error("workspace is not available");
+    if (!selected || selected.slug !== data.slug) throw new AppError("ACCESS_DENIED");
     writePreferredWorkspaceSlug(selected.slug);
     return selected;
   });
@@ -48,11 +49,10 @@ export const selectWorkspace = createServerFn({ method: "POST" })
 export const createWorkspace = createServerFn({ method: "POST" })
   .validator((data: unknown) => {
     if (!data || typeof data !== "object" || Array.isArray(data))
-      throw new Error("workspace input is required");
+      throw new AppError("INVALID_INPUT");
     const name = Reflect.get(data, "name");
     const slug = Reflect.get(data, "slug");
-    if (typeof name !== "string" || typeof slug !== "string")
-      throw new Error("workspace name and slug must be strings");
+    if (typeof name !== "string" || typeof slug !== "string") throw new AppError("INVALID_INPUT");
     return { name, slug };
   })
   .handler(async ({ data }) => {
