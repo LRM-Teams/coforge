@@ -286,6 +286,7 @@ test("login completes against a reproducible local device-code server without qu
       store: { async save() {} },
       config: { async saveCurrentProfile() {} },
       writeLine: () => undefined,
+      openVerificationPage: async () => undefined,
       sleep: async () => undefined,
     }).run({ serverUrl: `http://localhost:${server.port}` });
     expect(requests).toEqual([

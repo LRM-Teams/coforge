@@ -130,11 +130,14 @@ test("compiled login strips terminal controls from device authorization instruct
   });
 
   try {
-    const child = Bun.spawn([executable, "login", "--server", `http://localhost:${server.port}`], {
-      env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const child = Bun.spawn(
+      [executable, "login", "--server", `http://localhost:${server.port}`, "--json"],
+      {
+        env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
     const [exitCode, stdout, stderr] = await Promise.all([
       child.exited,
       new Response(child.stdout).text(),
@@ -154,7 +157,7 @@ test("compiled login strips terminal controls from device authorization instruct
 
 test("compiled setup reports a stable network failure without claiming success", () => {
   const result = Bun.spawnSync({
-    cmd: [executable, "setup"],
+    cmd: [executable, "setup", "--server", "https://127.0.0.1:1"],
     env: { ...process.env, XDG_CONFIG_HOME: directory },
     stdout: "pipe",
     stderr: "pipe",
@@ -164,5 +167,19 @@ test("compiled setup reports a stable network failure without claiming success",
   expect(result.stdout.toString()).toContain("CoForge Computer login");
   expect(result.stderr.toString()).toContain("AUTH_NETWORK_ERROR");
   expect(result.stderr.toString()).toContain("Hint:");
-  expect(result.stderr.toString()).not.toContain("registration was created");
+  expect(`${result.stdout}${result.stderr}`).not.toContain("registration was created");
+});
+
+test("compiled JSON setup keeps its internal login non-interactive", () => {
+  const result = Bun.spawnSync({
+    cmd: [executable, "setup", "--server", "https://127.0.0.1:1", "--json"],
+    env: { ...process.env, XDG_CONFIG_HOME: directory },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stdout.toString()).toContain('"code":"AUTH_NETWORK_ERROR"');
+  expect(result.stdout.toString()).not.toContain("CoForge Computer login");
+  expect(`${result.stdout}${result.stderr}`).not.toContain("registration was created");
 });
