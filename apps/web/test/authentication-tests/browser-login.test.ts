@@ -12,11 +12,11 @@ const sessionSecret = "test-session-secret-at-least-32-characters";
 const config = {
   appId: "6a8fde6fa804dd3bea560bac",
   appSecret: "test-app-secret",
-  issuer: "https://coforge-dev.authing.cn/oidc",
-  authorizationEndpoint: "https://coforge-dev.authing.cn/oidc/auth",
-  tokenEndpoint: "https://coforge-dev.authing.cn/oidc/token",
-  userinfoEndpoint: "https://coforge-dev.authing.cn/oidc/me",
-  endSessionEndpoint: "https://coforge-dev.authing.cn/oidc/session/end",
+  issuer: "https://coforge.authing.cn/oidc",
+  authorizationEndpoint: "https://coforge.authing.cn/oidc/auth",
+  tokenEndpoint: "https://coforge.authing.cn/oidc/token",
+  userinfoEndpoint: "https://coforge.authing.cn/oidc/me",
+  endSessionEndpoint: "https://coforge.authing.cn/oidc/session/end",
   redirectUri: "http://localhost:3000/auth/callback",
 };
 
@@ -47,7 +47,7 @@ test("startBrowserLogin sends the user to Authing with PKCE", () => {
   });
 
   const url = new URL(started.authorizationUrl);
-  expect(url.origin + url.pathname).toBe("https://coforge-dev.authing.cn/oidc/auth");
+  expect(url.origin + url.pathname).toBe("https://coforge.authing.cn/oidc/auth");
   expect(url.searchParams.get("client_id")).toBe("6a8fde6fa804dd3bea560bac");
   expect(url.searchParams.get("redirect_uri")).toBe("http://localhost:3000/auth/callback");
   expect(url.searchParams.get("response_type")).toBe("code");
