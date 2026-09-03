@@ -27,7 +27,7 @@ export type ComputerDetailView = ComputerIdentity & {
   }[];
   modelCatalogs?: {
     provider: string;
-    models: { id: string; displayName: string; recommended?: boolean }[];
+    models: { id: string; displayName: string }[];
   }[];
   usage?: Record<string, UsageView>;
 };
@@ -176,25 +176,15 @@ function StatusPill({ online }: { online: boolean }) {
   );
 }
 
-function ModelCatalog({
-  models,
-}: {
-  models?: { id: string; displayName: string; recommended?: boolean }[];
-}) {
+function ModelCatalog({ models }: { models?: { id: string; displayName: string }[] }) {
   return (
     <div className="mt-3 border-t pt-3 text-sm">
       <p className="font-medium">{m.computer_models()}</p>
       {models?.length ? (
         <ul className="mt-2 flex flex-wrap gap-1.5">
           {models.map((model) => (
-            <li
-              key={model.id}
-              className="flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs"
-            >
+            <li key={model.id} className="rounded-md bg-muted px-2 py-1 text-xs">
               {model.displayName}
-              {model.recommended && (
-                <span className="text-brand">{m.computer_model_recommended()}</span>
-              )}
             </li>
           ))}
         </ul>

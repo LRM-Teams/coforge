@@ -37,7 +37,6 @@
   "computer_runtime_observed_at": "Detected {time}",
   "computer_models": "Models",
   "computer_models_empty": "No models reported",
-  "computer_model_recommended": "Recommended",
   "computer_not_found": "This computer is not in this workspace",
   "computer_not_found_description": "It may have been removed, or the link may point somewhere else.",
   "computer_runtime_version": "Version {version}",

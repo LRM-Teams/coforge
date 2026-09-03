@@ -42,7 +42,12 @@ const computer = {
       isPublic: false,
     },
   ],
-  modelCatalogs: [{ provider: "codex", models: [{ id: "gpt-5", displayName: "GPT-5" }] }],
+  modelCatalogs: [
+    {
+      provider: "codex",
+      models: [{ id: "gpt-5", displayName: "GPT-5", recommended: true }],
+    },
+  ],
 };
 
 test("shows the machine, its Code Agents, and an explicit no-snapshot usage state", () => {
@@ -61,6 +66,7 @@ test("shows the machine, its Code Agents, and an explicit no-snapshot usage stat
   expect(page.getByText("Codex Runtime")).toBeTruthy();
   expect(document.body.textContent).toContain("Version 0.151.0");
   expect(page.getByText("GPT-5")).toBeTruthy();
+  expect(page.queryByText("Recommended")).toBeNull();
   expect(page.getByText("No snapshot yet")).toBeTruthy();
 });
 
