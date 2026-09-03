@@ -67,7 +67,7 @@ function ComboboxContent({
               className="h-10 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             />
           </div>
-          <ComboboxPrimitive.Empty className="px-3 py-6 text-center text-sm text-muted-foreground">
+          <ComboboxPrimitive.Empty className="px-3 py-6 text-center text-sm text-muted-foreground empty:py-0">
             {emptyLabel}
           </ComboboxPrimitive.Empty>
           <ComboboxPrimitive.List className="max-h-[min(20rem,var(--available-height))] overflow-y-auto p-1">

@@ -6,8 +6,7 @@ export type WorkspaceRecord = { id: string; slug: string; name: string };
 
 export type WorkspaceCatalogStore = {
   listForUser(userId: string): Promise<WorkspaceRecord[]>;
-  createWorkspace(input: { slug: string; name: string }): Promise<WorkspaceRecord>;
-  addMember(workspaceId: string, userId: string): Promise<void>;
+  createForUser(input: { slug: string; name: string; userId: string }): Promise<WorkspaceRecord>;
 };
 
 export class WorkspaceCatalog {
@@ -36,12 +35,10 @@ export class WorkspaceCatalog {
     if (!isValidWorkspaceSlug(slug)) throw new Error("workspace slug is invalid");
     if (isReservedWorkspaceSlug(slug)) throw new Error("workspace slug is reserved");
     try {
-      const workspace = await this.store.createWorkspace({ slug, name });
-      await this.store.addMember(workspace.id, userId);
-      return workspace;
+      return await this.store.createForUser({ slug, name, userId });
     } catch (error) {
       if (isUniqueConflict(error)) throw new Error("workspace slug is taken");
-      throw error;
+      throw new Error("workspace creation failed");
     }
   }
 }
@@ -57,15 +54,15 @@ export class PrismaWorkspaceCatalogStore implements WorkspaceCatalogStore {
     });
   }
 
-  async createWorkspace(input: { slug: string; name: string }) {
+  async createForUser(input: { slug: string; name: string; userId: string }) {
     return this.db.workspace.create({
-      data: { slug: input.slug, name: input.name },
+      data: {
+        slug: input.slug,
+        name: input.name,
+        members: { create: { userId: input.userId } },
+      },
       select: { id: true, slug: true, name: true },
     });
-  }
-
-  async addMember(workspaceId: string, userId: string) {
-    await this.db.workspaceMembership.create({ data: { workspaceId, userId } });
   }
 }
 

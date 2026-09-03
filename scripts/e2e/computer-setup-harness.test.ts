@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 const harness = await readFile(new URL("./run-computer-setup.sh", import.meta.url), "utf8");
 const waitForOnline = await readFile(new URL("./wait-for-online.sh", import.meta.url), "utf8");
 const managedInfra = await readFile(new URL("./managed-infra.sh", import.meta.url), "utf8");
+const managedWeb = await readFile(new URL("./managed-web.sh", import.meta.url), "utf8");
 
 test("Computer setup harness exercises the compiled CLI and real daemon path", () => {
   expect(harness).toContain("dist/coforge-computer");
@@ -25,4 +26,12 @@ test("Computer setup follows the localized computers redirect while waiting for 
 
 test("Computer setup infrastructure keeps the normal fixed Centrifugo port", () => {
   expect(managedInfra).not.toContain("CENTRIFUGO_PORT");
+});
+
+test("managed Web seeds the fixed development user after database migration", () => {
+  const migration = managedWeb.indexOf("db:migrate:deploy");
+  const seed = managedWeb.indexOf("seed-dev-data.ts");
+
+  expect(migration).toBeGreaterThan(-1);
+  expect(seed).toBeGreaterThan(migration);
 });

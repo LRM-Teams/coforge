@@ -74,6 +74,7 @@ test("searches time zones by city and sends the IANA identifier to persistence",
   );
 
   await user.click(view.getByRole("combobox", { name: "Time zone" }));
+  expect(view.getByRole("status").classList.contains("empty:py-0")).toBeTrue();
   await user.type(view.getByRole("combobox", { name: "Search time zones" }), "Tokyo");
   expect(view.queryByRole("option", { name: /Asia\/Shanghai/ })).toBeNull();
   await user.click(view.getByRole("option", { name: /Asia\/Tokyo/ }));

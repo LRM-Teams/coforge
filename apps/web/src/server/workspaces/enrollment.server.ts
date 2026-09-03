@@ -6,8 +6,7 @@ export type EnrollmentUser = { id: string; username: string; displayName: string
 
 export type WorkspaceEnrollmentStore = {
   findMembership(userId: string): Promise<string | null>;
-  createWorkspace(input: { slug: string; name: string }): Promise<string>;
-  addMember(workspaceId: string, userId: string): Promise<void>;
+  createForUser(input: { slug: string; name: string; userId: string }): Promise<string>;
 };
 
 /** Ensures the authenticated User has a WorkspaceMembership, creating their own Workspace when they have none. */
@@ -23,11 +22,6 @@ export class WorkspaceEnrollment {
 
     const name = workspaceDisplayName(user.displayName, acceptLanguage);
     const workspaceId = await this.createOwnedWorkspace(user.username, user.id, name);
-    try {
-      await this.store.addMember(workspaceId, user.id);
-    } catch (error) {
-      if (!isUniqueConflict(error)) throw error;
-    }
     return { workspaceId };
   }
 
@@ -41,12 +35,12 @@ export class WorkspaceEnrollment {
     name: string,
   ): Promise<string> {
     try {
-      return await this.store.createWorkspace({ slug: username, name });
+      return await this.store.createForUser({ slug: username, name, userId });
     } catch (error) {
       if (!isUniqueConflict(error)) throw error;
     }
     const suffix = userId.replaceAll("-", "").slice(0, 8);
-    return this.store.createWorkspace({ slug: `${username}-${suffix}`, name });
+    return this.store.createForUser({ slug: `${username}-${suffix}`, name, userId });
   }
 }
 
@@ -67,16 +61,16 @@ export class PrismaWorkspaceEnrollmentStore implements WorkspaceEnrollmentStore 
     return row?.workspaceId ?? null;
   }
 
-  async createWorkspace(input: { slug: string; name: string }) {
+  async createForUser(input: { slug: string; name: string; userId: string }) {
     const row = await this.db.workspace.create({
-      data: { slug: input.slug, name: input.name },
+      data: {
+        slug: input.slug,
+        name: input.name,
+        members: { create: { userId: input.userId } },
+      },
       select: { id: true },
     });
     return row.id;
-  }
-
-  async addMember(workspaceId: string, userId: string) {
-    await this.db.workspaceMembership.create({ data: { workspaceId, userId } });
   }
 }
 
