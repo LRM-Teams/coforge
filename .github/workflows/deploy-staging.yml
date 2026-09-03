@@ -21,9 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           install: false
 
@@ -52,9 +52,9 @@ jobs:
       image: ${{ steps.identity.outputs.image }}
       deployment_id: ${{ steps.validate.outputs.deployment_id }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           install: false
 
@@ -65,18 +65,18 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Build and push the immutable digest
         id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: apps/web/Dockerfile
@@ -114,9 +114,9 @@ jobs:
       DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
       REMOTE_ASSETS: ${{ github.workspace }}/assets.tgz
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           install: false
 
@@ -172,33 +172,40 @@ jobs:
         env:
           AUTHING_APP_ID: ${{ vars.AUTHING_APP_ID }}
           AUTHING_APP_SECRET: ${{ secrets.AUTHING_APP_SECRET }}
-          AUTHING_ISSUER: ${{ vars.AUTHING_ISSUER }}
-          AUTHING_REDIRECT_URI: ${{ vars.AUTHING_REDIRECT_URI }}
           COFORGE_SESSION_SECRET: ${{ secrets.COFORGE_SESSION_SECRET }}
         run: |
-          for name in AUTHING_APP_ID AUTHING_APP_SECRET AUTHING_ISSUER AUTHING_REDIRECT_URI COFORGE_SESSION_SECRET; do
-            eval "value=\${$name}"
+          for name in AUTHING_APP_ID AUTHING_APP_SECRET COFORGE_SESSION_SECRET; do
+            value="${!name}"
             if [ -z "$value" ]; then
               echo "$name is missing from the staging GitHub Environment" >&2
               exit 1
             fi
           done
+          umask 077
           tar_dir="$(mktemp -d)"
           payload="$(mktemp)"
-          umask 077
+          trap 'rm -rf -- "$tar_dir" "$payload"' EXIT
           printf '%s' "$AUTHING_APP_ID" > "$tar_dir/authing_app_id"
           printf '%s' "$AUTHING_APP_SECRET" > "$tar_dir/authing_app_secret"
-          printf '%s' "$AUTHING_ISSUER" > "$tar_dir/authing_issuer"
-          printf '%s' "$AUTHING_REDIRECT_URI" > "$tar_dir/authing_redirect_uri"
           printf '%s' "$COFORGE_SESSION_SECRET" > "$tar_dir/coforge_session_secret"
           tar -czf "$payload" -C "$tar_dir" .
           ssh -i "$SSH_DIR/key" \
             -o UserKnownHostsFile="$SSH_DIR/known_hosts" \
             -o BatchMode=yes \
             "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" \
-            "mkdir -p $REMOTE_ROOT/infra/staging/secrets && tar -xzf - -C $REMOTE_ROOT/infra/staging/secrets && chmod 600 $REMOTE_ROOT/infra/staging/secrets/authing_app_id $REMOTE_ROOT/infra/staging/secrets/authing_app_secret $REMOTE_ROOT/infra/staging/secrets/authing_issuer $REMOTE_ROOT/infra/staging/secrets/authing_redirect_uri $REMOTE_ROOT/infra/staging/secrets/coforge_session_secret" \
+            "set -eu; \
+             secrets_dir='$REMOTE_ROOT/infra/staging/secrets'; \
+             mkdir -p \"\$(dirname \"\$secrets_dir\")\"; \
+             incoming=\$(mktemp -d \"\${secrets_dir}.incoming.XXXXXX\"); \
+             trap 'rm -rf -- \"\$incoming\"' EXIT; \
+             tar -xzf - -C \"\$incoming\"; \
+             chmod 600 \"\$incoming/authing_app_id\" \"\$incoming/authing_app_secret\" \"\$incoming/coforge_session_secret\"; \
+             mkdir -p \"\$secrets_dir\"; \
+             chmod 700 \"\$secrets_dir\"; \
+             for name in authing_app_id authing_app_secret coforge_session_secret; do \
+               mv -f \"\$incoming/\$name\" \"\$secrets_dir/\$name\"; \
+             done" \
             < "$payload"
-          rm -rf "$tar_dir" "$payload"
 
       - name: Deploy the tested digest
         env:
@@ -285,7 +292,7 @@ jobs:
 
       - name: Upload the release record
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: deployment-records
           path: deployment-records.jsonl

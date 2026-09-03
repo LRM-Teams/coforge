@@ -4,8 +4,8 @@
 # This script runs on the target host only. It consumes the release contract
 # in docs/release.md: one immutable digest per deployment, the previous healthy
 # digest recorded before mutation, automatic rollback on health failure, and a
-# key=value report on stdout that never contains secret values. Secrets stay in
-# the secrets directory and the deploy .env file, both chmod 600.
+# key=value report on stdout that never contains secret values. Runtime Authing
+# and session values stay out of the deploy .env file and container environment.
 #
 # Usage:
 #   remote-deploy.sh --image REGISTRY/REPOSITORY@sha256:... \
@@ -81,11 +81,32 @@ done
 
 readonly COMPOSE_ARGS=(-p "$project" -f "$compose_file")
 
+load_compose_secrets() {
+	AUTHING_APP_ID="$(cat "$secrets_dir/authing_app_id")"
+	AUTHING_APP_SECRET="$(cat "$secrets_dir/authing_app_secret")"
+	COFORGE_SESSION_SECRET="$(cat "$secrets_dir/coforge_session_secret")"
+	for name in AUTHING_APP_ID AUTHING_APP_SECRET COFORGE_SESSION_SECRET; do
+		[ -n "${!name}" ] || {
+			printf '%s secret file is empty\n' "$name" >&2
+			exit 1
+		}
+	done
+}
+
+compose() {
+	AUTHING_APP_ID="$AUTHING_APP_ID" \
+		AUTHING_APP_SECRET="$AUTHING_APP_SECRET" \
+		COFORGE_SESSION_SECRET="$COFORGE_SESSION_SECRET" \
+		docker compose "${COMPOSE_ARGS[@]}" "$@"
+}
+
 # Fail closed on a mutable reference instead of guessing the intended digest.
 if ! printf '%s' "$image" | grep -Eq '@sha256:[0-9a-f]{64}$'; then
 	printf 'outcome=failed\nhealth_result=mutable image reference rejected\nrollback_target=\nprevious_web_image=\n'
 	exit 0
 fi
+
+load_compose_secrets
 
 read_state_value() {
 	grep -E "^$1=" "$state_file" 2>/dev/null | head -n 1 | cut -d= -f2- || true
@@ -105,7 +126,7 @@ if [ -f "$state_file" ]; then
 		fi
 	done
 else
-	if [ -n "$(docker compose "${COMPOSE_ARGS[@]}" ps -q web 2>/dev/null)" ]; then
+	if [ -n "$(compose ps -q web 2>/dev/null)" ]; then
 		printf 'outcome=failed\nhealth_result=failed: state file missing on a non-empty environment; refusing to guess bootstrap\nrollback_target=\nprevious_web_image=\n'
 		exit 0
 	fi
@@ -131,30 +152,28 @@ fi
 
 write_deploy_env() {
 	# Writes .env next to the compose file with chmod 600; never printed.
-	local web_image="$1" env_file
+	local web_image="$1" env_file env_file_tmp
 	env_file="$(cd "$(dirname "$compose_file")" && pwd)/.env"
 	umask 077
+	env_file_tmp="$(mktemp "${env_file}.XXXXXX")"
 	{
 			printf 'COFORGE_WEB_IMAGE=%s\n' "$web_image"
 		printf 'DATABASE_URL=postgresql://coforge:%s@postgres:5432/coforge\n' "$(cat "$secrets_dir/postgres_password")"
 		printf 'REDIS_URL=redis://:%s@redis:6379\n' "$(cat "$secrets_dir/redis_password")"
-		printf 'AUTHING_APP_ID=%s\n' "$(cat "$secrets_dir/authing_app_id")"
-		printf 'AUTHING_APP_SECRET=%s\n' "$(cat "$secrets_dir/authing_app_secret")"
-		printf 'AUTHING_ISSUER=%s\n' "$(cat "$secrets_dir/authing_issuer")"
-		printf 'AUTHING_REDIRECT_URI=%s\n' "$(cat "$secrets_dir/authing_redirect_uri")"
-		printf 'COFORGE_SESSION_SECRET=%s\n' "$(cat "$secrets_dir/coforge_session_secret")"
 		printf 'COFORGE_CENTRIFUGO_API_URL=http://centrifugo:8000/api\n'
 		printf 'COFORGE_CENTRIFUGO_API_KEY=%s\n' "$(cat "$secrets_dir/centrifugo_http_api_key")"
 		printf 'COFORGE_CENTRIFUGO_PROXY_SECRET=%s\n' "$(cat "$secrets_dir/centrifugo_proxy_secret")"
 		printf 'COFORGE_WORKER_JWT_KEY_ID=%s\n' "$(cat "$secrets_dir/worker_jwt_key_id")"
 		printf 'COFORGE_WORKER_JWT_PRIVATE_JWK=%s\n' "$(cat "$secrets_dir/worker_jwt_private_jwk")"
-	} >"$env_file"
+	} >"$env_file_tmp"
+	chmod 600 "$env_file_tmp"
+	mv "$env_file_tmp" "$env_file"
 }
 
 compose_all_healthy() {
 	local service container
 	for service in web centrifugo redis postgres; do
-		container="$(docker compose "${COMPOSE_ARGS[@]}" ps -q "$service")"
+		container="$(compose ps -q "$service")"
 		[ -n "$container" ] || return 1
 		[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" = healthy ] || return 1
 	done
@@ -178,7 +197,7 @@ public_health() {
 
 verify_running_digest() {
 	local container
-	container="$(docker compose "${COMPOSE_ARGS[@]}" ps -q web)"
+	container="$(compose ps -q web)"
 	[ -n "$container" ] || return 1
 	# The container must run the exact requested digest reference, and the
 	# local store must resolve that same immutable identity.
@@ -192,7 +211,7 @@ rollback() {
 	local target="$1"
 	if [ -n "$target" ]; then
 		write_deploy_env "$target"
-		docker compose "${COMPOSE_ARGS[@]}" up -d --wait --wait-timeout "$timeout" web >/dev/null
+		compose up -d --wait --wait-timeout "$timeout" web >/dev/null
 		if wait_for_health; then
 			printf 'rolled back to the previous healthy digest\n' >&2
 			return 0
@@ -200,7 +219,7 @@ rollback() {
 		return 1
 	fi
 	# Verified empty environment: remove the failed candidate completely.
-	docker compose "${COMPOSE_ARGS[@]}" down --remove-orphans >/dev/null 2>&1 || true
+	compose down --remove-orphans >/dev/null 2>&1 || true
 	printf 'removed the failed bootstrap candidate; empty state restored\n' >&2
 	return 1
 }
@@ -228,20 +247,20 @@ report() {
 write_deploy_env "$image"
 
 # Validate the rendered base-plus-environment configuration before mutating.
-if ! docker compose "${COMPOSE_ARGS[@]}" config --quiet; then
+if ! compose config --quiet; then
 	report "$current_image" "failed: compose configuration validation failed" "failed" ""
 	exit 0
 fi
 
-docker compose "${COMPOSE_ARGS[@]}" pull --quiet web >/dev/null
+compose pull --quiet web >/dev/null
 
-if ! docker compose "${COMPOSE_ARGS[@]}" run --rm --entrypoint sh web \
+if ! compose run --rm --entrypoint sh migrate \
 	-c 'cd .migrate && bun node_modules/prisma/build/index.js migrate deploy' </dev/null 1>&2; then
 	report "$last_healthy" "failed: migration deploy failed" "failed" ""
 	exit 0
 fi
 
-if ! docker compose "${COMPOSE_ARGS[@]}" up -d --wait --wait-timeout "$timeout" >/dev/null; then
+if ! compose up -d --wait --wait-timeout "$timeout" >/dev/null; then
 	fail_deployment "failed: candidate failed health verification"
 fi
 
