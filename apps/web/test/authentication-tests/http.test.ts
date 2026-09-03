@@ -15,11 +15,11 @@ const sessionSecret = "test-session-secret-at-least-32-characters";
 const config = {
   appId: "6a8fde6fa804dd3bea560bac",
   appSecret: "test-app-secret",
-  issuer: "https://coforge-dev.authing.cn/oidc",
-  authorizationEndpoint: "https://coforge-dev.authing.cn/oidc/auth",
-  tokenEndpoint: "https://coforge-dev.authing.cn/oidc/token",
-  userinfoEndpoint: "https://coforge-dev.authing.cn/oidc/me",
-  endSessionEndpoint: "https://coforge-dev.authing.cn/oidc/session/end",
+  issuer: "https://coforge.authing.cn/oidc",
+  authorizationEndpoint: "https://coforge.authing.cn/oidc/auth",
+  tokenEndpoint: "https://coforge.authing.cn/oidc/token",
+  userinfoEndpoint: "https://coforge.authing.cn/oidc/me",
+  endSessionEndpoint: "https://coforge.authing.cn/oidc/session/end",
   redirectUri: "http://localhost:3000/auth/callback",
 };
 
@@ -42,7 +42,7 @@ function fakeAuthing() {
 test("login start redirects to Authing and stores a host-only state cookie", () => {
   const response = handleLoginStart({ config, sessionSecret });
   expect(response.status).toBe(302);
-  expect(response.headers.get("location")).toContain("https://coforge-dev.authing.cn/oidc/auth");
+  expect(response.headers.get("location")).toContain("https://coforge.authing.cn/oidc/auth");
   expect(response.headers.get("cache-control")).toBe("no-store");
   expect(cookieHeader(response)).toContain("HttpOnly");
   expect(cookieHeader(response)).not.toContain("Domain=");
@@ -189,7 +189,7 @@ test("logout clears the session cookie and signs the user out at Authing", () =>
   expect(location).toBeTruthy();
   const authingLogout = new URL(location!);
   expect(authingLogout.origin + authingLogout.pathname).toBe(
-    "https://coforge-dev.authing.cn/oidc/session/end",
+    "https://coforge.authing.cn/oidc/session/end",
   );
   expect(authingLogout.searchParams.get("client_id")).toBe("6a8fde6fa804dd3bea560bac");
   expect(authingLogout.searchParams.get("post_logout_redirect_uri")).toBe(

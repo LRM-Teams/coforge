@@ -38,7 +38,7 @@ services:
       REDIS_URL: ${REDIS_URL:?deploy script writes .env}
       AUTHING_APP_ID_FILE: /run/secrets/authing_app_id
       AUTHING_APP_SECRET_FILE: /run/secrets/authing_app_secret
-      AUTHING_ISSUER: https://coforge-dev.authing.cn/oidc
+      AUTHING_ISSUER: https://coforge.authing.cn/oidc
       AUTHING_REDIRECT_URI: https://staging.coforge.cn/auth/callback
       COFORGE_SESSION_SECRET_FILE: /run/secrets/coforge_session_secret
       COFORGE_CENTRIFUGO_API_URL: http://centrifugo:8000/api

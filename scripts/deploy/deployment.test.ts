@@ -208,7 +208,7 @@ describe("remote-deploy.sh compose invocation shape", () => {
         worker_jwt_private_jwk: '{"kty":"OKP"}',
         authing_app_id: "staging-app-id",
         authing_app_secret: "staging-app-secret",
-        authing_issuer: "https://coforge-dev.authing.cn/oidc",
+        authing_issuer: "https://coforge.authing.cn/oidc",
         authing_redirect_uri: "https://staging.coforge.cn/auth/callback",
         coforge_session_secret: "staging-session-secret-at-least-32-chars",
       };
@@ -267,7 +267,7 @@ describe("staging Authing runtime injection", () => {
       expect(webBlock).toContain(`${key}_FILE: /run/secrets/${key.toLowerCase()}`);
       expect(webBlock).not.toContain(`${key}: \${`);
     }
-    expect(webBlock).toContain("AUTHING_ISSUER: https://coforge-dev.authing.cn/oidc");
+    expect(webBlock).toContain("AUTHING_ISSUER: https://coforge.authing.cn/oidc");
     expect(webBlock).toContain("AUTHING_REDIRECT_URI: https://staging.coforge.cn/auth/callback");
     expect(webBlock).toContain("source: authing_app_id");
     expect(webBlock).toContain("source: authing_app_secret");

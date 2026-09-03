@@ -15,15 +15,15 @@ test("readAuthingConfig uses issuer endpoints and the request origin callback", 
     {
       AUTHING_APP_ID: "6a8fde6fa804dd3bea560bac",
       AUTHING_APP_SECRET: "test-app-secret",
-      AUTHING_ISSUER: "https://coforge-dev.authing.cn/oidc/",
+      AUTHING_ISSUER: "https://coforge.authing.cn/oidc/",
     },
     "http://localhost:3000",
   );
 
   expect(config.appId).toBe("6a8fde6fa804dd3bea560bac");
-  expect(config.authorizationEndpoint).toBe("https://coforge-dev.authing.cn/oidc/auth");
-  expect(config.tokenEndpoint).toBe("https://coforge-dev.authing.cn/oidc/token");
-  expect(config.userinfoEndpoint).toBe("https://coforge-dev.authing.cn/oidc/me");
+  expect(config.authorizationEndpoint).toBe("https://coforge.authing.cn/oidc/auth");
+  expect(config.tokenEndpoint).toBe("https://coforge.authing.cn/oidc/token");
+  expect(config.userinfoEndpoint).toBe("https://coforge.authing.cn/oidc/me");
   expect(config.redirectUri).toBe("http://localhost:3000/auth/callback");
 });
 
@@ -32,7 +32,7 @@ test("readAuthingConfig honors an explicit redirect URI", () => {
     {
       AUTHING_APP_ID: "6a8fde6fa804dd3bea560bac",
       AUTHING_APP_SECRET: "test-app-secret",
-      AUTHING_ISSUER: "https://coforge-dev.authing.cn/oidc",
+      AUTHING_ISSUER: "https://coforge.authing.cn/oidc",
       AUTHING_REDIRECT_URI: "https://app.coforge.cn/auth/callback",
     },
     "http://localhost:3000",
@@ -67,7 +67,7 @@ test("reads Authing and session secrets from mounted files", async () => {
       {
         AUTHING_APP_ID_FILE: appIdFile,
         AUTHING_APP_SECRET_FILE: appSecretFile,
-        AUTHING_ISSUER: "https://coforge-dev.authing.cn/oidc",
+        AUTHING_ISSUER: "https://coforge.authing.cn/oidc",
       },
       "http://localhost:3000",
     );

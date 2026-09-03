@@ -77,7 +77,7 @@ public，镜像包默认公开，ECS 拉镜像不需要登录。
 部署时 workflow 把 Authing 应用 ID、应用密钥和 session 密钥写入主机
 `infra/staging/secrets/`。`remote-deploy.sh` 通过 Compose secrets 只把它们挂载给 Web；
 这些值不会写入 Compose `.env` 或容器环境。Issuer 固定为
-`https://coforge-dev.authing.cn/oidc`，callback 固定为
+`https://coforge.authing.cn/oidc`，callback 固定为
 `https://staging.coforge.cn/auth/callback`，变更必须走代码评审。改 GitHub Environment 后须
 重新部署才会进容器。不要把这些值提交进 git，也不要在主机 bootstrap 循环里用
 `openssl` 生成它们。
