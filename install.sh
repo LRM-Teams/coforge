@@ -52,7 +52,7 @@ temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/coforge-installer.XXXXXX")
 trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
 bootstrap="$temporary_directory/coforge-installer"
 curl --fail --location --proto '=https' --tlsv1.2 \
-  "https://cdn.coforge.cn/releases/bootstrap/v1/$target/coforge-installer" \
+  "https://releases.coforge.cn/bootstrap/v1/$target/coforge-installer" \
   --output "$bootstrap"
 
 if command -v sha256sum >/dev/null 2>&1; then

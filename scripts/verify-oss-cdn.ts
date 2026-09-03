@@ -14,7 +14,8 @@ export interface RejectedProbe {
 }
 
 export interface AcceptanceInput {
-  cdn_host: string;
+  files_host: string;
+  releases_host: string;
   files: FilesProbe;
   release: ContentProbe;
   channels: ContentProbe;
@@ -42,35 +43,29 @@ interface CapturedResponse {
 
 const PROBE_COOKIE = "coforge_acceptance_probe=must-not-authorize";
 const MIN_IMMUTABLE_TTL_SECONDS = 30 * 24 * 60 * 60;
-const REQUIRED_REJECTION_NAMES = new Set([
-  "unmatched",
-  "files-through-releases",
-  "release-through-files",
-]);
+// Each delivery domain fronts exactly one private bucket, so the boundary is
+// proven by asking one domain for the other domain's object key.
+const REQUIRED_REJECTION_NAMES = new Set(["files-through-releases", "release-through-files"]);
 
 function addCheck(checks: AcceptanceCheck[], id: string, passed: boolean, detail: string): void {
   checks.push({ id, passed, detail });
 }
 
-function isCdnUrl(value: string, host: string, prefix?: string): boolean {
+function isCdnUrl(value: string, hosts: string[]): boolean {
   try {
     const url = new URL(value);
-    return (
-      url.protocol === "https:" &&
-      url.hostname === host &&
-      (prefix === undefined || url.pathname.startsWith(prefix))
-    );
+    return url.protocol === "https:" && hosts.includes(url.hostname);
   } catch {
     return false;
   }
 }
 
-function isOriginUrl(value: string, cdnHost: string): boolean {
+function isOriginUrl(value: string, cdnHosts: string[]): boolean {
   try {
     const url = new URL(value);
     return (
       url.protocol === "https:" &&
-      url.hostname !== cdnHost &&
+      !cdnHosts.includes(url.hostname) &&
       url.hostname.endsWith(".aliyuncs.com")
     );
   } catch {
@@ -97,7 +92,8 @@ function isAcceptanceInput(value: unknown): value is AcceptanceInput {
   if (typeof value !== "object" || value === null) return false;
   const input = value as Record<string, unknown>;
   if (
-    input.cdn_host !== "cdn.coforge.cn" ||
+    input.files_host !== "files.coforge.cn" ||
+    input.releases_host !== "releases.coforge.cn" ||
     !isContentProbe(input.files) ||
     !isString((input.files as Record<string, unknown>).unsigned_cdn_url) ||
     !isContentProbe(input.release) ||
@@ -133,7 +129,6 @@ function isAcceptanceInput(value: unknown): value is AcceptanceInput {
     const channelsOrigin = new URL(channels.origin_url);
     const channelsCdn = new URL(channels.cdn_url);
     const rejectedByName = new Map(rejected.map((probe) => [probe.name, new URL(probe.url)]));
-    const unmatched = rejectedByName.get("unmatched");
     const filesThroughReleases = rejectedByName.get("files-through-releases");
     const releaseThroughFiles = rejectedByName.get("release-through-files");
 
@@ -146,17 +141,26 @@ function isAcceptanceInput(value: unknown): value is AcceptanceInput {
       filesCdn.pathname === filesUnsigned.pathname &&
       filesCdn.search.length > 0 &&
       filesUnsigned.search.length === 0 &&
-      filesCdn.pathname === `/files${filesOrigin.pathname}` &&
-      releaseCdn.pathname === `/releases${releaseOrigin.pathname}` &&
-      channelsCdn.pathname === `/releases${channelsOrigin.pathname}` &&
+      // Each domain maps to its bucket one to one; no business prefix is
+      // rewritten away, so a path can never be routed to the other bucket.
+      filesCdn.hostname === input.files_host &&
+      filesCdn.pathname === filesOrigin.pathname &&
+      releaseCdn.hostname === input.releases_host &&
+      releaseCdn.pathname === releaseOrigin.pathname &&
+      channelsCdn.hostname === input.releases_host &&
+      channelsCdn.pathname === channelsOrigin.pathname &&
       releaseCdn.search.length === 0 &&
       channelsCdn.search.length === 0 &&
-      unmatched !== undefined &&
-      !unmatched.pathname.startsWith("/files/") &&
-      !unmatched.pathname.startsWith("/releases/") &&
-      filesThroughReleases?.pathname === `/releases${filesOrigin.pathname}` &&
+      // The attachment key asked of the release domain, unsigned because that
+      // domain has no signing to satisfy: only bucket isolation can reject it.
+      filesThroughReleases?.hostname === input.releases_host &&
+      filesThroughReleases.pathname === filesOrigin.pathname &&
       filesThroughReleases.search.length === 0 &&
-      releaseThroughFiles?.pathname === `/files${releaseOrigin.pathname}` &&
+      // The release key asked of the attachment domain, carrying valid signing
+      // material so the rejection proves isolation rather than a missing
+      // signature.
+      releaseThroughFiles?.hostname === input.files_host &&
+      releaseThroughFiles.pathname === releaseOrigin.pathname &&
       releaseThroughFiles.search.length > 0
     );
   } catch {
@@ -255,17 +259,18 @@ export async function runAcceptance(
   ];
   const origins = [input.files.origin_url, input.release.origin_url, input.channels.origin_url];
   const originHosts = origins.map((url) => new URL(url).hostname);
+  const cdnHosts = [input.files_host, input.releases_host];
 
   addCheck(
     checks,
     "input_urls_are_scoped",
-    isCdnUrl(input.files.cdn_url, input.cdn_host, "/files/") &&
-      isCdnUrl(input.files.unsigned_cdn_url, input.cdn_host, "/files/") &&
-      isCdnUrl(input.release.cdn_url, input.cdn_host, "/releases/") &&
-      isCdnUrl(input.channels.cdn_url, input.cdn_host, "/releases/") &&
-      allCdnUrls.every((url) => isCdnUrl(url, input.cdn_host)) &&
-      origins.every((url) => isOriginUrl(url, input.cdn_host)),
-    "all probes use the expected HTTPS CDN and OSS host classes",
+    isCdnUrl(input.files.cdn_url, [input.files_host]) &&
+      isCdnUrl(input.files.unsigned_cdn_url, [input.files_host]) &&
+      isCdnUrl(input.release.cdn_url, [input.releases_host]) &&
+      isCdnUrl(input.channels.cdn_url, [input.releases_host]) &&
+      allCdnUrls.every((url) => isCdnUrl(url, cdnHosts)) &&
+      origins.every((url) => isOriginUrl(url, cdnHosts)),
+    "all probes use the expected HTTPS delivery domains and OSS host classes",
   );
 
   try {

@@ -1,33 +1,30 @@
 {
-  "cdn_host": "cdn.coforge.cn",
+  "files_host": "files.coforge.cn",
+  "releases_host": "releases.coforge.cn",
   "files": {
     "origin_url": "https://replace-files-bucket.oss-cn-region.aliyuncs.com/acceptance/replace-nonce/files.bin",
-    "cdn_url": "https://cdn.coforge.cn/files/acceptance/replace-nonce/files.bin?auth_key=replace-with-short-lived-value",
-    "unsigned_cdn_url": "https://cdn.coforge.cn/files/acceptance/replace-nonce/files.bin",
+    "cdn_url": "https://files.coforge.cn/acceptance/replace-nonce/files.bin?auth_key=replace-with-short-lived-value",
+    "unsigned_cdn_url": "https://files.coforge.cn/acceptance/replace-nonce/files.bin",
     "expected_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
   },
   "release": {
     "origin_url": "https://replace-releases-bucket.oss-cn-region.aliyuncs.com/acceptance/replace-nonce/release.bin",
-    "cdn_url": "https://cdn.coforge.cn/releases/acceptance/replace-nonce/release.bin",
+    "cdn_url": "https://releases.coforge.cn/acceptance/replace-nonce/release.bin",
     "expected_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
   },
   "channels": {
     "origin_url": "https://replace-releases-bucket.oss-cn-region.aliyuncs.com/channels.json",
-    "cdn_url": "https://cdn.coforge.cn/releases/channels.json",
+    "cdn_url": "https://releases.coforge.cn/channels.json",
     "expected_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
   },
   "rejected_urls": [
     {
-      "name": "unmatched",
-      "url": "https://cdn.coforge.cn/acceptance/replace-nonce/unmatched"
-    },
-    {
       "name": "files-through-releases",
-      "url": "https://cdn.coforge.cn/releases/acceptance/replace-nonce/files.bin"
+      "url": "https://releases.coforge.cn/acceptance/replace-nonce/files.bin"
     },
     {
       "name": "release-through-files",
-      "url": "https://cdn.coforge.cn/files/acceptance/replace-nonce/release.bin?auth_key=replace-with-short-lived-value"
+      "url": "https://files.coforge.cn/acceptance/replace-nonce/release.bin?auth_key=replace-with-short-lived-value"
     }
   ]
 }

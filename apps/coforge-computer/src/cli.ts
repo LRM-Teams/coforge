@@ -41,7 +41,7 @@ import { followComputerLogs } from "./logging/computer-logs";
 
 const VERSION = "0.1.0";
 const DEFAULT_SERVER_URL = "https://coforge.cn";
-const DEFAULT_RELEASES_URL = "https://cdn.coforge.cn/releases/";
+const DEFAULT_RELEASES_URL = "https://releases.coforge.cn/";
 const RELEASE_KEY = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAv+p12qm4iWEzQxMHxwm3gMmm2J86UYuUEp4Viy115bA=
 -----END PUBLIC KEY-----`;

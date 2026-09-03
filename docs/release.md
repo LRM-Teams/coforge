@@ -200,13 +200,17 @@ MVP version policy is deliberately small:
 - beta and release-candidate labels are rejected until a later policy change;
 - version comparison uses a complete SemVer parser, not custom string sorting.
 
-The feed is served beneath `https://cdn.coforge.cn/releases/` from a private
-release bucket. `cdn.coforge.cn` is the shared certificate and CDN edge, not a
-shared trust zone: `/releases/` and the separately governed attachment path use
-different private buckets, RAM permissions, conditional origins, cache/access
-rules, and logs. An unmatched path is denied and no origin rule may fall back
-from one business prefix to the other. The CDN does not accept or forward
-application login cookies.
+The feed is served beneath `https://releases.coforge.cn/` from a private
+release bucket. Attachments and releases use two separate accelerated domains
+(see [ADR 0006](adr/0006-split-cdn-delivery-domains.md)): `releases.coforge.cn`
+fronts only the release bucket and applies no client URL signing, because
+installers and updaters must fetch anonymously and integrity comes from the
+release-set digests and the signed `channels.json`; `files.coforge.cn` fronts
+only the attachment bucket and requires a signature. Each domain has its own
+RAM permissions, cache/access rules, and logs, and neither is authorized to
+read the other's bucket, so no origin rule can fall back from one class to the
+other. A CDN path maps one to one onto its object key; no business prefix is
+rewritten away. Neither domain accepts or forwards application login cookies.
 
 The public installation entry points are served from the main site:
 
@@ -348,12 +352,12 @@ component at a time:
    every newly assembled installation-bundle digest and size.
 6. Publish the release-set manifest and bundles beneath their immutable paths.
    Prove anonymous/direct reads of their exact private-origin keys are rejected,
-   then re-read them through `cdn.coforge.cn/releases/` and compare
+   then re-read them through `releases.coforge.cn` and compare
    consumer-visible bytes with the workflow source bytes.
 7. Under the global channel writer lock, move `test.previous` to the old
    `test.current` and set `test.current` to the new release-set digest. Replace
    the complete signed `channels.json` with a higher generation.
-8. Refresh and re-read `channels.json` through `cdn.coforge.cn/releases/`, then
+8. Refresh and re-read `channels.json` through `releases.coforge.cn`, then
    run the local-distribution checks below using the test selector.
 9. Record the component, release-set, and bundle digests as healthy only after
    every required check passes.
@@ -579,7 +583,7 @@ environment through the immutable-digest workflow above; production stays
 disabled behind the human approval gate. The release Skill must stop rather
 than reconstruct or invoke the removed gateway workflow.
 
-The local feed topology and `cdn.coforge.cn/releases/` consumer boundary above
+The local feed topology and `releases.coforge.cn` consumer boundary above
 are approved, but no feed or installer exists yet. Archive formats,
 platform/architecture matrices, signature key lifecycle, and updater commands
 remain unimplemented. The release Skill may inspect and prepare their evidence,

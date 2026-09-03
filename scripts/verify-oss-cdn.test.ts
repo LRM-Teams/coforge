@@ -10,37 +10,34 @@ function sha256(value: string): string {
 
 function validInput(): AcceptanceInput {
   return {
-    cdn_host: "cdn.coforge.cn",
+    files_host: "files.coforge.cn",
+    releases_host: "releases.coforge.cn",
     files: {
       origin_url:
         "https://coforge-files-test.oss-cn-example.aliyuncs.com/workspaces/w/attachments/a/original",
-      cdn_url: "https://cdn.coforge.cn/files/workspaces/w/attachments/a/original?auth_key=valid",
-      unsigned_cdn_url: "https://cdn.coforge.cn/files/workspaces/w/attachments/a/original",
+      cdn_url: "https://files.coforge.cn/workspaces/w/attachments/a/original?auth_key=valid",
+      unsigned_cdn_url: "https://files.coforge.cn/workspaces/w/attachments/a/original",
       expected_sha256: sha256("attachment"),
     },
     release: {
       origin_url:
         "https://coforge-releases-test.oss-cn-example.aliyuncs.com/release-sets/r/bundles/linux.tar.gz",
-      cdn_url: "https://cdn.coforge.cn/releases/release-sets/r/bundles/linux.tar.gz",
+      cdn_url: "https://releases.coforge.cn/release-sets/r/bundles/linux.tar.gz",
       expected_sha256: sha256("release"),
     },
     channels: {
       origin_url: "https://coforge-releases-test.oss-cn-example.aliyuncs.com/channels.json",
-      cdn_url: "https://cdn.coforge.cn/releases/channels.json",
+      cdn_url: "https://releases.coforge.cn/channels.json",
       expected_sha256: sha256("channels"),
     },
     rejected_urls: [
       {
-        name: "unmatched",
-        url: "https://cdn.coforge.cn/not-routed/probe",
-      },
-      {
         name: "files-through-releases",
-        url: "https://cdn.coforge.cn/releases/workspaces/w/attachments/a/original",
+        url: "https://releases.coforge.cn/workspaces/w/attachments/a/original",
       },
       {
         name: "release-through-files",
-        url: "https://cdn.coforge.cn/files/release-sets/r/bundles/linux.tar.gz?auth_key=valid",
+        url: "https://files.coforge.cn/release-sets/r/bundles/linux.tar.gz?auth_key=valid",
       },
     ],
   };
@@ -85,7 +82,7 @@ describe("OSS/CDN acceptance", () => {
 
     const report = await runAcceptance(input, async (request, init) => {
       const url = String(request);
-      if (new URL(url).hostname === input.cdn_host) {
+      if ([input.files_host, input.releases_host].includes(new URL(url).hostname)) {
         seenCookies.push(new Headers(init?.headers).get("cookie") ?? "");
       }
       const response = responses.get(url);
@@ -106,7 +103,7 @@ describe("OSS/CDN acceptance", () => {
     expect(serialized).not.toContain("coforge-files-test");
   });
 
-  test("fails closed when a required cross-prefix probe is missing", async () => {
+  test("fails closed when a required cross-domain probe is missing", async () => {
     const input = validInput();
     input.rejected_urls = input.rejected_urls.filter(
       ({ name }) => name !== "release-through-files",

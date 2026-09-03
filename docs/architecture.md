@@ -26,7 +26,7 @@ CoForge 让用户通过 Web 私聊或群聊多个 code agent，同时把 Agent �
 flowchart LR
     User[Web 用户] -->|HTTPS| Caddy[Caddy<br/>TLS · edge proxy]
     User -->|signed HTTPS upload| OSS[(Alibaba Cloud OSS<br/>private attachment bucket)]
-    User -->|short-lived signed GET| Delivery[Opaque delivery URL<br/>Direct OSS or cdn.coforge.cn/files/]
+    User -->|short-lived signed GET| Delivery[Opaque delivery URL<br/>Direct OSS or files.coforge.cn]
     Caddy -->|WSS| Realtime[Standalone Centrifugo OSS<br/>transport only]
     Caddy --> Web[Web / backend<br/>Bun · TanStack Start<br/>control plane]
     Web --> DB[(PostgreSQL<br/>Docker dev / managed production)]
@@ -170,7 +170,7 @@ PostgreSQL 的首要领域对象是：
 
 首个 OSS bucket 只承载聊天图片与文件附件，必须保持 `private`。Bucket 不使用 `public-read` 或 `public-read-write`；公开头像和 Web 静态资源以后使用独立 bucket，不能与聊天附件混放。浏览器与 OSS 之间的文件传输使用 HTTPS 数据面，不经过 Centrifugo，也不改变 daemon 只使用 WSS/RPC 的传输边界。
 
-计划中的 production CDN 文件访问边界是 `https://cdn.coforge.cn/files/{object_key}`。`cdn.coforge.cn` 复用一张证书和 CDN edge，但 `/files/` 必须使用独立 private attachment bucket、RAM 权限、条件回源、鉴权/缓存规则与日志；不得与 `/releases/` 的 origin 或策略 fallback。CDN 域名不接收应用登录 cookie，应用 cookie 必须保持 host-only，CDN 也不得向 origin 转发 Cookie。CDN 配置完成前，Direct OSS adapter 仍可返回短时 provider URL；客户端把 delivery URL 视为 opaque value，数据库仍只保存 object key，因此切换到 CDN 不需要数据库 migration、对象复制或客户端发版。Bucket 名称、Region、实际 endpoint 与域名启用时间属于部署配置，确认前不得写死；启用中国内地 custom domain 前，部署检查必须确认域名已经完成 ICP 备案。
+计划中的 production CDN 文件访问边界是 `https://files.coforge.cn/{object_key}`。附件与发行产物使用两个独立的加速域名（见 [ADR 0006](adr/0006-split-cdn-delivery-domains.md)）：`files.coforge.cn` 只回源 private attachment bucket 并开启 URL 鉴权，`releases.coforge.cn` 只回源 private release bucket 且不做客户端签名；两个域名各自独立的 RAM 权限、缓存/访问规则与日志，互相没有对方 bucket 的读取授权，因此不存在 origin 或策略 fallback。路径与 object key 一一对应，不改写业务前缀。CDN 域名不接收应用登录 cookie，应用 cookie 必须保持 host-only，CDN 也不得向 origin 转发 Cookie。CDN 配置完成前，Direct OSS adapter 仍可返回短时 provider URL；客户端把 delivery URL 视为 opaque value，数据库仍只保存 object key，因此切换到 CDN 不需要数据库 migration、对象复制或客户端发版。Bucket 名称、Region、实际 endpoint 与域名启用时间属于部署配置，确认前不得写死；启用中国内地 custom domain 前，部署检查必须确认域名已经完成 ICP 备案。
 
 上传链路固定为：
 
@@ -200,7 +200,7 @@ authorize_attachment_download(
 同一个内部 adapter slot 有两个实现：
 
 - **Direct OSS adapter** 根据部署配置将稳定 object key 映射到 private bucket，并仅对该精确 key 签发短时 V4 presigned GET URL。
-- **Private CDN adapter** 对 `https://cdn.coforge.cn/files/{object_key}` 的规范化路径和过期时间生成 CDN signed URL。CDN POP 在查找缓存前验证客户端签名；未签名、签名不匹配或已过期的请求拒绝。CDN 签名密钥只存在于 backend Secret 与 CDN 配置，不是 OSS 凭据。
+- **Private CDN adapter** 对 `https://files.coforge.cn/{object_key}` 的规范化路径和过期时间生成 CDN signed URL。CDN POP 在查找缓存前验证客户端签名；未签名、签名不匹配或已过期的请求拒绝。CDN 签名密钥只存在于 backend Secret 与 CDN 配置，不是 OSS 凭据。
 
 切换 adapter 只改变部署配置和 URL 签发方式；不改变 interface、object key、message/attachment 记录，不需要复制对象或发布客户端新版本。
 
@@ -211,7 +211,7 @@ Private CDN adapter 必须把两条授权链分开：
 1. **客户端 → CDN POP** 使用 backend 生成的 CDN signed URL，只证明持有者在 TTL 内可访问该规范化 object path。Backend 在每次签发前仍执行 committed-message 可见性授权；CDN 不认识 workspace、conversation 或 requester。
 2. **CDN POP → private OSS origin** 使用阿里云 CDN private-bucket origin access 的独立服务身份和只读授权。CDN 在 cache miss 时为回源请求生成 `Authorization` header；客户端 CDN 签名参数必须在回源前移除，不能被当作 OSS 签名转发，也不能与 origin header 签名叠加。Bucket 保持 private，且该 CDN 身份仅授予附件 bucket 的回源只读能力；鉴于该功能可读取 origin bucket 内全部对象，附件 bucket 不得混放其他业务对象。
 
-CDN 必须先验证 signed URL，再用去掉签名、过期时间和 nonce 等鉴权材料后的 `cdn.coforge.cn/files/{object_key}` 规范化 path 作为缓存身份。这样同一 immutable object 的不同短时 URL 共享一个 cache entry，但未授权请求仍会在 cache lookup 前拒绝。`requester_id`、workspace/conversation/message id、原始文件名和 delivery-provider 不进入 URL 或 cache key。任何会改变字节、响应权限或安全相关 header 的变体都不得从 cache key 中忽略；如以后需要变体，必须给它独立的 immutable object key 或纳入 cache key。对象禁止覆盖；内容变更必须使用新 `attachment_id`/object key，以免旧缓存与数据库身份分叉。
+CDN 必须先验证 signed URL，再用去掉签名、过期时间和 nonce 等鉴权材料后的 `files.coforge.cn/{object_key}` 规范化 path 作为缓存身份。这样同一 immutable object 的不同短时 URL 共享一个 cache entry，但未授权请求仍会在 cache lookup 前拒绝。`requester_id`、workspace/conversation/message id、原始文件名和 delivery-provider 不进入 URL 或 cache key。任何会改变字节、响应权限或安全相关 header 的变体都不得从 cache key 中忽略；如以后需要变体，必须给它独立的 immutable object key 或纳入 cache key。对象禁止覆盖；内容变更必须使用新 `attachment_id`/object key，以免旧缓存与数据库身份分叉。
 
 Canonical object key 使用 workspace-first 隔离：
 
@@ -344,7 +344,7 @@ Agent start intent (`agent:start`) 使用现有 `coforge.rpc.v1` WSS/RPC control
 
 验证阶段采用轻量 [GitHub Flow](https://docs.github.com/en/get-started/using-github/github-flow)：短生命周期 feature branch → CR/PR → `main`，不维护长期 `dev` 分支，禁止直接向 `main` 提交或推送。规范性的决策门槛、评审、检查与合并规则统一由根目录 [`AGENTS.md`](../AGENTS.md) 维护。
 
-本地安装包与 release feed 的 consumer boundary 是 `https://cdn.coforge.cn/releases/`。它可以与聊天附件共享 CDN 证书和 edge 域名，但必须使用独立 private release bucket、RAM 权限、条件回源、缓存/访问规则与日志；路径未命中时 fail closed，禁止在 release 与附件 origin 之间 fallback，也禁止接收或向 origin 转发应用登录 cookie。
+本地安装包与 release feed 的 consumer boundary 是 `https://releases.coforge.cn/`。它与聊天附件使用两个独立的加速域名（见 [ADR 0006](adr/0006-split-cdn-delivery-domains.md)）：release 域名只回源 private release bucket，不开启客户端 URL 鉴权——安装与更新必须匿名可取，完整性由 release-set digest 与签名的 `channels.json` 承担；附件域名只回源 attachment bucket 且必须签名。两个域名各自独立的 RAM 权限、缓存/访问规则与日志，任一域名都没有对方 bucket 的读取授权，因此不存在 origin fallback；两者都禁止接收或向 origin 转发应用登录 cookie。
 
 云端应用与 standalone data services 的生产 Compose 和发布流水线尚未实现；本地 Centrifugo、Redis 与 PostgreSQL 验证 Compose 已落在 `infra/`，生产实现时必须使用按 digest 固定的镜像，不能恢复 custom Go gateway 或使用 `latest`。`coforge-computer` 与 `coforge-daemon` 保持独立版本、构建与签名身份；每个 immutable release set 固定两个 component artifact 的已验证兼容组合，并为每个平台提供一个同时包含两侧 payload 的 Computer installation bundle。单一原子 `channels.json` 选择 test / production 的 current / previous release set。首次本地发布通过明确的 initial bootstrap 一次建立首对 Computer 与 Daemon component artifact；此后 MVP 每次新 release set 只改变一个 component digest。只升级 Daemon 时复用未变化的 Computer artifact，再组装新 bundle。production 只晋级 test 验证过的同一 bundle bytes，不重新 build 或 repackage。用户只安装 Computer；本地安装、升级、Computer 后台启动与回滚全部限于当前用户的系统标准目录，不要求 sudo / 管理员权限；只有 Computer shim 进入用户 PATH，Daemon 保留在版本化安装目录并由 Computer 通过 active release set 的精确路径启动。macOS 的用户级 `launchd` LaunchAgent 是 Daemon 自启动的明确例外，不注册系统级 service。完整的发布、健康检查、审计与回滚契约见 [`docs/release.md`](release.md)。
 
