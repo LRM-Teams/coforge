@@ -272,7 +272,7 @@ export function AgentsContent({
                   </select>
                 </label>
                 {error && (
-                  <p role="alert" className="text-sm text-destructive sm:col-span-2">
+                  <p role="alert" className="text-sm text-destructive-text sm:col-span-2">
                     {error}
                   </p>
                 )}

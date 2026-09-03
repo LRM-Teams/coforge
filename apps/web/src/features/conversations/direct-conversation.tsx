@@ -236,7 +236,7 @@ export function DirectConversation({
           </p>
         )}
         {error && (
-          <p role="alert" className="px-1 text-sm text-destructive">
+          <p role="alert" className="px-1 text-sm text-destructive-text">
             {error}
           </p>
         )}

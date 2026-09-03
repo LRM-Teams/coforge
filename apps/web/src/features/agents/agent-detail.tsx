@@ -51,7 +51,7 @@ export function AgentDetail({
         >
           <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
           <div>
-            <p className="font-medium text-destructive">{m.agent_latest_error()}</p>
+            <p className="font-medium text-destructive-text">{m.agent_latest_error()}</p>
             <p className="mt-1 text-muted-foreground">{detail.latestError.message}</p>
           </div>
         </div>
@@ -135,13 +135,13 @@ function Activity({ detail, timeZone }: { detail: Detail; timeZone: string | nul
               aria-hidden="true"
               className={`size-1.5 shrink-0 rounded-full ${activityDotClass(entry.activity, entry.level)}`}
             />
-            <span className={entry.level === "error" ? "text-destructive" : undefined}>
+            <span className={entry.level === "error" ? "text-destructive-text" : undefined}>
               {activityLabel(entry.activity, entry.level)}
             </span>
           </span>
           {showsActivityMessage(entry.activity) && (
             <p
-              className={`whitespace-pre-wrap break-words text-sm ${entry.level === "error" ? "text-destructive" : "text-muted-foreground"}`}
+              className={`whitespace-pre-wrap break-words text-sm ${entry.level === "error" ? "text-destructive-text" : "text-muted-foreground"}`}
             >
               {entry.message}
             </p>
