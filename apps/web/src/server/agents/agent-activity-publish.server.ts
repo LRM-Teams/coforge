@@ -10,6 +10,7 @@ import {
 type AgentActivityPublicationDependencies = {
   proxySecret: string | undefined;
   agentBelongsToWorkspace(workspaceId: string, agentId: string): Promise<boolean>;
+  agentBelongsToComputer(workspaceId: string, agentId: string, computerId: string): Promise<boolean>;
   computerBelongsToWorkspace(workspaceId: string, computerId: string): Promise<boolean>;
   observe(activity: TrustedAgentActivity): Promise<void>;
 };
@@ -52,7 +53,8 @@ export async function handleAgentActivityPublication(
       activity.protocolMajor !== 1 ||
       activity.workspaceId !== workspaceId ||
       !(await dependencies.computerBelongsToWorkspace(workspaceId, computerId)) ||
-      !(await dependencies.agentBelongsToWorkspace(workspaceId, activity.agentId))
+      !(await dependencies.agentBelongsToWorkspace(workspaceId, activity.agentId)) ||
+      !(await dependencies.agentBelongsToComputer(workspaceId, activity.agentId, computerId))
     )
       return unauthorized();
 
@@ -77,6 +79,9 @@ export function createAgentActivityPublicationHandler() {
       proxySecret: process.env.COFORGE_CENTRIFUGO_PROXY_SECRET,
       agentBelongsToWorkspace: async (workspaceId, agentId) =>
         (await agents.getById(agentId))?.workspaceId === workspaceId,
+      agentBelongsToComputer: async (workspaceId, agentId, computerId) =>
+        (await agents.getById(agentId))?.workspaceId === workspaceId &&
+        (await agents.getById(agentId))?.computerId === computerId,
       computerBelongsToWorkspace: async (workspaceId, computerId) =>
         Boolean(
           await db.workspaceComputer.findUnique({

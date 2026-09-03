@@ -41,6 +41,7 @@ describe("Agent activity publication", () => {
     const response = await handleAgentActivityPublication(request(), {
       proxySecret: "test-secret",
       agentBelongsToWorkspace: async () => true,
+      agentBelongsToComputer: async () => true,
       computerBelongsToWorkspace: async () => true,
       observe: async (value) => {
         received.push(value);
@@ -56,6 +57,7 @@ describe("Agent activity publication", () => {
     const dependencies = {
       proxySecret: "test-secret",
       agentBelongsToWorkspace: async () => true,
+      agentBelongsToComputer: async () => true,
       computerBelongsToWorkspace: async () => true,
       observe: async () => {},
     };
@@ -80,6 +82,7 @@ describe("Agent activity publication", () => {
       {
         proxySecret: "test-secret",
         agentBelongsToWorkspace: async () => false,
+        agentBelongsToComputer: async () => true,
         computerBelongsToWorkspace: async () => true,
         observe: async () => {},
       },
@@ -87,11 +90,27 @@ describe("Agent activity publication", () => {
         proxySecret: "test-secret",
         agentBelongsToWorkspace: async () => true,
         computerBelongsToWorkspace: async () => false,
+        agentBelongsToComputer: async () => true,
         observe: async () => {},
       },
     ])
       expect(await (await handleAgentActivityPublication(request(), dependencies)).json()).toEqual({
         error: { code: 403, message: "activity publication is not authorized" },
       });
+  });
+
+  test("rejects an Agent bound to another authenticated Computer", async () => {
+    const response = await handleAgentActivityPublication(request(), {
+      proxySecret: "test-secret",
+      agentBelongsToWorkspace: async () => true,
+      computerBelongsToWorkspace: async () => true,
+      agentBelongsToComputer: async () => false,
+      observe: async () => {},
+    });
+    expect(response.status).toBe(200);
+    expect((await response.json()).error).toEqual({
+      code: 403,
+      message: "activity publication is not authorized",
+    });
   });
 });

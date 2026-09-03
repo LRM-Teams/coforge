@@ -405,24 +405,34 @@ export class DaemonRuntime {
               runtimeEvent.activity.level,
               runtimeEvent.activity.message,
             ),
-            ...(runtimeEvent.activity.diagnostic
-              ? { diagnostic: runtimeEvent.activity.diagnostic }
-              : {}),
+            ...(runtimeEvent.activity.level === "error"
+              ? { diagnostic: runtimeFailureDiagnostic(runtimeEvent.activity.message) }
+              : runtimeEvent.activity.diagnostic
+                ? { diagnostic: runtimeEvent.activity.diagnostic }
+                : {}),
           });
           if (runtimeEvent.activity.activity === "idle")
             void this.drainAppInboxNotices(agentId).catch(() => {});
           return;
         }
         if (runtimeEvent.type !== "completed") return;
-        emit({
+        emit(runtimeEvent.status === "failed" ? {
+          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+          requestId: crypto.randomUUID(),
+          workspaceId: this.#connection.workspaceId,
+          agentId,
+          activity: "error",
+          level: "error",
+          message: "Agent runtime failed.",
+          diagnostic: runtimeFailureDiagnostic("turn failure"),
+        } : {
           protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
           requestId: crypto.randomUUID(),
           workspaceId: this.#connection.workspaceId,
           agentId,
           activity: "turn_completed",
-          level: runtimeEvent.status === "failed" ? "error" : "info",
-          message:
-            runtimeEvent.status === "failed" ? "Agent turn failed." : "Agent turn completed.",
+          level: "info",
+          message: "Agent turn completed.",
         });
         void this.drainAppInboxNotices(agentId).catch(() => {});
       });
@@ -980,17 +990,32 @@ export class DaemonRuntime {
 }
 
 function safeRuntimeActivityMessage(activity: string, level: string, message: string): string {
-  if (level === "error" || level === "warning") return message;
-  if (activity === "running_command") return [...message].slice(0, 100).join("");
+  if (level === "error" || level === "warning") return scrubActivityText(message);
+  if (activity === "running_command") return [...scrubActivityText(message)].slice(0, 100).join("");
   if (
     activity === "reading_file" ||
     activity === "writing_file" ||
     activity === "editing_file" ||
     activity === "using_tool"
   ) {
-    return message;
+    return scrubActivityText(message);
   }
   return "Agent activity observed.";
+}
+
+function scrubActivityText(message: string): string {
+  return message
+    .replace(/(?:api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]")
+    .replace(/sk-[A-Za-z0-9_-]+/g, "[REDACTED]")
+    .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
+    .slice(0, 512);
+}
+
+function runtimeFailureDiagnostic(message: string) {
+  const safe = scrubActivityText(message);
+  let hash = 2166136261;
+  for (const character of safe) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+  return { errorClass: "AgentRuntimeError", reason: "runtime_failure", fingerprint: (hash >>> 0).toString(16).padStart(8, "0") };
 }
 
 function validUsageWindow(window: UsageSnapshot["primary"], now: number): UsageSnapshot["primary"] {
