@@ -172,33 +172,40 @@ jobs:
         env:
           AUTHING_APP_ID: ${{ vars.AUTHING_APP_ID }}
           AUTHING_APP_SECRET: ${{ secrets.AUTHING_APP_SECRET }}
-          AUTHING_ISSUER: ${{ vars.AUTHING_ISSUER }}
-          AUTHING_REDIRECT_URI: ${{ vars.AUTHING_REDIRECT_URI }}
           COFORGE_SESSION_SECRET: ${{ secrets.COFORGE_SESSION_SECRET }}
         run: |
-          for name in AUTHING_APP_ID AUTHING_APP_SECRET AUTHING_ISSUER AUTHING_REDIRECT_URI COFORGE_SESSION_SECRET; do
-            eval "value=\${$name}"
+          for name in AUTHING_APP_ID AUTHING_APP_SECRET COFORGE_SESSION_SECRET; do
+            value="${!name}"
             if [ -z "$value" ]; then
               echo "$name is missing from the staging GitHub Environment" >&2
               exit 1
             fi
           done
+          umask 077
           tar_dir="$(mktemp -d)"
           payload="$(mktemp)"
-          umask 077
+          trap 'rm -rf -- "$tar_dir" "$payload"' EXIT
           printf '%s' "$AUTHING_APP_ID" > "$tar_dir/authing_app_id"
           printf '%s' "$AUTHING_APP_SECRET" > "$tar_dir/authing_app_secret"
-          printf '%s' "$AUTHING_ISSUER" > "$tar_dir/authing_issuer"
-          printf '%s' "$AUTHING_REDIRECT_URI" > "$tar_dir/authing_redirect_uri"
           printf '%s' "$COFORGE_SESSION_SECRET" > "$tar_dir/coforge_session_secret"
           tar -czf "$payload" -C "$tar_dir" .
           ssh -i "$SSH_DIR/key" \
             -o UserKnownHostsFile="$SSH_DIR/known_hosts" \
             -o BatchMode=yes \
             "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" \
-            "mkdir -p $REMOTE_ROOT/infra/staging/secrets && tar -xzf - -C $REMOTE_ROOT/infra/staging/secrets && chmod 600 $REMOTE_ROOT/infra/staging/secrets/authing_app_id $REMOTE_ROOT/infra/staging/secrets/authing_app_secret $REMOTE_ROOT/infra/staging/secrets/authing_issuer $REMOTE_ROOT/infra/staging/secrets/authing_redirect_uri $REMOTE_ROOT/infra/staging/secrets/coforge_session_secret" \
+            "set -eu; \
+             secrets_dir='$REMOTE_ROOT/infra/staging/secrets'; \
+             mkdir -p \"\$(dirname \"\$secrets_dir\")\"; \
+             incoming=\$(mktemp -d \"\${secrets_dir}.incoming.XXXXXX\"); \
+             trap 'rm -rf -- \"\$incoming\"' EXIT; \
+             tar -xzf - -C \"\$incoming\"; \
+             chmod 600 \"\$incoming/authing_app_id\" \"\$incoming/authing_app_secret\" \"\$incoming/coforge_session_secret\"; \
+             mkdir -p \"\$secrets_dir\"; \
+             chmod 700 \"\$secrets_dir\"; \
+             for name in authing_app_id authing_app_secret coforge_session_secret; do \
+               mv -f \"\$incoming/\$name\" \"\$secrets_dir/\$name\"; \
+             done" \
             < "$payload"
-          rm -rf "$tar_dir" "$payload"
 
       - name: Deploy the tested digest
         env:

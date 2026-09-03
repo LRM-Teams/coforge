@@ -36,16 +36,29 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:?deploy script writes .env}
       REDIS_URL: ${REDIS_URL:?deploy script writes .env}
-      AUTHING_APP_ID: ${AUTHING_APP_ID:?deploy script writes .env}
-      AUTHING_APP_SECRET: ${AUTHING_APP_SECRET:?deploy script writes .env}
-      AUTHING_ISSUER: ${AUTHING_ISSUER:?deploy script writes .env}
-      AUTHING_REDIRECT_URI: ${AUTHING_REDIRECT_URI:?deploy script writes .env}
-      COFORGE_SESSION_SECRET: ${COFORGE_SESSION_SECRET:?deploy script writes .env}
+      AUTHING_APP_ID_FILE: /run/secrets/authing_app_id
+      AUTHING_APP_SECRET_FILE: /run/secrets/authing_app_secret
+      AUTHING_ISSUER: https://coforge-dev.authing.cn/oidc
+      AUTHING_REDIRECT_URI: https://staging.coforge.cn/auth/callback
+      COFORGE_SESSION_SECRET_FILE: /run/secrets/coforge_session_secret
       COFORGE_CENTRIFUGO_API_URL: http://centrifugo:8000/api
       COFORGE_CENTRIFUGO_API_KEY: ${COFORGE_CENTRIFUGO_API_KEY:?deploy script writes .env}
       COFORGE_CENTRIFUGO_PROXY_SECRET: ${COFORGE_CENTRIFUGO_PROXY_SECRET:?deploy script writes .env}
       COFORGE_WORKER_JWT_KEY_ID: ${COFORGE_WORKER_JWT_KEY_ID:?deploy script writes .env}
       COFORGE_WORKER_JWT_PRIVATE_JWK: ${COFORGE_WORKER_JWT_PRIVATE_JWK:?deploy script writes .env}
+    secrets:
+      - source: authing_app_id
+        uid: "1000"
+        gid: "1000"
+        mode: 0400
+      - source: authing_app_secret
+        uid: "1000"
+        gid: "1000"
+        mode: 0400
+      - source: coforge_session_secret
+        uid: "1000"
+        gid: "1000"
+        mode: 0400
     ports:
       # loopback diagnostics only; never public
       - "127.0.0.1:18080:3000"
@@ -65,6 +78,17 @@ services:
     networks:
       - coforge
     restart: unless-stopped
+
+  migrate:
+    image: ${COFORGE_WEB_IMAGE:?COFORGE_WEB_IMAGE must resolve to an immutable digest}
+    profiles: [tools]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?deploy script writes .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - coforge
 
   centrifugo:
     image: centrifugo/centrifugo:v6.9.2@sha256:cf06f711d81cae515a8789cac241595e038653fd7cf99270e0b4e14059183032
@@ -112,7 +136,11 @@ services:
     networks:
       - coforge
     healthcheck:
-      test: ["CMD-SHELL", "export REDISCLI_AUTH=\"$(cat /run/secrets/redis_password)\"; redis-cli --no-auth-warning ping | grep -q PONG"]
+      test:
+        [
+          "CMD-SHELL",
+          'export REDISCLI_AUTH="$(cat /run/secrets/redis_password)"; redis-cli --no-auth-warning ping | grep -q PONG',
+        ]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -153,6 +181,12 @@ volumes:
     name: coforge_staging_postgres_data
 
 secrets:
+  authing_app_id:
+    environment: AUTHING_APP_ID
+  authing_app_secret:
+    environment: AUTHING_APP_SECRET
+  coforge_session_secret:
+    environment: COFORGE_SESSION_SECRET
   redis_password:
     file: ./secrets/redis_password
   postgres_password:

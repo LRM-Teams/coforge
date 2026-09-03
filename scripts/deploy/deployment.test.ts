@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,11 +14,9 @@ import {
   renderState,
 } from "./deployment";
 
-const authingRuntimeKeys = [
+const authingRuntimeSecretKeys = [
   "AUTHING_APP_ID",
   "AUTHING_APP_SECRET",
-  "AUTHING_ISSUER",
-  "AUTHING_REDIRECT_URI",
   "COFORGE_SESSION_SECRET",
 ] as const;
 
@@ -176,28 +174,18 @@ describe("renderAuditRecord", () => {
 });
 
 describe("remote-deploy.sh compose invocation shape", () => {
-  test("places compose global arguments before every subcommand", async () => {
+  test("passes secrets only to Compose and places global arguments before its subcommand", async () => {
     const script = await Bun.file(new URL("./remote-deploy.sh", import.meta.url)).text();
-    const misplaced = script
-      .split("\n")
-      .filter((line) => line.includes("${COMPOSE_ARGS[@]}"))
-      .filter(
-        (line) =>
-          !/docker compose "\$\{COMPOSE_ARGS\[@\]\}" \w+/.test(line) &&
-          !line.includes("COMPOSE_ARGS=("),
-      );
-    expect(misplaced).toEqual([]);
+    const directInvocations = script.split("\n").filter((line) => line.includes("docker compose"));
+    expect(directInvocations).toEqual(['\t\tdocker compose "${COMPOSE_ARGS[@]}" "$@"']);
+    expect(script).not.toContain("export AUTHING_APP_ID");
   });
 
   test("keeps the migration container output off the key=value report", async () => {
     const script = await Bun.file(new URL("./remote-deploy.sh", import.meta.url)).text();
-    const runIndex = script
-      .split("\n")
-      .findIndex((line) => line.includes('compose "${COMPOSE_ARGS[@]}" run'));
+    const runIndex = script.split("\n").findIndex((line) => line.includes("compose run"));
     expect(runIndex).toBeGreaterThanOrEqual(0);
-    const runBlock = script
-      .slice(script.indexOf('compose "${COMPOSE_ARGS[@]}" run'))
-      .split("then")[0];
+    const runBlock = script.slice(script.indexOf("compose run")).split("then")[0];
     // The script itself arrives on stdin over SSH; the container must not
     // inherit it (it would consume the rest of the deploy script), and its
     // output must not corrupt the key=value report on stdout.
@@ -205,7 +193,7 @@ describe("remote-deploy.sh compose invocation shape", () => {
     expect(runBlock).toContain("1>&2");
   });
 
-  test("writes Authing runtime env from the secrets directory into compose .env", async () => {
+  test("keeps Authing values out of compose .env and replaces it with mode 0600", async () => {
     const root = await mkdtemp(join(tmpdir(), "coforge-write-deploy-env-"));
     try {
       const secretsDir = join(root, "secrets");
@@ -227,6 +215,9 @@ describe("remote-deploy.sh compose invocation shape", () => {
       for (const [name, value] of Object.entries(files)) {
         await writeFile(join(secretsDir, name), value, { mode: 0o600 });
       }
+      const envPath = join(root, ".env");
+      await writeFile(envPath, "STALE=value\n", { mode: 0o644 });
+      await chmod(envPath, 0o644);
 
       const script = await Bun.file(new URL("./remote-deploy.sh", import.meta.url)).text();
       const start = script.indexOf("write_deploy_env() {");
@@ -253,13 +244,9 @@ describe("remote-deploy.sh compose invocation shape", () => {
       expect(exitCode, stderr).toBe(0);
 
       const envFile = await readFile(join(root, ".env"), "utf8");
-      expect(envFile).toContain("AUTHING_APP_ID=staging-app-id\n");
-      expect(envFile).toContain("AUTHING_APP_SECRET=staging-app-secret\n");
-      expect(envFile).toContain("AUTHING_ISSUER=https://coforge-dev.authing.cn/oidc\n");
-      expect(envFile).toContain("AUTHING_REDIRECT_URI=https://staging.coforge.cn/auth/callback\n");
-      expect(envFile).toContain(
-        "COFORGE_SESSION_SECRET=staging-session-secret-at-least-32-chars\n",
-      );
+      expect(envFile).not.toContain("AUTHING_");
+      expect(envFile).not.toContain("COFORGE_SESSION_SECRET");
+      expect((await stat(envPath)).mode & 0o777).toBe(0o600);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -267,7 +254,7 @@ describe("remote-deploy.sh compose invocation shape", () => {
 });
 
 describe("staging Authing runtime injection", () => {
-  test("compose passes Authing env into the web service", async () => {
+  test("compose mounts Authing values only into web and fixes the trusted endpoints", async () => {
     const compose = await Bun.file(
       new URL("../../infra/staging/docker-compose.yml", import.meta.url),
     ).text();
@@ -276,9 +263,21 @@ describe("staging Authing runtime injection", () => {
     expect(webStart).toBeGreaterThanOrEqual(0);
     expect(centrifugoStart).toBeGreaterThan(webStart);
     const webBlock = compose.slice(webStart, centrifugoStart);
-    for (const key of authingRuntimeKeys) {
-      expect(webBlock).toContain(`${key}: \${${key}:?deploy script writes .env}`);
+    for (const key of authingRuntimeSecretKeys) {
+      expect(webBlock).toContain(`${key}_FILE: /run/secrets/${key.toLowerCase()}`);
+      expect(webBlock).not.toContain(`${key}: \${`);
     }
+    expect(webBlock).toContain("AUTHING_ISSUER: https://coforge-dev.authing.cn/oidc");
+    expect(webBlock).toContain("AUTHING_REDIRECT_URI: https://staging.coforge.cn/auth/callback");
+    expect(webBlock).toContain("source: authing_app_id");
+    expect(webBlock).toContain("source: authing_app_secret");
+    expect(webBlock).toContain("source: coforge_session_secret");
+
+    const migrationStart = compose.indexOf("\n  migrate:\n");
+    expect(migrationStart).toBeGreaterThan(webStart);
+    const migrationBlock = compose.slice(migrationStart, centrifugoStart);
+    expect(migrationBlock).not.toContain("AUTHING_");
+    expect(migrationBlock).not.toContain("COFORGE_SESSION_SECRET");
   });
 
   test("deploy workflow copies Authing GitHub Environment values into the secrets directory", async () => {
@@ -287,10 +286,10 @@ describe("staging Authing runtime injection", () => {
     ).text();
     expect(workflow).toContain("vars.AUTHING_APP_ID");
     expect(workflow).toContain("secrets.AUTHING_APP_SECRET");
-    expect(workflow).toContain("vars.AUTHING_ISSUER");
-    expect(workflow).toContain("vars.AUTHING_REDIRECT_URI");
     expect(workflow).toContain("secrets.COFORGE_SESSION_SECRET");
     expect(workflow).toContain("infra/staging/secrets");
+    expect(workflow).toContain('trap \'rm -rf -- "$tar_dir" "$payload"\' EXIT');
+    expect(workflow).toContain(String.raw`chmod 700 \"\$secrets_dir\"`);
     expect(workflow).not.toMatch(/echo "\$AUTHING_APP_SECRET"/);
     expect(workflow).not.toMatch(/echo "\$COFORGE_SESSION_SECRET"/);
   });

@@ -62,23 +62,25 @@ intentionally unreachable — no plaintext, not even redirects.
 镜像直接推到 GitHub 自带的 ghcr.io（用仓库内置令牌，无需注册、无需密钥）。仓库是
 public，镜像包默认公开，ECS 拉镜像不需要登录。
 
-| 需要配的密钥（staging 环境） | 用途 |
-| --- | --- |
-| `DEPLOY_SSH_HOST` / `DEPLOY_SSH_USER` / `DEPLOY_SSH_KEY` | 部署时连接服务器 |
-| `DEPLOY_SSH_HOST_KEY` | 服务器指纹校验 |
-| `AUTHING_APP_SECRET` | Web 登录换 token |
-| `COFORGE_SESSION_SECRET` | 云端 `coforge_session` 签名密钥，须与本机不同 |
+| 需要配的密钥（staging 环境）                             | 用途                                          |
+| -------------------------------------------------------- | --------------------------------------------- |
+| `DEPLOY_SSH_HOST` / `DEPLOY_SSH_USER` / `DEPLOY_SSH_KEY` | 部署时连接服务器                              |
+| `DEPLOY_SSH_HOST_KEY`                                    | 服务器指纹校验                                |
+| `AUTHING_APP_SECRET`                                     | Web 登录换 token                              |
+| `COFORGE_SESSION_SECRET`                                 | 云端 `coforge_session` 签名密钥，须与本机不同 |
 
-| 需要配的变量（staging 环境） | 用途 |
-| --- | --- |
-| `AUTHING_APP_ID` | Authing 应用 ID |
-| `AUTHING_ISSUER` | 例如 `https://coforge-dev.authing.cn/oidc` |
-| `AUTHING_REDIRECT_URI` | `https://staging.coforge.cn/auth/callback` |
-| `STAGING_PUBLIC_HEALTH_URL` | `https://staging.coforge.cn/health` |
+| 需要配的变量（staging 环境） | 用途                                |
+| ---------------------------- | ----------------------------------- |
+| `AUTHING_APP_ID`             | Authing 应用 ID                     |
+| `STAGING_PUBLIC_HEALTH_URL`  | `https://staging.coforge.cn/health` |
 
-部署时 workflow 把 Authing 五项写入主机 `infra/staging/secrets/`，再由
-`remote-deploy.sh` 写进 Compose `.env`。改 GitHub Environment 后须重新部署才会进容器。
-不要把这些值提交进 git，也不要在主机 bootstrap 循环里用 `openssl` 生成它们。
+部署时 workflow 把 Authing 应用 ID、应用密钥和 session 密钥写入主机
+`infra/staging/secrets/`。`remote-deploy.sh` 通过 Compose secrets 只把它们挂载给 Web；
+这些值不会写入 Compose `.env` 或容器环境。Issuer 固定为
+`https://coforge-dev.authing.cn/oidc`，callback 固定为
+`https://staging.coforge.cn/auth/callback`，变更必须走代码评审。改 GitHub Environment 后须
+重新部署才会进容器。不要把这些值提交进 git，也不要在主机 bootstrap 循环里用
+`openssl` 生成它们。
 
 Production stays disabled: it needs its own environment, an enforceable human
 approval gate, and promotion of the exact digest that passed staging.
