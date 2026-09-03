@@ -44,10 +44,16 @@ describe("user time zone preferences", () => {
   });
 
   test("formats the same instant in the selected time zone", () => {
+    // The wall-clock reading is what the preference decides. The separator
+    // between date and time belongs to ICU and changes with its CLDR version,
+    // so it is not pinned here.
     const instant = "2026-08-31T12:00:00.000Z";
-    expect(formatDateForDisplay(instant, "America/Los_Angeles", "en-US")).toBe(
-      "Aug 31, 2026, 5:00 AM",
-    );
-    expect(formatDateForDisplay(instant, "Asia/Tokyo", "en-US")).toBe("Aug 31, 2026, 9:00 PM");
+    const losAngeles = formatDateForDisplay(instant, "America/Los_Angeles", "en-US");
+    const tokyo = formatDateForDisplay(instant, "Asia/Tokyo", "en-US");
+
+    expect(losAngeles).toContain("Aug 31, 2026");
+    expect(losAngeles).toContain("5:00 AM");
+    expect(tokyo).toContain("Aug 31, 2026");
+    expect(tokyo).toContain("9:00 PM");
   });
 });

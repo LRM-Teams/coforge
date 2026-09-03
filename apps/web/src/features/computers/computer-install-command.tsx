@@ -11,7 +11,8 @@ const commands: Record<OperatingSystem, string> = {
   windows: "irm https://coforge.cn/computer/install.ps1 | iex",
 };
 
-export function YourComputerInstall() {
+/** The per-OS command that installs CoForge Computer on the User's machine. */
+export function ComputerInstallCommand() {
   const [operatingSystem, setOperatingSystem] = useState<OperatingSystem>("macos-linux");
   const [copied, setCopied] = useState(false);
   const command = commands[operatingSystem];

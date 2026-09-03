@@ -1,8 +1,6 @@
 import { useState } from "react";
-import { Monitor, X } from "lucide-react";
+import { Cloud, Monitor, X } from "lucide-react";
 
-import { CloudComputerOption } from "@/components/computer/cloud-computer";
-import { YourComputerInstall } from "@/components/computer/your-computer";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,6 +12,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { m } from "@/paraglide/messages";
+import { ComputerInstallCommand } from "./computer-install-command";
+import { ComputerTypeOption } from "./computer-type-option";
 
 type ComputerType = "local" | "cloud";
 export function AddComputerDialog({
@@ -58,27 +58,23 @@ export function AddComputerDialog({
 
           {step === "choose" ? (
             <div className="grid gap-4 px-6 py-8 sm:grid-cols-2 sm:px-8">
-              <button
-                type="button"
-                aria-pressed={computerType === "local"}
-                className={`rounded-2xl border p-5 text-left transition-colors ${computerType === "local" ? "border-brand bg-brand/5 ring-1 ring-brand" : "hover:bg-muted"}`}
-                onClick={() => setComputerType("local")}
-              >
-                <span className="mb-5 flex size-14 items-center justify-center rounded-xl bg-muted">
-                  <Monitor aria-hidden="true" className="size-7" />
-                </span>
-                <span className="block text-lg font-medium">{m.computer_your_computer()}</span>
-                <span className="mt-2 block text-sm leading-6 text-muted-foreground">
-                  {m.computer_your_computer_description()}
-                </span>
-              </button>
-              <CloudComputerOption
+              <ComputerTypeOption
+                icon={Monitor}
+                label={m.computer_your_computer()}
+                description={m.computer_your_computer_description()}
+                selected={computerType === "local"}
+                onSelect={() => setComputerType("local")}
+              />
+              <ComputerTypeOption
+                icon={Cloud}
+                label={m.computer_cloud_computer()}
+                description={m.computer_cloud_computer_description()}
                 selected={computerType === "cloud"}
                 onSelect={() => setComputerType("cloud")}
               />
             </div>
           ) : (
-            <YourComputerInstall />
+            <ComputerInstallCommand />
           )}
 
           <div className="flex items-center justify-end gap-3 border-t px-6 py-4 sm:px-8">
