@@ -10,6 +10,7 @@ import {
 } from "./browser-login.server";
 import { UserIdentityRepository } from "./user-identity.repository.server";
 import { getDatabaseClient } from "../db/client.server";
+import { workspaceIdForUser } from "../workspaces/enrollment.server";
 
 export function handleLoginStart(input: {
   config: AuthingConfig;
@@ -31,6 +32,7 @@ export async function handleLoginCallback(input: {
   sessionSecret: string;
   authing?: TokenExchanger;
   resolveUser?: Parameters<typeof completeBrowserLogin>[0]["resolveUser"];
+  enrollUser?: (userId: string) => Promise<void>;
 }): Promise<Response> {
   const url = new URL(input.request.url);
   const code = url.searchParams.get("code") ?? "";
@@ -57,6 +59,11 @@ export async function handleLoginCallback(input: {
             });
         })(),
     });
+    if (input.enrollUser) await input.enrollUser(completed.user.id);
+    else {
+      const db = getDatabaseClient();
+      if (db) await workspaceIdForUser(db, completed.user.id);
+    }
     return redirect("/", {
       "set-cookie": [completed.sessionCookie, completed.clearStateCookie],
       "cache-control": "no-store",

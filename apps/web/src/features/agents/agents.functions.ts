@@ -15,6 +15,7 @@ import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.se
 import { requireBrowserUser } from "../../server/auth/require-user.server";
 import { AgentDetailQuery } from "../../server/agents/agent-detail.server";
 import { AgentActivityRepository } from "../../server/db/repositories/agent-activity.repositories.server";
+import { workspaceIdForUser } from "../../server/workspaces/enrollment.server";
 
 function dependencies(userId: string) {
   const db = getDatabaseClient();
@@ -66,16 +67,7 @@ function dependencies(userId: string) {
       },
     },
   );
-  return db.workspaceMembership
-    .findFirst({
-      where: { userId },
-      select: { workspaceId: true },
-      orderBy: [{ workspace: { createdAt: "asc" } }, { workspaceId: "asc" }],
-    })
-    .then((membership) => {
-      if (!membership) throw new Error("No Workspace membership exists for the authenticated user");
-      return { collection, workspaceId: membership.workspaceId };
-    });
+  return workspaceIdForUser(db, userId).then((workspaceId) => ({ collection, workspaceId }));
 }
 
 function validateCreateInput(data: unknown): AgentCreateInput {
@@ -132,12 +124,7 @@ export const getAgentDetail = createServerFn({ method: "GET" })
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
     const db = getDatabaseClient();
     if (!db) throw new Error("Agent persistence is unavailable");
-    const membership = await db.workspaceMembership.findFirst({
-      where: { userId: user.id },
-      select: { workspaceId: true },
-      orderBy: [{ workspace: { createdAt: "asc" } }, { workspaceId: "asc" }],
-    });
-    if (!membership) throw new Error("Agent not found");
+    const workspaceId = await workspaceIdForUser(db, user.id);
     const activity = new AgentActivityRepository(db);
     const query = new AgentDetailQuery({
       findAuthorized: (workspaceId, id, userId) =>
@@ -157,7 +144,7 @@ export const getAgentDetail = createServerFn({ method: "GET" })
           .then((agent) => agent ?? undefined),
       listActivity: (workspaceId, id) => activity.list(workspaceId, id),
     });
-    const result = await query.get(membership.workspaceId, agentId, user.id);
+    const result = await query.get(workspaceId, agentId, user.id);
     if (!result) throw new Error("Agent not found");
     return result;
   });

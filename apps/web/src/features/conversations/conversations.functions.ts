@@ -6,6 +6,7 @@ import { SendDirectMessage } from "../../server/conversations/direct-message.ser
 import { getMessageRequestIdempotency } from "../../server/conversations/redis-message-request-idempotency.server";
 import { getDatabaseClient } from "../../server/db/client.server";
 import { PrismaDirectConversationRepository } from "../../server/db/repositories/direct-conversation.repositories.server";
+import { workspaceIdForUser } from "../../server/workspaces/enrollment.server";
 
 const MAX_BODY_LENGTH = 8_000;
 
@@ -40,20 +41,15 @@ function validateSend(data: unknown) {
 async function context(userId: string, agentId: string) {
   const db = getDatabaseClient();
   if (!db) throw new Error("Conversation persistence is unavailable");
-  const membership = await db.workspaceMembership.findFirst({
-    where: { userId },
-    select: { workspaceId: true },
-    orderBy: [{ workspace: { createdAt: "asc" } }, { workspaceId: "asc" }],
-  });
-  if (!membership) throw new Error("No Workspace membership exists for the authenticated user");
+  const workspaceId = await workspaceIdForUser(db, userId);
   const agent = await db.agent.findFirst({
-    where: { id: agentId, workspaceId: membership.workspaceId, ownerId: userId },
+    where: { id: agentId, workspaceId, ownerId: userId },
     select: { id: true },
   });
   if (!agent) throw new Error("conversation scope is not authorized");
   const conversations = new PrismaDirectConversationRepository(db);
-  const opened = await conversations.openForUser(membership.workspaceId, userId, agentId);
-  return { conversations, opened, userId, workspaceId: membership.workspaceId };
+  const opened = await conversations.openForUser(workspaceId, userId, agentId);
+  return { conversations, opened, userId, workspaceId };
 }
 
 export const loadDirectConversation = createServerFn({ method: "GET" })
