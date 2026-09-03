@@ -9,6 +9,7 @@ import {
   runRpcMode,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import { seedPiSessionModelRuntime } from "./runtime-provider";
 
 const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   cwd,
@@ -17,6 +18,7 @@ const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   sessionStartEvent,
 }) => {
   const services = await createAgentSessionServices({ cwd, agentDir });
+  await seedPiSessionModelRuntime(services.modelRuntime);
   const skillDiagnostics = services.resourceLoader.getSkills().diagnostics;
   if (skillDiagnostics.length > 0) {
     throw new Error(`Cannot start with ${skillDiagnostics.length} skill diagnostic(s)`);

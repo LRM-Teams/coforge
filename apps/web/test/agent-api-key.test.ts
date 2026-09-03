@@ -98,7 +98,6 @@ test("another Computer cannot send with or revoke an Agent API key", async () =>
   expect(
     isAgentApiKeyBoundToComputer(record, {
       workspaceId: "workspace-a",
-      userId: "owner-a",
       computerId: "computer-b",
     }),
   ).toBeFalse();

@@ -13,7 +13,7 @@ class MemoryDaemonApiKeys implements DaemonApiKeyRepository {
   records = new Map<string, DaemonApiKeyRecord>();
   async replaceActive(record: DaemonApiKeyRecord) {
     for (const [hash, value] of this.records)
-      if (value.workspaceId === record.workspaceId && value.computerId === record.computerId)
+      if (value.computerId === record.computerId)
         this.records.set(hash, { ...value, revokedAt: new Date() });
     this.records.set(record.apiKeyHash, record);
   }
@@ -53,7 +53,7 @@ describe("Daemon API key", () => {
     });
   });
 
-  test("revokes the previous key when registration replaces it", async () => {
+  test("revokes the previous key when setup assigns the Computer to another Workspace", async () => {
     const repository = new MemoryDaemonApiKeys();
     const factory = createDaemonApiKeyFactory(repository);
     const first = await factory.create({
@@ -63,12 +63,12 @@ describe("Daemon API key", () => {
     });
     const second = await factory.create({
       principal: { userId: "u" },
-      workspaceId: "w",
+      workspaceId: "new-workspace",
       computerId: "c",
     });
     await expect(verifyDaemonApiKey(first, repository)).rejects.toThrow("invalid Daemon API key");
     expect(await verifyDaemonApiKey(second, repository)).toMatchObject({
-      workspaceId: "w",
+      workspaceId: "new-workspace",
       computerId: "c",
     });
     expect(hashDaemonApiKey(second)).toBeTruthy();

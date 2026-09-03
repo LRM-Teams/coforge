@@ -11,7 +11,7 @@ export type AgentView = {
   displayName: string;
   createdAt: Date | string;
   runtimeConfig: {
-    provider: "pi" | "codex" | "claude-code";
+    runtime: "pi" | "codex" | "claude-code";
     model: string;
   };
 };
@@ -25,8 +25,8 @@ const providerLabels = {
 export function AgentCard({ agent, timeZone }: { agent: AgentView; timeZone: string | null }) {
   const createdAt = new Date(agent.createdAt);
   const runtime = agent.runtimeConfig.model
-    ? `${providerLabels[agent.runtimeConfig.provider]} / ${agent.runtimeConfig.model}`
-    : providerLabels[agent.runtimeConfig.provider];
+    ? `${providerLabels[agent.runtimeConfig.runtime]} / ${agent.runtimeConfig.model}`
+    : providerLabels[agent.runtimeConfig.runtime];
 
   return (
     <article

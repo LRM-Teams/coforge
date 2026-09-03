@@ -70,6 +70,44 @@ test("installed coforge-agent process completes the adapter handshake", async ()
   }
 });
 
+test("Pi requires a matching API key for a configured built-in provider", async () => {
+  const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-pi-credential-"));
+  const adapter = new PiAgentAdapter({
+    command: [process.execPath, new URL("./fixtures/pi-rpc.ts", import.meta.url).pathname],
+  });
+  const runtime = {
+    provider: "pi" as const,
+    model: "deepseek-chat",
+    modelProvider: "deepseek",
+    reasoning: "high",
+    providerConfig: {
+      kind: "pi-builtin" as const,
+      providerId: "deepseek",
+    },
+  };
+
+  try {
+    await expect(adapter.start({ agentWorkspaceDirectory, runtime })).rejects.toThrow(
+      "Pi runtime provider API key is required",
+    );
+    await expect(
+      adapter.start({
+        agentWorkspaceDirectory,
+        runtime: {
+          ...runtime,
+          providerConfig: {
+            ...runtime.providerConfig,
+            providerId: "anthropic",
+            apiKey: "sk-anthropic-secret",
+          },
+        },
+      }),
+    ).rejects.toThrow("does not match the selected model");
+  } finally {
+    await rm(agentWorkspaceDirectory, { recursive: true, force: true });
+  }
+});
+
 test("Pi rejects overlapping prompts and dispose cannot wait on provider interrupt", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-pi-lifecycle-"));
   const adapter = new PiAgentAdapter({

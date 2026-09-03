@@ -1,7 +1,18 @@
-import { AlertCircle, Bot, Monitor } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { AlertCircle, Bot, Monitor, Pencil, X } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { useAppToast } from "@/components/ui/toast";
+import {
+  Dialog,
+  DialogBackdrop,
+  DialogClose,
+  DialogDescription,
+  DialogPopup,
+  DialogPortal,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { m } from "@/paraglide/messages";
 import { formatDateForDisplay } from "@/lib/dates";
 
@@ -11,10 +22,14 @@ export function AgentDetail({
   detail,
   tab,
   timeZone,
+  onSaveRuntimeCredential,
+  onDeleteRuntimeCredential,
 }: {
   detail: Detail;
   tab: "profile" | "activity";
   timeZone: string | null;
+  onSaveRuntimeCredential: (apiKey: string) => Promise<void>;
+  onDeleteRuntimeCredential: () => Promise<void>;
 }) {
   return (
     <main className="flex-1 p-4 sm:p-5 md:p-6">
@@ -57,7 +72,12 @@ export function AgentDetail({
         </div>
       )}
       {tab === "profile" ? (
-        <Profile detail={detail} timeZone={timeZone} />
+        <Profile
+          detail={detail}
+          timeZone={timeZone}
+          onSaveRuntimeCredential={onSaveRuntimeCredential}
+          onDeleteRuntimeCredential={onDeleteRuntimeCredential}
+        />
       ) : (
         <Activity detail={detail} timeZone={timeZone} />
       )}
@@ -65,7 +85,25 @@ export function AgentDetail({
   );
 }
 
-function Profile({ detail, timeZone }: { detail: Detail; timeZone: string | null }) {
+function Profile({
+  detail,
+  timeZone,
+  onSaveRuntimeCredential,
+  onDeleteRuntimeCredential,
+}: {
+  detail: Detail;
+  timeZone: string | null;
+  onSaveRuntimeCredential: (apiKey: string) => Promise<void>;
+  onDeleteRuntimeCredential: () => Promise<void>;
+}) {
+  const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const toast = useAppToast();
+  const runtime = configValue(detail.runtimeConfig, "runtime");
+  const providerKind = nestedConfigValue(detail.runtimeConfig, "provider", "kind");
+  const providerId = nestedConfigValue(detail.runtimeConfig, "provider", "providerId");
+  const canConfigureCredential =
+    detail.ownedByCurrentUser && providerKind === "pi-builtin" && Boolean(providerId);
   const fields = [
     [m.agent_profile_id(), detail.id],
     [m.agent_profile_name(), detail.name],
@@ -100,12 +138,195 @@ function Profile({ detail, timeZone }: { detail: Detail; timeZone: string | null
         </p>
       </section>
       <section className="rounded-xl border bg-card p-5 lg:col-span-2">
-        <h2 className="font-semibold">{m.agent_runtime_config()}</h2>
-        <pre className="mt-4 overflow-x-auto rounded-lg bg-muted p-4 text-sm leading-6">
-          <code>{JSON.stringify(detail.runtimeConfig, null, 2)}</code>
-        </pre>
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="font-semibold">{m.agent_runtime_config()}</h2>
+          {canConfigureCredential && (
+            <Button size="sm" variant="outline" onClick={() => setRuntimeDialogOpen(true)}>
+              <Pencil aria-hidden="true" />
+              {m.agent_runtime_edit()}
+            </Button>
+          )}
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <RuntimeField
+            label={m.agent_runtime_field()}
+            value={providerKind === "pi-builtin" ? m.agent_provider_pi_builtin() : runtime}
+          />
+          {providerKind === "pi-builtin" && (
+            <>
+              <RuntimeField
+                label={m.agent_runtime_provider_field()}
+                value={providerId || m.agent_form_provider_default()}
+              />
+              <RuntimeField
+                label={m.agent_runtime_api_key()}
+                value={
+                  detail.ownedByCurrentUser
+                    ? detail.runtimeCredential?.hint || m.agent_runtime_api_key_not_configured()
+                    : m.agent_runtime_api_key_private()
+                }
+              />
+            </>
+          )}
+          <RuntimeField
+            label={m.agent_form_model()}
+            value={configValue(detail.runtimeConfig, "model") || m.agent_form_provider_default()}
+          />
+          <RuntimeField
+            label={m.agent_form_reasoning()}
+            value={
+              configValue(detail.runtimeConfig, "reasoning") || m.agent_form_provider_default()
+            }
+          />
+        </div>
       </section>
+
+      <Dialog open={runtimeDialogOpen} onOpenChange={setRuntimeDialogOpen}>
+        <DialogPortal keepMounted>
+          <DialogBackdrop />
+          <DialogPopup>
+            <form
+              onSubmit={async (event: FormEvent<HTMLFormElement>) => {
+                event.preventDefault();
+                setSaving(true);
+                try {
+                  const apiKey = String(new FormData(event.currentTarget).get("apiKey") ?? "");
+                  await onSaveRuntimeCredential(apiKey);
+                  setRuntimeDialogOpen(false);
+                } catch (cause) {
+                  toast.error(m.agent_runtime_save_error(), cause);
+                } finally {
+                  setSaving(false);
+                }
+              }}
+            >
+              <div className="flex items-start justify-between gap-6 px-6 pt-6">
+                <div>
+                  <DialogTitle>{m.agent_runtime_edit_title()}</DialogTitle>
+                  <DialogDescription className="mt-2">
+                    {m.agent_runtime_edit_description()}
+                  </DialogDescription>
+                </div>
+                <DialogClose
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={m.controls_close()}
+                    >
+                      <X aria-hidden="true" />
+                    </Button>
+                  }
+                />
+              </div>
+              <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
+                <RuntimeField
+                  label={m.agent_runtime_field()}
+                  value={providerKind === "pi-builtin" ? m.agent_provider_pi_builtin() : runtime}
+                />
+                {providerKind === "pi-builtin" && providerId && (
+                  <>
+                    <RuntimeField label={m.agent_runtime_provider_field()} value={providerId} />
+                    <label className="grid gap-1.5 text-sm sm:col-span-2">
+                      {m.agent_runtime_api_key()}
+                      <input
+                        name="apiKey"
+                        type="password"
+                        required
+                        minLength={8}
+                        autoComplete="new-password"
+                        placeholder={m.agent_runtime_api_key_placeholder()}
+                        className="h-9 rounded-md border bg-background px-3 outline-none focus:ring-2 focus:ring-ring/30"
+                      />
+                      {detail.runtimeCredential && (
+                        <span className="text-xs text-muted-foreground">
+                          {m.agent_runtime_api_key_configured({
+                            hint: detail.runtimeCredential.hint,
+                          })}
+                        </span>
+                      )}
+                    </label>
+                  </>
+                )}
+                <RuntimeField
+                  label={m.agent_form_model()}
+                  value={
+                    configValue(detail.runtimeConfig, "model") || m.agent_form_provider_default()
+                  }
+                />
+                <RuntimeField
+                  label={m.agent_form_reasoning()}
+                  value={
+                    configValue(detail.runtimeConfig, "reasoning") ||
+                    m.agent_form_provider_default()
+                  }
+                />
+              </div>
+              <div className="flex justify-between gap-3 border-t px-6 py-4">
+                <div>
+                  {detail.runtimeCredential && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={async () => {
+                        try {
+                          await onDeleteRuntimeCredential();
+                          setRuntimeDialogOpen(false);
+                        } catch (cause) {
+                          toast.error(m.agent_runtime_delete_error(), cause);
+                        }
+                      }}
+                    >
+                      {m.agent_runtime_delete_key()}
+                    </Button>
+                  )}
+                </div>
+                <div className="flex gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setRuntimeDialogOpen(false)}
+                  >
+                    {m.controls_cancel()}
+                  </Button>
+                  <Button type="submit" disabled={saving}>
+                    {saving ? m.agent_runtime_saving() : m.agent_runtime_save()}
+                  </Button>
+                </div>
+              </div>
+            </form>
+          </DialogPopup>
+        </DialogPortal>
+      </Dialog>
     </div>
+  );
+}
+
+function configValue(config: unknown, field: string) {
+  if (!config || typeof config !== "object" || Array.isArray(config)) return "";
+  const value = Reflect.get(config, field);
+  return typeof value === "string" ? value : "";
+}
+
+function nestedConfigValue(config: unknown, field: string, nestedField: string) {
+  if (!config || typeof config !== "object" || Array.isArray(config)) return "";
+  const nested = Reflect.get(config, field);
+  if (!nested || typeof nested !== "object" || Array.isArray(nested)) return "";
+  const value = Reflect.get(nested, nestedField);
+  return typeof value === "string" ? value : "";
+}
+
+function RuntimeField({ label, value }: { label: string; value: string }) {
+  return (
+    <label className="grid gap-1.5 text-sm">
+      {label}
+      <input
+        value={value}
+        readOnly
+        className="h-9 rounded-md border bg-muted px-3 text-muted-foreground outline-none"
+      />
+    </label>
   );
 }
 

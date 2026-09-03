@@ -4,11 +4,16 @@ import type { RuntimeProvider } from "@coforge/protocol";
 /** Provider-neutral seam owned by the daemon's Agent runtime manager. */
 export type CodeAgentProvider = RuntimeProvider;
 
+export type AgentRuntimeProviderConfig =
+  | Readonly<{ kind: "default" }>
+  | Readonly<{ kind: "pi-builtin"; providerId: string; apiKey?: string }>;
+
 export type AgentRuntimeConfig = Readonly<{
   provider: CodeAgentProvider;
   model: string;
   modelProvider?: string;
   reasoning: string;
+  providerConfig?: AgentRuntimeProviderConfig;
 }>;
 
 export const AGENT_RUNTIME_EVENT_TYPE = {

@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { createFileRoute, notFound } from "@tanstack/react-router";
+import { createFileRoute, notFound, useRouter } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import type { RuntimeProvider } from "@coforge/protocol";
 
 import { ComputerDetail } from "@/features/computers/computer-detail";
 import { ComputerNotFound } from "@/features/computers/computer-not-found";
+import { setRuntimeVisibility } from "@/features/computers/computers.functions";
 import { scanRuntimeUsage } from "@/features/computers/usage-scan";
 import type { UsageView } from "@/features/computers/runtime-usage";
 
@@ -24,6 +26,8 @@ export const Route = createFileRoute("/_app/computers/$computerId")({
 function ComputerDetailPage() {
   const { computerId } = Route.useParams();
   const { computer, timeZone } = Route.useLoaderData();
+  const router = useRouter();
+  const setVisibility = useServerFn(setRuntimeVisibility);
   // The route component survives a change of `$computerId`, so a snapshot is
   // held against the Computer it was scanned for, never the mounted component.
   const [usage, setUsage] = useState<Record<string, Record<string, UsageView>>>({});
@@ -43,6 +47,10 @@ function ComputerDetailPage() {
       computer={{ ...computer, usage: usage[computerId] }}
       timeZone={timeZone}
       onScanUsage={scan}
+      onSetRuntimePublic={async (runtimeId, isPublic) => {
+        await setVisibility({ data: { runtimeId, isPublic } });
+        await router.invalidate({ sync: true });
+      }}
     />
   );
 }

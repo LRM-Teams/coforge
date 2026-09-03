@@ -8,6 +8,12 @@ import { PrismaAgentApiKeyRepository } from "#/server/db/repositories/agent-api-
 import { getDatabaseClient } from "#/server/db/client.server";
 import { verifyDaemonApiKey } from "#/server/auth/daemon-api-key.server";
 import { PrismaDaemonApiKeyRepository } from "#/server/db/repositories/daemon-api-key.repositories.server";
+import { parseAgentRuntimeConfig } from "#/server/agents/agent-runtime-config.server";
+import {
+  AgentRuntimeCredentials,
+  readOptionalAgentRuntimeCredentialEncryptionKey,
+} from "#/server/agents/agent-runtime-credentials.server";
+import { PrismaAgentRuntimeCredentialRepository } from "#/server/db/repositories/agent-runtime-credential.repositories.server";
 
 export const Route = createFileRoute("/api/agent-api-keys")({
   server: {
@@ -41,17 +47,21 @@ export const Route = createFileRoute("/api/agent-api-keys")({
           where: {
             id: body.agentId,
             workspaceId: body.workspaceId,
-            ownerId: principal.userId,
             computerId: principal.computerId,
+            owner: { memberships: { some: { workspaceId: body.workspaceId } } },
             workspace: {
               members: { some: { userId: principal.userId } },
               computers: { some: { computerId: principal.computerId } },
             },
           },
-          select: { id: true, workspaceId: true, ownerId: true },
+          select: { id: true, workspaceId: true, ownerId: true, runtimeConfig: true },
         });
         if (principal.workspaceId !== body.workspaceId || !agent)
           return Response.json({ error: "forbidden" }, { status: 403 });
+        const providerConfig = await new AgentRuntimeCredentials(
+          new PrismaAgentRuntimeCredentialRepository(db),
+          readOptionalAgentRuntimeCredentialEncryptionKey(process.env),
+        ).launchProviderConfig(agent.id, parseAgentRuntimeConfig(agent.runtimeConfig));
         const apiKey = await createAgentApiKey({
           agentId: agent.id,
           workspaceId: agent.workspaceId,
@@ -59,7 +69,10 @@ export const Route = createFileRoute("/api/agent-api-keys")({
           computerId: principal.computerId,
           repository: new PrismaAgentApiKeyRepository(db),
         });
-        return Response.json({ apiKey }, { headers: { "cache-control": "no-store" } });
+        return Response.json(
+          { apiKey, providerConfig },
+          { headers: { "cache-control": "no-store" } },
+        );
       },
       DELETE: async ({ request }) => {
         const header = request.headers.get("authorization");

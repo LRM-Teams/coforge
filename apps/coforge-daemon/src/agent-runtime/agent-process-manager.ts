@@ -61,7 +61,7 @@ export class AgentProcessManager {
       if (error instanceof AgentProcessCleanupError) this.#stopping.add(agentId);
       throw error;
     }
-    const runtime: AgentRuntime = Object.freeze({ config, session });
+    const runtime: AgentRuntime = Object.freeze({ config: retainedRuntimeConfig(config), session });
     this.#stateFor(agentId).transition("runtime_ready");
     this.#runtimes.set(agentId, runtime);
     session.onExit(() => {
@@ -104,4 +104,11 @@ export class AgentProcessManager {
     this.#states.set(agentId, machine);
     return machine;
   }
+}
+
+function retainedRuntimeConfig(config: AgentRuntimeConfig): AgentRuntimeConfig {
+  const providerConfig = config.providerConfig;
+  if (providerConfig?.kind !== "pi-builtin" || !providerConfig.apiKey) return config;
+  const { apiKey: _apiKey, ...retainedProviderConfig } = providerConfig;
+  return { ...config, providerConfig: retainedProviderConfig };
 }

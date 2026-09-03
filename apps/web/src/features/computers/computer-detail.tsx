@@ -14,17 +14,15 @@ import { RuntimeUsage, type UsageView } from "./runtime-usage";
 
 export type ComputerDetailView = ComputerIdentity & {
   id: string;
+  ownedByCurrentUser: boolean;
   online: boolean;
   connectedAt: Date | string;
   runtimes: {
+    id: string;
     provider: RuntimeProvider;
     version: string;
     displayName: string;
-    observedAt: Date | string;
-  }[];
-  modelCatalogs?: {
-    provider: string;
-    models: { id: string; displayName: string; recommended?: boolean }[];
+    isPublic: boolean;
   }[];
   usage?: Record<string, UsageView>;
 };
@@ -37,11 +35,23 @@ export function ComputerDetail({
   computer,
   timeZone = null,
   onScanUsage,
+  onSetRuntimePublic,
 }: {
   computer: ComputerDetailView;
   timeZone?: string | null;
   onScanUsage: (provider: RuntimeProvider) => Promise<void>;
+  onSetRuntimePublic: (runtimeId: string, isPublic: boolean) => Promise<void>;
 }) {
+  const [updatingRuntimeId, setUpdatingRuntimeId] = useState<string>();
+  const setRuntimePublic = async (runtimeId: string, isPublic: boolean) => {
+    setUpdatingRuntimeId(runtimeId);
+    try {
+      await onSetRuntimePublic(runtimeId, isPublic);
+    } finally {
+      setUpdatingRuntimeId(undefined);
+    }
+  };
+
   return (
     <>
       <PageHeader
@@ -85,24 +95,44 @@ export function ComputerDetail({
             <ul className="mt-3 grid gap-3">
               {computer.runtimes.map((runtime) => (
                 <li key={runtime.provider} className="rounded-xl border p-4 text-sm">
-                  <RuntimeUsage
-                    runtime={runtime}
-                    usage={computer.usage?.[runtime.provider]}
-                    timeZone={timeZone}
-                    onScan={() => onScanUsage(runtime.provider)}
-                  />
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    {m.computer_runtime_observed_at({
-                      time: formatDateForDisplay(runtime.observedAt, timeZone),
-                    })}
-                  </p>
-                  <ModelCatalog
-                    models={
-                      computer.modelCatalogs?.find(
-                        (catalog) => catalog.provider === runtime.provider,
-                      )?.models
-                    }
-                  />
+                  {computer.ownedByCurrentUser ? (
+                    <RuntimeUsage
+                      runtime={runtime}
+                      usage={computer.usage?.[runtime.provider]}
+                      timeZone={timeZone}
+                      onScan={() => onScanUsage(runtime.provider)}
+                    />
+                  ) : (
+                    <div className="border-b pb-3">
+                      <p className="truncate font-medium">{runtime.displayName}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {m.computer_runtime_version({ version: runtime.version })}
+                      </p>
+                    </div>
+                  )}
+                  {computer.ownedByCurrentUser && (
+                    <div className="mt-3 flex justify-end">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        aria-pressed={runtime.isPublic}
+                        aria-label={
+                          runtime.isPublic
+                            ? m.computer_runtime_make_private_label({
+                                runtime: runtime.displayName,
+                              })
+                            : m.computer_runtime_publish_label({ runtime: runtime.displayName })
+                        }
+                        disabled={updatingRuntimeId === runtime.id}
+                        onClick={() => void setRuntimePublic(runtime.id, !runtime.isPublic)}
+                      >
+                        {runtime.isPublic
+                          ? m.computer_runtime_public()
+                          : m.computer_runtime_private()}
+                      </Button>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -126,35 +156,6 @@ function StatusPill({ online }: { online: boolean }) {
       />
       {online ? m.computer_status_online() : m.computer_status_offline()}
     </span>
-  );
-}
-
-function ModelCatalog({
-  models,
-}: {
-  models?: { id: string; displayName: string; recommended?: boolean }[];
-}) {
-  return (
-    <div className="mt-3 border-t pt-3 text-sm">
-      <p className="font-medium">{m.computer_models()}</p>
-      {models?.length ? (
-        <ul className="mt-2 flex flex-wrap gap-1.5">
-          {models.map((model) => (
-            <li
-              key={model.id}
-              className="flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs"
-            >
-              {model.displayName}
-              {model.recommended && (
-                <span className="text-brand">{m.computer_model_recommended()}</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-muted-foreground">{m.computer_models_empty()}</p>
-      )}
-    </div>
   );
 }
 

@@ -12,7 +12,12 @@ describe("Agent detail", () => {
         displayName: "Builder",
         createdAt: new Date("2026-08-29T00:00:00Z"),
         owner: { id: "owner-1", username: "alice" },
-        runtimeConfig: { provider: "codex", model: "gpt-5", reasoning: "high" },
+        runtimeConfig: {
+          runtime: "codex",
+          provider: { kind: "default" },
+          model: "gpt-5",
+          reasoning: "high",
+        },
       }),
       listActivity: async () => [
         {
@@ -42,7 +47,12 @@ describe("Agent detail", () => {
 
     const result = await query.get("workspace-1", "agent-1", "viewer-1");
     expect(result?.owner.username).toBe("alice");
-    expect(result?.runtimeConfig).toEqual({ provider: "codex", model: "gpt-5", reasoning: "high" });
+    expect(result?.runtimeConfig).toEqual({
+      runtime: "codex",
+      provider: { kind: "default" },
+      model: "gpt-5",
+      reasoning: "high",
+    });
     expect(result?.computer).toEqual({ id: "computer-12345678", label: "computer…5678" });
     expect(result?.latestError?.id).toBe("activity-1");
     expect(result?.activity.map((entry) => entry.id)).toEqual(["activity-2", "activity-1"]);

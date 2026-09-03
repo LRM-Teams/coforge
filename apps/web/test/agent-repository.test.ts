@@ -13,8 +13,9 @@ function repository(): AgentRepository {
       name: "builder",
       displayName: "Builder",
       ownerId: "u1",
+      computerId: "computer-1",
       createdAt: new Date(),
-      runtimeConfig: { provider: "pi", model: "", modelProvider: "", reasoning: "" },
+      runtimeConfig: { runtime: "pi", provider: { kind: "default" }, model: "", reasoning: "" },
     },
   ];
   return {
@@ -40,7 +41,7 @@ describe("AgentRepository seam", () => {
     const agents = repository();
     expect(await agents.getById("a1")).toMatchObject({
       id: "a1",
-      runtimeConfig: { provider: "pi", model: "", reasoning: "" },
+      runtimeConfig: { runtime: "pi", provider: { kind: "default" }, model: "", reasoning: "" },
     });
     expect(await agents.getById("missing")).toBeUndefined();
   });
@@ -49,8 +50,10 @@ describe("AgentRepository seam", () => {
     const agents = repository();
     const authorization = new RepositoryAgentAuthorization(agents);
     expect(await authorization.canUseAgent("w1", "a1", "u1")).toBe(true);
+    expect(await authorization.computerIdForAuthorizedAgent("w1", "a1", "u1")).toBe("computer-1");
     expect(await authorization.canUseAgent("w2", "a1", "u1")).toBe(false);
     expect(await authorization.canUseAgent("w1", "a1", "u2")).toBe(false);
+    expect(await authorization.computerIdForAuthorizedAgent("w1", "a1", "u2")).toBeUndefined();
   });
 
   test("lists only Agents owned by the requester in the Workspace", async () => {

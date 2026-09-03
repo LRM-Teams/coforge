@@ -16,6 +16,7 @@ export REDIS_URL="redis://:${redis_password}@127.0.0.1:6379"
 export COFORGE_WORKER_JWT_PRIVATE_JWK
 COFORGE_WORKER_JWT_PRIVATE_JWK=$(<"$root/.amp/e2e/worker-private.jwk")
 export COFORGE_WORKER_JWT_KEY_ID=coforge-e2e
+export COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY_FILE="$root/.amp/e2e/agent-runtime-credential-key"
 export COFORGE_CENTRIFUGO_API_URL=http://127.0.0.1:8000/api
 export COFORGE_CENTRIFUGO_API_KEY
 COFORGE_CENTRIFUGO_API_KEY=$(<"$secrets/centrifugo_http_api_key")

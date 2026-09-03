@@ -74,6 +74,35 @@ describe("AgentProcessManager", () => {
     expect(manager.status("agent-1")).toBe("offline");
   });
 
+  test("does not retain a provider API key after adapter startup", async () => {
+    const manager = new AgentProcessManager(() => ({
+      provider: "pi",
+      async start() {
+        return sessionSpy();
+      },
+    }));
+    const credentialConfig = {
+      ...config,
+      providerConfig: {
+        kind: "pi-builtin" as const,
+        providerId: "deepseek",
+        apiKey: "sk-deepseek-secret",
+      },
+    };
+
+    const runtime = await manager.start(
+      "agent-credential",
+      credentialConfig,
+      join(testWorkspaceRoot, "credential", "agent-credential"),
+    );
+
+    expect(runtime.config.providerConfig).toEqual({
+      kind: "pi-builtin",
+      providerId: "deepseek",
+    });
+    await manager.stop("agent-credential");
+  });
+
   test("creates the Agent workspace before starting its adapter", async () => {
     const root = await mkdtemp(join(tmpdir(), "coforge-agent-runtime-"));
     const workspace = join(root, "workspace", "agents", "agent-1");

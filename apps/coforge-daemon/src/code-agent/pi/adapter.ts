@@ -8,6 +8,7 @@ import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
+import { RUNTIME_PROVIDER_CONFIG_ENV } from "@coforge/agent";
 
 export function builtinPiCommand(): readonly string[] {
   return [
@@ -25,10 +26,25 @@ export class PiAgentAdapter implements CodeAgentAdapter {
   }
 
   async start(options: CodeAgentStartOptions): Promise<CodeAgentSession> {
+    const providerConfig = options.runtime?.providerConfig;
+    if (providerConfig?.kind === "pi-builtin") {
+      if (!providerConfig.providerId || !providerConfig.apiKey)
+        throw new Error("Pi runtime provider API key is required");
+      if (
+        options.runtime?.modelProvider &&
+        providerConfig.providerId !== options.runtime.modelProvider
+      )
+        throw new Error("Pi runtime provider does not match the selected model");
+    }
     const process = new JsonlProcess(
       this.#command,
       options.agentWorkspaceDirectory,
-      agentEnvironment(options.environment),
+      agentEnvironment({
+        ...options.environment,
+        ...(providerConfig
+          ? { [RUNTIME_PROVIDER_CONFIG_ENV]: JSON.stringify(providerConfig) }
+          : {}),
+      }),
     );
     const session = new PiAgentSession(process);
     try {

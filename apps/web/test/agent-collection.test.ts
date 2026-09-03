@@ -52,9 +52,9 @@ describe("AgentCollection", () => {
       name: "other",
       displayName: "Other",
       runtimeConfig: {
-        provider: RUNTIME_PROVIDER.CODEX,
+        runtime: RUNTIME_PROVIDER.CODEX,
+        provider: { kind: "default" },
         model: "",
-        modelProvider: "",
         reasoning: "",
       },
       createdAt: new Date(),
@@ -80,9 +80,9 @@ describe("AgentCollection", () => {
       name: "my-agent",
       displayName: "My Agent",
       runtimeConfig: {
-        provider: "pi",
+        runtime: "pi",
+        provider: { kind: "pi-builtin", providerId: "anthropic" },
         model: "model-a",
-        modelProvider: "anthropic",
         reasoning: "high",
       },
     });
@@ -107,9 +107,9 @@ describe("AgentCollection", () => {
     expect(result.startPublished).toBe(false);
     expect(records).toHaveLength(1);
     expect(records[0]?.runtimeConfig).toEqual({
-      provider: "codex",
+      runtime: "codex",
+      provider: { kind: "default" },
       model: "",
-      modelProvider: "",
       reasoning: "",
     });
   });

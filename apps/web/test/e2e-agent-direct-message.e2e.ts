@@ -3,17 +3,14 @@ import { readFileSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { encodeAgentActivity } from "@coforge/protocol";
+import { encodeAgentActivity, type ComputerRegisterRequest } from "@coforge/protocol";
 import { PrismaClient } from "../generated/client";
 import { DEV_BROWSER_USER } from "../src/server/auth/dev-skip-auth.server";
-import {
-  createDaemonApiKeyFactory,
-  verifyDaemonApiKey,
-} from "../src/server/auth/daemon-api-key.server";
+import { verifyDaemonApiKey } from "../src/server/auth/daemon-api-key.server";
 import { PrismaDaemonApiKeyRepository } from "../src/server/db/repositories/daemon-api-key.repositories.server";
 import { ComputerRegistrar } from "../src/server/computers/registration.server";
 import {
-  PrismaComputerConnectionRepository,
+  PrismaComputerRegistrationRepository,
   PrismaWorkspaceAccess,
 } from "../src/server/db/repositories/setup.repositories.server";
 import {
@@ -21,6 +18,11 @@ import {
   RepositoryAgentAuthorization,
 } from "../src/server/db/repositories/agent.repositories.server";
 import { AgentCollection } from "../src/server/agents/agent-collection.server";
+import {
+  AgentRuntimeCredentials,
+  readAgentRuntimeCredentialEncryptionKey,
+} from "../src/server/agents/agent-runtime-credentials.server";
+import { PrismaAgentRuntimeCredentialRepository } from "../src/server/db/repositories/agent-runtime-credential.repositories.server";
 import { CloudAgentUseCase } from "../src/server/agents/cloud-agent.server";
 import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
 import { SendDirectMessage } from "../src/server/conversations/direct-message.server";
@@ -67,8 +69,7 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
 
   const registration = await new ComputerRegistrar({
     workspaceAccess: new PrismaWorkspaceAccess(db),
-    computers: new PrismaComputerConnectionRepository(db),
-    daemonApiKeyFactory: createDaemonApiKeyFactory(new PrismaDaemonApiKeyRepository(db)),
+    registrations: new PrismaComputerRegistrationRepository(db),
   }).register(
     {
       protocolMajor: 1,
@@ -92,6 +93,40 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
     workspaceId,
     computerId: registration.computerId,
   });
+  const sharedAgentOwnerId = "20000000-0000-4000-8000-000000000002";
+  await db.workspaceMembership.create({
+    data: {
+      workspace: { connect: { id: workspaceId } },
+      user: { create: { id: sharedAgentOwnerId, username: "shared-agent-owner" } },
+    },
+  });
+  const sharedAgent = await db.agent.create({
+    data: {
+      workspaceId,
+      ownerId: sharedAgentOwnerId,
+      computerId: registration.computerId,
+      name: "shared-runtime-agent",
+      displayName: "Shared Runtime Agent",
+      runtimeConfig: {
+        runtime: "codex",
+        provider: { kind: "default" },
+        model: "",
+        reasoning: "",
+      },
+    },
+  });
+  const sharedAgentKeyProbe = await fetch("http://127.0.0.1:8789/api/agent-api-keys", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${registration.daemonApiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ agentId: sharedAgent.id, workspaceId }),
+  });
+  expect(sharedAgentKeyProbe.status).toBe(200);
+  await sharedAgentKeyProbe.body?.cancel();
+  await db.agent.delete({ where: { id: sharedAgent.id } });
+
   const created = await new AgentCollection(
     agents,
     { start: async () => undefined },
@@ -108,6 +143,10 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
       reasoning: "balanced",
     },
   );
+  await new AgentRuntimeCredentials(
+    new PrismaAgentRuntimeCredentialRepository(db),
+    readAgentRuntimeCredentialEncryptionKey(process.env),
+  ).save({ workspaceId, userId: DEV_BROWSER_USER.id }, created.agent.id, "e2e-provider-api-key");
   const keyProbe = await fetch("http://127.0.0.1:8789/api/agent-api-keys", {
     method: "POST",
     headers: {
@@ -301,6 +340,7 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
         protocolMajor: 1,
         requestId: crypto.randomUUID(),
         workspaceId,
+        computerId: registration.computerId,
         agentId: created.agent.id,
         provider: "pi",
         model: "e2e-model",
@@ -409,6 +449,98 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
     await db.$disconnect();
   }
 }, 40_000);
+
+test("setup moves one Computer to its new Workspace and resets runtime visibility", async () => {
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
+  const ownerId = "30000000-0000-4000-8000-000000000003";
+  const firstWorkspaceId = "30000000-0000-4000-8000-000000000004";
+  const secondWorkspaceId = "30000000-0000-4000-8000-000000000005";
+  try {
+    await db.user.create({ data: { id: ownerId, username: "setup-move-owner" } });
+    await db.workspace.createMany({
+      data: [
+        { id: firstWorkspaceId, slug: "setup-move-first", name: "Setup Move First" },
+        { id: secondWorkspaceId, slug: "setup-move-second", name: "Setup Move Second" },
+      ],
+    });
+    await db.workspaceMembership.createMany({
+      data: [
+        { workspaceId: firstWorkspaceId, userId: ownerId },
+        { workspaceId: secondWorkspaceId, userId: ownerId },
+      ],
+    });
+    const registrar = new ComputerRegistrar({
+      workspaceAccess: new PrismaWorkspaceAccess(db),
+      registrations: new PrismaComputerRegistrationRepository(db),
+    });
+    const request = {
+      protocolMajor: 1,
+      requestId: crypto.randomUUID(),
+      workspaceSlug: "setup-move-first",
+      machineId: "setup-move-machine",
+      platform: "linux",
+      osVersion: "e2e",
+      computerVersion: "0.1.0",
+      runtimes: [],
+      registrationIdempotencyKey: "setup-move-registration",
+    } satisfies ComputerRegisterRequest;
+    const first = await registrar.register(request, { userId: ownerId });
+    await db.computerRuntime.create({
+      data: {
+        computerId: first.computerId,
+        provider: "codex",
+        version: "1",
+        displayName: "Codex",
+        isPublic: true,
+      },
+    });
+    const previousWorkspaceAgent = await db.agent.create({
+      data: {
+        workspaceId: firstWorkspaceId,
+        ownerId,
+        computerId: first.computerId,
+        name: "previous-workspace-agent",
+        displayName: "Previous Workspace Agent",
+        runtimeConfig: {
+          runtime: "codex",
+          provider: { kind: "default" },
+          model: "",
+          reasoning: "",
+        },
+      },
+    });
+
+    const second = await registrar.register(
+      { ...request, requestId: crypto.randomUUID(), workspaceSlug: "setup-move-second" },
+      { userId: ownerId },
+    );
+
+    expect(second.computerId).toBe(first.computerId);
+    expect(
+      await db.workspaceComputer.findMany({ where: { computerId: first.computerId } }),
+    ).toEqual([expect.objectContaining({ workspaceId: secondWorkspaceId })]);
+    expect(
+      await db.computerRuntime.findUniqueOrThrow({
+        where: { computerId_provider: { computerId: first.computerId, provider: "codex" } },
+        select: { isPublic: true },
+      }),
+    ).toEqual({ isPublic: false });
+    expect(
+      await db.agent.findUniqueOrThrow({
+        where: { id: previousWorkspaceAgent.id },
+        select: { computerId: true },
+      }),
+    ).toEqual({ computerId: null });
+    await expect(
+      verifyDaemonApiKey(first.daemonApiKey, new PrismaDaemonApiKeyRepository(db)),
+    ).rejects.toThrow("invalid Daemon API key");
+    expect(
+      await verifyDaemonApiKey(second.daemonApiKey, new PrismaDaemonApiKeyRepository(db)),
+    ).toMatchObject({ workspaceId: secondWorkspaceId, computerId: first.computerId });
+  } finally {
+    await db.$disconnect();
+  }
+});
 
 function requireEnvironment(name: string) {
   const value = process.env[name];

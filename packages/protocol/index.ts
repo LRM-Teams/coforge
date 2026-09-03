@@ -40,6 +40,9 @@ export const RUNTIME_PROVIDER = {
   PI: "pi",
 } as const;
 export type RuntimeProvider = (typeof RUNTIME_PROVIDER)[keyof typeof RUNTIME_PROVIDER];
+export type AgentRuntimeProviderConfig =
+  | { kind: "default" }
+  | { kind: "pi-builtin"; providerId: string };
 export type RuntimeMetadata = {
   provider: RuntimeProvider;
   version: string;
@@ -112,13 +115,14 @@ export type AgentStartIntent = {
   protocolMajor: number;
   requestId: string;
   workspaceId: string;
-  computerId?: string;
+  computerId: string;
   agentId: string;
   provider: RuntimeProvider;
   model: string;
   modelProvider?: string;
   reasoning: string;
   sessionId?: string;
+  providerConfig?: AgentRuntimeProviderConfig;
 };
 export type AgentMessageDelivery = {
   protocolMajor: number;

@@ -1,6 +1,6 @@
 import "./dom-setup";
 
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 
 import { ComputerDetail, CopyMachineId } from "@/features/computers/computer-detail";
@@ -29,21 +29,35 @@ const computer = {
   id: "computer-1",
   machineId: "macos:9f2c",
   kind: "local",
+  ownedByCurrentUser: true,
   online: true,
   connectedAt: "2026-08-31T10:00:00.000Z",
   runtimes: [
     {
+      id: "runtime-1",
       provider: "codex" as const,
       displayName: "Codex Runtime",
       version: "0.151.0",
       observedAt: "2026-08-31T10:00:00.000Z",
+      isPublic: false,
     },
   ],
-  modelCatalogs: [{ provider: "codex", models: [{ id: "gpt-5", displayName: "GPT-5" }] }],
+  modelCatalogs: [
+    {
+      provider: "codex",
+      models: [{ id: "gpt-5", displayName: "GPT-5", recommended: true }],
+    },
+  ],
 };
 
 test("shows the machine, its Code Agents, and an explicit no-snapshot usage state", () => {
-  render(<ComputerDetail computer={computer} onScanUsage={async () => undefined} />);
+  render(
+    <ComputerDetail
+      computer={computer}
+      onScanUsage={async () => undefined}
+      onSetRuntimePublic={async () => undefined}
+    />,
+  );
   const page = within(document.body);
 
   expect(page.getByRole("heading", { name: "macOS" })).toBeTruthy();
@@ -51,7 +65,10 @@ test("shows the machine, its Code Agents, and an explicit no-snapshot usage stat
   expect(page.getByText("macos:9f2c")).toBeTruthy();
   expect(page.getByText("Codex Runtime")).toBeTruthy();
   expect(document.body.textContent).toContain("Version 0.151.0");
-  expect(page.getByText("GPT-5")).toBeTruthy();
+  expect(page.queryByText("Models")).toBeNull();
+  expect(page.queryByText("GPT-5")).toBeNull();
+  expect(page.queryByText("Recommended")).toBeNull();
+  expect(document.body.textContent).not.toContain("Detected");
   expect(page.getByText("No snapshot yet")).toBeTruthy();
 });
 
@@ -99,7 +116,13 @@ test("leaves the machine id readable when the clipboard refuses", async () => {
       },
     },
   });
-  render(<ComputerDetail computer={computer} onScanUsage={async () => undefined} />);
+  render(
+    <ComputerDetail
+      computer={computer}
+      onScanUsage={async () => undefined}
+      onSetRuntimePublic={async () => undefined}
+    />,
+  );
   const page = within(document.body);
 
   fireEvent.click(page.getByRole("button", { name: "Copy machine ID" }));
@@ -121,9 +144,43 @@ test("scans usage for the runtime the User asked about", async () => {
       onScanUsage={async (provider) => {
         scanned.push(provider);
       }}
+      onSetRuntimePublic={async () => undefined}
     />,
   );
 
   fireEvent.click(within(document.body).getByRole("button", { name: "Scan" }));
   await waitFor(() => expect(scanned).toEqual(["codex"]));
+});
+
+test("allows the Computer owner to publish a private runtime", async () => {
+  const setPublic = mock(async () => undefined);
+  render(
+    <ComputerDetail
+      computer={computer}
+      onScanUsage={async () => undefined}
+      onSetRuntimePublic={setPublic}
+    />,
+  );
+
+  fireEvent.click(within(document.body).getByRole("button", { name: "Publish Codex Runtime" }));
+  await waitFor(() => expect(setPublic).toHaveBeenCalledWith("runtime-1", true));
+});
+
+test("does not expose owner-only runtime controls on a shared Computer", () => {
+  render(
+    <ComputerDetail
+      computer={{
+        ...computer,
+        ownedByCurrentUser: false,
+        runtimes: [{ ...computer.runtimes[0]!, isPublic: true }],
+      }}
+      onScanUsage={async () => undefined}
+      onSetRuntimePublic={async () => undefined}
+    />,
+  );
+
+  const page = within(document.body);
+  expect(page.getByText("Codex Runtime")).toBeTruthy();
+  expect(page.queryByRole("button", { name: "Scan" })).toBeNull();
+  expect(page.queryByRole("button", { name: /private/i })).toBeNull();
 });

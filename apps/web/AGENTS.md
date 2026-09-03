@@ -111,9 +111,18 @@ instructions for the TanStack Start Web/backend modular monolith.
 
 ## Agent status and activity UI
 
+- `src/features/computers/computers.functions.ts` owns authenticated Computer
+  listing and external runtime visibility mutations. Runtime visibility policy
+  and persistence belong under `src/server/computers/` and
+  `src/server/db/repositories/`; the UI may only render and invoke those
+  authenticated operations.
 - `src/features/agents/agents.functions.ts` owns the authenticated Agent list/create seam;
-  server-side Agent persistence, start publication, and ready recovery remain under
-  `src/server/agents/` and `src/server/db/repositories/`.
+  it also owns owner-only Agent runtime credential mutations. Server-side Agent
+  persistence, runtime credential encryption, start publication, launch authorization,
+  and ready recovery remain under `src/server/agents/`, `src/routes/api/`, and
+  `src/server/db/repositories/`. The encrypted API key envelope is stored inside
+  `runtimeConfig.provider`; neither plaintext nor the encrypted envelope may enter an
+  Agent detail response or Workspace publication.
 
 - Keep Agent status and activity separate. `agent:status` contains only
   `online` or `offline`; do not infer more statuses from activity text.

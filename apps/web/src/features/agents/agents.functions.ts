@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
+import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
 import { getDatabaseClient } from "../../server/db/client.server";
 import {
@@ -8,6 +8,7 @@ import {
 } from "../../server/db/repositories/agent.repositories.server";
 import {
   AgentCollection,
+  runtimeStartFields,
   type AgentCreateInput,
 } from "../../server/agents/agent-collection.server";
 import { CloudAgentUseCase } from "../../server/agents/cloud-agent.server";
@@ -17,11 +18,23 @@ import { AgentDetailQuery } from "../../server/agents/agent-detail.server";
 import { AgentActivityRepository } from "../../server/db/repositories/agent-activity.repositories.server";
 import { workspaceIdForUser } from "../../server/workspaces/enrollment.server";
 import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
+import { ComputerRuntimeVisibility } from "../../server/computers/computer-runtime-visibility.server";
+import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/computer-runtime.repositories.server";
+import { PrismaAgentRuntimeCredentialRepository } from "../../server/db/repositories/agent-runtime-credential.repositories.server";
+import {
+  AgentRuntimeCredentials,
+  readAgentRuntimeCredentialEncryptionKey,
+} from "../../server/agents/agent-runtime-credentials.server";
+import {
+  parseAgentRuntimeConfig,
+  publicAgentRuntimeConfig,
+} from "../../server/agents/agent-runtime-config.server";
 
 function dependencies() {
   const db = getDatabaseClient();
   if (!db) throw new Error("Agent persistence is unavailable");
   const agents = new PrismaAgentRepository(db);
+  const runtimeVisibility = new ComputerRuntimeVisibility(new PrismaComputerRuntimeRepository(db));
   const collection = new AgentCollection(
     agents,
     {
@@ -33,13 +46,12 @@ function dependencies() {
         ).start(intent, ownerId),
     },
     {
-      canRun: async (workspaceId, computerId, config) => {
+      canRun: async (workspaceId, userId, computerId, config) => {
         const connection = await db.workspaceComputer.findFirst({
           where: { workspaceId, computerId },
           select: {
             computer: {
               select: {
-                runtimes: { where: { provider: config.provider }, select: { id: true } },
                 modelCatalogs: {
                   where: { provider: config.provider },
                   select: { models: true },
@@ -49,7 +61,10 @@ function dependencies() {
           },
         });
         if (!connection) return false;
-        if (config.provider !== RUNTIME_PROVIDER.PI && connection.computer.runtimes.length === 0)
+        if (
+          config.provider !== RUNTIME_PROVIDER.PI &&
+          !(await runtimeVisibility.canSelect({ workspaceId, userId }, computerId, config.provider))
+        )
           return false;
         if (!config.model) return !config.modelProvider && !config.reasoning;
         const models = connection.computer.modelCatalogs[0]?.models;
@@ -69,6 +84,16 @@ function dependencies() {
     },
   );
   return { collection, db };
+}
+
+function runtimeCredentials(
+  db: NonNullable<ReturnType<typeof getDatabaseClient>>,
+  decrypt = false,
+) {
+  return new AgentRuntimeCredentials(
+    new PrismaAgentRuntimeCredentialRepository(db),
+    decrypt ? readAgentRuntimeCredentialEncryptionKey(process.env) : undefined,
+  );
 }
 
 function validateCreateInput(data: unknown): AgentCreateInput {
@@ -153,5 +178,76 @@ export const getAgentDetail = createServerFn({ method: "GET" })
     });
     const result = await query.get(workspaceId, agentId, user.id);
     if (!result) throw new Error("Agent not found");
-    return result;
+    setResponseHeader("cache-control", "no-store");
+    const ownedByCurrentUser = result.owner.id === user.id;
+    const runtimeCredential = ownedByCurrentUser
+      ? await runtimeCredentials(db).summary({ workspaceId, userId: user.id }, agentId)
+      : null;
+    return {
+      ...result,
+      runtimeConfig: publicAgentRuntimeConfig(parseAgentRuntimeConfig(result.runtimeConfig)),
+      ownedByCurrentUser,
+      runtimeCredential,
+    };
+  });
+
+export const saveAgentRuntimeCredential = createServerFn({ method: "POST" })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== "object" || Array.isArray(data))
+      throw new Error("Agent runtime credential input is required");
+    const agentId = Reflect.get(data, "agentId");
+    const apiKey = Reflect.get(data, "apiKey");
+    if (typeof agentId !== "string" || !agentId || typeof apiKey !== "string")
+      throw new Error("Agent runtime credential input is invalid");
+    return { agentId, apiKey };
+  })
+  .handler(async ({ data }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Agent persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const credentials = runtimeCredentials(db, true);
+    const summary = await credentials.save(
+      { workspaceId, userId: user.id },
+      data.agentId,
+      data.apiKey,
+    );
+    const agents = new PrismaAgentRepository(db);
+    const agent = await agents.getById(data.agentId);
+    if (agent?.computerId) {
+      try {
+        await new CloudAgentUseCase(
+          new RepositoryAgentAuthorization(agents),
+          createCentrifugoServerApi(),
+          async () => {},
+        ).start(
+          {
+            protocolMajor: 1,
+            requestId: crypto.randomUUID(),
+            workspaceId,
+            computerId: agent.computerId,
+            agentId: agent.id,
+            ...runtimeStartFields(agent.runtimeConfig),
+          },
+          user.id,
+        );
+      } catch {
+        // The encrypted config is saved; daemon ready recovery retries the launch.
+      }
+    }
+    return summary;
+  });
+
+export const deleteAgentRuntimeCredential = createServerFn({ method: "POST" })
+  .validator((agentId: unknown) => {
+    if (typeof agentId !== "string" || !agentId) throw new Error("Agent id is required");
+    return agentId;
+  })
+  .handler(async ({ data: agentId }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Agent persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    await runtimeCredentials(db).delete({ workspaceId, userId: user.id }, agentId);
+    return { deleted: true as const };
   });

@@ -53,6 +53,29 @@ describe("Agent message HTTP authentication", () => {
     });
   });
 
+  test("authenticates an Agent owner through another member's assigned Computer", async () => {
+    const keys = new MemoryAgentApiKeys();
+    const apiKey = await createAgentApiKey({
+      agentId: "agent-a",
+      workspaceId: "workspace-a",
+      ownerId: "agent-owner",
+      computerId: "computer-a",
+      repository: keys,
+    });
+
+    const principal = await authenticateAgentMessageRequest(request(apiKey, "daemon-token"), {
+      agentApiKeys: keys,
+      verifyDaemonApiKey: async () => ({
+        userId: "computer-owner",
+        workspaceId: "workspace-a",
+        computerId: "computer-a",
+      }),
+      computerBelongsToWorkspace: async () => true,
+    });
+
+    expect(principal.userId).toBe("agent-owner");
+  });
+
   test("rejects either missing or invalid credential", async () => {
     const keys = new MemoryAgentApiKeys();
     const apiKey = await createAgentApiKey({
@@ -79,7 +102,7 @@ describe("Agent message HTTP authentication", () => {
       await expect(authenticateAgentMessageRequest(candidate, dependencies)).rejects.toThrow();
   });
 
-  test("rejects credentials bound to another Computer, Workspace, owner, or registration", async () => {
+  test("rejects credentials bound to another Computer, Workspace, or registration", async () => {
     const keys = new MemoryAgentApiKeys();
     const apiKey = await createAgentApiKey({
       agentId: "agent-a",
@@ -89,7 +112,6 @@ describe("Agent message HTTP authentication", () => {
       repository: keys,
     });
     for (const daemon of [
-      { userId: "owner-b", workspaceId: "workspace-a", computerId: "computer-a" },
       { userId: "owner-a", workspaceId: "workspace-b", computerId: "computer-a" },
       { userId: "owner-a", workspaceId: "workspace-a", computerId: "computer-b" },
     ])
