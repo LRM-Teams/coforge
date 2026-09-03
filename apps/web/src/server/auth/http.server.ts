@@ -62,7 +62,7 @@ export async function handleLoginCallback(input: {
     if (input.enrollUser) await input.enrollUser(completed.user.id);
     else {
       const db = getDatabaseClient();
-      if (db) await workspaceIdForUser(db, completed.user.id);
+      if (db) await workspaceIdForUser(db, completed.user);
     }
     return redirect("/", {
       "set-cookie": [completed.sessionCookie, completed.clearStateCookie],

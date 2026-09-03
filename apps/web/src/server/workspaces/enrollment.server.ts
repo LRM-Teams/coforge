@@ -1,39 +1,41 @@
 import type { PrismaClient } from "../../../generated/client";
 
+export type EnrollmentUser = { id: string; username: string };
+
 export type WorkspaceEnrollmentStore = {
   findMembership(userId: string): Promise<string | null>;
-  findFirstWorkspace(): Promise<string | null>;
   createWorkspace(input: { slug: string; name: string }): Promise<string>;
   addMember(workspaceId: string, userId: string): Promise<void>;
 };
 
-const DEFAULT_WORKSPACE = { slug: "default", name: "Default" } as const;
-
-/** Ensures the authenticated User has a WorkspaceMembership, creating a default Workspace if none exist. */
+/** Ensures the authenticated User has a WorkspaceMembership, creating their own Workspace when they have none. */
 export class WorkspaceEnrollment {
   constructor(private readonly store: WorkspaceEnrollmentStore) {}
 
-  async ensureForUser(userId: string): Promise<{ workspaceId: string }> {
-    const existing = await this.store.findMembership(userId);
+  async ensureForUser(user: EnrollmentUser): Promise<{ workspaceId: string }> {
+    const existing = await this.store.findMembership(user.id);
     if (existing) return { workspaceId: existing };
 
-    let workspaceId = await this.store.findFirstWorkspace();
-    if (!workspaceId) {
-      try {
-        workspaceId = await this.store.createWorkspace(DEFAULT_WORKSPACE);
-      } catch (error) {
-        if (!isUniqueConflict(error)) throw error;
-        workspaceId = await this.store.findFirstWorkspace();
-      }
-      if (!workspaceId) throw new Error("could not create a Workspace");
-    }
-
+    const workspaceId = await this.createOwnedWorkspace(user);
     try {
-      await this.store.addMember(workspaceId, userId);
+      await this.store.addMember(workspaceId, user.id);
     } catch (error) {
       if (!isUniqueConflict(error)) throw error;
     }
     return { workspaceId };
+  }
+
+  private async createOwnedWorkspace(user: EnrollmentUser): Promise<string> {
+    try {
+      return await this.store.createWorkspace({ slug: user.username, name: user.username });
+    } catch (error) {
+      if (!isUniqueConflict(error)) throw error;
+    }
+    const suffix = user.id.replaceAll("-", "").slice(0, 8);
+    return this.store.createWorkspace({
+      slug: `${user.username}-${suffix}`,
+      name: user.username,
+    });
   }
 }
 
@@ -49,14 +51,6 @@ export class PrismaWorkspaceEnrollmentStore implements WorkspaceEnrollmentStore 
     return row?.workspaceId ?? null;
   }
 
-  async findFirstWorkspace() {
-    const row = await this.db.workspace.findFirst({
-      select: { id: true },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    });
-    return row?.id ?? null;
-  }
-
   async createWorkspace(input: { slug: string; name: string }) {
     const row = await this.db.workspace.create({
       data: { slug: input.slug, name: input.name },
@@ -70,9 +64,9 @@ export class PrismaWorkspaceEnrollmentStore implements WorkspaceEnrollmentStore 
   }
 }
 
-export function workspaceIdForUser(db: PrismaClient, userId: string): Promise<string> {
+export function workspaceIdForUser(db: PrismaClient, user: EnrollmentUser): Promise<string> {
   return new WorkspaceEnrollment(new PrismaWorkspaceEnrollmentStore(db))
-    .ensureForUser(userId)
+    .ensureForUser(user)
     .then((result) => result.workspaceId);
 }
 
