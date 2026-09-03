@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ComputerRegistrationClient, RUNTIME_PROVIDER } from "./index";
+import { ComputerRegistrationClient, RUNTIME_PROVIDER, type AgentStartIntent } from "./index";
 import {
   decodeComputerRegisterRequest,
   decodeAgentStartIntent,
@@ -156,7 +156,7 @@ test("daemon runtime code-agent inventory round trips as a complete external sna
   ).toEqual(request);
 });
 
-test("Agent start preserves the model provider required by Pi", () => {
+test("Agent start preserves its runtime provider config", () => {
   const intent = {
     protocolMajor: 1,
     requestId: "start-1",
@@ -167,7 +167,37 @@ test("Agent start preserves the model provider required by Pi", () => {
     model: "claude-sonnet-4-6",
     modelProvider: "anthropic",
     reasoning: "high",
-  };
+    providerConfig: {
+      kind: "pi-builtin",
+      providerId: "anthropic",
+    },
+  } satisfies AgentStartIntent;
 
   expect(decodeAgentStartIntent(encodeAgentStartIntent(intent))).toEqual(intent);
+});
+
+test("Agent start rejects non-canonical runtime provider config", () => {
+  const intent = {
+    protocolMajor: 1,
+    requestId: "start-1",
+    workspaceId: "workspace-1",
+    computerId: "computer-1",
+    agentId: "agent-1",
+    provider: RUNTIME_PROVIDER.PI,
+    model: "deepseek-chat",
+    reasoning: "high",
+  };
+
+  expect(() =>
+    encodeAgentStartIntent({
+      ...intent,
+      providerConfig: { kind: "pi-builtin" },
+    } as unknown as Parameters<typeof encodeAgentStartIntent>[0]),
+  ).toThrow("invalid Agent runtime provider config");
+  expect(() =>
+    encodeAgentStartIntent({
+      ...intent,
+      providerConfig: { kind: "custom", providerId: "deepseek" },
+    } as unknown as Parameters<typeof encodeAgentStartIntent>[0]),
+  ).toThrow("invalid Agent runtime provider config");
 });

@@ -171,13 +171,14 @@ model Computer {
 }
 
 model ComputerRuntime {
-  id         String   @id @default(uuid()) @db.Uuid
-  computerId String   @db.Uuid
-  provider   String
-  version    String
+  id          String   @id @default(uuid()) @db.Uuid
+  computerId  String   @db.Uuid
+  provider    String
+  version     String
   displayName String
-  observedAt DateTime @default(now())
-  computer   Computer @relation(fields: [computerId], references: [id], onDelete: Cascade)
+  observedAt  DateTime @default(now())
+  isPublic    Boolean  @default(false)
+  computer    Computer @relation(fields: [computerId], references: [id], onDelete: Cascade)
 
   @@unique([computerId, provider])
   @@index([computerId])
@@ -200,7 +201,7 @@ model ComputerModelCatalog {
 model WorkspaceComputer {
   id          String    @id @default(uuid()) @db.Uuid
   workspaceId String    @db.Uuid
-  computerId  String    @db.Uuid
+  computerId  String    @unique @db.Uuid
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   computer    Computer  @relation(fields: [computerId], references: [id], onDelete: Cascade)
   createdAt   DateTime  @default(now())

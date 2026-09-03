@@ -20,14 +20,10 @@ export interface AgentApiKeyRepository {
 }
 
 export function isAgentApiKeyBoundToComputer(
-  record: Pick<AgentApiKeyRecord, "workspaceId" | "ownerId" | "computerId">,
-  daemon: { workspaceId: string; userId: string; computerId: string },
+  record: Pick<AgentApiKeyRecord, "workspaceId" | "computerId">,
+  daemon: { workspaceId: string; computerId: string },
 ): boolean {
-  return (
-    record.workspaceId === daemon.workspaceId &&
-    record.ownerId === daemon.userId &&
-    record.computerId === daemon.computerId
-  );
+  return record.workspaceId === daemon.workspaceId && record.computerId === daemon.computerId;
 }
 
 export function hashAgentApiKey(value: string): string {

@@ -1,5 +1,6 @@
 import { RUNTIME_PROVIDER, type AgentStartIntent, type RuntimeProvider } from "@coforge/protocol";
 import type { AgentRecord, AgentRepository } from "../db/repositories/agent.repositories.server";
+import { publicAgentRuntimeConfig } from "./agent-runtime-config.server";
 
 const providers = new Set<unknown>(Object.values(RUNTIME_PROVIDER));
 const HANDLE_MAX_LENGTH = 48;
@@ -23,6 +24,7 @@ type AgentStarter = {
 type RuntimeAvailability = {
   canRun(
     workspaceId: string,
+    userId: string,
     computerId: string,
     config: { provider: RuntimeProvider; model: string; modelProvider: string; reasoning: string },
   ): Promise<boolean>;
@@ -42,7 +44,14 @@ export class AgentCollection {
   ) {}
 
   list(principal: AgentPrincipal) {
-    return this.agents.listOwnedInWorkspace(principal.workspaceId, principal.userId);
+    return this.agents
+      .listOwnedInWorkspace(principal.workspaceId, principal.userId)
+      .then((agents) =>
+        agents.map((agent) => ({
+          ...agent,
+          runtimeConfig: publicAgentRuntimeConfig(agent.runtimeConfig),
+        })),
+      );
   }
 
   async create(principal: AgentPrincipal, input: AgentCreateInput) {
@@ -53,13 +62,20 @@ export class AgentCollection {
     if (!displayName) throw new Error("displayName is required");
     if (!providers.has(input.provider)) throw new Error("provider is not supported");
     if (!input.computerId) throw new Error("computer is required");
-    const runtimeConfig = {
+    const selection = {
       provider: input.provider,
       model: bounded(input.model, "model", CONFIG_VALUE_MAX_LENGTH),
       modelProvider: bounded(input.modelProvider, "modelProvider", CONFIG_VALUE_MAX_LENGTH),
       reasoning: bounded(input.reasoning, "reasoning", CONFIG_VALUE_MAX_LENGTH),
     };
-    if (!(await this.availability.canRun(principal.workspaceId, input.computerId, runtimeConfig)))
+    if (
+      !(await this.availability.canRun(
+        principal.workspaceId,
+        principal.userId,
+        input.computerId,
+        selection,
+      ))
+    )
       throw new Error("runtime selection is not available on the selected Computer");
     const agent = await this.agents.create({
       workspaceId: principal.workspaceId,
@@ -67,7 +83,17 @@ export class AgentCollection {
       name,
       displayName,
       computerId: input.computerId,
-      runtimeConfig,
+      runtimeConfig: {
+        runtime: selection.provider,
+        provider: selection.modelProvider
+          ? {
+              kind: "pi-builtin" as const,
+              providerId: selection.modelProvider,
+            }
+          : { kind: "default" as const },
+        model: selection.model,
+        reasoning: selection.reasoning,
+      },
     });
     try {
       await this.starter.start(
@@ -75,9 +101,9 @@ export class AgentCollection {
           protocolMajor: 1,
           requestId: crypto.randomUUID(),
           workspaceId: agent.workspaceId,
-          computerId: agent.computerId,
+          computerId: input.computerId,
           agentId: agent.id,
-          ...runtimeConfig,
+          ...runtimeStartFields(agent.runtimeConfig),
         },
         principal.userId,
       );
@@ -88,6 +114,17 @@ export class AgentCollection {
   }
 }
 
-export function readRuntimeConfig(agent: AgentRecord) {
-  return agent.runtimeConfig;
+export function runtimeStartFields(config: AgentRecord["runtimeConfig"]) {
+  const launchProviderConfig =
+    config.provider.kind === "pi-builtin"
+      ? { kind: config.provider.kind, providerId: config.provider.providerId }
+      : config.provider;
+  return {
+    provider: config.runtime,
+    model: config.model,
+    modelProvider:
+      "providerId" in launchProviderConfig ? (launchProviderConfig.providerId ?? "") : "",
+    reasoning: config.reasoning,
+    providerConfig: launchProviderConfig,
+  };
 }

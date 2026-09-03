@@ -2,9 +2,10 @@ import type { PrismaClient } from "../../../../generated/client";
 import type { ComputerRegisterRequest } from "@coforge/protocol";
 import type { AuthenticatedPrincipal, Workspace } from "../../computers/registration.server";
 import type {
-  ComputerConnectionRepository,
+  ComputerRegistrationRepository,
   WorkspaceAccess,
 } from "../../computers/registration.server";
+import { prepareDaemonApiKey } from "../../auth/daemon-api-key.server";
 import type { WorkspaceAccess as QueryWorkspaceAccess } from "../../workspaces/query.server";
 
 const workspaceShape = { id: true, slug: true, name: true } as const;
@@ -36,9 +37,9 @@ export class PrismaWorkspaceAccess implements WorkspaceAccess, QueryWorkspaceAcc
   }
 }
 
-export class PrismaComputerConnectionRepository implements ComputerConnectionRepository {
+export class PrismaComputerRegistrationRepository implements ComputerRegistrationRepository {
   constructor(private readonly db: PrismaClient) {}
-  async create({
+  async register({
     principal,
     workspace,
     request,
@@ -47,18 +48,50 @@ export class PrismaComputerConnectionRepository implements ComputerConnectionRep
     workspace: Workspace;
     request: ComputerRegisterRequest;
   }) {
-    const computer = await this.db.computer.upsert({
-      where: {
-        ownerId_machineId: { ownerId: principal.userId, machineId: request.machineId },
-      },
-      create: { ownerId: principal.userId, machineId: request.machineId },
-      update: {},
+    return this.db.$transaction(async (tx) => {
+      const computer = await tx.computer.upsert({
+        where: {
+          ownerId_machineId: { ownerId: principal.userId, machineId: request.machineId },
+        },
+        create: { ownerId: principal.userId, machineId: request.machineId },
+        update: {},
+      });
+      const daemonApiKey = prepareDaemonApiKey({
+        principal,
+        workspaceId: workspace.id,
+        computerId: computer.id,
+      });
+      const connection = await tx.workspaceComputer.findUnique({
+        where: { computerId: computer.id },
+        select: { workspaceId: true },
+      });
+      if (connection && connection.workspaceId !== workspace.id) {
+        await Promise.all([
+          tx.agent.updateMany({
+            where: { computerId: computer.id, workspaceId: { not: workspace.id } },
+            data: { computerId: null },
+          }),
+          tx.computerRuntime.updateMany({
+            where: { computerId: computer.id, isPublic: true },
+            data: { isPublic: false },
+          }),
+        ]);
+      }
+      await tx.workspaceComputer.upsert({
+        where: { computerId: computer.id },
+        create: { workspaceId: workspace.id, computerId: computer.id },
+        update: { workspaceId: workspace.id },
+      });
+      await tx.daemonApiKey.updateMany({
+        where: { computerId: computer.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      await tx.daemonApiKey.create({ data: daemonApiKey.record });
+      return {
+        computerId: computer.id,
+        workspaceId: workspace.id,
+        daemonApiKey: daemonApiKey.apiKey,
+      };
     });
-    await this.db.workspaceComputer.upsert({
-      where: { workspaceId_computerId: { workspaceId: workspace.id, computerId: computer.id } },
-      create: { workspaceId: workspace.id, computerId: computer.id },
-      update: {},
-    });
-    return { computerId: computer.id, workspaceId: workspace.id };
   }
 }

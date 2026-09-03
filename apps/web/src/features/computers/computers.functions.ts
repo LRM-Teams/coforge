@@ -10,28 +10,28 @@ import {
 import { getUsageCache } from "../../server/centrifugo/usage-cache.server";
 import { getComputerStatus } from "../../server/centrifugo/computer-status.server";
 import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
+import { ComputerRuntimeVisibility } from "../../server/computers/computer-runtime-visibility.server";
+import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/computer-runtime.repositories.server";
+
+function runtimeVisibility() {
+  const db = getDatabaseClient();
+  if (!db) throw new Error("Computer persistence is unavailable");
+  return { db, visibility: new ComputerRuntimeVisibility(new PrismaComputerRuntimeRepository(db)) };
+}
 
 export const scanUsage = createServerFn({ method: "POST" })
   .validator((data: { computerId: string; provider: RuntimeProvider }) => data)
   .handler(async ({ data }) => {
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Computer persistence is unavailable");
-    const connection = await db.workspaceComputer.findFirst({
-      where: { computerId: data.computerId, workspace: { members: { some: { userId: user.id } } } },
-      select: {
-        workspaceId: true,
-        computerId: true,
-        computer: {
-          select: { runtimes: { where: { provider: data.provider }, select: { provider: true } } },
-        },
-      },
-    });
-    if (!connection || !connection.computer.runtimes.length)
+    const { db, visibility } = runtimeVisibility();
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    if (
+      !(await visibility.isOwner({ workspaceId, userId: user.id }, data.computerId, data.provider))
+    )
       throw new Error("runtime is not available");
     const scanId = await createUsageScan(createCentrifugoServerApi(), {
-      workspaceId: connection.workspaceId,
-      computerId: connection.computerId,
+      workspaceId,
+      computerId: data.computerId,
       provider: data.provider,
     });
     return { scanId, status: "pending" as const };
@@ -41,15 +41,14 @@ export const readUsage = createServerFn({ method: "GET" })
   .validator((data: { computerId: string; provider: RuntimeProvider }) => data)
   .handler(async ({ data }) => {
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Computer persistence is unavailable");
-    const connection = await db.workspaceComputer.findFirst({
-      where: { computerId: data.computerId, workspace: { members: { some: { userId: user.id } } } },
-      select: { workspaceId: true },
-    });
-    if (!connection) throw new Error("computer is not available");
+    const { db, visibility } = runtimeVisibility();
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    if (
+      !(await visibility.isOwner({ workspaceId, userId: user.id }, data.computerId, data.provider))
+    )
+      throw new Error("runtime is not available");
     const record = await getUsageCache().get({
-      workspaceId: connection.workspaceId,
+      workspaceId,
       computerId: data.computerId,
       provider: data.provider,
     });
@@ -58,11 +57,10 @@ export const readUsage = createServerFn({ method: "GET" })
 
 export const listComputers = createServerFn({ method: "GET" }).handler(async () => {
   const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-  const db = getDatabaseClient();
-  if (!db) throw new Error("Computer persistence is unavailable");
+  const { db, visibility } = runtimeVisibility();
   const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-  return db.workspaceComputer
-    .findMany({
+  const [connections, runtimes] = await Promise.all([
+    db.workspaceComputer.findMany({
       where: { workspaceId },
       select: {
         createdAt: true,
@@ -71,11 +69,7 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
             id: true,
             machineId: true,
             kind: true,
-            runtimes: {
-              where: { provider: { not: "pi" } },
-              select: { provider: true, version: true, displayName: true, observedAt: true },
-              orderBy: { provider: "asc" },
-            },
+            ownerId: true,
             modelCatalogs: {
               select: { provider: true, models: true, observedAt: true },
               orderBy: { provider: "asc" },
@@ -84,27 +78,52 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
         },
       },
       orderBy: { createdAt: "asc" },
-    })
-    .then((connections) =>
-      connections.map(({ computer, createdAt }) => ({
-        ...computer,
-        connectedAt: createdAt,
-        online: getComputerStatus(workspaceId, computer.id).online,
-        runtimes: computer.runtimes.map((runtime) => ({
-          ...runtime,
-          provider: runtimeProvider(runtime.provider),
-        })),
-        modelCatalogs: computer.modelCatalogs
-          .map((catalog) => ({
-            provider: catalog.provider as RuntimeProvider,
-            models: modelMetadata(catalog.models),
-            observedAt: catalog.observedAt,
-          }))
-          .filter((catalog) => catalog.models !== undefined)
-          .map((catalog) => ({ ...catalog, models: catalog.models! })),
-      })),
-    );
+    }),
+    visibility.list({ workspaceId, userId: user.id }),
+  ]);
+  return connections.map(({ computer, createdAt }) => {
+    const computerRuntimes = runtimes.filter((runtime) => runtime.computerId === computer.id);
+    const visibleProviders = new Set(computerRuntimes.map((runtime) => runtime.provider));
+    return {
+      id: computer.id,
+      machineId: computer.machineId,
+      kind: computer.kind,
+      connectedAt: createdAt,
+      ownedByCurrentUser: computer.ownerId === user.id,
+      online: getComputerStatus(workspaceId, computer.id).online,
+      runtimes: computerRuntimes.map(({ ownerId: _ownerId, ...runtime }) => runtime),
+      modelCatalogs: computer.modelCatalogs
+        .filter(
+          (catalog) =>
+            catalog.provider === "pi" || visibleProviders.has(runtimeProvider(catalog.provider)),
+        )
+        .map((catalog) => ({
+          provider: runtimeProvider(catalog.provider),
+          models: modelMetadata(catalog.models),
+          observedAt: catalog.observedAt,
+        }))
+        .filter((catalog) => catalog.models !== undefined)
+        .map((catalog) => ({ ...catalog, models: catalog.models! })),
+    };
+  });
 });
+
+export const setRuntimeVisibility = createServerFn({ method: "POST" })
+  .validator((data: unknown) => {
+    if (!data || typeof data !== "object" || Array.isArray(data))
+      throw new Error("runtime visibility input is required");
+    const runtimeId = Reflect.get(data, "runtimeId");
+    const isPublic = Reflect.get(data, "isPublic");
+    if (typeof runtimeId !== "string" || !runtimeId || typeof isPublic !== "boolean")
+      throw new Error("runtime visibility input is invalid");
+    return { runtimeId, isPublic };
+  })
+  .handler(async ({ data }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const { db, visibility } = runtimeVisibility();
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    return visibility.setPublic({ workspaceId, userId: user.id }, data.runtimeId, data.isPublic);
+  });
 
 function modelMetadata(value: unknown): CodeAgentModelMetadata[] | undefined {
   if (!Array.isArray(value)) return undefined;

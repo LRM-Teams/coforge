@@ -1,7 +1,12 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 
 import { AgentDetail } from "@/features/agents/agent-detail";
-import { getAgentDetail } from "@/features/agents/agents.functions";
+import {
+  deleteAgentRuntimeCredential,
+  getAgentDetail,
+  saveAgentRuntimeCredential,
+} from "@/features/agents/agents.functions";
 import { m } from "@/paraglide/messages";
 import { getUserPreferences } from "@/features/settings/settings.functions";
 import { PageLoadError } from "@/features/errors/page-load-error";
@@ -29,5 +34,22 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
 
 function AgentDetailPage() {
   const { detail, timeZone } = Route.useLoaderData();
-  return <AgentDetail detail={detail} timeZone={timeZone} tab={Route.useSearch().tab} />;
+  const router = useRouter();
+  const saveCredential = useServerFn(saveAgentRuntimeCredential);
+  const deleteCredential = useServerFn(deleteAgentRuntimeCredential);
+  return (
+    <AgentDetail
+      detail={detail}
+      timeZone={timeZone}
+      tab={Route.useSearch().tab}
+      onSaveRuntimeCredential={async (apiKey) => {
+        await saveCredential({ data: { agentId: detail.id, apiKey } });
+        await router.invalidate({ sync: true });
+      }}
+      onDeleteRuntimeCredential={async () => {
+        await deleteCredential({ data: detail.id });
+        await router.invalidate({ sync: true });
+      }}
+    />
+  );
 }

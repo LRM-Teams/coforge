@@ -49,6 +49,13 @@ const config: AgentRuntimeConfig = {
   reasoning: "balanced",
 };
 
+function agentLaunchConfig(
+  agentApiKey: string,
+  providerConfig?: AgentRuntimeConfig["providerConfig"],
+) {
+  return { agentApiKey, providerConfig };
+}
+
 describe("DaemonRuntime", () => {
   test("reports a fresh external Code Agent snapshot on daemon start", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
@@ -111,8 +118,8 @@ describe("DaemonRuntime", () => {
       create: () => ({
         async start() {},
         async ready() {},
-        async requestAgentApiKey() {
-          return `sk_agent_${"a".repeat(43)}`;
+        async requestAgentLaunchConfig() {
+          return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
         },
         async stop() {},
       }),
@@ -290,6 +297,7 @@ describe("DaemonRuntime", () => {
               protocolMajor: 1,
               requestId: "ready-publication-1",
               workspaceId: connection.workspaceId,
+              computerId: connection.computerId,
               agentId: "agent-a",
               provider: "pi",
               model: "default",
@@ -300,6 +308,7 @@ describe("DaemonRuntime", () => {
               protocolMajor: 1,
               requestId: "ready-publication-2",
               workspaceId: connection.workspaceId,
+              computerId: connection.computerId,
               agentId: "agent-b",
               provider: "pi",
               model: "default",
@@ -307,8 +316,10 @@ describe("DaemonRuntime", () => {
               sessionId: "session-b",
             });
           },
-          async requestAgentApiKey() {
-            return `sk_agent_${crypto.randomUUID().replaceAll("-", "").padEnd(43, "a")}`;
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(
+              `sk_agent_${crypto.randomUUID().replaceAll("-", "").padEnd(43, "a")}`,
+            );
           },
           async sendAgentActivity() {},
           async stop() {},
@@ -382,6 +393,7 @@ describe("DaemonRuntime", () => {
               protocolMajor: 1,
               requestId: "discarded-publication",
               workspaceId: connection.workspaceId,
+              computerId: connection.computerId,
               agentId: "agent-a",
               provider: "pi",
               model: "default",
@@ -418,8 +430,8 @@ describe("DaemonRuntime", () => {
         create: () => ({
           async start() {},
           async ready() {},
-          async requestAgentApiKey() {
-            return `sk_agent_${"a".repeat(43)}`;
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
           },
           async stop() {
             shutdownTransport = true;
@@ -490,8 +502,8 @@ describe("DaemonRuntime", () => {
           transportCalls.push([token, config]);
         },
         async ready() {},
-        async requestAgentApiKey() {
-          return `sk_agent_${"a".repeat(43)}`;
+        async requestAgentLaunchConfig() {
+          return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
         },
         async stop() {
           transportCalls.push("stop");
@@ -515,6 +527,58 @@ describe("DaemonRuntime", () => {
       ],
       "stop",
     ]);
+  });
+
+  test("passes the runtime provider config to its adapter without interpreting it", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    let startedCredential: unknown;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async start(options) {
+          startedCredential = options.runtime?.providerConfig;
+          return sessionSpy();
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`, {
+              kind: "pi-builtin",
+              providerId: "deepseek",
+              apiKey: "sk-deepseek-secret",
+            });
+          },
+          async revokeAgentApiKey() {},
+          async stop() {},
+        }),
+      },
+    );
+
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", {
+      provider: "pi",
+      model: "deepseek-chat",
+      modelProvider: "deepseek",
+      reasoning: "high",
+      providerConfig: {
+        kind: "pi-builtin",
+        providerId: "deepseek",
+        apiKey: "sk-deepseek-secret",
+      },
+    });
+
+    expect(startedCredential).toEqual({
+      kind: "pi-builtin",
+      providerId: "deepseek",
+      apiKey: "sk-deepseek-secret",
+    });
+    await runtime.stop();
   });
 
   test("fails to start without a credential and can be retried", async () => {
@@ -567,9 +631,9 @@ describe("DaemonRuntime", () => {
           async start() {},
           async ready() {},
           async stop() {},
-          async requestAgentApiKey() {
+          async requestAgentLaunchConfig() {
             mints++;
-            return credential;
+            return agentLaunchConfig(await credential);
           },
           async revokeAgentApiKey() {},
         }),
@@ -609,9 +673,11 @@ describe("DaemonRuntime", () => {
           async start() {},
           async ready() {},
           async stop() {},
-          async requestAgentApiKey() {
+          async requestAgentLaunchConfig() {
             mintCount++;
-            return mintCount === 1 ? pendingCredential : replacementCredential;
+            return agentLaunchConfig(
+              mintCount === 1 ? await pendingCredential : replacementCredential,
+            );
           },
           async revokeAgentApiKey(value) {
             revoked.push(value);
@@ -688,8 +754,10 @@ describe("DaemonRuntime", () => {
               messages: [],
             };
           },
-          async requestAgentApiKey() {
-            return `sk_agent_${String.fromCharCode(96 + launchCount + 1).repeat(43)}`;
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(
+              `sk_agent_${String.fromCharCode(96 + launchCount + 1).repeat(43)}`,
+            );
           },
           async revokeAgentApiKey() {
             throw new Error("remote revoke failed");
@@ -783,8 +851,10 @@ describe("DaemonRuntime", () => {
           sendAgentActivity(activity) {
             activities.push(activity);
           },
-          async requestAgentApiKey() {
-            return `sk_agent_${crypto.randomUUID().replaceAll("-", "").padEnd(43, "a")}`;
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(
+              `sk_agent_${crypto.randomUUID().replaceAll("-", "").padEnd(43, "a")}`,
+            );
           },
           async revokeAgentApiKey() {},
         }),
@@ -795,6 +865,7 @@ describe("DaemonRuntime", () => {
       protocolMajor: 1,
       requestId: "start-1",
       workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
       agentId: "agent-a",
       provider: "pi" as const,
       model: "default",
@@ -933,9 +1004,9 @@ describe("DaemonRuntime", () => {
           sendAgentActivity(activity) {
             activities.push(activity);
           },
-          async requestAgentApiKey() {
+          async requestAgentLaunchConfig() {
             credentialRequests++;
-            return `sk_agent_${"a".repeat(43)}`;
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
           },
           async revokeAgentApiKey() {},
         }),
@@ -985,8 +1056,8 @@ describe("DaemonRuntime", () => {
           sendAgentActivity(activity) {
             activities.push(activity);
           },
-          async requestAgentApiKey() {
-            return `sk_agent_${"b".repeat(43)}`;
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"b".repeat(43)}`);
           },
           async revokeAgentApiKey() {},
         }),
@@ -997,6 +1068,7 @@ describe("DaemonRuntime", () => {
       protocolMajor: 1,
       requestId: "start-stop-failure",
       workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
       agentId: "agent-a",
       provider: "pi",
       model: "default",
@@ -1044,8 +1116,8 @@ describe("DaemonRuntime", () => {
           sendAgentActivity(activity) {
             activities.push(activity);
           },
-          async requestAgentApiKey() {
-            return `sk_agent_${String.fromCharCode(97 + launches).repeat(43)}`;
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${String.fromCharCode(97 + launches).repeat(43)}`);
           },
           async revokeAgentApiKey() {},
         }),
@@ -1055,6 +1127,7 @@ describe("DaemonRuntime", () => {
       protocolMajor: 1,
       requestId: "old-launch",
       workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
       agentId: "agent-a",
       provider: "pi" as const,
       model: "default",
@@ -1097,8 +1170,8 @@ describe("DaemonRuntime", () => {
           async stop() {
             await stopGate;
           },
-          async requestAgentApiKey() {
-            return `sk_agent_${"c".repeat(43)}`;
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"c".repeat(43)}`);
           },
           async revokeAgentApiKey() {
             attempts++;

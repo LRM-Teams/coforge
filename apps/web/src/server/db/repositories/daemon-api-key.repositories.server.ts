@@ -9,7 +9,6 @@ export class PrismaDaemonApiKeyRepository implements DaemonApiKeyRepository {
       await tx.$queryRaw`SELECT "id" FROM "computers" WHERE "id" = ${record.computerId}::uuid FOR UPDATE`;
       await tx.daemonApiKey.updateMany({
         where: {
-          workspaceId: record.workspaceId,
           computerId: record.computerId,
           revokedAt: null,
         },

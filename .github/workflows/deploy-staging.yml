@@ -173,8 +173,9 @@ jobs:
           AUTHING_APP_ID: ${{ vars.AUTHING_APP_ID }}
           AUTHING_APP_SECRET: ${{ secrets.AUTHING_APP_SECRET }}
           COFORGE_SESSION_SECRET: ${{ secrets.COFORGE_SESSION_SECRET }}
+          COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY: ${{ secrets.COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY }}
         run: |
-          for name in AUTHING_APP_ID AUTHING_APP_SECRET COFORGE_SESSION_SECRET; do
+          for name in AUTHING_APP_ID AUTHING_APP_SECRET COFORGE_SESSION_SECRET COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY; do
             value="${!name}"
             if [ -z "$value" ]; then
               echo "$name is missing from the staging GitHub Environment" >&2
@@ -188,6 +189,7 @@ jobs:
           printf '%s' "$AUTHING_APP_ID" > "$tar_dir/authing_app_id"
           printf '%s' "$AUTHING_APP_SECRET" > "$tar_dir/authing_app_secret"
           printf '%s' "$COFORGE_SESSION_SECRET" > "$tar_dir/coforge_session_secret"
+          printf '%s' "$COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY" > "$tar_dir/coforge_agent_runtime_credential_key"
           tar -czf "$payload" -C "$tar_dir" .
           ssh -i "$SSH_DIR/key" \
             -o UserKnownHostsFile="$SSH_DIR/known_hosts" \
@@ -199,10 +201,10 @@ jobs:
              incoming=\$(mktemp -d \"\${secrets_dir}.incoming.XXXXXX\"); \
              trap 'rm -rf -- \"\$incoming\"' EXIT; \
              tar -xzf - -C \"\$incoming\"; \
-             chmod 600 \"\$incoming/authing_app_id\" \"\$incoming/authing_app_secret\" \"\$incoming/coforge_session_secret\"; \
+             chmod 600 \"\$incoming/authing_app_id\" \"\$incoming/authing_app_secret\" \"\$incoming/coforge_session_secret\" \"\$incoming/coforge_agent_runtime_credential_key\"; \
              mkdir -p \"\$secrets_dir\"; \
              chmod 700 \"\$secrets_dir\"; \
-             for name in authing_app_id authing_app_secret coforge_session_secret; do \
+             for name in authing_app_id authing_app_secret coforge_session_secret coforge_agent_runtime_credential_key; do \
                mv -f \"\$incoming/\$name\" \"\$secrets_dir/\$name\"; \
              done" \
             < "$payload"

@@ -14,13 +14,16 @@ import { RuntimeUsage, type UsageView } from "./runtime-usage";
 
 export type ComputerDetailView = ComputerIdentity & {
   id: string;
+  ownedByCurrentUser: boolean;
   online: boolean;
   connectedAt: Date | string;
   runtimes: {
+    id: string;
     provider: RuntimeProvider;
     version: string;
     displayName: string;
     observedAt: Date | string;
+    isPublic: boolean;
   }[];
   modelCatalogs?: {
     provider: string;
@@ -37,11 +40,23 @@ export function ComputerDetail({
   computer,
   timeZone = null,
   onScanUsage,
+  onSetRuntimePublic,
 }: {
   computer: ComputerDetailView;
   timeZone?: string | null;
   onScanUsage: (provider: RuntimeProvider) => Promise<void>;
+  onSetRuntimePublic: (runtimeId: string, isPublic: boolean) => Promise<void>;
 }) {
+  const [updatingRuntimeId, setUpdatingRuntimeId] = useState<string>();
+  const setRuntimePublic = async (runtimeId: string, isPublic: boolean) => {
+    setUpdatingRuntimeId(runtimeId);
+    try {
+      await onSetRuntimePublic(runtimeId, isPublic);
+    } finally {
+      setUpdatingRuntimeId(undefined);
+    }
+  };
+
   return (
     <>
       <PageHeader
@@ -85,12 +100,44 @@ export function ComputerDetail({
             <ul className="mt-3 grid gap-3">
               {computer.runtimes.map((runtime) => (
                 <li key={runtime.provider} className="rounded-xl border p-4 text-sm">
-                  <RuntimeUsage
-                    runtime={runtime}
-                    usage={computer.usage?.[runtime.provider]}
-                    timeZone={timeZone}
-                    onScan={() => onScanUsage(runtime.provider)}
-                  />
+                  {computer.ownedByCurrentUser ? (
+                    <RuntimeUsage
+                      runtime={runtime}
+                      usage={computer.usage?.[runtime.provider]}
+                      timeZone={timeZone}
+                      onScan={() => onScanUsage(runtime.provider)}
+                    />
+                  ) : (
+                    <div className="border-b pb-3">
+                      <p className="truncate font-medium">{runtime.displayName}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {m.computer_runtime_version({ version: runtime.version })}
+                      </p>
+                    </div>
+                  )}
+                  {computer.ownedByCurrentUser && (
+                    <div className="mt-3 flex justify-end">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        aria-pressed={runtime.isPublic}
+                        aria-label={
+                          runtime.isPublic
+                            ? m.computer_runtime_make_private_label({
+                                runtime: runtime.displayName,
+                              })
+                            : m.computer_runtime_publish_label({ runtime: runtime.displayName })
+                        }
+                        disabled={updatingRuntimeId === runtime.id}
+                        onClick={() => void setRuntimePublic(runtime.id, !runtime.isPublic)}
+                      >
+                        {runtime.isPublic
+                          ? m.computer_runtime_public()
+                          : m.computer_runtime_private()}
+                      </Button>
+                    </div>
+                  )}
                   <p className="mt-3 text-xs text-muted-foreground">
                     {m.computer_runtime_observed_at({
                       time: formatDateForDisplay(runtime.observedAt, timeZone),

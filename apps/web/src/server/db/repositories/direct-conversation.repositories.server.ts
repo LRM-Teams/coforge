@@ -27,6 +27,7 @@ export type DirectConversationRepository = {
     sequence: number;
     deliveryId?: string;
     workspaceId: string;
+    computerId?: string;
     agentId: string;
     target?: string;
     latestSender?: string;
@@ -219,7 +220,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             userId: true,
             agentId: true,
             user: { select: { username: true } },
-            agent: { select: { name: true } },
+            agent: { select: { name: true, computerId: true } },
           },
         },
       },
@@ -285,6 +286,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       ...message,
       deliveryId: message.deliveries[0]!.deliveryId,
       workspaceId: conversation.workspaceId,
+      computerId: agents[0].agent?.computerId ?? undefined,
       agentId: agents[0].agentId,
       target: `@${agents[0].agent?.name ?? "unknown"}`,
       latestSender: `@${sender.user?.username}`,

@@ -28,6 +28,12 @@ import {
   AGENT_MESSAGE_SEND_METHOD,
 } from "@coforge/protocol";
 import { isAgentApiKey } from "../credentials/agent-api-key";
+import type { AgentRuntimeProviderConfig } from "../code-agent/contract";
+
+export type AgentLaunchConfig = {
+  agentApiKey: string;
+  providerConfig?: AgentRuntimeProviderConfig;
+};
 
 /** Configuration identifying the daemon's Workspace connection. */
 export interface DaemonConnectionConfig {
@@ -66,7 +72,10 @@ export interface DaemonConnectionClient {
     agentApiKey?: string,
   ): Promise<CloudAgentMessageResponse>;
   agentAttachment?(attachmentId: string, agentApiKey?: string): Promise<Response>;
-  requestAgentApiKey?(input: { agentId: string; workspaceId: string }): Promise<string>;
+  requestAgentLaunchConfig?(input: {
+    agentId: string;
+    workspaceId: string;
+  }): Promise<AgentLaunchConfig>;
   revokeAgentApiKey?(agentApiKey: string): Promise<void>;
 }
 
@@ -137,7 +146,7 @@ export const defaultAgentMessageHttpClient: AgentMessageHttpClient = {
 /** The Daemon's single connection for its configured Workspace. */
 export class DaemonConnection implements DaemonConnectionClient {
   #client: CentrifugeWorkspaceClient | undefined;
-  #workspaceSubscription: CentrifugeWorkspaceSubscription | undefined;
+  #controlSubscription: CentrifugeWorkspaceSubscription | undefined;
   #connected = false;
   #hasConnected = false;
   #agentStartListener: ((intent: AgentStartIntent) => void) | undefined;
@@ -166,15 +175,15 @@ export class DaemonConnection implements DaemonConnectionClient {
       new TextEncoder().encode(JSON.stringify({ daemonApiKey: _token })),
     );
     this.#client = client;
-    const workspaceChannel = this.#workspaceChannel(config.workspaceId);
+    const controlChannel = this.#controlChannel(config.computerId);
     if (!client.newSubscription) {
       client.on("publication", ({ channel, data }) => {
-        if (client !== this.#client || channel !== workspaceChannel) return;
+        if (client !== this.#client || channel !== controlChannel) return;
         this.#handleAgentPublication(data, config.workspaceId);
       });
     }
-    const subscription = client.newSubscription?.(workspaceChannel);
-    this.#workspaceSubscription = subscription;
+    const subscription = client.newSubscription?.(controlChannel);
+    this.#controlSubscription = subscription;
     subscription?.on("publication", ({ data }) => {
       if (client === this.#client) {
         this.#handleAgentPublication(data, config.workspaceId);
@@ -219,7 +228,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       client.connect();
     }).catch((error) => {
       subscription?.unsubscribe();
-      this.#workspaceSubscription = undefined;
+      this.#controlSubscription = undefined;
       client.disconnect();
       this.#client = undefined;
       throw error;
@@ -311,7 +320,10 @@ export class DaemonConnection implements DaemonConnectionClient {
     );
   }
 
-  async requestAgentApiKey(input: { agentId: string; workspaceId: string }): Promise<string> {
+  async requestAgentLaunchConfig(input: {
+    agentId: string;
+    workspaceId: string;
+  }): Promise<AgentLaunchConfig> {
     if (!this.#serverHttpUrl) throw new Error("Agent API key endpoint is not configured");
     const response = await fetch(`${new URL(this.#serverHttpUrl).origin}/api/agent-api-keys`, {
       method: "POST",
@@ -319,10 +331,13 @@ export class DaemonConnection implements DaemonConnectionClient {
       body: JSON.stringify(input),
     });
     if (!response.ok) throw new Error(`Agent API key request failed (${response.status})`);
-    const value = (await response.json()) as { apiKey?: unknown };
+    const value = (await response.json()) as { apiKey?: unknown; providerConfig?: unknown };
     if (typeof value.apiKey !== "string" || !isAgentApiKey(value.apiKey))
       throw new Error("invalid Agent API key response");
-    return value.apiKey;
+    return {
+      agentApiKey: value.apiKey,
+      providerConfig: parseRuntimeProviderConfig(value.providerConfig),
+    };
   }
 
   async revokeAgentApiKey(agentApiKey: string): Promise<void> {
@@ -337,8 +352,8 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   #serverHttpUrl = "";
 
-  #workspaceChannel(workspaceId: string): string {
-    return `workspace:${workspaceId}`;
+  #controlChannel(computerId: string): string {
+    return `daemon:${computerId}`;
   }
 
   #activityChannel(workspaceId: string): string {
@@ -410,8 +425,8 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async stop(): Promise<void> {
     const client = this.#client;
-    this.#workspaceSubscription?.unsubscribe();
-    this.#workspaceSubscription = undefined;
+    this.#controlSubscription?.unsubscribe();
+    this.#controlSubscription = undefined;
     this.#client = undefined;
     this.#connected = false;
     this.#hasConnected = false;
@@ -423,4 +438,22 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#supersededActivityLaunches.clear();
     client?.disconnect();
   }
+}
+
+function parseRuntimeProviderConfig(value: unknown): AgentRuntimeProviderConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("invalid Agent runtime provider config response");
+  const kind = Reflect.get(value, "kind");
+  const providerId = Reflect.get(value, "providerId");
+  const apiKey = Reflect.get(value, "apiKey");
+  if (kind === "default" && providerId === undefined && apiKey === undefined) return { kind };
+  if (
+    kind === "pi-builtin" &&
+    typeof providerId === "string" &&
+    providerId &&
+    (apiKey === undefined || (typeof apiKey === "string" && apiKey))
+  )
+    return { kind, providerId, ...(apiKey ? { apiKey } : {}) };
+  throw new Error("invalid Agent runtime provider config response");
 }

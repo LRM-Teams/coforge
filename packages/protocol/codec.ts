@@ -33,6 +33,7 @@ import {
 } from "./gen/coforge/rpc/v1/workspace_pb";
 import type {
   AgentStartIntent,
+  AgentRuntimeProviderConfig,
   AgentMessageDelivery,
   AgentActivity,
   AgentMessageDeliveryAck,
@@ -188,9 +189,24 @@ export function decodeDaemonRuntimeUsageScanResponse(bytes: Uint8Array) {
 }
 
 export function encodeAgentStartIntent(value: AgentStartIntent): Uint8Array {
+  const providerConfig = value.providerConfig
+    ? parseAgentRuntimeProviderConfig(
+        value.providerConfig.kind,
+        "providerId" in value.providerConfig ? value.providerConfig.providerId : undefined,
+      )
+    : undefined;
   return toBinary(
     AgentStartIntentSchema,
-    create(AgentStartIntentSchema, { ...value, messageType: AGENT_START_MESSAGE_TYPE }),
+    create(AgentStartIntentSchema, {
+      ...value,
+      providerConfig: providerConfig
+        ? {
+            kind: providerConfig.kind,
+            providerId: "providerId" in providerConfig ? providerConfig.providerId : "",
+          }
+        : undefined,
+      messageType: AGENT_START_MESSAGE_TYPE,
+    }),
   );
 }
 export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
@@ -199,6 +215,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     v.messageType !== AGENT_START_MESSAGE_TYPE ||
     !v.requestId ||
     !v.workspaceId ||
+    !v.computerId ||
     !v.agentId ||
     !v.provider
   )
@@ -209,15 +226,31 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     protocolMajor: v.protocolMajor,
     requestId: v.requestId,
     workspaceId: v.workspaceId,
+    computerId: v.computerId,
     agentId: v.agentId,
     provider: v.provider as AgentStartIntent["provider"],
     model: v.model,
     modelProvider: v.modelProvider,
     reasoning: v.reasoning,
+    providerConfig: v.providerConfig
+      ? parseAgentRuntimeProviderConfig(
+          v.providerConfig.kind,
+          v.providerConfig.providerId || undefined,
+        )
+      : undefined,
     ...(v.sessionId ? { sessionId: v.sessionId } : {}),
-    computerId: v.computerId || undefined,
   };
 }
+
+function parseAgentRuntimeProviderConfig(
+  kind: string,
+  providerId: string | undefined,
+): AgentRuntimeProviderConfig {
+  if (kind === "default" && providerId === undefined) return { kind };
+  if (kind === "pi-builtin" && providerId) return { kind, providerId };
+  throw new Error("invalid Agent runtime provider config");
+}
+
 export function encodeAgentMessageDelivery(value: AgentMessageDelivery): Uint8Array {
   return toBinary(
     AgentMessageDeliverySchema,

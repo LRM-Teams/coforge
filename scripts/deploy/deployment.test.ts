@@ -295,6 +295,26 @@ describe("staging Authing runtime injection", () => {
   });
 });
 
+test("authenticates and declares the Computer-directed Daemon channel in Centrifugo", async () => {
+  for (const [path, connectEndpoint] of [
+    [
+      "../../infra/centrifugo/config.yaml",
+      "endpoint: http://host.docker.internal:8789/api/internal/centrifugo-connect",
+    ],
+    [
+      "../../infra/staging/centrifugo/config.yaml",
+      "endpoint: http://web:3000/api/internal/centrifugo-connect",
+    ],
+  ]) {
+    const config = await Bun.file(new URL(path, import.meta.url)).text();
+    const channelConfig = config.slice(config.indexOf("\nchannel:\n"), config.indexOf("\nrpc:\n"));
+    const rpcConfig = config.slice(config.indexOf("\nrpc:\n"));
+    expect(config).toContain(connectEndpoint);
+    expect(channelConfig).toContain("    - name: daemon\n");
+    expect(rpcConfig).toContain("    - name: daemon\n");
+  }
+});
+
 test("GitHub workflows pin external actions to full commit SHAs", async () => {
   for (const path of [
     "../../.github/workflows/ci.yml",

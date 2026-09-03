@@ -1,8 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { type JWK } from "jose";
 
-import type { DaemonApiKeyFactory } from "../computers/registration.server";
-
 export type DaemonApiKeyClaims = {
   readonly userId: string;
   readonly workspaceId: string;
@@ -30,20 +28,40 @@ export function hashDaemonApiKey(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-export function createDaemonApiKeyFactory(repository: DaemonApiKeyRepository): DaemonApiKeyFactory {
+export function createDaemonApiKeyFactory(repository: DaemonApiKeyRepository) {
   return {
-    async create({ principal, workspaceId, computerId }) {
-      const apiKey = `dk_${randomBytes(32).toString("base64url")}`;
-      await repository.replaceActive({
-        id: crypto.randomUUID(),
-        apiKeyHash: hashDaemonApiKey(apiKey),
-        workspaceId,
-        computerId,
-        ownerId: principal.userId,
-        revokedAt: null,
-      });
+    async create(input: {
+      principal: { userId: string };
+      workspaceId: string;
+      computerId: string;
+    }) {
+      const { apiKey, record } = prepareDaemonApiKey(input);
+      await repository.replaceActive(record);
       return apiKey;
     },
+  };
+}
+
+export function prepareDaemonApiKey({
+  principal,
+  workspaceId,
+  computerId,
+}: {
+  principal: { userId: string };
+  workspaceId: string;
+  computerId: string;
+}) {
+  const apiKey = `dk_${randomBytes(32).toString("base64url")}`;
+  return {
+    apiKey,
+    record: {
+      id: crypto.randomUUID(),
+      apiKeyHash: hashDaemonApiKey(apiKey),
+      workspaceId,
+      computerId,
+      ownerId: principal.userId,
+      revokedAt: null,
+    } satisfies DaemonApiKeyRecord,
   };
 }
 

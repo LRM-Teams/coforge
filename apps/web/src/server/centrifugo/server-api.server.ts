@@ -36,12 +36,8 @@ export function createCentrifugoServerApi(env = process.env): CentrifugoServerAp
   };
 }
 
-/**
- * Workspace-scoped transport channel.  A daemon has one connection for its
- * configured Workspace, which may carry multiple Agents; Agent ids remain
- * payload/business data rather than connection identifiers.
- */
-export const workspaceAgentChannel = (workspaceId: string) => `workspace:${workspaceId}`;
+/** A private control channel for the Daemon authenticated for one Computer. */
+export const daemonControlChannel = (computerId: string) => `daemon:${computerId}`;
 export { AGENT_START_METHOD };
 export function createUsageScan(
   api: CentrifugoServerApi,
@@ -52,7 +48,7 @@ export function createUsageScan(
   return (async () => {
     await cache.put({ ...input, scanId: requestId, status: "pending" });
     await api.publish(
-      workspaceAgentChannel(input.workspaceId),
+      daemonControlChannel(input.computerId),
       encodeDaemonRuntimeUsageScanRequest({ protocolMajor: 1, requestId, ...input }),
     );
     return requestId;

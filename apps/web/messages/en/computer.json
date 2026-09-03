@@ -61,5 +61,10 @@
   "computer_usage_status_unsupported": "This Code Agent does not report usage",
   "computer_usage_unavailable_description": "Usage is temporarily unavailable. Try again.",
   "computer_usage_reauth": "Sign in to this Code Agent again, then retry the scan.",
-  "computer_usage_error": "Usage scan failed. Try again."
+  "computer_usage_error": "Usage scan failed. Try again.",
+  "computer_shared_computer": "Shared computer",
+  "computer_runtime_private": "Private",
+  "computer_runtime_public": "Public",
+  "computer_runtime_publish_label": "Publish {runtime}",
+  "computer_runtime_make_private_label": "Make {runtime} private"
 }

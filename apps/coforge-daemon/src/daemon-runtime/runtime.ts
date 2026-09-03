@@ -322,12 +322,13 @@ export class DaemonRuntime {
     let agentApiKey: string | undefined;
     let stage: "credential" | "runtime" = "credential";
     try {
-      if (!this.#transport.requestAgentApiKey)
+      if (!this.#transport.requestAgentLaunchConfig)
         throw new Error("Agent API key endpoint is not configured");
-      agentApiKey = await this.#transport.requestAgentApiKey({
+      const launchConfig = await this.#transport.requestAgentLaunchConfig({
         agentId,
         workspaceId: this.#connection.workspaceId,
       });
+      agentApiKey = launchConfig.agentApiKey;
       this.#pendingAgentApiKeyRevokes.add(agentApiKey);
       if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
       if (this.#stoppingAgents.has(agentId) || this.#agentProcessManager.isStopping(agentId))
@@ -339,7 +340,10 @@ export class DaemonRuntime {
       stage = "runtime";
       const runtime = await this.#agentProcessManager.start(
         agentId,
-        config,
+        {
+          ...config,
+          ...(launchConfig.providerConfig ? { providerConfig: launchConfig.providerConfig } : {}),
+        },
         agentWorkspaceDirectory(
           this.#connection.workspaceRoot,
           this.#connection.workspaceId,
@@ -481,6 +485,7 @@ export class DaemonRuntime {
         model: intent.model,
         modelProvider: intent.modelProvider,
         reasoning: intent.reasoning,
+        providerConfig: intent.providerConfig,
       },
       intent.sessionId,
       intent.requestId,

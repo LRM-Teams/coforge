@@ -20,7 +20,7 @@ const agent = {
   name: "release-helper",
   displayName: "Release Helper",
   createdAt: "2026-08-20T12:00:00.000Z",
-  runtimeConfig: { provider: "codex" as const, model: "gpt-5" },
+  runtimeConfig: { runtime: "codex" as const, model: "gpt-5" },
 };
 const computers = [
   {

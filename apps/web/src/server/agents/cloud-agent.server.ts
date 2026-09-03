@@ -6,18 +6,22 @@ import {
   type AgentActivity,
   type AgentStartIntent,
 } from "@coforge/protocol";
-import { workspaceAgentChannel, type CentrifugoServerApi } from "../centrifugo/server-api.server";
-import { readRuntimeConfig } from "./agent-collection.server";
+import { daemonControlChannel, type CentrifugoServerApi } from "../centrifugo/server-api.server";
+import { runtimeStartFields } from "./agent-collection.server";
 import type { AgentRepository } from "../db/repositories/agent.repositories.server";
 
-export type AgentAuthorization = {
-  canUseAgent(workspaceId: string, agentId: string, userId: string): Promise<boolean>;
+export type AgentStartAuthorization = {
+  computerIdForAuthorizedAgent(
+    workspaceId: string,
+    agentId: string,
+    userId: string,
+  ): Promise<string | undefined>;
 };
 export type AgentActivitySink = (activity: AgentActivity) => Promise<void>;
 
 export class CloudAgentUseCase {
   constructor(
-    private readonly authorization: AgentAuthorization,
+    private readonly authorization: AgentStartAuthorization,
     private readonly api: CentrifugoServerApi,
     private readonly activities: AgentActivitySink,
   ) {}
@@ -25,11 +29,15 @@ export class CloudAgentUseCase {
   async start(intent: AgentStartIntent, userId: string): Promise<void> {
     if (intent.protocolMajor !== 1 || !intent.requestId || !intent.workspaceId || !intent.agentId)
       throw new Error("invalid agent start intent");
-    if (!(await this.authorization.canUseAgent(intent.workspaceId, intent.agentId, userId)))
-      throw new Error("agent is not authorized");
+    const computerId = await this.authorization.computerIdForAuthorizedAgent(
+      intent.workspaceId,
+      intent.agentId,
+      userId,
+    );
+    if (!computerId) throw new Error("agent is not authorized or assigned to a Computer");
     await this.api.publish(
-      workspaceAgentChannel(intent.workspaceId),
-      encodeAgentStartIntent(intent),
+      daemonControlChannel(computerId),
+      encodeAgentStartIntent({ ...intent, computerId }),
     );
   }
 
@@ -56,14 +64,14 @@ export class WorkspaceAgentRecovery {
     const agents = await this.agents.listForComputer(workspaceId, computerId);
     for (const agent of agents) {
       await this.api.publish(
-        workspaceAgentChannel(workspaceId),
+        daemonControlChannel(computerId),
         encodeAgentStartIntent({
           protocolMajor: 1,
           requestId: crypto.randomUUID(),
           workspaceId,
           computerId,
           agentId: agent.id,
-          ...readRuntimeConfig(agent),
+          ...runtimeStartFields(agent.runtimeConfig),
         }),
       );
     }

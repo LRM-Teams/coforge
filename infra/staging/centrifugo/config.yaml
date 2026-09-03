@@ -21,6 +21,14 @@ client:
     jwks_public_endpoint: http://web:3000/api/jwks
     audience: coforge-centrifugo
     issuer: coforge
+  proxy:
+    connect:
+      enabled: true
+      endpoint: http://web:3000/api/internal/centrifugo-connect
+      timeout: 5s
+      http:
+        static_headers:
+          X-CoForge-Centrifugo-Proxy-Secret: ${CENTRIFUGO_VAR_RPC_PROXY_SECRET}
 
 channel:
   proxy:
@@ -34,6 +42,7 @@ channel:
           X-CoForge-Centrifugo-Proxy-Secret: ${CENTRIFUGO_VAR_RPC_PROXY_SECRET}
   namespaces:
     - name: workspace
+    - name: daemon
     - name: activity
       publish_proxy_enabled: true
       publication_data_format: binary
@@ -56,5 +65,5 @@ rpc:
       proxy_enabled: true
     - name: workspace
       proxy_enabled: true
-    - name: daemon_runtime
+    - name: daemon
       proxy_enabled: true

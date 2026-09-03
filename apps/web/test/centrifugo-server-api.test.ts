@@ -1,6 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
+import { decodeDaemonRuntimeUsageScanRequest } from "@coforge/protocol";
 
-import { createCentrifugoServerApi } from "../src/server/centrifugo/server-api.server";
+import {
+  createCentrifugoServerApi,
+  createUsageScan,
+} from "../src/server/centrifugo/server-api.server";
 
 const originalFetch = globalThis.fetch;
 
@@ -42,4 +46,24 @@ test("rejects a Centrifugo command error returned with HTTP 200", async () => {
       COFORGE_CENTRIFUGO_API_KEY: "test-api-key",
     }).publish("workspace:workspace-1", Uint8Array.of(1)),
   ).rejects.toThrow("Centrifugo publish failed (102)");
+});
+
+test("directs a runtime usage scan to the selected Computer's Daemon", async () => {
+  let publication: { channel: string; data: Uint8Array } | undefined;
+  await createUsageScan(
+    {
+      async publish(channel, data) {
+        publication = { channel, data };
+      },
+    },
+    { workspaceId: "workspace-1", computerId: "computer-1", provider: "codex" },
+    { async put() {}, async get() {} },
+  );
+
+  expect(publication?.channel).toBe("daemon:computer-1");
+  expect(decodeDaemonRuntimeUsageScanRequest(publication!.data)).toMatchObject({
+    workspaceId: "workspace-1",
+    computerId: "computer-1",
+    provider: "codex",
+  });
 });

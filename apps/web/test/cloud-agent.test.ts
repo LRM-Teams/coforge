@@ -5,6 +5,7 @@ import { CloudAgentUseCase, WorkspaceAgentRecovery } from "../src/server/agents/
 describe("CloudAgentUseCase", () => {
   test("ready recovery publishes stored runtime config for every Workspace Agent", async () => {
     const payloads: Uint8Array[] = [];
+    const channels: string[] = [];
     const recovery = new WorkspaceAgentRecovery(
       {
         getById: async () => undefined,
@@ -22,16 +23,17 @@ describe("CloudAgentUseCase", () => {
             displayName: "Builder",
             createdAt: new Date(),
             runtimeConfig: {
-              provider: RUNTIME_PROVIDER.CLAUDE_CODE,
+              runtime: RUNTIME_PROVIDER.CLAUDE_CODE,
+              provider: { kind: "default" },
               model: "sonnet",
-              modelProvider: "",
               reasoning: "high",
             },
           },
         ],
       },
       {
-        publish: async (_channel, payload) => {
+        publish: async (channel, payload) => {
+          channels.push(channel);
           payloads.push(payload);
         },
       },
@@ -40,6 +42,7 @@ describe("CloudAgentUseCase", () => {
     await recovery.recoverWorkspace("workspace-1", "computer-1");
 
     expect(payloads).toHaveLength(1);
+    expect(channels).toEqual(["daemon:computer-1"]);
     expect(decodeAgentStartIntent(payloads[0]!)).toMatchObject({
       workspaceId: "workspace-1",
       computerId: "computer-1",
@@ -52,10 +55,14 @@ describe("CloudAgentUseCase", () => {
 
   test("publishes an Agent start when optional model and reasoning are empty", async () => {
     const payloads: Uint8Array[] = [];
+    const channels: string[] = [];
     const useCase = new CloudAgentUseCase(
-      { canUseAgent: async () => true },
       {
-        publish: async (_channel, payload) => {
+        computerIdForAuthorizedAgent: async () => "computer-1",
+      },
+      {
+        publish: async (channel, payload) => {
+          channels.push(channel);
           payloads.push(payload);
         },
       },
@@ -67,6 +74,7 @@ describe("CloudAgentUseCase", () => {
         protocolMajor: 1,
         requestId: "start-1",
         workspaceId: "workspace-1",
+        computerId: "computer-1",
         agentId: "agent-1",
         provider: RUNTIME_PROVIDER.PI,
         model: "",
@@ -75,14 +83,17 @@ describe("CloudAgentUseCase", () => {
       "user-1",
     );
 
+    expect(channels).toEqual(["daemon:computer-1"]);
     expect(decodeAgentStartIntent(payloads[0]!)).toMatchObject({ model: "", reasoning: "" });
   });
 
-  test("publishes an authorized start and routes a scoped activity", async () => {
+  test("derives the start target from the authorized Agent and routes scoped activity", async () => {
     const published: Uint8Array[] = [];
     const activities: unknown[] = [];
     const useCase = new CloudAgentUseCase(
-      { canUseAgent: async () => true },
+      {
+        computerIdForAuthorizedAgent: async () => "computer-1",
+      },
       {
         publish: async (_channel, data) => {
           published.push(data);
@@ -97,6 +108,7 @@ describe("CloudAgentUseCase", () => {
         protocolMajor: 1,
         requestId: "r",
         workspaceId: "w",
+        computerId: "forged-computer",
         agentId: "a",
         provider: "pi",
         model: "m",
@@ -104,6 +116,7 @@ describe("CloudAgentUseCase", () => {
       },
       "u",
     );
+    expect(decodeAgentStartIntent(published[0]!)).toMatchObject({ computerId: "computer-1" });
     await useCase.receiveActivity(
       encodeAgentActivity({
         protocolMajor: 1,
@@ -125,7 +138,7 @@ describe("CloudAgentUseCase", () => {
 
   test("rejects an activity for another agent", async () => {
     const useCase = new CloudAgentUseCase(
-      { canUseAgent: async () => true },
+      { computerIdForAuthorizedAgent: async () => "computer-1" },
       { publish: async () => {} },
       async () => {},
     );

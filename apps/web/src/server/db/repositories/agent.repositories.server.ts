@@ -1,12 +1,10 @@
 import type { PrismaClient } from "../../../../generated/client";
-import { RUNTIME_PROVIDER, type RuntimeProvider } from "@coforge/protocol";
+import {
+  parseAgentRuntimeConfig,
+  type AgentRuntimeConfig,
+} from "../../agents/agent-runtime-config.server";
 
-export type AgentRuntimeConfig = {
-  provider: RuntimeProvider;
-  model: string;
-  modelProvider: string;
-  reasoning: string;
-};
+export type { AgentRuntimeConfig } from "../../agents/agent-runtime-config.server";
 
 export type AgentRecord = {
   id: string;
@@ -19,13 +17,6 @@ export type AgentRecord = {
   runtimeConfig: AgentRuntimeConfig;
 };
 
-function runtimeProvider(value: unknown): RuntimeProvider | undefined {
-  if (value === RUNTIME_PROVIDER.PI) return RUNTIME_PROVIDER.PI;
-  if (value === RUNTIME_PROVIDER.CODEX) return RUNTIME_PROVIDER.CODEX;
-  if (value === RUNTIME_PROVIDER.CLAUDE_CODE) return RUNTIME_PROVIDER.CLAUDE_CODE;
-  return undefined;
-}
-
 function mapAgent(agent: {
   id: string;
   workspaceId: string;
@@ -36,25 +27,17 @@ function mapAgent(agent: {
   computerId: string | null;
   runtimeConfig: unknown;
 }): AgentRecord {
-  const value = agent.runtimeConfig;
-  if (!value || typeof value !== "object" || Array.isArray(value))
+  let runtimeConfig;
+  try {
+    runtimeConfig = parseAgentRuntimeConfig(agent.runtimeConfig);
+  } catch {
     throw new Error(`Agent ${agent.id} has invalid runtime config`);
-  const provider = runtimeProvider(Reflect.get(value, "provider"));
-  const model = Reflect.get(value, "model");
-  const modelProvider = Reflect.get(value, "modelProvider");
-  const reasoning = Reflect.get(value, "reasoning");
-  if (!provider || typeof model !== "string" || typeof reasoning !== "string")
-    throw new Error(`Agent ${agent.id} has invalid runtime config`);
+  }
   const { computerId, ...fields } = agent;
   return {
     ...fields,
     ...(computerId ? { computerId } : {}),
-    runtimeConfig: {
-      provider,
-      model,
-      modelProvider: typeof modelProvider === "string" ? modelProvider : "",
-      reasoning,
-    },
+    runtimeConfig,
   };
 }
 
@@ -84,7 +67,7 @@ export class PrismaAgentRepository implements AgentRepository {
 
   async listForComputer(workspaceId: string, computerId: string) {
     const agents = await this.db.agent.findMany({
-      where: { workspaceId, OR: [{ computerId }, { computerId: null }] },
+      where: { workspaceId, computerId },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
     return agents.map(mapAgent);
@@ -109,5 +92,11 @@ export class RepositoryAgentAuthorization {
   async canUseAgent(workspaceId: string, agentId: string, userId: string) {
     const agent = await this.agents.getById(agentId);
     return agent?.workspaceId === workspaceId && agent.ownerId === userId;
+  }
+
+  async computerIdForAuthorizedAgent(workspaceId: string, agentId: string, userId: string) {
+    const agent = await this.agents.getById(agentId);
+    if (agent?.workspaceId !== workspaceId || agent.ownerId !== userId) return undefined;
+    return agent.computerId;
   }
 }

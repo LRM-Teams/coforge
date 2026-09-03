@@ -252,7 +252,7 @@ test("resends the last successful ready request after reconnect", async () => {
   expect(readyCalls[1]).toEqual(readyCalls[0]!);
 });
 
-test("receives only its JWT server-side Workspace publications", async () => {
+test("receives only publications directed to its Computer", async () => {
   const fake = fakeClient();
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
   const started: string[] = [];
@@ -262,14 +262,15 @@ test("receives only its JWT server-side Workspace publications", async () => {
     protocolMajor: 1,
     requestId: "start-1",
     workspaceId: config.workspaceId,
+    computerId: config.computerId,
     agentId: "agent-1",
     provider: "pi",
     model: "",
     reasoning: "",
   });
 
-  fake.publish("workspace:other", data);
-  fake.publish(`workspace:${config.workspaceId}`, data);
+  fake.publish("daemon:other-computer", data);
+  fake.publish(`daemon:${config.computerId}`, data);
 
   expect(started).toEqual(["agent-1"]);
 });
@@ -367,7 +368,16 @@ test("requests and revokes Agent API keys through the server API route", async (
         authorization: headers.get("authorization"),
       });
       return Response.json(
-        init?.method === "POST" ? { apiKey: `sk_agent_${"a".repeat(43)}` } : { revoked: true },
+        init?.method === "POST"
+          ? {
+              apiKey: `sk_agent_${"a".repeat(43)}`,
+              providerConfig: {
+                kind: "pi-builtin",
+                providerId: "deepseek",
+                apiKey: "sk-deepseek-secret",
+              },
+            }
+          : { revoked: true },
       );
     },
     { preconnect: originalFetch.preconnect },
@@ -378,11 +388,16 @@ test("requests and revokes Agent API keys through the server API route", async (
       ...config,
       serverHttpUrl: "https://server.example/api/internal/centrifugo",
     });
-    const apiKey = await transport.requestAgentApiKey({
+    const launchConfig = await transport.requestAgentLaunchConfig({
       agentId: "agent-1",
       workspaceId: config.workspaceId,
     });
-    await transport.revokeAgentApiKey(apiKey);
+    expect(launchConfig.providerConfig).toEqual({
+      kind: "pi-builtin",
+      providerId: "deepseek",
+      apiKey: "sk-deepseek-secret",
+    });
+    await transport.revokeAgentApiKey(launchConfig.agentApiKey);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -399,4 +414,35 @@ test("requests and revokes Agent API keys through the server API route", async (
       authorization: "Bearer daemon-token",
     },
   ]);
+});
+
+test("rejects non-canonical runtime provider config from the server", async () => {
+  const fake = fakeClient();
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const providerConfig of [
+      { kind: "custom", providerId: "deepseek", apiKey: "secret-key" },
+      { kind: "pi-builtin", apiKey: "secret-key" },
+      { kind: "default", providerId: "deepseek" },
+      { kind: "default", apiKey: "secret-key" },
+    ]) {
+      globalThis.fetch = Object.assign(
+        async () => Response.json({ apiKey: `sk_agent_${"a".repeat(43)}`, providerConfig }),
+        { preconnect: originalFetch.preconnect },
+      );
+      const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+      await transport.start("daemon-token", {
+        ...config,
+        serverHttpUrl: "https://server.example/api/internal/centrifugo",
+      });
+      await expect(
+        transport.requestAgentLaunchConfig({
+          agentId: "agent-1",
+          workspaceId: config.workspaceId,
+        }),
+      ).rejects.toThrow("invalid Agent runtime provider config response");
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

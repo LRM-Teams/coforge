@@ -85,7 +85,8 @@ load_compose_secrets() {
 	AUTHING_APP_ID="$(cat "$secrets_dir/authing_app_id")"
 	AUTHING_APP_SECRET="$(cat "$secrets_dir/authing_app_secret")"
 	COFORGE_SESSION_SECRET="$(cat "$secrets_dir/coforge_session_secret")"
-	for name in AUTHING_APP_ID AUTHING_APP_SECRET COFORGE_SESSION_SECRET; do
+	COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY="$(cat "$secrets_dir/coforge_agent_runtime_credential_key")"
+	for name in AUTHING_APP_ID AUTHING_APP_SECRET COFORGE_SESSION_SECRET COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY; do
 		[ -n "${!name}" ] || {
 			printf '%s secret file is empty\n' "$name" >&2
 			exit 1
@@ -97,6 +98,7 @@ compose() {
 	AUTHING_APP_ID="$AUTHING_APP_ID" \
 		AUTHING_APP_SECRET="$AUTHING_APP_SECRET" \
 		COFORGE_SESSION_SECRET="$COFORGE_SESSION_SECRET" \
+		COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY="$COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY" \
 		docker compose "${COMPOSE_ARGS[@]}" "$@"
 }
 

@@ -12,7 +12,10 @@ import {
 } from "./rpc-handler.server";
 import { getDatabaseClient } from "../db/client.server";
 import type { PrismaClient } from "../../../generated/client";
-import { PrismaWorkspaceAccess } from "../db/repositories/setup.repositories.server";
+import {
+  PrismaComputerRegistrationRepository,
+  PrismaWorkspaceAccess,
+} from "../db/repositories/setup.repositories.server";
 import {
   createComputerRegistrationMethod,
   createDaemonRuntimeCodeAgentsUpdateMethod,
@@ -30,12 +33,10 @@ import {
 } from "@coforge/protocol";
 import { WorkspaceQueryUseCase } from "../workspaces/query.server";
 import { ComputerRegistrar } from "../computers/registration.server";
-import { PrismaComputerConnectionRepository } from "../db/repositories/setup.repositories.server";
 import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
 } from "../db/repositories/agent.repositories.server";
-import { createDaemonApiKeyFactory } from "../auth/daemon-api-key.server";
 import {
   createAgentStartMethod,
   createAgentDeliveryAckMethod,
@@ -150,8 +151,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
     const query = new WorkspaceQueryUseCase(access);
     const registration = new ComputerRegistrar({
       workspaceAccess: access,
-      computers: new PrismaComputerConnectionRepository(db),
-      daemonApiKeyFactory: createDaemonApiKeyFactory(new PrismaDaemonApiKeyRepository(db)),
+      registrations: new PrismaComputerRegistrationRepository(db),
     });
     const agentRepository = new PrismaAgentRepository(db);
     const agentAuthorization = new RepositoryAgentAuthorization(agentRepository);

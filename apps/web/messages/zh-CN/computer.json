@@ -61,5 +61,10 @@
   "computer_usage_status_unsupported": "该 Code Agent 不上报用量",
   "computer_usage_unavailable_description": "暂时无法获取用量，请重试。",
   "computer_usage_reauth": "请重新登录此 Code Agent，然后再次扫描。",
-  "computer_usage_error": "用量扫描失败，请重试。"
+  "computer_usage_error": "用量扫描失败，请重试。",
+  "computer_shared_computer": "共享电脑",
+  "computer_runtime_private": "私有",
+  "computer_runtime_public": "公开",
+  "computer_runtime_publish_label": "公开 {runtime}",
+  "computer_runtime_make_private_label": "将 {runtime} 设为私有"
 }

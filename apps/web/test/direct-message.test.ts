@@ -13,6 +13,7 @@ const persisted = {
   body: "Hello Agent",
   createdAt: new Date("2026-08-28T00:00:00Z"),
   workspaceId: "workspace-a",
+  computerId: "computer-a",
   agentId: "agent-a",
   sequence: 1,
   target: "@agent",
@@ -62,7 +63,7 @@ describe("SendDirectMessage", () => {
     });
 
     expect(calls).toEqual(["persist", "publish"]);
-    expect(publication?.channel).toBe("workspace:workspace-a");
+    expect(publication?.channel).toBe("daemon:computer-a");
     expect(decodeAgentMessageDelivery(publication!.data)).toEqual({
       protocolMajor: 1,
       requestId: "request-a",

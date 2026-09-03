@@ -68,13 +68,14 @@ public，镜像包默认公开，ECS 拉镜像不需要登录。
 | `DEPLOY_SSH_HOST_KEY`                                    | 服务器指纹校验                                |
 | `AUTHING_APP_SECRET`                                     | Web 登录换 token                              |
 | `COFORGE_SESSION_SECRET`                                 | 云端 `coforge_session` 签名密钥，须与本机不同 |
+| `COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY`                   | 64 位十六进制 Agent Runtime 凭据加密主密钥    |
 
 | 需要配的变量（staging 环境） | 用途                                |
 | ---------------------------- | ----------------------------------- |
 | `AUTHING_APP_ID`             | Authing 应用 ID                     |
 | `STAGING_PUBLIC_HEALTH_URL`  | `https://staging.coforge.cn/health` |
 
-部署时 workflow 把 Authing 应用 ID、应用密钥和 session 密钥写入主机
+部署时 workflow 把 Authing 应用 ID、应用密钥、session 密钥和 Agent Runtime 凭据主密钥写入主机
 `infra/staging/secrets/`。`remote-deploy.sh` 通过 Compose secrets 只把它们挂载给 Web；
 这些值不会写入 Compose `.env` 或容器环境。Issuer 固定为
 `https://coforge.authing.cn/oidc`，callback 固定为

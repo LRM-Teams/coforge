@@ -4,7 +4,7 @@ import {
   encodeAgentMessageDelivery,
 } from "@coforge/protocol";
 import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
-import { workspaceAgentChannel } from "../centrifugo/server-api.server";
+import { daemonControlChannel } from "../centrifugo/server-api.server";
 import type { DirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 
@@ -99,8 +99,9 @@ export class SendDirectMessage {
       !/^@[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?$/.test(message.latestSender)
     )
       throw new Error("message sender must be a public @username");
+    if (!message.computerId) throw new Error("Agent is not assigned to a Computer");
     await this.centrifugo.publish(
-      workspaceAgentChannel(message.workspaceId),
+      daemonControlChannel(message.computerId),
       encodeAgentMessageDelivery({
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
         requestId,

@@ -18,19 +18,12 @@ export interface WorkspaceAccess {
     principal: AuthenticatedPrincipal,
   ): Promise<Workspace | undefined>;
 }
-export interface ComputerConnectionRepository {
-  create(input: {
+export interface ComputerRegistrationRepository {
+  register(input: {
     principal: AuthenticatedPrincipal;
     workspace: Workspace;
     request: ComputerRegisterRequest;
-  }): Promise<Omit<ComputerRegistration, "daemonApiKey">>;
-}
-export interface DaemonApiKeyFactory {
-  create(input: {
-    principal: AuthenticatedPrincipal;
-    workspaceId: string;
-    computerId: string;
-  }): Promise<string>;
+  }): Promise<ComputerRegistration>;
 }
 
 export class ComputerRegistrationError extends Error {
@@ -46,8 +39,7 @@ export class ComputerRegistrar {
   constructor(
     private readonly deps: {
       workspaceAccess: WorkspaceAccess;
-      computers: ComputerConnectionRepository;
-      daemonApiKeyFactory: DaemonApiKeyFactory;
+      registrations: ComputerRegistrationRepository;
     },
   ) {}
 
@@ -62,15 +54,9 @@ export class ComputerRegistrar {
       principal,
     );
     if (!workspace) throw new ComputerRegistrationError(403, "workspace access denied");
-    const connection = await this.deps.computers.create({ principal, workspace, request });
-    const daemonApiKey = await this.deps.daemonApiKeyFactory.create({
-      principal,
-      workspaceId: workspace.id,
-      computerId: connection.computerId,
-    });
+    const registration = await this.deps.registrations.register({ principal, workspace, request });
     return {
-      ...connection,
-      daemonApiKey,
+      ...registration,
       protocolMajor: COMPUTER_REGISTER_PROTOCOL_MAJOR,
       requestId: request.requestId,
     };

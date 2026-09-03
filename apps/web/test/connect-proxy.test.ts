@@ -40,7 +40,7 @@ describe("Centrifugo Connect Proxy", () => {
       result: {
         user: "user-1",
         meta: { workspace_id: "workspace-1", computer_id: "computer-1" },
-        subs: { "workspace:workspace-1": {} },
+        subs: { "daemon:computer-1": {} },
       },
     });
   });

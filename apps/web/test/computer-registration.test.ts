@@ -18,8 +18,13 @@ test("retries reuse the unique binding and receive a fresh Daemon API key", asyn
   let calls = 0;
   const registrar = new ComputerRegistrar({
     workspaceAccess: { findAccessibleBySlug: async () => ({ id: "w", slug: "team" }) },
-    computers: { create: async () => ({ computerId: "c", workspaceId: "w" }) },
-    daemonApiKeyFactory: { create: async () => `dk_test_${++calls}` },
+    registrations: {
+      register: async () => ({
+        computerId: "c",
+        workspaceId: "w",
+        daemonApiKey: `dk_test_${++calls}`,
+      }),
+    },
   });
   const first = await registrar.register(request, { userId: "u" });
   const second = await registrar.register(request, { userId: "u" });
@@ -30,8 +35,9 @@ test("retries reuse the unique binding and receive a fresh Daemon API key", asyn
 test("rejects unauthenticated or inaccessible setup", async () => {
   const registrar = new ComputerRegistrar({
     workspaceAccess: { findAccessibleBySlug: async () => undefined },
-    computers: { create: async () => ({ computerId: "c", workspaceId: "w" }) },
-    daemonApiKeyFactory: { create: async () => "dk_test" },
+    registrations: {
+      register: async () => ({ computerId: "c", workspaceId: "w", daemonApiKey: "dk_test" }),
+    },
   });
   await expect(registrar.register(request, undefined)).rejects.toMatchObject({ code: 401 });
   await expect(registrar.register(request, { userId: "u" })).rejects.toMatchObject({ code: 403 });

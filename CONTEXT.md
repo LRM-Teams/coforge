@@ -27,10 +27,13 @@ _Avoid_: Workspace login, machine assignment
 A short-lived connection identity derived from exactly one active Workspace–Computer connection. It cannot confer authority for another Workspace or for User management actions.
 _Avoid_: Computer login, global daemon session
 
-Computer has one active Workspace–Computer connection at a time. Setup receives
-one external setup intent. Switching stops old runtime processes and WSS, then
-replaces only the active config; old local data, credentials, and Agent
-directories are retained. No unregister or cleanup is performed.
+Computer has exactly one Workspace–Computer connection at a time. Running setup
+again for another Workspace atomically moves the server-owned connection,
+revokes every older Daemon API key for that Computer, and resets its Code Agent
+installation visibility to private. Agents in the previous Workspace are
+detached from the Computer. The local setup flow stops old runtime processes
+and WSS, then replaces only the active config; old local data, credentials, and
+Agent directories are retained.
 
 **Agent**:
 The logical collaborator belonging to exactly one Workspace, receiving messages, producing responses, and named in server-side authorization and audit records. It is owned by an external User identity.
@@ -63,9 +66,22 @@ _Avoid_: Workspace, repository, provider home, runtime directory
 A short-lived execution and audit identity for one Agent in one Workspace runtime session. Its configuration selects a provider, model, and reasoning behavior; provider-specific adapters translate that configuration into the native runtime settings. It never inherits User or Computer authority.
 _Avoid_: Agent token, code-agent installation
 
+**Agent runtime credential**:
+Model-provider authorization material assigned to exactly one Agent's runtime
+configuration. The Agent owner may set, replace, or remove it; it is not a
+User-wide provider credential and is never shared implicitly with another Agent.
+_Avoid_: User API key, Computer credential, Agent API key
+
 **Code Agent installation**:
 An external provider executable, currently Codex or Claude Code, discovered from the Daemon's effective PATH on one Computer. Its reported provider and version form a replaceable observation, not a credential or Agent runtime. Built-in Pi is not part of this inventory.
 _Avoid_: Agent runtime, Computer registration, built-in Agent
+
+**Code Agent installation visibility**:
+Whether a Code Agent installation may be selected by Workspace members other
+than the Computer owner. An installation is private by default; its owner may
+publish it to the Workspace or make it private again. The owner may always
+select it, and publication never grants access outside the Workspace.
+_Avoid_: Global runtime, public Computer, installation ownership
 
 **Code Agent model catalog**:
 The replaceable model and reasoning selection metadata advertised for one Code Agent provider on one Computer. Pi entries also carry the underlying model provider needed to disambiguate model IDs. A listed model is a supported selection, not proof that the current account is entitled to run it. The catalog validates Agent runtime configuration; it is not a credential or global model registry.
