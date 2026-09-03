@@ -40,9 +40,8 @@ export type DirectConversationRepository = {
     messageId: string;
     sequence: number;
   }): Promise<void>;
-  readMessages?(
-    workspaceId: string,
-    agentId: string,
+  readMessagesForConversation?(
+    conversationId: string,
     target: string,
   ): Promise<
     {
@@ -314,11 +313,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     if (result.count !== 1) throw new Error("delivery acknowledgement is not authorized");
   }
 
-  async readMessages(workspaceId: string, agentId: string, target: string) {
-    const userId = await this.userIdForUsername(target);
-    const conversation = await this.getOrCreateUserAgent(workspaceId, userId, agentId);
+  async readMessagesForConversation(conversationId: string, target: string) {
     const rows = await this.db.message.findMany({
-      where: { conversationId: conversation.id },
+      where: { conversationId },
       orderBy: { sequence: "asc" },
       include: { sender: { include: { agent: true } }, attachment: true },
     });

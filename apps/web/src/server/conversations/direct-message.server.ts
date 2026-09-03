@@ -8,6 +8,26 @@ import { daemonControlChannel } from "../centrifugo/server-api.server";
 import type { DirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 
+export class ReadDirectMessages {
+  constructor(private readonly conversations: DirectConversationRepository) {}
+
+  async execute(input: { workspaceId: string; agentId: string; target: string }) {
+    const userId = await this.conversations.userIdForUsername?.(input.target);
+    if (!userId) throw new Error("target user not found");
+    const conversation = await this.conversations.getOrCreateUserAgent(
+      input.workspaceId,
+      userId,
+      input.agentId,
+    );
+    const messages = await this.conversations.readMessagesForConversation?.(
+      conversation.id,
+      input.target,
+    );
+    if (!messages) throw new Error("message reading is unavailable");
+    return messages;
+  }
+}
+
 /** Persists a canonical User-Agent direct message before attempting transport publication. */
 export class SendDirectMessage {
   constructor(

@@ -19,7 +19,7 @@ import { getUsageCache, type UsageCache, type UsageSnapshot } from "./usage-cach
 import { CloudAgentUseCase } from "../agents/cloud-agent.server";
 import { decodeAgentMessageDeliveryAck } from "@coforge/protocol";
 import { decodeAgentMessageRequest, encodeCloudAgentMessageResponse } from "@coforge/protocol";
-import { SendDirectMessage } from "../conversations/direct-message.server";
+import { ReadDirectMessages, SendDirectMessage } from "../conversations/direct-message.server";
 import { getMessageRequestIdempotency } from "../conversations/redis-message-request-idempotency.server";
 import type { MessageRequestIdempotency } from "../conversations/message-request-idempotency.server";
 
@@ -82,11 +82,11 @@ export function createAgentMessageMethod(
       return { code: 403, message: "agent is not authorized" };
     if (!request.target.startsWith("@")) return { code: 400, message: "target must be @username" };
     if (operation === "read") {
-      const messages = await repository.readMessages(
-        metadata.principal.workspaceId,
+      const messages = await new ReadDirectMessages(repository).execute({
+        workspaceId: metadata.principal.workspaceId,
         agentId,
-        request.target,
-      );
+        target: request.target,
+      });
       return encodeCloudAgentMessageResponse({
         protocolMajor: 1,
         requestId: request.requestId,
