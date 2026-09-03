@@ -6,7 +6,7 @@ import { SendDirectMessage } from "../../server/conversations/direct-message.ser
 import { getMessageRequestIdempotency } from "../../server/conversations/redis-message-request-idempotency.server";
 import { getDatabaseClient } from "../../server/db/client.server";
 import { PrismaDirectConversationRepository } from "../../server/db/repositories/direct-conversation.repositories.server";
-import { requireExistingWorkspaceId } from "../../server/workspaces/enrollment.server";
+import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 
 const MAX_BODY_LENGTH = 8_000;
 
@@ -41,7 +41,7 @@ function validateSend(data: unknown) {
 async function context(user: { id: string; username: string; name: string }, agentId: string) {
   const db = getDatabaseClient();
   if (!db) throw new Error("Conversation persistence is unavailable");
-  const workspaceId = await requireExistingWorkspaceId(db, user.id);
+  const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
   const agent = await db.agent.findFirst({
     where: { id: agentId, workspaceId, ownerId: user.id },
     select: { id: true },

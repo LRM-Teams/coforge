@@ -1,17 +1,42 @@
-import { Outlet, createFileRoute } from "@tanstack/react-router";
+import { Outlet, createFileRoute, useRouter } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 
 import { AppShell } from "@/components/app-shell";
+import {
+  createWorkspace,
+  loadWorkspaceSwitcher,
+  selectWorkspace,
+} from "@/features/workspaces/workspaces.functions";
 import { requireCurrentUser } from "@/server/auth/current-user";
 
 export const Route = createFileRoute("/_app")({
-  beforeLoad: async () => ({ user: await requireCurrentUser() }),
+  beforeLoad: async () => {
+    const user = await requireCurrentUser();
+    const switcher = await loadWorkspaceSwitcher();
+    return { user, workspaces: switcher.workspaces, currentWorkspace: switcher.current };
+  },
   component: AppLayout,
 });
 
 function AppLayout() {
-  const { user } = Route.useRouteContext();
+  const { user, workspaces, currentWorkspace } = Route.useRouteContext();
+  const router = useRouter();
+  const select = useServerFn(selectWorkspace);
+  const create = useServerFn(createWorkspace);
   return (
-    <AppShell user={{ name: user.name, email: user.email }}>
+    <AppShell
+      user={{ name: user.name, email: user.email }}
+      workspaces={workspaces}
+      currentWorkspace={currentWorkspace}
+      onSelectWorkspace={async (slug) => {
+        await select({ data: { slug } });
+        await router.invalidate({ sync: true });
+      }}
+      onCreateWorkspace={async (input) => {
+        await create({ data: input });
+        await router.invalidate({ sync: true });
+      }}
+    >
       <Outlet />
     </AppShell>
   );

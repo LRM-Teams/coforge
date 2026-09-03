@@ -74,6 +74,25 @@ function renderAgents(
   );
 }
 
+test("shows the current Workspace below the logo", () => {
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <AppShell
+        user={user}
+        workspaces={[{ id: "ws-1", slug: "lrm-team", name: "LRM-Team" }]}
+        currentWorkspace={{ id: "ws-1", slug: "lrm-team", name: "LRM-Team" }}
+      >
+        Page
+      </AppShell>
+    </RouterContextProvider>,
+  );
+
+  expect(page().getByAltText("CoForge")).toBeTruthy();
+  expect(page().getByRole("button", { name: "Current workspace" }).textContent).toContain(
+    "LRM-Team",
+  );
+});
+
 test("shows the primary navigation with Members selected", () => {
   const markup = renderShell();
 

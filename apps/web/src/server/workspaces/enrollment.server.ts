@@ -1,4 +1,5 @@
 import type { PrismaClient } from "../../../generated/client";
+import { WorkspaceCatalog, PrismaWorkspaceCatalogStore } from "./catalog.server";
 import { WORKSPACE_UNAVAILABLE } from "./workspace-unavailable";
 
 export type EnrollmentUser = { id: string; username: string; displayName: string };
@@ -86,10 +87,14 @@ export function findWorkspaceIdForUser(db: PrismaClient, userId: string): Promis
 export async function requireExistingWorkspaceId(
   db: PrismaClient,
   userId: string,
+  preferredSlug?: string,
 ): Promise<string> {
-  const workspaceId = await findWorkspaceIdForUser(db, userId);
-  if (!workspaceId) throw new Error(WORKSPACE_UNAVAILABLE);
-  return workspaceId;
+  const selected = await new WorkspaceCatalog(new PrismaWorkspaceCatalogStore(db)).selectForUser(
+    userId,
+    preferredSlug,
+  );
+  if (!selected) throw new Error(WORKSPACE_UNAVAILABLE);
+  return selected.id;
 }
 
 export function workspaceIdForUser(

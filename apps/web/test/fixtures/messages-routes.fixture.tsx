@@ -84,6 +84,14 @@ mock.module("@/server/auth/current-user", () => ({
     username: "route-tester",
   })),
 }));
+mock.module("@/features/workspaces/workspaces.functions", () => ({
+  loadWorkspaceSwitcher: mock(async () => ({
+    workspaces: [{ id: "workspace-1", slug: "route-tester", name: "Route Tester's Workspace" }],
+    current: { id: "workspace-1", slug: "route-tester", name: "Route Tester's Workspace" },
+  })),
+  selectWorkspace: mock(async () => {}),
+  createWorkspace: mock(async () => {}),
+}));
 
 const { getRouter } = await import("@/router");
 

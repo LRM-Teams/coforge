@@ -12,7 +12,8 @@
       "./messages/{locale}/agents.json",
       "./messages/{locale}/conversations.json",
       "./messages/{locale}/settings.json",
-      "./messages/{locale}/computer.json"
+      "./messages/{locale}/computer.json",
+      "./messages/{locale}/workspace.json"
     ]
   }
 }
