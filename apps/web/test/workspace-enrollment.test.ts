@@ -46,8 +46,7 @@ test("the highest-quality language tag wins", async () => {
 
 test("an existing membership is left unchanged", async () => {
   const store = memoryStore();
-  await store.createWorkspace({ slug: "team", name: "Team" });
-  await store.addMember("workspace-team", ada.id);
+  await store.createForUser({ slug: "team", name: "Team", userId: ada.id });
   const enrollment = new WorkspaceEnrollment(store);
   const result = await enrollment.ensureForUser(ada, "zh-CN");
   expect(result.workspaceId).toBe("workspace-team");
@@ -63,17 +62,28 @@ test("looking up a missing membership does not create a Workspace", async () => 
 
 test("a taken username slug still creates a Workspace for that User", async () => {
   const store = memoryStore();
-  await store.createWorkspace({ slug: "ada", name: "Taken" });
+  store.reserveWorkspace({ slug: "ada", name: "Taken" });
   const enrollment = new WorkspaceEnrollment(store);
   const result = await enrollment.ensureForUser(ada, "en");
   expect(result.workspaceId).toBe("workspace-ada-11111111");
   expect(store.created.at(-1)).toEqual({ slug: "ada-11111111", name: "Ada's Workspace" });
 });
 
+test("a membership failure does not leave a Workspace", async () => {
+  const store = memoryStore();
+  store.createForUser = async () => {
+    throw new Error("missing user");
+  };
+
+  await expect(new WorkspaceEnrollment(store).ensureForUser(ada, "en")).rejects.toThrow(
+    "missing user",
+  );
+  expect(store.created).toEqual([]);
+});
+
 function memoryStore(): WorkspaceEnrollmentStore & {
   created: { slug: string; name: string }[];
-  createWorkspace(input: { slug: string; name: string }): Promise<string>;
-  addMember(workspaceId: string, userId: string): Promise<void>;
+  reserveWorkspace(input: { slug: string; name: string }): void;
 } {
   const created: { slug: string; name: string }[] = [];
   const members = new Map<string, string>();
@@ -82,15 +92,17 @@ function memoryStore(): WorkspaceEnrollmentStore & {
     async findMembership(userId) {
       return members.get(userId) ?? null;
     },
-    async createWorkspace(input) {
+    reserveWorkspace(input) {
+      created.push(input);
+    },
+    async createForUser(input) {
       if (created.some((workspace) => workspace.slug === input.slug)) {
         throw Object.assign(new Error("unique"), { code: "P2002" });
       }
       created.push({ slug: input.slug, name: input.name });
-      return `workspace-${input.slug}`;
-    },
-    async addMember(workspaceId, userId) {
-      members.set(userId, workspaceId);
+      const workspaceId = `workspace-${input.slug}`;
+      members.set(input.userId, workspaceId);
+      return workspaceId;
     },
   };
 }

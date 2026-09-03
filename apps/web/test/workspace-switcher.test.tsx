@@ -39,3 +39,28 @@ test("the workspace switcher lists memberships and can create a Workspace", asyn
   );
   cleanup();
 });
+
+test("workspace creation hides internal server errors", async () => {
+  const user = userEvent.setup({ document });
+  render(
+    <WorkspaceSwitcher
+      workspaces={workspaces}
+      current={workspaces[0]!}
+      onSelect={async () => {}}
+      onCreate={async () => {
+        throw new Error("internal Prisma path");
+      }}
+    />,
+  );
+  const page = within(document.body);
+  await user.click(page.getByRole("button", { name: "Current workspace" }));
+  await user.click(page.getByRole("menuitem", { name: "Create workspace" }));
+  await user.type(page.getByLabelText("Workspace name"), "Research");
+  await user.click(page.getByRole("button", { name: "Create workspace" }));
+
+  await waitFor(() =>
+    expect(page.getByRole("alert").textContent).toBe("Couldn’t create workspace."),
+  );
+  expect(page.queryByText(/Prisma/)).toBeNull();
+  cleanup();
+});

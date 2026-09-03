@@ -144,7 +144,7 @@ function CreateWorkspaceDialog({
       if (message === "workspace slug is taken") setError(m.workspace_slug_taken());
       else if (message === "workspace slug is reserved") setError(m.workspace_slug_reserved());
       else if (message === "workspace slug is invalid") setError(m.workspace_slug_invalid());
-      else setError(message || m.workspace_slug_taken());
+      else setError(m.workspace_create_failed());
     } finally {
       setSubmitting(false);
     }

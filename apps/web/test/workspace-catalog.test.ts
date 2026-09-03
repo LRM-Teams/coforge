@@ -68,6 +68,17 @@ test("rejects an invalid Workspace slug or empty name", async () => {
   );
 });
 
+test("does not expose unexpected persistence errors", async () => {
+  const store = memoryStore();
+  store.createForUser = async () => {
+    throw new Error("internal database path");
+  };
+
+  await expect(
+    new WorkspaceCatalog(store).createForUser(ada, { name: "Research", slug: "research" }),
+  ).rejects.toThrow("workspace creation failed");
+});
+
 function memoryStore(): WorkspaceCatalogStore {
   const workspaces: WorkspaceRecord[] = [];
   const members = new Map<string, string[]>();
@@ -78,7 +89,7 @@ function memoryStore(): WorkspaceCatalogStore {
         .map((slug) => workspaces.find((workspace) => workspace.slug === slug))
         .filter((workspace): workspace is WorkspaceRecord => Boolean(workspace));
     },
-    async createWorkspace(input) {
+    async createForUser(input) {
       if (workspaces.some((workspace) => workspace.slug === input.slug)) {
         throw Object.assign(new Error("unique"), { code: "P2002" });
       }
@@ -88,14 +99,10 @@ function memoryStore(): WorkspaceCatalogStore {
         name: input.name,
       };
       workspaces.push(workspace);
-      return workspace;
-    },
-    async addMember(workspaceId, userId) {
-      const workspace = workspaces.find((row) => row.id === workspaceId);
-      if (!workspace) throw new Error("missing workspace");
-      const slugs = members.get(userId) ?? [];
+      const slugs = members.get(input.userId) ?? [];
       slugs.push(workspace.slug);
-      members.set(userId, slugs);
+      members.set(input.userId, slugs);
+      return workspace;
     },
   };
 }

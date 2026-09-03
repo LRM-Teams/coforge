@@ -11,6 +11,7 @@
   "workspace_slug_placeholder": "my-workspace",
   "workspace_create_submit": "Create workspace",
   "workspace_create_submitting": "Creating…",
+  "workspace_create_failed": "Couldn’t create workspace.",
   "workspace_slug_invalid": "Only lowercase letters, numbers, and hyphens.",
   "workspace_slug_taken": "That workspace URL is already taken.",
   "workspace_slug_reserved": "That workspace URL is reserved."
