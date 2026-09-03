@@ -6,6 +6,7 @@ import {
   startBrowserLogin,
   type AuthingConfig,
   type BrowserUser,
+  type InternalUserResolver,
   type TokenExchanger,
 } from "./browser-login.server";
 import { UserIdentityRepository } from "./user-identity.repository.server";
@@ -46,29 +47,17 @@ export async function handleLoginCallback(input: {
       state,
       cookieHeader: input.request.headers.get("cookie") ?? "",
       authing: input.authing ?? createAuthingExchanger(input.config),
-      resolveUser:
-        input.resolveUser ??
-        (() => {
-          const db = getDatabaseClient();
-          if (!db) return undefined;
-          const identities = new UserIdentityRepository(db);
-          return (identity) =>
-            identities.resolve(identity.provider, identity.subject, {
-              email: identity.email,
-              preferredUsername: identity.preferredUsername,
-            });
-        })(),
+      resolveUser: input.resolveUser ?? persistedIdentityResolver(),
     });
     if (input.enrollUser) await input.enrollUser(completed.user.id);
     else {
       const db = getDatabaseClient();
-      if (db) {
-        await workspaceIdForUser(
-          db,
-          completed.user,
-          input.request.headers.get("accept-language") ?? "",
-        );
-      }
+      if (!db) throw new Error("database is required");
+      await workspaceIdForUser(
+        db,
+        completed.user,
+        input.request.headers.get("accept-language") ?? "",
+      );
     }
     return redirect("/", {
       "set-cookie": [completed.sessionCookie, completed.clearStateCookie],
@@ -106,6 +95,17 @@ export function readRequestUser(request: Request, sessionSecret: string): Browse
     sessionSecret,
     cookieHeader: request.headers.get("cookie") ?? "",
   });
+}
+
+function persistedIdentityResolver(): InternalUserResolver {
+  const db = getDatabaseClient();
+  if (!db) throw new Error("database is required");
+  const identities = new UserIdentityRepository(db);
+  return (identity) =>
+    identities.resolve(identity.provider, identity.subject, {
+      email: identity.email,
+      preferredUsername: identity.preferredUsername,
+    });
 }
 
 function redirect(
