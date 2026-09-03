@@ -10,7 +10,7 @@ export function LoginPage({ error }: { error?: string }) {
         <h1 className="text-xl font-semibold tracking-tight">{m.login_title()}</h1>
         <p className="mt-2 text-sm text-muted-foreground">{m.login_description()}</p>
         {error ? (
-          <p role="alert" className="mt-4 text-sm text-destructive">
+          <p role="alert" className="mt-4 text-sm text-destructive-text">
             {m.login_failed()}
           </p>
         ) : null}

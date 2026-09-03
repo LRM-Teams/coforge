@@ -24,7 +24,10 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
   ),
   errorComponent: () => (
     <main className="flex-1 p-6">
-      <div role="alert" className="rounded-xl border border-destructive/40 p-5 text-destructive">
+      <div
+        role="alert"
+        className="rounded-xl border border-destructive/40 p-5 text-destructive-text"
+      >
         {m.agent_detail_error()}
       </div>
     </main>

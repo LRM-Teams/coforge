@@ -11,6 +11,7 @@ import {
   type CentrifugoRpcMethod,
 } from "./rpc-handler.server";
 import { getDatabaseClient } from "../db/client.server";
+import type { PrismaClient } from "../../../generated/client";
 import { PrismaWorkspaceAccess } from "../db/repositories/setup.repositories.server";
 import {
   createComputerRegistrationMethod,
@@ -136,9 +137,14 @@ function authorizeCentrifugoProxy(request: Request): void {
     throw new Error("proxy authorization failed");
 }
 
-/** Compose the server-owned Centrifugo boundary without inventing persistence. */
-export function createCentrifugoRpcHandler() {
-  const db = getDatabaseClient();
+/**
+ * Compose the server-owned Centrifugo boundary without inventing persistence.
+ *
+ * `db` is a parameter so tests can compose the unwired handler by passing
+ * `null`, rather than depending on DATABASE_URL being absent from the
+ * environment.
+ */
+export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabaseClient() ?? null) {
   if (db) {
     const access = new PrismaWorkspaceAccess(db);
     const query = new WorkspaceQueryUseCase(access);

@@ -166,7 +166,9 @@ describe("CentrifugoRpcHandler", () => {
   });
 
   test("composed protocol methods fail closed until persistence is wired", async () => {
-    const handler = createCentrifugoRpcHandler();
+    // Pass null so the assertion holds whether or not DATABASE_URL is set in
+    // the developer's environment.
+    const handler = createCentrifugoRpcHandler(null);
     const previous = process.env.COFORGE_CENTRIFUGO_PROXY_SECRET;
     process.env.COFORGE_CENTRIFUGO_PROXY_SECRET = "test-secret";
     const result = await handler.handleRequest(
