@@ -65,7 +65,8 @@ test("shows the machine, its Code Agents, and an explicit no-snapshot usage stat
   expect(page.getByText("macos:9f2c")).toBeTruthy();
   expect(page.getByText("Codex Runtime")).toBeTruthy();
   expect(document.body.textContent).toContain("Version 0.151.0");
-  expect(page.getByText("GPT-5")).toBeTruthy();
+  expect(page.queryByText("Models")).toBeNull();
+  expect(page.queryByText("GPT-5")).toBeNull();
   expect(page.queryByText("Recommended")).toBeNull();
   expect(page.getByText("No snapshot yet")).toBeTruthy();
 });

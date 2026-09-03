@@ -25,10 +25,6 @@ export type ComputerDetailView = ComputerIdentity & {
     observedAt: Date | string;
     isPublic: boolean;
   }[];
-  modelCatalogs?: {
-    provider: string;
-    models: { id: string; displayName: string }[];
-  }[];
   usage?: Record<string, UsageView>;
 };
 
@@ -143,13 +139,6 @@ export function ComputerDetail({
                       time: formatDateForDisplay(runtime.observedAt, timeZone),
                     })}
                   </p>
-                  <ModelCatalog
-                    models={
-                      computer.modelCatalogs?.find(
-                        (catalog) => catalog.provider === runtime.provider,
-                      )?.models
-                    }
-                  />
                 </li>
               ))}
             </ul>
@@ -173,25 +162,6 @@ function StatusPill({ online }: { online: boolean }) {
       />
       {online ? m.computer_status_online() : m.computer_status_offline()}
     </span>
-  );
-}
-
-function ModelCatalog({ models }: { models?: { id: string; displayName: string }[] }) {
-  return (
-    <div className="mt-3 border-t pt-3 text-sm">
-      <p className="font-medium">{m.computer_models()}</p>
-      {models?.length ? (
-        <ul className="mt-2 flex flex-wrap gap-1.5">
-          {models.map((model) => (
-            <li key={model.id} className="rounded-md bg-muted px-2 py-1 text-xs">
-              {model.displayName}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-muted-foreground">{m.computer_models_empty()}</p>
-      )}
-    </div>
   );
 }
 
