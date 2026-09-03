@@ -23,13 +23,42 @@ test("usage scan is on demand and renders a real snapshot", async () => {
     />,
   );
   fireEvent.click(within(document.body).getByRole("button", { name: /Custom Codex/ }));
-  await waitFor(() =>
-    expect(within(document.body).getByRole("dialog").textContent).toContain("Plan: pro"),
-  );
+  await waitFor(() => {
+    const dialog = within(document.body).getByRole("dialog");
+    expect(dialog.textContent).toContain("Pro plan");
+    expect(dialog.textContent).toContain("Session");
+    expect(dialog.textContent).toContain("42% used");
+    expect(within(dialog).getByRole("progressbar").getAttribute("aria-valuenow")).toBe("42");
+  });
   fireEvent.click(
     within(within(document.body).getByRole("dialog")).getByRole("button", { name: "Refresh" }),
   );
   await waitFor(() => expect(scans).toBe(1));
+  cleanup();
+});
+
+test("renders a Claude rate-limit observation without inventing a percentage", async () => {
+  render(
+    <RuntimePopover
+      runtime={{ provider: "claude-code", version: "1", displayName: "Claude Code" }}
+      usage={{
+        status: "available",
+        snapshot: {
+          primary: {
+            status: "rate-limited",
+            resetsAt: "2026-09-04T03:00:00.000Z",
+          },
+        },
+      }}
+      onScan={() => undefined}
+    />,
+  );
+  fireEvent.click(within(document.body).getByRole("button", { name: /Claude Code/ }));
+  await waitFor(() => {
+    const text = within(document.body).getByRole("dialog").textContent;
+    expect(text).toContain("Limit reached");
+    expect(text).not.toContain("% used");
+  });
   cleanup();
 });
 

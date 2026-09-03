@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ClaudeCodeAgentAdapter } from "../src/code-agent/claude-code/adapter";
-import type { AgentRuntimeEvent } from "../src/code-agent/contract";
+import { AGENT_RUNTIME_EVENT_TYPE, type AgentRuntimeEvent } from "../src/code-agent/contract";
 
 test("Claude Code waits for the installed CLI init event before becoming ready", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-code-"));
@@ -94,6 +94,34 @@ test("Claude Code maps stream-json turns behind the code-agent seam", async () =
       { type: "tool-end", id: "tool-1", isError: false },
       { type: "completed", status: "completed" },
     ]);
+
+    await session.dispose();
+  } finally {
+    await rm(agentWorkspaceDirectory, { recursive: true, force: true });
+  }
+});
+
+test("Claude Code exposes account rate-limit events as partial usage snapshots", async () => {
+  const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-usage-event-"));
+
+  try {
+    const session = await fixtureAdapter().start({ agentWorkspaceDirectory });
+    const events: AgentRuntimeEvent[] = [];
+    session.subscribe((event) => events.push(event));
+
+    await session.sendMessage("usage");
+    await waitForEvent(events, "completed");
+    expect(events[0]).toEqual({
+      type: AGENT_RUNTIME_EVENT_TYPE.USAGE,
+      snapshot: {
+        provider: "claude-code",
+        primary: {
+          status: "rate-limited",
+          windowDurationMinutes: 300,
+          resetsAt: "2026-09-04T03:00:00.000Z",
+        },
+      },
+    });
 
     await session.dispose();
   } finally {

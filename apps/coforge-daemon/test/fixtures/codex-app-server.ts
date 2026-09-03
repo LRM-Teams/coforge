@@ -9,6 +9,7 @@ const expectsRuntimeConfig = process.argv.includes("expected-runtime-config");
 const usageUnavailable = process.argv.includes("usage-unavailable");
 const usageUnsupported = process.argv.includes("usage-unsupported");
 const usageTimeout = process.argv.includes("usage-timeout");
+const usageClient = process.argv.some((argument) => argument.startsWith("usage"));
 const skillsDirectory = join(process.cwd(), ".agents", "skills");
 let skills: string[] = [];
 try {
@@ -42,6 +43,20 @@ interface Request {
 
 function handle(request: Request): void {
   if (request.method === "initialize" && request.id) {
+    const clientInfo = request.params?.clientInfo as Record<string, unknown> | undefined;
+    const capabilities = request.params?.capabilities as Record<string, unknown> | undefined;
+    const expectedClient = usageClient
+      ? { name: "coforge-daemon-usage", title: "CoForge Daemon Usage" }
+      : { name: "coforge_daemon", title: "CoForge Daemon" };
+    if (
+      clientInfo?.name !== expectedClient.name ||
+      clientInfo.title !== expectedClient.title ||
+      typeof clientInfo.version !== "string" ||
+      capabilities?.experimentalApi !== false
+    ) {
+      write({ id: request.id, error: { code: "invalid_params", message: "invalid initialize" } });
+      return;
+    }
     write({ id: request.id, result: { userAgent: "fixture" } });
     return;
   }
