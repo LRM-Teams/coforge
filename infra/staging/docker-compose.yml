@@ -36,6 +36,11 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:?deploy script writes .env}
       REDIS_URL: ${REDIS_URL:?deploy script writes .env}
+      AUTHING_APP_ID: ${AUTHING_APP_ID:?deploy script writes .env}
+      AUTHING_APP_SECRET: ${AUTHING_APP_SECRET:?deploy script writes .env}
+      AUTHING_ISSUER: ${AUTHING_ISSUER:?deploy script writes .env}
+      AUTHING_REDIRECT_URI: ${AUTHING_REDIRECT_URI:?deploy script writes .env}
+      COFORGE_SESSION_SECRET: ${COFORGE_SESSION_SECRET:?deploy script writes .env}
       COFORGE_CENTRIFUGO_API_URL: http://centrifugo:8000/api
       COFORGE_CENTRIFUGO_API_KEY: ${COFORGE_CENTRIFUGO_API_KEY:?deploy script writes .env}
       COFORGE_CENTRIFUGO_PROXY_SECRET: ${COFORGE_CENTRIFUGO_PROXY_SECRET:?deploy script writes .env}
