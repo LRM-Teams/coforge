@@ -28,11 +28,11 @@ provide UI runtime selection or add a protocol command for it.
 - Realtime transport: standalone Centrifugo OSS over WebSocket
 - Realtime hot state: self-hosted Redis Docker; never canonical durability
 - Canonical cloud state: self-hosted PostgreSQL Docker with backup/restore gates
-- Local apps: Bun 1.4
+- Local package components: Bun 1.4
 - Edge and local deployment: Caddy and Docker
 - Development tool versions: mise
 
-Only `coforge-computer` and `coforge-daemon` are local app packages. The
+Only `coforge-computer` and `coforge-daemon` are local packageable components. The
 Computer package depends on the Daemon package for build and distribution, so
 users install one Computer distribution containing both compatible payloads.
 Computer and Daemon still run as independent OS processes. The daemon owns one
@@ -59,11 +59,11 @@ Computer and Daemon share the single LogTape-based contract documented in
 ```text
 apps/web                Web UI and backend control plane
 apps/web/prisma         Planned Prisma schema and migrations
-apps/coforge-computer   Machine-level setup and supervisor
-apps/coforge-daemon     Single-workspace daemon and code-agent adapters
+packages/computer       Machine-level setup and supervisor package component
+packages/daemon         Single-workspace daemon and code-agent adapter package component
 packages/agent          Independently packable built-in Agent runtime using Pi SDK
 docs                    Architecture, ADRs, and data-model documentation
-packages                Shared and independently packable runtime packages
+packages                Shared and independently packable components
 ```
 
 ## Development

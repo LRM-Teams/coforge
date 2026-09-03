@@ -88,7 +88,7 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 event: agent:activity
 activity: running_command
 level: info
-message: bun test apps/coforge-daemon/test/daemon-runtime.test.ts
+message: bun test packages/daemon/test/daemon-runtime.test.ts
 ```
 
 `activity=running_command` 表示 Agent runtime 正在执行命令；持久化的 `message` 使用

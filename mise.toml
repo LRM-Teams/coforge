@@ -21,22 +21,22 @@ description = "Build deployable cloud applications"
 run = "bun run build"
 
 [tasks."test:computer"]
-run = "bun run --cwd packages/protocol generate && cd apps/coforge-computer && bun test"
+run = "bun run --cwd packages/protocol generate && cd packages/computer && bun test"
 
 [tasks."test:daemon"]
-run = "bun run --cwd packages/protocol generate && cd apps/coforge-daemon && bun run test"
+run = "bun run --cwd packages/protocol generate && cd packages/daemon && bun run test"
 
 [tasks."check:daemon"]
-run = "bun run --cwd packages/protocol generate && cd apps/coforge-daemon && bun run check"
+run = "bun run --cwd packages/protocol generate && cd packages/daemon && bun run check"
 
 [tasks."build:daemon"]
-run = "bun run --cwd packages/protocol generate && cd apps/coforge-daemon && bun run build"
+run = "bun run --cwd packages/protocol generate && cd packages/daemon && bun run build"
 
 [tasks."check:computer"]
-run = "bun run --cwd packages/protocol generate && cd apps/coforge-computer && bun run check"
+run = "bun run --cwd packages/protocol generate && cd packages/computer && bun run check"
 
 [tasks."build:computer"]
-run = "bun run --cwd packages/protocol generate && cd apps/coforge-computer && bun run build"
+run = "bun run --cwd packages/protocol generate && cd packages/computer && bun run build"
 
 [tasks."dev:frontend"]
 description = "Start the Web UI + control-plane Vite server on 8788"

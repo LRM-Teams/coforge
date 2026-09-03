@@ -34,7 +34,7 @@ import {
   InMemoryDaemonCredentialStore,
   PiAgentAdapter,
   startAgentProxy,
-} from "../../coforge-daemon";
+} from "../../../packages/daemon";
 
 const databaseUrl = requireEnvironment("DATABASE_URL");
 if (requireEnvironment("COFORGE_E2E_ALLOW_RESET") !== "1")
@@ -180,7 +180,10 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
       new PiAgentAdapter({
         command: [
           process.execPath,
-          join(import.meta.dir, "../../coforge-daemon/test/fixtures/agent-message-e2e-runtime.ts"),
+          join(
+            import.meta.dir,
+            "../../../packages/daemon/test/fixtures/agent-message-e2e-runtime.ts",
+          ),
         ],
       }),
     credentials,

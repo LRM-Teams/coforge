@@ -10,42 +10,6 @@
         "@tanstack/intent": "^0.3.7",
       },
     },
-    "apps/coforge-computer": {
-      "name": "@coforge/computer",
-      "version": "0.1.0",
-      "dependencies": {
-        "@coforge/daemon": "workspace:*",
-        "@coforge/protocol": "workspace:*",
-        "@logtape/file": "2.3.2",
-        "@logtape/logtape": "2.3.2",
-        "@logtape/redaction": "2.3.2",
-        "centrifuge": "5.2.1",
-        "commander": "15.0.0",
-        "picocolors": "1.1.1",
-      },
-      "devDependencies": {
-        "@types/bun": "1.4.0",
-        "oxfmt": "0.65.0",
-        "oxlint": "1.80.0",
-        "typescript": "7.0.2",
-      },
-    },
-    "apps/coforge-daemon": {
-      "name": "@coforge/daemon",
-      "version": "0.1.0",
-      "dependencies": {
-        "@coforge/agent": "0.1.0",
-        "@coforge/cli": "workspace:*",
-        "@coforge/protocol": "workspace:*",
-        "centrifuge": "5.2.1",
-      },
-      "devDependencies": {
-        "@types/bun": "1.4.0",
-        "oxfmt": "0.65.0",
-        "oxlint": "1.80.0",
-        "typescript": "7.0.2",
-      },
-    },
     "apps/web": {
       "name": "@coforge/web",
       "version": "0.1.0",
@@ -114,6 +78,42 @@
       },
       "devDependencies": {
         "@coforge/protocol": "workspace:*",
+        "@types/bun": "1.4.0",
+        "oxfmt": "0.65.0",
+        "oxlint": "1.80.0",
+        "typescript": "7.0.2",
+      },
+    },
+    "packages/computer": {
+      "name": "@coforge/computer",
+      "version": "0.1.0",
+      "dependencies": {
+        "@coforge/daemon": "workspace:*",
+        "@coforge/protocol": "workspace:*",
+        "@logtape/file": "2.3.2",
+        "@logtape/logtape": "2.3.2",
+        "@logtape/redaction": "2.3.2",
+        "centrifuge": "5.2.1",
+        "commander": "15.0.0",
+        "picocolors": "1.1.1",
+      },
+      "devDependencies": {
+        "@types/bun": "1.4.0",
+        "oxfmt": "0.65.0",
+        "oxlint": "1.80.0",
+        "typescript": "7.0.2",
+      },
+    },
+    "packages/daemon": {
+      "name": "@coforge/daemon",
+      "version": "0.1.0",
+      "dependencies": {
+        "@coforge/agent": "0.1.0",
+        "@coforge/cli": "workspace:*",
+        "@coforge/protocol": "workspace:*",
+        "centrifuge": "5.2.1",
+      },
+      "devDependencies": {
         "@types/bun": "1.4.0",
         "oxfmt": "0.65.0",
         "oxlint": "1.80.0",
@@ -273,9 +273,9 @@
 
     "@coforge/cli": ["@coforge/cli@workspace:packages/cli"],
 
-    "@coforge/computer": ["@coforge/computer@workspace:apps/coforge-computer"],
+    "@coforge/computer": ["@coforge/computer@workspace:packages/computer"],
 
-    "@coforge/daemon": ["@coforge/daemon@workspace:apps/coforge-daemon"],
+    "@coforge/daemon": ["@coforge/daemon@workspace:packages/daemon"],
 
     "@coforge/protocol": ["@coforge/protocol@workspace:packages/protocol"],
 

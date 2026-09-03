@@ -1,6 +1,6 @@
 # coforge-computer instructions
 
-These rules extend the repository root `AGENTS.md` for this app.
+These rules extend the repository root `AGENTS.md` for this package component.
 
 ## Product boundary
 
