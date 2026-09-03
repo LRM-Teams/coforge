@@ -34,7 +34,6 @@
   "computer_machine_id_copied": "机器 ID 已复制",
   "computer_connected_at": "加入工作区时间",
   "computer_code_agents": "Code Agent",
-  "computer_runtime_observed_at": "检测时间 {time}",
   "computer_not_found": "这台电脑不在当前工作区",
   "computer_not_found_description": "它可能已被移除，或者这个链接指向了别处。",
   "computer_runtime_version": "版本 {version}",

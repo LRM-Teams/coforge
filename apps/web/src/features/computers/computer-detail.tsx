@@ -22,7 +22,6 @@ export type ComputerDetailView = ComputerIdentity & {
     provider: RuntimeProvider;
     version: string;
     displayName: string;
-    observedAt: Date | string;
     isPublic: boolean;
   }[];
   usage?: Record<string, UsageView>;
@@ -134,11 +133,6 @@ export function ComputerDetail({
                       </Button>
                     </div>
                   )}
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    {m.computer_runtime_observed_at({
-                      time: formatDateForDisplay(runtime.observedAt, timeZone),
-                    })}
-                  </p>
                 </li>
               ))}
             </ul>

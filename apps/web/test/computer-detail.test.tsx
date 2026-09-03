@@ -68,6 +68,7 @@ test("shows the machine, its Code Agents, and an explicit no-snapshot usage stat
   expect(page.queryByText("Models")).toBeNull();
   expect(page.queryByText("GPT-5")).toBeNull();
   expect(page.queryByText("Recommended")).toBeNull();
+  expect(document.body.textContent).not.toContain("Detected");
   expect(page.getByText("No snapshot yet")).toBeTruthy();
 });
 
