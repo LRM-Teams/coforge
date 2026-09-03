@@ -1,0 +1,17 @@
+{
+  "$schema": "https://inlang.com/schema/inlang-message-format",
+  "workspace_menu_label": "Workspaces",
+  "workspace_switcher": "Current workspace",
+  "workspace_create": "Create workspace",
+  "workspace_create_title": "Create a new workspace",
+  "workspace_create_description": "Workspaces are shared environments for Agents, conversations, and Computers.",
+  "workspace_name_label": "Workspace name",
+  "workspace_name_placeholder": "My Workspace",
+  "workspace_slug_label": "Workspace URL",
+  "workspace_slug_placeholder": "my-workspace",
+  "workspace_create_submit": "Create workspace",
+  "workspace_create_submitting": "Creating…",
+  "workspace_slug_invalid": "Only lowercase letters, numbers, and hyphens.",
+  "workspace_slug_taken": "That workspace URL is already taken.",
+  "workspace_slug_reserved": "That workspace URL is reserved."
+}

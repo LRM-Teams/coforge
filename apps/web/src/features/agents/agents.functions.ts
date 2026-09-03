@@ -15,10 +15,8 @@ import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.se
 import { requireBrowserUser } from "../../server/auth/require-user.server";
 import { AgentDetailQuery } from "../../server/agents/agent-detail.server";
 import { AgentActivityRepository } from "../../server/db/repositories/agent-activity.repositories.server";
-import {
-  workspaceIdForUser,
-  requireExistingWorkspaceId,
-} from "../../server/workspaces/enrollment.server";
+import { workspaceIdForUser } from "../../server/workspaces/enrollment.server";
+import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 
 function dependencies() {
   const db = getDatabaseClient();
@@ -107,7 +105,7 @@ function validateCreateInput(data: unknown): AgentCreateInput {
 export const listAgents = createServerFn({ method: "GET" }).handler(async () => {
   const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
   const { collection, db } = dependencies();
-  const workspaceId = await requireExistingWorkspaceId(db, user.id);
+  const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
   return collection.list({ userId: user.id, workspaceId });
 });
 
@@ -133,7 +131,7 @@ export const getAgentDetail = createServerFn({ method: "GET" })
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
     const db = getDatabaseClient();
     if (!db) throw new Error("Agent persistence is unavailable");
-    const workspaceId = await requireExistingWorkspaceId(db, user.id);
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
     const activity = new AgentActivityRepository(db);
     const query = new AgentDetailQuery({
       findAuthorized: (workspaceId, id, userId) =>

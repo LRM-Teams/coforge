@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { WorkspaceSwitcher, type WorkspaceOption } from "@/features/workspaces/workspace-switcher";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 
@@ -41,7 +42,21 @@ export type AppUser = {
   email: string;
 };
 
-export function AppShell({ user, children }: { user: AppUser; children: React.ReactNode }) {
+export function AppShell({
+  user,
+  workspaces = [],
+  currentWorkspace = null,
+  onSelectWorkspace,
+  onCreateWorkspace,
+  children,
+}: {
+  user: AppUser;
+  workspaces?: WorkspaceOption[];
+  currentWorkspace?: WorkspaceOption | null;
+  onSelectWorkspace?: (slug: string) => Promise<void> | void;
+  onCreateWorkspace?: (input: { name: string; slug: string }) => Promise<void>;
+  children: React.ReactNode;
+}) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -102,6 +117,15 @@ export function AppShell({ user, children }: { user: AppUser; children: React.Re
                 <kbd data-slot="kbd">{formatForDisplay(sidebarShortcut)}</kbd>
               </TooltipContent>
             </Tooltip>
+          </div>
+
+          <div className="mt-1">
+            <WorkspaceSwitcher
+              workspaces={workspaces}
+              current={currentWorkspace}
+              onSelect={onSelectWorkspace}
+              onCreate={onCreateWorkspace}
+            />
           </div>
 
           <nav aria-label={m.navigation_label()} className="mt-5 flex flex-col gap-1 md:gap-2.5">
