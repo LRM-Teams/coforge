@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import type { RuntimeProvider } from "@coforge/protocol";
 
@@ -92,8 +92,9 @@ export function ComputerDetail({
                     onScan={() => onScanUsage(runtime.provider)}
                   />
                   <p className="mt-3 text-xs text-muted-foreground">
-                    {m.computer_runtime_observed()}{" "}
-                    {formatDateForDisplay(runtime.observedAt, timeZone)}
+                    {m.computer_runtime_observed_at({
+                      time: formatDateForDisplay(runtime.observedAt, timeZone),
+                    })}
                   </p>
                   <ModelCatalog
                     models={
@@ -157,8 +158,28 @@ function ModelCatalog({
   );
 }
 
-function CopyMachineId({ machineId }: { machineId: string }) {
-  const [copied, setCopied] = useState(false);
+export const COPIED_FEEDBACK_MS = 2000;
+
+export function CopyMachineId({
+  machineId,
+  feedbackMs = COPIED_FEEDBACK_MS,
+}: {
+  machineId: string;
+  feedbackMs?: number;
+}) {
+  // Counting presses rather than holding a boolean: pressing again inside the
+  // window is a new confirmation, and a boolean already true would not restart
+  // the timer, so the second press would inherit the first one's remaining ms.
+  const [copiedAt, setCopiedAt] = useState(0);
+  const copied = copiedAt > 0;
+
+  // The confirmation is feedback for one press, not a state the button stays
+  // in, so it expires on its own and never outlives the panel.
+  useEffect(() => {
+    if (!copiedAt) return;
+    const timer = window.setTimeout(() => setCopiedAt(0), feedbackMs);
+    return () => window.clearTimeout(timer);
+  }, [copiedAt, feedbackMs]);
 
   return (
     <Button
@@ -166,8 +187,14 @@ function CopyMachineId({ machineId }: { machineId: string }) {
       size="icon-sm"
       aria-label={copied ? m.computer_machine_id_copied() : m.computer_copy_machine_id()}
       onClick={async () => {
-        await navigator.clipboard.writeText(machineId);
-        setCopied(true);
+        // Clipboard access is refused outside a secure context, and a machine
+        // id the User can still read and select by hand is not worth an error.
+        try {
+          await navigator.clipboard.writeText(machineId);
+          setCopiedAt((presses) => presses + 1);
+        } catch {
+          setCopiedAt(0);
+        }
       }}
     >
       {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}

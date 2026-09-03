@@ -5,6 +5,7 @@ import { RouterContextProvider } from "@tanstack/react-router";
 import { cleanup, render, within } from "@testing-library/react";
 
 import { ComputerLayout } from "@/features/computers/computer-layout";
+import { ComputerNotFound } from "@/features/computers/computer-not-found";
 import { getRouter } from "@/router";
 
 afterEach(cleanup);
@@ -41,6 +42,25 @@ test("lists each Computer as a typed detail link and marks the selected one", ()
   expect(selected.getAttribute("aria-current")).toBe("page");
   expect(page.getByRole("link", { name: /linux:41ab/ }).getAttribute("aria-current")).toBeNull();
   expect(page.getByText("Computer detail")).toBeTruthy();
+});
+
+test("says a computer is not in this workspace instead of a bare Not Found", () => {
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <ComputerLayout computers={[computer]} selectedComputerId="missing" onAdd={() => undefined}>
+        <ComputerNotFound />
+      </ComputerLayout>
+    </RouterContextProvider>,
+  );
+  const page = within(document.body);
+
+  expect(
+    page.getByRole("heading", { name: "This computer is not in this workspace" }),
+  ).toBeTruthy();
+  expect(document.body.textContent).toContain("It may have been removed");
+  expect(document.body.textContent).not.toContain("Not Found");
+  // The list is still there, so the miss is recoverable without the back button.
+  expect(page.getByRole("link", { name: /macos:9f2c/ })).toBeTruthy();
 });
 
 test("offers the install path instead of a detail panel when no Computer is connected", () => {

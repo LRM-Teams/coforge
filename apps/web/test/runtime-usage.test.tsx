@@ -4,11 +4,13 @@ import { afterEach, expect, test } from "bun:test";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 
 import { RuntimeUsage } from "@/features/computers/runtime-usage";
-import { overwriteGetLocale } from "@/paraglide/runtime";
+import { baseLocale, overwriteGetLocale } from "@/paraglide/runtime";
 
 afterEach(() => {
   cleanup();
-  overwriteGetLocale(() => "en");
+  // Paraglide's locale is process-wide, so a test that switches it has to hand
+  // it back even when it fails part-way.
+  overwriteGetLocale(() => baseLocale);
 });
 
 const codex = { provider: "codex" as const, version: "1", displayName: "Custom Codex" };
@@ -39,6 +41,29 @@ test("usage scan is on demand and renders a real snapshot", async () => {
 
   fireEvent.click(page.getByRole("button", { name: "Refresh" }));
   await waitFor(() => expect(scans).toBe(1));
+});
+
+test("reads as Chinese rather than English word order in the Chinese catalog", () => {
+  overwriteGetLocale(() => "zh-CN");
+  render(
+    <RuntimeUsage
+      runtime={codex}
+      usage={{
+        status: "available",
+        snapshot: {
+          planType: "pro",
+          primary: { usedPercent: 42, resetsAt: "2026-09-01T00:00:00Z" },
+        },
+      }}
+      onScan={() => undefined}
+    />,
+  );
+
+  expect(document.body.textContent).toContain("已使用 42%");
+  expect(document.body.textContent).not.toContain("42% 已使用");
+  expect(document.body.textContent).toContain("Pro 套餐");
+  expect(document.body.textContent).toContain("版本 1");
+  expect(document.body.textContent).toContain("重置于");
 });
 
 test("renders a Claude rate-limit observation without inventing a percentage", () => {
