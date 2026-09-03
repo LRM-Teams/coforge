@@ -23,6 +23,22 @@ const config = {
   redirectUri: "http://localhost:3000/auth/callback",
 };
 
+const persistedAda = {
+  id: "11111111-1111-4111-8111-111111111111",
+  username: "ada",
+};
+
+function fakeAuthing() {
+  return {
+    async exchangeAuthorizationCode() {
+      return { accessToken: "authing-access" };
+    },
+    async fetchUserInfo() {
+      return { sub: "authing-user-1", email: "ada@example.com", name: "Ada" };
+    },
+  };
+}
+
 test("login start redirects to Authing and stores a host-only state cookie", () => {
   const response = handleLoginStart({ config, sessionSecret });
   expect(response.status).toBe(302);
@@ -79,14 +95,9 @@ test("login callback stores a host-only session cookie and returns home", async 
     }),
     config,
     sessionSecret,
-    authing: {
-      async exchangeAuthorizationCode() {
-        return { accessToken: "authing-access" };
-      },
-      async fetchUserInfo() {
-        return { sub: "authing-user-1", email: "ada@example.com", name: "Ada" };
-      },
-    },
+    authing: fakeAuthing(),
+    resolveUser: async () => persistedAda,
+    enrollUser: async () => {},
   });
   expect(response.status).toBe(302);
   expect(response.headers.get("location")).toBe("/");
@@ -113,21 +124,44 @@ test("login callback enrolls the resolved user into a Workspace", async () => {
     }),
     config,
     sessionSecret,
-    authing: {
-      async exchangeAuthorizationCode() {
-        return { accessToken: "authing-access" };
-      },
-      async fetchUserInfo() {
-        return { sub: "authing-user-1", email: "ada@example.com", name: "Ada" };
-      },
-    },
+    authing: fakeAuthing(),
+    resolveUser: async () => persistedAda,
     enrollUser: async (userId) => {
       enrolled.push(userId);
     },
   });
   expect(response.status).toBe(302);
-  expect(enrolled).toHaveLength(1);
-  expect(enrolled[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  expect(enrolled).toEqual([persistedAda.id]);
+});
+
+test("login callback fails closed when the database is unavailable", async () => {
+  const previous = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+  const started = startBrowserLogin({ config, sessionSecret });
+  const state = new URL(started.authorizationUrl).searchParams.get("state");
+  if (!state) throw new Error("state missing");
+  try {
+    const response = await handleLoginCallback({
+      request: new Request(`http://localhost:3000/auth/callback?code=valid-code&state=${state}`, {
+        headers: { cookie: started.stateCookie.split(";", 1)[0] ?? "" },
+      }),
+      config,
+      sessionSecret,
+      authing: fakeAuthing(),
+    });
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get("location") ?? "", "http://localhost:3000");
+    expect(location.pathname).toBe("/login");
+    expect(location.searchParams.get("error")).toBe("database is required");
+    expect(
+      response.headers
+        .getSetCookie()
+        .some((cookie) => cookie.startsWith("coforge_session=") && !cookie.includes("Max-Age=0")),
+    ).toBe(false);
+  } finally {
+    if (previous === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previous;
+  }
 });
 
 test("login callback returns to login when Authing state is invalid", async () => {
