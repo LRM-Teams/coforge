@@ -30,7 +30,7 @@ function fakeAuthing(user: {
     async exchangeAuthorizationCode(input) {
       if (input.code !== "valid-code") throw new Error("invalid authorization code");
       if (input.codeVerifier.length < 32) throw new Error("missing PKCE verifier");
-      return { accessToken: "authing-access" };
+      return { accessToken: "authing-access", idToken: "authing-id-token" };
     },
     async fetchUserInfo(accessToken) {
       if (accessToken !== "authing-access") throw new Error("invalid access token");
@@ -96,6 +96,7 @@ test("completeBrowserLogin creates a CoForge user session from Authing", async (
     cookieHeader: cookieHeader(completed.sessionCookie),
   });
   expect(user).toEqual(completed.user);
+  expect(user).not.toHaveProperty("idToken");
 });
 
 test("the same Authing subject maps to the same CoForge user", async () => {
@@ -172,6 +173,8 @@ test("endBrowserLogin clears the session cookie and returns the Authing logout U
   const ended = endBrowserLogin({
     config,
     postLogoutRedirectUri: "http://localhost:3000/login",
+    sessionSecret,
+    cookieHeader: "",
   });
   expect(ended.clearSessionCookie).toContain("coforge_session=");
   expect(ended.clearSessionCookie).toContain("Max-Age=0");
@@ -180,6 +183,29 @@ test("endBrowserLogin clears the session cookie and returns the Authing logout U
   expect(authingLogout.searchParams.get("post_logout_redirect_uri")).toBe(
     "http://localhost:3000/login",
   );
+  expect(authingLogout.searchParams.get("id_token_hint")).toBeNull();
+});
+
+test("endBrowserLogin sends Authing the id_token hint so it can redirect back", async () => {
+  const started = startBrowserLogin({ config, sessionSecret });
+  const state = new URL(started.authorizationUrl).searchParams.get("state");
+  if (!state) throw new Error("state missing");
+  const completed = await completeBrowserLogin({
+    config,
+    sessionSecret,
+    code: "valid-code",
+    state,
+    cookieHeader: cookieHeader(started.stateCookie),
+    authing: fakeAuthing({ sub: "authing-user-1", email: "ada@example.com", name: "Ada" }),
+  });
+  const ended = endBrowserLogin({
+    config,
+    postLogoutRedirectUri: "http://localhost:3000/login",
+    sessionSecret,
+    cookieHeader: cookieHeader(completed.sessionCookie),
+  });
+  const authingLogout = new URL(ended.authingLogoutUrl);
+  expect(authingLogout.searchParams.get("id_token_hint")).toBe("authing-id-token");
 });
 
 test("readBrowserSession returns null for a missing or tampered cookie", () => {

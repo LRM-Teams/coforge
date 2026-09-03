@@ -21,8 +21,13 @@ export function loginCallbackHandler({ request }: { request: Request }): Promise
 }
 
 export function logoutHandler({ request }: { request: Request }): Response | Promise<Response> {
-  return withAuthConfig(request, (config, _sessionSecret) =>
-    handleLogout({ origin: new URL(request.url).origin, config }),
+  return withAuthConfig(request, (config, sessionSecret) =>
+    handleLogout({
+      origin: new URL(request.url).origin,
+      config,
+      sessionSecret,
+      cookieHeader: request.headers.get("cookie") ?? "",
+    }),
   );
 }
 

@@ -71,10 +71,17 @@ export async function handleLoginCallback(input: {
   }
 }
 
-export function handleLogout(input: { origin: string; config: AuthingConfig }): Response {
+export function handleLogout(input: {
+  origin: string;
+  config: AuthingConfig;
+  sessionSecret: string;
+  cookieHeader: string;
+}): Response {
   const ended = endBrowserLogin({
     config: input.config,
     postLogoutRedirectUri: `${input.origin}/login`,
+    sessionSecret: input.sessionSecret,
+    cookieHeader: input.cookieHeader,
   });
   return redirect(ended.authingLogoutUrl, {
     "set-cookie": ended.clearSessionCookie,
