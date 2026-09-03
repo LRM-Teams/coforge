@@ -17,7 +17,7 @@ import { AgentDetailQuery } from "../../server/agents/agent-detail.server";
 import { AgentActivityRepository } from "../../server/db/repositories/agent-activity.repositories.server";
 import { workspaceIdForUser } from "../../server/workspaces/enrollment.server";
 
-function dependencies(userId: string) {
+function dependencies(user: { id: string; username: string }) {
   const db = getDatabaseClient();
   if (!db) throw new Error("Agent persistence is unavailable");
   const agents = new PrismaAgentRepository(db);
@@ -67,7 +67,7 @@ function dependencies(userId: string) {
       },
     },
   );
-  return workspaceIdForUser(db, userId).then((workspaceId) => ({ collection, workspaceId }));
+  return workspaceIdForUser(db, user).then((workspaceId) => ({ collection, workspaceId }));
 }
 
 function validateCreateInput(data: unknown): AgentCreateInput {
@@ -103,7 +103,7 @@ function validateCreateInput(data: unknown): AgentCreateInput {
 
 export const listAgents = createServerFn({ method: "GET" }).handler(async () => {
   const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-  const { collection, workspaceId } = await dependencies(user.id);
+  const { collection, workspaceId } = await dependencies(user);
   return collection.list({ userId: user.id, workspaceId });
 });
 
@@ -111,7 +111,7 @@ export const createAgent = createServerFn({ method: "POST" })
   .validator(validateCreateInput)
   .handler(async ({ data }) => {
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const { collection, workspaceId } = await dependencies(user.id);
+    const { collection, workspaceId } = await dependencies(user);
     return collection.create({ userId: user.id, workspaceId }, data);
   });
 
@@ -124,7 +124,7 @@ export const getAgentDetail = createServerFn({ method: "GET" })
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
     const db = getDatabaseClient();
     if (!db) throw new Error("Agent persistence is unavailable");
-    const workspaceId = await workspaceIdForUser(db, user.id);
+    const workspaceId = await workspaceIdForUser(db, user);
     const activity = new AgentActivityRepository(db);
     const query = new AgentDetailQuery({
       findAuthorized: (workspaceId, id, userId) =>

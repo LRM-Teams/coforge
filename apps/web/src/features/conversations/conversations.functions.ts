@@ -38,32 +38,32 @@ function validateSend(data: unknown) {
   return { agentId, requestId, body: text, attachmentId };
 }
 
-async function context(userId: string, agentId: string) {
+async function context(user: { id: string; username: string }, agentId: string) {
   const db = getDatabaseClient();
   if (!db) throw new Error("Conversation persistence is unavailable");
-  const workspaceId = await workspaceIdForUser(db, userId);
+  const workspaceId = await workspaceIdForUser(db, user);
   const agent = await db.agent.findFirst({
-    where: { id: agentId, workspaceId, ownerId: userId },
+    where: { id: agentId, workspaceId, ownerId: user.id },
     select: { id: true },
   });
   if (!agent) throw new Error("conversation scope is not authorized");
   const conversations = new PrismaDirectConversationRepository(db);
-  const opened = await conversations.openForUser(workspaceId, userId, agentId);
-  return { conversations, opened, userId, workspaceId };
+  const opened = await conversations.openForUser(workspaceId, user.id, agentId);
+  return { conversations, opened, userId: user.id, workspaceId };
 }
 
 export const loadDirectConversation = createServerFn({ method: "GET" })
   .validator(validateAgent)
   .handler(async ({ data }) => {
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    return (await context(user.id, data.agentId)).opened;
+    return (await context(user, data.agentId)).opened;
   });
 
 export const sendDirectConversationMessage = createServerFn({ method: "POST" })
   .validator(validateSend)
   .handler(async ({ data }) => {
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const { conversations, opened, workspaceId } = await context(user.id, data.agentId);
+    const { conversations, opened, workspaceId } = await context(user, data.agentId);
     return new SendDirectMessage(
       conversations,
       getMessageRequestIdempotency(),

@@ -13,8 +13,8 @@ The long-lived service identity of one per-user CoForge installation profile reg
 _Avoid_: Device, daemon, machine credential
 
 **Workspace**:
-The top-level logical boundary for collaboration, membership, permissions, conversations, and Agents.
-_Avoid_: Organization, Agent workspace
+The top-level logical boundary for collaboration, membership, permissions, conversations, and Agents. A User's first login creates one Workspace of which they are a member; first login never attaches them to another User's Workspace.
+_Avoid_: Organization, Agent workspace, shared default workspace
 
 **Workspace–Computer connection**:
 The server-owned association authorizing one Computer to host one Workspace. Its
