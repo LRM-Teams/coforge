@@ -17,7 +17,7 @@ import { AgentDetailQuery } from "../../server/agents/agent-detail.server";
 import { AgentActivityRepository } from "../../server/db/repositories/agent-activity.repositories.server";
 import { workspaceIdForUser } from "../../server/workspaces/enrollment.server";
 
-function dependencies(user: { id: string; username: string }) {
+function dependencies(user: { id: string; username: string; name: string }) {
   const db = getDatabaseClient();
   if (!db) throw new Error("Agent persistence is unavailable");
   const agents = new PrismaAgentRepository(db);
@@ -67,7 +67,9 @@ function dependencies(user: { id: string; username: string }) {
       },
     },
   );
-  return workspaceIdForUser(db, user).then((workspaceId) => ({ collection, workspaceId }));
+  return workspaceIdForUser(db, user, getRequest().headers.get("accept-language") ?? "").then(
+    (workspaceId) => ({ collection, workspaceId }),
+  );
 }
 
 function validateCreateInput(data: unknown): AgentCreateInput {
@@ -124,7 +126,11 @@ export const getAgentDetail = createServerFn({ method: "GET" })
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
     const db = getDatabaseClient();
     if (!db) throw new Error("Agent persistence is unavailable");
-    const workspaceId = await workspaceIdForUser(db, user);
+    const workspaceId = await workspaceIdForUser(
+      db,
+      user,
+      getRequest().headers.get("accept-language") ?? "",
+    );
     const activity = new AgentActivityRepository(db);
     const query = new AgentDetailQuery({
       findAuthorized: (workspaceId, id, userId) =>

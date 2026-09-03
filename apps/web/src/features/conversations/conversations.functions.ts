@@ -38,10 +38,14 @@ function validateSend(data: unknown) {
   return { agentId, requestId, body: text, attachmentId };
 }
 
-async function context(user: { id: string; username: string }, agentId: string) {
+async function context(user: { id: string; username: string; name: string }, agentId: string) {
   const db = getDatabaseClient();
   if (!db) throw new Error("Conversation persistence is unavailable");
-  const workspaceId = await workspaceIdForUser(db, user);
+  const workspaceId = await workspaceIdForUser(
+    db,
+    user,
+    getRequest().headers.get("accept-language") ?? "",
+  );
   const agent = await db.agent.findFirst({
     where: { id: agentId, workspaceId, ownerId: user.id },
     select: { id: true },

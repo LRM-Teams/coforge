@@ -60,7 +60,11 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
   const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
   const db = getDatabaseClient();
   if (!db) throw new Error("Computer persistence is unavailable");
-  const workspaceId = await workspaceIdForUser(db, user);
+  const workspaceId = await workspaceIdForUser(
+    db,
+    user,
+    getRequest().headers.get("accept-language") ?? "",
+  );
   return db.workspaceComputer
     .findMany({
       where: { workspaceId },
