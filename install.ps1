@@ -35,7 +35,7 @@ $temporaryDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("coforge-inst
 New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
 try {
   $bootstrap = Join-Path $temporaryDirectory "coforge-installer.exe"
-  Invoke-WebRequest -Uri "https://cdn.coforge.cn/releases/bootstrap/v1/$target/coforge-installer.exe" -OutFile $bootstrap
+  Invoke-WebRequest -Uri "https://releases.coforge.cn/bootstrap/v1/$target/coforge-installer.exe" -OutFile $bootstrap
   $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $bootstrap).Hash.ToLowerInvariant()
   if ($actualSha256 -ne $expectedSha256) { throw "install.ps1: bootstrap integrity check failed" }
   & $bootstrap install --version $Version
