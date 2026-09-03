@@ -12,7 +12,17 @@ run_step() {
 }
 
 install_docker() {
-	if command -v docker >/dev/null 2>&1; then
+	local packages=()
+	if ! command -v docker >/dev/null 2>&1; then
+		packages+=(docker-ce docker-ce-cli containerd.io)
+	fi
+	if ! docker buildx version >/dev/null 2>&1; then
+		packages+=(docker-buildx-plugin)
+	fi
+	if ! docker compose version >/dev/null 2>&1; then
+		packages+=(docker-compose-plugin)
+	fi
+	if [[ ${#packages[@]} -eq 0 ]]; then
 		return
 	fi
 
@@ -26,9 +36,11 @@ install_docker() {
 		"$(dpkg --print-architecture)" "$VERSION_CODENAME" |
 		sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
 	sudo apt-get update
-	sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-		docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+	sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"
 	sudo usermod -aG docker "$(id -un)"
+
+	docker buildx version >/dev/null
+	docker compose version >/dev/null
 }
 
 install_linux_credential_store() {

@@ -1,5 +1,12 @@
 import { Check, Clock3, Languages, Moon, Sun, SunMoon } from "lucide-react";
 
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxItem,
+  ComboboxTrigger,
+  ComboboxValue,
+} from "@/components/ui/combobox";
 import { m } from "@/paraglide/messages";
 
 type Locale = "en" | "zh-CN";
@@ -22,6 +29,9 @@ export function SettingsContent({
   onThemeChange,
   onTimeZoneChange,
 }: SettingsContentProps) {
+  const timeZoneOptions = getTimeZoneOptions(m.preferences_system());
+  const selectedTimeZone = timeZoneOptions.find((option) => option.value === (timeZone ?? ""));
+
   return (
     <main className="flex-1 p-4 sm:p-5 md:p-6">
       <div>
@@ -61,22 +71,32 @@ export function SettingsContent({
               <h2 className="text-sm font-semibold">{m.preferences_time_zone()}</h2>
             </div>
           </div>
-          <label className="mt-5 grid gap-1.5 text-sm">
-            <span className="sr-only">{m.preferences_time_zone()}</span>
-            <select
-              aria-label={m.preferences_time_zone()}
-              value={timeZone ?? ""}
-              onChange={(event) => onTimeZoneChange(event.target.value)}
-              className="h-10 rounded-md border bg-background px-3"
+          <div className="mt-5">
+            <Combobox
+              items={timeZoneOptions}
+              value={selectedTimeZone}
+              isItemEqualToValue={(option, value) => option.value === value.value}
+              filter={(option, query) =>
+                option.searchText.includes(query.trim().toLocaleLowerCase())
+              }
+              onValueChange={(option) => option && onTimeZoneChange(option.value)}
             >
-              <option value="">{m.preferences_system()}</option>
-              {TIME_ZONES.map((zone) => (
-                <option key={zone} value={zone}>
-                  {zone}
-                </option>
-              ))}
-            </select>
-          </label>
+              <ComboboxTrigger aria-label={m.preferences_time_zone()}>
+                <ComboboxValue placeholder={m.preferences_system()} />
+              </ComboboxTrigger>
+              <ComboboxContent
+                searchLabel={m.preferences_time_zone_search()}
+                searchPlaceholder={m.preferences_time_zone_search_placeholder()}
+                emptyLabel={m.preferences_time_zone_no_results()}
+              >
+                {(option: TimeZoneOption) => (
+                  <ComboboxItem key={option.value || "system"} value={option}>
+                    {option.label}
+                  </ComboboxItem>
+                )}
+              </ComboboxContent>
+            </Combobox>
+          </div>
         </section>
 
         <section className="rounded-lg border bg-card p-4 sm:p-5">
@@ -118,12 +138,67 @@ export function SettingsContent({
   );
 }
 
+interface TimeZoneOption {
+  value: string;
+  label: string;
+  searchText: string;
+  offsetMinutes: number;
+}
+
 const TIME_ZONES = Array.from(
   new Set([
     "UTC",
     ...(typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : []),
   ]),
 );
+
+function getTimeZoneOptions(systemLabel: string): TimeZoneOption[] {
+  return [
+    {
+      value: "",
+      label: systemLabel,
+      searchText: systemLabel.toLocaleLowerCase(),
+      offsetMinutes: 0,
+    },
+    ...TIME_ZONE_OPTIONS,
+  ];
+}
+
+const TIME_ZONE_OPTIONS = TIME_ZONES.map((timeZone) => {
+  const offset = getUtcOffset(timeZone);
+  const city = (timeZone.split("/").at(-1) ?? timeZone).replaceAll("_", " ");
+  const label = `(${offset.label}) ${city} — ${timeZone}`;
+
+  return {
+    value: timeZone,
+    label,
+    searchText: `${label} ${timeZone.replaceAll("_", " ")}`.toLocaleLowerCase(),
+    offsetMinutes: offset.minutes,
+  };
+}).sort(
+  (left, right) =>
+    left.offsetMinutes - right.offsetMinutes || left.label.localeCompare(right.label),
+);
+
+function getUtcOffset(timeZone: string) {
+  const timeZoneName = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    timeZoneName: "longOffset",
+  })
+    .formatToParts(new Date())
+    .find((part) => part.type === "timeZoneName")?.value;
+  const match = timeZoneName?.match(/^GMT(?:([+-])(\d{2}):(\d{2}))?$/);
+
+  if (!match?.[1] || !match[2] || !match[3]) {
+    return { label: "UTC+00:00", minutes: 0 };
+  }
+
+  const sign = match[1] === "+" ? 1 : -1;
+  return {
+    label: `UTC${match[1]}${match[2]}:${match[3]}`,
+    minutes: sign * (Number(match[2]) * 60 + Number(match[3])),
+  };
+}
 
 function PreferenceButton({
   selected,

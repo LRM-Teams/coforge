@@ -11,6 +11,13 @@ import {
   DialogPortal,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { m } from "@/paraglide/messages";
 import type { CodeAgentModelMetadata } from "@coforge/protocol";
 import { AgentCard, type AgentView } from "./agent-card";
@@ -181,26 +188,32 @@ export function AgentsContent({
                 />
               </div>
               <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
-                <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
-                  {m.agent_form_computer()}
-                  <select
+                <div className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
+                  <span>{m.agent_form_computer()}</span>
+                  <Select
                     name="computerId"
                     required
                     value={computerId}
-                    onChange={(event) => {
-                      setComputerId(event.target.value);
-                      setProvider("pi");
-                      setModelKey("");
+                    onValueChange={(value) => {
+                      if (value !== null) {
+                        setComputerId(value);
+                        setProvider("pi");
+                        setModelKey("");
+                      }
                     }}
-                    className="h-9 min-w-0 rounded-md border bg-background px-3"
                   >
-                    {computers.map((computer) => (
-                      <option key={computer.id} value={computer.id}>
-                        {computer.machineId}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    <SelectTrigger aria-label={m.agent_form_computer()} className="h-9 min-w-0">
+                      <SelectValue>{() => selectedComputer?.machineId}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {computers.map((computer) => (
+                        <SelectItem key={computer.id} value={computer.id}>
+                          {computer.machineId}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <label className="grid min-w-0 gap-1.5 text-sm">
                   {m.agent_form_name()}
                   <input
@@ -218,59 +231,100 @@ export function AgentsContent({
                     className="h-9 min-w-0 rounded-md border bg-background px-3 outline-none focus:ring-2 focus:ring-ring/30"
                   />
                 </label>
-                <label className="grid min-w-0 gap-1.5 text-sm">
-                  {m.agent_form_provider()}
-                  <select
+                <div className="grid min-w-0 gap-1.5 text-sm">
+                  <span>{m.agent_form_provider()}</span>
+                  <Select
                     name="provider"
                     value={provider}
-                    onChange={(event) => {
-                      setProvider(runtimeProvider(event.target.value));
-                      setModelKey("");
+                    onValueChange={(value) => {
+                      if (value !== null) {
+                        setProvider(runtimeProvider(value));
+                        setModelKey("");
+                      }
                     }}
-                    className="h-9 min-w-0 rounded-md border bg-background px-3"
                   >
-                    {availableProviders.includes("pi") && (
-                      <option value="pi">{m.agent_provider_pi_builtin()}</option>
-                    )}
-                    {availableProviders.includes("codex") && <option value="codex">Codex</option>}
-                    {availableProviders.includes("claude-code") && (
-                      <option value="claude-code">Claude Code</option>
-                    )}
-                  </select>
-                </label>
-                <label className="grid min-w-0 gap-1.5 text-sm">
-                  {m.agent_form_model()} <span className="sr-only">{m.agent_optional()}</span>
-                  <select
+                    <SelectTrigger aria-label={m.agent_form_provider()} className="h-9 min-w-0">
+                      <SelectValue>
+                        {() =>
+                          provider === "pi"
+                            ? m.agent_provider_pi_builtin()
+                            : provider === "codex"
+                              ? "Codex"
+                              : "Claude Code"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableProviders.includes("pi") && (
+                        <SelectItem value="pi">{m.agent_provider_pi_builtin()}</SelectItem>
+                      )}
+                      {availableProviders.includes("codex") && (
+                        <SelectItem value="codex">Codex</SelectItem>
+                      )}
+                      {availableProviders.includes("claude-code") && (
+                        <SelectItem value="claude-code">Claude Code</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid min-w-0 gap-1.5 text-sm">
+                  <span>
+                    {m.agent_form_model()} <span className="sr-only">{m.agent_optional()}</span>
+                  </span>
+                  <Select
                     name="model"
                     value={modelKey}
-                    onChange={(event) => setModelKey(event.target.value)}
-                    className="h-9 min-w-0 rounded-md border bg-background px-3"
+                    onValueChange={(value) => value !== null && setModelKey(value)}
                   >
-                    <option value="">{m.agent_form_provider_default()}</option>
-                    {selectedCatalog?.models.map((model) => (
-                      <option key={modelOptionValue(model)} value={modelOptionValue(model)}>
-                        {model.modelProvider
-                          ? `${model.modelProvider} / ${model.displayName}`
-                          : model.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
-                  {m.agent_form_reasoning()} <span className="sr-only">{m.agent_optional()}</span>
-                  <select
-                    name="reasoning"
-                    disabled={!selectedModel?.reasoningEfforts.length}
-                    className="h-9 min-w-0 rounded-md border bg-background px-3 disabled:opacity-60"
-                  >
-                    <option value="">{m.agent_form_provider_default()}</option>
-                    {selectedModel?.reasoningEfforts.map((effort) => (
-                      <option key={effort} value={effort}>
-                        {effort}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    <SelectTrigger
+                      aria-label={`${m.agent_form_model()} ${m.agent_optional()}`}
+                      className="h-9 min-w-0"
+                    >
+                      <SelectValue>
+                        {() =>
+                          selectedModel
+                            ? selectedModel.modelProvider
+                              ? `${selectedModel.modelProvider} / ${selectedModel.displayName}`
+                              : selectedModel.displayName
+                            : m.agent_form_provider_default()
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">{m.agent_form_provider_default()}</SelectItem>
+                      {selectedCatalog?.models.map((model) => (
+                        <SelectItem key={modelOptionValue(model)} value={modelOptionValue(model)}>
+                          {model.modelProvider
+                            ? `${model.modelProvider} / ${model.displayName}`
+                            : model.displayName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
+                  <span>
+                    {m.agent_form_reasoning()} <span className="sr-only">{m.agent_optional()}</span>
+                  </span>
+                  <Select name="reasoning" disabled={!selectedModel?.reasoningEfforts.length}>
+                    <SelectTrigger
+                      aria-label={`${m.agent_form_reasoning()} ${m.agent_optional()}`}
+                      className="h-9 min-w-0 disabled:opacity-60"
+                    >
+                      <SelectValue>
+                        {(value) => value || m.agent_form_provider_default()}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">{m.agent_form_provider_default()}</SelectItem>
+                      {selectedModel?.reasoningEfforts.map((effort) => (
+                        <SelectItem key={effort} value={effort}>
+                          {effort}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 {error && (
                   <p role="alert" className="text-sm text-destructive-text sm:col-span-2">
                     {error}

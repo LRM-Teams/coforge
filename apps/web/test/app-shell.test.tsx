@@ -3,6 +3,7 @@ import "./dom-setup";
 import { afterEach, expect, mock, test } from "bun:test";
 import { RouterContextProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import { AppShell } from "@/components/app-shell";
 import { AgentsContent } from "@/features/agents/agents-content";
@@ -122,16 +123,17 @@ test("shows an empty state", () => {
 });
 
 test("submits the public creation form callback", async () => {
+  const browserUser = userEvent.setup({ document });
   const onCreate = mock(async () => ({ startPublished: true }));
   renderAgents([], onCreate, true);
-  expect(await page().findByRole("option", { name: "Pi (Built-in)" })).toBeTruthy();
   fireEvent.change(await page().findByLabelText("Name"), { target: { value: "build-helper" } });
   fireEvent.change(page().getByLabelText("Display name"), { target: { value: "Build Helper" } });
-  fireEvent.change(page().getByLabelText("Runtime provider"), { target: { value: "claude-code" } });
-  fireEvent.change(page().getByLabelText(/Model/), {
-    target: { value: JSON.stringify(["", "sonnet"]) },
-  });
-  fireEvent.change(page().getByLabelText(/Reasoning/), { target: { value: "high" } });
+  await browserUser.click(page().getByRole("combobox", { name: "Runtime provider" }));
+  await browserUser.click(page().getByRole("option", { name: "Claude Code" }));
+  await browserUser.click(page().getByRole("combobox", { name: /Model/ }));
+  await browserUser.click(page().getByRole("option", { name: "Sonnet" }));
+  await browserUser.click(page().getByRole("combobox", { name: /Reasoning/ }));
+  await browserUser.click(page().getByRole("option", { name: "high" }));
   fireEvent.click(page().getByRole("button", { name: "Create agent" }));
   await waitFor(() =>
     expect(onCreate).toHaveBeenCalledWith({

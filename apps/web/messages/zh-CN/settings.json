@@ -11,5 +11,8 @@
   "settings_description": "管理你的 CoForge 使用偏好。",
   "settings_language_description": "选择整个应用使用的语言。",
   "settings_appearance_description": "选择 CoForge 在此设备上的显示方式。",
-  "preferences_time_zone": "时区"
+  "preferences_time_zone": "时区",
+  "preferences_time_zone_search": "搜索时区",
+  "preferences_time_zone_search_placeholder": "按城市、时区或 UTC 偏移搜索…",
+  "preferences_time_zone_no_results": "未找到时区。"
 }

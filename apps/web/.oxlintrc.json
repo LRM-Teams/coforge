@@ -3,6 +3,7 @@
   "ignorePatterns": ["src/routeTree.gen.ts"],
   "jsPlugins": ["./scripts/oxlint-plugin.js"],
   "rules": {
+    "coforge/no-native-select": "error",
     "coforge/no-native-title": "error"
   }
 }

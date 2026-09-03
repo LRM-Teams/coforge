@@ -57,7 +57,8 @@ function renderSettings() {
   return render(<SettingsTestPage />);
 }
 
-test("selects a time zone and sends it to the persistence callback", () => {
+test("searches time zones by city and sends the IANA identifier to persistence", async () => {
+  const user = userEvent.setup({ document });
   let selected = "";
   const view = render(
     <SettingsContent
@@ -72,9 +73,10 @@ test("selects a time zone and sends it to the persistence callback", () => {
     />,
   );
 
-  fireEvent.change(view.getByRole("combobox", { name: "Time zone" }), {
-    target: { value: "Asia/Tokyo" },
-  });
+  await user.click(view.getByRole("combobox", { name: "Time zone" }));
+  await user.type(view.getByRole("combobox", { name: "Search time zones" }), "Tokyo");
+  expect(view.queryByRole("option", { name: /Asia\/Shanghai/ })).toBeNull();
+  await user.click(view.getByRole("option", { name: /Asia\/Tokyo/ }));
   expect(selected).toBe("Asia/Tokyo");
 });
 
