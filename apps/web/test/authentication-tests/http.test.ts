@@ -102,6 +102,34 @@ test("login callback stores a host-only session cookie and returns home", async 
   expect(cookies.join("\n")).not.toContain("Domain=");
 });
 
+test("login callback enrolls the resolved user into a Workspace", async () => {
+  const started = startBrowserLogin({ config, sessionSecret });
+  const state = new URL(started.authorizationUrl).searchParams.get("state");
+  if (!state) throw new Error("state missing");
+  const enrolled: string[] = [];
+  const response = await handleLoginCallback({
+    request: new Request(`http://localhost:3000/auth/callback?code=valid-code&state=${state}`, {
+      headers: { cookie: started.stateCookie.split(";", 1)[0] ?? "" },
+    }),
+    config,
+    sessionSecret,
+    authing: {
+      async exchangeAuthorizationCode() {
+        return { accessToken: "authing-access" };
+      },
+      async fetchUserInfo() {
+        return { sub: "authing-user-1", email: "ada@example.com", name: "Ada" };
+      },
+    },
+    enrollUser: async (userId) => {
+      enrolled.push(userId);
+    },
+  });
+  expect(response.status).toBe(302);
+  expect(enrolled).toHaveLength(1);
+  expect(enrolled[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+});
+
 test("login callback returns to login when Authing state is invalid", async () => {
   const response = await handleLoginCallback({
     request: new Request("http://localhost:3000/auth/callback?code=valid-code&state=forged"),

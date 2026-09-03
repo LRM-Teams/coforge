@@ -9,6 +9,7 @@ import {
 } from "../../server/centrifugo/server-api.server";
 import { getUsageCache } from "../../server/centrifugo/usage-cache.server";
 import { getComputerStatus } from "../../server/centrifugo/computer-status.server";
+import { workspaceIdForUser } from "../../server/workspaces/enrollment.server";
 
 export const scanUsage = createServerFn({ method: "POST" })
   .validator((data: { computerId: string; provider: RuntimeProvider }) => data)
@@ -59,15 +60,10 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
   const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
   const db = getDatabaseClient();
   if (!db) throw new Error("Computer persistence is unavailable");
-  const membership = await db.workspaceMembership.findFirst({
-    where: { userId: user.id },
-    select: { workspaceId: true },
-    orderBy: [{ workspace: { createdAt: "asc" } }, { workspaceId: "asc" }],
-  });
-  if (!membership) throw new Error("No Workspace membership exists for the authenticated user");
+  const workspaceId = await workspaceIdForUser(db, user.id);
   return db.workspaceComputer
     .findMany({
-      where: { workspaceId: membership.workspaceId },
+      where: { workspaceId },
       select: {
         computer: {
           select: {
@@ -90,7 +86,7 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
     .then((connections) =>
       connections.map(({ computer }) => ({
         ...computer,
-        online: getComputerStatus(membership.workspaceId, computer.id).online,
+        online: getComputerStatus(workspaceId, computer.id).online,
         runtimes: computer.runtimes.map((runtime) => ({
           ...runtime,
           provider: runtimeProvider(runtime.provider),
