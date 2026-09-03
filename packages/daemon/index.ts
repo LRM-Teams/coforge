@@ -1,8 +1,10 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { LocalInboxRequest } from "@coforge/protocol";
 import { startDaemonLocalRpcServer } from "./src/local-rpc";
 import { startAgentProxy } from "./src/agent-proxy";
 import { createCodeAgentAdapter } from "./src/code-agent/registry";
+import { discoverCodeAgentInventory } from "./src/code-agent/runtime-inventory";
 import { DaemonRuntime } from "./src/daemon-runtime/runtime";
 import { FileDaemonCredentialStore } from "./src/credentials/credential-store";
 import { DaemonConfigStore } from "./src/persistence/daemon-config";
@@ -10,6 +12,8 @@ import {
   DaemonConnection,
   defaultCentrifugeWorkspaceClientFactory,
 } from "./src/connection/daemon-connection";
+import { configureDaemonLogger } from "./src/logging/daemon-logger";
+import { COFORGE_DAEMON_VERSION } from "./src/version";
 
 export type {
   AgentRuntimeConfig,
@@ -64,6 +68,8 @@ export type {
 } from "./src/agent-runtime/agent-state-machine";
 export { DaemonRuntime } from "./src/daemon-runtime/runtime";
 export { AgentMessageAttentionIndex } from "./src/daemon-runtime/agent-message-attention-index";
+export { AgentAppInbox } from "./src/agent-app-inbox/agent-app-inbox";
+export type { AgentAppItem, MintAppItem } from "./src/agent-app-inbox/agent-app-inbox";
 export type { DaemonConfig, WorkspaceConfig } from "./src/daemon-runtime/runtime";
 export {
   InMemoryDaemonCredentialStore,
@@ -90,9 +96,13 @@ if (import.meta.main) {
     console.error("coforge-daemon requires --socket");
     process.exit(2);
   }
+  const logging = await configureDaemonLogger({ version: COFORGE_DAEMON_VERSION });
+  const logger = logging.logger;
+  logger.info("Daemon process started", { event: "daemon.started", outcome: "ok" });
   const credentials = new FileDaemonCredentialStore();
   const configStore = new DaemonConfigStore(
     stateDirectory ?? join(homedir(), ".coforge", "daemon"),
+    { serverHttpUrl: Bun.env.COFORGE_SERVER_HTTP_URL },
   );
   let runtime: DaemonRuntime | undefined;
   const agentProxy = startAgentProxy({
@@ -103,6 +113,8 @@ if (import.meta.main) {
       agentAttachment: (...args) =>
         runtime?.agentAttachment(...args) ??
         Promise.reject(new Error("daemon runtime is not running")),
+      inbox: (...args) =>
+        runtime?.inbox(...args) ?? Promise.reject(new Error("daemon runtime is not running")),
       issueAgentContext: (agentId) => {
         if (!runtime) throw new Error("daemon runtime is not running");
         return runtime.issueAgentContext(agentId);
@@ -132,6 +144,8 @@ if (import.meta.main) {
             ),
         },
         agentProxy,
+        discoverCodeAgentInventory,
+        stateDirectory ?? join(homedir(), ".coforge", "daemon"),
       );
       await runtime.start(config);
     },
@@ -149,6 +163,8 @@ if (import.meta.main) {
               ),
           },
           agentProxy,
+          discoverCodeAgentInventory,
+          stateDirectory ?? join(homedir(), ".coforge", "daemon"),
         );
         await runtime.start(config);
       }
@@ -160,6 +176,12 @@ if (import.meta.main) {
     async restart() {
       await this.stopAll();
       await this.start();
+    },
+    inbox(context: string, request: LocalInboxRequest) {
+      return (
+        runtime?.inbox(context, request) ??
+        Promise.reject(new Error("daemon runtime is not running"))
+      );
     },
   };
   const localRpc = await startDaemonLocalRpcServer({
@@ -181,6 +203,8 @@ if (import.meta.main) {
     await daemon.stopAll();
     agentProxy.close();
     await localRpc.close();
+    logger.info("Daemon process stopped", { event: "daemon.stopped", outcome: "ok" });
+    await logging.close();
     resolveShutdown();
   };
   let resolveShutdown!: () => void;

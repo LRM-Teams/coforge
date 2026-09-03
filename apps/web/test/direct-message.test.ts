@@ -412,8 +412,8 @@ describe("ReadDirectMessages", () => {
       async sendMessage() {
         throw new Error("not used");
       },
-      async readMessagesForConversation(conversationId: string) {
-        calls.push(`read:${conversationId}`);
+      async readMessages(_workspaceId: string, _agentId: string, target: string) {
+        calls.push(`read:${target}`);
         return messages;
       },
     } satisfies DirectConversationRepository;
@@ -428,7 +428,7 @@ describe("ReadDirectMessages", () => {
     expect(calls).toEqual([
       "lookup:@user",
       "conversation:workspace-a:user-a:agent-a",
-      "read:conversation-a",
+      "read:@user",
     ]);
   });
 });

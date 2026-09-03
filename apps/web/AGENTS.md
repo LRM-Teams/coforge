@@ -50,32 +50,10 @@ instructions for the TanStack Start Web/backend modular monolith.
   injection. Local development uses the project's Docker PostgreSQL; managed
   PostgreSQL changes must not leak provider-specific details into domain code.
 
-### Prisma, repositories, and business rules
-
-- Prisma Repository 只负责查询、持久化、事务和数据库约束；不要在其中
-  编排完整业务流程。
-- 用户授权、产品规则和跨模块流程放在所属 feature 的 Use Case / Domain
-  模块中，并通过 Repository interface 调用数据访问。
-- Server Function 和 HTTP Route 只做认证、输入校验、依赖组装和调用 Use
-  Case，不要把业务流程直接写进去。
-- 本次遇到的具体问题：按用户名查找用户、创建会话、读取消息原先都在
-  `PrismaDirectConversationRepository` 中；以后应放在类似
-  `ReadDirectMessages` 的 Use Case 中，Repository 只接收已确定的
-  `conversationId` 并读取数据。
-- 不要为了形式主义给每个 Prisma 调用都增加一层；只有存在业务规则、复用
-  或测试价值时才抽取 Repository / Use Case。
-
-参考：
-https://www.prisma.io/docs/orm/prisma-client/queries/transactions
-https://martinfowler.com/eaaCatalog/repository.html
-
 ## Route and page organization
 
 - `src/routes/__root.tsx` owns the document shell: HTML, global head, global
   providers, styles, `HeadContent`, and `Scripts`.
-- `src/features/errors/` owns safe user-facing error presentation. Unknown
-  exceptions must never be rendered directly; page-load failures use a local
-  route error component, while failures caused by user actions use toasts.
 - Use pathless layout routes for shared application chrome. The current app
   layout is `src/routes/_app.tsx`; it owns `AppShell` and renders `Outlet`.
 - Page routes under `src/routes/_app/` own their page component, loader,
@@ -130,36 +108,16 @@ https://martinfowler.com/eaaCatalog/repository.html
 
 ## Agent status and activity UI
 
-- **Localization boundary:** Every user-visible sentence, label, button name,
-  status, error, and accessibility label must come from the generated
-  Paraglide messages in `messages/<locale>/`. Do not put translated English or
-  Chinese text directly in TSX, feature modules, route files, or server
-  responses. Provider-owned names and messages, protocol values, URLs, and
-  language endonyms in a locale picker are not translations and may remain
-  source data. When adding a message, add it to every supported locale and
-  regenerate `src/paraglide` with `bun run generate-i18n`.
-- **Localization tests:** Test translated UI through the real message catalog
-  and exercise each supported locale for new user-visible behavior. Locale
-  resolution must be explicit at request/render boundaries; do not use a
-  process-wide locale override in application code. Tests that need to switch
-  Paraglide's process-wide test locale must restore it in `afterEach` and must
-  remain isolated from concurrent locale-sensitive tests.
-
-- `src/features/computers/computers.functions.ts` owns authenticated Computer
-  listing and external runtime visibility mutations. Runtime visibility policy
-  and persistence belong under `src/server/computers/` and
-  `src/server/db/repositories/`; the UI may only render and invoke those
-  authenticated operations.
 - `src/features/agents/agents.functions.ts` owns the authenticated Agent list/create seam;
-  it also owns owner-only Agent runtime credential mutations. Server-side Agent
-  persistence, runtime credential encryption, start publication, launch authorization,
-  and ready recovery remain under `src/server/agents/`, `src/routes/api/`, and
-  `src/server/db/repositories/`. The encrypted API key envelope is stored inside
-  `runtimeConfig.provider`; neither plaintext nor the encrypted envelope may enter an
-  Agent detail response or Workspace publication.
+  server-side Agent persistence, start publication, and ready recovery remain under
+  `src/server/agents/` and `src/server/db/repositories/`.
+- `src/features/agents/agent-status-realtime.ts` owns the browser status event contract and
+  state updates. Redis supplies initial/reconnect snapshots; Centrifugo publications update
+  the open page without periodic backend polling.
 
 - Keep Agent status and activity separate. `agent:status` contains only
-  `online` or `offline`; do not infer more statuses from activity text.
+  `active` or `inactive`; the UI presents those values as online or offline and
+  must not infer more statuses from activity text.
 - Render the fixed `agent:activity` fields `activity`, `level`, `message`, and
   `occurred_at` in an Agent-owned timeline under `src/features/agents/`.
 - Localize the label and icon selected by `activity`, but preserve provider

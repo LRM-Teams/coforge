@@ -7,6 +7,31 @@ export type AttachmentMetadata = {
   sizeBytes: number;
 };
 
+export type DirectConversationPage = {
+  messages: {
+    id: string;
+    sequence: number;
+    sender: string;
+    body: string;
+    createdAt: Date;
+    target: string;
+    attachment?: AttachmentMetadata;
+  }[];
+  hasOlder: boolean;
+  hasNewer: boolean;
+};
+
+export type DirectConversationPageOptions = {
+  before?: string;
+  after?: string;
+  around?: string;
+  limit?: number;
+};
+
+type DirectConversationMessageRow = Prisma.MessageGetPayload<{
+  include: { sender: { include: { agent: true } }; attachment: true };
+}>;
+
 export type DirectConversationRepository = {
   userIdForUsername?(target: string): Promise<string>;
   getOrCreateUserAgent(
@@ -27,8 +52,8 @@ export type DirectConversationRepository = {
     sequence: number;
     deliveryId?: string;
     workspaceId: string;
-    computerId?: string;
     agentId: string;
+    computerId?: string;
     target?: string;
     latestSender?: string;
     attachment?: AttachmentMetadata;
@@ -40,9 +65,11 @@ export type DirectConversationRepository = {
     messageId: string;
     sequence: number;
   }): Promise<void>;
-  readMessagesForConversation?(
-    conversationId: string,
+  readMessages?(
+    workspaceId: string,
+    agentId: string,
     target: string,
+    page?: DirectConversationPageOptions,
   ): Promise<
     {
       id: string;
@@ -54,6 +81,18 @@ export type DirectConversationRepository = {
       attachment?: AttachmentMetadata;
     }[]
   >;
+  readMessagesPage?(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+    page?: DirectConversationPageOptions,
+  ): Promise<DirectConversationPage>;
+  readPendingAgentContext?(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+    afterSequence?: number,
+  ): ReturnType<NonNullable<DirectConversationRepository["readMessages"]>>;
   sendAgentMessage?(
     conversationId: string,
     agentId: string,
@@ -285,8 +324,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       ...message,
       deliveryId: message.deliveries[0]!.deliveryId,
       workspaceId: conversation.workspaceId,
-      computerId: agents[0].agent?.computerId ?? undefined,
       agentId: agents[0].agentId,
+      computerId: agents[0].agent?.computerId ?? undefined,
       target: `@${agents[0].agent?.name ?? "unknown"}`,
       latestSender: `@${sender.user?.username}`,
       attachment: message.attachment ?? undefined,
@@ -313,16 +352,132 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     if (result.count !== 1) throw new Error("delivery acknowledgement is not authorized");
   }
 
-  async readMessagesForConversation(conversationId: string, target: string) {
+  async readMessages(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+    page: DirectConversationPageOptions = {},
+  ) {
+    return (await this.readMessagesPage(workspaceId, agentId, target, page)).messages;
+  }
+
+  async readMessagesPage(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+    page: DirectConversationPageOptions = {},
+  ) {
+    const userId = await this.userIdForUsername(target);
+    const conversation = await this.getOrCreateUserAgent(workspaceId, userId, agentId);
+    const limit = Math.min(Math.max(page.limit ?? 50, 1), 100);
+    const anchor =
+      (page.before ?? page.after ?? page.around)
+        ? await this.db.message.findFirst({
+            where: {
+              id: page.before ?? page.after ?? page.around,
+              conversationId: conversation.id,
+            },
+            select: { sequence: true },
+          })
+        : undefined;
+    const include = { sender: { include: { agent: true } }, attachment: true } as const;
+    const map = (rows: DirectConversationMessageRow[]) =>
+      rows.map((m) => ({
+        id: m.id,
+        sequence: m.sequence,
+        sender: m.sender.agentId ? `@${m.sender.agent?.name ?? "agent"}` : target,
+        body: m.body,
+        createdAt: m.createdAt,
+        target,
+        attachment: m.attachment ?? undefined,
+      }));
+    if (page.around && anchor) {
+      const beforeCount = Math.floor((limit - 1) / 2);
+      const afterCount = limit - 1 - beforeCount;
+      const [beforeRows, anchorRows, afterRows] = await Promise.all([
+        this.db.message.findMany({
+          where: { conversationId: conversation.id, sequence: { lt: anchor.sequence } },
+          orderBy: { sequence: "desc" },
+          take: beforeCount + 1,
+          include,
+        }),
+        this.db.message.findMany({
+          where: { conversationId: conversation.id, sequence: anchor.sequence },
+          take: 1,
+          include,
+        }),
+        this.db.message.findMany({
+          where: { conversationId: conversation.id, sequence: { gt: anchor.sequence } },
+          orderBy: { sequence: "asc" },
+          take: afterCount + 1,
+          include,
+        }),
+      ]);
+      const messages = map([
+        ...beforeRows.slice(0, beforeCount).reverse(),
+        ...anchorRows,
+        ...afterRows.slice(0, afterCount),
+      ]);
+      return {
+        messages,
+        hasOlder: beforeRows.length > beforeCount,
+        hasNewer: afterRows.length > afterCount,
+      };
+    }
     const rows = await this.db.message.findMany({
-      where: { conversationId },
-      orderBy: { sequence: "asc" },
+      where: {
+        conversationId: conversation.id,
+        ...(anchor && page.before ? { sequence: { lt: anchor.sequence } } : {}),
+        ...(anchor && page.after ? { sequence: { gt: anchor.sequence } } : {}),
+      },
+      orderBy: { sequence: page.before ? "desc" : "asc" },
+      take: limit + 1,
+      include,
+    });
+    const hasMore = rows.length > limit;
+    const messages = map(rows.slice(0, limit).sort((a, b) => a.sequence - b.sequence));
+    return {
+      messages,
+      hasOlder: page.after ? Boolean(anchor) : page.before ? hasMore : false,
+      hasNewer: page.before ? Boolean(anchor) : page.after ? hasMore : false,
+    };
+  }
+
+  async readPendingAgentContext(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+    afterSequence?: number,
+  ) {
+    const userId = await this.userIdForUsername(target);
+    const conversation = await this.getOrCreateUserAgent(workspaceId, userId, agentId);
+    const agentMember = await this.db.conversationMember.findUnique({
+      where: { conversationId_agentId: { conversationId: conversation.id, agentId } },
+      select: { id: true },
+    });
+    const latestAgentMessage =
+      afterSequence === undefined && agentMember
+        ? await this.db.message.findFirst({
+            where: { conversationId: conversation.id, senderMemberId: agentMember.id },
+            orderBy: { sequence: "desc" },
+            select: { sequence: true },
+          })
+        : undefined;
+    const boundary = afterSequence ?? latestAgentMessage?.sequence ?? 0;
+    const rows = await this.db.message.findMany({
+      where: {
+        conversationId: conversation.id,
+        sequence: { gt: boundary },
+        sender: { userId: { not: null } },
+      },
+      orderBy: { sequence: "desc" },
+      take: 3,
       include: { sender: { include: { agent: true } }, attachment: true },
     });
-    return rows.map((m) => ({
+    return rows.reverse().map((m) => ({
       id: m.id,
       sequence: m.sequence,
-      sender: m.sender.agentId ? `@${m.sender.agent?.name ?? "agent"}` : target,
+      sender: target,
       body: m.body,
       createdAt: m.createdAt,
       target,

@@ -21,6 +21,7 @@ test("Codex loads skills before running app-server behind the code-agent seam", 
       "expected-skill=fixture-skill",
       "expected-coforge-environment",
       "expected-runtime-config",
+      "expected-communication-instructions",
     ],
   });
 

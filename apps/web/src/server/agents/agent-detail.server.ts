@@ -8,6 +8,9 @@ type DetailActivity = {
   activity: string;
   level: string;
   message: string;
+  diagnosticErrorClass?: string | null;
+  diagnosticReason?: string | null;
+  diagnosticFingerprint?: string | null;
   occurredAt: Date;
   createdAt: Date;
 };

@@ -2,7 +2,7 @@ import "./dom-setup";
 
 import { afterEach, expect, mock, test } from "bun:test";
 import { RouterContextProvider } from "@tanstack/react-router";
-import { cleanup, render, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import {
@@ -26,15 +26,39 @@ function renderConversation(
   onSend = mock(async (_body: string, _requestId: string) => {}),
   onRefresh = mock(async () => {}),
 ) {
-  render(
+  const view = render(
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
         <DirectConversation conversation={conversation} onSend={onSend} onRefresh={onRefresh} />
       </AppToastProvider>
     </RouterContextProvider>,
   );
-  return { page: within(document.body), onSend, onRefresh };
+  return {
+    page: within(document.body),
+    onSend,
+    onRefresh,
+    rerender(nextConversation: DirectConversationView) {
+      view.rerender(
+        <RouterContextProvider router={getRouter()}>
+          <DirectConversation
+            conversation={nextConversation}
+            onSend={onSend}
+            onRefresh={onRefresh}
+          />
+        </RouterContextProvider>,
+      );
+    },
+  };
 }
+
+const firstMessage: DirectConversationView["messages"][number] = {
+  id: "one",
+  sequence: 1,
+  senderKind: "user",
+  senderName: "Frank",
+  body: "Please check",
+  createdAt: "2026-08-29T10:00:00Z",
+};
 
 test("renders the empty private conversation", () => {
   const { page } = renderConversation();
@@ -100,6 +124,162 @@ test("renders an attachment as a downloadable history link", () => {
   });
   const link = page.getByRole("link", { name: /report\.pdf/ });
   expect(link.getAttribute("href")).toBe("/api/attachments/attachment-1");
+});
+
+test("mounts an overflowing conversation at the latest message", () => {
+  const clientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+  const scrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+  Object.defineProperties(HTMLElement.prototype, {
+    clientHeight: { configurable: true, value: 400 },
+    scrollHeight: { configurable: true, value: 1_000 },
+  });
+
+  const { page } = renderConversation({ ...base, messages: [firstMessage] });
+  const history = page.getByLabelText("Message history");
+
+  expect(history.scrollTop).toBe(1_000);
+  if (clientHeight) Object.defineProperty(HTMLElement.prototype, "clientHeight", clientHeight);
+  else Reflect.deleteProperty(HTMLElement.prototype, "clientHeight");
+  if (scrollHeight) Object.defineProperty(HTMLElement.prototype, "scrollHeight", scrollHeight);
+  else Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+});
+
+test("announces one new Agent message and clears it when manually scrolled to latest", async () => {
+  const conversation = { ...base, messages: [firstMessage] };
+  const { page, rerender } = renderConversation(conversation);
+  const history = page.getByLabelText("Message history");
+  Object.defineProperties(history, {
+    clientHeight: { configurable: true, value: 400 },
+    scrollHeight: { configurable: true, value: 1_000 },
+    scrollTop: { configurable: true, writable: true, value: 100 },
+  });
+  fireEvent.scroll(history);
+
+  rerender({
+    ...conversation,
+    messages: [
+      firstMessage,
+      {
+        ...firstMessage,
+        id: "two",
+        sequence: 2,
+        senderKind: "agent",
+        senderName: "Release Helper",
+        body: "Checked",
+      },
+    ],
+  });
+  expect(await page.findByRole("button", { name: "1 new message" })).toBeTruthy();
+
+  history.scrollTop = 600;
+  fireEvent.scroll(history);
+
+  expect(page.queryByRole("button", { name: /new messages?/i })).toBeNull();
+});
+
+test("keeps the reading position and announces a new message while viewing history", async () => {
+  const user = userEvent.setup();
+  const conversation = { ...base, messages: [firstMessage] };
+  const { page, rerender } = renderConversation(conversation);
+  const history = page.getByLabelText("Message history");
+  Object.defineProperties(history, {
+    clientHeight: { configurable: true, value: 400 },
+    scrollHeight: { configurable: true, value: 1_000 },
+    scrollTop: { configurable: true, writable: true, value: 100 },
+  });
+  fireEvent.scroll(history);
+
+  const ownMessage = {
+    ...firstMessage,
+    id: "two",
+    sequence: 2,
+    body: "One more thing",
+  };
+  rerender({ ...conversation, messages: [firstMessage, ownMessage] });
+  expect(page.queryByRole("button", { name: /new messages?/i })).toBeNull();
+
+  rerender({
+    ...conversation,
+    messages: [
+      firstMessage,
+      ownMessage,
+      {
+        id: "three",
+        sequence: 3,
+        senderKind: "agent",
+        senderName: "Release Helper",
+        body: "Checked",
+        createdAt: "2026-08-29T10:00:01Z",
+      },
+      {
+        id: "four",
+        sequence: 4,
+        senderKind: "agent",
+        senderName: "Release Helper",
+        body: "Anything else?",
+        createdAt: "2026-08-29T10:00:02Z",
+      },
+    ],
+  });
+
+  expect(history.scrollTop).toBe(100);
+  const newMessages = await page.findByRole("button", { name: "2 new messages" });
+  await user.click(newMessages);
+  expect(history.scrollTop).toBe(1_000);
+  expect(page.queryByRole("button", { name: "2 new messages" })).toBeNull();
+});
+
+test("follows new messages while at the latest message", () => {
+  const conversation = { ...base, messages: [firstMessage] };
+  const { page, rerender } = renderConversation(conversation);
+  const history = page.getByLabelText("Message history");
+  Object.defineProperties(history, {
+    clientHeight: { configurable: true, value: 400 },
+    scrollHeight: { configurable: true, value: 1_000 },
+    scrollTop: { configurable: true, writable: true, value: 600 },
+  });
+  fireEvent.scroll(history);
+  history.scrollTop = 500;
+
+  rerender({
+    ...conversation,
+    messages: [
+      firstMessage,
+      {
+        ...firstMessage,
+        id: "two",
+        sequence: 2,
+        senderKind: "agent",
+        senderName: "Release Helper",
+        body: "Checked",
+      },
+    ],
+  });
+
+  expect(history.scrollTop).toBe(1_000);
+  expect(page.queryByRole("button", { name: /new messages?/i })).toBeNull();
+});
+
+test("starts a different conversation at its latest message", () => {
+  const conversation = { ...base, messages: [firstMessage] };
+  const { page, rerender } = renderConversation(conversation);
+  const history = page.getByLabelText("Message history");
+  Object.defineProperties(history, {
+    clientHeight: { configurable: true, value: 400 },
+    scrollHeight: { configurable: true, value: 1_000 },
+    scrollTop: { configurable: true, writable: true, value: 100 },
+  });
+  fireEvent.scroll(history);
+
+  rerender({
+    ...base,
+    conversationId: "conversation-2",
+    agent: { id: "agent-2", name: "reviewer", displayName: "Reviewer" },
+    messages: [{ ...firstMessage, id: "other-one", body: "New conversation" }],
+  });
+
+  expect(history.scrollTop).toBe(1_000);
+  expect(page.queryByRole("button", { name: /new messages?/i })).toBeNull();
 });
 
 test("sends trimmed text and clears only after success", async () => {

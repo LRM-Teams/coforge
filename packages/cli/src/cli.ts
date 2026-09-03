@@ -10,7 +10,8 @@ const transport: MessageTransport = connectLocal(
 
 try {
   const result = await run(Bun.argv.slice(2), transport);
-  if (result !== undefined) console.log(JSON.stringify(result));
+  if (typeof result === "string") console.log(result);
+  else if (result !== undefined) console.log(JSON.stringify(result));
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;

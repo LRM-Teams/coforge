@@ -14,13 +14,10 @@ export class ReadDirectMessages {
   async execute(input: { workspaceId: string; agentId: string; target: string }) {
     const userId = await this.conversations.userIdForUsername?.(input.target);
     if (!userId) throw new Error("target user not found");
-    const conversation = await this.conversations.getOrCreateUserAgent(
+    await this.conversations.getOrCreateUserAgent(input.workspaceId, userId, input.agentId);
+    const messages = await this.conversations.readMessages?.(
       input.workspaceId,
-      userId,
       input.agentId,
-    );
-    const messages = await this.conversations.readMessagesForConversation?.(
-      conversation.id,
       input.target,
     );
     if (!messages) throw new Error("message reading is unavailable");

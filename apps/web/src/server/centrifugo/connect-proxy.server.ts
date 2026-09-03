@@ -1,8 +1,21 @@
 import { verifyDaemonApiKey, type DaemonApiKeyRepository } from "../auth/daemon-api-key.server";
 
 type ConnectRequest = {
-  data?: { daemonApiKey?: unknown };
+  data?: unknown;
 };
+
+function daemonApiKeyFromConnectData(data: unknown): unknown {
+  if (typeof data === "string") {
+    try {
+      return (JSON.parse(data) as { daemonApiKey?: unknown }).daemonApiKey;
+    } catch {
+      return undefined;
+    }
+  }
+  if (data && typeof data === "object" && !Array.isArray(data))
+    return Reflect.get(data, "daemonApiKey");
+  return undefined;
+}
 
 export async function authenticateCentrifugoConnect(
   request: Request,
@@ -13,7 +26,7 @@ export async function authenticateCentrifugoConnect(
 ): Promise<Response> {
   try {
     const body = (await request.json()) as ConnectRequest;
-    const key = body.data?.daemonApiKey;
+    const key = daemonApiKeyFromConnectData(body.data);
     if (typeof key !== "string") throw new Error("Daemon API key missing");
     const principal = await verifyDaemonApiKey(key, dependencies.daemonApiKeys);
     if (

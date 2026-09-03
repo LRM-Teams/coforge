@@ -11,6 +11,10 @@ import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { COFORGE_DAEMON_VERSION } from "../../version";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
+import { COFORGE_AGENT_INSTRUCTIONS } from "../communication-instructions";
+import { getLogger } from "@logtape/logtape";
+
+const logger = getLogger(["coforge", "daemon", "code-agent", "codex"]);
 
 export class CodexAgentAdapter implements CodeAgentAdapter {
   readonly provider = RUNTIME_PROVIDER.CODEX;
@@ -58,6 +62,7 @@ export class CodexAgentAdapter implements CodeAgentAdapter {
         method: "thread/start",
         params: {
           cwd: options.agentWorkspaceDirectory,
+          developerInstructions: COFORGE_AGENT_INSTRUCTIONS,
           ...(options.runtime?.model ? { model: options.runtime.model } : {}),
           approvalPolicy: "never",
           sandbox: "workspace-write",
@@ -65,6 +70,9 @@ export class CodexAgentAdapter implements CodeAgentAdapter {
             ...(options.runtime?.reasoning
               ? { model_reasoning_effort: options.runtime.reasoning }
               : {}),
+            // CoForge chat is exposed by a loopback HTTP proxy. Codex keeps
+            // workspace-write filesystem isolation while allowing that client call.
+            "sandbox_workspace_write.network_access": true,
             allow_login_shell: false,
             shell_environment_policy: {
               inherit: "all",
@@ -90,7 +98,14 @@ export class CodexAgentAdapter implements CodeAgentAdapter {
       });
       const thread = asRecord(asRecord(response.result)?.thread);
       if (typeof thread?.id !== "string") throw new Error("Codex did not create a thread");
-      return new CodexAgentSession(process, thread.id);
+      logger.info("Codex thread received standing instructions", {
+        event: "codex.instructions.injected",
+        agent_id: options.agentId,
+        runtime_id: options.runtimeId,
+        instruction_bytes: new TextEncoder().encode(COFORGE_AGENT_INSTRUCTIONS).byteLength,
+        outcome: "ok",
+      });
+      return new CodexAgentSession(process, thread.id, options.agentId, options.runtimeId);
     } catch (error) {
       await process.dispose();
       throw error;
@@ -101,12 +116,17 @@ export class CodexAgentAdapter implements CodeAgentAdapter {
 class CodexAgentSession implements CodeAgentSession {
   readonly #process: JsonlProcess;
   readonly #threadId: string;
+  readonly #agentId: string | undefined;
+  readonly #runtimeId: string | undefined;
   readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
+  readonly #commandOutputBytes = new Map<string, number>();
   #state: CodexSessionState = { type: "idle" };
 
-  constructor(process: JsonlProcess, threadId: string) {
+  constructor(process: JsonlProcess, threadId: string, agentId?: string, runtimeId?: string) {
     this.#process = process;
     this.#threadId = threadId;
+    this.#agentId = agentId;
+    this.#runtimeId = runtimeId;
     process.onRecord((record) => this.#accept(record));
     process.onFailure((error) =>
       this.#emit({
@@ -145,6 +165,13 @@ class CodexAgentSession implements CodeAgentSession {
 
   async notify(notice: string): Promise<void> {
     await this.sendMessage(notice);
+    logger.info("Codex accepted inbox wakeup", {
+      event: "codex.wakeup.accepted",
+      agent_id: this.#agentId,
+      runtime_id: this.#runtimeId,
+      notice_bytes: new TextEncoder().encode(notice).byteLength,
+      outcome: "ok",
+    });
   }
 
   subscribe(listener: (event: AgentRuntimeEvent) => void): () => void {
@@ -186,6 +213,7 @@ class CodexAgentSession implements CodeAgentSession {
     if (record.method === "item/started") {
       const item = asRecord(params?.item);
       if (item?.type === "commandExecution" && typeof item.id === "string") {
+        this.#commandOutputBytes.set(item.id, 0);
         this.#emit({ type: "tool-start", id: item.id, name: "command" });
         const command = typeof item.command === "string" ? item.command : "command";
         this.#emit({
@@ -208,12 +236,26 @@ class CodexAgentSession implements CodeAgentSession {
       typeof params?.itemId === "string" &&
       typeof params.delta === "string"
     ) {
+      this.#commandOutputBytes.set(
+        params.itemId,
+        (this.#commandOutputBytes.get(params.itemId) ?? 0) +
+          new TextEncoder().encode(params.delta).byteLength,
+      );
       this.#emit({ type: "tool-output", id: params.itemId, text: params.delta });
       return;
     }
     if (record.method === "item/completed") {
       const item = asRecord(params?.item);
       if (item?.type === "commandExecution" && typeof item.id === "string") {
+        logger.info("Codex command completed", {
+          event: "codex.command.completed",
+          agent_id: this.#agentId,
+          runtime_id: this.#runtimeId,
+          exit_code: typeof item.exitCode === "number" ? item.exitCode : undefined,
+          output_bytes: this.#commandOutputBytes.get(item.id) ?? 0,
+          outcome: item.exitCode === 0 ? "ok" : "failed",
+        });
+        this.#commandOutputBytes.delete(item.id);
         this.#emit({ type: "tool-end", id: item.id, isError: item.exitCode !== 0 });
       }
       return;
@@ -236,6 +278,28 @@ class CodexAgentSession implements CodeAgentSession {
           : turn.status === "completed"
             ? "completed"
             : "failed";
+      if (status === "failed") {
+        const error = asRecord(turn.error);
+        const errorMessage =
+          typeof error?.message === "string" ? scrubError(error.message) : "Codex turn failed.";
+        logger.error("Codex turn failed", {
+          event: "codex.turn.failed",
+          agent_id: this.#agentId,
+          runtime_id: this.#runtimeId,
+          turn_status: turn.status,
+          error_code: typeof error?.code === "string" ? error.code : undefined,
+          error_message: errorMessage,
+          outcome: "error",
+        });
+        this.#emit({
+          type: "activity",
+          activity: createAgentActivity("error", "error", errorMessage, eventTime(record), {
+            errorClass: typeof error?.code === "string" ? error.code : "CodexTurnError",
+            reason: "turn_failed",
+            fingerprint: fingerprint(errorMessage),
+          }),
+        });
+      }
       this.#emit({ type: "completed", status });
     }
   }
@@ -275,6 +339,19 @@ function eventTime(record: Readonly<Record<string, unknown>>): string {
   return typeof record.timestamp === "string" && !Number.isNaN(Date.parse(record.timestamp))
     ? record.timestamp
     : new Date().toISOString();
+}
+
+function scrubError(message: string): string {
+  return message
+    .replace(/(?:sk|pk|api|token|key|secret)[_-]?[A-Za-z0-9_-]{8,}/gi, "[redacted]")
+    .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+    .slice(0, 500);
+}
+
+function fingerprint(message: string): string {
+  let hash = 2166136261;
+  for (const byte of new TextEncoder().encode(message)) hash = Math.imul(hash ^ byte, 16777619);
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 function fileChanges(

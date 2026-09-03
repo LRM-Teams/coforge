@@ -5,7 +5,9 @@ import {
 } from "../src/connection/daemon-connection";
 import {
   AGENT_MESSAGE_ACK_METHOD,
+  AGENT_STATUS_METHOD,
   decodeAgentActivity,
+  decodeAgentStatus,
   decodeAgentMessageDeliveryAck,
   encodeAgentStartIntent,
 } from "@coforge/protocol";
@@ -113,6 +115,75 @@ test("publishes Agent activity best effort on its restricted channel", async () 
   expect(publications).toHaveLength(1);
   expect(publications[0]?.channel).toBe(`activity:${config.workspaceId}`);
   expect(decodeAgentActivity(publications[0]!.data)).toMatchObject(activity);
+});
+
+test("sends Agent status transitions through the status RPC", async () => {
+  const fake = fakeClient();
+  const calls: { method: string; data: Uint8Array }[] = [];
+  fake.client.rpc = async (method, data) => {
+    calls.push({ method, data });
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  transport.sendAgentStatus({
+    protocolMajor: 1,
+    requestId: "status-1",
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    agentId: "agent-1",
+    status: "active",
+  });
+  await Promise.resolve();
+
+  expect(calls.map(({ method }) => method)).toEqual([
+    "daemon:connection_status",
+    AGENT_STATUS_METHOD,
+  ]);
+  expect(decodeAgentStatus(calls[1]!.data)).toEqual({
+    protocolMajor: 1,
+    requestId: "status-1",
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    agentId: "agent-1",
+    status: "active",
+  });
+});
+
+test("serializes Agent status reports so inactive cannot be overtaken", async () => {
+  const fake = fakeClient();
+  const statuses: string[] = [];
+  let releaseActive!: () => void;
+  let receiveInactive!: () => void;
+  const inactiveReceived = new Promise<void>((resolve) => (receiveInactive = resolve));
+  fake.client.rpc = async (method, data) => {
+    if (method !== AGENT_STATUS_METHOD) return new Uint8Array();
+    const status = decodeAgentStatus(data).status;
+    statuses.push(status);
+    if (status === "active") await new Promise<void>((resolve) => (releaseActive = resolve));
+    else receiveInactive();
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", config);
+  const report = (status: "active" | "inactive") =>
+    transport.sendAgentStatus({
+      protocolMajor: 1,
+      requestId: `status-${status}`,
+      workspaceId: config.workspaceId,
+      computerId: config.computerId,
+      agentId: "agent-1",
+      status,
+    });
+
+  report("active");
+  report("inactive");
+  await Promise.resolve();
+  expect(statuses).toEqual(["active"]);
+  releaseActive();
+  await inactiveReceived;
+  expect(statuses).toEqual(["active", "inactive"]);
+  await transport.stop();
 });
 
 test("retains Agent activity in memory while disconnected", () => {

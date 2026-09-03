@@ -5,6 +5,9 @@ import {
   type ProcessTreeSpawner,
 } from "../platform/process-tree";
 import { AgentProcessCleanupError } from "./contract";
+import { getLogger } from "@logtape/logtape";
+
+const logger = getLogger(["coforge", "daemon", "code-agent", "jsonl"]);
 
 type JsonRecord = Readonly<Record<string, unknown>>;
 
@@ -38,6 +41,12 @@ export class JsonlProcess {
   ) {
     this.#tree = processTreeOwner.spawn(command, cwd, environment);
     this.#child = this.#tree.child;
+    logger.info("Started code agent process", {
+      event: "code_agent.process.started",
+      executable: command[0],
+      argument_count: Math.max(command.length - 1, 0),
+      outcome: "ok",
+    });
     void this.#readStdout();
     void this.#discardStderr();
     void this.#observeExit();
@@ -96,6 +105,12 @@ export class JsonlProcess {
     });
     try {
       await this.send({ ...command, id });
+      logger.info("Sent code agent request", {
+        event: "code_agent.request.sent",
+        request_id: id,
+        method: typeof command.method === "string" ? command.method : "unknown",
+        outcome: "ok",
+      });
     } catch (error) {
       this.#pending.delete(id);
       void response.catch(() => undefined);
@@ -146,6 +161,13 @@ export class JsonlProcess {
     const pending = id ? this.#pending.get(id) : undefined;
     if (id && pending) {
       this.#pending.delete(id);
+      logger.info("Received code agent response", {
+        event: "code_agent.response.received",
+        request_id: id,
+        success: record.success !== false && record.error === undefined,
+        error_type: record.error === undefined ? undefined : typeof record.error,
+        outcome: record.success === false || record.error !== undefined ? "error" : "ok",
+      });
       if (record.success === false || record.error !== undefined) {
         pending.reject(new Error("code agent request failed"));
       } else {
@@ -157,10 +179,20 @@ export class JsonlProcess {
   }
 
   async #discardStderr(): Promise<void> {
+    let bytes = 0;
+    let lines = 0;
     try {
-      for await (const _chunk of this.#child.stderr) {
-        // Drain diagnostics so the child cannot block; provider output is not logged here.
+      for await (const chunk of this.#child.stderr) {
+        bytes += chunk.byteLength;
+        lines += new TextDecoder().decode(chunk).split("\n").length - 1;
       }
+      if (bytes > 0)
+        logger.warning("Code agent process wrote diagnostics to stderr", {
+          event: "code_agent.process.stderr",
+          bytes,
+          lines,
+          outcome: "observed",
+        });
     } catch {
       // Process exit can close stderr while it is being drained.
     }
@@ -168,6 +200,10 @@ export class JsonlProcess {
 
   async #observeExit(): Promise<void> {
     await this.#child.exited;
+    logger.error("Code agent process exited", {
+      event: "code_agent.process.exited",
+      outcome: "error",
+    });
     this.#fail("code agent process exited unexpectedly");
   }
 

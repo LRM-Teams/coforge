@@ -27,16 +27,28 @@ import type {
 import {
   WORKSPACE_PROTOCOL_MAJOR,
   type AgentActivity,
+  type AgentMessageRecord,
+  type AgentMessageResponse,
   type AgentStartIntent,
   type AgentMessageDelivery,
+  type InboxResponse,
+  type LocalAgentMessageRequest,
+  type LocalInboxRequest,
+  type RuntimeProvider,
+  type UsageScanResponse,
 } from "@coforge/protocol";
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentMessageAttentionIndex } from "./agent-message-attention-index";
+import { AgentInboxStateMachine } from "./agent-inbox-state-machine";
+import { AgentAppInbox, type MintAppItem } from "../agent-app-inbox/agent-app-inbox";
 import { isAgentApiKey } from "../credentials/agent-api-key";
 import {
   discoverCodeAgentInventory,
   type CodeAgentInventory,
 } from "../code-agent/runtime-inventory";
+import { getLogger } from "@logtape/logtape";
+
+const logger = getLogger(["coforge", "daemon", "runtime"]);
 
 export function generateRuntimeInstanceId(): string {
   return crypto.randomUUID();
@@ -60,6 +72,9 @@ export class DaemonRuntime {
   #unsubscribeReconnect: (() => void) | undefined;
   #unsubscribeUsageScan: (() => void) | undefined;
   readonly #messageAttention: AgentMessageAttentionIndex;
+  readonly #agentInboxes = new Map<string, AgentInboxStateMachine>();
+  readonly #appInboxes = new Map<string, Promise<AgentAppInbox>>();
+  readonly #notifiedAppItems = new Map<string, Set<string>>();
   readonly #runtimeInstanceId = generateRuntimeInstanceId();
   readonly #startedAt = Date.now();
   readonly #agentContexts = new Map<string, string>();
@@ -91,6 +106,7 @@ export class DaemonRuntime {
       revoke(token: string): void;
     },
     private readonly discoverCodeAgents: () => Promise<CodeAgentInventory> = discoverCodeAgentInventory,
+    private readonly stateDirectory = ".coforge-daemon-state",
   ) {
     this.#connection = connection;
     this.#createAdapter = createAdapter;
@@ -110,9 +126,7 @@ export class DaemonRuntime {
     return this.#agentProcessManager;
   }
 
-  async scanUsage(
-    provider: import("@coforge/protocol").RuntimeProvider,
-  ): Promise<import("@coforge/protocol").UsageScanResponse> {
+  async scanUsage(provider: RuntimeProvider): Promise<UsageScanResponse> {
     const protocolMajor = 1;
     if (!this.#started) throw new Error("daemon runtime is not running");
     if (provider !== "codex" && provider !== "claude-code")
@@ -292,7 +306,7 @@ export class DaemonRuntime {
     const existingLaunch = this.#agentLaunches.get(agentId);
     if (existingLaunch) return existingLaunch;
     if (this.#agentProcessManager.session(agentId))
-      return Promise.reject(new Error(`Agent runtime is already online: ${agentId}`));
+      return Promise.reject(new Error(`Agent runtime is already active: ${agentId}`));
 
     // Register the launch before its first await so concurrent starts cannot mint twice.
     const launch = this.#launchAgent(agentId, config, sessionId, requestId).finally(() => {
@@ -322,12 +336,20 @@ export class DaemonRuntime {
     let agentApiKey: string | undefined;
     let stage: "credential" | "runtime" = "credential";
     try {
-      if (!this.#transport.requestAgentLaunchConfig)
-        throw new Error("Agent API key endpoint is not configured");
-      const launchConfig = await this.#transport.requestAgentLaunchConfig({
-        agentId,
-        workspaceId: this.#connection.workspaceId,
-      });
+      const launchConfig = this.#transport.requestAgentLaunchConfig
+        ? await this.#transport.requestAgentLaunchConfig({
+            agentId,
+            workspaceId: this.#connection.workspaceId,
+          })
+        : this.#transport.requestAgentApiKey
+          ? {
+              agentApiKey: await this.#transport.requestAgentApiKey({
+                agentId,
+                workspaceId: this.#connection.workspaceId,
+              }),
+            }
+          : undefined;
+      if (!launchConfig) throw new Error("Agent API key endpoint is not configured");
       agentApiKey = launchConfig.agentApiKey;
       this.#pendingAgentApiKeyRevokes.add(agentApiKey);
       if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
@@ -355,6 +377,7 @@ export class DaemonRuntime {
           COFORGE_AGENT_CONTEXT: localContext,
           COFORGE_AGENT_PROXY_URL: this.#agentProxy?.url ?? "",
         },
+        launch.launchId,
       );
       if (this.#stoppingAgents.has(agentId)) {
         await this.#agentProcessManager.stop(agentId);
@@ -382,7 +405,12 @@ export class DaemonRuntime {
               runtimeEvent.activity.level,
               runtimeEvent.activity.message,
             ),
+            ...(runtimeEvent.activity.diagnostic
+              ? { diagnostic: runtimeEvent.activity.diagnostic }
+              : {}),
           });
+          if (runtimeEvent.activity.activity === "idle")
+            void this.drainAppInboxNotices(agentId).catch(() => {});
           return;
         }
         if (runtimeEvent.type !== "completed") return;
@@ -396,6 +424,7 @@ export class DaemonRuntime {
           message:
             runtimeEvent.status === "failed" ? "Agent turn failed." : "Agent turn completed.",
         });
+        void this.drainAppInboxNotices(agentId).catch(() => {});
       });
       runtime.session.onExit(() => {
         if (this.#currentActivityLaunches.get(agentId) !== launch) return;
@@ -417,6 +446,8 @@ export class DaemonRuntime {
         if (!launch.stopping && this.#currentActivityLaunches.get(agentId) === launch)
           this.#currentActivityLaunches.delete(agentId);
       });
+      this.#sendAgentStatus(agentId, "active");
+      void this.drainAppInboxNotices(agentId).catch(() => {});
       return runtime;
     } catch (error) {
       const proxyToken = this.#agentProxyTokens.get(agentId);
@@ -494,10 +525,17 @@ export class DaemonRuntime {
 
   async handleAgentMessage(message: AgentMessageDelivery): Promise<void> {
     if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
+    if (this.#stoppingAgents.has(message.agentId))
+      throw new Error(`Agent runtime is stopping: ${message.agentId}`);
     if (message.protocolMajor !== WORKSPACE_PROTOCOL_MAJOR)
       throw new Error("unsupported agent protocol major");
     if (message.workspaceId !== this.#connection.workspaceId)
       throw new Error("agent message targets another Workspace");
+    if (!this.#agentProcessManager.session(message.agentId)) {
+      const wakeable = this.#agentProcessManager.restartConfig(message.agentId);
+      if (!wakeable) throw new Error("Agent is inactive");
+      await this.startAgent(message.agentId, wakeable.config, wakeable.sessionId);
+    }
     await this.#messageAttention.receive(message);
   }
 
@@ -547,6 +585,8 @@ export class DaemonRuntime {
     );
     if (failure) throw failure.reason;
     this.#currentActivityLaunches.delete(agentId);
+    this.#messageAttention.clearAgent(agentId);
+    this.#sendAgentStatus(agentId, "inactive");
   }
 
   #revokeLocalLaunch(agentId: string, context?: string, proxyToken?: string): void {
@@ -569,6 +609,17 @@ export class DaemonRuntime {
       launchId: launch.launchId,
       clientSeq: ++launch.clientSeq,
       occurredAt: new Date().toISOString(),
+    });
+  }
+
+  #sendAgentStatus(agentId: string, status: "active" | "inactive"): void {
+    this.#transport.sendAgentStatus?.({
+      protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+      requestId: crypto.randomUUID(),
+      workspaceId: this.#connection.workspaceId,
+      computerId: this.#connection.computerId,
+      agentId,
+      status,
     });
   }
 
@@ -597,19 +648,20 @@ export class DaemonRuntime {
 
   async agentMessage(
     context: string,
-    request: import("@coforge/protocol").LocalAgentMessageRequest,
+    request: LocalAgentMessageRequest,
     agentApiKey?: string,
-  ): Promise<import("@coforge/protocol").AgentMessageResponse> {
+  ): Promise<AgentMessageResponse> {
     if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
     const agentId = [...this.#agentContexts.entries()].find(([, value]) => value === context)?.[0];
     if (!agentId) throw new Error("invalid agent local context");
     if (request.operation === "check") {
+      const startedAt = performance.now();
       const attention = this.#messageAttention
         .check(agentId)
         .filter((item) => !request.target || item.target === request.target);
       if (!this.#transport.agentMessage) throw new Error("daemon connection is not connected");
       if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
-      const messages = [] as import("@coforge/protocol").AgentMessageRecord[];
+      const messages: AgentMessageRecord[] = [];
       for (const item of attention) {
         const result = await this.#transport.agentMessage(
           {
@@ -619,13 +671,48 @@ export class DaemonRuntime {
             workspaceId: this.#connection.workspaceId,
             operation: "read",
             target: item.target,
+            before: request.before,
+            after: request.after,
+            around: request.around,
+            limit: request.limit,
           },
           agentApiKey,
         );
         if (!result.accepted) continue;
-        messages.push(...result.messages);
-        this.#messageAttention.clear(agentId, item.target);
+        messages.push(
+          ...result.messages.filter(
+            ({ sequence }) =>
+              sequence >= item.firstPendingSequence && sequence <= item.latestSequence,
+          ),
+        );
+        const visibleSequence = Math.max(
+          0,
+          ...result.messages
+            .filter(
+              ({ sequence }) =>
+                sequence >= item.firstPendingSequence && sequence <= item.latestSequence,
+            )
+            .map(({ sequence }) => sequence),
+        );
+        if (visibleSequence > 0)
+          this.#messageAttention.recordModelSeen(agentId, item.target, visibleSequence);
       }
+      logger.info("Agent checked pending messages", {
+        event: "agent.message.checked",
+        request_id: request.requestId,
+        workspace_id: this.#connection.workspaceId,
+        computer_id: this.#connection.computerId,
+        agent_id: agentId,
+        target_count: attention.length,
+        pending_count: attention.reduce((count, item) => count + item.pendingCount, 0),
+        displayed_count: messages.length,
+        sequence_ranges: attention.map((item) => ({
+          first: item.firstPendingSequence,
+          latest: item.latestSequence,
+        })),
+        duration_ms: Math.round(performance.now() - startedAt),
+        outcome: "ok",
+      });
       return {
         requestId: request.requestId,
         accepted: true,
@@ -637,6 +724,83 @@ export class DaemonRuntime {
     }
     if (!this.#transport.agentMessage) throw new Error("daemon connection is not connected");
     if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    if (request.operation === "send" && request.target) {
+      const startedAt = performance.now();
+      const inbox = this.#agentInboxes.get(agentId) ?? new AgentInboxStateMachine();
+      this.#agentInboxes.set(agentId, inbox);
+      const draft = request.sendDraft ? inbox.draft(request.target) : undefined;
+      if (request.sendDraft && !draft)
+        throw new Error(`No held draft for target: ${request.target}`);
+      const body = draft?.body ?? request.body;
+      if (body === undefined) throw new Error("Agent message body is required");
+      if (!request.sendDraft) inbox.save(request.target, body);
+      if (request.sendDraft && !draft?.holdToken)
+        throw new Error(`Held draft token is unavailable for target: ${request.target}`);
+      const result = await this.#transport.agentMessage(
+        {
+          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+          requestId: request.requestId,
+          agentId,
+          workspaceId: this.#connection.workspaceId,
+          operation: "send",
+          target: request.target,
+          body,
+          holdToken: draft?.holdToken,
+          continueAnyway: request.continueAnyway,
+        },
+        agentApiKey,
+      );
+      if (result.sideEffectDecision === "hold" && result.holdToken)
+        inbox.replace(request.target, body, result.holdToken);
+      else if (result.accepted) inbox.clear(request.target);
+      if (result.messages.length > 0) {
+        this.#messageAttention.recordModelSeen(
+          agentId,
+          request.target,
+          Math.max(...result.messages.map(({ sequence }) => sequence)),
+        );
+      }
+      if (result.sideEffectDecision === "hold") {
+        const launch = this.#currentActivityLaunches.get(agentId);
+        if (launch)
+          this.#emitAgentActivity(agentId, launch, {
+            protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+            requestId: crypto.randomUUID(),
+            workspaceId: this.#connection.workspaceId,
+            agentId,
+            activity: "freshness_hold",
+            level: "info",
+            message: "Reply held until the Agent reviews newer messages.",
+          });
+      }
+      logger.info("Agent sent a message", {
+        event: "agent.message.sent",
+        request_id: request.requestId,
+        workspace_id: this.#connection.workspaceId,
+        computer_id: this.#connection.computerId,
+        agent_id: agentId,
+        freshness_decision: result.sideEffectDecision ?? "forward",
+        accepted: result.accepted,
+        message_id: result.messageId,
+        duration_ms: Math.round(performance.now() - startedAt),
+        outcome: result.accepted ? "ok" : "rejected",
+      });
+      return {
+        requestId: request.requestId,
+        accepted: result.accepted,
+        attentionCount: result.attentionCount,
+        messageId: result.messageId ?? "",
+        messages: result.messages,
+        summaries: [],
+        sideEffectDecision:
+          result.sideEffectDecision === "anyway_accepted"
+            ? "bypass"
+            : result.sideEffectDecision === "anyway_denied"
+              ? undefined
+              : result.sideEffectDecision,
+        anywayAllowed: result.anywayAllowed,
+      };
+    }
     const result = await this.#transport.agentMessage(
       {
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
@@ -649,8 +813,12 @@ export class DaemonRuntime {
       },
       agentApiKey,
     );
-    if (request.operation === "read" && result.accepted && request.target)
-      this.#messageAttention.clear(agentId, request.target);
+    if (request.operation === "read" && result.accepted && request.target) {
+      const visibleSequence = Math.max(...result.messages.map(({ sequence }) => sequence), 0);
+      if (visibleSequence > 0)
+        this.#messageAttention.recordModelSeen(agentId, request.target, visibleSequence);
+      else this.#messageAttention.clear(agentId, request.target);
+    }
     return {
       requestId: request.requestId,
       accepted: result.accepted,
@@ -659,6 +827,68 @@ export class DaemonRuntime {
       messages: result.messages,
       summaries: [],
     };
+  }
+
+  async mintAppItem(agentId: string, input: MintAppItem) {
+    const item = await (await this.#appInbox(agentId)).upsert(input);
+    await this.#notifyAppItem(agentId, item.itemId);
+    return item;
+  }
+
+  async inbox(context: string, request: LocalInboxRequest): Promise<InboxResponse> {
+    if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
+    const agentId = this.#agentIdForContext(context);
+    const inbox = await this.#appInbox(agentId);
+    return {
+      requestId: request.requestId,
+      accepted: true,
+      entries: [
+        ...this.#messageAttention.check(agentId).map((messageTarget) => ({
+          kind: "message_target" as const,
+          messageTarget: { ...messageTarget, flags: [...messageTarget.flags] },
+        })),
+        ...inbox.list().map((app) => ({ kind: "app" as const, app })),
+      ],
+    };
+  }
+
+  async drainAppInboxNotices(agentId: string): Promise<void> {
+    for (const item of (await this.#appInbox(agentId)).list())
+      await this.#notifyAppItem(agentId, item.itemId);
+  }
+
+  #appInbox(agentId: string): Promise<AgentAppInbox> {
+    const existing = this.#appInboxes.get(agentId);
+    if (existing) return existing;
+    const opened = AgentAppInbox.open(this.stateDirectory, this.#connection.workspaceId, agentId);
+    this.#appInboxes.set(agentId, opened);
+    return opened;
+  }
+
+  async #notifyAppItem(agentId: string, itemId: string): Promise<void> {
+    const notified = this.#notifiedAppItems.get(agentId) ?? new Set<string>();
+    this.#notifiedAppItems.set(agentId, notified);
+    if (notified.has(itemId)) return;
+    let session = this.#agentProcessManager.session(agentId);
+    if (!session) {
+      const wakeable = this.#agentProcessManager.restartConfig(agentId);
+      if (!wakeable) return;
+      session = (await this.startAgent(agentId, wakeable.config, wakeable.sessionId)).session;
+    }
+    if (!session.notify || notified.has(itemId)) return;
+    notified.add(itemId);
+    try {
+      await session.notify("New app item available. Run coforge inbox check.");
+    } catch (error) {
+      notified.delete(itemId);
+      throw error;
+    }
+  }
+
+  #agentIdForContext(context: string): string {
+    const agentId = [...this.#agentContexts.entries()].find(([, value]) => value === context)?.[0];
+    if (!agentId) throw new Error("invalid agent local context");
+    return agentId;
   }
 
   async agentAttachment(
@@ -719,12 +949,14 @@ export class DaemonRuntime {
       }
     }
     await Promise.allSettled(this.#agentLaunches.values());
+    const activeAgentIds = this.#agentProcessManager.activeAgentIds();
     let shutdownError: unknown;
     try {
       await this.#agentProcessManager.shutdown();
     } catch (error) {
       shutdownError = error;
     }
+    for (const agentId of activeAgentIds) this.#sendAgentStatus(agentId, "inactive");
     this.#currentActivityLaunches.clear();
     try {
       await Promise.all(

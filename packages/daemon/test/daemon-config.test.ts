@@ -20,3 +20,28 @@ test("daemon config stores one replaceable configuration without credentials", a
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("daemon config restores its process-provided Web endpoint after restart", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "coforge-config-web-endpoint-"));
+  try {
+    const stored = new DaemonConfigStore(directory);
+    await stored.save({
+      computerId: "computer-a",
+      workspaceId: "workspace-a",
+      workspaceRoot: "/work",
+    });
+
+    const recovered = new DaemonConfigStore(directory, {
+      serverHttpUrl: "https://coforge.example",
+    });
+
+    expect(await recovered.load()).toEqual({
+      computerId: "computer-a",
+      workspaceId: "workspace-a",
+      workspaceRoot: "/work",
+      serverHttpUrl: "https://coforge.example",
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

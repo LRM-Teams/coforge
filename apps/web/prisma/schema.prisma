@@ -89,6 +89,9 @@ model AgentActivity {
   activity    String
   level       String
   message     String
+  diagnosticErrorClass String?
+  diagnosticReason String?
+  diagnosticFingerprint String?
   occurredAt  DateTime
   createdAt   DateTime  @default(now())
   agent       Agent     @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)

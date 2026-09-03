@@ -29,6 +29,8 @@ import {
   parseAgentRuntimeConfig,
   publicAgentRuntimeConfig,
 } from "../../server/agents/agent-runtime-config.server";
+import { getAgentStatusCache } from "../../server/agents/agent-status.server";
+import { issueBrowserRealtimeToken } from "../../server/auth/browser-realtime-token.server";
 
 function dependencies() {
   const db = getDatabaseClient();
@@ -131,8 +133,37 @@ export const listAgents = createServerFn({ method: "GET" }).handler(async () => 
   const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
   const { collection, db } = dependencies();
   const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-  return collection.list({ userId: user.id, workspaceId });
+  const agents = await collection.list({ userId: user.id, workspaceId });
+  const statuses = getAgentStatusCache();
+  return Promise.all(
+    agents.map(async (agent) => {
+      const status = agent.computerId
+        ? await statuses.snapshot({ workspaceId, computerId: agent.computerId, agentId: agent.id })
+        : { status: "inactive" as const, expiresAt: null };
+      return { ...agent, status: status.status, statusExpiresAt: status.expiresAt };
+    }),
+  );
 });
+
+export const getAgentStatusConnectionToken = createServerFn({ method: "GET" }).handler(async () => {
+  const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  const db = getDatabaseClient();
+  if (!db) throw new Error("Agent persistence is unavailable");
+  const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+  return issueBrowserRealtimeToken({ userId: user.id, workspaceId });
+});
+
+export const retryAgentStart = createServerFn({ method: "POST" })
+  .validator((agentId: unknown) => {
+    if (typeof agentId !== "string" || !agentId) throw new Error("Agent id is required");
+    return agentId;
+  })
+  .handler(async ({ data: agentId }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const { collection, db } = dependencies();
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    await collection.retryStart({ userId: user.id, workspaceId }, agentId);
+  });
 
 export const createAgent = createServerFn({ method: "POST" })
   .validator(validateCreateInput)

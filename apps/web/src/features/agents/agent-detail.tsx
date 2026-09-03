@@ -365,6 +365,11 @@ function Activity({ detail, timeZone }: { detail: Detail; timeZone: string | nul
               className={`whitespace-pre-wrap break-words text-sm ${entry.level === "error" ? "text-destructive-text" : "text-muted-foreground"}`}
             >
               {entry.message}
+              {entry.diagnosticErrorClass && (
+                <span className="mt-1 block text-xs opacity-75">
+                  {entry.diagnosticErrorClass} · {entry.diagnosticReason ?? "unknown"}
+                </span>
+              )}
             </p>
           )}
         </li>

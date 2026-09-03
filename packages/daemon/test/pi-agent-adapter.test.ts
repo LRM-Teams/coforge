@@ -10,7 +10,11 @@ test("Pi loads skills before running in a child process behind the code-agent se
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-pi-rpc-"));
   process.env.COFORGE_UNDECLARED_TEST_VALUE = "present";
   const adapter = new PiAgentAdapter({
-    command: [process.execPath, new URL("./fixtures/pi-rpc.ts", import.meta.url).pathname],
+    command: [
+      process.execPath,
+      new URL("./fixtures/pi-rpc.ts", import.meta.url).pathname,
+      "expected-communication-instructions",
+    ],
   });
 
   try {

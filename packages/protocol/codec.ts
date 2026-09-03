@@ -27,6 +27,7 @@ import {
   AgentStartIntentSchema,
   AgentMessageDeliverySchema,
   AgentActivitySchema,
+  AgentStatusSchema,
   AgentMessageDeliveryAckSchema,
   AgentMessageRequestSchema,
   CloudAgentMessageResponseSchema,
@@ -36,6 +37,7 @@ import type {
   AgentRuntimeProviderConfig,
   AgentMessageDelivery,
   AgentActivity,
+  AgentStatus,
   AgentMessageDeliveryAck,
   AgentMessageRequest,
   CloudAgentMessageResponse,
@@ -321,7 +323,13 @@ export function encodeAgentActivity(value: AgentActivity): Uint8Array {
   validateAgentActivity(value);
   return toBinary(
     AgentActivitySchema,
-    create(AgentActivitySchema, { ...value, clientSeq: BigInt(value.clientSeq) }),
+    create(AgentActivitySchema, {
+      ...value,
+      clientSeq: BigInt(value.clientSeq),
+      diagnosticErrorClass: value.diagnostic?.errorClass ?? "",
+      diagnosticReason: value.diagnostic?.reason ?? "",
+      diagnosticFingerprint: value.diagnostic?.fingerprint ?? "",
+    }),
   );
 }
 export function encodeAgentMessageRequest(value: AgentMessageRequest): Uint8Array {
@@ -335,6 +343,12 @@ export function decodeAgentMessageRequest(bytes: Uint8Array): AgentMessageReques
     ...v,
     operation: v.operation as AgentMessageRequest["operation"],
     body: v.body || undefined,
+    holdToken: v.holdToken || undefined,
+    continueAnyway: v.continueAnyway || undefined,
+    before: v.before || undefined,
+    after: v.after || undefined,
+    around: v.around || undefined,
+    limit: v.limit || undefined,
   };
 }
 export function encodeCloudAgentMessageResponse(value: CloudAgentMessageResponse): Uint8Array {
@@ -368,6 +382,15 @@ export function decodeCloudAgentMessageResponse(bytes: Uint8Array): CloudAgentMe
       target: m.target,
       ...decodeLocalAttachment(m.attachment),
     })),
+    sideEffectDecision: v.sideEffectDecision
+      ? (v.sideEffectDecision as CloudAgentMessageResponse["sideEffectDecision"])
+      : undefined,
+    holdToken: v.holdToken || undefined,
+    anywayAllowed: v.anywayAllowed || undefined,
+    hasOlder: v.hasOlder || undefined,
+    hasNewer: v.hasNewer || undefined,
+    olderCursor: v.olderCursor || undefined,
+    newerCursor: v.newerCursor || undefined,
   };
 }
 export function decodeAgentActivity(bytes: Uint8Array): AgentActivity {
@@ -385,9 +408,56 @@ export function decodeAgentActivity(bytes: Uint8Array): AgentActivity {
     launchId: v.launchId,
     ...(v.messageId ? { messageId: v.messageId } : {}),
     ...(v.conversationId ? { conversationId: v.conversationId } : {}),
+    ...(v.diagnosticErrorClass
+      ? {
+          diagnostic: {
+            errorClass: v.diagnosticErrorClass,
+            reason: v.diagnosticReason,
+            fingerprint: v.diagnosticFingerprint,
+          },
+        }
+      : {}),
   };
   validateAgentActivity(value);
   return value;
+}
+
+export function encodeAgentStatus(value: AgentStatus): Uint8Array {
+  validateAgentStatus(value);
+  return toBinary(AgentStatusSchema, create(AgentStatusSchema, value));
+}
+
+export function decodeAgentStatus(bytes: Uint8Array): AgentStatus {
+  const value = fromBinary(AgentStatusSchema, bytes);
+  const status = {
+    protocolMajor: value.protocolMajor,
+    requestId: value.requestId,
+    workspaceId: value.workspaceId,
+    computerId: value.computerId,
+    agentId: value.agentId,
+    status: value.status,
+  };
+  validateAgentStatus(status);
+  return status;
+}
+
+function validateAgentStatus(value: {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  computerId: string;
+  agentId: string;
+  status: string;
+}): asserts value is AgentStatus {
+  if (
+    value.protocolMajor !== 1 ||
+    !value.requestId ||
+    !value.workspaceId ||
+    !value.computerId ||
+    !value.agentId ||
+    (value.status !== "active" && value.status !== "inactive")
+  )
+    throw new Error("invalid agent status");
 }
 
 function validateAgentActivity(value: AgentActivity): void {

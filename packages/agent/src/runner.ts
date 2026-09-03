@@ -9,7 +9,6 @@ import {
   runRpcMode,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import { seedPiSessionModelRuntime } from "./runtime-provider";
 
 const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   cwd,
@@ -17,8 +16,13 @@ const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   sessionManager,
   sessionStartEvent,
 }) => {
-  const services = await createAgentSessionServices({ cwd, agentDir });
-  await seedPiSessionModelRuntime(services.modelRuntime);
+  const instructions = Bun.env.COFORGE_AGENT_INSTRUCTIONS;
+  if (!instructions?.trim()) throw new Error("CoForge Agent instructions are required");
+  const services = await createAgentSessionServices({
+    cwd,
+    agentDir,
+    resourceLoaderOptions: { systemPromptOverride: () => instructions },
+  });
   const skillDiagnostics = services.resourceLoader.getSkills().diagnostics;
   if (skillDiagnostics.length > 0) {
     throw new Error(`Cannot start with ${skillDiagnostics.length} skill diagnostic(s)`);

@@ -11,6 +11,10 @@ import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
 import { readClaudeCodeUsage } from "./usage";
+import { COFORGE_AGENT_INSTRUCTIONS } from "../communication-instructions";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 export class ClaudeCodeAgentAdapter implements CodeAgentAdapter {
   readonly provider = RUNTIME_PROVIDER.CLAUDE_CODE;
@@ -43,22 +47,31 @@ export class ClaudeCodeAgentAdapter implements CodeAgentAdapter {
   }
 
   async start(options: CodeAgentStartOptions): Promise<CodeAgentSession> {
-    const command = [
-      ...this.#command,
-      ...(options.runtime?.model ? ["--model", options.runtime.model] : []),
-      ...(options.runtime?.reasoning ? ["--effort", options.runtime.reasoning] : []),
-    ];
-    const process = new JsonlProcess(
-      command,
-      options.agentWorkspaceDirectory,
-      agentEnvironment(options.environment),
-    );
-    const session = new ClaudeCodeAgentSession(process);
+    const promptDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-prompt-"));
+    let process: JsonlProcess | undefined;
     try {
+      const promptPath = join(promptDirectory, "system-prompt.md");
+      await writeFile(promptPath, COFORGE_AGENT_INSTRUCTIONS, { mode: 0o600 });
+      const command = [
+        ...this.#command,
+        "--append-system-prompt-file",
+        promptPath,
+        ...(options.runtime?.model ? ["--model", options.runtime.model] : []),
+        ...(options.runtime?.reasoning ? ["--effort", options.runtime.reasoning] : []),
+      ];
+      process = new JsonlProcess(
+        command,
+        options.agentWorkspaceDirectory,
+        agentEnvironment(options.environment),
+      );
+      const session = new ClaudeCodeAgentSession(process, () =>
+        rm(promptDirectory, { recursive: true, force: true }),
+      );
       await session.ready();
       return session;
     } catch (error) {
-      await process.dispose();
+      await process?.dispose().catch(() => undefined);
+      await rm(promptDirectory, { recursive: true, force: true });
       throw error;
     }
   }
@@ -66,6 +79,7 @@ export class ClaudeCodeAgentAdapter implements CodeAgentAdapter {
 
 class ClaudeCodeAgentSession implements CodeAgentSession {
   readonly #process: JsonlProcess;
+  readonly #removePrompt: () => Promise<void>;
   readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
   #state: "idle" | "running" | "interrupting" | "disposed" = "idle";
   #initialized = false;
@@ -74,8 +88,9 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
     | { promise: Promise<void>; resolve(): void; reject(error: Error): void }
     | undefined;
 
-  constructor(process: JsonlProcess) {
+  constructor(process: JsonlProcess, removePrompt: () => Promise<void>) {
     this.#process = process;
+    this.#removePrompt = removePrompt;
     process.onRecord((record) => this.#accept(record));
     process.onFailure((error) => {
       this.#rejectPendingInterrupt(error);
@@ -84,9 +99,10 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
         activity: createAgentActivity("error", "error", error.message),
       });
     });
-    process.onClose(() =>
-      this.#rejectPendingInterrupt(new Error("code agent process closed during interrupt")),
-    );
+    process.onClose(() => {
+      this.#rejectPendingInterrupt(new Error("code agent process closed during interrupt"));
+      void this.#removePrompt();
+    });
   }
 
   async ready(): Promise<void> {
@@ -166,7 +182,11 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
     this.#state = "disposed";
     this.#pendingInterrupt?.reject(new Error("code agent process closed"));
     this.#pendingInterrupt = undefined;
-    await this.#process.dispose();
+    try {
+      await this.#process.dispose();
+    } finally {
+      await this.#removePrompt();
+    }
   }
 
   #accept(record: Readonly<Record<string, unknown>>): void {

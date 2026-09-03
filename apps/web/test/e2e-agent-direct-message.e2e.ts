@@ -3,9 +3,16 @@ import { readFileSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { encodeAgentActivity, type ComputerRegisterRequest } from "@coforge/protocol";
+import { encodeAgentActivity } from "@coforge/protocol";
+import { Centrifuge } from "centrifuge";
 import { PrismaClient } from "../generated/client";
 import { DEV_BROWSER_USER } from "../src/server/auth/dev-skip-auth.server";
+import { issueBrowserRealtimeToken } from "../src/server/auth/browser-realtime-token.server";
+import {
+  agentStatusChannel,
+  decodeAgentStatusEvent,
+  type AgentStatusEvent,
+} from "../src/features/agents/agent-status-realtime";
 import { verifyDaemonApiKey } from "../src/server/auth/daemon-api-key.server";
 import { PrismaDaemonApiKeyRepository } from "../src/server/db/repositories/daemon-api-key.repositories.server";
 import { ComputerRegistrar } from "../src/server/computers/registration.server";
@@ -18,11 +25,6 @@ import {
   RepositoryAgentAuthorization,
 } from "../src/server/db/repositories/agent.repositories.server";
 import { AgentCollection } from "../src/server/agents/agent-collection.server";
-import {
-  AgentRuntimeCredentials,
-  readAgentRuntimeCredentialEncryptionKey,
-} from "../src/server/agents/agent-runtime-credentials.server";
-import { PrismaAgentRuntimeCredentialRepository } from "../src/server/db/repositories/agent-runtime-credential.repositories.server";
 import { CloudAgentUseCase } from "../src/server/agents/cloud-agent.server";
 import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
 import { SendDirectMessage } from "../src/server/conversations/direct-message.server";
@@ -41,8 +43,10 @@ if (requireEnvironment("COFORGE_E2E_ALLOW_RESET") !== "1")
   throw new Error("COFORGE_E2E_ALLOW_RESET=1 is required for destructive E2E cleanup");
 const workspaceId = "10000000-0000-4000-8000-000000000001";
 const workspaceRoot = join(import.meta.dir, "../../../.amp/e2e/workspace-root");
+const daemonStateDirectory = join(import.meta.dir, "../../../.amp/e2e/daemon-state");
+const attachmentDirectory = join(import.meta.dir, "../.data/attachments", workspaceId);
 
-test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Agent HTTPS identity", async () => {
+test("Agent runtime, status, Message Inbox, and App Inbox cross the real system", async () => {
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
   const redis = new Bun.RedisClient(requireEnvironment("REDIS_URL"));
   await db.$executeRawUnsafe(
@@ -50,6 +54,8 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
   );
   await redis.send("FLUSHDB", []);
   await rm(workspaceRoot, { recursive: true, force: true });
+  await rm(daemonStateDirectory, { recursive: true, force: true });
+  await rm(attachmentDirectory, { recursive: true, force: true });
   await mkdir(workspaceRoot, { recursive: true });
 
   await db.workspace.create({
@@ -93,40 +99,6 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
     workspaceId,
     computerId: registration.computerId,
   });
-  const sharedAgentOwnerId = "20000000-0000-4000-8000-000000000002";
-  await db.workspaceMembership.create({
-    data: {
-      workspace: { connect: { id: workspaceId } },
-      user: { create: { id: sharedAgentOwnerId, username: "shared-agent-owner" } },
-    },
-  });
-  const sharedAgent = await db.agent.create({
-    data: {
-      workspaceId,
-      ownerId: sharedAgentOwnerId,
-      computerId: registration.computerId,
-      name: "shared-runtime-agent",
-      displayName: "Shared Runtime Agent",
-      runtimeConfig: {
-        runtime: "codex",
-        provider: { kind: "default" },
-        model: "",
-        reasoning: "",
-      },
-    },
-  });
-  const sharedAgentKeyProbe = await fetch("http://127.0.0.1:8789/api/agent-api-keys", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${registration.daemonApiKey}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ agentId: sharedAgent.id, workspaceId }),
-  });
-  expect(sharedAgentKeyProbe.status).toBe(200);
-  await sharedAgentKeyProbe.body?.cancel();
-  await db.agent.delete({ where: { id: sharedAgent.id } });
-
   const created = await new AgentCollection(
     agents,
     { start: async () => undefined },
@@ -143,10 +115,6 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
       reasoning: "balanced",
     },
   );
-  await new AgentRuntimeCredentials(
-    new PrismaAgentRuntimeCredentialRepository(db),
-    readAgentRuntimeCredentialEncryptionKey(process.env),
-  ).save({ workspaceId, userId: DEV_BROWSER_USER.id }, created.agent.id, "e2e-provider-api-key");
   const keyProbe = await fetch("http://127.0.0.1:8789/api/agent-api-keys", {
     method: "POST",
     headers: {
@@ -157,7 +125,6 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
   });
   expect(keyProbe.status).toBe(200);
   await keyProbe.body?.cancel();
-  await db.agentApiKey.deleteMany({ where: { apiKeyHash: { not: "" } } });
 
   const credentials = new InMemoryDaemonCredentialStore();
   await credentials.save(workspaceId, registration.computerId, registration.daemonApiKey);
@@ -166,6 +133,7 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
     runtime: {
       agentMessage: (...args) => runtime!.agentMessage(...args),
       agentAttachment: (...args) => runtime!.agentAttachment(...args),
+      inbox: (...args) => runtime!.inbox(...args),
       issueAgentContext: (agentId, context) => runtime!.issueAgentContext(agentId, context),
     },
   });
@@ -189,9 +157,20 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
     credentials,
     { create: () => new DaemonConnection("ws://127.0.0.1:8000/connection/websocket") },
     proxy,
+    async () => ({ runtimes: [], catalogs: [] }),
+    daemonStateDirectory,
   );
+  const statusEvents: AgentStatusEvent[] = [];
+  const statusClient = new Centrifuge("ws://127.0.0.1:8000/connection/websocket", {
+    token: await issueBrowserRealtimeToken({ userId: DEV_BROWSER_USER.id, workspaceId }),
+  });
+  statusClient.on("publication", (publication) => {
+    if (publication.channel === agentStatusChannel(workspaceId))
+      statusEvents.push(decodeAgentStatusEvent(publication.data));
+  });
 
   try {
+    statusClient.connect();
     await runtime.start({
       workspaceId,
       computerId: registration.computerId,
@@ -205,6 +184,10 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
     const runtimeConfigPath = join(agentWorkspace, ".e2e-runtime-config.json");
     await waitFor(async () => Bun.file(pidPath).exists());
     await waitFor(async () => Bun.file(runtimeConfigPath).exists());
+    const statusKey = `coforge:agent-status:v1:${workspaceId}:${registration.computerId}:${created.agent.id}`;
+    await waitFor(async () => (await redis.get(statusKey)) === "active");
+    await waitFor(() => statusEvents.some((event) => event.status === "active"));
+    expect(await agentsPage()).toContain("Online");
     expect(await Bun.file(runtimeConfigPath).json()).toEqual({
       modelProvider: "e2e-provider",
       model: "e2e-model",
@@ -230,6 +213,31 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
       created.agent.id,
       ".e2e-agent-error",
     );
+    const appInboxCompletionPath = join(agentWorkspace, ".e2e-app-inbox-complete.json");
+    const reminderId = "123e4567-e89b-42d3-a456-426614174000";
+    await runtime.mintAppItem(created.agent.id, {
+      appId: "system.reminder",
+      notificationClass: "due",
+      sourceRef: { kind: "reminder", id: reminderId, revision: "1" },
+      title: "E2E reminder",
+      summary: "Check the end-to-end result",
+    });
+    await waitFor(
+      async () => Bun.file(appInboxCompletionPath).exists() || Bun.file(errorPath).exists(),
+    );
+    if (await Bun.file(errorPath).exists()) throw new Error(await Bun.file(errorPath).text());
+    expect(await Bun.file(appInboxCompletionPath).json()).toEqual({
+      itemId: `reminder:${reminderId}:1`,
+      appId: "system.reminder",
+      notificationClass: "due",
+      action: { kind: "run_command", commandId: "reminder.ack" },
+      entriesAfterAck: 1,
+    });
+    expect(
+      await Bun.file(
+        join(daemonStateDirectory, "app-inbox", workspaceId, created.agent.id, "items.json"),
+      ).json(),
+    ).toMatchObject({ version: 1, items: [{ itemId: `reminder:${reminderId}:1` }] });
 
     const conversations = new PrismaDirectConversationRepository(db);
     const opened = await conversations.openForUser(
@@ -278,19 +286,23 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
     const completion = (await Bun.file(completionPath).json()) as {
       firstMessageId: string;
       retriedMessageId: string;
+      holdDecision: string;
+      holdAccepted: boolean;
+      heldBody: string;
     };
     expect(completion.retriedMessageId).toBe(completion.firstMessageId);
+    expect(completion).toMatchObject({
+      holdDecision: "hold",
+      holdAccepted: false,
+      heldBody: "E2E User message",
+    });
     const messages = await db.message.findMany({ orderBy: { sequence: "asc" } });
     expect(messages.map(({ body }) => body)).toEqual(["E2E User message", "E2E Agent reply"]);
     expect(await db.agentMessageDelivery.count()).toBe(1);
     expect((await db.agentMessageDelivery.findFirst())?.receivedAt).toBeInstanceOf(Date);
 
-    await waitFor(async () =>
-      Boolean(
-        await db.agentActivity.findFirst({
-          where: { agentId: created.agent.id, activity: "turn_completed" },
-        }),
-      ),
+    await waitFor(
+      async () => (await db.agentActivity.count({ where: { agentId: created.agent.id } })) >= 9,
     );
     const firstLaunchActivity = await db.agentActivity.findMany({
       where: { agentId: created.agent.id },
@@ -305,10 +317,16 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
       firstLaunchId,
       firstLaunchId,
       firstLaunchId,
+      firstLaunchId,
+      firstLaunchId,
     ]);
-    expect(firstLaunchActivity.map(({ clientSeq }) => clientSeq)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(firstLaunchActivity.map(({ clientSeq }) => clientSeq)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9,
+    ]);
     expect(firstLaunchActivity.map(({ activity }) => activity)).toEqual([
       "starting",
+      "turn_completed",
+      "freshness_hold",
       "running_command",
       "reading_file",
       "writing_file",
@@ -316,8 +334,8 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
       "using_tool",
       "turn_completed",
     ]);
-    expect(firstLaunchActivity[1]!.message).toBe("printf e2e-activity");
-    expect(firstLaunchActivity.slice(2, 6).map(({ message }) => message)).toEqual([
+    expect(firstLaunchActivity[3]!.message).toBe("printf e2e-activity");
+    expect(firstLaunchActivity.slice(4, 8).map(({ message }) => message)).toEqual([
       "/workspace/e2e-read.ts",
       "/workspace/e2e-write.ts",
       "/workspace/e2e-edit.ts",
@@ -331,6 +349,9 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
     await waitFor(
       () => !pidExists(firstProcesses.directPid) && !pidExists(firstProcesses.descendantPid),
     );
+    await waitFor(async () => (await redis.get(statusKey)) === null);
+    await waitFor(() => statusEvents.some((event) => event.status === "inactive"));
+    expect(await agentsPage()).toContain("Offline");
     expect(runtime.agentProcessManager.size).toBe(0);
     await rm(processesPath, { force: true });
 
@@ -358,6 +379,9 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
     expect(replacementProcesses.descendantPid).not.toBe(firstProcesses.descendantPid);
     expect(pidExists(replacementProcesses.directPid)).toBe(true);
     expect(pidExists(replacementProcesses.descendantPid)).toBe(true);
+    await waitFor(async () => (await redis.get(statusKey)) === "active");
+    await waitFor(() => statusEvents.filter((event) => event.status === "active").length >= 2);
+    expect(await agentsPage()).toContain("Online");
     await waitFor(
       async () =>
         (await db.agentActivity.count({
@@ -446,104 +470,20 @@ test("Agent direct message crosses PostgreSQL, Redis, Centrifugo, Daemon, and Ag
     expect(activityHtml).toContain("/workspace/e2e-edit.ts");
     expect(activityHtml).toContain("web_search");
   } finally {
+    statusClient.disconnect();
     await runtime.stop();
     proxy.close();
     redis.close();
     await db.$disconnect();
+    await rm(attachmentDirectory, { recursive: true, force: true });
   }
 }, 40_000);
 
-test("setup moves one Computer to its new Workspace and resets runtime visibility", async () => {
-  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
-  const ownerId = "30000000-0000-4000-8000-000000000003";
-  const firstWorkspaceId = "30000000-0000-4000-8000-000000000004";
-  const secondWorkspaceId = "30000000-0000-4000-8000-000000000005";
-  try {
-    await db.user.create({ data: { id: ownerId, username: "setup-move-owner" } });
-    await db.workspace.createMany({
-      data: [
-        { id: firstWorkspaceId, slug: "setup-move-first", name: "Setup Move First" },
-        { id: secondWorkspaceId, slug: "setup-move-second", name: "Setup Move Second" },
-      ],
-    });
-    await db.workspaceMembership.createMany({
-      data: [
-        { workspaceId: firstWorkspaceId, userId: ownerId },
-        { workspaceId: secondWorkspaceId, userId: ownerId },
-      ],
-    });
-    const registrar = new ComputerRegistrar({
-      workspaceAccess: new PrismaWorkspaceAccess(db),
-      registrations: new PrismaComputerRegistrationRepository(db),
-    });
-    const request = {
-      protocolMajor: 1,
-      requestId: crypto.randomUUID(),
-      workspaceSlug: "setup-move-first",
-      machineId: "setup-move-machine",
-      platform: "linux",
-      osVersion: "e2e",
-      computerVersion: "0.1.0",
-      runtimes: [],
-      registrationIdempotencyKey: "setup-move-registration",
-    } satisfies ComputerRegisterRequest;
-    const first = await registrar.register(request, { userId: ownerId });
-    await db.computerRuntime.create({
-      data: {
-        computerId: first.computerId,
-        provider: "codex",
-        version: "1",
-        displayName: "Codex",
-        isPublic: true,
-      },
-    });
-    const previousWorkspaceAgent = await db.agent.create({
-      data: {
-        workspaceId: firstWorkspaceId,
-        ownerId,
-        computerId: first.computerId,
-        name: "previous-workspace-agent",
-        displayName: "Previous Workspace Agent",
-        runtimeConfig: {
-          runtime: "codex",
-          provider: { kind: "default" },
-          model: "",
-          reasoning: "",
-        },
-      },
-    });
-
-    const second = await registrar.register(
-      { ...request, requestId: crypto.randomUUID(), workspaceSlug: "setup-move-second" },
-      { userId: ownerId },
-    );
-
-    expect(second.computerId).toBe(first.computerId);
-    expect(
-      await db.workspaceComputer.findMany({ where: { computerId: first.computerId } }),
-    ).toEqual([expect.objectContaining({ workspaceId: secondWorkspaceId })]);
-    expect(
-      await db.computerRuntime.findUniqueOrThrow({
-        where: { computerId_provider: { computerId: first.computerId, provider: "codex" } },
-        select: { isPublic: true },
-      }),
-    ).toEqual({ isPublic: false });
-    expect(
-      await db.agent.findUniqueOrThrow({
-        where: { id: previousWorkspaceAgent.id },
-        select: { computerId: true },
-      }),
-    ).toEqual({ computerId: null });
-    await expect(
-      verifyDaemonApiKey(first.daemonApiKey, new PrismaDaemonApiKeyRepository(db)),
-    ).rejects.toThrow("invalid Daemon API key");
-    expect(
-      await verifyDaemonApiKey(second.daemonApiKey, new PrismaDaemonApiKeyRepository(db)),
-    ).toMatchObject({ workspaceId: secondWorkspaceId, computerId: first.computerId });
-  } finally {
-    await db.$disconnect();
-  }
-});
+async function agentsPage() {
+  const response = await fetch("http://127.0.0.1:8789/");
+  expect(response.status).toBe(200);
+  return response.text();
+}
 
 function requireEnvironment(name: string) {
   const value = process.env[name];

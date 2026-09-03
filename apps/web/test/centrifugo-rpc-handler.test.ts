@@ -3,6 +3,7 @@ import {
   CentrifugoRpcAuthenticationError,
   CentrifugoRpcHandler,
   createAgentMessageMethod,
+  createAgentStatusMethod,
   createDaemonRuntimeCodeAgentsUpdateMethod,
   createDaemonRuntimeReadyMethod,
   createDaemonRuntimeUsageScanResultMethod,
@@ -11,6 +12,7 @@ import {
 import { createCentrifugoRpcHandler } from "../src/server/centrifugo/rpc-composition.server";
 import {
   decodeCloudAgentMessageResponse,
+  encodeAgentStatus,
   encodeAgentMessageRequest,
   encodeDaemonRuntimeCodeAgentsUpdateRequest,
   encodeDaemonRuntimeReadyRequest,
@@ -49,6 +51,63 @@ const principal = (agentId?: string) => ({
 });
 
 describe("CentrifugoRpcHandler", () => {
+  test("accepts a scoped Agent status from its assigned Computer", async () => {
+    const statuses: unknown[] = [];
+    const publications: unknown[] = [];
+    const method = createAgentStatusMethod(
+      {
+        getById: async () => ({
+          id: "agent-1",
+          workspaceId: "workspace-1",
+          ownerId: "another-workspace-member",
+          computerId: "computer-1",
+        }),
+      },
+      {
+        put: async (status) => {
+          statuses.push(status);
+        },
+        get: async () => "inactive",
+        snapshot: async () => ({ status: "inactive", expiresAt: null }),
+      },
+      {
+        publish: async (channel, data) => {
+          publications.push({ channel, data: JSON.parse(new TextDecoder().decode(data)) });
+        },
+      },
+      () => 1_000,
+    );
+    const payload = encodeAgentStatus({
+      protocolMajor: 1,
+      requestId: "status-1",
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      agentId: "agent-1",
+      status: "active",
+    });
+
+    expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
+    expect(statuses).toEqual([
+      {
+        protocolMajor: 1,
+        requestId: "status-1",
+        workspaceId: "workspace-1",
+        computerId: "computer-1",
+        agentId: "agent-1",
+        status: "active",
+      },
+    ]);
+    expect(publications).toEqual([
+      {
+        channel: "status:workspace-1",
+        data: { agentId: "agent-1", status: "active", expiresAt: 91_000 },
+      },
+    ]);
+    expect(
+      await method(payload, { principal: { ...principal(), computerId: "computer-2" } }),
+    ).toEqual({ code: 403, message: "Agent status is not authorized" });
+  });
+
   test("replaces the exact Computer's external Code Agent snapshot", async () => {
     const updates: unknown[] = [];
     const method = createDaemonRuntimeCodeAgentsUpdateMethod({

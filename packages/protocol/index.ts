@@ -22,6 +22,7 @@ export const AGENT_MESSAGE_ACK_METHOD = "agent:deliver:ack" as const;
 export const AGENT_MESSAGE_CHECK_METHOD = "agent:message:check" as const;
 export const AGENT_MESSAGE_READ_METHOD = "agent:message:read" as const;
 export const AGENT_MESSAGE_SEND_METHOD = "agent:message:send" as const;
+export const AGENT_STATUS_METHOD = "agent:status" as const;
 export const AGENT_ACTIVITY_METHOD = "agent:activity" as const;
 export const WORKSPACE_PROTOCOL_MAJOR = COMPUTER_REGISTER_PROTOCOL_MAJOR;
 export type Workspace = { id: string; slug: string; name: string };
@@ -155,6 +156,19 @@ export type AgentActivity = {
   occurredAt: string;
   launchId: string;
   clientSeq: number;
+  diagnostic?: {
+    errorClass: string;
+    reason: string;
+    fingerprint: string;
+  };
+};
+export type AgentStatus = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  computerId: string;
+  agentId: string;
+  status: "active" | "inactive";
 };
 export type AgentMessageRequest = {
   protocolMajor: number;
@@ -164,6 +178,12 @@ export type AgentMessageRequest = {
   operation: "read" | "send";
   target: string;
   body?: string;
+  holdToken?: string;
+  continueAnyway?: boolean;
+  before?: string;
+  after?: string;
+  around?: string;
+  limit?: number;
 };
 export type CloudAgentMessageResponse = {
   protocolMajor: number;
@@ -185,6 +205,13 @@ export type CloudAgentMessageResponse = {
       sizeBytes: number;
     };
   }[];
+  sideEffectDecision?: "forward" | "hold" | "anyway_denied" | "anyway_accepted";
+  holdToken?: string;
+  anywayAllowed?: boolean;
+  hasOlder?: boolean;
+  hasNewer?: boolean;
+  olderCursor?: string;
+  newerCursor?: string;
 };
 
 export interface ComputerRegisterTransport {
@@ -240,6 +267,10 @@ export {
   decodeLocalAgentMessageRequest,
   encodeAgentMessageResponse,
   decodeAgentMessageResponse,
+  encodeLocalInboxRequest,
+  decodeLocalInboxRequest,
+  encodeInboxResponse,
+  decodeInboxResponse,
   encodeLocalAttachment,
   decodeLocalAttachment,
   encodeUsageScanRequest,
@@ -259,6 +290,10 @@ export type {
   DaemonCommandResponse,
   LocalAgentMessageRequest,
   AgentMessageResponse,
+  LocalInboxRequest,
+  InboxResponse,
+  InboxEntry,
+  AppInboxItem,
   UsageScanRequest,
   UsageScanResponse,
 } from "./local-daemon";
@@ -281,6 +316,8 @@ export {
   decodeAgentMessageDeliveryAck,
   encodeAgentActivity,
   decodeAgentActivity,
+  encodeAgentStatus,
+  decodeAgentStatus,
   encodeAgentMessageRequest,
   decodeAgentMessageRequest,
   encodeCloudAgentMessageResponse,

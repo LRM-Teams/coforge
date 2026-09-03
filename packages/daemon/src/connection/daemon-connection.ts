@@ -5,6 +5,7 @@ import {
   encodeDaemonRuntimeUsageScanResponse,
   decodeAgentMessageDelivery,
   encodeAgentActivity,
+  encodeAgentStatus,
   encodeAgentMessageDeliveryAck,
   encodeDaemonRuntimeReadyRequest,
   encodeDaemonRuntimeCodeAgentsUpdateRequest,
@@ -13,10 +14,12 @@ import {
   DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD,
   DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD,
   AGENT_MESSAGE_ACK_METHOD,
+  AGENT_STATUS_METHOD,
   type DaemonRuntimeReadyRequest,
   type DaemonRuntimeCodeAgentsUpdateRequest,
   type DaemonRuntimeUsageScanRequest,
   type AgentActivity,
+  type AgentStatus,
   type AgentStartIntent,
   type AgentMessageDelivery,
   type AgentMessageDeliveryAck,
@@ -34,6 +37,8 @@ export type AgentLaunchConfig = {
   agentApiKey: string;
   providerConfig?: AgentRuntimeProviderConfig;
 };
+
+const AGENT_STATUS_REFRESH_MS = 30_000;
 
 /** Configuration identifying the daemon's Workspace connection. */
 export interface DaemonConnectionConfig {
@@ -66,12 +71,14 @@ export interface DaemonConnectionClient {
   onAgentStart?(callback: (intent: AgentStartIntent) => void): () => void;
   onAgentMessage?(callback: (message: AgentMessageDelivery) => void): () => void;
   sendAgentActivity?(activity: AgentActivity): void;
+  sendAgentStatus?(status: AgentStatus): void;
   sendAgentDeliveryAck?(ack: AgentMessageDeliveryAck): Promise<void>;
   agentMessage?(
     request: AgentMessageRequest,
     agentApiKey?: string,
   ): Promise<CloudAgentMessageResponse>;
   agentAttachment?(attachmentId: string, agentApiKey?: string): Promise<Response>;
+  requestAgentApiKey?(input: { agentId: string; workspaceId: string }): Promise<string>;
   requestAgentLaunchConfig?(input: {
     agentId: string;
     workspaceId: string;
@@ -146,7 +153,7 @@ export const defaultAgentMessageHttpClient: AgentMessageHttpClient = {
 /** The Daemon's single connection for its configured Workspace. */
 export class DaemonConnection implements DaemonConnectionClient {
   #client: CentrifugeWorkspaceClient | undefined;
-  #controlSubscription: CentrifugeWorkspaceSubscription | undefined;
+  #daemonSubscription: CentrifugeWorkspaceSubscription | undefined;
   #connected = false;
   #hasConnected = false;
   #agentStartListener: ((intent: AgentStartIntent) => void) | undefined;
@@ -156,6 +163,9 @@ export class DaemonConnection implements DaemonConnectionClient {
   #reconnectListener: (() => void) | undefined;
   readonly #pendingActivity = new Map<string, AgentActivity>();
   readonly #supersededActivityLaunches = new Map<string, Set<string>>();
+  readonly #latestStatuses = new Map<string, AgentStatus>();
+  #statusRefreshTimer: ReturnType<typeof setInterval> | undefined;
+  #statusRpcQueue = Promise.resolve();
 
   constructor(
     private readonly endpoint: string,
@@ -175,15 +185,15 @@ export class DaemonConnection implements DaemonConnectionClient {
       new TextEncoder().encode(JSON.stringify({ daemonApiKey: _token })),
     );
     this.#client = client;
-    const controlChannel = this.#controlChannel(config.computerId);
+    const daemonChannel = this.#daemonChannel(config.computerId);
     if (!client.newSubscription) {
       client.on("publication", ({ channel, data }) => {
-        if (client !== this.#client || channel !== controlChannel) return;
+        if (client !== this.#client || channel !== daemonChannel) return;
         this.#handleAgentPublication(data, config.workspaceId);
       });
     }
-    const subscription = client.newSubscription?.(controlChannel);
-    this.#controlSubscription = subscription;
+    const subscription = client.newSubscription?.(daemonChannel);
+    this.#daemonSubscription = subscription;
     subscription?.on("publication", ({ data }) => {
       if (client === this.#client) {
         this.#handleAgentPublication(data, config.workspaceId);
@@ -214,6 +224,8 @@ export class DaemonConnection implements DaemonConnectionClient {
           )
           .catch(() => {});
         this.#flushPendingActivity(client);
+        this.#flushLatestStatuses(client);
+        this.#startStatusRefresh();
         if (reconnect && this.#lastReadyRequest) {
           void this.#sendReady(client, this.#lastReadyRequest)
             .then(() => this.#reconnectListener?.())
@@ -228,7 +240,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       client.connect();
     }).catch((error) => {
       subscription?.unsubscribe();
-      this.#controlSubscription = undefined;
+      this.#daemonSubscription = undefined;
       client.disconnect();
       this.#client = undefined;
       throw error;
@@ -277,6 +289,12 @@ export class DaemonConnection implements DaemonConnectionClient {
       });
   }
 
+  sendAgentStatus(status: AgentStatus): void {
+    this.#latestStatuses.set(status.agentId, status);
+    if (!this.#connected || !this.#client) return;
+    this.#queueAgentStatus(this.#client, status);
+  }
+
   #flushPendingActivity(client: CentrifugeWorkspaceClient): void {
     if (!client.publish) return;
     const pending = [...this.#pendingActivity.values()];
@@ -288,6 +306,35 @@ export class DaemonConnection implements DaemonConnectionClient {
         .catch(() => {});
     }
   }
+
+  #flushLatestStatuses(client: CentrifugeWorkspaceClient): void {
+    for (const status of this.#latestStatuses.values()) {
+      this.#queueAgentStatus(client, status);
+    }
+  }
+
+  #queueAgentStatus(client: CentrifugeWorkspaceClient, status: AgentStatus): void {
+    this.#statusRpcQueue = this.#statusRpcQueue
+      .then(async () => {
+        if (!this.#connected || client !== this.#client) return;
+        await client.rpc(AGENT_STATUS_METHOD, encodeAgentStatus(status));
+      })
+      .catch(() => {});
+  }
+
+  #startStatusRefresh(): void {
+    if (this.#statusRefreshTimer) return;
+    this.#statusRefreshTimer = setInterval(() => {
+      const client = this.#client;
+      if (!this.#connected || !client) return;
+      for (const status of this.#latestStatuses.values()) {
+        if (status.status !== "active") continue;
+        this.#queueAgentStatus(client, { ...status, requestId: crypto.randomUUID() });
+      }
+    }, AGENT_STATUS_REFRESH_MS);
+    this.#statusRefreshTimer.unref();
+  }
+
   async sendAgentDeliveryAck(ack: AgentMessageDeliveryAck): Promise<void> {
     if (!this.#connected || !this.#client) throw new Error("daemon connection is not connected");
     await this.#client.rpc(AGENT_MESSAGE_ACK_METHOD, encodeAgentMessageDeliveryAck(ack));
@@ -320,10 +367,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     );
   }
 
-  async requestAgentLaunchConfig(input: {
-    agentId: string;
-    workspaceId: string;
-  }): Promise<AgentLaunchConfig> {
+  async requestAgentApiKey(input: { agentId: string; workspaceId: string }): Promise<string> {
     if (!this.#serverHttpUrl) throw new Error("Agent API key endpoint is not configured");
     const response = await fetch(`${new URL(this.#serverHttpUrl).origin}/api/agent-api-keys`, {
       method: "POST",
@@ -331,12 +375,30 @@ export class DaemonConnection implements DaemonConnectionClient {
       body: JSON.stringify(input),
     });
     if (!response.ok) throw new Error(`Agent API key request failed (${response.status})`);
+    const value = (await response.json()) as { apiKey?: unknown };
+    if (typeof value.apiKey !== "string" || !isAgentApiKey(value.apiKey))
+      throw new Error("invalid Agent API key response");
+    return value.apiKey;
+  }
+
+  async requestAgentLaunchConfig(input: {
+    agentId: string;
+    workspaceId: string;
+  }): Promise<AgentLaunchConfig> {
+    if (!this.#serverHttpUrl) throw new Error("Agent launch config endpoint is not configured");
+    const response = await fetch(`${new URL(this.#serverHttpUrl).origin}/api/agent-api-keys`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.#token}`, "content-type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!response.ok) throw new Error(`Agent launch config request failed (${response.status})`);
     const value = (await response.json()) as { apiKey?: unknown; providerConfig?: unknown };
     if (typeof value.apiKey !== "string" || !isAgentApiKey(value.apiKey))
       throw new Error("invalid Agent API key response");
+    const providerConfig = parseAgentRuntimeProviderConfig(value.providerConfig);
     return {
       agentApiKey: value.apiKey,
-      providerConfig: parseRuntimeProviderConfig(value.providerConfig),
+      ...(providerConfig ? { providerConfig } : {}),
     };
   }
 
@@ -352,7 +414,7 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   #serverHttpUrl = "";
 
-  #controlChannel(computerId: string): string {
+  #daemonChannel(computerId: string): string {
     return `daemon:${computerId}`;
   }
 
@@ -425,8 +487,11 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async stop(): Promise<void> {
     const client = this.#client;
-    this.#controlSubscription?.unsubscribe();
-    this.#controlSubscription = undefined;
+    if (this.#statusRefreshTimer) clearInterval(this.#statusRefreshTimer);
+    this.#statusRefreshTimer = undefined;
+    await this.#statusRpcQueue;
+    this.#daemonSubscription?.unsubscribe();
+    this.#daemonSubscription = undefined;
     this.#client = undefined;
     this.#connected = false;
     this.#hasConnected = false;
@@ -436,24 +501,28 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#reconnectListener = undefined;
     this.#pendingActivity.clear();
     this.#supersededActivityLaunches.clear();
+    this.#latestStatuses.clear();
+    this.#statusRpcQueue = Promise.resolve();
     client?.disconnect();
   }
 }
 
-function parseRuntimeProviderConfig(value: unknown): AgentRuntimeProviderConfig | undefined {
+function parseAgentRuntimeProviderConfig(value: unknown): AgentRuntimeProviderConfig | undefined {
   if (value === undefined) return undefined;
-  if (!value || typeof value !== "object" || Array.isArray(value))
+  if (!value || typeof value !== "object")
     throw new Error("invalid Agent runtime provider config response");
-  const kind = Reflect.get(value, "kind");
-  const providerId = Reflect.get(value, "providerId");
-  const apiKey = Reflect.get(value, "apiKey");
-  if (kind === "default" && providerId === undefined && apiKey === undefined) return { kind };
+  const config = value as Record<string, unknown>;
+  if (config.kind === "default" && Object.keys(config).length === 1) return { kind: "default" };
   if (
-    kind === "pi-builtin" &&
-    typeof providerId === "string" &&
-    providerId &&
-    (apiKey === undefined || (typeof apiKey === "string" && apiKey))
+    config.kind === "pi-builtin" &&
+    typeof config.providerId === "string" &&
+    (config.apiKey === undefined || typeof config.apiKey === "string") &&
+    Object.keys(config).every((key) => key === "kind" || key === "providerId" || key === "apiKey")
   )
-    return { kind, providerId, ...(apiKey ? { apiKey } : {}) };
+    return {
+      kind: "pi-builtin",
+      providerId: config.providerId,
+      ...(typeof config.apiKey === "string" ? { apiKey: config.apiKey } : {}),
+    };
   throw new Error("invalid Agent runtime provider config response");
 }

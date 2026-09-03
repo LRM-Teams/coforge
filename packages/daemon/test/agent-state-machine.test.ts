@@ -2,33 +2,35 @@ import { describe, expect, test } from "bun:test";
 import { AgentStateMachine } from "../src/agent-runtime/agent-state-machine";
 
 describe("AgentStateMachine", () => {
-  test("starts offline and becomes online only after runtime is ready", () => {
+  test("starts inactive and becomes active only after runtime is ready", () => {
     const machine = new AgentStateMachine();
 
-    expect(machine.state).toBe("offline");
+    expect(machine.state).toBe("inactive");
     expect(machine.transition("runtime_ready")).toEqual({
       changed: true,
-      from: "offline",
-      to: "online",
+      from: "inactive",
+      to: "active",
     });
-    expect(machine.state).toBe("online");
+    expect(machine.state).toBe("active");
   });
 
-  test("returns to offline when the runtime stops", () => {
+  test("stays active when its runtime is released but can be deactivated", () => {
     const machine = new AgentStateMachine();
     machine.transition("runtime_ready");
 
-    expect(machine.transition("runtime_stopped")).toEqual({
+    expect(machine.transition("runtime_released")).toEqual({ changed: false });
+    expect(machine.state).toBe("active");
+    expect(machine.transition("deactivate")).toEqual({
       changed: true,
-      from: "online",
-      to: "offline",
+      from: "active",
+      to: "inactive",
     });
   });
 
   test("keeps repeated stop and startup-complete transitions idempotent", () => {
     const machine = new AgentStateMachine();
 
-    expect(machine.transition("runtime_stopped")).toEqual({ changed: false });
+    expect(machine.transition("deactivate")).toEqual({ changed: false });
     machine.transition("runtime_ready");
     expect(machine.transition("runtime_ready")).toEqual({ changed: false });
   });

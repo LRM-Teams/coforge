@@ -1,5 +1,13 @@
 export {};
 
+const promptFlag = process.argv.indexOf("--append-system-prompt-file");
+if (promptFlag < 0) throw new Error("missing system prompt file option");
+const promptPath = process.argv[promptFlag + 1];
+if (!promptPath) throw new Error("missing system prompt file path");
+const standingInstructions = await Bun.file(promptPath).text();
+if (!standingInstructions.startsWith("## CoForge communication"))
+  throw new Error("missing CoForge communication instructions");
+
 const exitsOnInterrupt = process.argv.includes("exit-on-interrupt");
 const decoder = new TextDecoder();
 let buffer = "";

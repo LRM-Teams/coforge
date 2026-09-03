@@ -44,10 +44,16 @@
 
 ## Agent 状态与活动上报通道
 
-Agent 的业务状态只有 `online` 和 `offline`，并由 daemon 本地的 Agent
-runtime process 派生。`agent:status` 是低频状态转换事件，只在值发生变化时发送：进程
-成功启动并可接收工作后发送 `agent:status(status=online)`；进程退出或被停止后发送
-`agent:status(status=offline)`。`agent:status` 与 `agent:activity` 是两个独立的上报通道（两类消息），都通过 daemon 的 WSS 发送。Activity 使用专用的 `activity:<workspace_id>` namespace 做 best-effort publication；服务端和
+Agent 的业务状态只有 `active` 和 `inactive`，Web 分别显示为在线和离线。`active` 表示
+Daemon 持有可运行配置并能接受消息，不要求 Agent runtime process 当前存在。首次启动成功后发送
+`agent:status(status=active)`，并每 30 秒刷新一次 90 秒租约；进程意外退出时保持
+`active`，新消息到达后重新启动。人工停止发送 `agent:status(status=inactive)` 并立即清除
+租约。Daemon/Computer 正常关闭也必须在关闭 WSS 前为其管理的 active Agent 发送
+`inactive`；只有崩溃、断电或断网等无法上报的异常才依赖租约自然回落为 `inactive`。
+Backend 每次接受状态上报后都通过 Workspace 授权的 Centrifugo status channel 向浏览器
+发布状态和租约截止时间。页面首次加载及 WSS 重连读取 Redis 快照，平时不轮询 backend；
+若续租事件停止，页面在截止时间本地显示为离线。
+`agent:status` 与 `agent:activity` 是两个独立的上报通道（两类消息），都通过 daemon 的 WSS 发送。Activity 使用专用的 `activity:<workspace_id>` namespace 做 best-effort publication；服务端和
 前端不得从某个错误字符串推导第三种状态，也不得在每个 activity 上重复发送 status。
 
 Agent runtime 的生命周期明细和诊断通过 `agent:activity` 上报，而不是扩展状态。为使
@@ -55,7 +61,7 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 
 | 事件 | 用途 | 是否改变 Agent 状态 |
 | --- | --- | --- |
-| `agent:status` | 携带 `online` 或 `offline`，报告状态变化 | 按 payload 变更 |
+| `agent:status` | 携带 `active` 或 `inactive`，报告状态变化 | 按 payload 变更 |
 | `agent:activity` | 报告启动、执行、错误和警告明细 | 不改变 |
 
 | 字段 | 语义 |
@@ -81,7 +87,7 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 | `error` / `warning` | provider 运行错误或可恢复警告 |
 
 `starting`、`stopped`、`idle` 是 timeline 记录，不是新的 Agent 业务状态；当前状态仍只
-由 `agent:status` 的 `online` / `offline` 表示。只有真正发生过程或观察结果时才记录
+由 `agent:status` 的 `active` / `inactive` 表示。只有真正发生过程或观察结果时才记录
 对应 activity，不能用定时 heartbeat 不断重复制造相同 activity。
 
 ```text
@@ -112,10 +118,12 @@ message: <adapter 上报的完整原始消息>
 归一化后交给 Daemon 的消息，不是 provider 的完整协议事件。
 
 进程生命周期和 turn 生命周期必须按实际发生顺序记录。例如启动成功的顺序是
-`agent:activity(starting)`、`agent:status(online)`；停止时记录
-`agent:activity(stopped)`、`agent:status(offline)`，并且只在状态真正转换时发送一次
-status。重启是在停止后再次记录 `starting`，成功后发送 `agent:status(online)`。一次 turn 完成后记录
+`agent:activity(starting)`、`agent:status(active)`；停止时记录
+`agent:activity(stopped)`、`agent:status(inactive)`；租约刷新不新增 Activity。
+重启是在停止后再次记录 `starting`，成功后发送 `agent:status(active)`。一次 turn 完成后记录
 `turn_completed`，没有执行中的 turn 时再记录 `idle`；这些 activity 不改变 Agent status。
+进程意外退出时记录 `stopped`，但只要 Daemon 仍持有可重启配置就不发送 `inactive`；下一条
+消息会先重启 runtime，再发送无正文通知，并在通知成功后 ACK。
 
 Activity envelope 包含 `request_id`、`workspace_id`、`agent_id` 和上述固定业务字段；
 `request_id` 只用于关联诊断。`launch_id` 与 `client_seq` 是观察端未来拒绝旧 launch 和
@@ -125,11 +133,10 @@ stale rejection；当前保证来自 Daemon 的 current-launch gate。
 脱敏且可操作的原因，不上传命令参数、绝对路径、凭据或 stderr。provider 错误/警告
 使用 `activity=error|warning` 和对应的 `level`；adapter 必须先移除 token、prompt、命令、
 路径、完整响应和 stderr，再保留安全错误文本的原始语言与 wording。启动阶段如果进程未达到可接收工作状态，不能
-发送 `agent:status(status=online)`，并通过 `agent:activity` 记录启动明细。如果启动失败，
-通过 `agent:activity` 记录启动错误；只有原本为 online 的进程因此退出，或状态确实从
-online 变为 offline 时，才发送 `agent:status(status=offline)`。如果进程已经 online
-后遇到错误或警告，通过 `agent:activity` 上报；只有进程随后退出时才发送
-`agent:status(status=offline)`。
+发送 `agent:status(status=active)`，并通过 `agent:activity` 记录启动明细。如果启动失败，
+通过 `agent:activity` 记录启动错误。进程已经 active 后遇到错误、警告或意外退出时，通过
+`agent:activity` 上报；只要仍可由新消息重启就保持 `active`。只有人工停止、没有可重启配置，
+或 Daemon 租约失效时才呈现为 `inactive`。
 
 ### WSS Activity 发送
 

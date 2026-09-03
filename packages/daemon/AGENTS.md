@@ -20,6 +20,8 @@ src/
 ├── daemon-application/             # daemon use cases and orchestration
 ├── local-rpc/                      # Computer↔Daemon IPC server and handlers
 ├── daemon-runtime/                 # daemon-owned single Workspace runtime
+├── logging/                        # LogTape process diagnostics and redaction
+├── agent-app-inbox/                # typed Agent-scoped App items and registry
 ├── connection/                    # Daemon WSS connection and reconnect loop
 ├── protocol/                       # daemon-side protocol ports/codecs
 ├── agent-runtime/                  # Agent state, activity, and process control
@@ -46,12 +48,15 @@ boundary, then update this map if the ownership changes.
 - `local-rpc/` owns the local Unix socket/named-pipe server, framing, request
   validation, and RPC dispatch. It must not contain Daemon cloud connection logic.
 - `daemon-runtime/` owns the single Workspace's cloud connection and Agent
-  runtime operations. There is no Daemon or runtime pool abstraction.
+  runtime operations. For held Message sends it retains only draft text and an
+  opaque Web/backend token; it never decides freshness, counts hold stages, or
+  authorizes `--anyway`. It does not model runtime busy/idle turns, and
+  there is no Daemon or runtime pool abstraction.
 - `connection/` owns the daemon's long-lived WSS connection, ordered
   replay, reconnect, and protocol transport mechanics. Domain decisions remain
   above it.
 - `agent-runtime/` owns Agent lifecycle and the finite state machine whose only
-  status values are `online` and `offline`. `starting`, `stopping`, tool use,
+  status values are `active` and `inactive`. `starting`, `stopping`, tool use,
   turns, commands, file operations, warnings, and provider errors are activity
   records, not additional statuses.
 - `code-agent/` adapts installed provider processes into the provider-neutral
@@ -65,8 +70,19 @@ boundary, then update this map if the ownership changes.
   into each provider's native startup configuration. Claude Code model
   inventory must not launch the CLI to infer a dynamic catalog because its
   machine-readable initialization does not provide a dependable list.
-- `persistence/` owns durable local state and spool semantics. A connection
-  outbox is not durable storage.
+- Keep the standing CoForge communication instructions in one provider-neutral
+  source. Every code-agent adapter must inject those same instructions through
+  the provider's native system/developer-instruction mechanism: Codex uses
+  app-server `developerInstructions`, Claude Code uses its system-prompt-file
+  option, and built-in Pi uses its resource-loader system-prompt override. Do
+  not copy the text into each adapter or write `AGENTS.md`/`CLAUDE.md` into the user's Agent workspace
+  for providers that support native injection. Deliver body-free Message/App
+  Inbox wakeups separately as turn input; never append them to the standing
+  instructions.
+- `agent-app-inbox/` owns typed App-item identity, validation, retention, and
+  acknowledgement. It is separate from canonical chat Message attention.
+- `persistence/` owns durable local state and atomic App Inbox storage. A
+  connection outbox is not durable storage.
 - `platform/` contains OS-specific details only. Do not leak platform APIs
   into domain or application modules.
 

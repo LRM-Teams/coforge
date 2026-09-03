@@ -49,7 +49,10 @@ test("updates attention, sends only a body-free notice, and ACKs takeover", asyn
   expect(index.check("agent-1")).toEqual([
     expect.objectContaining({ target: "@ada", pendingCount: 1, latestSender: "@ada" }),
   ]);
-  expect(notices).toEqual(["New message available. Run coforge message check."]);
+  expect(notices).toEqual([
+    "[CoForge inbox notice:\nInbox update: 1 unread message total; 1 changed target\n@ada  pending: 1 message · latest sender @ada\nRun `coforge message check` to read pending messages.]",
+  ]);
+  expect(notices[0]).not.toContain("private body");
   expect(acks).toEqual(["delivery-one"]);
 });
 
@@ -159,5 +162,56 @@ test("clearing attention consumes only one Agent target", async () => {
       latestSender: "@grace",
       flags: ["dm"],
     },
+  ]);
+});
+
+test("clearing through a read boundary preserves concurrently newer attention", async () => {
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session(() => undefined) },
+    async () => undefined,
+  );
+  await index.receive({ ...delivery("old"), sequence: 7 });
+  await index.receive({ ...delivery("new"), deliveryId: "delivery-new", sequence: 8 });
+
+  index.clearThrough("agent-1", "@alice", 7);
+
+  expect(index.check("agent-1")).toMatchObject([{ latestSequence: 8 }]);
+});
+
+test("suppresses a delivery already visible to the model through its sequence cursor", async () => {
+  let notices = 0;
+  const acks: string[] = [];
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session(() => notices++) },
+    async (ack) => {
+      acks.push(ack.deliveryId);
+    },
+  );
+
+  index.recordModelSeen("agent-1", "@ada", 7);
+  await index.receive({ ...delivery("replayed"), target: "@ada", sequence: 7 });
+
+  expect(index.check("agent-1")).toEqual([]);
+  expect(notices).toBe(0);
+  expect(acks).toEqual(["delivery-replayed"]);
+  expect(index.modelSeenSequence("agent-1", "@ada")).toBe(7);
+});
+
+test("advances the model cursor while retaining newer attention", async () => {
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session() },
+    async () => {},
+  );
+  await index.receive({ ...delivery("old"), target: "@ada", sequence: 7 });
+  await index.receive({ ...delivery("new"), target: "@ada", sequence: 8 });
+
+  index.recordModelSeen("agent-1", "@ada", 7);
+
+  expect(index.modelSeenSequence("agent-1", "@ada")).toBe(7);
+  expect(index.check("agent-1")).toMatchObject([
+    { target: "@ada", pendingCount: 1, firstPendingSequence: 8, latestSequence: 8 },
   ]);
 });
