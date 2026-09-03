@@ -1,14 +1,15 @@
-import type {
-  CodeAgentAdapter,
-  AgentRuntimeEvent,
-  CodeAgentSession,
-  CodeAgentStartOptions,
+import {
+  AGENT_RUNTIME_EVENT_TYPE,
+  type UsageSnapshot,
+  type AgentRuntimeEvent,
+  type CodeAgentAdapter,
+  type CodeAgentSession,
+  type CodeAgentStartOptions,
 } from "../contract";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
-import type { UsageSnapshot } from "../contract";
 import { readClaudeCodeUsage } from "./usage";
 
 export class ClaudeCodeAgentAdapter implements CodeAgentAdapter {
@@ -68,6 +69,7 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
   readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
   #state: "idle" | "running" | "interrupting" | "disposed" = "idle";
   #initialized = false;
+  #usageSnapshot: UsageSnapshot = { provider: RUNTIME_PROVIDER.CLAUDE_CODE };
   #pendingInterrupt:
     | { promise: Promise<void>; resolve(): void; reject(error: Error): void }
     | undefined;
@@ -170,6 +172,17 @@ class ClaudeCodeAgentSession implements CodeAgentSession {
   #accept(record: Readonly<Record<string, unknown>>): void {
     if (record.type === "system" && record.subtype === "init") {
       this.#initialized = true;
+      return;
+    }
+    if (record.type === "rate_limit_event") {
+      const info = asRecord(record.rate_limit_info);
+      const usageWindow = claudeRateLimitWindow(info);
+      if (!usageWindow) return;
+      this.#usageSnapshot = {
+        ...this.#usageSnapshot,
+        [usageWindow.key]: usageWindow.window,
+      };
+      this.#emit({ type: AGENT_RUNTIME_EVENT_TYPE.USAGE, snapshot: this.#usageSnapshot });
       return;
     }
     if (record.type === "stream_event") {
@@ -285,4 +298,28 @@ function eventTime(record: Readonly<Record<string, unknown>>): string {
   return typeof record.timestamp === "string" && !Number.isNaN(Date.parse(record.timestamp))
     ? record.timestamp
     : new Date().toISOString();
+}
+
+function claudeRateLimitWindow(
+  info: Record<string, unknown> | undefined,
+): { key: "primary" | "secondary"; window: NonNullable<UsageSnapshot["primary"]> } | undefined {
+  if (info?.status !== "allowed" && info?.status !== "rejected") return undefined;
+  const key =
+    info.rateLimitType === "five_hour"
+      ? "primary"
+      : info.rateLimitType === "seven_day"
+        ? "secondary"
+        : undefined;
+  if (!key || typeof info.resetsAt !== "number" || !Number.isFinite(info.resetsAt))
+    return undefined;
+  const reset = new Date(info.resetsAt >= 1e12 ? info.resetsAt : info.resetsAt * 1_000);
+  if (Number.isNaN(reset.getTime())) return undefined;
+  return {
+    key,
+    window: {
+      status: info.status === "rejected" ? "rate-limited" : "available",
+      windowDurationMinutes: key === "primary" ? 300 : 10_080,
+      resetsAt: reset.toISOString(),
+    },
+  };
 }

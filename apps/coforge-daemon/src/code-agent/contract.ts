@@ -11,8 +11,13 @@ export type AgentRuntimeConfig = Readonly<{
   reasoning: string;
 }>;
 
+export const AGENT_RUNTIME_EVENT_TYPE = {
+  USAGE: "usage",
+} as const;
+
 export type AgentRuntimeEvent =
   | { type: "activity"; activity: AgentActivity }
+  | { type: typeof AGENT_RUNTIME_EVENT_TYPE.USAGE; snapshot: UsageSnapshot }
   | { type: "text-delta"; text: string }
   | { type: "tool-start"; id: string; name: string }
   | { type: "tool-output"; id: string; text: string }
@@ -20,7 +25,8 @@ export type AgentRuntimeEvent =
   | { type: "completed"; status: "completed" | "interrupted" | "failed" };
 
 export type UsageWindow = Readonly<{
-  usedPercent: number;
+  usedPercent?: number;
+  status?: "available" | "rate-limited";
   windowDurationMinutes: number;
   resetsAt: string;
 }>;

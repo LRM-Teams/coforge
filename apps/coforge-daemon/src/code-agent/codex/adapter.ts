@@ -9,6 +9,7 @@ import { readCodexUsage } from "./usage";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
+import { COFORGE_DAEMON_VERSION } from "../../version";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
 
 export class CodexAgentAdapter implements CodeAgentAdapter {
@@ -39,7 +40,11 @@ export class CodexAgentAdapter implements CodeAgentAdapter {
       await process.request({
         method: "initialize",
         params: {
-          clientInfo: { name: "coforge_daemon", title: "CoForge Daemon", version: "0.1.0" },
+          clientInfo: {
+            name: "coforge_daemon",
+            title: "CoForge Daemon",
+            version: COFORGE_DAEMON_VERSION,
+          },
           capabilities: { experimentalApi: false },
         },
       });

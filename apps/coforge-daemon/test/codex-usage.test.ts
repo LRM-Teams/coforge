@@ -9,7 +9,7 @@ const fixture = new URL("./fixtures/codex-app-server.ts", import.meta.url).pathn
 
 test("reads Codex account usage and converts rate-limit windows", async () => {
   const result = await readCodexUsage(await mkdtemp(join(tmpdir(), "coforge-usage-")), {
-    command: [process.execPath, fixture],
+    command: [process.execPath, fixture, "usage"],
   });
   expect(result).toEqual({
     provider: "codex",

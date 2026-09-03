@@ -8,6 +8,7 @@ import { agentEnvironment } from "./environment";
 import { JsonlProcess } from "./jsonl-process";
 import { builtinPiCommand } from "./pi/adapter";
 import { probeClaudeCodeVersion, resolveClaudeCodeExecutable } from "./claude-code/runtime";
+import { COFORGE_DAEMON_VERSION } from "../version";
 
 export interface ExternalCodeAgentProbe {
   which(name: string): string | undefined;
@@ -39,7 +40,11 @@ const bunProbe: ExternalCodeAgentProbe = {
         child.request({
           method: "initialize",
           params: {
-            clientInfo: { name: "coforge_daemon", title: "CoForge Daemon", version: "0.1.0" },
+            clientInfo: {
+              name: "coforge_daemon",
+              title: "CoForge Daemon",
+              version: COFORGE_DAEMON_VERSION,
+            },
             capabilities: { experimentalApi: false },
           },
         }),
@@ -172,7 +177,11 @@ async function discoverCodexCatalog(
       process.request({
         method: "initialize",
         params: {
-          clientInfo: { name: "coforge_daemon", title: "CoForge Daemon", version: "0.1.0" },
+          clientInfo: {
+            name: "coforge_daemon",
+            title: "CoForge Daemon",
+            version: COFORGE_DAEMON_VERSION,
+          },
           capabilities: { experimentalApi: false },
         },
       }),

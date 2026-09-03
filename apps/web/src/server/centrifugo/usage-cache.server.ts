@@ -3,9 +3,21 @@ import type { RuntimeProvider } from "@coforge/protocol";
 
 export type UsageCacheKey = { workspaceId: string; computerId: string; provider: RuntimeProvider };
 export type UsageSnapshot = {
+  provider: RuntimeProvider;
   planType?: string;
-  primary?: { usedPercent: number; resetsAt: string };
-  secondary?: { usedPercent: number; resetsAt: string };
+  primary?: {
+    usedPercent?: number;
+    status?: "available" | "rate-limited";
+    windowDurationMinutes: number;
+    resetsAt: string;
+  };
+  secondary?: {
+    usedPercent?: number;
+    status?: "available" | "rate-limited";
+    windowDurationMinutes: number;
+    resetsAt: string;
+  };
+  credits?: { hasCredits: boolean; unlimited: boolean };
 };
 export type UsageCacheRecord = UsageCacheKey & {
   scanId: string;

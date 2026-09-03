@@ -1,6 +1,11 @@
-import type { AgentRuntimeConfig, CodeAgentProvider } from "../code-agent/contract";
+import {
+  AGENT_RUNTIME_EVENT_TYPE,
+  AgentProcessCleanupError,
+  type AgentRuntimeConfig,
+  type CodeAgentProvider,
+  type UsageSnapshot,
+} from "../code-agent/contract";
 import { mkdirSync } from "node:fs";
-import { AgentProcessCleanupError } from "../code-agent/contract";
 import {
   AgentProcessManager,
   type AgentAdapterFactory,
@@ -32,7 +37,6 @@ import {
   discoverCodeAgentInventory,
   type CodeAgentInventory,
 } from "../code-agent/runtime-inventory";
-import { createCodeAgentAdapter } from "../code-agent/registry";
 
 export function generateRuntimeInstanceId(): string {
   return crypto.randomUUID();
@@ -41,6 +45,7 @@ export function generateRuntimeInstanceId(): string {
 /** The daemon-owned resident runtime for the single configured Workspace. */
 export class DaemonRuntime {
   readonly #connection: DaemonConfig;
+  readonly #createAdapter: AgentAdapterFactory;
   readonly #agentProcessManager: AgentProcessManager;
   readonly #credentials: DaemonCredentialStore;
   readonly #transportFactory: DaemonConnectionClientFactory;
@@ -68,6 +73,7 @@ export class DaemonRuntime {
     { launchId: string; clientSeq: number; stopping: boolean }
   >();
   readonly #pendingAgentApiKeyRevokes = new Set<string>();
+  readonly #observedUsage = new Map<CodeAgentProvider, UsageSnapshot>();
   readonly #agentProxy?: {
     url: string;
     issue(agentId: string, agentApiKey: string): string;
@@ -87,6 +93,7 @@ export class DaemonRuntime {
     private readonly discoverCodeAgents: () => Promise<CodeAgentInventory> = discoverCodeAgentInventory,
   ) {
     this.#connection = connection;
+    this.#createAdapter = createAdapter;
     this.#agentProcessManager = new AgentProcessManager(createAdapter);
     this.#credentials = credentials;
     this.#transportFactory = transportFactory;
@@ -116,14 +123,15 @@ export class DaemonRuntime {
         status: "unsupported",
         message: "Pi usage scanning is unsupported",
       };
-    const adapter = createCodeAgentAdapter(provider);
+    const adapter = this.#createAdapter(provider);
     if (!adapter.readUsage)
       return { protocolMajor, requestId: "", accepted: false, status: "unsupported" };
     try {
-      const snapshot = await adapter.readUsage({
+      const directlyReadSnapshot = await adapter.readUsage({
         workingDirectory: this.#connection.workspaceRoot,
         timeoutMs: 10_000,
       });
+      const snapshot = directlyReadSnapshot ?? this.#currentObservedUsage(provider);
       return snapshot
         ? {
             protocolMajor,
@@ -140,6 +148,15 @@ export class DaemonRuntime {
             message: "Provider usage is unavailable",
           };
     } catch (error) {
+      const snapshot = this.#currentObservedUsage(provider);
+      if (snapshot)
+        return {
+          protocolMajor,
+          requestId: "",
+          accepted: true,
+          status: "available",
+          snapshotJson: new TextEncoder().encode(JSON.stringify(snapshot)),
+        };
       return {
         protocolMajor,
         requestId: "",
@@ -343,6 +360,11 @@ export class DaemonRuntime {
         this.#emitAgentActivity(agentId, launch, activity);
       };
       const unsubscribe = runtime.session.subscribe((runtimeEvent) => {
+        if (runtimeEvent.type === AGENT_RUNTIME_EVENT_TYPE.USAGE) {
+          if (runtimeEvent.snapshot.provider === config.provider)
+            this.#rememberUsage(runtimeEvent.snapshot);
+          return;
+        }
         if (runtimeEvent.type === "activity") {
           emit({
             protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
@@ -418,6 +440,31 @@ export class DaemonRuntime {
         this.#currentActivityLaunches.delete(agentId);
       throw error;
     }
+  }
+
+  #rememberUsage(snapshot: UsageSnapshot): void {
+    const current = this.#observedUsage.get(snapshot.provider);
+    this.#observedUsage.set(snapshot.provider, {
+      ...current,
+      ...snapshot,
+      primary: snapshot.primary ?? current?.primary,
+      secondary: snapshot.secondary ?? current?.secondary,
+    });
+  }
+
+  #currentObservedUsage(provider: CodeAgentProvider): UsageSnapshot | undefined {
+    const snapshot = this.#observedUsage.get(provider);
+    if (!snapshot) return undefined;
+    const now = Date.now();
+    const primary = validUsageWindow(snapshot.primary, now);
+    const secondary = validUsageWindow(snapshot.secondary, now);
+    if (!primary && !secondary) {
+      this.#observedUsage.delete(provider);
+      return undefined;
+    }
+    const current = { ...snapshot, primary, secondary };
+    this.#observedUsage.set(provider, current);
+    return current;
   }
 
   async handleAgentStart(intent: AgentStartIntent): Promise<AgentRuntime> {
@@ -707,6 +754,10 @@ function safeRuntimeActivityMessage(activity: string, level: string, message: st
     return message;
   }
   return "Agent activity observed.";
+}
+
+function validUsageWindow(window: UsageSnapshot["primary"], now: number): UsageSnapshot["primary"] {
+  return window && Date.parse(window.resetsAt) > now ? window : undefined;
 }
 
 export function createDaemonRuntime(input: {

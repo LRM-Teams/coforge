@@ -5,6 +5,7 @@ import {
   createAgentMessageMethod,
   createDaemonRuntimeCodeAgentsUpdateMethod,
   createDaemonRuntimeReadyMethod,
+  createDaemonRuntimeUsageScanResultMethod,
   type CentrifugoRpcMethod,
 } from "../src/server/centrifugo/rpc-handler.server";
 import { createCentrifugoRpcHandler } from "../src/server/centrifugo/rpc-composition.server";
@@ -13,6 +14,7 @@ import {
   encodeAgentMessageRequest,
   encodeDaemonRuntimeCodeAgentsUpdateRequest,
   encodeDaemonRuntimeReadyRequest,
+  encodeDaemonRuntimeUsageScanResponse,
 } from "@coforge/protocol";
 
 const encoded = (value: string) => btoa(value);
@@ -100,6 +102,87 @@ describe("CentrifugoRpcHandler", () => {
       }),
     ).toEqual({ code: 403, message: "daemon runtime identity is not authorized" });
     expect(recovered).toEqual([["workspace-1", "computer-1"]]);
+  });
+
+  test("stores an available Daemon usage result as available", async () => {
+    const records: unknown[] = [];
+    const method = createDaemonRuntimeUsageScanResultMethod({
+      async put(record) {
+        records.push(record);
+      },
+      async get() {
+        return undefined;
+      },
+    });
+    const snapshot = {
+      provider: "codex",
+      planType: "pro",
+      primary: {
+        usedPercent: 25,
+        windowDurationMinutes: 300,
+        resetsAt: "2026-09-04T03:00:00.000Z",
+      },
+    };
+    const payload = encodeDaemonRuntimeUsageScanResponse({
+      protocolMajor: 1,
+      requestId: "usage-1",
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      provider: "codex",
+      accepted: true,
+      status: "available",
+      snapshotJson: new TextEncoder().encode(JSON.stringify(snapshot)),
+    });
+
+    expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
+    expect(records).toEqual([
+      {
+        workspaceId: "workspace-1",
+        computerId: "computer-1",
+        provider: "codex",
+        scanId: "usage-1",
+        status: "available",
+        message: undefined,
+        snapshot,
+      },
+    ]);
+  });
+
+  test("rejects an invalid Daemon usage snapshot", async () => {
+    const records: unknown[] = [];
+    const method = createDaemonRuntimeUsageScanResultMethod({
+      async put(record) {
+        records.push(record);
+      },
+      async get() {
+        return undefined;
+      },
+    });
+    const payload = encodeDaemonRuntimeUsageScanResponse({
+      protocolMajor: 1,
+      requestId: "usage-invalid",
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      provider: "codex",
+      accepted: true,
+      status: "available",
+      snapshotJson: new TextEncoder().encode(
+        JSON.stringify({
+          provider: "claude-code",
+          primary: {
+            usedPercent: 101,
+            windowDurationMinutes: 300,
+            resetsAt: "not-a-date",
+          },
+        }),
+      ),
+    });
+
+    expect(await method(payload, { principal: principal() })).toEqual({
+      code: 400,
+      message: "invalid usage scan result",
+    });
+    expect(records).toEqual([]);
   });
 
   test("rejects Agent message access by a Daemon principal without an Agent identity", async () => {

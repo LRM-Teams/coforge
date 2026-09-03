@@ -20,7 +20,11 @@ test("usage cache stores a non-empty normalized snapshot with a scoped TTL key",
     provider: "codex",
     scanId: "s1",
     status: "available",
-    snapshot: { planType: "pro", primary: { usedPercent: 12, resetsAt: "2026-01-01" } },
+    snapshot: {
+      provider: "codex",
+      planType: "pro",
+      primary: { usedPercent: 12, windowDurationMinutes: 300, resetsAt: "2026-01-01" },
+    },
   });
   await expect(
     cache.get({ workspaceId: "w1", computerId: "c1", provider: "codex" }),

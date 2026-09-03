@@ -3,12 +3,14 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DaemonRuntime } from "../src/daemon-runtime/runtime";
-import type {
-  AgentRuntimeConfig,
-  CodeAgentAdapter,
-  CodeAgentSession,
+import {
+  AGENT_RUNTIME_EVENT_TYPE,
+  AgentProcessCleanupError,
+  type AgentRuntimeConfig,
+  type AgentRuntimeEvent,
+  type CodeAgentAdapter,
+  type CodeAgentSession,
 } from "../src/code-agent/contract";
-import { AgentProcessCleanupError } from "../src/code-agent/contract";
 import type { WorkspaceConfig } from "../src/daemon-runtime/runtime";
 import { InMemoryDaemonCredentialStore } from "../src/credentials/credential-store";
 import {
@@ -82,6 +84,67 @@ describe("DaemonRuntime", () => {
       computerId: connection.computerId,
       runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex", kind: "external" }],
       catalogs: [{ provider: "codex", models: [] }],
+    });
+    await runtime.stop();
+  });
+
+  test("falls back to a current Claude rate-limit observation when direct usage is unavailable", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const listeners = new Set<(event: AgentRuntimeEvent) => void>();
+    const adapter: CodeAgentAdapter = {
+      provider: "claude-code",
+      async readUsage() {
+        return null;
+      },
+      async start() {
+        return {
+          ...sessionSpy(),
+          subscribe(listener) {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+        };
+      },
+    };
+    const runtime = new DaemonRuntime(connection, () => adapter, credentials, {
+      create: () => ({
+        async start() {},
+        async ready() {},
+        async requestAgentApiKey() {
+          return `sk_agent_${"a".repeat(43)}`;
+        },
+        async stop() {},
+      }),
+    });
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", {
+      provider: "claude-code",
+      model: "claude-sonnet-5",
+      reasoning: "high",
+    });
+    for (const listener of listeners)
+      listener({
+        type: AGENT_RUNTIME_EVENT_TYPE.USAGE,
+        snapshot: {
+          provider: "claude-code",
+          primary: {
+            status: "available",
+            windowDurationMinutes: 300,
+            resetsAt: "2099-09-04T03:00:00.000Z",
+          },
+        },
+      });
+
+    const result = await runtime.scanUsage("claude-code");
+    expect(result.status).toBe("available");
+    expect(JSON.parse(new TextDecoder().decode(result.snapshotJson))).toEqual({
+      provider: "claude-code",
+      primary: {
+        status: "available",
+        windowDurationMinutes: 300,
+        resetsAt: "2099-09-04T03:00:00.000Z",
+      },
     });
     await runtime.stop();
   });

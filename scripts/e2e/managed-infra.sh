@@ -11,7 +11,5 @@ for name in redis_password centrifugo_http_api_key centrifugo_proxy_secret postg
   fi
 done
 
-export CENTRIFUGO_PORT="$PORT"
-exec sudo -n --preserve-env=CENTRIFUGO_PORT docker compose -p coforge-e2e \
-  -f "$root/infra/docker-compose.centrifugo.yml" \
-  -f "$root/infra/docker-compose.e2e.yml" up --remove-orphans
+exec sudo -n docker compose -p coforge-e2e \
+  -f "$root/infra/docker-compose.yml" up --remove-orphans

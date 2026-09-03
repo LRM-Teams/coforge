@@ -1,6 +1,7 @@
 import type { UsageSnapshot, UsageWindow } from "../contract";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
+import { COFORGE_DAEMON_VERSION } from "../../version";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
 
 export async function readCodexUsage(
@@ -18,7 +19,20 @@ export async function readCodexUsage(
   );
   const timeoutMs = options.timeoutMs ?? 5_000;
   try {
-    await withTimeout(process.request({ method: "initialize", params: {} }), timeoutMs);
+    await withTimeout(
+      process.request({
+        method: "initialize",
+        params: {
+          clientInfo: {
+            name: "coforge-daemon-usage",
+            title: "CoForge Daemon Usage",
+            version: COFORGE_DAEMON_VERSION,
+          },
+          capabilities: { experimentalApi: false },
+        },
+      }),
+      timeoutMs,
+    );
     await process.send({ method: "initialized", params: {} });
     const response = await withTimeout(
       process.request({ method: "account/rateLimits/read", params: {} }),

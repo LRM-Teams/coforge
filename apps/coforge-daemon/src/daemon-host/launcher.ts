@@ -64,6 +64,7 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
           stdout: "ignore",
           stderr: "ignore",
         });
+        this.#process.unref();
       });
     this.#sleep = options.sleep ?? Bun.sleep;
     this.#timeoutMilliseconds = options.timeoutMilliseconds ?? 10_000;

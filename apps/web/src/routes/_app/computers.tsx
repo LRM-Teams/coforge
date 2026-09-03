@@ -7,6 +7,7 @@ import { ComputerContent } from "@/components/computer-content";
 import { AppPageError } from "@/features/workspaces/workspace-unavailable";
 import type { UsageView } from "@/components/runtime-usage";
 import { listComputers, readUsage, scanUsage } from "@/features/computers/computers.functions";
+import { waitForUsageScanResult } from "@/features/computers/usage-poll";
 
 export const Route = createFileRoute("/_app/computers")({
   loader: () => listComputers(),
@@ -21,12 +22,9 @@ function ComputersPage() {
   const scan = async (computerId: string, provider: RuntimeProvider) => {
     try {
       const started = await scanUsage({ data: { computerId, provider } });
-      let result = await readUsage({ data: { computerId, provider } });
-      for (let i = 0; i < 150 && result?.scanId !== started.scanId; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        result = await readUsage({ data: { computerId, provider } });
-      }
-      if (!result || result.scanId !== started.scanId) throw new Error("usage scan timed out");
+      const result = await waitForUsageScanResult(started.scanId, () =>
+        readUsage({ data: { computerId, provider } }),
+      );
       const status: UsageView["status"] =
         result.status === "available" ||
         result.status === "unavailable" ||

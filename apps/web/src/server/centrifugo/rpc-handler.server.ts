@@ -15,7 +15,7 @@ import {
   type CodeAgentModelCatalog,
   type RuntimeMetadata,
 } from "@coforge/protocol";
-import { getUsageCache, type UsageSnapshot } from "./usage-cache.server";
+import { getUsageCache, type UsageCache, type UsageSnapshot } from "./usage-cache.server";
 import { CloudAgentUseCase } from "../agents/cloud-agent.server";
 import { decodeAgentMessageDeliveryAck } from "@coforge/protocol";
 import { decodeAgentMessageRequest, encodeCloudAgentMessageResponse } from "@coforge/protocol";
@@ -200,7 +200,9 @@ export function createDaemonRuntimeCodeAgentsUpdateMethod(inventory: {
   };
 }
 
-export function createDaemonRuntimeUsageScanResultMethod(): CentrifugoRpcMethod {
+export function createDaemonRuntimeUsageScanResultMethod(
+  usageCache?: UsageCache,
+): CentrifugoRpcMethod {
   return async (payload, metadata) => {
     const response = decodeDaemonRuntimeUsageScanResponse(payload);
     if (
@@ -212,9 +214,11 @@ export function createDaemonRuntimeUsageScanResultMethod(): CentrifugoRpcMethod 
     if (response.protocolMajor !== 1 || !response.requestId || !response.provider)
       return { code: 400, message: "invalid usage scan result" };
     const snapshot = response.snapshotJson
-      ? (JSON.parse(new TextDecoder().decode(response.snapshotJson)) as UsageSnapshot)
+      ? decodeUsageSnapshot(response.snapshotJson, response.provider)
       : undefined;
-    await getUsageCache().put({
+    if (response.snapshotJson && !snapshot)
+      return { code: 400, message: "invalid usage scan result" };
+    await (usageCache ?? getUsageCache()).put({
       workspaceId: response.workspaceId,
       computerId: response.computerId,
       provider: response.provider,
@@ -227,10 +231,84 @@ export function createDaemonRuntimeUsageScanResultMethod(): CentrifugoRpcMethod 
   };
 }
 
+function decodeUsageSnapshot(
+  bytes: Uint8Array,
+  expectedProvider: RuntimeMetadata["provider"],
+): UsageSnapshot | undefined {
+  if (bytes.byteLength > 16_384) return undefined;
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return undefined;
+  }
+  const snapshot = record(value);
+  if (!snapshot || snapshot.provider !== expectedProvider) return undefined;
+  const planType = snapshot.planType;
+  if (planType !== undefined && (typeof planType !== "string" || planType.length > 100))
+    return undefined;
+  const primary = usageWindow(snapshot.primary);
+  const secondary = usageWindow(snapshot.secondary);
+  if (
+    (snapshot.primary !== undefined && !primary) ||
+    (snapshot.secondary !== undefined && !secondary)
+  )
+    return undefined;
+  const credits = record(snapshot.credits);
+  const parsedCredits =
+    credits && typeof credits.hasCredits === "boolean" && typeof credits.unlimited === "boolean"
+      ? { hasCredits: credits.hasCredits, unlimited: credits.unlimited }
+      : undefined;
+  if (snapshot.credits !== undefined && !parsedCredits) return undefined;
+  return {
+    provider: expectedProvider,
+    ...(typeof planType === "string" ? { planType } : {}),
+    ...(primary ? { primary } : {}),
+    ...(secondary ? { secondary } : {}),
+    ...(parsedCredits ? { credits: parsedCredits } : {}),
+  };
+}
+
+function usageWindow(value: unknown): UsageSnapshot["primary"] | undefined {
+  const window = record(value);
+  if (!window) return undefined;
+  if (
+    typeof window.windowDurationMinutes !== "number" ||
+    !Number.isFinite(window.windowDurationMinutes) ||
+    window.windowDurationMinutes <= 0 ||
+    typeof window.resetsAt !== "string" ||
+    window.resetsAt.length > 100 ||
+    Number.isNaN(Date.parse(window.resetsAt)) ||
+    (window.usedPercent !== undefined &&
+      (typeof window.usedPercent !== "number" ||
+        !Number.isFinite(window.usedPercent) ||
+        window.usedPercent < 0 ||
+        window.usedPercent > 100)) ||
+    (window.status !== undefined &&
+      window.status !== "available" &&
+      window.status !== "rate-limited")
+  )
+    return undefined;
+  return {
+    windowDurationMinutes: window.windowDurationMinutes,
+    resetsAt: window.resetsAt,
+    ...(typeof window.usedPercent === "number" ? { usedPercent: window.usedPercent } : {}),
+    ...(window.status === "available" || window.status === "rate-limited"
+      ? { status: window.status }
+      : {}),
+  };
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 function usageStatus(
   value: string,
 ): "available" | "unavailable" | "reauth" | "unsupported" | "error" {
-  if (value === "complete") return "available";
+  if (value === "available") return "available";
   if (value === "unavailable" || value === "reauth" || value === "unsupported" || value === "error")
     return value;
   return "error";

@@ -38,6 +38,18 @@ function handle(record: Record<string, unknown>): void {
   if (record.type === "user") {
     const message = record.message as Record<string, unknown>;
     if (message.content === "wait") return;
+    if (message.content === "usage") {
+      write({
+        type: "rate_limit_event",
+        rate_limit_info: {
+          status: "rejected",
+          rateLimitType: "five_hour",
+          resetsAt: 1_788_490_800,
+        },
+      });
+      write({ type: "result", subtype: "success" });
+      return;
+    }
     if (
       message.content !== "finish" &&
       message.content !== "New message available. Run coforge message check."
