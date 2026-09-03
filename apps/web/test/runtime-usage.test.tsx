@@ -1,15 +1,19 @@
 import "./dom-setup";
 
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 
-import { RuntimePopover } from "@/components/runtime-usage";
+import { RuntimeUsage } from "@/features/computers/runtime-usage";
+
+afterEach(cleanup);
+
+const codex = { provider: "codex" as const, version: "1", displayName: "Custom Codex" };
 
 test("usage scan is on demand and renders a real snapshot", async () => {
   let scans = 0;
   render(
-    <RuntimePopover
-      runtime={{ provider: "codex", version: "1", displayName: "Custom Codex" }}
+    <RuntimeUsage
+      runtime={codex}
       usage={{
         status: "available",
         snapshot: {
@@ -22,52 +26,51 @@ test("usage scan is on demand and renders a real snapshot", async () => {
       }}
     />,
   );
-  fireEvent.click(within(document.body).getByRole("button", { name: /Custom Codex/ }));
-  await waitFor(() => {
-    const dialog = within(document.body).getByRole("dialog");
-    expect(dialog.textContent).toContain("Pro plan");
-    expect(dialog.textContent).toContain("Session");
-    expect(dialog.textContent).toContain("42% used");
-    expect(within(dialog).getByRole("progressbar").getAttribute("aria-valuenow")).toBe("42");
-  });
-  fireEvent.click(
-    within(within(document.body).getByRole("dialog")).getByRole("button", { name: "Refresh" }),
-  );
+  const page = within(document.body);
+
+  expect(document.body.textContent).toContain("Pro");
+  expect(document.body.textContent).toContain("Session");
+  expect(document.body.textContent).toContain("42% used");
+  expect(page.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("42");
+
+  fireEvent.click(page.getByRole("button", { name: "Refresh" }));
   await waitFor(() => expect(scans).toBe(1));
-  cleanup();
 });
 
-test("renders a Claude rate-limit observation without inventing a percentage", async () => {
+test("renders a Claude rate-limit observation without inventing a percentage", () => {
   render(
-    <RuntimePopover
+    <RuntimeUsage
       runtime={{ provider: "claude-code", version: "1", displayName: "Claude Code" }}
       usage={{
         status: "available",
-        snapshot: {
-          primary: {
-            status: "rate-limited",
-            resetsAt: "2026-09-04T03:00:00.000Z",
-          },
-        },
+        snapshot: { primary: { status: "rate-limited", resetsAt: "2026-09-04T03:00:00.000Z" } },
       }}
       onScan={() => undefined}
     />,
   );
-  fireEvent.click(within(document.body).getByRole("button", { name: /Claude Code/ }));
-  await waitFor(() => {
-    const text = within(document.body).getByRole("dialog").textContent;
-    expect(text).toContain("Limit reached");
-    expect(text).not.toContain("% used");
-  });
-  cleanup();
+
+  expect(document.body.textContent).toContain("Limit reached");
+  expect(document.body.textContent).not.toContain("% used");
+  expect(within(document.body).queryByRole("progressbar")).toBeNull();
 });
 
-test("renders the supplied runtime display name", () => {
+test("names the runtime and offers a first scan when there is no snapshot", () => {
   render(
-    <RuntimePopover
+    <RuntimeUsage
       runtime={{ provider: "codex", version: "1", displayName: "Future Agent" }}
       onScan={() => undefined}
     />,
   );
+
   expect(document.body.textContent).toContain("Future Agent");
+  expect(document.body.textContent).toContain("No snapshot yet");
+  expect(within(document.body).getByRole("button", { name: "Scan" })).toBeTruthy();
+});
+
+test("reports a status the Computer could not answer in the User's language", () => {
+  render(
+    <RuntimeUsage runtime={codex} usage={{ status: "unsupported" }} onScan={() => undefined} />,
+  );
+
+  expect(document.body.textContent).toContain("This Code Agent does not report usage");
 });

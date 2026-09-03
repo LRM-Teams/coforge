@@ -65,10 +65,12 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
     .findMany({
       where: { workspaceId },
       select: {
+        createdAt: true,
         computer: {
           select: {
             id: true,
             machineId: true,
+            kind: true,
             runtimes: {
               where: { provider: { not: "pi" } },
               select: { provider: true, version: true, displayName: true, observedAt: true },
@@ -84,8 +86,9 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
       orderBy: { createdAt: "asc" },
     })
     .then((connections) =>
-      connections.map(({ computer }) => ({
+      connections.map(({ computer, createdAt }) => ({
         ...computer,
+        connectedAt: createdAt,
         online: getComputerStatus(workspaceId, computer.id).online,
         runtimes: computer.runtimes.map((runtime) => ({
           ...runtime,

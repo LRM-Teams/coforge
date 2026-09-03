@@ -1,8 +1,9 @@
-import { ChevronRight, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useState } from "react";
 
 import type { RuntimeProvider } from "@coforge/protocol";
-import { Popover } from "@base-ui/react/popover";
+import { formatDateForDisplay } from "@/lib/dates";
+import { m } from "@/paraglide/messages";
 
 export type UsageView = {
   status: "available" | "unavailable" | "reauth" | "error" | "unsupported";
@@ -24,13 +25,16 @@ export type UsageView = {
 
 export type Runtime = { provider: RuntimeProvider; version: string; displayName: string };
 
+/** One Code Agent on a Computer, and the usage snapshot a scan brings back. */
 export function RuntimeUsage({
   runtime,
   usage,
+  timeZone = null,
   onScan,
 }: {
   runtime: Runtime;
   usage?: UsageView;
+  timeZone?: string | null;
   onScan: () => void;
 }) {
   const [scanning, setScanning] = useState(false);
@@ -48,7 +52,9 @@ export function RuntimeUsage({
       <div className="flex items-start justify-between gap-4 border-b pb-3">
         <div className="min-w-0">
           <p className="truncate font-medium">{runtime.displayName}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">Version {runtime.version} · Usage</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {m.computer_runtime_version()} {runtime.version} · {m.computer_usage_title()}
+          </p>
         </div>
         <button
           type="button"
@@ -56,27 +62,33 @@ export function RuntimeUsage({
           onClick={() => void scan()}
           disabled={scanning}
         >
-          <RefreshCw className={scanning ? "size-3 animate-spin" : "size-3"} />
-          {scanning ? "Scanning…" : usage?.snapshot ? "Refresh" : "Scan"}
+          <RefreshCw aria-hidden="true" className={scanning ? "size-3 animate-spin" : "size-3"} />
+          {scanning
+            ? m.computer_usage_scanning()
+            : usage?.snapshot
+              ? m.computer_usage_refresh()
+              : m.computer_usage_scan()}
         </button>
       </div>
       {!usage ? (
         <div className="mt-3 rounded-md bg-muted/50 px-3 py-4 text-center">
-          <p className="font-medium">No snapshot yet</p>
-          <p className="mt-1 text-xs text-muted-foreground">Scan to load current usage limits.</p>
+          <p className="font-medium">{m.computer_usage_empty()}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {m.computer_usage_empty_description()}
+          </p>
         </div>
       ) : usage.status !== "available" ? (
         <div className="mt-3 rounded-md border border-dashed px-3 py-3">
-          <p className="font-medium">Usage unavailable</p>
+          <p className="font-medium">{m.computer_usage_unavailable()}</p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {usage.message ?? `Usage ${usage.status}`}
+            {usage.message ?? usageStatusLabel(usage.status)}
           </p>
         </div>
       ) : (
         <div className="mt-3">
           {usage.snapshot?.planType && (
             <span className="inline-flex rounded-md bg-muted px-2 py-1 text-xs font-medium">
-              {formatPlan(usage.snapshot.planType)} plan
+              {formatPlan(usage.snapshot.planType)}
             </span>
           )}
           <div className={usage.snapshot?.planType ? "mt-3 grid gap-2" : "grid gap-2"}>
@@ -86,8 +98,9 @@ export function RuntimeUsage({
               return (
                 <UsageWindow
                   key={key}
-                  label={key === "primary" ? "Session" : "Weekly"}
+                  label={key === "primary" ? m.computer_usage_session() : m.computer_usage_weekly()}
                   window={window}
+                  timeZone={timeZone}
                 />
               );
             })}
@@ -101,16 +114,19 @@ export function RuntimeUsage({
 function UsageWindow({
   label,
   window,
+  timeZone,
 }: {
   label: string;
   window: NonNullable<NonNullable<UsageView["snapshot"]>["primary"]>;
+  timeZone: string | null;
 }) {
   const value =
     window.usedPercent === undefined
       ? window.status === "rate-limited"
-        ? "Limit reached"
-        : "Available"
-      : `${window.usedPercent}% used`;
+        ? m.computer_usage_limit_reached()
+        : m.computer_usage_available()
+      : `${window.usedPercent}% ${m.computer_usage_used()}`;
+
   return (
     <div className="rounded-md border bg-muted/20 px-3 py-2.5">
       <div className="flex items-baseline justify-between gap-3">
@@ -120,7 +136,7 @@ function UsageWindow({
       {window.usedPercent !== undefined && (
         <div
           role="progressbar"
-          aria-label={`${label} usage`}
+          aria-label={label}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={window.usedPercent}
@@ -132,52 +148,21 @@ function UsageWindow({
           />
         </div>
       )}
-      <p className="mt-2 text-xs text-muted-foreground">Resets {formatReset(window.resetsAt)}</p>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {m.computer_usage_resets()} {formatDateForDisplay(window.resetsAt, timeZone)}
+      </p>
     </div>
   );
 }
 
+/** The provider's own plan name, which CoForge shows as the provider wrote it. */
 function formatPlan(plan: string) {
   return plan ? `${plan[0]!.toUpperCase()}${plan.slice(1)}` : plan;
 }
 
-function formatReset(value: string) {
-  return new Date(value).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-export function RuntimePopover({
-  runtime,
-  usage,
-  onScan,
-}: {
-  runtime: Runtime;
-  usage?: UsageView;
-  onScan: () => void;
-}) {
-  return (
-    <Popover.Root>
-      <Popover.Trigger className="group flex w-full items-center justify-between gap-4 rounded-md px-2 py-2 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring">
-        <span className="min-w-0">
-          <span className="block truncate font-medium">{runtime.displayName}</span>
-          <span className="block text-xs text-muted-foreground">Version {runtime.version}</span>
-        </span>
-        <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground transition-colors group-hover:text-foreground">
-          Usage
-          <ChevronRight aria-hidden="true" className="size-3.5" />
-        </span>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={8} className="z-50">
-          <Popover.Popup className="w-[min(22rem,calc(100vw-2rem))] rounded-lg border bg-popover p-4 text-sm text-popover-foreground shadow-lg outline-none">
-            <RuntimeUsage runtime={runtime} usage={usage} onScan={onScan} />
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
-  );
+function usageStatusLabel(status: UsageView["status"]): string {
+  if (status === "reauth") return m.computer_usage_status_reauth();
+  if (status === "unsupported") return m.computer_usage_status_unsupported();
+  if (status === "unavailable") return m.computer_usage_status_unavailable();
+  return m.computer_usage_status_error();
 }
