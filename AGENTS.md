@@ -185,9 +185,9 @@ These instructions apply to the entire repository.
 
 ## Architecture invariants
 
-- The local product has exactly two app packages: `apps/coforge-computer` and `apps/coforge-daemon`; the Computer package depends on the Daemon package for build and distribution.
+- The local product has exactly two packageable components: `packages/computer` and `packages/daemon`; the Computer package depends on the Daemon package for build and distribution.
 - Users install only the Computer distribution. It must include the compatible Daemon payload; Daemon is not a second user-installed product or a public CLI entry point.
-- Never create another local app package. Daemon runtime supervision is implemented and released inside `coforge-daemon`.
+- Never create another local product component. Daemon runtime supervision is implemented and released inside `coforge-daemon`.
 - `coforge-computer` and `coforge-daemon` are independent OS processes. Their local control channel is a Unix domain socket, not a TCP management port.
 - One coforge-daemon owns one persisted daemon configuration and one cloud Workspace connection.
 - `coforge-computer` does not maintain a long-lived cloud WebSocket. The daemon owns exactly one long-lived WSS connection for its configured Workspace.

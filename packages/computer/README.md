@@ -5,7 +5,7 @@ supervises `coforge-daemon`. The current vertical slice implements interactive
 login with the OAuth 2.0 device authorization grant:
 
 ```bash
-mise exec -- bun run apps/coforge-computer/src/cli.ts login --server https://coforge.example
+mise exec -- bun run packages/computer/src/cli.ts login --server https://coforge.example
 ```
 
 The command discovers `device_authorization_endpoint`, `token_endpoint`, and

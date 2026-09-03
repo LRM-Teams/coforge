@@ -11,7 +11,7 @@
     "lint": "oxlint .",
     "typecheck": "tsc --noEmit",
     "check": "bun run format:check && bun run lint && bun run typecheck",
-    "build": "COFORGE_DAEMON_VERSION=$(bun -p 'require(\"./package.json\").version'); export COFORGE_DAEMON_VERSION; bun build --compile --env=COFORGE_DAEMON_* ../../packages/cli/src/cli.ts --outfile ./dist/coforge && bun build --compile --env=COFORGE_DAEMON_* ./index.ts --outfile ./dist/coforge-daemon",
+    "build": "COFORGE_DAEMON_VERSION=$(bun -p 'require(\"./package.json\").version'); export COFORGE_DAEMON_VERSION; bun build --compile --env=COFORGE_DAEMON_* ../cli/src/cli.ts --outfile ./dist/coforge && bun build --compile --env=COFORGE_DAEMON_* ./index.ts --outfile ./dist/coforge-daemon",
     "pretest": "bun run build"
   },
   "dependencies": {

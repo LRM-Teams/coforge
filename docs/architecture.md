@@ -56,31 +56,34 @@ flowchart LR
 
 ## 3. 包与进程不是同一个层级
 
-本地只发布两个 app package。内置 Agent runtime 可以是独立 library/runtime package，但不能成为第三个 app：
+本地产品包含两个可独立构建、版本化和打包的 package component。内置 Agent runtime 可以是独立 library/runtime package，但不能成为第三个本地产品组件：
 
 ```text
 apps/
-├── coforge-computer/
-└── coforge-daemon/
-    └── 内部实现 Agent runtime 子进程角色
+└── web/
+    └── Web UI 与 backend control plane
 
 packages/
+├── computer/
+│   └── 机器级 setup、安装与 supervisor package component
+├── daemon/
+│   └── 单 Workspace daemon 与 code-agent adapter package component
 └── agent/
-    └── 使用 Pi SDK 的内置 Agent runtime；由 coforge-daemon 安装和启动
+    └── 使用 Pi SDK 的内置 Agent runtime package；由 coforge-daemon 安装和启动
 ```
 
 必须保持以下区别：
 
 | 名称                  | 发布边界                                                                                | 运行时关系                          | 核心职责                                                   |
 | --------------------- | --------------------------------------------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------- |
-| `coforge-computer`    | 独立 app package；唯一面向用户的本地安装入口，并依赖 `coforge-daemon` package           | 独立 OS 进程                        | 机器身份、安装升级、启动/停止和健康检查 coforge-daemon     |
-| `coforge-daemon`      | 独立 app package；作为 Computer 的构建/分发依赖随 Computer 安装，不单独提供用户安装入口 | 独立 OS 进程                        | 对齐期望/实际 workspace 集合，管理子进程生命周期和崩溃恢复 |
+| `coforge-computer`    | 独立 package component；唯一面向用户的本地安装入口，并依赖 `coforge-daemon` package           | 独立 OS 进程                        | 机器身份、安装升级、启动/停止和健康检查 coforge-daemon     |
+| `coforge-daemon`      | 独立 package component；作为 Computer 的构建/分发依赖随 Computer 安装，不单独提供用户安装入口 | 独立 OS 进程                        | 对齐期望/实际 workspace 集合，管理子进程生命周期和崩溃恢复 |
 | Agent runtime process | 不独立发布                                                                              | coforge-daemon 直接监督的 OS 子进程 | provider-neutral adapter 后的 Agent 执行                   |
-| `@coforge/agent`      | 可独立打包的 runtime package；不是 app 或用户安装入口                                   | daemon 启动的 Agent runtime process | 封装 Pi SDK、内置 extensions、skills 和 Pi-specific runner |
+| `@coforge/agent`      | 可独立打包的 runtime package；不是本地产品组件或用户安装入口                            | daemon 启动的 Agent runtime process | 封装 Pi SDK、内置 extensions、skills 和 Pi-specific runner |
 
-因此禁止为 daemon 新增第三个 app package。需要隔离的是运行时进程，而不是发布包。
+因此禁止把 daemon runtime 拆成第三个本地产品组件。需要隔离的是运行时进程，而不是发布包。
 
-源码、可独立打包边界、运行时边界与用户安装边界不是同一层级。仓库保留两个 app package；`coforge-computer` 在 package/build 层依赖 `coforge-daemon`，Daemon 再依赖精确版本的 `@coforge/agent`。monorepo 开发时 Bun workspace 链接本地 package，发布时 Daemon 安装同版本的独立 package artifact。发布流水线为每个平台组装一个 Computer installation bundle，其中包含已验证兼容的 Computer、Daemon 和内置 Agent payload。用户只安装、升级和调用 Computer，Daemon 和 Agent runner 都不进入用户 PATH，但仍作为独立 OS 进程运行。bundle 的具体封装形式属于后续实现选择；无论采用哪种形式，都不能把这些运行时职责合并为一个进程。
+源码分类、可独立打包边界、运行时边界与用户安装边界不是同一层级。仓库在 `packages/` 下保留两个本地 package component；`coforge-computer` 在 package/build 层依赖 `coforge-daemon`，Daemon 再依赖精确版本的 `@coforge/agent`。monorepo 开发时 Bun workspace 链接本地 package，发布时 Daemon 安装同版本的独立 package artifact。发布流水线为每个平台组装一个 Computer installation bundle，其中包含已验证兼容的 Computer、Daemon 和内置 Agent payload。用户只安装、升级和调用 Computer，Daemon 和 Agent runner 都不进入用户 PATH，但仍作为独立 OS 进程运行。bundle 的具体封装形式属于后续实现选择；无论采用哪种形式，都不能把这些运行时职责合并为一个进程。
 
 本文不加限定词的 `workspace` 指云端协作、成员、权限、conversation 与 Agent 的逻辑边界。每个 Agent 另有自己的文件系统 Agent workspace 目录，它不是第二个逻辑 workspace。文档必须用限定词区分两者。
 
@@ -360,7 +363,7 @@ Agent start intent (`agent:start`) 使用现有 `coforge.rpc.v1` WSS/RPC control
 | Edge             | Caddy 2.11.4                                  |
 | 实时传输         | Standalone Centrifugo OSS                     |
 | Web/backend      | Bun 1.4 + TanStack Start + Nitro Bun preset   |
-| 本地 app/runtime | Bun 1.4                                       |
+| 本地 package/runtime | Bun 1.4                                   |
 | CI workflow 检查 | actionlint 1.7.12 + ShellCheck 0.11.0         |
 | 数据库           | PostgreSQL（开发 Docker；生产可托管）+ Prisma |
 

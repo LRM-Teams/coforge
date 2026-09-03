@@ -2,11 +2,11 @@ FROM oven/bun:1.4.0-alpine@sha256:07235578f79ef8c6f97d94aee7938e76f5cdba5f21ae5d
 
 WORKDIR /app
 COPY package.json bun.lock tsconfig.base.json ./
-COPY apps/coforge-computer/package.json apps/coforge-computer/package.json
-COPY apps/coforge-daemon/package.json apps/coforge-daemon/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/agent/package.json packages/agent/package.json
 COPY packages/cli/package.json packages/cli/package.json
+COPY packages/computer/package.json packages/computer/package.json
+COPY packages/daemon/package.json packages/daemon/package.json
 COPY packages/protocol/package.json packages/protocol/package.json
 RUN bun install --frozen-lockfile
 

@@ -50,14 +50,14 @@ redaction, and a non-root deployment identity.
 | Local Computer distribution | Release-set digest, both component-manifest digests, and every platform installation-bundle checksum | Test release set selected by `channels.json` | Select the same tested release-set and bundle bytes in production |
 
 The daemon runtime role is released inside `coforge-daemon`; it is not a third local
-app package. `@coforge/agent` is independently packable for dependency and
+product component. `@coforge/agent` is independently packable for dependency and
 verification purposes, but the exact installed package remains part of the
 Daemon component payload rather than becoming a third user-facing component.
 The local distribution deliberately separates four layers:
 
 | Layer | Cardinality and meaning |
 | --- | --- |
-| App package | Two source/build units: `coforge-computer` and `coforge-daemon`; Computer declares Daemon as a package dependency, and Daemon declares an exact `@coforge/agent` runtime dependency |
+| Package component | Two independently buildable, versioned, and packable source units: `coforge-computer` and `coforge-daemon`; Computer declares Daemon as a package dependency, and Daemon declares an exact `@coforge/agent` runtime dependency |
 | Component artifact | Two independently versioned build outputs that may be reused when the peer did not change |
 | Computer installation bundle | One user download per platform/architecture containing both compatible process payloads |
 | Release set | One immutable compatibility and integrity identity that pins both component artifacts and every platform bundle |
