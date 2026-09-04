@@ -71,11 +71,11 @@ boundary, then update this map if the ownership changes.
   inventory must not launch the CLI to infer a dynamic catalog because its
   machine-readable initialization does not provide a dependable list.
 - Keep the standing CoForge communication instructions in one provider-neutral
-  source. Every code-agent adapter must inject those same instructions through
+  source. Every code-agent driver must inject those same instructions through
   the provider's native system/developer-instruction mechanism: Codex uses
   app-server `developerInstructions`, Claude Code uses its system-prompt-file
-  option, and built-in Pi uses its resource-loader system-prompt override. Do
-  not copy the text into each adapter or write `AGENTS.md`/`CLAUDE.md` into the user's Agent workspace
+  option, and CoForge Agent uses its resource-loader system-prompt override. Do
+  not copy the text into each driver or write `AGENTS.md`/`CLAUDE.md` into the user's Agent workspace
   for providers that support native injection. Deliver body-free Message/App
   Inbox wakeups separately as turn input; never append them to the standing
   instructions.

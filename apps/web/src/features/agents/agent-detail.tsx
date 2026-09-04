@@ -103,7 +103,7 @@ function Profile({
   const providerKind = nestedConfigValue(detail.runtimeConfig, "provider", "kind");
   const providerId = nestedConfigValue(detail.runtimeConfig, "provider", "providerId");
   const canConfigureCredential =
-    detail.ownedByCurrentUser && providerKind === "pi-builtin" && Boolean(providerId);
+    detail.ownedByCurrentUser && providerKind === "coforge" && Boolean(providerId);
   const fields = [
     [m.agent_profile_id(), detail.id],
     [m.agent_profile_name(), detail.name],
@@ -150,9 +150,9 @@ function Profile({
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <RuntimeField
             label={m.agent_runtime_field()}
-            value={providerKind === "pi-builtin" ? m.agent_provider_pi_builtin() : runtime}
+            value={providerKind === "coforge" ? m.agent_provider_pi_builtin() : runtime}
           />
-          {providerKind === "pi-builtin" && (
+          {providerKind === "coforge" && (
             <>
               <RuntimeField
                 label={m.agent_runtime_provider_field()}
@@ -223,9 +223,9 @@ function Profile({
               <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
                 <RuntimeField
                   label={m.agent_runtime_field()}
-                  value={providerKind === "pi-builtin" ? m.agent_provider_pi_builtin() : runtime}
+                  value={providerKind === "coforge" ? m.agent_provider_pi_builtin() : runtime}
                 />
-                {providerKind === "pi-builtin" && providerId && (
+                {providerKind === "coforge" && providerId && (
                   <>
                     <RuntimeField label={m.agent_runtime_provider_field()} value={providerId} />
                     <label className="grid gap-1.5 text-sm sm:col-span-2">

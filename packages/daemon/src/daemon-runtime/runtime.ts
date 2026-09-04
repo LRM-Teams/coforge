@@ -8,7 +8,7 @@ import {
 import { mkdirSync } from "node:fs";
 import {
   AgentProcessManager,
-  type AgentAdapterFactory,
+  type AgentDriverFactory,
   type AgentRuntime,
 } from "../agent-runtime/agent-process-manager";
 export type DaemonConfig = {
@@ -57,7 +57,7 @@ export function generateRuntimeInstanceId(): string {
 /** The daemon-owned resident runtime for the single configured Workspace. */
 export class DaemonRuntime {
   readonly #connection: DaemonConfig;
-  readonly #createAdapter: AgentAdapterFactory;
+  readonly #createDriver: AgentDriverFactory;
   readonly #agentProcessManager: AgentProcessManager;
   readonly #credentials: DaemonCredentialStore;
   readonly #transportFactory: DaemonConnectionClientFactory;
@@ -97,7 +97,7 @@ export class DaemonRuntime {
 
   constructor(
     connection: DaemonConfig,
-    createAdapter: AgentAdapterFactory,
+    createDriver: AgentDriverFactory,
     credentials: DaemonCredentialStore,
     transportFactory: DaemonConnectionClientFactory,
     agentProxy?: {
@@ -109,8 +109,8 @@ export class DaemonRuntime {
     private readonly stateDirectory = ".coforge-daemon-state",
   ) {
     this.#connection = connection;
-    this.#createAdapter = createAdapter;
-    this.#agentProcessManager = new AgentProcessManager(createAdapter);
+    this.#createDriver = createDriver;
+    this.#agentProcessManager = new AgentProcessManager(createDriver);
     this.#credentials = credentials;
     this.#transportFactory = transportFactory;
     this.#agentProxy = agentProxy;
@@ -137,11 +137,11 @@ export class DaemonRuntime {
         status: "unsupported",
         message: "Pi usage scanning is unsupported",
       };
-    const adapter = this.#createAdapter(provider);
-    if (!adapter.readUsage)
+    const driver = this.#createDriver(provider);
+    if (!driver.readUsage)
       return { protocolMajor, requestId: "", accepted: false, status: "unsupported" };
     try {
-      const directlyReadSnapshot = await adapter.readUsage({
+      const directlyReadSnapshot = await driver.readUsage({
         workingDirectory: this.#connection.workspaceRoot,
         timeoutMs: 10_000,
       });
@@ -1031,12 +1031,12 @@ function validUsageWindow(window: UsageSnapshot["primary"], now: number): UsageS
 }
 
 export function createDaemonRuntime(input: {
-  createAdapter: AgentAdapterFactory;
+  createDriver: AgentDriverFactory;
   credentials: DaemonCredentialStore;
   transportFactory: DaemonConnectionClientFactory;
 }): (connection: DaemonConfig) => DaemonRuntime {
   return (connection) =>
-    new DaemonRuntime(connection, input.createAdapter, input.credentials, input.transportFactory);
+    new DaemonRuntime(connection, input.createDriver, input.credentials, input.transportFactory);
 }
 
-export type { AgentAdapterFactory, AgentRuntime, AgentRuntimeConfig, CodeAgentProvider };
+export type { AgentDriverFactory, AgentRuntime, AgentRuntimeConfig, CodeAgentProvider };

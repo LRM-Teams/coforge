@@ -222,7 +222,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     !v.provider
   )
     throw new Error("invalid agent start intent");
-  if (!["pi", "codex", "claude-code"].includes(v.provider))
+  if (!["coforge", "pi", "codex", "claude-code"].includes(v.provider))
     throw new Error(`unsupported runtime provider: ${v.provider}`);
   return {
     protocolMajor: v.protocolMajor,
@@ -249,7 +249,7 @@ function parseAgentRuntimeProviderConfig(
   providerId: string | undefined,
 ): AgentRuntimeProviderConfig {
   if (kind === "default" && providerId === undefined) return { kind };
-  if (kind === "pi-builtin" && providerId) return { kind, providerId };
+  if (kind === "coforge" && providerId) return { kind, providerId };
   throw new Error("invalid Agent runtime provider config");
 }
 

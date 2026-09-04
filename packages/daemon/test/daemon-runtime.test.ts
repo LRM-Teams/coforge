@@ -8,8 +8,8 @@ import {
   AgentProcessCleanupError,
   type AgentRuntimeConfig,
   type AgentRuntimeEvent,
-  type CodeAgentAdapter,
-  type CodeAgentSession,
+  type AgentDriver,
+  type AgentSession,
 } from "../src/code-agent/contract";
 import type { WorkspaceConfig } from "../src/daemon-runtime/runtime";
 import { InMemoryDaemonCredentialStore } from "../src/credentials/credential-store";
@@ -30,7 +30,7 @@ function sessionSpy() {
       return () => undefined;
     },
     async dispose() {},
-  } satisfies CodeAgentSession;
+  } satisfies AgentSession;
 }
 
 const workspaceRoot = join(tmpdir(), `coforge-daemon-runtime-${crypto.randomUUID()}`);
@@ -63,7 +63,10 @@ describe("DaemonRuntime", () => {
     let reads = 0;
     const runtime = new DaemonRuntime(
       connection,
-      () => ({ provider: "pi", start: async () => ({ ...sessionSpy(), async notify() {} }) }),
+      () => ({
+        provider: "pi",
+        createAgentSession: async () => ({ ...sessionSpy(), async notify() {} }),
+      }),
       credentials,
       {
         create: () => ({
@@ -145,7 +148,10 @@ describe("DaemonRuntime", () => {
     const operations: string[] = [];
     const runtime = new DaemonRuntime(
       connection,
-      () => ({ provider: "pi", start: async () => ({ ...sessionSpy(), async notify() {} }) }),
+      () => ({
+        provider: "pi",
+        createAgentSession: async () => ({ ...sessionSpy(), async notify() {} }),
+      }),
       credentials,
       {
         create: () => ({
@@ -258,7 +264,7 @@ describe("DaemonRuntime", () => {
       connection,
       () => ({
         provider: "pi",
-        start: async () => ({
+        createAgentSession: async () => ({
           ...sessionSpy(),
           notify: async (notice) => {
             notices.push(notice);
@@ -333,7 +339,7 @@ describe("DaemonRuntime", () => {
     let statusAtTransportStop: string | undefined;
     const runtime = new DaemonRuntime(
       connection,
-      () => ({ provider: "pi", start: async () => sessionSpy() }),
+      () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
       credentials,
       {
         create: () => ({
@@ -367,7 +373,7 @@ describe("DaemonRuntime", () => {
     const updates: unknown[] = [];
     const runtime = new DaemonRuntime(
       connection,
-      () => ({ provider: "pi", start: async () => sessionSpy() }),
+      () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
       credentials,
       {
         create: () => ({
@@ -403,12 +409,12 @@ describe("DaemonRuntime", () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const listeners = new Set<(event: AgentRuntimeEvent) => void>();
-    const adapter: CodeAgentAdapter = {
+    const adapter: AgentDriver = {
       provider: "claude-code",
       async readUsage() {
         return null;
       },
-      async start() {
+      async createAgentSession() {
         return {
           ...sessionSpy(),
           subscribe(listener) {
@@ -460,7 +466,7 @@ describe("DaemonRuntime", () => {
     await runtime.stop();
   });
 
-  test("does not expose a usage adapter exception in the scan response", async () => {
+  test("does not expose a usage driver exception in the scan response", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const runtime = new DaemonRuntime(
@@ -470,7 +476,7 @@ describe("DaemonRuntime", () => {
         async readUsage() {
           throw new Error("provider token secret at 127.0.0.1");
         },
-        async start() {
+        async createAgentSession() {
           return sessionSpy();
         },
       }),
@@ -514,7 +520,7 @@ describe("DaemonRuntime", () => {
     const client = connectedClient();
     const runtime = new DaemonRuntime(
       configuredConnection,
-      () => ({ provider: "pi", start: async () => sessionSpy() }),
+      () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
       credentials,
       {
         create: () => new DaemonConnection("wss://cloud.example", () => client),
@@ -545,7 +551,7 @@ describe("DaemonRuntime", () => {
       connection,
       () => ({
         provider: "pi",
-        async start() {
+        async createAgentSession() {
           return sessionSpy();
         },
       }),
@@ -581,7 +587,7 @@ describe("DaemonRuntime", () => {
       connection,
       () => ({
         provider: "pi",
-        async start(input) {
+        async createAgentSession(input) {
           startedAgents.push(input.sessionId ?? "");
           return sessionSpy();
         },
@@ -645,7 +651,7 @@ describe("DaemonRuntime", () => {
       connection,
       () => ({
         provider: "pi",
-        async start() {
+        async createAgentSession() {
           return sessionSpy();
         },
       }),
@@ -680,7 +686,7 @@ describe("DaemonRuntime", () => {
     let unsubscribed = false;
     const runtime = new DaemonRuntime(
       connection,
-      () => ({ provider: "pi", start: async () => sessionSpy() }),
+      () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
       credentials,
       {
         create: () => ({
@@ -725,7 +731,7 @@ describe("DaemonRuntime", () => {
       connection,
       () => ({
         provider: "pi",
-        async start() {
+        async createAgentSession() {
           return sessionSpy();
         },
       }),
@@ -762,7 +768,7 @@ describe("DaemonRuntime", () => {
       connection,
       () => ({
         provider: "pi",
-        async start() {
+        async createAgentSession() {
           return sessionSpy();
         },
       }),
@@ -791,9 +797,9 @@ describe("DaemonRuntime", () => {
   });
 
   test("owns one AgentProcessManager for its workspace", async () => {
-    const adapter: CodeAgentAdapter = {
+    const adapter: AgentDriver = {
       provider: "pi",
-      async start() {
+      async createAgentSession() {
         return sessionSpy();
       },
     };
@@ -833,7 +839,7 @@ describe("DaemonRuntime", () => {
     ]);
   });
 
-  test("passes the runtime provider config to its adapter without interpreting it", async () => {
+  test("passes the runtime provider config to its driver without interpreting it", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     let startedCredential: unknown;
@@ -841,7 +847,7 @@ describe("DaemonRuntime", () => {
       connection,
       () => ({
         provider: "pi",
-        async start(options) {
+        async createAgentSession(options) {
           startedCredential = options.runtime?.providerConfig;
           return sessionSpy();
         },
@@ -853,7 +859,7 @@ describe("DaemonRuntime", () => {
           async ready() {},
           async requestAgentLaunchConfig() {
             return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`, {
-              kind: "pi-builtin",
+              kind: "coforge",
               providerId: "deepseek",
               apiKey: "sk-deepseek-secret",
             });
@@ -871,14 +877,14 @@ describe("DaemonRuntime", () => {
       modelProvider: "deepseek",
       reasoning: "high",
       providerConfig: {
-        kind: "pi-builtin",
+        kind: "coforge",
         providerId: "deepseek",
         apiKey: "sk-deepseek-secret",
       },
     });
 
     expect(startedCredential).toEqual({
-      kind: "pi-builtin",
+      kind: "coforge",
       providerId: "deepseek",
       apiKey: "sk-deepseek-secret",
     });
@@ -892,7 +898,7 @@ describe("DaemonRuntime", () => {
       connection,
       () => ({
         provider: "pi",
-        async start() {
+        async createAgentSession() {
           return sessionSpy();
         },
       }),
@@ -925,7 +931,7 @@ describe("DaemonRuntime", () => {
       connection,
       () => ({
         provider: "pi",
-        async start() {
+        async createAgentSession() {
           return sessionSpy();
         },
       }),
@@ -966,7 +972,7 @@ describe("DaemonRuntime", () => {
       connection,
       () => ({
         provider: "pi",
-        async start() {
+        async createAgentSession() {
           childStarts++;
           return sessionSpy();
         },
@@ -1025,7 +1031,7 @@ describe("DaemonRuntime", () => {
       connection,
       () => ({
         provider: "pi",
-        async start(input) {
+        async createAgentSession(input) {
           launchCount++;
           proxyTokens.push(input.environment?.COFORGE_AGENT_CONTEXT ?? "");
           const currentLaunch = launchCount;
@@ -1109,15 +1115,15 @@ describe("DaemonRuntime", () => {
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const activities: import("@coforge/protocol").AgentActivity[] = [];
     const sessions: Array<{
-      event(event: Parameters<Parameters<CodeAgentSession["subscribe"]>[0]>[0]): void;
+      event(event: Parameters<Parameters<AgentSession["subscribe"]>[0]>[0]): void;
       delayedExit(): void;
     }> = [];
     const runtime = new DaemonRuntime(
       connection,
       () => ({
         provider: "pi",
-        async start() {
-          let listener: Parameters<CodeAgentSession["subscribe"]>[0] = () => undefined;
+        async createAgentSession() {
+          let listener: Parameters<AgentSession["subscribe"]>[0] = () => undefined;
           const exits: Array<() => void> = [];
           let exited = false;
           const control = {
@@ -1295,7 +1301,7 @@ describe("DaemonRuntime", () => {
       connection,
       () => ({
         provider: "pi",
-        async start() {
+        async createAgentSession() {
           throw new AgentProcessCleanupError();
         },
       }),
@@ -1342,7 +1348,7 @@ describe("DaemonRuntime", () => {
       connection,
       () => ({
         provider: "pi",
-        async start() {
+        async createAgentSession() {
           return {
             ...sessionSpy(),
             async dispose() {
@@ -1399,7 +1405,7 @@ describe("DaemonRuntime", () => {
       connection,
       () => ({
         provider: "pi",
-        async start() {
+        async createAgentSession() {
           launches++;
           const listeners = launches === 1 ? oldExitListeners : [];
           return {
@@ -1462,7 +1468,7 @@ describe("DaemonRuntime", () => {
       connection,
       () => ({
         provider: "pi",
-        async start() {
+        async createAgentSession() {
           return sessionSpy();
         },
       }),
@@ -1526,7 +1532,7 @@ describe("DaemonRuntime", () => {
     let transportsCreated = 0;
     const runtime = new DaemonRuntime(
       configuredConnection,
-      () => ({ provider: "pi", start: async () => sessionSpy() }),
+      () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
       credentials,
       {
         create: () => {
@@ -1562,7 +1568,7 @@ describe("DaemonRuntime", () => {
       connection,
       () => ({
         provider: "pi",
-        start: async () => {
+        createAgentSession: async () => {
           starts++;
           return {
             ...sessionSpy(),

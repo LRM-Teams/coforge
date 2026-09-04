@@ -46,7 +46,7 @@ export class AgentRuntimeCredentials {
     apiKeyInput: string,
   ): Promise<AgentRuntimeCredentialSummary> {
     const runtimeConfig = await this.#ownedConfig(principal, agentId);
-    if (runtimeConfig.provider.kind !== "pi-builtin")
+    if (runtimeConfig.provider.kind !== "coforge")
       throw new Error("Agent runtime provider does not accept an API key");
     const apiKey = validateApiKey(apiKeyInput);
     const nonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES));
@@ -76,13 +76,13 @@ export class AgentRuntimeCredentials {
 
   async delete(principal: AgentRuntimeCredentialPrincipal, agentId: string): Promise<void> {
     const runtimeConfig = await this.#ownedConfig(principal, agentId);
-    if (runtimeConfig.provider.kind !== "pi-builtin") return;
+    if (runtimeConfig.provider.kind !== "coforge") return;
     const { apiKey: _apiKey, ...provider } = runtimeConfig.provider;
     await this.repository.updateRuntimeConfig(agentId, { ...runtimeConfig, provider });
   }
 
   async launchProviderConfig(agentId: string, runtimeConfig: AgentRuntimeConfig) {
-    if (runtimeConfig.provider.kind !== "pi-builtin") return runtimeConfig.provider;
+    if (runtimeConfig.provider.kind !== "coforge") return runtimeConfig.provider;
     const encrypted = runtimeConfig.provider.apiKey;
     if (!encrypted)
       return {
@@ -184,6 +184,6 @@ function associatedData(agentId: string, providerId: string) {
 }
 
 function summary(provider: AgentRuntimeConfig["provider"]): AgentRuntimeCredentialSummary | null {
-  if (provider.kind !== "pi-builtin" || !provider.apiKey) return null;
+  if (provider.kind !== "coforge" || !provider.apiKey) return null;
   return { providerId: provider.providerId, hint: provider.apiKey.hint };
 }

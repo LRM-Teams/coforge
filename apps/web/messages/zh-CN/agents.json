@@ -22,7 +22,7 @@
   "agent_form_model": "模型",
   "agent_form_reasoning": "推理强度",
   "agent_form_provider_default": "使用运行时默认值",
-  "agent_provider_pi_builtin": "Pi（内置）",
+  "agent_provider_pi_builtin": "CoForge",
   "agent_optional": "可选",
   "agent_form_submit": "创建智能体",
   "agent_form_submitting": "正在创建…",

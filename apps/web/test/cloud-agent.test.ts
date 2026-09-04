@@ -26,6 +26,7 @@ describe("CloudAgentUseCase", () => {
               runtime: RUNTIME_PROVIDER.CLAUDE_CODE,
               provider: { kind: "default" },
               model: "sonnet",
+              modelProvider: "",
               reasoning: "high",
             },
           },

@@ -5,7 +5,7 @@ test("installs and removes the launch-only Pi provider API key", async () => {
   const calls: unknown[] = [];
   const environment: Record<string, string | undefined> = {
     [RUNTIME_PROVIDER_CONFIG_ENV]: JSON.stringify({
-      kind: "pi-builtin",
+      kind: "coforge",
       providerId: "deepseek",
       apiKey: "sk-deepseek-secret",
     }),
@@ -27,7 +27,7 @@ test("installs and removes the launch-only Pi provider API key", async () => {
 test("removes and rejects an incomplete Pi provider config", async () => {
   const environment: Record<string, string | undefined> = {
     [RUNTIME_PROVIDER_CONFIG_ENV]: JSON.stringify({
-      kind: "pi-builtin",
+      kind: "coforge",
       providerId: "deepseek",
     }),
   };

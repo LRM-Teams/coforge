@@ -42,8 +42,9 @@ describe("Agent runtime credentials", () => {
   test("encrypts the API key inside the owned Agent's runtime config JSON", async () => {
     const repository = repositoryWith({
       runtime: "pi",
-      provider: { kind: "pi-builtin", providerId: "deepseek" },
+      provider: { kind: "coforge", providerId: "deepseek" },
       model: "deepseek-chat",
+      modelProvider: "deepseek",
       reasoning: "high",
     });
     const credentials = new AgentRuntimeCredentials(repository, encryptionKey);
@@ -55,12 +56,12 @@ describe("Agent runtime credentials", () => {
     const stored = repository.agents.get("agent-1")!.runtimeConfig;
     expect(JSON.stringify(stored)).not.toContain("sk-secret-value-1234");
     expect(stored.provider).toMatchObject({
-      kind: "pi-builtin",
+      kind: "coforge",
       providerId: "deepseek",
       apiKey: { keyId: "v1", hint: "••••1234" },
     });
     await expect(credentials.launchProviderConfig("agent-1", stored)).resolves.toEqual({
-      kind: "pi-builtin",
+      kind: "coforge",
       providerId: "deepseek",
       apiKey: "sk-secret-value-1234",
     });
@@ -71,6 +72,7 @@ describe("Agent runtime credentials", () => {
       runtime: "codex",
       provider: { kind: "default" },
       model: "gpt-5",
+      modelProvider: "",
       reasoning: "high",
     });
     const credentials = new AgentRuntimeCredentials(repository, encryptionKey);

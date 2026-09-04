@@ -65,6 +65,7 @@ function dependencies() {
         if (!connection) return false;
         if (
           config.provider !== RUNTIME_PROVIDER.PI &&
+          config.provider !== RUNTIME_PROVIDER.COFORGE &&
           !(await runtimeVisibility.canSelect({ workspaceId, userId }, computerId, config.provider))
         )
           return false;
@@ -114,6 +115,7 @@ function validateCreateInput(data: unknown): AgentCreateInput {
     throw new Error("Agent displayName must be non-empty and at most 200 characters");
   if (
     provider !== RUNTIME_PROVIDER.PI &&
+    provider !== RUNTIME_PROVIDER.COFORGE &&
     provider !== RUNTIME_PROVIDER.CODEX &&
     provider !== RUNTIME_PROVIDER.CLAUDE_CODE
   )

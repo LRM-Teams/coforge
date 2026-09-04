@@ -443,7 +443,7 @@ test("requests and revokes Agent API keys through the server API route", async (
           ? {
               apiKey: `sk_agent_${"a".repeat(43)}`,
               providerConfig: {
-                kind: "pi-builtin",
+                kind: "coforge",
                 providerId: "deepseek",
                 apiKey: "sk-deepseek-secret",
               },
@@ -464,7 +464,7 @@ test("requests and revokes Agent API keys through the server API route", async (
       workspaceId: config.workspaceId,
     });
     expect(launchConfig.providerConfig).toEqual({
-      kind: "pi-builtin",
+      kind: "coforge",
       providerId: "deepseek",
       apiKey: "sk-deepseek-secret",
     });
@@ -493,7 +493,7 @@ test("rejects non-canonical runtime provider config from the server", async () =
   try {
     for (const providerConfig of [
       { kind: "custom", providerId: "deepseek", apiKey: "secret-key" },
-      { kind: "pi-builtin", apiKey: "secret-key" },
+      { kind: "coforge", apiKey: "secret-key" },
       { kind: "default", providerId: "deepseek" },
       { kind: "default", apiKey: "secret-key" },
     ]) {

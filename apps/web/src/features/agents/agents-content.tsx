@@ -25,7 +25,7 @@ import { AgentCard, type AgentView } from "./agent-card";
 export type CreateAgentInput = {
   name: string;
   displayName: string;
-  provider: "pi" | "codex" | "claude-code";
+  provider: "coforge" | "pi" | "codex" | "claude-code";
   model?: string;
   modelProvider?: string;
   reasoning: string;
@@ -42,7 +42,7 @@ type ComputerOption = {
 function runtimeProvider(value: FormDataEntryValue | null): CreateAgentInput["provider"] {
   if (value === "codex") return "codex";
   if (value === "claude-code") return "claude-code";
-  return "pi";
+  return "coforge";
 }
 
 export function AgentsContent({
@@ -66,11 +66,12 @@ export function AgentsContent({
   const [error, setError] = useState("");
   const [deferredStart, setDeferredStart] = useState(false);
   const [computerId, setComputerId] = useState(computers[0]?.id ?? "");
-  const [provider, setProvider] = useState<CreateAgentInput["provider"]>("pi");
+  const [provider, setProvider] = useState<CreateAgentInput["provider"]>("coforge");
   const [modelKey, setModelKey] = useState("");
   const selectedComputer = computers.find((computer) => computer.id === computerId);
   const availableProviders = [
-    "pi",
+    "coforge",
+    ...(selectedComputer?.runtimes.some((runtime) => runtime.provider === "pi") ? ["pi"] : []),
     ...(selectedComputer?.runtimes.map((runtime) => runtime.provider) ?? []),
   ];
   const selectedCatalog = selectedComputer?.modelCatalogs.find(
@@ -253,7 +254,7 @@ export function AgentsContent({
                     <SelectTrigger aria-label={m.agent_form_provider()} className="h-9 min-w-0">
                       <SelectValue>
                         {() =>
-                          provider === "pi"
+                          provider === "coforge"
                             ? m.agent_provider_pi_builtin()
                             : provider === "codex"
                               ? "Codex"
@@ -262,9 +263,8 @@ export function AgentsContent({
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {availableProviders.includes("pi") && (
-                        <SelectItem value="pi">{m.agent_provider_pi_builtin()}</SelectItem>
-                      )}
+                      <SelectItem value="coforge">{m.agent_provider_pi_builtin()}</SelectItem>
+                      {availableProviders.includes("pi") && <SelectItem value="pi">Pi</SelectItem>}
                       {availableProviders.includes("codex") && (
                         <SelectItem value="codex">Codex</SelectItem>
                       )}

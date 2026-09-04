@@ -2,10 +2,9 @@ import {
   AGENT_RUNTIME_EVENT_TYPE,
   type UsageSnapshot,
   type AgentRuntimeEvent,
-  type CodeAgentAdapter,
-  type CodeAgentSession,
-  type CodeAgentStartOptions,
+  type AgentDriver,
 } from "../contract";
+import type { AgentSession, AgentSessionOptions } from "@coforge/agent";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
@@ -16,7 +15,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-export class ClaudeCodeAgentAdapter implements CodeAgentAdapter {
+export class ClaudeCodeDriver implements AgentDriver {
   readonly provider = RUNTIME_PROVIDER.CLAUDE_CODE;
   readonly #command: readonly string[];
 
@@ -46,7 +45,7 @@ export class ClaudeCodeAgentAdapter implements CodeAgentAdapter {
     });
   }
 
-  async start(options: CodeAgentStartOptions): Promise<CodeAgentSession> {
+  async createAgentSession(options: AgentSessionOptions): Promise<AgentSession> {
     const promptDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-prompt-"));
     let process: JsonlProcess | undefined;
     try {
@@ -77,7 +76,7 @@ export class ClaudeCodeAgentAdapter implements CodeAgentAdapter {
   }
 }
 
-class ClaudeCodeAgentSession implements CodeAgentSession {
+class ClaudeCodeAgentSession implements AgentSession {
   readonly #process: JsonlProcess;
   readonly #removePrompt: () => Promise<void>;
   readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();

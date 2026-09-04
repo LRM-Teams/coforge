@@ -95,7 +95,7 @@ LogTape levels 统一为 `debug`、`info`、`warning`、`error`、`fatal`。默�
 - tool input/output、文件内容、patch/diff 和 shell stdout；
 - Agent runtime process 的原始 stdout 或 stderr。
 
-Agent stdout 是 adapter control channel，只能解析，不能复制到日志。Agent stderr 可能包含 provider 输出、路径或 secret，因此只记录 byte count、退出状态和经过 adapter 归类的稳定 error code，不保存原文。
+Agent stdout 是 driver control channel，只能解析，不能复制到日志。Agent stderr 可能包含 provider 输出、路径或 secret，因此只记录 byte count、退出状态和经过 driver 归类的稳定 error code，不保存原文。
 
 所有 sink 先经过 `redactByField()` 的默认敏感字段和 CoForge credential 字段，再经过 JWT、authorization header、signed URL 与 provider key 的 pattern redaction。redaction 是最后一道保护，不替代调用点的数据最小化。截断上限和恶意深层对象使用 LogTape 的 traversal limit；相关测试必须证明 secret 在 active/rotated file、fallback stderr 和 error stack 中都不存在。
 

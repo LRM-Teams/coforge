@@ -22,7 +22,7 @@
   "agent_form_model": "Model",
   "agent_form_reasoning": "Reasoning",
   "agent_form_provider_default": "Use provider default",
-  "agent_provider_pi_builtin": "Pi (Built-in)",
+  "agent_provider_pi_builtin": "CoForge",
   "agent_optional": "Optional",
   "agent_form_submit": "Create agent",
   "agent_form_submitting": "Creating…",

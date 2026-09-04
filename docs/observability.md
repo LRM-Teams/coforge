@@ -68,7 +68,7 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 | --- | --- |
 | `activity` | 稳定类型，例如 `running_command`、`reading_file`、`using_tool`、`error` |
 | `level` | `info`、`warning` 或 `error` |
-| `message` | `running_command` 保留命令前 100 个 Unicode 字符；文件读写、编辑和工具 Activity 完整保留 adapter 消息；错误和警告使用 adapter 处理后的诊断文本 |
+| `message` | `running_command` 保留命令前 100 个 Unicode 字符；文件读写、编辑和工具 Activity 完整保留 driver 消息；错误和警告使用 driver 处理后的诊断文本 |
 | `occurred_at` | daemon 记录的 UTC RFC 3339 时间 |
 | `launch_id` | 每次实际 OS process launch 的新身份；替换后不得复用 |
 | `client_seq` | 同一 `launch_id` 内从 1 开始严格递增的 daemon 序号 |
@@ -108,13 +108,13 @@ provider 上报命令的前 100 个 Unicode 字符，超出部分由 Daemon 截�
 event: agent:activity
 activity: reading_file | writing_file | editing_file
 level: info
-message: <adapter 上报的完整原始消息>
+message: <driver 上报的完整原始消息>
 ```
 
 `reading_file`、`writing_file` 和 `editing_file` 分别表示读取文件、创建/覆盖文件和修改
-文件。Daemon 完整保留这三类 Activity 的 adapter `message`，不截断、替换或额外脱敏。
+文件。Daemon 完整保留这三类 Activity 的 driver `message`，不截断、替换或额外脱敏。
 其他 Code Agent 工具也通过 `agent:activity` 记录；暂未纳入统一分类的工具使用
-`activity=using_tool`，其 adapter `message` 同样完整保留。这里的原始消息是 adapter 已经
+`activity=using_tool`，其 driver `message` 同样完整保留。这里的原始消息是 driver 已经
 归一化后交给 Daemon 的消息，不是 provider 的完整协议事件。
 
 进程生命周期和 turn 生命周期必须按实际发生顺序记录。例如启动成功的顺序是
@@ -131,7 +131,7 @@ Activity envelope 包含 `request_id`、`workspace_id`、`agent_id` 和上述固
 stale rejection；当前保证来自 Daemon 的 current-launch gate。
 生命周期错误使用 `activity=launch_failed|stop_failed` 和 `level=error`，只发送稳定、
 脱敏且可操作的原因，不上传命令参数、绝对路径、凭据或 stderr。provider 错误/警告
-使用 `activity=error|warning` 和对应的 `level`；adapter 必须先移除 token、prompt、命令、
+使用 `activity=error|warning` 和对应的 `level`；driver 必须先移除 token、prompt、命令、
 路径、完整响应和 stderr，再保留安全错误文本的原始语言与 wording。启动阶段如果进程未达到可接收工作状态，不能
 发送 `agent:status(status=active)`，并通过 `agent:activity` 记录启动明细。如果启动失败，
 通过 `agent:activity` 记录启动错误。进程已经 active 后遇到错误、警告或意外退出时，通过
@@ -157,7 +157,7 @@ PostgreSQL；`computer_id` 只取可信 connection metadata，不接受 payload 
 provider 初始化/认证失败、模型或 reasoning 配置不支持、Agent capacity 不足、进程
 异常退出、provider API 网络/认证/限流/额度错误、上下文或 token 限制、工具权限拒绝、
 协议解析或超时失败。警告至少覆盖 provider 返回的 warning、接近限流或额度阈值、可重试
-网络退避、上下文接近上限和可选能力不可用。具体 provider 错误必须在 adapter 内归类
+网络退避、上下文接近上限和可选能力不可用。具体 provider 错误必须在 driver 内归类
 为这些稳定类别，原始错误只作为本地诊断；stderr 不能直接作为发给服务端和前端的
 `message`。
 
@@ -172,7 +172,7 @@ Web 在 `src/features/agents/` 内实现 activity timeline，按 `activity` 选�
 `error` 使用对应视觉级别。业务标签可以按当前界面语言本地化，安全的 provider 错误或
 警告文本保持原始语言与 wording。未知 activity 必须使用通用 activity 样式显示安全
 文案，不能丢弃整条记录；前端显示 Daemon 已截断的命令，并完整显示文件操作和工具
-Activity 的 `message`，但不得自行补充 adapter 未上报的内容。
+Activity 的 `message`，但不得自行补充 driver 未上报的内容。
 
 ## 健康与就绪探针
 
@@ -194,7 +194,7 @@ Activity 的 `message`，但不得自行补充 adapter 未上报的内容。
 | `coforge_connections` | gauge | 当前连接数，按 `service` 和受控连接类型聚合 |
 | `coforge_reconnects_total` | counter | 有界重连次数与结果 |
 | `coforge_attention_pending` | gauge | 当前进程内等待交给 Agent session 的易失 attention 数量；重启后不恢复 |
-| `coforge_attention_acks_total` | counter | `CodeAgentSession`/`notify` 接受易失 attention 的 ACK 结果；不表示 durable accept 或 Agent 任务完成 |
+| `coforge_attention_acks_total` | counter | `AgentSession`/`notify` 接受易失 attention 的 ACK 结果；不表示 durable accept 或 Agent 任务完成 |
 | `coforge_restarts_total` | counter | 子进程或依赖重启次数 |
 
 业务消息正文、用户标识、object key、URL、token 和高基数 ID 不得进入指标标签。指标无法替代 PostgreSQL canonical Message/read state 或审计记录；Activity 指标不代表完整历史，attention 指标也不是消息 inbox、outbox 或 delivery ledger。

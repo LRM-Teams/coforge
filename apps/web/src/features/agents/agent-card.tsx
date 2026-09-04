@@ -13,7 +13,7 @@ export type AgentView = {
   displayName: string;
   createdAt: Date | string;
   runtimeConfig: {
-    runtime: "pi" | "codex" | "claude-code";
+    runtime: "coforge" | "pi" | "codex" | "claude-code";
     model: string;
   };
   status: "active" | "inactive";
@@ -21,6 +21,7 @@ export type AgentView = {
 };
 
 const providerLabels = {
+  coforge: "CoForge",
   pi: "Pi",
   codex: "Codex",
   "claude-code": "Claude Code",

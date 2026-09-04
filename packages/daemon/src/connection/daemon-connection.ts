@@ -514,13 +514,13 @@ function parseAgentRuntimeProviderConfig(value: unknown): AgentRuntimeProviderCo
   const config = value as Record<string, unknown>;
   if (config.kind === "default" && Object.keys(config).length === 1) return { kind: "default" };
   if (
-    config.kind === "pi-builtin" &&
+    config.kind === "coforge" &&
     typeof config.providerId === "string" &&
     (config.apiKey === undefined || typeof config.apiKey === "string") &&
     Object.keys(config).every((key) => key === "kind" || key === "providerId" || key === "apiKey")
   )
     return {
-      kind: "pi-builtin",
+      kind: "coforge",
       providerId: config.providerId,
       ...(typeof config.apiKey === "string" ? { apiKey: config.apiKey } : {}),
     };

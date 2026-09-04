@@ -3,12 +3,12 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ClaudeCodeAgentAdapter } from "../src/code-agent/claude-code/adapter";
+import { ClaudeCodeDriver } from "../src/code-agent/claude-code/driver";
 import { AGENT_RUNTIME_EVENT_TYPE, type AgentRuntimeEvent } from "../src/code-agent/contract";
 
 test("Claude Code waits for the installed CLI init event before becoming ready", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-code-"));
-  const adapter = new ClaudeCodeAgentAdapter({
+  const adapter = new ClaudeCodeDriver({
     command: [
       process.execPath,
       new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,
@@ -16,7 +16,7 @@ test("Claude Code waits for the installed CLI init event before becoming ready",
   });
 
   try {
-    const session = await adapter.start({ agentWorkspaceDirectory });
+    const session = await adapter.createAgentSession({ agentWorkspaceDirectory });
     expect(session).toBeDefined();
     await session.dispose();
   } finally {
@@ -39,7 +39,7 @@ test("Claude Code starts the user's installed CLI from PATH in streaming mode", 
   const argumentsFile = join(directory, "claude-arguments");
 
   try {
-    const session = await new ClaudeCodeAgentAdapter().start({
+    const session = await new ClaudeCodeDriver().createAgentSession({
       agentWorkspaceDirectory,
       runtime: {
         provider: "claude-code",
@@ -73,7 +73,7 @@ test("Claude Code maps stream-json turns behind the code-agent seam", async () =
   const adapter = fixtureAdapter();
 
   try {
-    const session = await adapter.start({ agentWorkspaceDirectory });
+    const session = await adapter.createAgentSession({ agentWorkspaceDirectory });
     const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
 
@@ -106,7 +106,7 @@ test("Claude Code exposes account rate-limit events as partial usage snapshots",
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-usage-event-"));
 
   try {
-    const session = await fixtureAdapter().start({ agentWorkspaceDirectory });
+    const session = await fixtureAdapter().createAgentSession({ agentWorkspaceDirectory });
     const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
 
@@ -135,7 +135,7 @@ test("Claude Code rejects overlapping turns and interrupts without replacing its
   const adapter = fixtureAdapter();
 
   try {
-    const session = await adapter.start({ agentWorkspaceDirectory });
+    const session = await adapter.createAgentSession({ agentWorkspaceDirectory });
     const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
 
@@ -159,7 +159,7 @@ test("Claude Code sends notifications through stream-json and rejects them while
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-notify-"));
 
   try {
-    const session = await fixtureAdapter().start({ agentWorkspaceDirectory });
+    const session = await fixtureAdapter().createAgentSession({ agentWorkspaceDirectory });
     const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
     await session.notify!("New message available. Run coforge message check.");
@@ -177,7 +177,7 @@ test("Claude Code sends notifications through stream-json and rejects them while
 });
 
 test("Claude Code rejects interrupt when the CLI exits after SIGINT", async () => {
-  const adapter = new ClaudeCodeAgentAdapter({
+  const adapter = new ClaudeCodeDriver({
     command: [
       process.execPath,
       new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,
@@ -185,7 +185,7 @@ test("Claude Code rejects interrupt when the CLI exits after SIGINT", async () =
     ],
   });
 
-  const session = await adapter.start({ agentWorkspaceDirectory: tmpdir() });
+  const session = await adapter.createAgentSession({ agentWorkspaceDirectory: tmpdir() });
   try {
     await session.sendMessage("wait");
     await expect(session.interrupt()).rejects.toThrow("exited unexpectedly");
@@ -195,13 +195,13 @@ test("Claude Code rejects interrupt when the CLI exits after SIGINT", async () =
 });
 
 test("Claude Code startup fails when its CLI does not complete initialization", async () => {
-  const adapter = new ClaudeCodeAgentAdapter({
+  const adapter = new ClaudeCodeDriver({
     command: [process.execPath, new URL("./fixtures/invalid-jsonl.ts", import.meta.url).pathname],
   });
 
   await expect(
     Promise.race([
-      adapter.start({ agentWorkspaceDirectory: tmpdir() }),
+      adapter.createAgentSession({ agentWorkspaceDirectory: tmpdir() }),
       Bun.sleep(200).then(() => {
         throw new Error("startup timed out");
       }),
@@ -209,8 +209,8 @@ test("Claude Code startup fails when its CLI does not complete initialization", 
   ).rejects.toThrow("invalid output");
 });
 
-function fixtureAdapter(): ClaudeCodeAgentAdapter {
-  return new ClaudeCodeAgentAdapter({
+function fixtureAdapter(): ClaudeCodeDriver {
+  return new ClaudeCodeDriver({
     command: [
       process.execPath,
       new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,

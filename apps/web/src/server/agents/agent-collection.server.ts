@@ -85,13 +85,15 @@ export class AgentCollection {
       computerId: input.computerId,
       runtimeConfig: {
         runtime: selection.provider,
-        provider: selection.modelProvider
-          ? {
-              kind: "pi-builtin" as const,
-              providerId: selection.modelProvider,
-            }
-          : { kind: "default" as const },
+        provider:
+          selection.provider === RUNTIME_PROVIDER.COFORGE && selection.modelProvider
+            ? {
+                kind: "coforge" as const,
+                providerId: selection.modelProvider,
+              }
+            : { kind: "default" as const },
         model: selection.model,
+        modelProvider: selection.modelProvider,
         reasoning: selection.reasoning,
       },
     });
@@ -127,7 +129,7 @@ export class AgentCollection {
         provider: agent.runtimeConfig.runtime,
         model: agent.runtimeConfig.model,
         modelProvider:
-          agent.runtimeConfig.provider.kind === "pi-builtin"
+          agent.runtimeConfig.provider.kind === "coforge"
             ? agent.runtimeConfig.provider.providerId
             : "",
         reasoning: agent.runtimeConfig.reasoning,
@@ -150,14 +152,13 @@ export class AgentCollection {
 
 export function runtimeStartFields(config: AgentRecord["runtimeConfig"]) {
   const launchProviderConfig =
-    config.provider.kind === "pi-builtin"
+    config.provider.kind === "coforge"
       ? { kind: config.provider.kind, providerId: config.provider.providerId }
       : config.provider;
   return {
     provider: config.runtime,
     model: config.model,
-    modelProvider:
-      "providerId" in launchProviderConfig ? (launchProviderConfig.providerId ?? "") : "",
+    modelProvider: config.modelProvider,
     reasoning: config.reasoning,
     providerConfig: launchProviderConfig,
   };

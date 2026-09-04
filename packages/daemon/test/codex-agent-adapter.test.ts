@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { CodexAgentAdapter } from "../src/code-agent/codex/adapter";
+import { CodexDriver } from "../src/code-agent/codex/driver";
 import type { AgentRuntimeEvent } from "../src/code-agent/contract";
 
 test("Codex loads skills before running app-server behind the code-agent seam", async () => {
@@ -14,7 +14,7 @@ test("Codex loads skills before running app-server behind the code-agent seam", 
     join(skillDirectory, "SKILL.md"),
     "---\nname: fixture-skill\ndescription: Fixture skill\n---\n",
   );
-  const adapter = new CodexAgentAdapter({
+  const adapter = new CodexDriver({
     command: [
       process.execPath,
       new URL("./fixtures/codex-app-server.ts", import.meta.url).pathname,
@@ -26,7 +26,7 @@ test("Codex loads skills before running app-server behind the code-agent seam", 
   });
 
   try {
-    const session = await adapter.start({
+    const session = await adapter.createAgentSession({
       agentWorkspaceDirectory,
       runtime: {
         provider: "codex",
@@ -110,7 +110,7 @@ test("Codex starts the user's installed CLI from PATH", async () => {
   const marker = join(directory, "codex-started");
 
   try {
-    const session = await new CodexAgentAdapter().start({
+    const session = await new CodexDriver().createAgentSession({
       agentWorkspaceDirectory,
       environment: {
         PATH: binDirectory,
@@ -131,7 +131,7 @@ test("Codex returns to idle when turn creation is invalid", async () => {
   const adapter = fixtureAdapter();
 
   try {
-    const session = await adapter.start({ agentWorkspaceDirectory });
+    const session = await adapter.createAgentSession({ agentWorkspaceDirectory });
     await expect(session.sendMessage("invalid-turn")).rejects.toThrow("did not create a turn");
     await session.sendMessage("finish");
     await session.dispose();
@@ -145,7 +145,7 @@ test("Codex rejects overlapping prompts and dispose does not wait on interrupt",
   const adapter = fixtureAdapter();
 
   try {
-    const session = await adapter.start({ agentWorkspaceDirectory });
+    const session = await adapter.createAgentSession({ agentWorkspaceDirectory });
     await session.sendMessage("wait");
     await expect(session.sendMessage("overlap")).rejects.toThrow("already running");
     await session.dispose();
@@ -158,7 +158,7 @@ test("Codex sends notifications through turn/start and rejects them while busy",
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-codex-notify-"));
 
   try {
-    const session = await fixtureAdapter().start({ agentWorkspaceDirectory });
+    const session = await fixtureAdapter().createAgentSession({ agentWorkspaceDirectory });
     const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
     await session.notify!("New message available. Run coforge message check.");
@@ -175,8 +175,8 @@ test("Codex sends notifications through turn/start and rejects them while busy",
   }
 });
 
-function fixtureAdapter(): CodexAgentAdapter {
-  return new CodexAgentAdapter({
+function fixtureAdapter(): CodexDriver {
+  return new CodexDriver({
     command: [
       process.execPath,
       new URL("./fixtures/codex-app-server.ts", import.meta.url).pathname,

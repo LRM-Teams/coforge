@@ -15,12 +15,12 @@ Web/backend
   │ 事务提交后通过唯一 Agent transport channel 通知 Daemon
   ▼
 Daemon connection（WSS/RPC，at-least-once）
-  │ pending → accepted（CodeAgentSession 已接收责任）→ injected（已调用 session）
+  │ pending → accepted（AgentSession 已接收责任）→ injected（已调用 session）
   ▼
-provider-neutral CodeAgentSession.sendMessage(message)
+provider-neutral AgentSession.sendMessage(message)
   │
   ▼
-Pi / Codex / Claude adapter → 对应 Agent runtime
+Pi / Codex / Claude Driver → 对应 Agent runtime
   │
   └─ coforge message send --target <全站唯一 username> --body ...
                          ▼
@@ -39,7 +39,7 @@ Daemon 通过自身唯一的云端 WebSocket 接收消息，并在本地按 `age
 - **Web/backend** 是业务控制面：认证、成员授权、Conversation/Message 持久化、顺序分配和路由决策。Message 是云端 canonical 事实来源。
 - **Standalone Centrifugo** 只负责 WSS、发布/订阅、RPC、重连相关 transport mechanics；不理解 Conversation、Agent Activity，也不拥有数据库。
 - **Daemon** 是用户机器上的执行协调者，拥有一个 Workspace 云连接和多个 Agent runtime 生命周期；它从云端恢复 Message，并把消息交给正确 runtime。
-- **Code-agent adapter** 提供统一的 provider-neutral seam。Daemon 不知道 Claude、Codex、Pi 的具体协议；adapter 自己转换 provider 协议。
+- **Code-agent Driver** 提供统一的 provider-neutral seam。Daemon 不知道 Claude、Codex、Pi 的具体协议；Driver 自己转换 provider 协议。
 - **Agent runtime** 执行任务，不拥有 CoForge 消息可靠性、云端游标或成员 unread 真相。
 
 不要混淆 transport channel、业务 Conversation、Message 和 Agent Activity：channel 是传输范围，Conversation 是私聊关系，Message 是业务事实，Activity 是运行过程诊断。`event_id` 等可以是技术字段，但 “Agent Event” 不是业务消息模型。
@@ -61,7 +61,7 @@ Daemon 通过自身唯一的云端 WebSocket 接收消息，并在本地按 `age
 1. Web/backend 鉴权发送者，确认其为 active ConversationMember，并校验正文、附件引用及 Workspace scope。
 2. 在云端事务中按该 Conversation 的 `conversationSeq` 保存 canonical Message；重试使用发送方稳定幂等键，不能生成第二条业务消息。
 3. 提交后通过唯一 `agent` transport channel 通知 Daemon。通知丢失不改变事实：Daemon 重连或恢复时仍以云端 Message 和 sequence 为准。
-4. Daemon 校验 Workspace、Conversation、Agent scope，找到该 Agent 的 runtime，并调用 `CodeAgentSession.sendMessage(message)`。
+4. Daemon 校验 Workspace、Conversation、Agent scope，找到该 Agent 的 runtime，并调用 `AgentSession.sendMessage(message)`。
 5. Daemon 对自身处理可以记录三阶段语义：`pending` 表示云端已有消息但尚未被 session 接受；`accepted` 表示 session 已接受本地责任；`injected` 表示已向 runtime 调用注入。`accepted` 绝不表示 Agent 执行完成。
 
 ### MVP 请求幂等
@@ -75,7 +75,7 @@ PostgreSQL Message 始终是 canonical 数据，Redis 只做 24 小时短期防�
 这个 MVP 存在已接受的 Redis/PostgreSQL 双写崩溃窗口：PostgreSQL commit 成功而 Redis 结果尚未写入时，claim 过期后的相同请求可能再次创建 Message。当前实现不声称消除该窗口；关闭窗口需要未来的 PostgreSQL schema/事务性唯一约束决策。
 
 当前不要求把这些阶段做成持久化 delivery ledger。无论将来如何记录，不能在
-`CodeAgentSession` 接受前 ACK；transport ACK 也不是 Agent 完成 ACK。
+`AgentSession` 接受前 ACK；transport ACK 也不是 Agent 完成 ACK。
 
 ## idle / busy 与未读游标
 
@@ -106,13 +106,13 @@ attachment identity、provider-independent `object_key`、文件名/类型/大�
 文件内容直接塞进 JSON。授权下载必须先通过 backend 验证可见的 committed Message，再
 由 OSS/CDN adapter 生成短时 opaque URL；signed URL 不写入数据库或日志。
 
-送给 Agent 时由统一 adapter 组装：正文放前，附件信息统一放后。上层不解析 provider
-格式，具体 provider 的附件能力和转换留在 adapter 内。
+送给 Agent 时由统一 Driver 组装：正文放前，附件信息统一放后。上层不解析 provider
+格式，具体 provider 的附件能力和转换留在 Driver 内。
 
-## adapter 边界
+## Driver 边界
 
-Daemon 只依赖类似 `CodeAgentSession.sendMessage(message)` 的 provider-neutral contract，
-以及启动、订阅活动、中断、释放等通用能力。Pi/Codex/Claude adapter 自己负责 native
+Daemon 只依赖类似 `AgentSession.sendMessage(message)` 的 provider-neutral contract，
+以及启动、订阅活动、中断、释放等通用能力。Pi/Codex/Claude Driver 自己负责 native
 protocol、SDK runner 或 ACP 的转换、错误和能力差异；这些细节不可泄漏到 Web、Centrifugo
 或共享业务模型。Agent Activity 跨 transport 时是规范化运行诊断，不是 Message。
 
@@ -144,7 +144,7 @@ delivery ledger。若未来故障证据证明需要 durable 接管记录，必�
 2. 现有版本化 Protobuf 中 delivery/replay/ACK 的精确 envelope，以及 legacy worker 字段的兼容期限。
 3. Daemon 内存 cursor 的生命周期、重连时的起始边界和可测量恢复 SLO。
 4. `coforge message send` 如何绑定当前 Agent 身份、生成幂等键，并在多条 DirectConversation 中解析 target。
-5. Attachment/MessageAttachment 的最终字段与统一 adapter 的附件能力降级策略。
+5. Attachment/MessageAttachment 的最终字段与统一 Driver 的附件能力降级策略。
 
 ## 参考代码与基线
 
