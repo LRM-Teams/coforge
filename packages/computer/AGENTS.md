@@ -76,9 +76,13 @@ client, or command-specific copy of an existing domain operation.
   the same flow, uses a Workspace-page setup intent, registers the Computer,
   binds one Workspace, and starts (or reuses) the Daemon automatically. The
   user must never be asked to run `coforge-daemon` separately.
-- Do not ask users to enter a Workspace ID or slug. Setup receives the target
-  Workspace from a Workspace-page setup intent/deep link/installer parameter;
-  missing intent fails stably.
+- Setup takes the target Workspace from `--workspace <slug>`, which the Add
+  Computer dialog renders with the current Workspace already filled in, so the
+  user copies it rather than recalling it. `COFORGE_SETUP_INTENT` remains as the
+  bypass for e2e and automation. A missing or malformed value fails stably.
+  (This replaces an earlier rule against ever naming a slug on the command line:
+  no mechanism was ever built to carry an intent through `curl | sh`, and two
+  explicit commands also give "join a second Workspace" an obvious form.)
 - Computer has no long-lived cloud WebSocket. It communicates with Daemon over
   local RPC; each Daemon-supervised daemon owns its own cloud WSS
   connection and uses the versioned CoForge RPC/Protobuf protocol.
