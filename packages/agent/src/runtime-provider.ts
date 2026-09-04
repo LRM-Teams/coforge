@@ -22,7 +22,7 @@ export async function seedPiSessionModelRuntime(
   const providerId = Reflect.get(value, "providerId");
   const apiKey = Reflect.get(value, "apiKey");
   if (
-    kind !== "pi-builtin" ||
+    kind !== "coforge" ||
     typeof providerId !== "string" ||
     !providerId ||
     typeof apiKey !== "string" ||

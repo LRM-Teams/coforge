@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { LocalInboxRequest } from "@coforge/protocol";
 import { startDaemonLocalRpcServer } from "./src/local-rpc";
 import { startAgentProxy } from "./src/agent-proxy";
-import { createCodeAgentAdapter } from "./src/code-agent/registry";
+import { createAgentDriver } from "./src/code-agent/registry";
 import { discoverCodeAgentInventory } from "./src/code-agent/runtime-inventory";
 import { DaemonRuntime } from "./src/daemon-runtime/runtime";
 import { FileDaemonCredentialStore } from "./src/credentials/credential-store";
@@ -17,18 +17,18 @@ import { COFORGE_DAEMON_VERSION } from "./src/version";
 
 export type {
   AgentRuntimeConfig,
-  CodeAgentAdapter,
-  AgentRuntimeEvent,
-  CodeAgentProvider,
-  CodeAgentSession,
-  CodeAgentStartOptions,
-} from "./src/code-agent/contract";
-export { createCodeAgentAdapter } from "./src/code-agent/registry";
-export { ClaudeCodeAgentAdapter } from "./src/code-agent/claude-code/adapter";
-export { CodexAgentAdapter } from "./src/code-agent/codex/adapter";
+  AgentDriver,
+  AgentDriverFactory,
+  AgentSession,
+  AgentSessionOptions,
+} from "@coforge/agent";
+export type { AgentRuntimeEvent, CodeAgentProvider } from "./src/code-agent/contract";
+export { createAgentDriver } from "./src/code-agent/registry";
+export { ClaudeCodeDriver } from "./src/code-agent/claude-code/driver";
+export { CodexDriver } from "./src/code-agent/codex/driver";
 export { readCodexUsage } from "./src/code-agent/codex/usage";
 export { readClaudeCodeUsage } from "./src/code-agent/claude-code/usage";
-export { PiAgentAdapter } from "./src/code-agent/pi/adapter";
+export { PiDriver } from "./src/code-agent/pi/driver";
 export { createDaemonHost } from "./src/daemon-host";
 export { startDaemonLocalRpcServer } from "./src/local-rpc";
 export { startAgentProxy } from "./src/agent-proxy";
@@ -51,11 +51,7 @@ export { AgentProcessManager } from "./src/agent-runtime/agent-process-manager";
 export { agentWorkspaceDirectory } from "./src/agent-runtime/agent-workspace-path";
 export { AgentStateMachine } from "./src/agent-runtime/agent-state-machine";
 export { createAgentActivity } from "./src/agent-runtime/agent-activity";
-export type {
-  AgentAdapterFactory,
-  AgentRuntime,
-  AgentStatus,
-} from "./src/agent-runtime/agent-process-manager";
+export type { AgentRuntime, AgentStatus } from "./src/agent-runtime/agent-process-manager";
 export type {
   AgentActivity,
   AgentActivityLevel,
@@ -134,7 +130,7 @@ if (import.meta.main) {
       };
       runtime = new DaemonRuntime(
         config,
-        createCodeAgentAdapter,
+        createAgentDriver,
         credentials,
         {
           create: () =>
@@ -153,7 +149,7 @@ if (import.meta.main) {
       if (config) {
         runtime ??= new DaemonRuntime(
           config,
-          createCodeAgentAdapter,
+          createAgentDriver,
           credentials,
           {
             create: () =>

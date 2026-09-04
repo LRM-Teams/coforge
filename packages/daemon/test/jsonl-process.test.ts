@@ -6,7 +6,7 @@ import { JsonlProcess } from "../src/code-agent/jsonl-process";
 import type { OwnedProcessTree } from "../src/platform/process-tree";
 import { ProcessTreeOwner } from "../src/platform/process-tree";
 import { AgentProcessManager } from "../src/agent-runtime/agent-process-manager";
-import type { CodeAgentSession } from "../src/code-agent/contract";
+import type { AgentSession } from "@coforge/agent";
 
 test("send waits for stdin drain after a backpressured write", async () => {
   let releaseDrain!: () => void;
@@ -65,7 +65,7 @@ test("startup spawn failure permits the manager to retry", async () => {
   let starts = 0;
   const manager = new AgentProcessManager(() => ({
     provider: "pi",
-    async start() {
+    async createAgentSession() {
       starts++;
       return sessionFor(
         new JsonlProcess([`coforge-missing-${crypto.randomUUID()}`], tmpdir(), {
@@ -107,7 +107,7 @@ test("startup cleanup probe failure blocks a replacement", async () => {
   let starts = 0;
   const manager = new AgentProcessManager(() => ({
     provider: "pi",
-    async start() {
+    async createAgentSession() {
       starts++;
       const process = new JsonlProcess(["unused"], tmpdir(), {}, { spawn: () => tree });
       await process.dispose();
@@ -174,7 +174,7 @@ test.skipIf(process.platform === "win32")(
     let pids: { childPid: number; grandchildPid: number } | undefined;
     const manager = new AgentProcessManager(() => ({
       provider: "pi",
-      async start() {
+      async createAgentSession() {
         starts++;
         const process = new JsonlProcess(
           [globalThis.process.execPath, `${import.meta.dir}/fixtures/process-tree.ts`],
@@ -224,7 +224,7 @@ test("failed unexpected-exit tree cleanup does not close or permit replacement",
   let starts = 0;
   const manager = new AgentProcessManager(() => ({
     provider: "pi",
-    async start() {
+    async createAgentSession() {
       starts++;
       return sessionFor(process);
     },
@@ -240,7 +240,7 @@ test("failed unexpected-exit tree cleanup does not close or permit replacement",
   expect(manager.status("agent-1")).toBe("active");
 });
 
-function sessionFor(process: JsonlProcess): CodeAgentSession {
+function sessionFor(process: JsonlProcess): AgentSession {
   return {
     sendMessage: async (message) => process.send({ message }),
     subscribe: () => () => undefined,

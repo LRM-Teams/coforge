@@ -196,7 +196,9 @@ test("submits the public creation form callback", async () => {
   const onCreate = mock(async () => ({ startPublished: true }));
   renderAgents([], onCreate, true);
   fireEvent.change(await page().findByLabelText("Name"), { target: { value: "build-helper" } });
-  fireEvent.change(page().getByLabelText("Display name"), { target: { value: "Build Helper" } });
+  fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
+    target: { value: "Build and release helper" },
+  });
   await browserUser.click(page().getByRole("combobox", { name: "Runtime provider" }));
   await browserUser.click(page().getByRole("option", { name: "Claude Code" }));
   await browserUser.click(page().getByRole("combobox", { name: /Model/ }));
@@ -207,7 +209,7 @@ test("submits the public creation form callback", async () => {
   await waitFor(() =>
     expect(onCreate).toHaveBeenCalledWith({
       name: "build-helper",
-      displayName: "Build Helper",
+      description: "Build and release helper",
       provider: "claude-code",
       model: "sonnet",
       reasoning: "high",
@@ -219,7 +221,9 @@ test("submits the public creation form callback", async () => {
 test("shows a deferred-start notice after creation", async () => {
   renderAgents([], async () => ({ startPublished: false }), true);
   fireEvent.change(await page().findByLabelText("Name"), { target: { value: "helper" } });
-  fireEvent.change(page().getByLabelText("Display name"), { target: { value: "Helper" } });
+  fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
+    target: { value: "General purpose helper" },
+  });
   fireEvent.click(page().getByRole("button", { name: "Create agent" }));
   expect((await page().findByRole("status")).textContent).toBe(
     "Agent created. It will start when Daemon reconnects.",

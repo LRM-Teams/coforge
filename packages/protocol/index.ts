@@ -36,6 +36,7 @@ export type WorkspaceQueryRequest = {
 export const RUNTIME_KINDS = ["external", "builtin"] as const;
 export type RuntimeKind = (typeof RUNTIME_KINDS)[number];
 export const RUNTIME_PROVIDER = {
+  COFORGE: "coforge",
   CODEX: "codex",
   CLAUDE_CODE: "claude-code",
   PI: "pi",
@@ -43,7 +44,7 @@ export const RUNTIME_PROVIDER = {
 export type RuntimeProvider = (typeof RUNTIME_PROVIDER)[keyof typeof RUNTIME_PROVIDER];
 export type AgentRuntimeProviderConfig =
   | { kind: "default" }
-  | { kind: "pi-builtin"; providerId: string };
+  | { kind: "coforge"; providerId: string };
 export type RuntimeMetadata = {
   provider: RuntimeProvider;
   version: string;

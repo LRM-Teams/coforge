@@ -59,6 +59,7 @@ model Agent {
   workspaceId   String                 @db.Uuid
   name          String
   displayName   String
+  description   String                 @default("")
   createdAt     DateTime               @default(now())
   ownerId       String                 @db.Uuid
   computerId    String?                @db.Uuid

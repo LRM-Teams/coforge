@@ -11,6 +11,7 @@ export type AgentRecord = {
   workspaceId: string;
   name: string;
   displayName: string;
+  description?: string;
   createdAt: Date;
   ownerId: string;
   computerId?: string;
@@ -22,6 +23,7 @@ function mapAgent(agent: {
   workspaceId: string;
   name: string;
   displayName: string;
+  description?: string;
   createdAt: Date;
   ownerId: string;
   computerId: string | null;
@@ -33,9 +35,10 @@ function mapAgent(agent: {
   } catch {
     throw new Error(`Agent ${agent.id} has invalid runtime config`);
   }
-  const { computerId, ...fields } = agent;
+  const { computerId, description, ...fields } = agent;
   return {
     ...fields,
+    description: description ?? "",
     ...(computerId ? { computerId } : {}),
     runtimeConfig,
   };

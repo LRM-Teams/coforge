@@ -11,9 +11,10 @@ export type AgentView = {
   id: string;
   name: string;
   displayName: string;
+  description?: string;
   createdAt: Date | string;
   runtimeConfig: {
-    runtime: "pi" | "codex" | "claude-code";
+    runtime: "coforge" | "pi" | "codex" | "claude-code";
     model: string;
   };
   status: "active" | "inactive";
@@ -21,6 +22,7 @@ export type AgentView = {
 };
 
 const providerLabels = {
+  coforge: "CoForge",
   pi: "Pi",
   codex: "Codex",
   "claude-code": "Claude Code",
@@ -79,6 +81,7 @@ export function AgentCard({
               </Link>
             </h2>
             <p className="truncate text-xs text-muted-foreground">@{agent.name}</p>
+            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{agent.description}</p>
           </div>
         </div>
         <Link

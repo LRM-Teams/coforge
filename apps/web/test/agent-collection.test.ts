@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
 import { AgentCollection } from "../src/server/agents/agent-collection.server";
+import { parseAgentRuntimeConfig } from "../src/server/agents/agent-runtime-config.server";
 import type {
   AgentRecord,
   AgentRepository,
@@ -55,6 +56,7 @@ describe("AgentCollection", () => {
         runtime: RUNTIME_PROVIDER.CODEX,
         provider: { kind: "default" },
         model: "",
+        modelProvider: "",
         reasoning: "",
       },
       createdAt: new Date(),
@@ -64,8 +66,8 @@ describe("AgentCollection", () => {
       { userId: "user-1", workspaceId: "workspace-1" },
       {
         name: "  MY-Agent  ",
-        displayName: " My Agent ",
-        provider: RUNTIME_PROVIDER.PI,
+        description: "Build and release helper",
+        provider: RUNTIME_PROVIDER.COFORGE,
         computerId: "computer-1",
         model: " model-a ",
         modelProvider: " anthropic ",
@@ -78,11 +80,12 @@ describe("AgentCollection", () => {
       workspaceId: "workspace-1",
       ownerId: "user-1",
       name: "my-agent",
-      displayName: "My Agent",
+      displayName: "my-agent",
       runtimeConfig: {
-        runtime: "pi",
-        provider: { kind: "pi-builtin", providerId: "anthropic" },
+        runtime: "coforge",
+        provider: { kind: "coforge", providerId: "anthropic" },
         model: "model-a",
+        modelProvider: "anthropic",
         reasoning: "high",
       },
     });
@@ -92,13 +95,46 @@ describe("AgentCollection", () => {
     expect(starts).toHaveLength(1);
   });
 
+  test("keeps an external Pi model provider as the default provider config", async () => {
+    const { collection, starts } = fixture();
+
+    const result = await collection.create(
+      { userId: "user-1", workspaceId: "workspace-1" },
+      {
+        name: "external-pi",
+        description: "External Pi agent",
+        provider: RUNTIME_PROVIDER.PI,
+        computerId: "computer-1",
+        modelProvider: "anthropic",
+      },
+    );
+
+    expect(result.agent.runtimeConfig).toMatchObject({
+      runtime: RUNTIME_PROVIDER.PI,
+      provider: { kind: "default" },
+      modelProvider: "anthropic",
+    });
+    expect(starts[0]).toMatchObject({ intent: { modelProvider: "anthropic" } });
+  });
+
+  test("defaults modelProvider for persisted runtime configs created before the field", () => {
+    expect(
+      parseAgentRuntimeConfig({
+        runtime: RUNTIME_PROVIDER.PI,
+        provider: { kind: "default" },
+        model: "",
+        reasoning: "",
+      }),
+    ).toMatchObject({ modelProvider: "" });
+  });
+
   test("keeps the canonical Agent when start publication fails", async () => {
     const { collection, records } = fixture({ publishFails: true });
     const result = await collection.create(
       { userId: "user-1", workspaceId: "workspace-1" },
       {
         name: "builder",
-        displayName: "Builder",
+        description: "Build helper",
         provider: RUNTIME_PROVIDER.CODEX,
         computerId: "computer-1",
       },
@@ -110,6 +146,7 @@ describe("AgentCollection", () => {
       runtime: "codex",
       provider: { kind: "default" },
       model: "",
+      modelProvider: "",
       reasoning: "",
     });
   });
@@ -121,7 +158,7 @@ describe("AgentCollection", () => {
         { userId: "user-1", workspaceId: "workspace-1" },
         {
           name: "builder",
-          displayName: "Builder",
+          description: "Build helper",
           provider: RUNTIME_PROVIDER.CODEX,
           computerId: "computer-1",
         },
@@ -143,6 +180,7 @@ describe("AgentCollection", () => {
         runtime: RUNTIME_PROVIDER.CODEX,
         provider: { kind: "default" },
         model: "gpt-5",
+        modelProvider: "",
         reasoning: "high",
       },
       createdAt: new Date(),
@@ -159,6 +197,7 @@ describe("AgentCollection", () => {
         agentId: "agent-1",
         provider: "codex",
         model: "gpt-5",
+        modelProvider: "",
         reasoning: "high",
       },
     });

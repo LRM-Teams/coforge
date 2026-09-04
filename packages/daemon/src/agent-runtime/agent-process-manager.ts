@@ -1,10 +1,5 @@
 import { AgentStateMachine, type AgentStatus } from "./agent-state-machine";
-import type {
-  AgentRuntimeConfig,
-  CodeAgentAdapter,
-  CodeAgentProvider,
-  CodeAgentSession,
-} from "../code-agent/contract";
+import type { AgentDriverFactory, AgentRuntimeConfig, AgentSession } from "@coforge/agent";
 import { AgentProcessCleanupError } from "../code-agent/contract";
 import { mkdir } from "node:fs/promises";
 
@@ -12,7 +7,7 @@ export type { AgentStatus } from "./agent-state-machine";
 
 export type AgentRuntime = Readonly<{
   config: AgentRuntimeConfig;
-  session: CodeAgentSession;
+  session: AgentSession;
 }>;
 
 export type AgentRestartConfig = Readonly<{
@@ -20,17 +15,17 @@ export type AgentRestartConfig = Readonly<{
   sessionId: string | undefined;
 }>;
 
-export type AgentAdapterFactory = (provider: CodeAgentProvider) => CodeAgentAdapter;
+export type { AgentDriverFactory } from "@coforge/agent";
 /** Owns Agent availability and runtime processes for the daemon's single Workspace. */
 export class AgentProcessManager {
-  readonly #createAdapter: AgentAdapterFactory;
+  readonly #createDriver: AgentDriverFactory;
   readonly #runtimes = new Map<string, AgentRuntime>();
   readonly #restartConfigs = new Map<string, AgentRestartConfig>();
   readonly #states = new Map<string, AgentStateMachine>();
   readonly #stopping = new Set<string>();
 
-  constructor(createAdapter: AgentAdapterFactory) {
-    this.#createAdapter = createAdapter;
+  constructor(createDriver: AgentDriverFactory) {
+    this.#createDriver = createDriver;
   }
 
   get size(): number {
@@ -56,9 +51,9 @@ export class AgentProcessManager {
       throw new Error(`Agent runtime is already active: ${agentId}`);
     }
     await mkdir(agentWorkspaceDirectory, { recursive: true, mode: 0o700 });
-    let session: CodeAgentSession;
+    let session: AgentSession;
     try {
-      session = await this.#createAdapter(config.provider).start({
+      session = await this.#createDriver(config.provider).createAgentSession({
         agentId,
         ...(runtimeId ? { runtimeId } : {}),
         agentWorkspaceDirectory,
@@ -99,7 +94,7 @@ export class AgentProcessManager {
     this.#stateFor(agentId).transition("deactivate");
   }
 
-  session(agentId: string): CodeAgentSession | undefined {
+  session(agentId: string): AgentSession | undefined {
     const runtime = this.#runtimes.get(agentId);
     return runtime?.session;
   }

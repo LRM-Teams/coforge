@@ -34,7 +34,7 @@ import {
   DaemonConnection,
   DaemonRuntime,
   InMemoryDaemonCredentialStore,
-  PiAgentAdapter,
+  PiDriver,
   startAgentProxy,
 } from "../../../packages/daemon";
 
@@ -107,7 +107,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     { userId: DEV_BROWSER_USER.id, workspaceId },
     {
       name: "e2e-agent",
-      displayName: "E2E Agent",
+      description: "End-to-end test Agent",
       provider: "pi",
       computerId: registration.computerId,
       model: "e2e-model",
@@ -145,7 +145,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       serverHttpUrl: "http://127.0.0.1:8789",
     },
     () =>
-      new PiAgentAdapter({
+      new PiDriver({
         command: [
           process.execPath,
           join(

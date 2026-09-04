@@ -40,11 +40,11 @@ flowchart LR
     subgraph Host[用户机器]
         Computer[coforge-computer<br/>独立进程]
         Daemon[coforge-daemon<br/>独立进程]
-        Agent1[Agent runtime A<br/>OS child process]
-        Agent2[Agent runtime B<br/>OS child process]
+        Agent1[CoForge Agent<br/>daemon SDK session]
+        Agent2[External runtime<br/>OS child process]
 
         Computer <-->|Unix domain socket| Daemon
-        Daemon -->|spawn / supervise| Agent1
+        Daemon -->|create / supervise| Agent1
         Daemon -->|spawn / supervise| Agent2
     end
 
@@ -67,7 +67,7 @@ packages/
 ├── computer/
 │   └── 机器级 setup、安装与 supervisor package component
 ├── daemon/
-│   └── 单 Workspace daemon 与 code-agent adapter package component
+│   └── 单 Workspace daemon 与 code-agent driver package component
 └── agent/
     └── 使用 Pi SDK 的内置 Agent runtime package；由 coforge-daemon 安装和启动
 ```
@@ -78,12 +78,12 @@ packages/
 | --------------------- | --------------------------------------------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------- |
 | `coforge-computer`    | 独立 package component；唯一面向用户的本地安装入口，并依赖 `coforge-daemon` package           | 独立 OS 进程                        | 机器身份、安装升级、启动/停止和健康检查 coforge-daemon     |
 | `coforge-daemon`      | 独立 package component；作为 Computer 的构建/分发依赖随 Computer 安装，不单独提供用户安装入口 | 独立 OS 进程                        | 对齐期望/实际 workspace 集合，管理子进程生命周期和崩溃恢复 |
-| Agent runtime process | 不独立发布                                                                              | coforge-daemon 直接监督的 OS 子进程 | provider-neutral adapter 后的 Agent 执行                   |
-| `@coforge/agent`      | 可独立打包的 runtime package；不是本地产品组件或用户安装入口                            | daemon 启动的 Agent runtime process | 封装 Pi SDK、内置 extensions、skills 和 Pi-specific runner |
+| Agent runtime        | 不独立发布                                                                              | CoForge 在 daemon 内创建 SDK session；外部 runtime 是 OS 子进程 | provider-neutral driver 后的 Agent 执行                   |
+| `@coforge/agent`      | 可独立打包的 runtime package；不是本地产品组件或用户安装入口                            | daemon 内创建的 SDK session | 封装 Pi SDK、内置 extensions、skills 和 CoForge Agent factory |
 
 因此禁止把 daemon runtime 拆成第三个本地产品组件。需要隔离的是运行时进程，而不是发布包。
 
-源码分类、可独立打包边界、运行时边界与用户安装边界不是同一层级。仓库在 `packages/` 下保留两个本地 package component；`coforge-computer` 在 package/build 层依赖 `coforge-daemon`，Daemon 再依赖精确版本的 `@coforge/agent`。monorepo 开发时 Bun workspace 链接本地 package，发布时 Daemon 安装同版本的独立 package artifact。发布流水线为每个平台组装一个 Computer installation bundle，其中包含已验证兼容的 Computer、Daemon 和内置 Agent payload。用户只安装、升级和调用 Computer，Daemon 和 Agent runner 都不进入用户 PATH，但仍作为独立 OS 进程运行。bundle 的具体封装形式属于后续实现选择；无论采用哪种形式，都不能把这些运行时职责合并为一个进程。
+源码分类、可独立打包边界、运行时边界与用户安装边界不是同一层级。仓库在 `packages/` 下保留两个本地 package component；`coforge-computer` 在 package/build 层依赖 `coforge-daemon`，Daemon 再依赖精确版本的 `@coforge/agent`。monorepo 开发时 Bun workspace 链接本地 package，发布时 Daemon 安装同版本的独立 package artifact。发布流水线为每个平台组装一个 Computer installation bundle，其中包含已验证兼容的 Computer、Daemon 和 CoForge Agent payload。用户只安装、升级和调用 Computer，Daemon 与内置 Agent 由 Daemon 进程承载，外部 Agent 才是独立 OS 进程。bundle 的具体封装形式属于后续实现选择；无论采用哪种形式，都不能把这些运行时职责合并为 Computer 进程。
 
 本文不加限定词的 `workspace` 指云端协作、成员、权限、conversation 与 Agent 的逻辑边界。每个 Agent 另有自己的文件系统 Agent workspace 目录，它不是第二个逻辑 workspace。文档必须用限定词区分两者。
 
@@ -202,7 +202,7 @@ authorize_attachment_download(
 ) -> { url, expires_at }
 ```
 
-这是一个深模块：它根据 `message_id` 解析 workspace 与 conversation，校验请求者的 membership 和 committed message 可见性，确认 `attachment_id` 实际绑定到该 message，再把已授权的稳定 `object_key` 交给当前 delivery adapter。调用方不提供 object key、bucket 或 provider，返回值也不暴露 provider kind；因此授权规则、对象身份和客户端契约均不依赖 OSS 或 CDN。Adapter 只负责签发可交付 URL，不重做 conversation 授权，也不接受客户端提供的任意路径。
+这是一个深模块：它根据 `message_id` 解析 workspace 与 conversation，校验请求者的 membership 和 committed message 可见性，确认 `attachment_id` 实际绑定到该 message，再把已授权的稳定 `object_key` 交给当前 delivery adapter。调用方不提供 object key、bucket 或 provider，返回值也不暴露 provider kind；因此授权规则、对象身份和客户端契约均不依赖 OSS 或 CDN。Driver 只负责签发可交付 URL，不重做 conversation 授权，也不接受客户端提供的任意路径。
 
 同一个内部 adapter slot 有两个实现：
 
@@ -213,7 +213,7 @@ authorize_attachment_download(
 
 #### CDN 客户端鉴权、回源授权与缓存键
 
-Private CDN adapter 必须把两条授权链分开：
+Private CDN driver 必须把两条授权链分开：
 
 1. **客户端 → CDN POP** 使用 backend 生成的 CDN signed URL，只证明持有者在 TTL 内可访问该规范化 object path。Backend 在每次签发前仍执行 committed-message 可见性授权；CDN 不认识 workspace、conversation 或 requester。
 2. **CDN POP → private OSS origin** 使用阿里云 CDN private-bucket origin access 的独立服务身份和只读授权。CDN 在 cache miss 时为回源请求生成 `Authorization` header；客户端 CDN 签名参数必须在回源前移除，不能被当作 OSS 签名转发，也不能与 origin header 签名叠加。Bucket 保持 private，且该 CDN 身份仅授予附件 bucket 的回源只读能力；鉴于该功能可读取 origin bucket 内全部对象，附件 bucket 不得混放其他业务对象。
@@ -251,48 +251,50 @@ MVP OAuth client 使用 `client_id = coforge-computer` 与 `scope = openid offli
 
 ### coforge-daemon
 
-coforge-daemon 是唯一由 OS/Computer 托管的 daemon。单 Workspace MVP 中 daemon 直接持有一条云端 WSS、处理 server ready/intent flow，并管理多个独立 Agent runtime OS child process；不存在 Daemon、DaemonSupervisor 或 RuntimePool 抽象。Computer 只管理 daemon。
+coforge-daemon 是唯一由 OS/Computer 托管的 daemon。单 Workspace MVP 中 daemon 直接持有一条云端 WSS、处理 server ready/intent flow，并管理多个 Agent session：CoForge Agent 在 daemon 内通过 SDK 创建，用户安装的 Pi、Codex 和 Claude Code 通过 OS child process 运行；不存在 Daemon、DaemonSupervisor 或 RuntimePool 抽象。Computer 只管理 daemon。
 
 ```text
 coforge-daemon 1 ──管理──> 1 配置 Workspace
-daemon 1 ──管理──> N Agent runtime process
+daemon 1 ──管理──> N Agent runtime session
 daemon 1 ──管理──> N Agent ──各自拥有──> 1 Agent workspace 目录
-Agent 1 ──执行于──> 1 常驻 Agent runtime process
+Agent 1 ──执行于──> 1 CoForge SDK session 或外部 runtime process
 ```
 
-单一逻辑 Workspace 配置到这台机器后，coforge-daemon 直接维持其云端连接。每个 Agent runtime 是独立的 provider execution child process，可被停止或替换；新的进程仍使用同一个稳定 `workspace_id`，不会因此创建新的 Workspace。
+单一逻辑 Workspace 配置到这台机器后，coforge-daemon 直接维持其云端连接。CoForge Agent session 与 daemon 同进程，外部 provider execution 才是独立 child process；两者都可被停止或替换，新的运行实例仍使用同一个稳定 `workspace_id`，不会因此创建新的 Workspace。
 
-coforge-daemon 负责单一配置、WSS 生命周期、子进程创建/回收和版本兼容，但不直接解析各家 Agent 的输出协议。替换同一 Agent 时必须先撤销旧本地权限，再有界等待 graceful stop；超时后终止整个进程树，并等待 direct child exited 完成父进程回收，旧 child 未确认退出前禁止新 launch。Unix runtime 使用独立进程组并按组终止。Windows 在引入 Job Object 并能确认整个进程树为空之前 fail closed，不启动 Agent，不能用只检查根 PID 的 `taskkill /T` 结果伪装完整回收。MVP 不设置 capacity pool、排队或跨 Workspace 调度。
+coforge-daemon 负责单一配置、WSS 生命周期、SDK session 生命周期、外部子进程创建/回收和版本兼容，但不直接解析各家 Agent 的输出协议。替换同一 Agent 时必须先撤销旧本地权限；外部 child 需要有界等待 graceful stop，超时后终止整个进程树，并等待 direct child exited 完成父进程回收，旧 child 未确认退出前禁止新 launch。CoForge SDK session 通过 SDK abort/dispose 结束。Unix runtime 使用独立进程组并按组终止。Windows 在引入 Job Object 并能确认整个进程树为空之前 fail closed，不启动外部 Agent，不能用只检查根 PID 的 `taskkill /T` 结果伪装完整回收。MVP 不设置 capacity pool、排队或跨 Workspace 调度。
 
 Computer 的云端在线状态由 daemon 的单条 Workspace WSS 连接实时派生；`online` 与 `last_seen_at` 不作为持久化真相。
 
-### daemon-owned Agent runtime 与 code-agent adapter
+### daemon-owned Agent runtime 与 code-agent driver
 
 Provider identity 的唯一来源是 shared protocol/domain 的 `RUNTIME_PROVIDER`
 常量及其 `RuntimeProvider` 类型；`RuntimeMetadata.kind` 仍独立区分
 `builtin` 与 `external`。Daemon 负责检测外部 Code Agent；Computer 注册不再承担
 runtime 发现。
 
-Daemon 直接管理同一 `workspace_id` 下的多个 Agent。每个 Agent 在本机拥有稳定的 Agent workspace，规范相对路径是 `workspaces/<workspace_id>/agents/<agent_id>`；`workspace_id` 与 `agent_id` 必须是不可变身份，目录不能由名称、provider、session 或进程 ID 派生。该目录是 Agent runtime process 的 cwd；daemon 只能访问这些已声明目录和允许的环境变量。daemon 通过 provider-neutral code-agent adapter 管理 Agent runtime，对上层暴露统一的启动、发送、中断、销毁以及状态/活动语义。每个 Agent runtime process 是独立的 OS child process。Agent control protocol 是 adapter 内部可替换的实现细节；可以使用 provider 正式支持的 native protocol、SDK child runner 或 ACP，不作为上层 architecture contract。
+Daemon 直接管理同一 `workspace_id` 下的多个 Agent。每个 Agent 在本机拥有稳定的 Agent workspace，规范相对路径是 `workspaces/<workspace_id>/agents/<agent_id>`；`workspace_id` 与 `agent_id` 必须是不可变身份，目录不能由名称、provider、session 或进程 ID 派生。该目录是 Agent runtime 的 cwd；daemon 只能访问这些已声明目录和允许的环境变量。daemon 通过 provider-neutral code-agent driver 管理 Agent runtime，对上层暴露统一的启动、发送、中断、销毁以及状态/活动语义。CoForge Agent 由 driver 在 daemon 内直接创建 SDK session；Pi、Codex、Claude Code 等用户安装 runtime 由 driver 启动 OS child process。Agent control protocol 是 driver 内部可替换的实现细节；可以使用 provider 正式支持的 native protocol、SDK 或 ACP，不作为上层 architecture contract。
+
+CoForge Agent 的 Pi SDK 配置与 session 必须和用户安装的 Pi 分离，并且按 Agent workspace 保存：配置目录为 `<agent_workspace>/.builtin-runtime`，session 目录为 `<agent_workspace>/.builtin-sessions`；外部 Pi 使用 `<agent_workspace>/.pi-sessions`。CoForge Agent 不读取或写入用户 Pi 的全局配置、认证或 session 文件。
 
 `running_command` Activity 的 `message` 保留 provider 上报命令的前 100 个 Unicode 字符，超出部分由 Daemon 截断，然后通过云端持久化并展示。`reading_file`、`writing_file`、`editing_file` 和 `using_tool` 完整保留 adapter 上报的原始 `message`，不截断或替换。这些 Activity 不做参数脱敏，因此可能包含命令参数、文件路径、工具明细或其他敏感文本。
 
-一台 Computer 始终随 Daemon 交付内置 Pi runtime；此外允许存在零个或多个用户安装的 code-agent runtime。内置 Pi 不通过本机扫描发现，也不显示在 Computer runtime 列表；用户安装的 Codex 与 Claude Code 才需要检测可执行文件和版本。Daemon 在启动完成及每次 WSS 重连 ready 后扫描自身有效 `PATH`，通过 Pi RPC 与 Codex app-server `model/list` 尽力读取当前账号可用的模型目录。Claude Code 的初始化输出不提供可靠的模型目录，因此已安装 Claude Code 时直接上报维护中的静态模型与 reasoning 目录；当前静态目录包含 `opus`、`fable`、`sonnet`、`haiku` 及 8 个版本化 Claude ID，不设置推荐模型。该目录是 CoForge 的可维护支持列表，不声称是当前账号权限或 Raft 内部实现的完整镜像。`daemon_runtime:code_agents_update` 同时上报完整外部 runtime 快照和模型目录；模型项包含 code-agent provider、模型 ID、显示名称、Pi 的底层 model provider，以及该模型支持的 reasoning 值。Backend 校验外部输入大小和字段后，对可信 Workspace–Computer scope 事务性更新 PostgreSQL 快照；已有 runtime 的公开状态在库存更新时保留，新探测到的 runtime 默认仅 Computer 所有者可见。所有者始终可以选择自己的外部 runtime，并可逐个向当前 Workspace 公开或再次设为私有；其他 Workspace 成员只能查看和选择已公开项，公开不允许跨 Workspace 访问。Computer 页面只向请求者显示其可见的外部 Provider 与版本；Agent 创建页面按所选 Computer 展示 Pi 与请求者可见的已安装外部 Provider 的模型和 reasoning 选项。安装新 Provider 或账号模型权限变化后只需重启或重连 Daemon，不需要重新注册 Computer。未选择模型或 reasoning 时使用 provider 默认值；选择值时 Backend 必须按该 Computer 最近上报的目录和公开状态校验，Daemon adapter 必须把选择转换成对应 provider 的原生启动配置。静态 Claude Code 目录不保证当前账号拥有每个模型；实际不可用时由 Claude Code 返回明确错误。Agent 对产品和 Web 只暴露 `online`、`offline` 两种业务状态：Agent runtime process 存在且由 AgentProcessManager 持有时为 `online`，进程退出或被停止后为 `offline`。该状态从本地进程生命周期派生，不单独维护或持久化。daemon 使用两个上报通道提供 Agent 信息：`agent:status` 只携带 `online` 或 `offline`，`agent:activity` 携带 starting、stopping、turn、工具、错误和警告明细；activity 不新增 Agent 状态。Activity 是观测数据：Daemon 通过 WSS 向专用 `activity:<workspace_id>` namespace 发起 best-effort publication，不等待业务确认、不重试、不写本地 spool，失败也不影响 Agent 生命周期或消息处理。Centrifugo publish proxy 校验可信 connection metadata、Workspace、Computer、Agent 与 payload scope；Backend 把成功接收的 observation 幂等写入 PostgreSQL，供 Agent Profile 和 Activity tab 查询，并从可信 connection metadata 记录 Computer。observer 失败仍允许丢弃，因此持久历史可能缺项，不承担 Agent 状态、审计或业务事实。没有可用的用户 runtime 不阻止 Computer 或 Daemon 启动，安装并配置合适 runtime 前不能执行对应 Agent。
+一台 Computer 始终随 Daemon 交付内置 Pi runtime；此外允许存在零个或多个用户安装的 code-agent runtime。内置 Pi 不通过本机扫描发现，也不显示在 Computer runtime 列表；用户安装的 Codex 与 Claude Code 才需要检测可执行文件和版本。Daemon 在启动完成及每次 WSS 重连 ready 后扫描自身有效 `PATH`，通过 Pi RPC 与 Codex app-server `model/list` 尽力读取当前账号可用的模型目录。Claude Code 的初始化输出不提供可靠的模型目录，因此已安装 Claude Code 时直接上报维护中的静态模型与 reasoning 目录；当前静态目录包含 `opus`、`fable`、`sonnet`、`haiku` 及 8 个版本化 Claude ID，不设置推荐模型。该目录是 CoForge 的可维护支持列表，不声称是当前账号权限或 Raft 内部实现的完整镜像。`daemon_runtime:code_agents_update` 同时上报完整外部 runtime 快照和模型目录；模型项包含 code-agent provider、模型 ID、显示名称、Pi 的底层 model provider，以及该模型支持的 reasoning 值。Backend 校验外部输入大小和字段后，对可信 Workspace–Computer scope 事务性更新 PostgreSQL 快照；已有 runtime 的公开状态在库存更新时保留，新探测到的 runtime 默认仅 Computer 所有者可见。所有者始终可以选择自己的外部 runtime，并可逐个向当前 Workspace 公开或再次设为私有；其他 Workspace 成员只能查看和选择已公开项，公开不允许跨 Workspace 访问。Computer 页面只向请求者显示其可见的外部 Provider 与版本；Agent 创建页面按所选 Computer 展示 Pi 与请求者可见的已安装外部 Provider 的模型和 reasoning 选项。安装新 Provider 或账号模型权限变化后只需重启或重连 Daemon，不需要重新注册 Computer。未选择模型或 reasoning 时使用 provider 默认值；选择值时 Backend 必须按该 Computer 最近上报的目录和公开状态校验，Daemon driver 必须把选择转换成对应 provider 的原生启动配置。静态 Claude Code 目录不保证当前账号拥有每个模型；实际不可用时由 Claude Code 返回明确错误。Agent 对产品和 Web 只暴露 `online`、`offline` 两种业务状态：Agent runtime process 存在且由 AgentProcessManager 持有时为 `online`，进程退出或被停止后为 `offline`。该状态从本地进程生命周期派生，不单独维护或持久化。daemon 使用两个上报通道提供 Agent 信息：`agent:status` 只携带 `online` 或 `offline`，`agent:activity` 携带 starting、stopping、turn、工具、错误和警告明细；activity 不新增 Agent 状态。Activity 是观测数据：Daemon 通过 WSS 向专用 `activity:<workspace_id>` namespace 发起 best-effort publication，不等待业务确认、不重试、不写本地 spool，失败也不影响 Agent 生命周期或消息处理。Centrifugo publish proxy 校验可信 connection metadata、Workspace、Computer、Agent 与 payload scope；Backend 把成功接收的 observation 幂等写入 PostgreSQL，供 Agent Profile 和 Activity tab 查询，并从可信 connection metadata 记录 Computer。observer 失败仍允许丢弃，因此持久历史可能缺项，不承担 Agent 状态、审计或业务事实。没有可用的用户 runtime 不阻止 Computer 或 Daemon 启动，安装并配置合适 runtime 前不能执行对应 Agent。
 
-内置 Pi 使用的模型 Provider API key 属于单个 Agent runtime config，不是 User 或
+内置 `coforge` 使用的模型 Provider API key 属于单个 Agent runtime config，不是 User 或
 Computer 的共享凭据。同一 User 的两个 Agent 可以配置不同 key。只有 Agent owner
 可以设置、替换或删除；其他 Workspace 成员不能查看凭据是否存在。Web/backend 使用
 应用独立的 256-bit 主密钥和带随机 96-bit nonce 的 AES-GCM 加密后，将密文 envelope
 保存在 `runtimeConfig.provider.apiKey`；认证附加数据绑定 `agent_id` 与 `provider_id`。
-持久化的 Runtime Config 使用 `runtime`、`provider`、`model`、`reasoning` 结构，内置 Pi
-的 provider 使用 `kind = pi-builtin`、`providerId` 和加密的 `apiKey`。Agent detail 只返回
+持久化的 Runtime Config 使用 `runtime`、`provider`、`model`、`reasoning` 结构，CoForge Agent
+的 provider 使用 `kind = coforge`、`providerId` 和加密的 `apiKey`。Agent detail 只返回
 不含 `apiKey` 的 Runtime Config 和 owner 可见的末四位提示。
 
 Agent 启动时，Daemon 使用绑定到 Agent owner 与 Computer 的启动授权 HTTPS 请求取得
 Agent API Key；Web/backend 在同一个响应中解密并返回 provider config。Daemon ready
 recovery 和其他 `agent:start` intent 只通过 WSS 发送非敏感 provider config。Daemon
-runtime 不判断具体 Runtime 或解释 provider config，只将其传给选中的 code-agent adapter。Pi adapter 只向
-该次 `coforge-agent` child 注入 launch-only provider config；child 读取后立即从自身环境
+runtime 不判断具体 Runtime 或解释 provider config，只将其传给选中的 code-agent driver。Pi driver 只向
+内置 SDK factory 仅在 daemon 进程内接收 launch-only provider config，不启动 `coforge-agent`；明文
 删除，并在创建 session 前调用 Pi `ModelRuntime.setRuntimeApiKey(providerId, apiKey)`。
 明文不得写入数据库、文件、日志、Activity 或 Daemon 的长期 runtime state。AES-GCM 的选择
 遵循 [Web Crypto `SubtleCrypto.encrypt`](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/encrypt)
@@ -301,9 +303,9 @@ runtime 不判断具体 Runtime 或解释 provider config，只将其传给选�
 
 Claude Code Usage 使用两种来源：按需扫描优先调用 CLI 的 `/usage` print-mode 结果，常驻 Agent 流同时接收 `rate_limit_event` 作为被动观测。被动事件只提供限流状态、窗口类型和重置时间，因此不得伪造使用百分比；Daemon 仅在内存中保留尚未过期的最新窗口，并在按需来源不可用时回退到该观测结果。
 
-首批 adapter 使用常驻 CoForge Agent、Codex 与 Claude Code 子进程。`@coforge/agent` 是可独立打包并随 Daemon 交付的内置 Agent runtime，当前使用官方 Pi SDK 创建 session，并复用 Pi SDK 的 JSONL run mode 作为 daemon adapter 的内部 control。Codex 和 Claude Code 不随 CoForge 打包；adapter 从用户环境的 `PATH` 启动用户已安装、登录和配置的 `codex` / `claude` CLI，分别使用官方 app-server JSONL stdio 与 print-mode 双向 stream-json。CoForge 分配给 Agent 的 Skills 必须在启动前写入该 Agent workspace 下 provider 原生的 project scope：Pi 为 `.pi/skills/<skill>/SKILL.md`，Codex 为 `.agents/skills/<skill>/SKILL.md`，Claude Code 为 `.claude/skills/<skill>/SKILL.md`。CoForge 不复制、改写或接管用户 HOME 下的 provider 全局 Skills；各 CLI 按自身规则继续发现它们。三侧都必须在报告启动成功前完成 skills discovery：CoForge Agent 先完成 Pi `ResourceLoader` reload，Codex adapter 先执行 `skills/list(forceReload: true)` 再创建 thread，Claude Code adapter 完成 stream control `initialize` 并确认返回已加载的 commands/skills。control protocol 不固定为长期架构。选择、版本、license、失败边界和回滚见 [ADR 0002](adr/0002-provider-native-code-agent-subprocesses.md)。Agent provider 的特殊 command、envelope、活动与错误逻辑必须留在各自 package/adapter 内，不能泄漏到 Centrifugo、Web/backend 或共享领域模型。
+首批 driver 使用常驻 CoForge Agent、Codex 与 Claude Code 子进程。`@coforge/agent` 是可独立打包并随 Daemon 交付的内置 Agent runtime，当前使用官方 Pi SDK 创建 session，并复用 Pi SDK 的 JSONL run mode 作为 daemon driver 的内部 control。Codex 和 Claude Code 不随 CoForge 打包；driver 从用户环境的 `PATH` 启动用户已安装、登录和配置的 `codex` / `claude` CLI，分别使用官方 app-server JSONL stdio 与 print-mode 双向 stream-json。CoForge 分配给 Agent 的 Skills 必须在启动前写入该 Agent workspace 下 provider 原生的 project scope：Pi 为 `.pi/skills/<skill>/SKILL.md`，Codex 为 `.agents/skills/<skill>/SKILL.md`，Claude Code 为 `.claude/skills/<skill>/SKILL.md`。CoForge 不复制、改写或接管用户 HOME 下的 provider 全局 Skills；各 CLI 按自身规则继续发现它们。三侧都必须在报告启动成功前完成 skills discovery：CoForge Agent 先完成 Pi `ResourceLoader` reload，Codex driver 先执行 `skills/list(forceReload: true)` 再创建 thread，Claude Code driver 完成 stream control `initialize` 并确认返回已加载的 commands/skills。control protocol 不固定为长期架构。选择、版本、license、失败边界和回滚见 [ADR 0002](adr/0002-provider-native-code-agent-subprocesses.md)。Agent provider 的特殊 command、envelope、活动与错误逻辑必须留在各自 package/driver 内，不能泄漏到 Centrifugo、Web/backend 或共享领域模型。
 
-Agent start intent (`agent:start`) 使用现有 `coforge.rpc.v1` WSS/RPC control path；intent 必须包含目标 `computer_id`、完整的非敏感 runtime config，并以 `workspace_id` 做 scope 校验。Web/backend 必须确认目标与 Agent 当前绑定的 Computer 一致，再发布到 `daemon:<computer_id>`，只有该 Computer 对应的 Daemon 连接可以接收。Provider config 使用 `kind` 和可选的 `provider_id`；Agent Runtime Provider API Key 以 AES-GCM 加密后保存在 Agent 的 runtime config JSON 中，不通过 WSS 发送。Daemon 在现有、绑定到 Agent owner 与 Computer 的启动授权 HTTPS 请求中取得 Agent API Key 和解密后的 provider config，再原样交给 adapter；Daemon 主流程不根据 Runtime 类型解释这些字段。Pi 的模型选择同时携带 `model_provider` 与 `model`，避免不同底层 provider 的同名模型冲突；Codex 和 Claude Code 使用各自目录中的模型 ID。无 session_id 创建新 session，有 session_id 由 adapter 尝试 provider resume；adapter 无法确认 resume 时必须返回明确错误，不得伪造成功。每次实际 launch 生成新的 `launch_id`，Activity 携带该 launch 内递增的 `client_seq` 和 `occurred_at`；Daemon current-launch gate 是旧 launch 隔离的生产保证，丢弃旧 session 的延迟 event/onExit。`agent:activity` 复用同一条 daemon WSS，但只向受限 Activity namespace 做 best-effort publication，不走业务 RPC。断线时 transport 内存仅保留每个 Agent 最新一条，并只在同一 launch 内按 `client_seq` 拒绝倒退；它不比较 UUID，也没有可信事实可独立判断首次观察到的两个 launch 的新旧。重连最多刷新一条；不落盘、不等待 ACK。Web 校验可信 scope 和字段并持久化成功到达的 observation，但没有跨连接 current-launch 事实来源，因此不声称已实现服务端 stale rejection。
+Agent start intent (`agent:start`) 使用现有 `coforge.rpc.v1` WSS/RPC control path；intent 必须包含目标 `computer_id`、完整的非敏感 runtime config，并以 `workspace_id` 做 scope 校验。Web/backend 必须确认目标与 Agent 当前绑定的 Computer 一致，再发布到 `daemon:<computer_id>`，只有该 Computer 对应的 Daemon 连接可以接收。Provider config 使用 `kind` 和可选的 `provider_id`；Agent Runtime Provider API Key 以 AES-GCM 加密后保存在 Agent 的 runtime config JSON 中，不通过 WSS 发送。Daemon 在现有、绑定到 Agent owner 与 Computer 的启动授权 HTTPS 请求中取得 Agent API Key 和解密后的 provider config，再原样交给 driver；Daemon 主流程不根据 Runtime 类型解释这些字段。Pi 的模型选择同时携带 `model_provider` 与 `model`，避免不同底层 provider 的同名模型冲突；Codex 和 Claude Code 使用各自目录中的模型 ID。无 session_id 创建新 session，有 session_id 由 driver 尝试 provider resume；driver 无法确认 resume 时必须返回明确错误，不得伪造成功。每次实际 launch 生成新的 `launch_id`，Activity 携带该 launch 内递增的 `client_seq` 和 `occurred_at`；Daemon current-launch gate 是旧 launch 隔离的生产保证，丢弃旧 session 的延迟 event/onExit。`agent:activity` 复用同一条 daemon WSS，但只向受限 Activity namespace 做 best-effort publication，不走业务 RPC。断线时 transport 内存仅保留每个 Agent 最新一条，并只在同一 launch 内按 `client_seq` 拒绝倒退；它不比较 UUID，也没有可信事实可独立判断首次观察到的两个 launch 的新旧。重连最多刷新一条；不落盘、不等待 ACK。Web 校验可信 scope 和字段并持久化成功到达的 observation，但没有跨连接 current-launch 事实来源，因此不声称已实现服务端 stale rejection。
 
 ## 6. 消息投递语义
 
@@ -319,8 +321,8 @@ Agent start intent (`agent:start`) 使用现有 `coforge.rpc.v1` WSS/RPC control
 ### 6.1 云端到 Agent
 
 1. backend 先持久化 canonical Message，再通过 Centrifugo 向目标 daemon 发布 attention；Centrifugo 不读取 PostgreSQL 或自行决定目标；
-2. daemon 按 Workspace、conversation 与 Agent scope 定位 `CodeAgentSession`，调用 provider-neutral `notify`；
-3. 只有 `CodeAgentSession`/`notify` 成功接受 attention 后，daemon 才返回 ACK；拒绝或失败不得 ACK；
+2. daemon 按 Workspace、conversation 与 Agent scope 定位 `AgentSession`，调用 provider-neutral `notify`；
+3. 只有 `AgentSession`/`notify` 成功接受 attention 后，daemon 才返回 ACK；拒绝或失败不得 ACK；
 4. ACK 只表示 attention 已被当前 Agent session 接受，不表示 Agent 执行开始、完成或产生 response；
 5. attention 是易失提示，断线、进程退出或 ACK 丢失都可能造成丢失或重复。恢复时 Agent 通过独立 HTTPS read RPC，以云端 canonical Message 和 read boundary 找回尚未读取的消息，而不是依赖本地 inbox。
 
@@ -345,7 +347,7 @@ Agent start intent (`agent:start`) 使用现有 `coforge.rpc.v1` WSS/RPC control
 → Web/backend：鉴权、会话成员校验、canonical message 持久化、路由
 → standalone Centrifugo：唯一 `agent` channel 上的 `agent:message` publication
 → 目标 daemon：通过 payload 的 `agent_id` 查找本地 runtime，并校验 Workspace/conversation scope
-→ provider-neutral code-agent adapter
+→ provider-neutral code-agent driver
 → provider-specific control（当前为 CoForge Agent SDK runner / Codex app-server / Claude Code stream-json，可替换）
 → 常驻 Agent runtime process
 → Agent 通过独立 HTTPS RPC read/send，并为同一 send 重用 request_id
@@ -393,7 +395,7 @@ Agent start intent (`agent:start`) 使用现有 `coforge.rpc.v1` WSS/RPC control
 以下变更必须先在 `#coforge` 对齐，并与本文同一次提交：
 
 - 新增或拆分 app/package；
-- 改变进程所有权或 IPC/WSS/code-agent adapter seam；
+- 改变进程所有权或 IPC/WSS/code-agent driver seam；
 - 改变 ACK、去重、sequence 或重连语义；
 - 让 Centrifugo 访问业务数据库或承担业务规则；
 - 引入新的持久队列、缓存、服务发现或编排平台；

@@ -15,7 +15,13 @@ function repository(): AgentRepository {
       ownerId: "u1",
       computerId: "computer-1",
       createdAt: new Date(),
-      runtimeConfig: { runtime: "pi", provider: { kind: "default" }, model: "", reasoning: "" },
+      runtimeConfig: {
+        runtime: "pi",
+        provider: { kind: "default" },
+        model: "",
+        modelProvider: "",
+        reasoning: "",
+      },
     },
   ];
   return {

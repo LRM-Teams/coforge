@@ -72,7 +72,7 @@ describe("external Code Agent inventory", () => {
     expect(killed).toBe(true);
   });
 
-  test("detects Codex and Claude Code without reporting Pi", async () => {
+  test("detects installed Pi, Codex, and Claude Code as external runtimes", async () => {
     const runtimes = await discoverExternalCodeAgents(
       probeFor({
         codex: { path: "/bin/codex", version: "codex-cli 0.151.0\n" },
@@ -82,6 +82,7 @@ describe("external Code Agent inventory", () => {
     );
 
     expect(runtimes).toEqual([
+      { provider: "pi", version: "0.9.1", displayName: "Pi", kind: "external" },
       { provider: "codex", version: "0.151.0", displayName: "Codex", kind: "external" },
       { provider: "claude-code", version: "2.1.0", displayName: "Claude Code", kind: "external" },
     ]);
@@ -133,6 +134,7 @@ describe("external Code Agent inventory", () => {
       probe: probeFor({
         codex: { path: "/bin/codex", version: "codex-cli 0.151.0\n" },
         claude: { path: "/bin/claude", version: "2.1.0\n" },
+        pi: { path: "/bin/pi", version: "0.9.1\n" },
       }),
       commands: {
         codex: fixture("codex-app-server.ts"),

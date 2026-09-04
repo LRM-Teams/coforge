@@ -1,10 +1,10 @@
 import type {
-  CodeAgentAdapter,
+  AgentDriver,
   AgentRuntimeEvent,
-  CodeAgentSession,
-  CodeAgentStartOptions,
-} from "../contract";
-import type { UsageSnapshot } from "../contract";
+  AgentSession,
+  AgentSessionOptions,
+  UsageSnapshot,
+} from "@coforge/agent";
 import { readCodexUsage } from "./usage";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
@@ -16,7 +16,7 @@ import { getLogger } from "@logtape/logtape";
 
 const logger = getLogger(["coforge", "daemon", "code-agent", "codex"]);
 
-export class CodexAgentAdapter implements CodeAgentAdapter {
+export class CodexDriver implements AgentDriver {
   readonly provider = RUNTIME_PROVIDER.CODEX;
   readonly #command: readonly string[];
 
@@ -34,7 +34,7 @@ export class CodexAgentAdapter implements CodeAgentAdapter {
     });
   }
 
-  async start(options: CodeAgentStartOptions): Promise<CodeAgentSession> {
+  async createAgentSession(options: AgentSessionOptions): Promise<AgentSession> {
     const process = new JsonlProcess(
       this.#command,
       options.agentWorkspaceDirectory,
@@ -113,7 +113,7 @@ export class CodexAgentAdapter implements CodeAgentAdapter {
   }
 }
 
-class CodexAgentSession implements CodeAgentSession {
+class CodexAgentSession implements AgentSession {
   readonly #process: JsonlProcess;
   readonly #threadId: string;
   readonly #agentId: string | undefined;

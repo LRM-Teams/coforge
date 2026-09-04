@@ -10,7 +10,7 @@ export type EncryptedRuntimeApiKey = {
 export type AgentRuntimeProviderConfig =
   | { kind: "default" }
   | {
-      kind: "pi-builtin";
+      kind: "coforge";
       providerId: string;
       apiKey?: EncryptedRuntimeApiKey;
     };
@@ -19,6 +19,7 @@ export type AgentRuntimeConfig = {
   runtime: RuntimeProvider;
   provider: AgentRuntimeProviderConfig;
   model: string;
+  modelProvider: string;
   reasoning: string;
 };
 
@@ -27,13 +28,20 @@ export function parseAgentRuntimeConfig(value: unknown): AgentRuntimeConfig {
     throw new Error("invalid runtime config");
   const runtime = runtimeProvider(Reflect.get(value, "runtime"));
   const model = Reflect.get(value, "model");
+  const modelProvider = Reflect.get(value, "modelProvider");
   const reasoning = Reflect.get(value, "reasoning");
-  if (!runtime || typeof model !== "string" || typeof reasoning !== "string")
+  if (
+    !runtime ||
+    typeof model !== "string" ||
+    (modelProvider !== undefined && typeof modelProvider !== "string") ||
+    typeof reasoning !== "string"
+  )
     throw new Error("invalid runtime config");
   return {
     runtime,
     provider: parseProviderConfig(Reflect.get(value, "provider")),
     model,
+    modelProvider: modelProvider ?? "",
     reasoning,
   };
 }
@@ -42,7 +50,7 @@ export function publicAgentRuntimeConfig(config: AgentRuntimeConfig): AgentRunti
   return {
     ...config,
     provider:
-      config.provider.kind === "pi-builtin"
+      config.provider.kind === "coforge"
         ? {
             kind: config.provider.kind,
             providerId: config.provider.providerId,
@@ -57,7 +65,7 @@ function parseProviderConfig(value: unknown): AgentRuntimeProviderConfig {
   const kind = Reflect.get(value, "kind");
   if (kind === "default") return { kind };
   const providerId = Reflect.get(value, "providerId");
-  if (kind !== "pi-builtin" || typeof providerId !== "string" || !providerId)
+  if (kind !== "coforge" || typeof providerId !== "string" || !providerId)
     throw new Error("invalid runtime provider config");
   const apiKey = parseEncryptedApiKey(Reflect.get(value, "apiKey"));
   return { kind, providerId, ...(apiKey ? { apiKey } : {}) };
@@ -82,6 +90,7 @@ function parseEncryptedApiKey(value: unknown): EncryptedRuntimeApiKey | undefine
 }
 
 function runtimeProvider(value: unknown): RuntimeProvider | undefined {
+  if (value === RUNTIME_PROVIDER.COFORGE) return RUNTIME_PROVIDER.COFORGE;
   if (value === RUNTIME_PROVIDER.PI) return RUNTIME_PROVIDER.PI;
   if (value === RUNTIME_PROVIDER.CODEX) return RUNTIME_PROVIDER.CODEX;
   if (value === RUNTIME_PROVIDER.CLAUDE_CODE) return RUNTIME_PROVIDER.CLAUDE_CODE;

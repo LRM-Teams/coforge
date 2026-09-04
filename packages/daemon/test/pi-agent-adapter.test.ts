@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { AgentRuntimeEvent } from "../src/code-agent/contract";
-import { PiAgentAdapter } from "../src/code-agent/pi/adapter";
+import { CoforgeDriver, PiDriver } from "../src/code-agent/pi/driver";
 
 test("Pi loads skills before running in a child process behind the code-agent seam", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-pi-rpc-"));
   process.env.COFORGE_UNDECLARED_TEST_VALUE = "present";
-  const adapter = new PiAgentAdapter({
+  const adapter = new PiDriver({
     command: [
       process.execPath,
       new URL("./fixtures/pi-rpc.ts", import.meta.url).pathname,
@@ -18,7 +18,7 @@ test("Pi loads skills before running in a child process behind the code-agent se
   });
 
   try {
-    const session = await adapter.start({
+    const session = await adapter.createAgentSession({
       agentWorkspaceDirectory,
       environment: { COFORGE_DECLARED_TEST_VALUE: "allowed" },
       runtime: {
@@ -64,38 +64,38 @@ test("Pi loads skills before running in a child process behind the code-agent se
   }
 });
 
-test("installed coforge-agent process completes the adapter handshake", async () => {
+test("an external Pi-compatible process completes the driver handshake", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-pi-installed-"));
   try {
-    const session = await new PiAgentAdapter().start({ agentWorkspaceDirectory });
+    const session = await new PiDriver({
+      command: [process.execPath, new URL("../../agent/src/runner.ts", import.meta.url).pathname],
+    }).createAgentSession({ agentWorkspaceDirectory });
     await session.dispose();
   } finally {
     await rm(agentWorkspaceDirectory, { recursive: true, force: true });
   }
 });
 
-test("Pi requires a matching API key for a configured built-in provider", async () => {
+test("CoForge Agent requires a matching API key for a configured built-in provider", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-pi-credential-"));
-  const adapter = new PiAgentAdapter({
-    command: [process.execPath, new URL("./fixtures/pi-rpc.ts", import.meta.url).pathname],
-  });
+  const adapter = new CoforgeDriver();
   const runtime = {
-    provider: "pi" as const,
+    provider: "coforge" as const,
     model: "deepseek-chat",
     modelProvider: "deepseek",
     reasoning: "high",
     providerConfig: {
-      kind: "pi-builtin" as const,
+      kind: "coforge" as const,
       providerId: "deepseek",
     },
   };
 
   try {
-    await expect(adapter.start({ agentWorkspaceDirectory, runtime })).rejects.toThrow(
-      "Pi runtime provider API key is required",
+    await expect(adapter.createAgentSession({ agentWorkspaceDirectory, runtime })).rejects.toThrow(
+      "CoForge runtime provider API key is required",
     );
     await expect(
-      adapter.start({
+      adapter.createAgentSession({
         agentWorkspaceDirectory,
         runtime: {
           ...runtime,
@@ -114,12 +114,12 @@ test("Pi requires a matching API key for a configured built-in provider", async 
 
 test("Pi rejects overlapping prompts and dispose cannot wait on provider interrupt", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-pi-lifecycle-"));
-  const adapter = new PiAgentAdapter({
+  const adapter = new PiDriver({
     command: [process.execPath, new URL("./fixtures/pi-rpc.ts", import.meta.url).pathname],
   });
 
   try {
-    const session = await adapter.start({
+    const session = await adapter.createAgentSession({
       agentWorkspaceDirectory,
       environment: { COFORGE_DECLARED_TEST_VALUE: "allowed" },
     });
@@ -133,12 +133,12 @@ test("Pi rejects overlapping prompts and dispose cannot wait on provider interru
 
 test("Pi sends notifications through the prompt protocol and rejects them while busy", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-pi-notify-"));
-  const adapter = new PiAgentAdapter({
+  const adapter = new PiDriver({
     command: [process.execPath, new URL("./fixtures/pi-rpc.ts", import.meta.url).pathname],
   });
 
   try {
-    const session = await adapter.start({
+    const session = await adapter.createAgentSession({
       agentWorkspaceDirectory,
       environment: { COFORGE_DECLARED_TEST_VALUE: "allowed" },
     });
@@ -160,12 +160,12 @@ test("Pi sends notifications through the prompt protocol and rejects them while 
 
 test("Pi rejects prompts after its resident Agent runtime process exits", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-pi-exit-"));
-  const adapter = new PiAgentAdapter({
+  const adapter = new PiDriver({
     command: [process.execPath, new URL("./fixtures/pi-rpc.ts", import.meta.url).pathname],
   });
 
   try {
-    const session = await adapter.start({
+    const session = await adapter.createAgentSession({
       agentWorkspaceDirectory,
       environment: {
         COFORGE_DECLARED_TEST_VALUE: "allowed",

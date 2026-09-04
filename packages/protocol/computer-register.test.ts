@@ -168,7 +168,7 @@ test("Agent start preserves its runtime provider config", () => {
     modelProvider: "anthropic",
     reasoning: "high",
     providerConfig: {
-      kind: "pi-builtin",
+      kind: "coforge",
       providerId: "anthropic",
     },
   } satisfies AgentStartIntent;
@@ -191,7 +191,7 @@ test("Agent start rejects non-canonical runtime provider config", () => {
   expect(() =>
     encodeAgentStartIntent({
       ...intent,
-      providerConfig: { kind: "pi-builtin" },
+      providerConfig: { kind: "coforge" },
     } as unknown as Parameters<typeof encodeAgentStartIntent>[0]),
   ).toThrow("invalid Agent runtime provider config");
   expect(() =>

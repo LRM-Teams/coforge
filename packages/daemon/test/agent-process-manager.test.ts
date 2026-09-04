@@ -3,11 +3,7 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentProcessManager } from "../src/agent-runtime/agent-process-manager";
-import type {
-  CodeAgentAdapter,
-  CodeAgentSession,
-  AgentRuntimeConfig,
-} from "../src/code-agent/contract";
+import type { AgentDriver, AgentSession, AgentRuntimeConfig } from "@coforge/agent";
 import { AgentProcessCleanupError } from "../src/code-agent/contract";
 
 function sessionSpy() {
@@ -30,7 +26,7 @@ function sessionSpy() {
       this.disposeCalls += 1;
       this.exit();
     },
-  } satisfies CodeAgentSession & { disposeCalls: number; exit(): void };
+  } satisfies AgentSession & { disposeCalls: number; exit(): void };
 }
 
 const config: AgentRuntimeConfig = {
@@ -46,9 +42,9 @@ describe("AgentProcessManager", () => {
   test("starts one runtime with its configuration and stops it", async () => {
     const session = sessionSpy();
     let startedOptions: unknown;
-    const adapter: CodeAgentAdapter = {
+    const adapter: AgentDriver = {
       provider: "pi",
-      async start(options) {
+      async createAgentSession(options) {
         startedOptions = options;
         return session;
       },
@@ -77,17 +73,17 @@ describe("AgentProcessManager", () => {
     expect(manager.activeAgentIds()).toEqual([]);
   });
 
-  test("retains provider configuration for the adapter launch", async () => {
+  test("retains provider configuration for the driver launch", async () => {
     const manager = new AgentProcessManager(() => ({
       provider: "pi",
-      async start() {
+      async createAgentSession() {
         return sessionSpy();
       },
     }));
     const credentialConfig = {
       ...config,
       providerConfig: {
-        kind: "pi-builtin" as const,
+        kind: "coforge" as const,
         providerId: "deepseek",
         apiKey: "sk-deepseek-secret",
       },
@@ -100,20 +96,20 @@ describe("AgentProcessManager", () => {
     );
 
     expect(runtime.config.providerConfig).toEqual({
-      kind: "pi-builtin",
+      kind: "coforge",
       providerId: "deepseek",
       apiKey: "sk-deepseek-secret",
     });
     await manager.stop("agent-credential");
   });
 
-  test("creates the Agent workspace before starting its adapter", async () => {
+  test("creates the Agent workspace before starting its driver", async () => {
     const root = await mkdtemp(join(tmpdir(), "coforge-agent-runtime-"));
     const workspace = join(root, "workspace", "agents", "agent-1");
     let directoryExistsAtStart = false;
     const manager = new AgentProcessManager(() => ({
       provider: "pi",
-      async start() {
+      async createAgentSession() {
         directoryExistsAtStart = (await stat(workspace)).isDirectory();
         return sessionSpy();
       },
@@ -132,7 +128,7 @@ describe("AgentProcessManager", () => {
     const session = sessionSpy();
     const manager = new AgentProcessManager(() => ({
       provider: "pi",
-      async start() {
+      async createAgentSession() {
         return session;
       },
     }));
@@ -149,9 +145,9 @@ describe("AgentProcessManager", () => {
 
   test("starts multiple Agent runtimes for distinct Agents", async () => {
     let starts = 0;
-    const adapter: CodeAgentAdapter = {
+    const adapter: AgentDriver = {
       provider: "pi",
-      async start() {
+      async createAgentSession() {
         starts += 1;
         return sessionSpy();
       },
@@ -168,7 +164,7 @@ describe("AgentProcessManager", () => {
     let options: { sessionId?: string } | undefined;
     const manager = new AgentProcessManager(() => ({
       provider: "pi",
-      async start(startOptions) {
+      async createAgentSession(startOptions) {
         options = startOptions;
         return sessionSpy();
       },
@@ -182,10 +178,10 @@ describe("AgentProcessManager", () => {
     expect(options?.sessionId).toBe("session-7");
   });
 
-  test("does not retain a runtime when adapter startup fails", async () => {
+  test("does not retain a runtime when driver startup fails", async () => {
     const manager = new AgentProcessManager(() => ({
       provider: "pi",
-      async start() {
+      async createAgentSession() {
         throw new Error("startup failed");
       },
     }));
@@ -200,7 +196,7 @@ describe("AgentProcessManager", () => {
     let starts = 0;
     const manager = new AgentProcessManager(() => ({
       provider: "pi",
-      async start() {
+      async createAgentSession() {
         starts++;
         throw new AgentProcessCleanupError();
       },
@@ -226,7 +222,7 @@ describe("AgentProcessManager", () => {
     let starts = 0;
     const manager = new AgentProcessManager(() => ({
       provider: "pi",
-      async start() {
+      async createAgentSession() {
         starts++;
         return session;
       },
@@ -252,7 +248,7 @@ describe("AgentProcessManager", () => {
     let starts = 0;
     const manager = new AgentProcessManager(() => ({
       provider: "pi",
-      async start() {
+      async createAgentSession() {
         starts++;
         return session;
       },

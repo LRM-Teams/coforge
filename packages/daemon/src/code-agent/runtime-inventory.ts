@@ -6,7 +6,6 @@ import {
 } from "@coforge/protocol";
 import { agentEnvironment } from "./environment";
 import { JsonlProcess } from "./jsonl-process";
-import { builtinPiCommand } from "./pi/adapter";
 import { probeClaudeCodeVersion, resolveClaudeCodeExecutable } from "./claude-code/runtime";
 import { COFORGE_DAEMON_VERSION } from "../version";
 
@@ -62,6 +61,7 @@ const bunProbe: ExternalCodeAgentProbe = {
 };
 
 const externalCodeAgents = [
+  { provider: RUNTIME_PROVIDER.PI, executable: "pi" },
   { provider: RUNTIME_PROVIDER.CODEX, executable: "codex" },
   { provider: RUNTIME_PROVIDER.CLAUDE_CODE, executable: "claude" },
 ] as const;
@@ -82,7 +82,12 @@ export async function discoverExternalCodeAgents(
           runtimes.push({
             provider,
             version,
-            displayName: provider === RUNTIME_PROVIDER.CODEX ? "Codex" : "Claude Code",
+            displayName:
+              provider === RUNTIME_PROVIDER.PI
+                ? "Pi"
+                : provider === RUNTIME_PROVIDER.CODEX
+                  ? "Codex"
+                  : "Claude Code",
             kind: "external",
           });
         continue;
@@ -109,7 +114,12 @@ export async function discoverExternalCodeAgents(
         runtimes.push({
           provider,
           version,
-          displayName: provider === RUNTIME_PROVIDER.CODEX ? "Codex" : "Claude Code",
+          displayName:
+            provider === RUNTIME_PROVIDER.PI
+              ? "Pi"
+              : provider === RUNTIME_PROVIDER.CODEX
+                ? "Codex"
+                : "Claude Code",
           kind: "external",
         });
     } catch {
@@ -136,9 +146,12 @@ export async function discoverCodeAgentInventory(
   const runtimes = await discoverExternalCodeAgents(probe);
   const cwd = options.cwd ?? process.cwd();
   const commands = options.commands ?? {};
-  const discoveries: Array<Promise<CodeAgentModelCatalog | undefined>> = [
-    discoverPiCatalog(commands.pi ?? builtinPiCommand(), cwd),
-  ];
+  const discoveries: Array<Promise<CodeAgentModelCatalog | undefined>> = [];
+  if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.PI)) {
+    const executable = probe.which("pi");
+    if (executable)
+      discoveries.push(discoverPiCatalogFromProcess(commands.pi ?? [executable], cwd));
+  }
   if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.CODEX)) {
     const executable = probe.which("codex");
     if (executable)
@@ -151,21 +164,6 @@ export async function discoverCodeAgentInventory(
     (catalog): catalog is CodeAgentModelCatalog => catalog !== undefined,
   );
   return { runtimes, catalogs };
-}
-
-async function discoverPiCatalog(
-  command: readonly string[],
-  cwd: string,
-): Promise<CodeAgentModelCatalog | undefined> {
-  return withJsonlProcess(command, cwd, async (process) => {
-    const response = await within(process.request({ type: "get_available_models" }));
-    const models = asRecord(response.data)?.models;
-    if (!Array.isArray(models)) throw new Error("Pi model catalog is unavailable");
-    return {
-      provider: RUNTIME_PROVIDER.PI,
-      models: models.map(piModel).filter(isModel),
-    };
-  });
 }
 
 async function discoverCodexCatalog(
@@ -218,6 +216,21 @@ async function withJsonlProcess<T>(
   } finally {
     await process.dispose().catch(() => undefined);
   }
+}
+
+async function discoverPiCatalogFromProcess(
+  command: readonly string[],
+  cwd: string,
+): Promise<CodeAgentModelCatalog | undefined> {
+  return withJsonlProcess(command, cwd, async (process) => {
+    const response = await within(process.request({ type: "get_available_models" }));
+    const models = asRecord(response.data)?.models;
+    if (!Array.isArray(models)) throw new Error("Pi model catalog is unavailable");
+    return {
+      provider: RUNTIME_PROVIDER.PI,
+      models: models.map(piModel).filter(isModel),
+    };
+  });
 }
 
 function within<T>(promise: Promise<T>): Promise<T> {

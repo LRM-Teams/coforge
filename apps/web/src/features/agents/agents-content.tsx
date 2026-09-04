@@ -21,16 +21,7 @@ import {
 import { m } from "@/paraglide/messages";
 import type { CodeAgentModelMetadata } from "@coforge/protocol";
 import { AgentCard, type AgentView } from "./agent-card";
-
-export type CreateAgentInput = {
-  name: string;
-  displayName: string;
-  provider: "pi" | "codex" | "claude-code";
-  model?: string;
-  modelProvider?: string;
-  reasoning: string;
-  computerId: string;
-};
+import type { CreateAgentInput } from "./agent.schemas";
 
 type ComputerOption = {
   id: string;
@@ -42,7 +33,7 @@ type ComputerOption = {
 function runtimeProvider(value: FormDataEntryValue | null): CreateAgentInput["provider"] {
   if (value === "codex") return "codex";
   if (value === "claude-code") return "claude-code";
-  return "pi";
+  return "coforge";
 }
 
 export function AgentsContent({
@@ -66,11 +57,12 @@ export function AgentsContent({
   const [error, setError] = useState("");
   const [deferredStart, setDeferredStart] = useState(false);
   const [computerId, setComputerId] = useState(computers[0]?.id ?? "");
-  const [provider, setProvider] = useState<CreateAgentInput["provider"]>("pi");
+  const [provider, setProvider] = useState<CreateAgentInput["provider"]>("coforge");
   const [modelKey, setModelKey] = useState("");
   const selectedComputer = computers.find((computer) => computer.id === computerId);
   const availableProviders = [
-    "pi",
+    "coforge",
+    ...(selectedComputer?.runtimes.some((runtime) => runtime.provider === "pi") ? ["pi"] : []),
     ...(selectedComputer?.runtimes.map((runtime) => runtime.provider) ?? []),
   ];
   const selectedCatalog = selectedComputer?.modelCatalogs.find(
@@ -89,8 +81,8 @@ export function AgentsContent({
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
     const name = String(form.get("name") ?? "").trim();
-    const displayName = String(form.get("displayName") ?? "").trim();
-    if (!name || !displayName) {
+    const description = String(form.get("description") ?? "").trim();
+    if (!name || !description) {
       setError(m.agent_form_required_error());
       return;
     }
@@ -98,7 +90,7 @@ export function AgentsContent({
     try {
       const result = await onCreate({
         name,
-        displayName,
+        description,
         provider,
         model: selectedModel?.id,
         modelProvider: selectedModel?.modelProvider || undefined,
@@ -221,21 +213,24 @@ export function AgentsContent({
                     </SelectContent>
                   </Select>
                 </div>
-                <label className="grid min-w-0 gap-1.5 text-sm">
+                <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
                   {m.agent_form_name()}
                   <input
                     name="name"
                     required
                     pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+                    placeholder="release-fix"
                     className="h-9 min-w-0 rounded-md border bg-background px-3 outline-none focus:ring-2 focus:ring-ring/30"
                   />
                 </label>
-                <label className="grid min-w-0 gap-1.5 text-sm">
-                  {m.agent_form_display_name()}
-                  <input
-                    name="displayName"
+                <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
+                  {m.agent_form_description()}
+                  <textarea
+                    name="description"
                     required
-                    className="h-9 min-w-0 rounded-md border bg-background px-3 outline-none focus:ring-2 focus:ring-ring/30"
+                    rows={3}
+                    placeholder={m.agent_form_description_placeholder()}
+                    className="min-w-0 resize-y rounded-md border bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring/30"
                   />
                 </label>
                 <div className="grid min-w-0 gap-1.5 text-sm">
@@ -253,7 +248,7 @@ export function AgentsContent({
                     <SelectTrigger aria-label={m.agent_form_provider()} className="h-9 min-w-0">
                       <SelectValue>
                         {() =>
-                          provider === "pi"
+                          provider === "coforge"
                             ? m.agent_provider_pi_builtin()
                             : provider === "codex"
                               ? "Codex"
@@ -262,9 +257,8 @@ export function AgentsContent({
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {availableProviders.includes("pi") && (
-                        <SelectItem value="pi">{m.agent_provider_pi_builtin()}</SelectItem>
-                      )}
+                      <SelectItem value="coforge">{m.agent_provider_pi_builtin()}</SelectItem>
+                      {availableProviders.includes("pi") && <SelectItem value="pi">Pi</SelectItem>}
                       {availableProviders.includes("codex") && (
                         <SelectItem value="codex">Codex</SelectItem>
                       )}
