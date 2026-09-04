@@ -125,7 +125,7 @@ test("rejects an invalid bootstrap manifest", () => {
   expect(() =>
     assertBootstrapManifest({
       schema_version: 1,
-      targets: { "windows-x64": { size: 1, sha256: "a".repeat(64) } },
+      targets: { "freebsd-riscv64": { size: 1, sha256: "a".repeat(64) } },
     }),
   ).toThrow();
   expect(() =>
@@ -144,4 +144,20 @@ test("rejects an invalid bootstrap manifest", () => {
 
 test("names the bootstrap manifest's fixed path", () => {
   expect(BOOTSTRAP_MANIFEST_PATH).toBe("bootstrap/v1/manifest.json");
+});
+
+/** install.ps1 pins a bootstrap digest for the Windows targets exactly as install.sh does for
+ * the POSIX ones, so rejecting them here would leave Windows unable to bootstrap at all. */
+test("the bootstrap manifest accepts the Windows targets install.ps1 detects", () => {
+  const digest = "a".repeat(64);
+
+  expect(() =>
+    assertBootstrapManifest({
+      schema_version: 1,
+      targets: {
+        "windows-x64": { size: 1, sha256: digest },
+        "windows-arm64": { size: 1, sha256: digest },
+      },
+    }),
+  ).not.toThrow();
 });

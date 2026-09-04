@@ -91,7 +91,16 @@ function verifySignature(publicKey: KeyObject, signed: Buffer, signature: Buffer
   throw integrity(`unsupported signing key type: ${keyType ?? "unknown"}`);
 }
 
-const BOOTSTRAP_TARGETS = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"] as const;
+/** Both installers pin a bootstrap digest per target: install.sh covers the POSIX four and
+ * install.ps1 the two Windows ones, whose binary carries a .exe suffix. */
+const BOOTSTRAP_TARGETS = [
+  "linux-x64",
+  "linux-arm64",
+  "darwin-x64",
+  "darwin-arm64",
+  "windows-x64",
+  "windows-arm64",
+] as const;
 const BOOTSTRAP_SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
 /** The bootstrap tier is addressed by a fixed mutable path rather than a release-set
