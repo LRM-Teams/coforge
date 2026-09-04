@@ -57,6 +57,310 @@ function agentLaunchConfig(
 }
 
 describe("DaemonRuntime", () => {
+  test("message check returns only newly pending messages and drains them once", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    let reads = 0;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({ provider: "pi", start: async () => ({ ...sessionSpy(), async notify() {} }) }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async sendAgentDeliveryAck() {},
+          async agentMessage(request) {
+            reads++;
+            return {
+              protocolMajor: 1,
+              requestId: request.requestId,
+              accepted: true,
+              attentionCount: 1,
+              messages: [
+                {
+                  id: "message-5",
+                  sequence: 5,
+                  sender: "@ada",
+                  target: "@ada",
+                  body: "old message",
+                  createdAt: "2026-09-03T00:00:00Z",
+                },
+                {
+                  id: "message-7",
+                  sequence: 7,
+                  sender: "@ada",
+                  target: "@ada",
+                  body: "new message",
+                  createdAt: "2026-09-03T00:01:00Z",
+                },
+              ],
+            };
+          },
+        }),
+      },
+    );
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", config);
+    const context = runtime.issueAgentContext("agent-a");
+    await runtime.handleAgentMessage({
+      protocolMajor: 1,
+      requestId: "delivery-request",
+      messageId: "message-7",
+      deliveryId: "delivery-7",
+      sequence: 7,
+      workspaceId: connection.workspaceId,
+      conversationId: "conversation-a",
+      agentId: "agent-a",
+      body: "new message",
+      method: "agent:deliver",
+      target: "@ada",
+    });
+
+    const first = await runtime.agentMessage(
+      context,
+      { requestId: "check-1", context, operation: "check" },
+      `sk_agent_${"a".repeat(43)}`,
+    );
+    const second = await runtime.agentMessage(
+      context,
+      { requestId: "check-2", context, operation: "check" },
+      `sk_agent_${"a".repeat(43)}`,
+    );
+
+    expect(first.messages.map(({ id }) => id)).toEqual(["message-7"]);
+    expect(second.messages).toEqual([]);
+    expect(reads).toBe(1);
+    await runtime.stop();
+  });
+
+  test("preserves a server-held draft and returns its opaque token only to the server", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const operations: string[] = [];
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({ provider: "pi", start: async () => ({ ...sessionSpy(), async notify() {} }) }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async sendAgentDeliveryAck() {},
+          async agentMessage(request) {
+            operations.push(request.operation);
+            return request.requestId === "send-1"
+              ? {
+                  protocolMajor: 1,
+                  requestId: request.requestId,
+                  accepted: false,
+                  attentionCount: 1,
+                  sideEffectDecision: "hold" as const,
+                  holdToken: "server-opaque-token",
+                  messages: [
+                    {
+                      id: "message-7",
+                      sequence: 7,
+                      sender: "@ada",
+                      target: "@agent",
+                      body: "new context",
+                      createdAt: "2026-09-03T00:00:00Z",
+                    },
+                  ],
+                }
+              : {
+                  protocolMajor: 1,
+                  requestId: request.requestId,
+                  accepted: true,
+                  attentionCount: 0,
+                  messageId: "sent",
+                  messages: [],
+                  sideEffectDecision: "forward" as const,
+                };
+          },
+        }),
+      },
+    );
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", config);
+    const context = runtime.issueAgentContext("agent-a");
+    await runtime.handleAgentMessage({
+      protocolMajor: 1,
+      requestId: "delivery-request",
+      messageId: "message-7",
+      deliveryId: "delivery-7",
+      sequence: 7,
+      workspaceId: connection.workspaceId,
+      conversationId: "conversation-a",
+      agentId: "agent-a",
+      body: "new context",
+      method: "agent:deliver",
+      target: "@ada",
+    });
+
+    const held = await runtime.agentMessage(
+      context,
+      { requestId: "send-1", context, operation: "send", target: "@ada", body: "reply" },
+      `sk_agent_${"a".repeat(43)}`,
+    );
+    expect(held).toMatchObject({
+      accepted: false,
+      sideEffectDecision: "hold",
+      messages: [{ id: "message-7" }],
+    });
+    expect(held).not.toHaveProperty("seenUpToSequence");
+    expect(held).not.toHaveProperty("holdToken");
+    expect(operations).toEqual(["send"]);
+
+    const sent = await runtime.agentMessage(
+      context,
+      {
+        requestId: "send-2",
+        context,
+        operation: "send",
+        target: "@ada",
+        sendDraft: true,
+      },
+      `sk_agent_${"a".repeat(43)}`,
+    );
+    expect(sent).toMatchObject({ accepted: true, sideEffectDecision: "forward" });
+    expect(operations).toEqual(["send", "send"]);
+
+    const ordinarySend = await runtime.agentMessage(
+      context,
+      { requestId: "send-3", context, operation: "send", target: "@ada", body: "follow-up" },
+      `sk_agent_${"a".repeat(43)}`,
+    );
+    expect(ordinarySend).toMatchObject({ accepted: true, sideEffectDecision: "forward" });
+    expect(operations).toEqual(["send", "send", "send"]);
+    await runtime.stop();
+  });
+
+  test("keeps an Agent active without a process, wakes it for a message, and deactivates it", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const exits = new Set<() => void>();
+    const statuses: import("@coforge/protocol").AgentStatus[] = [];
+    const notices: string[] = [];
+    const acknowledgements: string[] = [];
+    let starts = 0;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        start: async () => ({
+          ...sessionSpy(),
+          notify: async (notice) => {
+            notices.push(notice);
+          },
+          onExit(listener) {
+            exits.add(listener);
+            return () => exits.delete(listener);
+          },
+        }),
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          sendAgentStatus(status) {
+            statuses.push(status);
+          },
+          async sendAgentDeliveryAck(ack) {
+            acknowledgements.push(ack.deliveryId);
+          },
+          async requestAgentApiKey() {
+            starts++;
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async stop() {},
+        }),
+      },
+    );
+
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", config);
+    expect(statuses.map(({ agentId, status }) => ({ agentId, status }))).toEqual([
+      { agentId: "agent-a", status: "active" },
+    ]);
+
+    for (const exit of exits) exit();
+    expect(statuses.map(({ agentId, status }) => ({ agentId, status }))).toEqual([
+      { agentId: "agent-a", status: "active" },
+    ]);
+    expect(runtime.agentProcessManager.session("agent-a")).toBeUndefined();
+
+    await runtime.handleAgentMessage({
+      protocolMajor: 1,
+      requestId: "message-request-1",
+      messageId: "message-1",
+      deliveryId: "delivery-1",
+      sequence: 1,
+      workspaceId: connection.workspaceId,
+      conversationId: "conversation-1",
+      agentId: "agent-a",
+      body: "private body",
+      method: "agent:deliver",
+      target: "@agent",
+    });
+    expect(starts).toBe(2);
+    expect(notices).toEqual([
+      "[CoForge inbox notice:\nInbox update: 1 unread message total; 1 changed target\n@agent  pending: 1 message\nRun `coforge message check` to read pending messages.]",
+    ]);
+    expect(acknowledgements).toEqual(["delivery-1"]);
+
+    await runtime.stopAgent("agent-a");
+    expect(statuses.at(-1)?.status).toBe("inactive");
+    await runtime.stop();
+  });
+
+  test("reports active Agents inactive before a graceful daemon shutdown", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const statuses: import("@coforge/protocol").AgentStatus[] = [];
+    let statusAtTransportStop: string | undefined;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({ provider: "pi", start: async () => sessionSpy() }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          sendAgentStatus(status) {
+            statuses.push(status);
+          },
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async stop() {
+            statusAtTransportStop = statuses.at(-1)?.status;
+          },
+        }),
+      },
+    );
+
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", config);
+    await runtime.stop();
+
+    expect(statuses.map(({ status }) => status)).toEqual(["active", "inactive"]);
+    expect(statusAtTransportStop).toBe("inactive");
+  });
+
   test("reports a fresh external Code Agent snapshot on daemon start", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
@@ -1242,6 +1546,143 @@ describe("DaemonRuntime", () => {
 
     expect(revokeAuthorizations).toEqual(["Bearer daemon-token", "Bearer daemon-token"]);
     expect(transportsCreated).toBe(2);
+  });
+
+  test("keeps App notices separate from Message state and drains them on normalized idle", async () => {
+    const stateDirectory = join(tmpdir(), `coforge-inbox-runtime-${crypto.randomUUID()}`);
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const notices: string[] = [];
+    let listener: ((event: AgentRuntimeEvent) => void) | undefined;
+    const exits = new Set<() => void>();
+    let starts = 0;
+    let cloudMessageCalls = 0;
+    let deliveryAcks = 0;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        start: async () => {
+          starts++;
+          return {
+            ...sessionSpy(),
+            notify: async (notice) => {
+              notices.push(notice);
+            },
+            subscribe(next) {
+              listener = next;
+              return () => {
+                listener = undefined;
+              };
+            },
+            onExit(next) {
+              exits.add(next);
+              return () => exits.delete(next);
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async sendAgentDeliveryAck() {
+            deliveryAcks++;
+          },
+          async agentMessage() {
+            cloudMessageCalls++;
+            throw new Error("must not read cloud");
+          },
+        }),
+      },
+      undefined,
+      async () => ({ runtimes: [], catalogs: [] }),
+      stateDirectory,
+    );
+    try {
+      await runtime.start(connection);
+      const input = {
+        appId: "system.reminder",
+        notificationClass: "due",
+        sourceRef: { kind: "reminder", id: "123e4567-e89b-42d3-a456-426614174000", revision: "1" },
+        title: "Due",
+        summary: "Now",
+      };
+      await runtime.mintAppItem("agent-a", input);
+      expect(notices).toEqual([]);
+      await runtime.startAgent("agent-a", config);
+      await Bun.sleep(10);
+      expect(notices).toEqual(["New app item available. Run coforge inbox check."]);
+      listener?.({
+        type: "activity",
+        activity: {
+          activity: "idle",
+          level: "info",
+          message: "idle",
+          occurredAt: new Date().toISOString(),
+        },
+      });
+      await Bun.sleep(10);
+      expect(notices).toEqual(["New app item available. Run coforge inbox check."]);
+      for (const exit of exits) exit();
+      await runtime.mintAppItem("agent-a", {
+        ...input,
+        sourceRef: { ...input.sourceRef, revision: "2" },
+      });
+      expect(starts).toBe(2);
+      expect(notices).toHaveLength(2);
+      await runtime.handleAgentMessage({
+        protocolMajor: 1,
+        requestId: "delivery-request",
+        messageId: "message-1",
+        deliveryId: "delivery-1",
+        sequence: 1,
+        workspaceId: connection.workspaceId,
+        conversationId: "conversation-a",
+        agentId: "agent-a",
+        body: "private chat body",
+        method: "agent:deliver",
+        target: "@ada",
+      });
+      await runtime.drainAppInboxNotices("agent-a");
+      expect(notices).toHaveLength(3);
+      const context = runtime.issueAgentContext("agent-a");
+      const snapshot = await runtime.inbox(context, {
+        requestId: "check",
+        context,
+        operation: "check",
+      });
+      expect(snapshot.entries.map((entry) => entry.kind).sort()).toEqual([
+        "app",
+        "app",
+        "message_target",
+      ]);
+      const unchanged = await runtime.inbox(context, {
+        requestId: "check-again",
+        context,
+        operation: "check",
+      });
+      expect(unchanged.entries.map((entry) => entry.kind).sort()).toEqual([
+        "app",
+        "app",
+        "message_target",
+      ]);
+      expect(cloudMessageCalls).toBe(0);
+      expect(deliveryAcks).toBe(1);
+      await runtime.mintAppItem("agent-a", input);
+      expect(notices).toHaveLength(3);
+      expect(cloudMessageCalls).toBe(0);
+      expect(deliveryAcks).toBe(1);
+    } finally {
+      await runtime.stop();
+      await rm(stateDirectory, { recursive: true, force: true });
+    }
   });
 });
 

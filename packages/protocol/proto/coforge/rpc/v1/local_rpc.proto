@@ -18,6 +18,12 @@ message LocalAgentMessageRequest {
   string operation = 3;
   string target = 4;
   string body = 5;
+  bool continue_anyway = 6;
+  bool send_draft = 7;
+  string before = 8;
+  string after = 9;
+  string around = 10;
+  uint32 limit = 11;
 }
 
 message AgentMessageRecord {
@@ -53,6 +59,47 @@ message AgentMessageResponse {
   repeated AgentMessageRecord messages = 4;
   string message_id = 5;
   repeated MessageAttentionSummary summaries = 6;
+  string side_effect_decision = 7;
+  optional uint64 seen_up_to_sequence = 8; // Reserved for trusted legacy decoders; never emitted.
+  bool anyway_allowed = 9;
+  bool has_older = 10;
+  bool has_newer = 11;
+  string older_cursor = 12;
+  string newer_cursor = 13;
+}
+
+message LocalInboxRequest {
+  string request_id = 1;
+  string context = 2;
+  string operation = 3;
+}
+
+message AppInboxItem {
+  string item_id = 1;
+  string app_id = 2;
+  string notification_class = 3;
+  string source_kind = 4;
+  string source_id = 5;
+  string source_revision = 6;
+  optional string title = 7;
+  optional string summary = 8;
+  string retention = 9;
+  string action_kind = 10;
+  string action_command_id = 11;
+  string created_at = 12;
+}
+
+message InboxEntry {
+  oneof value {
+    MessageAttentionSummary message_target = 1;
+    AppInboxItem app = 2;
+  }
+}
+
+message InboxResponse {
+  string request_id = 1;
+  bool accepted = 2;
+  repeated InboxEntry entries = 3;
 }
 
 message UsageScanRequest {

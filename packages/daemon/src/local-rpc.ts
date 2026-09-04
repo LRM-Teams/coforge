@@ -14,10 +14,15 @@ import {
   LOCAL_RPC_METHODS,
   decodeLocalAgentMessageRequest,
   encodeAgentMessageResponse,
+  decodeLocalInboxRequest,
+  encodeInboxResponse,
   decodeUsageScanRequest,
   encodeUsageScanResponse,
   type UsageScanResponse,
   type AgentMessageResponse,
+  type InboxResponse,
+  type LocalAgentMessageRequest,
+  type LocalInboxRequest,
 } from "@coforge/protocol";
 import type { DaemonConfig } from "./daemon-runtime/runtime";
 import type { DaemonCredentialStore } from "./credentials/credential-store";
@@ -32,10 +37,8 @@ type DaemonRuntimePort = Partial<{
   start(): Promise<void>;
   stopAll(): Promise<void>;
   restart(): Promise<void>;
-  agentMessage(
-    context: string,
-    request: import("@coforge/protocol").LocalAgentMessageRequest,
-  ): Promise<unknown>;
+  agentMessage(context: string, request: LocalAgentMessageRequest): Promise<unknown>;
+  inbox(context: string, request: LocalInboxRequest): Promise<InboxResponse>;
   scanUsage(provider: string): Promise<UsageScanResponse>;
 }>;
 
@@ -129,6 +132,19 @@ async function handleConnection(
             encodeLocalRpcResponse({
               method: envelope.method,
               payload: encodeAgentMessageResponse(result as AgentMessageResponse),
+            }),
+          ),
+        );
+      } else if (envelope.method === LOCAL_RPC_METHODS.AGENT_INBOX) {
+        const request = decodeLocalInboxRequest(envelope.payload);
+        if (!request.context || !request.requestId || !runtime.inbox)
+          throw new Error("agent local context is not bound");
+        const result = await runtime.inbox(request.context, request);
+        socket.write(
+          frameLocalRpc(
+            encodeLocalRpcResponse({
+              method: envelope.method,
+              payload: encodeInboxResponse(result),
             }),
           ),
         );

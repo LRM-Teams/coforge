@@ -14,6 +14,11 @@ import {
   LocalRpcResponseSchema,
   LocalAgentMessageRequestSchema,
   AgentMessageResponseSchema,
+  LocalInboxRequestSchema,
+  InboxResponseSchema,
+  InboxEntrySchema,
+  MessageAttentionSummarySchema,
+  AppInboxItemSchema,
   UsageScanRequestSchema,
   UsageScanResponseSchema,
 } from "./gen/coforge/rpc/v1/local_rpc_pb";
@@ -26,8 +31,118 @@ export const LOCAL_RPC_METHODS = {
   STOP: "daemon:stop",
   RESTART: "daemon:restart",
   AGENT_MESSAGE: "agent:message",
+  AGENT_INBOX: "agent:inbox",
   USAGE_SCAN: "usage:scan",
 } as const;
+export type LocalInboxRequest = {
+  requestId: string;
+  context: string;
+  operation: "check";
+};
+export type AppInboxItem = {
+  itemId: string;
+  appId: string;
+  notificationClass: string;
+  sourceRef: { kind: string; id: string; revision: string };
+  title?: string;
+  summary?: string;
+  retention: "until_explicit_ack";
+  action: { kind: "run_command"; commandId: string };
+  createdAt: string;
+};
+export type InboxEntry =
+  | { kind: "message_target"; messageTarget: MessageAttentionSummary }
+  | { kind: "app"; app: AppInboxItem };
+export type InboxResponse = { requestId: string; accepted: boolean; entries: InboxEntry[] };
+export function encodeLocalInboxRequest(value: LocalInboxRequest): Uint8Array {
+  return toBinary(LocalInboxRequestSchema, create(LocalInboxRequestSchema, value));
+}
+export function decodeLocalInboxRequest(bytes: Uint8Array): LocalInboxRequest {
+  const value = fromBinary(LocalInboxRequestSchema, bytes);
+  if (value.operation !== "check") throw new Error("invalid App Inbox operation");
+  return {
+    requestId: value.requestId,
+    context: value.context,
+    operation: value.operation,
+  };
+}
+export function encodeInboxResponse(value: InboxResponse): Uint8Array {
+  return toBinary(
+    InboxResponseSchema,
+    create(InboxResponseSchema, {
+      requestId: value.requestId,
+      accepted: value.accepted,
+      entries: value.entries.map((entry) =>
+        create(
+          InboxEntrySchema,
+          entry.kind === "message_target"
+            ? {
+                value: {
+                  case: "messageTarget",
+                  value: create(MessageAttentionSummarySchema, {
+                    ...entry.messageTarget,
+                    firstPendingSequence: BigInt(entry.messageTarget.firstPendingSequence),
+                    latestSequence: BigInt(entry.messageTarget.latestSequence),
+                  }),
+                },
+              }
+            : {
+                value: {
+                  case: "app",
+                  value: create(AppInboxItemSchema, {
+                    ...entry.app,
+                    sourceKind: entry.app.sourceRef.kind,
+                    sourceId: entry.app.sourceRef.id,
+                    sourceRevision: entry.app.sourceRef.revision,
+                    actionKind: entry.app.action.kind,
+                    actionCommandId: entry.app.action.commandId,
+                  }),
+                },
+              },
+        ),
+      ),
+    }),
+  );
+}
+export function decodeInboxResponse(bytes: Uint8Array): InboxResponse {
+  const value = fromBinary(InboxResponseSchema, bytes);
+  return {
+    requestId: value.requestId,
+    accepted: value.accepted,
+    entries: value.entries.map((entry): InboxEntry => {
+      if (entry.value.case === "messageTarget")
+        return {
+          kind: "message_target",
+          messageTarget: {
+            target: entry.value.value.target,
+            pendingCount: entry.value.value.pendingCount,
+            firstPendingSequence: Number(entry.value.value.firstPendingSequence),
+            latestSequence: Number(entry.value.value.latestSequence),
+            latestSender: entry.value.value.latestSender,
+            flags: entry.value.value.flags,
+          },
+        };
+      if (entry.value.case !== "app") throw new Error("invalid Inbox entry");
+      const app = entry.value.value;
+      if (app.retention !== "until_explicit_ack" || app.actionKind !== "run_command")
+        throw new Error("invalid App Inbox entry");
+      return {
+        kind: "app",
+        app: {
+          itemId: app.itemId,
+          appId: app.appId,
+          notificationClass: app.notificationClass,
+          sourceRef: { kind: app.sourceKind, id: app.sourceId, revision: app.sourceRevision },
+          ...(app.title === undefined ? {} : { title: app.title }),
+          ...(app.summary === undefined ? {} : { summary: app.summary }),
+          retention: app.retention as "until_explicit_ack",
+          action: { kind: "run_command", commandId: app.actionCommandId },
+          createdAt: app.createdAt,
+        },
+      };
+    }),
+  };
+}
 export type UsageScanRequest = { protocolMajor: number; requestId: string; provider: string };
 export type UsageScanResponse = {
   protocolMajor: number;
@@ -62,6 +177,12 @@ export type LocalAgentMessageRequest = {
   operation: "check" | "read" | "send";
   target?: string;
   body?: string;
+  sendDraft?: boolean;
+  continueAnyway?: boolean;
+  before?: string;
+  after?: string;
+  around?: string;
+  limit?: number;
 };
 export type AgentMessageRecord = {
   id: string;
@@ -109,6 +230,13 @@ export type AgentMessageResponse = {
   messages: AgentMessageRecord[];
   messageId: string;
   summaries: MessageAttentionSummary[];
+  sideEffectDecision?: "forward" | "hold" | "bypass";
+  seenUpToSequence?: number;
+  anywayAllowed?: boolean;
+  hasOlder?: boolean;
+  hasNewer?: boolean;
+  olderCursor?: string;
+  newerCursor?: string;
 };
 export type MessageAttentionSummary = {
   target: string;
@@ -129,6 +257,8 @@ export function decodeLocalAgentMessageRequest(bytes: Uint8Array): LocalAgentMes
     operation: v.operation as LocalAgentMessageRequest["operation"],
     target: v.target || undefined,
     body: v.body || undefined,
+    sendDraft: v.sendDraft || undefined,
+    continueAnyway: v.continueAnyway || undefined,
   };
 }
 export function encodeAgentMessageResponse(value: AgentMessageResponse): Uint8Array {
@@ -147,6 +277,13 @@ export function encodeAgentMessageResponse(value: AgentMessageResponse): Uint8Ar
         firstPendingSequence: BigInt(summary.firstPendingSequence),
         latestSequence: BigInt(summary.latestSequence),
       })),
+      seenUpToSequence:
+        value.seenUpToSequence === undefined ? undefined : BigInt(value.seenUpToSequence),
+      anywayAllowed: value.anywayAllowed ?? false,
+      hasOlder: value.hasOlder ?? false,
+      hasNewer: value.hasNewer ?? false,
+      olderCursor: value.olderCursor,
+      newerCursor: value.newerCursor,
     }),
   );
 }
@@ -174,6 +311,15 @@ export function decodeAgentMessageResponse(bytes: Uint8Array): AgentMessageRespo
       createdAt: m.createdAt,
       ...decodeLocalAttachment(m.attachment),
     })),
+    sideEffectDecision: v.sideEffectDecision
+      ? (v.sideEffectDecision as AgentMessageResponse["sideEffectDecision"])
+      : undefined,
+    seenUpToSequence: v.seenUpToSequence === undefined ? undefined : Number(v.seenUpToSequence),
+    anywayAllowed: v.anywayAllowed || undefined,
+    hasOlder: v.hasOlder || undefined,
+    hasNewer: v.hasNewer || undefined,
+    olderCursor: v.olderCursor || undefined,
+    newerCursor: v.newerCursor || undefined,
   };
 }
 export const DAEMON_HANDSHAKE_METHOD = LOCAL_RPC_METHODS.HANDSHAKE;

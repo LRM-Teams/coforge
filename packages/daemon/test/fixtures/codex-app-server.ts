@@ -6,6 +6,9 @@ const expectedSkill = process.argv
   ?.slice(15);
 const expectsCoforgeEnvironment = process.argv.includes("expected-coforge-environment");
 const expectsRuntimeConfig = process.argv.includes("expected-runtime-config");
+const expectsCommunicationInstructions = process.argv.includes(
+  "expected-communication-instructions",
+);
 const usageUnavailable = process.argv.includes("usage-unavailable");
 const usageUnsupported = process.argv.includes("usage-unsupported");
 const usageTimeout = process.argv.includes("usage-timeout");
@@ -137,6 +140,13 @@ function handle(request: Request): void {
       write({ id: request.id, error: { message: "missing selected runtime config" } });
       return;
     }
+    if (
+      expectsCommunicationInstructions &&
+      !hasCommunicationInstructions(request.params?.developerInstructions)
+    ) {
+      write({ id: request.id, error: { message: "missing communication instructions" } });
+      return;
+    }
     write({ id: request.id, result: { thread: { id: "thread-1" } } });
     return;
   }
@@ -216,12 +226,17 @@ function textInput(params: Record<string, unknown> | undefined): string | undefi
   return (first as { text?: string }).text;
 }
 
+function hasCommunicationInstructions(value: unknown): boolean {
+  return typeof value === "string" && value.startsWith("## CoForge communication");
+}
+
 function hasCoforgeEnvironmentPolicy(params: Record<string, unknown> | undefined): boolean {
   const config = record(params?.config);
   const policy = record(config?.shell_environment_policy);
   const filters = record(policy?.filters);
   return (
     config?.allow_login_shell === false &&
+    config?.["sandbox_workspace_write.network_access"] === true &&
     policy?.inherit === "all" &&
     policy.ignore_default_excludes === false &&
     filters?.["COFORGE_*"] === "include" &&

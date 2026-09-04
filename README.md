@@ -20,8 +20,8 @@ coforge-computer <-Unix socket-> coforge-daemon -> N Agent runtime OS children
 
 Runtime inventory metadata uses `provider + kind` as the runtime identity (for
 example, `pi:builtin` and `pi:external` may coexist on one Computer). Runtime
-configuration can reference this identity later; the current MVP does not
-provide UI runtime selection or add a protocol command for it.
+configuration is selected in the Agent creation UI and validated against the
+selected Computer's latest inventory before an `agent:start` intent is published.
 ```
 
 - Web/backend: TanStack Start with Bun 1.4 as the business-control runtime

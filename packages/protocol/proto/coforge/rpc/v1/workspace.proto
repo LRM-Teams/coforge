@@ -97,6 +97,19 @@ message AgentActivity {
   string conversation_id = 10;
   string launch_id = 11;
   uint64 client_seq = 12;
+  string diagnostic_error_class = 13;
+  string diagnostic_reason = 14;
+  string diagnostic_fingerprint = 15;
+}
+
+// Versioned daemon-to-server Agent availability transition.
+message AgentStatus {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  string status = 6;
 }
 
 message AgentMessageRequest {
@@ -107,6 +120,12 @@ message AgentMessageRequest {
   string target = 5;
   string body = 6;
   string workspace_id = 7;
+  string hold_token = 8;
+  bool continue_anyway = 9;
+  string before = 10;
+  string after = 11;
+  string around = 12;
+  uint32 limit = 13;
 }
 message CloudAgentMessageRecord {
   string id = 1;
@@ -130,4 +149,11 @@ message CloudAgentMessageResponse {
   uint32 attention_count = 4;
   repeated CloudAgentMessageRecord messages = 5;
   string message_id = 6;
+  string side_effect_decision = 7;
+  string hold_token = 8;
+  bool anyway_allowed = 9;
+  bool has_older = 10;
+  bool has_newer = 11;
+  string older_cursor = 12;
+  string newer_cursor = 13;
 }

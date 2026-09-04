@@ -26,6 +26,9 @@ const config = defineConfig({
     host: "127.0.0.1",
     port: 8788,
     strictPort: true,
+    proxy: {
+      "/connection": "ws://127.0.0.1:8000",
+    },
   },
   plugins: [
     paraglideVitePlugin(paraglideOptions),

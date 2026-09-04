@@ -39,6 +39,7 @@ channel:
   namespaces:
     - name: workspace
     - name: daemon
+    - name: status
     - name: activity
       publish_proxy_enabled: true
       publication_data_format: binary

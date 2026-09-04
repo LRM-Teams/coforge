@@ -69,6 +69,8 @@ export interface CodeAgentSession {
 }
 
 export interface CodeAgentStartOptions {
+  agentId?: string;
+  runtimeId?: string;
   agentWorkspaceDirectory: string;
   /** Existing provider session to resume; adapters own provider-specific semantics. */
   sessionId?: string;

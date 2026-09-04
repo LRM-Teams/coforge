@@ -129,4 +129,38 @@ describe("AgentCollection", () => {
     ).rejects.toThrow("runtime selection is not available on the selected Computer");
     expect(records).toEqual([]);
   });
+
+  test("retries a persisted Agent start with its selected runtime", async () => {
+    const { collection, records, starts } = fixture();
+    records.push({
+      id: "agent-1",
+      workspaceId: "workspace-1",
+      ownerId: "user-1",
+      computerId: "computer-1",
+      name: "builder",
+      displayName: "Builder",
+      runtimeConfig: {
+        runtime: RUNTIME_PROVIDER.CODEX,
+        provider: { kind: "default" },
+        model: "gpt-5",
+        reasoning: "high",
+      },
+      createdAt: new Date(),
+    });
+
+    await collection.retryStart({ userId: "user-1", workspaceId: "workspace-1" }, "agent-1");
+
+    expect(starts).toHaveLength(1);
+    expect(starts[0]).toMatchObject({
+      userId: "user-1",
+      intent: {
+        workspaceId: "workspace-1",
+        computerId: "computer-1",
+        agentId: "agent-1",
+        provider: "codex",
+        model: "gpt-5",
+        reasoning: "high",
+      },
+    });
+  });
 });

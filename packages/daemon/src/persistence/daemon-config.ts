@@ -5,12 +5,17 @@ import type { DaemonConfig } from "../daemon-runtime/runtime";
 /** Durable, non-secret configuration for the one Workspace connection. */
 export class DaemonConfigStore {
   readonly #path: string;
-  constructor(stateDirectory: string) {
+  readonly #serverHttpUrl: string | undefined;
+  constructor(stateDirectory: string, defaults: { serverHttpUrl?: string } = {}) {
     this.#path = join(stateDirectory, "config.json");
+    this.#serverHttpUrl = defaults.serverHttpUrl;
   }
   async load(): Promise<DaemonConfig | null> {
     try {
-      return JSON.parse(await Bun.file(this.#path).text()) as DaemonConfig;
+      const config = JSON.parse(await Bun.file(this.#path).text()) as DaemonConfig;
+      return config.serverHttpUrl || !this.#serverHttpUrl
+        ? config
+        : { ...config, serverHttpUrl: this.#serverHttpUrl };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw error;

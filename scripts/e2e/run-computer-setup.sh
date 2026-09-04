@@ -31,6 +31,7 @@ export COFORGE_E2E_DAEMON_EXECUTABLE="$root/packages/daemon/dist/coforge-daemon"
 export COFORGE_E2E_CENTRIFUGO_ENDPOINT="ws://127.0.0.1:8000/connection/websocket"
 export COFORGE_E2E_DAEMON_CONNECTION_ENDPOINT="$COFORGE_E2E_CENTRIFUGO_ENDPOINT"
 export COFORGE_DAEMON_CONNECTION_ENDPOINT="$COFORGE_E2E_DAEMON_CONNECTION_ENDPOINT"
+export COFORGE_SERVER_HTTP_URL="$COFORGE_E2E_WEB_URL"
 export COFORGE_DAEMON_HOME="$COFORGE_E2E_HOME/.coforge/daemon"
 
 "$root/packages/computer/dist/coforge-computer" setup --server "$COFORGE_E2E_WEB_URL" --json

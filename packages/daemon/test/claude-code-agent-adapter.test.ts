@@ -33,7 +33,7 @@ test("Claude Code starts the user's installed CLI from PATH in streaming mode", 
   const executable = join(binDirectory, "claude");
   await writeFile(
     executable,
-    '#!/bin/sh\nprintf "%s" "$*" > "$COFORGE_CLAUDE_ARGS"\nexec "$COFORGE_BUN_EXEC" "$COFORGE_CLAUDE_FIXTURE"\n',
+    '#!/bin/sh\nprintf "%s" "$*" > "$COFORGE_CLAUDE_ARGS"\nexec "$COFORGE_BUN_EXEC" "$COFORGE_CLAUDE_FIXTURE" -- "$@"\n',
   );
   await chmod(executable, 0o755);
   const argumentsFile = join(directory, "claude-arguments");
@@ -61,6 +61,7 @@ test("Claude Code starts the user's installed CLI from PATH in streaming mode", 
     expect(await readFile(argumentsFile, "utf8")).toContain(
       "--model claude-sonnet-5 --effort high",
     );
+    expect(await readFile(argumentsFile, "utf8")).toContain("--append-system-prompt-file");
     await session.dispose();
   } finally {
     await rm(directory, { recursive: true, force: true });

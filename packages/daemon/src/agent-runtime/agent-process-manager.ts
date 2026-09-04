@@ -15,11 +15,17 @@ export type AgentRuntime = Readonly<{
   session: CodeAgentSession;
 }>;
 
+export type AgentRestartConfig = Readonly<{
+  config: AgentRuntimeConfig;
+  sessionId: string | undefined;
+}>;
+
 export type AgentAdapterFactory = (provider: CodeAgentProvider) => CodeAgentAdapter;
-/** Owns all Agent runtime processes for the daemon's single Workspace. */
+/** Owns Agent availability and runtime processes for the daemon's single Workspace. */
 export class AgentProcessManager {
   readonly #createAdapter: AgentAdapterFactory;
   readonly #runtimes = new Map<string, AgentRuntime>();
+  readonly #restartConfigs = new Map<string, AgentRestartConfig>();
   readonly #states = new Map<string, AgentStateMachine>();
   readonly #stopping = new Set<string>();
 
@@ -41,17 +47,20 @@ export class AgentProcessManager {
     agentWorkspaceDirectory: string,
     sessionId?: string,
     environment?: Readonly<Record<string, string>>,
+    runtimeId?: string,
   ): Promise<AgentRuntime> {
     if (this.#stopping.has(agentId)) {
       throw new Error(`Agent runtime is stopping: ${agentId}`);
     }
     if (this.#runtimes.has(agentId)) {
-      throw new Error(`Agent runtime is already online: ${agentId}`);
+      throw new Error(`Agent runtime is already active: ${agentId}`);
     }
     await mkdir(agentWorkspaceDirectory, { recursive: true, mode: 0o700 });
     let session: CodeAgentSession;
     try {
       session = await this.#createAdapter(config.provider).start({
+        agentId,
+        ...(runtimeId ? { runtimeId } : {}),
         agentWorkspaceDirectory,
         sessionId,
         runtime: config,
@@ -61,14 +70,15 @@ export class AgentProcessManager {
       if (error instanceof AgentProcessCleanupError) this.#stopping.add(agentId);
       throw error;
     }
-    const runtime: AgentRuntime = Object.freeze({ config: retainedRuntimeConfig(config), session });
+    const runtime: AgentRuntime = Object.freeze({ config, session });
+    this.#restartConfigs.set(agentId, { config, sessionId });
     this.#stateFor(agentId).transition("runtime_ready");
     this.#runtimes.set(agentId, runtime);
     session.onExit(() => {
       if (this.#runtimes.get(agentId)?.session !== session) return;
       if (this.#stopping.has(agentId)) return;
       this.#runtimes.delete(agentId);
-      this.#stateFor(agentId).transition("runtime_stopped");
+      this.#stateFor(agentId).transition("runtime_released");
     });
     return runtime;
   }
@@ -76,17 +86,30 @@ export class AgentProcessManager {
   async stop(agentId: string): Promise<void> {
     if (this.#stopping.has(agentId)) throw new Error(`Agent runtime is stopping: ${agentId}`);
     const runtime = this.#runtimes.get(agentId);
-    if (!runtime) return;
+    if (!runtime) {
+      this.#restartConfigs.delete(agentId);
+      this.#stateFor(agentId).transition("deactivate");
+      return;
+    }
     this.#stopping.add(agentId);
     await runtime.session.dispose();
     if (this.#runtimes.get(agentId)?.session === runtime.session) this.#runtimes.delete(agentId);
     this.#stopping.delete(agentId);
-    this.#stateFor(agentId).transition("runtime_stopped");
+    this.#restartConfigs.delete(agentId);
+    this.#stateFor(agentId).transition("deactivate");
   }
 
   session(agentId: string): CodeAgentSession | undefined {
     const runtime = this.#runtimes.get(agentId);
     return runtime?.session;
+  }
+
+  restartConfig(agentId: string): AgentRestartConfig | undefined {
+    return this.#restartConfigs.get(agentId);
+  }
+
+  activeAgentIds(): string[] {
+    return [...this.#restartConfigs.keys()];
   }
 
   isStopping(agentId: string): boolean {
@@ -95,6 +118,8 @@ export class AgentProcessManager {
 
   async shutdown(): Promise<void> {
     await Promise.all([...this.#runtimes.keys()].map((agentId) => this.stop(agentId)));
+    this.#restartConfigs.clear();
+    for (const state of this.#states.values()) state.transition("deactivate");
   }
 
   #stateFor(agentId: string): AgentStateMachine {
@@ -104,11 +129,4 @@ export class AgentProcessManager {
     this.#states.set(agentId, machine);
     return machine;
   }
-}
-
-function retainedRuntimeConfig(config: AgentRuntimeConfig): AgentRuntimeConfig {
-  const providerConfig = config.providerConfig;
-  if (providerConfig?.kind !== "pi-builtin" || !providerConfig.apiKey) return config;
-  const { apiKey: _apiKey, ...retainedProviderConfig } = providerConfig;
-  return { ...config, providerConfig: retainedProviderConfig };
 }

@@ -9,6 +9,7 @@ import { WorkspaceQueryError, WorkspaceQueryUseCase } from "../workspaces/query.
 import { decodeWorkspaceGetRequest, decodeWorkspaceListRequest } from "@coforge/protocol/codec";
 import {
   decodeAgentStartIntent,
+  decodeAgentStatus,
   decodeDaemonRuntimeCodeAgentsUpdateRequest,
   decodeDaemonRuntimeReadyRequest,
   decodeDaemonRuntimeUsageScanResponse,
@@ -19,9 +20,24 @@ import { getUsageCache, type UsageCache, type UsageSnapshot } from "./usage-cach
 import { CloudAgentUseCase } from "../agents/cloud-agent.server";
 import { decodeAgentMessageDeliveryAck } from "@coforge/protocol";
 import { decodeAgentMessageRequest, encodeCloudAgentMessageResponse } from "@coforge/protocol";
-import { ReadDirectMessages, SendDirectMessage } from "../conversations/direct-message.server";
+import { SendDirectMessage } from "../conversations/direct-message.server";
 import { getMessageRequestIdempotency } from "../conversations/redis-message-request-idempotency.server";
 import type { MessageRequestIdempotency } from "../conversations/message-request-idempotency.server";
+import {
+  getAgentMessageHoldStore,
+  hashAgentDraft,
+  type AgentMessageHoldStore,
+} from "../conversations/agent-message-hold.server";
+import {
+  AGENT_STATUS_LEASE_MS,
+  getAgentStatusCache,
+  type AgentStatusCache,
+} from "../agents/agent-status.server";
+import {
+  agentStatusChannel,
+  encodeAgentStatusEvent,
+} from "../../features/agents/agent-status-realtime";
+import type { CentrifugoServerApi } from "./server-api.server";
 
 export function createAgentDeliveryAckMethod(repository: {
   receiveDeliveryAck(input: {
@@ -59,6 +75,41 @@ export function createAgentStartMethod(useCase: CloudAgentUseCase): CentrifugoRp
     }
   };
 }
+
+export function createAgentStatusMethod(
+  agents: {
+    getById(id: string): Promise<{ workspaceId: string; computerId?: string } | undefined>;
+  },
+  statuses?: AgentStatusCache,
+  events?: CentrifugoServerApi,
+  now = Date.now,
+): CentrifugoRpcMethod {
+  return async (payload, metadata) => {
+    const status = decodeAgentStatus(payload);
+    const agent = await agents.getById(status.agentId);
+    if (
+      !metadata.principal.userId ||
+      metadata.principal.workspaceId !== status.workspaceId ||
+      metadata.principal.computerId !== status.computerId ||
+      agent?.workspaceId !== status.workspaceId ||
+      agent.computerId !== status.computerId
+    )
+      return { code: 403, message: "Agent status is not authorized" };
+    await (statuses ?? getAgentStatusCache()).put(status);
+    if (events) {
+      await events.publish(
+        agentStatusChannel(status.workspaceId),
+        encodeAgentStatusEvent({
+          agentId: status.agentId,
+          status: status.status,
+          expiresAt: status.status === "active" ? now() + AGENT_STATUS_LEASE_MS : null,
+        }),
+      );
+    }
+    return new Uint8Array();
+  };
+}
+
 export function createAgentMessageMethod(
   repository: any,
   _centrifugo: any,
@@ -67,6 +118,7 @@ export function createAgentMessageMethod(
     canUseAgent(workspaceId: string, agentId: string, userId: string): Promise<boolean>;
   },
   idempotency?: MessageRequestIdempotency,
+  holdStore?: AgentMessageHoldStore,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
     const request = decodeAgentMessageRequest(payload);
@@ -82,18 +134,114 @@ export function createAgentMessageMethod(
       return { code: 403, message: "agent is not authorized" };
     if (!request.target.startsWith("@")) return { code: 400, message: "target must be @username" };
     if (operation === "read") {
-      const messages = await new ReadDirectMessages(repository).execute({
-        workspaceId: metadata.principal.workspaceId,
-        agentId,
-        target: request.target,
-      });
+      const page = {
+        before: request.before,
+        after: request.after,
+        around: request.around,
+        limit: request.limit,
+      };
+      const result = repository.readMessagesPage
+        ? await repository.readMessagesPage(
+            metadata.principal.workspaceId,
+            agentId,
+            request.target,
+            page,
+          )
+        : {
+            messages: await repository.readMessages(
+              metadata.principal.workspaceId,
+              agentId,
+              request.target,
+              page,
+            ),
+            hasOlder: false,
+            hasNewer: false,
+          };
+      const messages = result.messages;
       return encodeCloudAgentMessageResponse({
         protocolMajor: 1,
         requestId: request.requestId,
         accepted: true,
         attentionCount: 0,
         messages: messages.map((m: any) => ({ ...m, createdAt: m.createdAt.toISOString() })),
+        hasOlder: result.hasOlder,
+        hasNewer: result.hasNewer,
+        olderCursor: messages[0]?.id,
+        newerCursor: messages.at(-1)?.id,
       });
+    }
+    const body = request.body ?? "";
+    const bodyHash = await hashAgentDraft(body);
+    const holds =
+      holdStore ??
+      (repository.readPendingAgentContext || request.holdToken || request.continueAnyway
+        ? getAgentMessageHoldStore()
+        : undefined);
+    const prior = request.holdToken && holds ? await holds.get(request.holdToken) : undefined;
+    const validPrior =
+      prior &&
+      prior.agentId === agentId &&
+      prior.workspaceId === request.workspaceId &&
+      prior.target === request.target &&
+      prior.bodyHash === bodyHash
+        ? prior
+        : undefined;
+    if (request.continueAnyway && (!validPrior || validPrior.stage < 2)) {
+      logHold(request, metadata.principal, validPrior?.stage ?? 0, "anyway_denied");
+      return encodeCloudAgentMessageResponse({
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: false,
+        attentionCount: 0,
+        messages: [],
+        sideEffectDecision: "anyway_denied",
+      });
+    }
+    const pending = await repository.readPendingAgentContext?.(
+      request.workspaceId,
+      agentId,
+      request.target,
+      validPrior?.presentedThrough,
+    );
+    const heldMessages = pending?.slice(-3) ?? [];
+    if (heldMessages.length && !request.continueAnyway) {
+      const hold = {
+        agentId,
+        workspaceId: request.workspaceId,
+        target: request.target,
+        bodyHash,
+        presentedThrough: Math.max(...heldMessages.map((message: any) => message.sequence)),
+        stage: (validPrior ? 2 : 1) as 1 | 2,
+        expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+      };
+      if (!holds) throw new Error("Agent message hold storage is unavailable");
+      const token = await holds.issue(hold);
+      if (validPrior && request.holdToken) await holds.consume(request.holdToken, validPrior);
+      logHold(request, metadata.principal, hold.stage, validPrior ? "rehold" : "hold");
+      return encodeCloudAgentMessageResponse({
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: false,
+        attentionCount: heldMessages.length,
+        messages: heldMessages.map((m: any) => ({ ...m, createdAt: m.createdAt.toISOString() })),
+        sideEffectDecision: "hold",
+        holdToken: token,
+        anywayAllowed: hold.stage === 2,
+      });
+    }
+    if (request.continueAnyway && request.holdToken && validPrior && holds) {
+      if (!(await holds.consume(request.holdToken, validPrior))) {
+        logHold(request, metadata.principal, validPrior.stage, "anyway_denied");
+        return encodeCloudAgentMessageResponse({
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: false,
+          attentionCount: 0,
+          messages: [],
+          sideEffectDecision: "anyway_denied",
+        });
+      }
+      logHold(request, metadata.principal, validPrior.stage, "anyway_accepted");
     }
     const message = await new SendDirectMessage(
       repository,
@@ -104,7 +252,7 @@ export function createAgentMessageMethod(
       workspaceId: request.workspaceId,
       agentId,
       target: request.target,
-      body: request.body ?? "",
+      body,
     });
     return encodeCloudAgentMessageResponse({
       protocolMajor: 1,
@@ -113,8 +261,28 @@ export function createAgentMessageMethod(
       attentionCount: 0,
       messageId: message.id,
       messages: [],
+      sideEffectDecision: request.continueAnyway ? "anyway_accepted" : "forward",
     });
   };
+}
+
+function logHold(
+  request: { requestId: string; agentId: string; target: string },
+  principal: { agentId?: string; workspaceId?: string },
+  stage: number,
+  outcome: string,
+) {
+  console.info(
+    JSON.stringify({
+      event: "agent.message.hold_decision",
+      request_id: request.requestId,
+      agent_id: principal.agentId ?? request.agentId,
+      workspace_id: principal.workspaceId,
+      target_hash: Bun.hash(request.target).toString(16),
+      stage,
+      outcome,
+    }),
+  );
 }
 
 export const createDaemonRuntimeReadyMethod =

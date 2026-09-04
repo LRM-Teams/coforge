@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { LocalAgentMessageRequest, LocalInboxRequest } from "@coforge/protocol";
 import { isAgentApiKey } from "./credentials/agent-api-key";
 
 export type AgentProxy = {
@@ -15,10 +16,11 @@ export function startAgentProxy(input: {
   runtime: {
     agentMessage(
       context: string,
-      request: import("@coforge/protocol").LocalAgentMessageRequest,
+      request: LocalAgentMessageRequest,
       agentApiKey: string,
     ): Promise<unknown>;
     agentAttachment?(context: string, attachmentId: string, agentApiKey: string): Promise<Response>;
+    inbox?(context: string, request: LocalInboxRequest): Promise<unknown>;
     issueAgentContext?: (agentId: string, context?: string) => string;
   };
   port?: number;
@@ -36,6 +38,7 @@ export function startAgentProxy(input: {
       const requestUrl = new URL(request.url);
       if (
         (request.method !== "POST" || requestUrl.pathname !== "/agent/message") &&
+        (request.method !== "POST" || requestUrl.pathname !== "/agent/inbox") &&
         (request.method !== "GET" || requestUrl.pathname !== "/agent/attachment")
       )
         return new Response("not found", { status: 404 });
@@ -75,10 +78,23 @@ export function startAgentProxy(input: {
         if (!body || typeof body !== "object" || Array.isArray(body))
           return new Response("bad request", { status: 400 });
         const payload = body as Record<string, unknown>;
+        if (requestUrl.pathname === "/agent/inbox") {
+          if (!input.runtime.inbox) return new Response("not found", { status: 404 });
+          if (typeof payload.requestId !== "string" || payload.operation !== "check")
+            return new Response("bad request", { status: 400 });
+          const result = await input.runtime.inbox(binding.context, {
+            requestId: payload.requestId,
+            context: binding.context,
+            operation: "check",
+          });
+          return Response.json(result);
+        }
         if (
           typeof payload.requestId !== "string" ||
           payload.requestId.length === 0 ||
-          !["check", "read", "send"].includes(payload.operation as string)
+          !["check", "read", "send"].includes(payload.operation as string) ||
+          (payload.continueAnyway !== undefined && typeof payload.continueAnyway !== "boolean") ||
+          (payload.sendDraft !== undefined && typeof payload.sendDraft !== "boolean")
         )
           return new Response("bad request", { status: 400 });
         const result = await input.runtime.agentMessage(
@@ -88,6 +104,8 @@ export function startAgentProxy(input: {
             operation: payload.operation as "check" | "read" | "send",
             target: typeof payload.target === "string" ? payload.target : undefined,
             body: typeof payload.body === "string" ? payload.body : undefined,
+            continueAnyway: payload.continueAnyway === true || undefined,
+            sendDraft: payload.sendDraft === true || undefined,
             // Identity is exclusively the token binding. Never accept caller
             // supplied agentId/context fields as authorization input.
             context: binding.context,

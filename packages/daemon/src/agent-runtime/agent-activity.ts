@@ -1,4 +1,6 @@
 export type AgentActivityType =
+  | "working"
+  | "freshness_hold"
   | "starting"
   | "stopped"
   | "turn_completed"
@@ -18,6 +20,11 @@ export type AgentActivity = Readonly<{
   level: AgentActivityLevel;
   message: string;
   occurredAt: string;
+  diagnostic?: Readonly<{
+    errorClass: string;
+    reason: string;
+    fingerprint: string;
+  }>;
 }>;
 
 export function createAgentActivity(
@@ -25,6 +32,7 @@ export function createAgentActivity(
   level: AgentActivityLevel,
   message: string,
   occurredAt = new Date().toISOString(),
+  diagnostic?: AgentActivity["diagnostic"],
 ): AgentActivity {
-  return { activity, level, message, occurredAt };
+  return { activity, level, message, occurredAt, ...(diagnostic ? { diagnostic } : {}) };
 }

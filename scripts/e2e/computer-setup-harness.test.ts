@@ -13,6 +13,7 @@ test("Computer setup harness exercises the compiled CLI and real daemon path", (
   expect(harness).toContain("COFORGE_E2E_ALLOW_DEVICE_AUTH=1");
   expect(harness).toContain("provider_home in .codex .claude");
   expect(harness).toContain('export HOME="$COFORGE_E2E_HOME"');
+  expect(harness).toContain('export COFORGE_SERVER_HTTP_URL="$COFORGE_E2E_WEB_URL"');
   expect(harness).toContain("computer:register");
   expect(harness).toContain("wait-for-online");
   expect(harness).toContain("e2e-provider-usage.ts");

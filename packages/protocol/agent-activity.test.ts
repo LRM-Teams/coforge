@@ -13,6 +13,7 @@ const activity: AgentActivity = {
   occurredAt: "2026-08-29T00:00:00.000Z",
   launchId: "launch-1",
   clientSeq: 1,
+  diagnostic: { errorClass: "CodexAuthError", reason: "turn_failed", fingerprint: "deadbeef" },
 };
 
 test("round trips the launch ordering identity", () => {

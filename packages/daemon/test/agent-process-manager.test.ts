@@ -61,20 +61,23 @@ describe("AgentProcessManager", () => {
     expect(runtime.config).toEqual(config);
     expect(runtime.session).toBe(session);
     expect(startedOptions).toEqual({
+      agentId: "agent-1",
       agentWorkspaceDirectory: workspace,
       sessionId: undefined,
       runtime: config,
     });
     expect(manager.size).toBe(1);
-    expect(manager.status("agent-1")).toBe("online");
-    expect(manager.status("agent-2")).toBe("offline");
+    expect(manager.status("agent-1")).toBe("active");
+    expect(manager.status("agent-2")).toBe("inactive");
+    expect(manager.activeAgentIds()).toEqual(["agent-1"]);
     await manager.stop("agent-1");
     expect(session.disposeCalls).toBe(1);
     expect(manager.size).toBe(0);
-    expect(manager.status("agent-1")).toBe("offline");
+    expect(manager.status("agent-1")).toBe("inactive");
+    expect(manager.activeAgentIds()).toEqual([]);
   });
 
-  test("does not retain a provider API key after adapter startup", async () => {
+  test("retains provider configuration for the adapter launch", async () => {
     const manager = new AgentProcessManager(() => ({
       provider: "pi",
       async start() {
@@ -99,6 +102,7 @@ describe("AgentProcessManager", () => {
     expect(runtime.config.providerConfig).toEqual({
       kind: "pi-builtin",
       providerId: "deepseek",
+      apiKey: "sk-deepseek-secret",
     });
     await manager.stop("agent-credential");
   });
@@ -124,7 +128,7 @@ describe("AgentProcessManager", () => {
     }
   });
 
-  test("becomes offline when the Agent runtime process exits", async () => {
+  test("stays active when the Agent runtime process exits unexpectedly", async () => {
     const session = sessionSpy();
     const manager = new AgentProcessManager(() => ({
       provider: "pi",
@@ -136,7 +140,11 @@ describe("AgentProcessManager", () => {
     await manager.start("agent-1", config, join(testWorkspaceRoot, "exit", "agent-1"));
     session.exit();
 
-    expect(manager.status("agent-1")).toBe("offline");
+    expect(manager.status("agent-1")).toBe("active");
+    expect(manager.restartConfig("agent-1")).toEqual({ config, sessionId: undefined });
+    await manager.stop("agent-1");
+    expect(manager.status("agent-1")).toBe("inactive");
+    expect(manager.restartConfig("agent-1")).toBeUndefined();
   });
 
   test("starts multiple Agent runtimes for distinct Agents", async () => {
@@ -255,6 +263,6 @@ describe("AgentProcessManager", () => {
     await expect(manager.stop("agent-1")).rejects.toThrow("tree did not exit");
     await expect(manager.start("agent-1", config, workspace)).rejects.toThrow("stopping");
     expect(starts).toBe(1);
-    expect(manager.status("agent-1")).toBe("online");
+    expect(manager.status("agent-1")).toBe("active");
   });
 });

@@ -10,6 +10,8 @@ import {
   encodeAgentMessageDelivery,
   encodeAgentMessageResponse,
   encodeCloudAgentMessageResponse,
+  decodeLocalAgentMessageRequest,
+  encodeLocalAgentMessageRequest,
 } from "./index";
 
 test("round-trips an Agent direct message delivery", () => {
@@ -61,6 +63,29 @@ test("round-trips daemon-local message attention summaries", () => {
     ],
     messages: [],
     messageId: "",
+  };
+  expect(decodeAgentMessageResponse(encodeAgentMessageResponse(response))).toEqual(response);
+});
+
+test("round-trips Agent Inbox freshness request and held response", () => {
+  const request = {
+    requestId: "retry",
+    context: "context",
+    operation: "send" as const,
+    target: "@ada",
+    body: "reply",
+    continueAnyway: true,
+  };
+  expect(decodeLocalAgentMessageRequest(encodeLocalAgentMessageRequest(request))).toEqual(request);
+  const response = {
+    requestId: "held",
+    accepted: false,
+    attentionCount: 1,
+    summaries: [],
+    messages: [],
+    messageId: "",
+    sideEffectDecision: "hold" as const,
+    seenUpToSequence: 7,
   };
   expect(decodeAgentMessageResponse(encodeAgentMessageResponse(response))).toEqual(response);
 });

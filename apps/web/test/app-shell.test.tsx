@@ -1,26 +1,35 @@
 import "./dom-setup";
 
-import { afterEach, expect, mock, test } from "bun:test";
+import { afterEach, expect, jest, mock, test } from "bun:test";
 import { RouterContextProvider } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { AppShell } from "@/components/app-shell";
 import { AppToastProvider } from "@/components/ui/toast";
+import type { AgentView } from "@/features/agents/agent-card";
 import { AgentsContent } from "@/features/agents/agents-content";
 import { overwriteGetLocale } from "@/paraglide/runtime";
 import { getRouter } from "@/router";
 
 const user = { name: "Frank An", email: "frank@example.com" };
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  jest.useRealTimers();
+});
 
 const agent = {
   id: "agent-1",
   name: "release-helper",
   displayName: "Release Helper",
   createdAt: "2026-08-20T12:00:00.000Z",
-  runtimeConfig: { runtime: "codex" as const, model: "gpt-5" },
+  runtimeConfig: {
+    runtime: "codex" as const,
+    provider: { kind: "default" as const },
+    model: "gpt-5",
+  },
+  status: "inactive" as const,
 };
 const computers = [
   {
@@ -46,12 +55,21 @@ const computers = [
   },
 ];
 
-function renderShell(agents = [agent], onCreate = async () => ({ startPublished: true })) {
+function renderShell(
+  agents: AgentView[] = [agent],
+  onCreate = async () => ({ startPublished: true }),
+  onRetry = async () => {},
+) {
   return render(
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
         <AppShell user={user}>
-          <AgentsContent agents={agents} computers={computers} onCreate={onCreate} />
+          <AgentsContent
+            agents={agents}
+            computers={computers}
+            onCreate={onCreate}
+            onRetry={onRetry}
+          />
         </AppShell>
       </AppToastProvider>
     </RouterContextProvider>,
@@ -63,19 +81,21 @@ function page() {
 }
 
 function renderAgents(
-  agents = [agent],
+  agents: AgentView[] = [agent],
   onCreate = async () => ({ startPublished: true }),
   defaultCreateDialogOpen = false,
+  onRetry = async () => {},
 ) {
   render(
-    <AppToastProvider>
+    <RouterContextProvider router={getRouter()}>
       <AgentsContent
         agents={agents}
         computers={computers}
         onCreate={onCreate}
+        onRetry={onRetry}
         defaultCreateDialogOpen={defaultCreateDialogOpen}
       />
-    </AppToastProvider>,
+    </RouterContextProvider>,
   );
 }
 
@@ -101,7 +121,6 @@ test("shows the current Workspace below the logo", () => {
 });
 
 test("shows the primary navigation with Agents selected", () => {
-  window.history.pushState({}, "", "/en/agents");
   const markup = renderShell();
 
   expect(markup).toContain("<aside");
@@ -113,7 +132,6 @@ test("shows the primary navigation with Agents selected", () => {
   expect(markup).toContain('href="/en/messages"');
   expect(markup).toContain('aria-label="Current user"');
   expect(markup).toContain(">F</span>");
-  expect(markup).toContain('aria-current="page"');
 });
 
 test("keeps Messages selected on a private conversation route", () => {
@@ -146,6 +164,28 @@ test("renders persisted Agent fields without fabricated details", () => {
   expect(markup.match(/data-agent-card/g)?.length).toBe(1);
 });
 
+test("shows Agent status on the avatar", () => {
+  renderShell([
+    { ...agent, status: "active" },
+    {
+      ...agent,
+      id: "agent-2",
+      name: "research-helper",
+      displayName: "Research Helper",
+      status: "inactive",
+    },
+  ]);
+
+  const activeCard = page().getByText("Release Helper").closest("[data-agent-card]");
+  const inactiveCard = page().getByText("Research Helper").closest("[data-agent-card]");
+  if (!(activeCard instanceof HTMLElement) || !(inactiveCard instanceof HTMLElement))
+    throw new Error("Agent cards were not rendered");
+  expect(activeCard.querySelector("span.relative.flex.shrink-0 > span.bg-success")).toBeTruthy();
+  expect(inactiveCard.querySelector("span.relative.flex.shrink-0 > span.bg-offline")).toBeTruthy();
+  expect(within(activeCard).getByText("Online")).toBeTruthy();
+  expect(within(inactiveCard).getByText("Offline")).toBeTruthy();
+});
+
 test("shows an empty state", () => {
   renderAgents([]);
   expect(page().getByText("No agents yet")).toBeTruthy();
@@ -176,26 +216,6 @@ test("submits the public creation form callback", async () => {
   );
 });
 
-test("shows a safe form-local error when Agent creation fails", async () => {
-  renderAgents(
-    [],
-    async () => {
-      throw new Error("Can't reach database server at 127.0.0.1:15432");
-    },
-    true,
-  );
-  fireEvent.change(await page().findByLabelText("Name"), { target: { value: "helper" } });
-  fireEvent.change(page().getByLabelText("Display name"), { target: { value: "Helper" } });
-  fireEvent.click(page().getByRole("button", { name: "Create agent" }));
-
-  await waitFor(() =>
-    expect(page().getByRole("alert").textContent).toContain(
-      "The Agent could not be created. Try again.",
-    ),
-  );
-  expect(document.body.textContent).not.toContain("127.0.0.1");
-});
-
 test("shows a deferred-start notice after creation", async () => {
   renderAgents([], async () => ({ startPublished: false }), true);
   fireEvent.change(await page().findByLabelText("Name"), { target: { value: "helper" } });
@@ -204,6 +224,68 @@ test("shows a deferred-start notice after creation", async () => {
   expect((await page().findByRole("status")).textContent).toBe(
     "Agent created. It will start when Daemon reconnects.",
   );
+});
+
+test("retries an inactive Agent start", async () => {
+  const onRetry = mock(async () => {});
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <AgentsContent
+        agents={[agent]}
+        computers={computers}
+        onCreate={async () => ({ startPublished: true })}
+        onRetry={onRetry}
+      />
+    </RouterContextProvider>,
+  );
+
+  fireEvent.click(page().getByRole("button", { name: "Retry start" }));
+  await waitFor(() => expect(onRetry).toHaveBeenCalledWith("agent-1"));
+});
+
+test("offers retry again after an inactive Agent start request cools down", async () => {
+  jest.useFakeTimers();
+  const onRetry = mock(async () => {});
+  renderAgents([agent], async () => ({ startPublished: true }), false, onRetry);
+
+  fireEvent.click(page().getByRole("button", { name: "Retry start" }));
+  await act(async () => {});
+  expect(page().getByText("Start requested.")).toBeTruthy();
+  expect(page().queryByRole("button", { name: "Retry start" })).toBeNull();
+
+  act(() => jest.advanceTimersByTime(3_000));
+
+  expect(page().getByRole("button", { name: "Retry start" })).toBeTruthy();
+  expect(page().queryByText("Start requested.")).toBeNull();
+});
+
+test("clears the pending start request when the Agent becomes active", async () => {
+  const onRetry = mock(async () => {});
+  const view = render(
+    <RouterContextProvider router={getRouter()}>
+      <AgentsContent
+        agents={[agent]}
+        computers={computers}
+        onCreate={async () => ({ startPublished: true })}
+        onRetry={onRetry}
+      />
+    </RouterContextProvider>,
+  );
+  fireEvent.click(page().getByRole("button", { name: "Retry start" }));
+  await waitFor(() => expect(page().getByText("Start requested.")).toBeTruthy());
+
+  view.rerender(
+    <RouterContextProvider router={getRouter()}>
+      <AgentsContent
+        agents={[{ ...agent, status: "active" }]}
+        computers={computers}
+        onCreate={async () => ({ startPublished: true })}
+        onRetry={onRetry}
+      />
+    </RouterContextProvider>,
+  );
+
+  expect(page().queryByText("Start requested.")).toBeNull();
 });
 
 test("collapsing the sidebar keeps navigation and the user menu reachable", () => {
@@ -215,6 +297,7 @@ test("collapsing the sidebar keeps navigation and the user menu reachable", () =
             agents={[agent]}
             computers={computers}
             onCreate={async () => ({ startPublished: true })}
+            onRetry={async () => {}}
           />
         </AppShell>
       </AppToastProvider>

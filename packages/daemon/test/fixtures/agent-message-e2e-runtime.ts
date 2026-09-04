@@ -63,14 +63,40 @@ async function handle(command: {
   }
   if (command.type === "prompt") {
     write({ type: "response", id: command.id, command: "prompt", success: true });
-    if (command.message === "New message available. Run coforge message check.") {
+    if (command.message === "New app item available. Run coforge inbox check.") {
       try {
-        const checked = await call("check", "check-request");
-        const target = checked.summaries?.[0]?.target;
+        const first = await callInbox("check", "app-inbox-check-1");
+        const second = await callInbox("check", "app-inbox-check-2");
+        const app = first.entries?.find((entry) => entry.kind === "app")?.app;
+        if (!app || JSON.stringify(second.entries) !== JSON.stringify(first.entries))
+          throw new Error("App Inbox check consumed or omitted the reminder");
+        const afterAck = await callInbox("check", "app-inbox-check-after-ack");
+        await Bun.write(
+          ".e2e-app-inbox-complete.json",
+          JSON.stringify({
+            itemId: app.itemId,
+            appId: app.appId,
+            notificationClass: app.notificationClass,
+            action: app.action,
+            entriesAfterAck: afterAck.entries?.length ?? 0,
+          }),
+        );
+        write({ type: "agent_settled" });
+      } catch (error) {
+        await fail(error, "Agent App Inbox E2E failed");
+      }
+      return;
+    }
+    if (command.message?.startsWith("[CoForge inbox notice:") === true) {
+      try {
+        const checked = await callInbox("check", "message-inbox-check");
+        const target = checked.entries?.find((entry) => entry.kind === "message_target")
+          ?.messageTarget?.target;
         if (typeof target !== "string") throw new Error("attention target missing");
-        const read = await call("read", "read-request", target);
-        const message = read.messages?.find(({ body }) => body === "E2E User message");
-        if (!message) throw new Error("canonical User message missing from read");
+        const held = await call("send", "agent-reply-request", target, "E2E Agent reply");
+        const message = held.messages?.find(({ body }) => body === "E2E User message");
+        if (held.accepted !== false || held.sideEffectDecision !== "hold" || !message)
+          throw new Error("Agent send did not hold with canonical User context");
         let attachmentType: MIMEType;
         try {
           attachmentType = new MIMEType(message.attachment?.contentType ?? "");
@@ -94,7 +120,9 @@ async function handle(command: {
           throw new Error(
             `attachment content missing from Agent download (${attachmentResponse.status}: ${attachmentBody})`,
           );
-        const first = await call("send", "agent-reply-request", target, "E2E Agent reply");
+        const first = await call("send", "agent-reply-request", target, undefined, {
+          sendDraft: true,
+        });
         const retried = await call("send", "agent-reply-request", target, "E2E Agent reply");
         if (!first.messageId || !retried.messageId)
           throw new Error("Agent send message id missing");
@@ -103,6 +131,9 @@ async function handle(command: {
           JSON.stringify({
             firstMessageId: first.messageId,
             retriedMessageId: retried.messageId,
+            holdDecision: held.sideEffectDecision,
+            holdAccepted: held.accepted,
+            heldBody: message.body,
           }),
         );
         write({
@@ -137,11 +168,7 @@ async function handle(command: {
         });
         write({ type: "agent_settled" });
       } catch (error) {
-        await Bun.write(
-          ".e2e-agent-error",
-          error instanceof Error ? error.message : "Agent attachment E2E failed",
-        );
-        process.exit(1);
+        await fail(error, "Agent message E2E failed");
       }
     }
     return;
@@ -157,6 +184,7 @@ async function call(
   requestId: string,
   target?: string,
   body?: string,
+  options?: { sendDraft?: boolean },
 ) {
   const response = await fetch(process.env.COFORGE_AGENT_PROXY_URL!, {
     method: "POST",
@@ -164,11 +192,13 @@ async function call(
       authorization: `Bearer ${process.env.COFORGE_AGENT_CONTEXT}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({ operation, requestId, target, body }),
+    body: JSON.stringify({ operation, requestId, target, body, ...options }),
   });
   if (!response.ok) throw new Error(`proxy failed: ${response.status}`);
   return (await response.json()) as {
     summaries?: Array<{ target?: string }>;
+    accepted?: boolean;
+    sideEffectDecision?: string;
     messages?: Array<{
       body?: string;
       attachment?: {
@@ -180,6 +210,38 @@ async function call(
     }>;
     messageId?: string;
   };
+}
+
+async function callInbox(operation: "check" | "ack", requestId: string, itemId?: string) {
+  const response = await fetch(
+    process.env.COFORGE_AGENT_PROXY_URL!.replace(/\/agent\/message$/, "/agent/inbox"),
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${process.env.COFORGE_AGENT_CONTEXT}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ operation, requestId, itemId }),
+    },
+  );
+  if (!response.ok) throw new Error(`Inbox proxy failed: ${response.status}`);
+  return (await response.json()) as {
+    entries?: Array<{
+      kind?: string;
+      messageTarget?: { target?: string };
+      app?: {
+        itemId: string;
+        appId: string;
+        notificationClass: string;
+        action: { kind: string; commandId: string };
+      };
+    }>;
+  };
+}
+
+async function fail(error: unknown, fallback: string) {
+  await Bun.write(".e2e-agent-error", error instanceof Error ? error.message : fallback);
+  process.exit(1);
 }
 
 function write(value: unknown) {

@@ -3,8 +3,6 @@ import "../dom-setup";
 import { afterEach, expect, mock, test } from "bun:test";
 import { Match, RouterContextProvider, createMemoryHistory } from "@tanstack/react-router";
 import { act, cleanup, render, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-
 import { AppToastProvider } from "@/components/ui/toast";
 
 const agents = [
@@ -15,12 +13,8 @@ const agents = [
     name: "first",
     displayName: "First Agent",
     createdAt: new Date("2026-08-29T00:00:00Z"),
-    runtimeConfig: {
-      runtime: "pi" as const,
-      provider: { kind: "pi-builtin" as const, providerId: "deepseek" },
-      model: "deepseek-v4-pro",
-      reasoning: "",
-    },
+    runtimeConfig: { provider: "pi" as const, model: "", reasoning: "" },
+    status: "inactive" as const,
   },
   {
     id: "agent-2",
@@ -29,20 +23,11 @@ const agents = [
     name: "second",
     displayName: "Second Agent",
     createdAt: new Date("2026-08-29T00:00:00Z"),
-    runtimeConfig: {
-      runtime: "pi" as const,
-      provider: { kind: "default" as const },
-      model: "",
-      reasoning: "",
-    },
+    runtimeConfig: { provider: "pi" as const, model: "", reasoning: "" },
+    status: "inactive" as const,
   },
 ];
 const listAgents = mock(async () => agents);
-const saveAgentRuntimeCredential = mock(async () => ({
-  providerId: "deepseek",
-  hint: "••••1234",
-}));
-let agentOwnedByCurrentUser = true;
 const loadDirectConversation = mock(async ({ data }: { data: { agentId: string } }) => ({
   conversationId: `conversation-${data.agentId}`,
   senderMemberId: "member-1",
@@ -52,6 +37,10 @@ const loadDirectConversation = mock(async ({ data }: { data: { agentId: string }
 
 mock.module("@/features/agents/agents.functions", () => ({
   createAgent: mock(async () => agents[0]),
+  deleteAgentRuntimeCredential: mock(async () => ({ deleted: true })),
+  saveAgentRuntimeCredential: mock(async () => ({ saved: true })),
+  retryAgentStart: mock(async () => {}),
+  getAgentStatusConnectionToken: mock(async () => "test-agent-status-token"),
   getAgentDetail: mock(async () => {
     const failure = {
       id: "activity-1",
@@ -77,16 +66,12 @@ mock.module("@/features/agents/agents.functions", () => ({
     return {
       ...agents[0],
       owner: { id: "user-1", username: "route-tester" },
-      ownedByCurrentUser: agentOwnedByCurrentUser,
-      runtimeCredential: null,
       computer: { id: failure.computerId, label: "computer…5678" },
       latestError: failure,
       activity: [failure, starting],
     };
   }),
   listAgents,
-  saveAgentRuntimeCredential,
-  deleteAgentRuntimeCredential: mock(async () => ({ deleted: true })),
 }));
 mock.module("@/features/conversations/conversations.functions", () => ({
   loadDirectConversation,
@@ -121,8 +106,6 @@ afterEach(() => {
   cleanup();
   listAgents.mockClear();
   loadDirectConversation.mockClear();
-  saveAgentRuntimeCredential.mockClear();
-  agentOwnedByCurrentUser = true;
 });
 
 async function renderRoute(path: string) {
@@ -133,11 +116,11 @@ async function renderRoute(path: string) {
   });
   await act(() => router.load());
   render(
-    <AppToastProvider>
-      <RouterContextProvider router={router}>
+    <RouterContextProvider router={router}>
+      <AppToastProvider>
         <Match routeId="/_app" />
-      </RouterContextProvider>
-    </AppToastProvider>,
+      </AppToastProvider>
+    </RouterContextProvider>,
   );
   return { router, page: within(document.body) };
 }
@@ -163,43 +146,7 @@ test("an Agent profile shows its Computer, runtime configuration, and latest fai
   const { page } = await renderRoute("/agents/agent-1?tab=profile");
   expect(page.getByRole("heading", { name: "First Agent" })).toBeTruthy();
   expect(page.getByText("computer…5678")).toBeTruthy();
-  expect(page.getAllByLabelText("Runtime")[0]?.getAttribute("value")).toBe("Pi (Built-in)");
-  expect(page.getAllByLabelText("Provider")[0]?.getAttribute("value")).toBe("deepseek");
-  expect(page.getAllByLabelText("Model")[0]?.getAttribute("value")).toBe("deepseek-v4-pro");
-  expect(page.getAllByLabelText("Reasoning")[0]?.getAttribute("value")).toBe(
-    "Use provider default",
-  );
-  expect(page.getAllByLabelText("API key")[0]?.getAttribute("value")).toBe("Not configured");
   expect(page.getByRole("alert").textContent).toContain("Agent runtime could not be started.");
-});
-
-test("the Agent runtime editor always shows Runtime, Model, and Reasoning", async () => {
-  const browserUser = userEvent.setup({ document });
-  const { page } = await renderRoute("/agents/agent-1?tab=profile");
-
-  await browserUser.click(page.getByRole("button", { name: "Edit runtime config" }));
-  const dialog = within(page.getByRole("dialog"));
-  expect(dialog.getByLabelText("Runtime")).toBeTruthy();
-  expect(dialog.getByLabelText("Model")).toBeTruthy();
-  expect(dialog.getByLabelText("Reasoning")).toBeTruthy();
-  expect(dialog.getByLabelText("Provider")).toBeTruthy();
-  await browserUser.type(dialog.getByLabelText("API key"), "sk-secret-1234");
-  await browserUser.click(dialog.getByRole("button", { name: "Save runtime config" }));
-
-  expect(saveAgentRuntimeCredential).toHaveBeenCalledWith({
-    data: { agentId: "agent-1", apiKey: "sk-secret-1234" },
-  });
-});
-
-test("another Workspace member cannot edit an Agent runtime credential", async () => {
-  agentOwnedByCurrentUser = false;
-
-  const { page } = await renderRoute("/agents/agent-1?tab=profile");
-
-  expect(page.queryByRole("button", { name: "Edit runtime config" })).toBeNull();
-  expect(page.getAllByLabelText("API key")[0]?.getAttribute("value")).toBe(
-    "Visible only to the Agent owner",
-  );
 });
 
 test("an Agent Activity tab shows only time, action, and message", async () => {

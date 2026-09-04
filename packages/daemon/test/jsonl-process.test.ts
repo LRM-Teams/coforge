@@ -190,7 +190,8 @@ test.skipIf(process.platform === "win32")(
 
     await manager.start("agent-1", runtime, workspace);
     await waitUntil(() => pids !== undefined);
-    await waitUntil(() => manager.status("agent-1") === "offline");
+    await waitUntil(() => manager.session("agent-1") === undefined);
+    expect(manager.status("agent-1")).toBe("active");
     expect(pidExists(pids!.childPid)).toBe(false);
     expect(pidExists(pids!.grandchildPid)).toBe(false);
     await manager.start("agent-1", runtime, workspace);
@@ -234,9 +235,9 @@ test("failed unexpected-exit tree cleanup does not close or permit replacement",
   await manager.start("agent-1", runtime, workspace);
   await waitUntil(() => failures > 0);
   expect(closes).toBe(0);
-  await expect(manager.start("agent-1", runtime, workspace)).rejects.toThrow("online");
+  await expect(manager.start("agent-1", runtime, workspace)).rejects.toThrow("active");
   expect(starts).toBe(1);
-  expect(manager.status("agent-1")).toBe("online");
+  expect(manager.status("agent-1")).toBe("active");
 });
 
 function sessionFor(process: JsonlProcess): CodeAgentSession {

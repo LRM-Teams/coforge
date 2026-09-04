@@ -50,12 +50,14 @@ export function AgentsContent({
   computers,
   timeZone = null,
   onCreate,
+  onRetry,
   defaultCreateDialogOpen = false,
 }: {
   agents: AgentView[];
   computers: ComputerOption[];
   timeZone?: string | null;
   onCreate: (input: CreateAgentInput) => Promise<{ startPublished: boolean }>;
+  onRetry: (agentId: string) => Promise<void>;
   defaultCreateDialogOpen?: boolean;
 }) {
   const [search, setSearch] = useState("");
@@ -148,7 +150,12 @@ export function AgentsContent({
       {filteredAgents.length ? (
         <section className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredAgents.map((agent) => (
-            <AgentCard key={agent.id} agent={agent} timeZone={timeZone} />
+            <AgentCard
+              key={`${agent.id}:${agent.status}`}
+              agent={agent}
+              timeZone={timeZone}
+              onRetry={onRetry}
+            />
           ))}
         </section>
       ) : (

@@ -9,6 +9,10 @@ import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
 import { RUNTIME_PROVIDER_CONFIG_ENV } from "@coforge/agent";
+import {
+  COFORGE_AGENT_INSTRUCTIONS,
+  COFORGE_AGENT_INSTRUCTIONS_ENV,
+} from "../communication-instructions";
 
 export function builtinPiCommand(): readonly string[] {
   return [
@@ -26,23 +30,23 @@ export class PiAgentAdapter implements CodeAgentAdapter {
   }
 
   async start(options: CodeAgentStartOptions): Promise<CodeAgentSession> {
-    const providerConfig = options.runtime?.providerConfig;
-    if (providerConfig?.kind === "pi-builtin") {
-      if (!providerConfig.providerId || !providerConfig.apiKey)
+    const runtime = options.runtime;
+    if (runtime?.providerConfig?.kind === "pi-builtin") {
+      if (!runtime.providerConfig.apiKey) {
         throw new Error("Pi runtime provider API key is required");
-      if (
-        options.runtime?.modelProvider &&
-        providerConfig.providerId !== options.runtime.modelProvider
-      )
+      }
+      if (runtime.providerConfig.providerId !== runtime.modelProvider) {
         throw new Error("Pi runtime provider does not match the selected model");
+      }
     }
     const process = new JsonlProcess(
       this.#command,
       options.agentWorkspaceDirectory,
       agentEnvironment({
         ...options.environment,
-        ...(providerConfig
-          ? { [RUNTIME_PROVIDER_CONFIG_ENV]: JSON.stringify(providerConfig) }
+        [COFORGE_AGENT_INSTRUCTIONS_ENV]: COFORGE_AGENT_INSTRUCTIONS,
+        ...(runtime?.providerConfig?.kind === "pi-builtin"
+          ? { [RUNTIME_PROVIDER_CONFIG_ENV]: JSON.stringify(runtime.providerConfig) }
           : {}),
       }),
     );
@@ -50,17 +54,17 @@ export class PiAgentAdapter implements CodeAgentAdapter {
     try {
       await process.request({ type: "get_state" });
       await process.request({ type: "get_commands" });
-      if (options.runtime?.model) {
-        if (!options.runtime.modelProvider)
+      if (runtime?.model) {
+        if (!runtime.modelProvider)
           throw new Error("Pi model provider is required when a model is selected");
         await process.request({
           type: "set_model",
-          provider: options.runtime.modelProvider,
-          modelId: options.runtime.model,
+          provider: runtime.modelProvider,
+          modelId: runtime.model,
         });
       }
-      if (options.runtime?.reasoning) {
-        await process.request({ type: "set_thinking_level", level: options.runtime.reasoning });
+      if (runtime?.reasoning) {
+        await process.request({ type: "set_thinking_level", level: runtime.reasoning });
       }
       return session;
     } catch (error) {
