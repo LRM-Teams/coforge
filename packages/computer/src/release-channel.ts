@@ -6,7 +6,11 @@ import { createPublicKey } from "node:crypto";
  * --env=COFORGE_RELEASE_*` (see package.json's build script) inlines these two `process.env`
  * reads as literal strings at compile time, so the values below must stay direct
  * `process.env.COFORGE_RELEASE_*` member expressions - reading through an indirection (a
- * variable, a parameter) defeats the inliner and turns this back into a runtime lookup. */
+ * variable, a parameter) defeats the inliner and turns this back into a runtime lookup.
+ *
+ * `--env` only inlines a variable that is actually set while building; one that is unset
+ * stays a live runtime lookup in the compiled binary, which is why the build script exports
+ * both as `"${VAR-}"`. An empty string still inlines, and both parsers treat it as absent. */
 
 const DEFAULT_RELEASE_FEED_URL = "https://releases.coforge.cn/";
 

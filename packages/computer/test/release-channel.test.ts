@@ -54,3 +54,17 @@ test("a value that is not a PEM public key throws", () => {
     parseReleaseTrustedKeys(JSON.stringify({ "release-key-2026-a": "not a pem" })),
   ).toThrow();
 });
+
+/** `bun build --env=PREFIX_*` inlines only variables that are set while building; an unset one
+ * stays a runtime lookup, so a binary built without release config would honour whatever
+ * COFORGE_RELEASE_TRUSTED_KEYS the environment happens to carry at install time. Exporting
+ * both as "${VAR-}" makes the empty case inline too. */
+test("the build script always sets the release variables so they inline", async () => {
+  const manifest = await Bun.file(new URL("../package.json", import.meta.url)).json();
+  const build: string = manifest.scripts.build;
+
+  expect(build).toContain('COFORGE_RELEASE_FEED_URL="${COFORGE_RELEASE_FEED_URL-}"');
+  expect(build).toContain('COFORGE_RELEASE_TRUSTED_KEYS="${COFORGE_RELEASE_TRUSTED_KEYS-}"');
+  expect(build.indexOf("COFORGE_RELEASE_TRUSTED_KEYS=")).toBeLessThan(build.indexOf("bun build"));
+  expect(build).toContain("--env=COFORGE_RELEASE_*");
+});
