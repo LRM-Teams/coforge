@@ -306,9 +306,12 @@ describe("staging attachment persistence", () => {
     const compose = await Bun.file(
       new URL("../../infra/staging/docker-compose.yml", import.meta.url),
     ).text();
+    // The block ends at migrate, not centrifugo: migrate sits between them, so a
+    // wider slice would also pass if the volume were attached to the wrong service.
     const webStart = compose.indexOf("\n  web:\n");
-    const centrifugoStart = compose.indexOf("\n  centrifugo:\n");
-    const webBlock = compose.slice(webStart, centrifugoStart);
+    const migrateStart = compose.indexOf("\n  migrate:\n");
+    expect(migrateStart).toBeGreaterThan(webStart);
+    const webBlock = compose.slice(webStart, migrateStart);
 
     // Without both halves the app falls back to $PWD/.data/attachments inside the
     // container, and every deployment silently discards what users uploaded.

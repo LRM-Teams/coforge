@@ -42,7 +42,9 @@ COPY --from=migrate --chown=bun:bun /migrate .migrate
 # Attachment bytes live on a mounted volume, not in the writable container layer.
 # The directory has to exist and be owned by the runtime user in the image: Docker
 # seeds a fresh named volume from the image path, so a volume mounted over a path
-# that does not exist here would be created root-owned and unwritable.
+# that does not exist here would be created root-owned and unwritable. Seeding only
+# happens the first time a volume is used: one that some earlier step created by
+# hand stays root-owned, and no later image rebuild repairs it.
 RUN mkdir -p /data/attachments && chown -R bun:bun /data
 
 USER bun
