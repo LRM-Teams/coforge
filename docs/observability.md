@@ -4,11 +4,11 @@
 
 更新时间：2026-08-27
 
-本文定义 CoForge 各进程共享的最小可观测性契约。它只约束日志、探针和指标的语义，不锁定业务 RPC、数据库 schema、供应商或具体采集平台。
+本文定义 CoForge 各进程共享的最小可观测性契约。它只约束日志、探针、指标和 tracing 的语义，不锁定业务 RPC 或数据库 schema。当前 Web/backend 的消息发送链路通过 OpenTelemetry OTLP 上报到阿里云北京接入点。
 
 ## 目标与非目标
 
-基线必须回答三件事：请求或消息发生在哪里、当前实例是否能接收流量、失败后能否定位影响范围。MVP 不引入分布式 tracing 平台、日志 SaaS 或新的消息协议；如需接入，使用本文定义的字段和脱敏规则。
+基线必须回答三件事：请求或消息发生在哪里、当前实例是否能接收流量、失败后能否定位影响范围。当前 tracing 仅覆盖 Web/backend 的消息发送入口及其持久化/发布阶段；浏览器点击到请求发出的时延仍需前端性能数据补充。
 
 ## 结构化日志
 
@@ -24,7 +24,7 @@
 | `event` | 稳定、低基数事件名；禁止把用户输入拼入事件名 |
 | `version` | 构建版本或 commit；未知时省略 |
 | `request_id` | 单次 HTTP/RPC/本地调用关联 ID；入口没有上游 ID 时生成 |
-| `trace_id` | 未来接入 tracing 时使用；未接入时省略 |
+| `trace_id` | OpenTelemetry trace 标识；未产生 tracing 时省略 |
 | `workspace_id` | 已确定作用域时记录稳定 ID，不记录 slug/name |
 | `workspace_id` + `computer_id` | 已确定 Workspace–Computer connection 时记录 |
 | `agent_id` / `runtime_id` | 已确定 Agent 作用域时记录 |
@@ -213,6 +213,17 @@ MVP 默认保留结构化运行日志 30 天、审计/发布证据 90 天；部�
 
 1. 先在 Web/backend、Computer 和 Daemon 统一 JSON logger、request ID 和敏感字段过滤。
 2. 再为 daemon 和 Centrifugo 管理面接入同一事件字段与 liveness/readiness seam。
-3. 最后接入指标采集与告警；在没有真实消费者前不锁定 tracing vendor 或云厂商协议。
+3. 接入指标采集与告警，并根据真实消息发送链路补充前端性能关联。
+
+## OpenTelemetry Tracing
+
+Web/backend 为一次 `sendDirectConversationMessage` 创建 `message.send` 根 span，并包含
+`message.context` 和 `message.persist_and_publish` 子 span。仅记录 request ID 和 Agent ID，
+不记录消息正文、凭据、Cookie 或接入 Token。导出采用 OTLP/HTTP protobuf 的批量发送，导出失败
+不得阻塞消息发送。
+
+部署通过 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT_FILE` 从 Compose secret 读取完整接入地址；完整
+地址只存在于 GitHub Environment Secret 和远端受限文件中，不进入 Git、镜像、`.env`、日志或发布
+记录。`OTEL_SERVICE_NAME` 和 `OTEL_DEPLOYMENT_ENVIRONMENT` 是非敏感运行配置。
 
 架构总览与进程职责见 [`docs/architecture.md`](architecture.md)。

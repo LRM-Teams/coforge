@@ -47,6 +47,9 @@ services:
       COFORGE_CENTRIFUGO_PROXY_SECRET: ${COFORGE_CENTRIFUGO_PROXY_SECRET:?deploy script writes .env}
       COFORGE_WORKER_JWT_KEY_ID: ${COFORGE_WORKER_JWT_KEY_ID:?deploy script writes .env}
       COFORGE_WORKER_JWT_PRIVATE_JWK: ${COFORGE_WORKER_JWT_PRIVATE_JWK:?deploy script writes .env}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT_FILE: /run/secrets/otel_traces_endpoint
+      OTEL_SERVICE_NAME: coforge-web
+      OTEL_DEPLOYMENT_ENVIRONMENT: staging
     secrets:
       - source: authing_app_id
         uid: "1000"
@@ -61,6 +64,10 @@ services:
         gid: "1000"
         mode: 0400
       - source: coforge_agent_runtime_credential_key
+        uid: "1000"
+        gid: "1000"
+        mode: 0400
+      - source: otel_traces_endpoint
         uid: "1000"
         gid: "1000"
         mode: 0400
@@ -194,6 +201,8 @@ secrets:
     environment: COFORGE_SESSION_SECRET
   coforge_agent_runtime_credential_key:
     environment: COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY
+  otel_traces_endpoint:
+    file: ./secrets/otel_traces_endpoint
   redis_password:
     file: ./secrets/redis_password
   postgres_password:

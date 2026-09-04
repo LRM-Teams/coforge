@@ -272,6 +272,10 @@ describe("staging Authing runtime injection", () => {
     expect(webBlock).toContain("source: authing_app_id");
     expect(webBlock).toContain("source: authing_app_secret");
     expect(webBlock).toContain("source: coforge_session_secret");
+    expect(webBlock).toContain(
+      "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT_FILE: /run/secrets/otel_traces_endpoint",
+    );
+    expect(webBlock).toContain("source: otel_traces_endpoint");
 
     const migrationStart = compose.indexOf("\n  migrate:\n");
     expect(migrationStart).toBeGreaterThan(webStart);
@@ -287,6 +291,8 @@ describe("staging Authing runtime injection", () => {
     expect(workflow).toContain("vars.AUTHING_APP_ID");
     expect(workflow).toContain("secrets.AUTHING_APP_SECRET");
     expect(workflow).toContain("secrets.COFORGE_SESSION_SECRET");
+    expect(workflow).toContain("secrets.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT");
+    expect(workflow).toContain("otel_traces_endpoint");
     expect(workflow).toContain("infra/staging/secrets");
     expect(workflow).toContain('trap \'rm -rf -- "$tar_dir" "$payload"\' EXIT');
     expect(workflow).toContain(String.raw`chmod 700 \"\$secrets_dir\"`);
