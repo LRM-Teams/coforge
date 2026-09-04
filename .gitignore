@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .output/
+.data/
+.vscode/
 apps/web/src/paraglide/
 apps/web/generated/
 .amp/portals/*
