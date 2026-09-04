@@ -408,35 +408,35 @@ is invalid.
 
 ### Local Computer distribution
 
-The local Computer distribution uses the same two-party boundary. Promotion
-copies bytes between the two tracks' feeds; it never rebuilds them:
+The local Computer distribution uses the same two-party boundary, but what
+crosses it is the **source commit and its evidence, not the artifact**. Staging
+and production binaries cannot be the same bytes: the feed a build trusts is
+compiled into it, so a staging binary copied into the production feed would keep
+updating itself from staging. Promotion therefore rebuilds:
 
-1. An Agent verifies the staging feed's `latest` resolves a stable version
-   (no prerelease suffix). It prepares that version, its manifest's SHA-256
-   checksum for every platform's Computer and Daemon binary, the source
-   commit, the staging test run and evidence, and the production feed's
+1. An Agent verifies the staging feed's `latest` resolves a stable version (no
+   prerelease suffix). It prepares that version, the source commit it was built
+   from, the staging test run and its evidence, and the production feed's
    current `latest` for comparison.
-2. A human approves or rejects that exact version. A filename, branch,
-   channel name, or unspecified "latest build" approval is invalid; the
-   approval must name the exact version string.
-3. After approval, the Agent re-downloads the approved version's manifest and
-   every platform binary from the staging feed and confirms they still match
-   the checksums recorded in the approval and the staging test evidence.
-4. The Agent copies the approved version's `manifest.json` and every platform
-   binary, byte-for-byte, from the staging feed to the production feed
-   beneath the same `<version>/` path. It does not rebuild, repackage, or
-   re-derive them.
-5. Only after every copied object is re-read from the production feed and
-   confirmed byte-identical does the Agent write the production feed's
+2. A human approves or rejects that exact commit and version. A filename,
+   branch, channel name, or unspecified "latest build" approval is invalid.
+3. After approval, the Agent builds the approved commit against the production
+   feed configuration, producing a distinct set of binaries whose only intended
+   difference from the staging set is the compiled-in feed address.
+4. The Agent publishes the new manifest, checksum sidecars and binaries beneath
+   the production feed's `<version>/` path, then re-reads each object from the
+   production feed and confirms it matches what was published.
+5. Only after that confirmation does the Agent write the production feed's
    `latest` pointer to the approved version.
-6. The Agent refreshes and re-reads the production feed's `latest`, verifies
-   it resolves the approved version, runs the production local-distribution
-   checks, and records the result.
+6. The Agent refreshes and re-reads the production feed's `latest`, verifies it
+   resolves the approved version, runs the production local-distribution checks,
+   and records the result.
 
-Changing any platform's checksum, or copying from anywhere other than the
-already-tested staging objects, produces a different version and invalidates
-approval. Do not rebuild, repackage, re-derive, or re-notarize a binary during
-promotion.
+Building a commit other than the approved one, or altering the source between
+approval and build, invalidates the approval. Because the artifacts are rebuilt
+rather than copied, the production checks in the next section are the evidence
+that the production binaries work — the staging evidence attests to the commit,
+not to those bytes.
 
 ## Health verification
 
