@@ -49,16 +49,18 @@ if (-not ($feedUrl.StartsWith("https://") -or ($testMode -and $feedUrl.StartsWit
 }
 
 # Windows PowerShell 5.1 (.NET Framework) does not negotiate TLS 1.2 by default, unlike
-# install.sh's curl invocation, which pins a `--tlsv1.2` floor explicitly. On that runtime this
-# OR sets a TLS 1.2 floor by narrowing SecurityProtocol from its default (SystemDefault, value 0)
-# to exactly Tls12 - losing any higher version SystemDefault might otherwise have implied is an
-# acceptable trade for not silently falling back to 1.0/1.1. Only Tls12 is OR'd in, not a literal
-# Tls13 enum member: that member is not guaranteed to exist on every .NET Framework patch level,
-# and OR'ing in its well-known numeric value would silently no-op instead of erroring if it were
-# ever wrong for a given runtime. On PowerShell 7's .NET Core runtime, ServicePointManager is
-# largely vestigial and the OS/runtime negotiates TLS independently, so this line is close to a
-# no-op there rather than a floor - untested on either runtime; see the CR description.
-[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+# install.sh's curl invocation, which pins a `--tlsv1.2` floor explicitly. A plain assignment
+# (not `-bor`'d onto the existing value) is used deliberately: the default SecurityProtocol
+# varies by .NET Framework patch level - it can be `SystemDefault` (0) on newer installs, where
+# OR'ing in Tls12 would happen to equal exactly Tls12, but `Ssl3, Tls, Tls12` on older ones, where
+# the same OR would still leave TLS 1.0 enabled. A plain assignment is a floor on every patch
+# level. Only Tls12 is assigned, not a literal Tls13 enum member: that member is not guaranteed to
+# exist on every .NET Framework patch level, and referencing it directly would throw on one where
+# it does not, rather than silently degrading. On PowerShell 7's .NET Core runtime,
+# ServicePointManager is largely vestigial and the OS/runtime negotiates TLS independently, so
+# this line is close to a no-op there rather than a floor - untested on either runtime; see the CR
+# description.
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
 $target = switch ($architecture) {
@@ -141,7 +143,11 @@ try {
   if ($Version -eq "latest") {
     $latestPath = Join-Path $temporaryDirectory "latest"
     Get-CoforgeObject -Uri "$feedUrl/latest" -OutFile $latestPath -MaxBytes $maxPointerBytes
-    $latestPointer = (Get-Content -Raw -LiteralPath $latestPath).Trim()
+    # Get-Content -Raw on a zero-byte file returns $null on Windows PowerShell 5.1, and $null has
+    # no .Trim() method - the [string] cast turns that into an empty string, matching how
+    # is_valid_version("") in install.sh already fails closed on an empty body instead of
+    # erroring out with an unrelated method-not-found exception.
+    $latestPointer = ([string](Get-Content -Raw -LiteralPath $latestPath)).Trim()
     if (-not (Test-CoforgeVersion $latestPointer)) {
       throw "install.ps1: the latest pointer did not return a valid version"
     }
@@ -155,8 +161,13 @@ try {
   # manifest.json directly; that file is unaffected by this script.
   $sidecarPath = Join-Path $temporaryDirectory "coforge-computer.sha256"
   Get-CoforgeObject -Uri "$feedUrl/$Version/$target/coforge-computer.sha256" -OutFile $sidecarPath -MaxBytes $maxPointerBytes
-  $expectedSha256 = (Get-Content -Raw -LiteralPath $sidecarPath).Trim()
-  if ($expectedSha256 -notmatch '^[a-f0-9]{64}\z') {
+  $expectedSha256 = ([string](Get-Content -Raw -LiteralPath $sidecarPath)).Trim()
+  # `-cnotmatch`, not the case-insensitive default `-notmatch`: Get-FileHash below always returns
+  # lowercase hex (`.ToLowerInvariant()`), so a sidecar carrying uppercase hex would pass this
+  # check under case-insensitive matching and then fail the checksum comparison instead - the
+  # wrong error, for the wrong reason. install.sh's `case` pattern is inherently
+  # case-sensitive, so this keeps both scripts equally strict about the sidecar's format.
+  if ($expectedSha256 -cnotmatch '^[a-f0-9]{64}\z') {
     throw "install.ps1: sidecar checksum for $target is missing or malformed"
   }
 

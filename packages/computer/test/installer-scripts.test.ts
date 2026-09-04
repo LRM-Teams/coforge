@@ -226,6 +226,11 @@ test("install.sh caps the size of the latest pointer and sidecar downloads", asy
   // cap must be rejected before the script trusts any of it (N4). curl checks a declared
   // Content-Length against `--max-filesize` before downloading, so this does not require
   // actually streaming an unbounded body to prove the cap is enforced.
+  //
+  // Pin curl's own "(63)" exit signal, not just a nonzero exit code: 5000 bytes of "a" is also
+  // rejected without the cap - it fails is_valid_version()'s length check as a "latest" pointer,
+  // and its length simply does not equal 64 as a sidecar checksum - so asserting only a nonzero
+  // exit would still pass with --max-filesize removed entirely, for the wrong reason.
   const version = "3.2.1";
   const target = currentTarget();
   const oversized = Buffer.alloc(5000, 0x61);
@@ -249,6 +254,7 @@ test("install.sh caps the size of the latest pointer and sidecar downloads", asy
     COFORGE_INSTALLER_TEST_MODE: "1",
   });
   expect(latestChild.exitCode).not.toBe(0);
+  expect(latestChild.stderr).toContain("curl: (63)");
 
   const sidecarChild = await run(["--version", version], {
     ...process.env,
@@ -256,6 +262,7 @@ test("install.sh caps the size of the latest pointer and sidecar downloads", asy
     COFORGE_INSTALLER_TEST_MODE: "1",
   });
   expect(sidecarChild.exitCode).not.toBe(0);
+  expect(sidecarChild.stderr).toContain("curl: (63)");
 });
 
 test("install.sh removes its temporary directory after a successful install instead of exec-leaking it", async () => {
@@ -293,9 +300,15 @@ test("install scripts fail closed and stay within the current user's own account
   expect(powershell).not.toMatch(/[0-9a-f]{64}/);
   expect(shell).toContain("HTTPS");
   expect(powershell).toContain("HTTPS");
-  // Neither script may ever pass a literal 0 to curl's/Invoke-WebRequest's size cap, which curl
-  // treats as "unlimited" (N4).
+  // Neither script's size-cap constants may ever be a literal 0: curl treats `--max-filesize 0`
+  // as "unlimited" (N4), and install.ps1's Get-CoforgeObject enforces its MaxBytes with a plain
+  // `-gt` comparison that a 0 would also defeat (anything read would immediately exceed it, but
+  // a cap of 0 has no legitimate meaning here either way - pin both away from it explicitly).
   expect(shell).not.toMatch(/--max-filesize\s+["']?0(?!\d)/);
+  expect(shell).toMatch(/^max_pointer_bytes=[1-9]\d*$/m);
+  expect(shell).toMatch(/^max_binary_bytes=[1-9]\d*$/m);
+  expect(powershell).toMatch(/^\$maxPointerBytes = [1-9]\d*$/m);
+  expect(powershell).toMatch(/^\$maxBinaryBytes = [1-9]\d*$/m);
   // install.sh no longer parses JSON in the shell at all (B1): no jq invocation, and no request
   // for the manifest ("install.sh resolves latest and an explicit version, and never touches
   // manifest.json" above proves that behaviorally; this just confirms no code path can even
