@@ -301,8 +301,8 @@ describe("staging Authing runtime injection", () => {
   });
 });
 
-describe("staging attachment persistence", () => {
-  test("attachment bytes are written to a named volume rather than the container layer", async () => {
+describe("staging user file persistence", () => {
+  test("user file bytes are written to a named volume rather than the container layer", async () => {
     const compose = await Bun.file(
       new URL("../../infra/staging/docker-compose.yml", import.meta.url),
     ).text();
@@ -313,11 +313,11 @@ describe("staging attachment persistence", () => {
     expect(migrateStart).toBeGreaterThan(webStart);
     const webBlock = compose.slice(webStart, migrateStart);
 
-    // Without both halves the app falls back to $PWD/.data/attachments inside the
+    // Without both halves the app falls back to $PWD/.data/files inside the
     // container, and every deployment silently discards what users uploaded.
-    expect(webBlock).toContain("COFORGE_ATTACHMENT_STORAGE_DIR: /data/attachments");
-    expect(webBlock).toContain("- coforge_staging_attachments:/data/attachments");
-    expect(compose).toContain("name: coforge_staging_attachments");
+    expect(webBlock).toContain("COFORGE_FILE_STORAGE_DIR: /data/files");
+    expect(webBlock).toContain("- coforge_staging_files:/data/files");
+    expect(compose).toContain("name: coforge_staging_files");
   });
 
   test("the image owns the mount point so the volume is not created root-owned", async () => {

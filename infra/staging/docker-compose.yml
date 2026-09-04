@@ -50,9 +50,9 @@ services:
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT_FILE: /run/secrets/otel_traces_endpoint
       OTEL_SERVICE_NAME: coforge-web
       OTEL_DEPLOYMENT_ENVIRONMENT: staging
-      COFORGE_ATTACHMENT_STORAGE_DIR: /data/attachments
+      COFORGE_FILE_STORAGE_DIR: /data/files
     volumes:
-      - coforge_staging_attachments:/data/attachments
+      - coforge_staging_files:/data/files
     secrets:
       - source: authing_app_id
         uid: "1000"
@@ -194,8 +194,8 @@ volumes:
     name: coforge_staging_redis_data
   coforge_staging_postgres_data:
     name: coforge_staging_postgres_data
-  coforge_staging_attachments:
-    name: coforge_staging_attachments
+  coforge_staging_files:
+    name: coforge_staging_files
 
 secrets:
   authing_app_id:

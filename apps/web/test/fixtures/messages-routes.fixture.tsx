@@ -81,6 +81,16 @@ mock.module("@/features/settings/settings.functions", () => ({
   getUserPreferences: mock(async () => ({ timeZone: null })),
   saveUserTimeZone: mock(async () => ({ timeZone: null })),
 }));
+mock.module("@/features/profiles/profile.functions", () => ({
+  getUserProfile: mock(async () => ({
+    name: "Route Tester",
+    email: "route@example.com",
+    username: "route-tester",
+    description: "",
+    avatarUrl: null,
+  })),
+  saveUserProfile: mock(async () => ({ name: "Route Tester", description: "" })),
+}));
 mock.module("@/server/auth/current-user", () => ({
   peekCurrentUser: mock(async () => undefined),
   requireCurrentUser: mock(async () => ({

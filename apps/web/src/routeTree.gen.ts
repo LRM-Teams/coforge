@@ -38,6 +38,7 @@ import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/att
 import { Route as ApiInternalCentrifugoRouteImport } from './routes/api/internal/centrifugo'
 import { Route as ApiInternalCentrifugoAgentActivityRouteImport } from './routes/api/internal/centrifugo-agent-activity'
 import { Route as ApiInternalCentrifugoConnectRouteImport } from './routes/api/internal/centrifugo-connect'
+import { Route as ApiMeAvatarRouteImport } from './routes/api/me/avatar'
 import { Route as ApiAgentAttachmentsAttachmentIdRouteImport } from './routes/api/agent/attachments.$attachmentId'
 import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/workspaces.$slug'
 
@@ -190,6 +191,11 @@ const ApiInternalCentrifugoConnectRoute =
     path: '/api/internal/centrifugo-connect',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiMeAvatarRoute = ApiMeAvatarRouteImport.update({
+  id: '/avatar',
+  path: '/avatar',
+  getParentRoute: () => ApiMeRoute,
+} as any)
 const ApiAgentAttachmentsAttachmentIdRoute =
   ApiAgentAttachmentsAttachmentIdRouteImport.update({
     id: '/api/agent/attachments/$attachmentId',
@@ -214,7 +220,7 @@ export interface FileRoutesByFullPath {
   '/api/agent-messages': typeof ApiAgentMessagesRoute
   '/api/attachments': typeof ApiAttachmentsRouteWithChildren
   '/api/jwks': typeof ApiJwksRoute
-  '/api/me': typeof ApiMeRoute
+  '/api/me': typeof ApiMeRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
@@ -228,6 +234,7 @@ export interface FileRoutesByFullPath {
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
   '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
+  '/api/me/avatar': typeof ApiMeAvatarRoute
   '/agents/': typeof AppAgentsIndexRoute
   '/computers/': typeof AppComputersIndexRoute
   '/messages/': typeof AppMessagesIndexRoute
@@ -244,7 +251,7 @@ export interface FileRoutesByTo {
   '/api/agent-messages': typeof ApiAgentMessagesRoute
   '/api/attachments': typeof ApiAttachmentsRouteWithChildren
   '/api/jwks': typeof ApiJwksRoute
-  '/api/me': typeof ApiMeRoute
+  '/api/me': typeof ApiMeRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
@@ -258,6 +265,7 @@ export interface FileRoutesByTo {
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
   '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
+  '/api/me/avatar': typeof ApiMeAvatarRoute
   '/agents': typeof AppAgentsIndexRoute
   '/computers': typeof AppComputersIndexRoute
   '/messages': typeof AppMessagesIndexRoute
@@ -278,7 +286,7 @@ export interface FileRoutesById {
   '/api/agent-messages': typeof ApiAgentMessagesRoute
   '/api/attachments': typeof ApiAttachmentsRouteWithChildren
   '/api/jwks': typeof ApiJwksRoute
-  '/api/me': typeof ApiMeRoute
+  '/api/me': typeof ApiMeRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
@@ -292,6 +300,7 @@ export interface FileRoutesById {
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
   '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
+  '/api/me/avatar': typeof ApiMeAvatarRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/computers/': typeof AppComputersIndexRoute
   '/_app/messages/': typeof AppMessagesIndexRoute
@@ -326,6 +335,7 @@ export interface FileRouteTypes {
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
     | '/api/internal/centrifugo-connect'
+    | '/api/me/avatar'
     | '/agents/'
     | '/computers/'
     | '/messages/'
@@ -356,6 +366,7 @@ export interface FileRouteTypes {
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
     | '/api/internal/centrifugo-connect'
+    | '/api/me/avatar'
     | '/agents'
     | '/computers'
     | '/messages'
@@ -389,6 +400,7 @@ export interface FileRouteTypes {
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
     | '/api/internal/centrifugo-connect'
+    | '/api/me/avatar'
     | '/_app/agents/'
     | '/_app/computers/'
     | '/_app/messages/'
@@ -406,7 +418,7 @@ export interface RootRouteChildren {
   ApiAgentMessagesRoute: typeof ApiAgentMessagesRoute
   ApiAttachmentsRoute: typeof ApiAttachmentsRouteWithChildren
   ApiJwksRoute: typeof ApiJwksRoute
-  ApiMeRoute: typeof ApiMeRoute
+  ApiMeRoute: typeof ApiMeRouteWithChildren
   AuthCallbackRoute: typeof AuthCallbackRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthLogoutRoute: typeof AuthLogoutRoute
@@ -625,6 +637,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiInternalCentrifugoConnectRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/me/avatar': {
+      id: '/api/me/avatar'
+      path: '/avatar'
+      fullPath: '/api/me/avatar'
+      preLoaderRoute: typeof ApiMeAvatarRouteImport
+      parentRoute: typeof ApiMeRoute
+    }
     '/api/agent/attachments/$attachmentId': {
       id: '/api/agent/attachments/$attachmentId'
       path: '/api/agent/attachments/$attachmentId'
@@ -700,6 +719,16 @@ const ApiAttachmentsRouteWithChildren = ApiAttachmentsRoute._addFileChildren(
   ApiAttachmentsRouteChildren,
 )
 
+interface ApiMeRouteChildren {
+  ApiMeAvatarRoute: typeof ApiMeAvatarRoute
+}
+
+const ApiMeRouteChildren: ApiMeRouteChildren = {
+  ApiMeAvatarRoute: ApiMeAvatarRoute,
+}
+
+const ApiMeRouteWithChildren = ApiMeRoute._addFileChildren(ApiMeRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
@@ -711,7 +740,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAgentMessagesRoute: ApiAgentMessagesRoute,
   ApiAttachmentsRoute: ApiAttachmentsRouteWithChildren,
   ApiJwksRoute: ApiJwksRoute,
-  ApiMeRoute: ApiMeRoute,
+  ApiMeRoute: ApiMeRouteWithChildren,
   AuthCallbackRoute: AuthCallbackRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthLogoutRoute: AuthLogoutRoute,

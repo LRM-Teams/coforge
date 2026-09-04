@@ -20,12 +20,12 @@ Frank 或其明确授权的阿里云 operator 必须先在变更记录中填写�
 | `${ACCOUNT_ID}` | 两个 content bucket 与 CDN 必须在同一个阿里云账号；跨账号私有回源会要求长期 AK/SK，本方案禁止 |
 | `${REGION}` | 两个 content bucket 与 OSS 日志 sink 使用同一 Region；由 Frank 定稿，不从仓库或 bucket 名推断 |
 | `${ACCELERATION_AREA}` | 中国内地或全球加速要求有效 ICP；两个域名各自确认备案覆盖，未完成时不得选择这两项或切 CNAME |
-| `${FILES_BUCKET}` | 全局唯一的附件 bucket 名；不能包含环境外的业务含义 |
+| `${FILES_BUCKET}` | 全局唯一的私有用户文件 bucket 名；承载聊天附件和已认证用户头像，不能包含环境外的业务含义 |
 | `${RELEASES_BUCKET}` | 全局唯一的发行 bucket 名，且不得等于 `${FILES_BUCKET}` |
 | `${LOG_BUCKET}` | 已有的同账号同 Region private 日志 sink，或新建专用日志 bucket；不得作为 CDN origin |
 | `${SLS_PROJECT}` / `${SLS_LOGSTORE}` | CDN real-time access log 的受限 SLS 目标与 retention |
 | `${OPERATOR}` | 启用 MFA 的专用 RAM console user；不能使用聊天中的 AccessKey |
-| `${FILES_URL_TTL}` | backend 与 CDN 一致的短时附件 URL TTL；验收可先用 console generator |
+| `${FILES_URL_TTL}` | backend 与 CDN 一致的短时私有文件 URL TTL；验收可先用 console generator |
 
 执行前先禁用并轮换任何曾在聊天中发送的长期 AK/SK。本 runbook 不需要把 AK/SK 写入
 命令、文件或 CI；同账号 private OSS origin 必须选择阿里云推荐的 STS 临时 token
@@ -47,7 +47,7 @@ releases.coforge.cn/channels.json
 两个域名是两个 trust zone（见 [ADR 0006](../adr/0006-split-cdn-delivery-domains.md)）。
 每个域名只有一个 origin，路径与 object key 一一对应，不做业务前缀 rewrite，也不使用
 conditional origin；客户端看不到 OSS hostname。跨类访问由授权而非规则拦截：release
-域名没有附件 bucket 的读取授权，反之亦然。
+域名没有私有用户文件 bucket 的读取授权，反之亦然。
 
 阿里云的 same-account private OSS origin access 使用 STS，但其 CDN service role 对所选
 origin bucket 是 bucket-wide read-only，不能限制到单个 object。因此两个 content
@@ -99,8 +99,9 @@ bucket 都不能混放第三类数据，`${LOG_BUCKET}` 尤其不能成为 origi
    `${LOG_BUCKET}` 自身保持 private、Block Public Access，并配置经批准的 lifecycle；
    不把 source bucket 自己设为 log sink，避免日志递归。
 
-附件 bucket 只允许 canonical key
-`workspaces/{workspace_id}/attachments/{attachment_id}/original`；发行 bucket 只允许
+私有用户文件 bucket 只允许 canonical key
+`workspaces/{workspace_id}/attachments/{attachment_id}/original` 和
+`users/{user_id}/avatars/{avatar_id}/original`；发行 bucket 只允许
 [`release.md`](../release.md) 定义的 immutable trees、`channels.json` 与 installer
 入口。第 6 节的随机 `acceptance/` canary 是上线前唯一临时例外，验收后必须删除；不要
 提前创建目录占位对象。

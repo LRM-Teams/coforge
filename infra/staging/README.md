@@ -40,7 +40,7 @@ intentionally unreachable — no plaintext, not even redirects.
    `caddy/Caddyfile`, `centrifugo/config.yaml`) to
    `~/coforge-staging/infra/staging/` preserving layout.
 5. Attach an instance RAM role granting only `oss:GetObject`/`PutObject` on the
-   attachment bucket if the cloud OSS adapter needs object storage. Do not put
+   private user-files bucket if the cloud OSS adapter needs object storage. Do not put
    AK/SK pairs in environment files.
 6. Create the DNS record `staging.coforge.cn` → the ECS public address. TLS
    uses an ACME certificate over 443 (TLS-ALPN); there is no HTTP-01 path by

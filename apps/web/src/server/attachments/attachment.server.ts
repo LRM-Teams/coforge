@@ -1,7 +1,7 @@
 import { mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
 import type { PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
+import { fileStoragePath } from "../files/file-storage.server";
 
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 export const ATTACHMENT_SESSION_SECONDS = 900;
@@ -22,10 +22,6 @@ export function attachmentCapabilities(): AttachmentCapabilities {
   };
 }
 
-function storageRoot() {
-  return process.env.COFORGE_ATTACHMENT_STORAGE_DIR ?? join(process.cwd(), ".data", "attachments");
-}
-
 export async function storeAttachment(
   db: PrismaClient,
   input: {
@@ -42,13 +38,12 @@ export async function storeAttachment(
   if (!conversation) throw new AppError("ACCESS_DENIED");
   const id = crypto.randomUUID();
   const objectKey = `workspaces/${conversation.workspaceId}/attachments/${id}/original`;
-  await mkdir(join(storageRoot(), conversation.workspaceId, "attachments", id), {
+  const path = fileStoragePath(objectKey);
+  const directory = fileStoragePath(`workspaces/${conversation.workspaceId}/attachments/${id}`);
+  await mkdir(directory, {
     recursive: true,
   });
-  await Bun.write(
-    join(storageRoot(), conversation.workspaceId, "attachments", id, "original"),
-    input.file,
-  );
+  await Bun.write(path, input.file);
   try {
     return await db.attachment.create({
       data: {
@@ -64,7 +59,7 @@ export async function storeAttachment(
       select: { id: true, fileName: true, contentType: true, sizeBytes: true },
     });
   } catch (error) {
-    await rm(join(storageRoot(), conversation.workspaceId, "attachments", id), {
+    await rm(directory, {
       recursive: true,
       force: true,
     });
@@ -99,6 +94,6 @@ export async function readAuthorizedAttachment(
     throw new AppError("ACCESS_DENIED");
   return {
     attachment,
-    path: join(storageRoot(), attachment.workspaceId, "attachments", attachment.id, "original"),
+    path: fileStoragePath(attachment.objectKey),
   };
 }

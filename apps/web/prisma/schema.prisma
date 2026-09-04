@@ -29,6 +29,10 @@ model Workspace {
 model User {
   id                  String                @id @default(uuid()) @db.Uuid
   username            String                @unique
+  displayName         String?
+  description         String                @default("")
+  avatarObjectKey     String?
+  avatarContentType   String?
   timeZone            String?
   createdAt           DateTime              @default(now())
   identities          UserIdentity[]
