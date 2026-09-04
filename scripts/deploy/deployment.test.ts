@@ -321,9 +321,7 @@ describe("staging attachment persistence", () => {
   });
 
   test("the image owns the mount point so the volume is not created root-owned", async () => {
-    const dockerfile = await Bun.file(
-      new URL("../../apps/web/Dockerfile", import.meta.url),
-    ).text();
+    const dockerfile = await Bun.file(new URL("../../apps/web/Dockerfile", import.meta.url)).text();
     const runtimeStage = dockerfile.slice(dockerfile.lastIndexOf("FROM "));
 
     const mountPoint = runtimeStage.indexOf("mkdir -p /data/attachments");
