@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
+import { saveUserTimeZoneInputSchema } from "./settings.schemas";
 
 import { requireBrowserUser } from "../../server/auth/require-user.server";
 import { getDatabaseClient } from "../../server/db/client.server";
@@ -24,15 +25,8 @@ export const getUserPreferences = createServerFn({ method: "GET" }).handler(asyn
 });
 
 export const saveUserTimeZone = createServerFn({ method: "POST" })
-  .validator((data: unknown) => {
-    if (!data || typeof data !== "object" || Array.isArray(data))
-      throw new Error("User preferences input is required");
-    const timeZone = Reflect.get(data, "timeZone");
-    if (timeZone === null) return null;
-    if (typeof timeZone !== "string") throw new Error("Time zone must be a string or null");
-    return timeZone;
-  })
+  .validator(saveUserTimeZoneInputSchema)
   .handler(async ({ data }) => {
     const userId = currentUserId();
-    return { timeZone: await preferences().set(userId, data) };
+    return { timeZone: await preferences().set(userId, data.timeZone) };
   });

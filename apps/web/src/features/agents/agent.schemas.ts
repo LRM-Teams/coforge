@@ -16,3 +16,9 @@ export const createAgentInputSchema = z.object({
 });
 
 export type CreateAgentInput = z.infer<typeof createAgentInputSchema>;
+
+export const agentIdSchema = z.uuid();
+export const saveAgentRuntimeCredentialInputSchema = z.object({
+  agentId: agentIdSchema,
+  apiKey: z.string().min(1),
+});
