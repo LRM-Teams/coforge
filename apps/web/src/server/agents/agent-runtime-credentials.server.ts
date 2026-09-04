@@ -6,7 +6,7 @@ const API_KEY_MAX_LENGTH = 4096;
 const ENCRYPTION_KEY_BYTES = 32;
 const NONCE_BYTES = 12;
 const KEY_ID = "v1";
-const ENCRYPTION_KEY_ENV = "COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY";
+const ENCRYPTION_KEY_ENV = "COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY";
 
 type AgentRuntimeCredentialPrincipal = { workspaceId: string; userId: string };
 

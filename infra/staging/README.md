@@ -68,7 +68,7 @@ public，镜像包默认公开，ECS 拉镜像不需要登录。
 | `DEPLOY_SSH_HOST_KEY`                                    | 服务器指纹校验                                |
 | `AUTHING_APP_SECRET`                                     | Web 登录换 token                              |
 | `COFORGE_SESSION_SECRET`                                 | 云端 `coforge_session` 签名密钥，须与本机不同 |
-| `COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY`                   | 64 位十六进制 Agent Runtime 凭据加密主密钥    |
+| `COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY`                | 64 位十六进制 Agent 凭据加密主密钥            |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`                     | 阿里云北京 OTLP Traces 接入地址（含 Token）  |
 
 | 需要配的变量（staging 环境） | 用途                                |

@@ -94,7 +94,7 @@ describe("Agent runtime credential encryption key configuration", () => {
     writeFileSync(path, `${"ab".repeat(32)}\n`, { mode: 0o600 });
 
     const key = readAgentRuntimeCredentialEncryptionKey({
-      COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY_FILE: path,
+      COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY_FILE: path,
     });
 
     expect(key).toEqual(Uint8Array.from({ length: 32 }, () => 0xab));
@@ -103,8 +103,8 @@ describe("Agent runtime credential encryption key configuration", () => {
   test("rejects ambiguous inline and file configuration", () => {
     expect(() =>
       readAgentRuntimeCredentialEncryptionKey({
-        COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY: "ab".repeat(32),
-        COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY_FILE: "/run/secrets/credential-key",
+        COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY: "ab".repeat(32),
+        COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY_FILE: "/run/secrets/credential-key",
       }),
     ).toThrow("cannot both be set");
   });
