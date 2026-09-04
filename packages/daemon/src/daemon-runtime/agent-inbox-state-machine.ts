@@ -1,20 +1,32 @@
-/** Volatile draft cache. Web/backend exclusively decides freshness and --anyway authorization. */
+import type {
+  AgentMessageDraft,
+  AgentMessageDraftStore,
+} from "../persistence/agent-message-draft-store";
+
+/** Draft continuation state. Web/backend exclusively decides freshness and --anyway authorization. */
 export class AgentInboxStateMachine {
   readonly #drafts = new Map<string, { body: string; holdToken?: string }>();
 
-  save(target: string, body: string) {
+  constructor(private readonly persistence?: AgentMessageDraftStore) {}
+
+  async save(target: string, body: string) {
     this.#drafts.set(target, { body });
+    await this.persistence?.save(target, body);
   }
 
-  replace(target: string, body: string, holdToken: string) {
+  async replace(target: string, body: string, holdToken: string) {
     this.#drafts.set(target, { body, holdToken });
+    await this.persistence?.save(target, body, holdToken);
   }
 
-  draft(target: string): Readonly<{ body: string; holdToken?: string }> | undefined {
-    return this.#drafts.get(target);
+  async draft(
+    target: string,
+  ): Promise<AgentMessageDraft | Readonly<{ body: string; holdToken?: string }> | undefined> {
+    return this.persistence ? this.persistence.load(target) : this.#drafts.get(target);
   }
 
-  clear(target: string) {
+  async clear(target: string) {
     this.#drafts.delete(target);
+    await this.persistence?.clear(target);
   }
 }

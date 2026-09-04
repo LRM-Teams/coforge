@@ -173,20 +173,19 @@ test("App Inbox hides message ordering fields from Agent output", async () => {
   expect(output).toContain('"pendingCount":2');
 });
 
-test("held send results hide message ordering fields from Agent output", async () => {
-  const output = await run(["message", "send", "--target", "@ada"], {
-    check: async () => ({ messages: [] }),
-    read: async () => undefined,
-    send: async () => ({
-      accepted: false,
-      sideEffectDecision: "hold",
-      messages: [{ id: "message-2", sequence: 9, body: "new context" }],
+test("held sends fail with draft retry instructions", async () => {
+  await expect(
+    run(["message", "send", "--target", "@ada"], {
+      check: async () => ({ messages: [] }),
+      read: async () => undefined,
+      send: async () => ({
+        accepted: false,
+        sideEffectDecision: "hold",
+        messages: [{ id: "message-2", sequence: 9, body: "new context" }],
+      }),
+      view: async () => ({ bytes: new Uint8Array() }),
     }),
-    view: async () => ({ bytes: new Uint8Array() }),
-  });
-
-  expect(output).not.toContain("sequence");
-  expect(output).toContain('"id":"message-2"');
+  ).rejects.toThrow("saved as a draft");
 });
 
 test("send results hide the internal model cursor from Agent output", async () => {

@@ -33,8 +33,6 @@ export type WorkspaceQueryRequest = {
   workspaceSlug?: string;
 };
 
-export const RUNTIME_KINDS = ["external", "builtin"] as const;
-export type RuntimeKind = (typeof RUNTIME_KINDS)[number];
 export const RUNTIME_PROVIDER = {
   COFORGE: "coforge",
   CODEX: "codex",
@@ -49,8 +47,6 @@ export type RuntimeMetadata = {
   provider: RuntimeProvider;
   version: string;
   displayName: string;
-  /** Defaults to external when decoding a pre-kind payload. */
-  kind: RuntimeKind;
 };
 export type CodeAgentModelMetadata = {
   id: string;
@@ -170,6 +166,9 @@ export type AgentStatus = {
   computerId: string;
   agentId: string;
   status: "active" | "inactive";
+  daemonInstanceId: string;
+  clientSeq: number;
+  observedAtMs: number;
 };
 export type AgentMessageRequest = {
   protocolMajor: number;

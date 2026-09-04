@@ -90,7 +90,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       platform: "linux",
       osVersion: "e2e",
       computerVersion: "0.1.0",
-      runtimes: [{ provider: "pi", kind: "builtin", version: "0.1.0", displayName: "Pi" }],
+      runtimes: [{ provider: "pi", version: "0.1.0", displayName: "Pi" }],
       registrationIdempotencyKey: "e2e-registration",
     },
     { userId: DEV_BROWSER_USER.id },
@@ -448,7 +448,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     const profile = await fetch(`http://127.0.0.1:8789/agents/${created.agent.id}?tab=profile`);
     expect(profile.status).toBe(200);
     const profileHtml = await profile.text();
-    expect(profileHtml).toContain("E2E Agent");
+    expect(profileHtml).toContain("e2e-agent");
     expect(profileHtml).toContain(registration.computerId.slice(0, 8));
     expect(profileHtml).toContain("e2e-model");
     expect(profileHtml).toContain("balanced");

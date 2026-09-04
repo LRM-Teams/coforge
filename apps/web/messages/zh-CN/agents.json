@@ -20,6 +20,8 @@
   "agent_form_provider": "运行时提供商",
   "agent_form_computer": "电脑",
   "agent_form_model": "模型",
+  "agent_form_model_provider": "模型提供商",
+  "agent_form_catalog_manual_help": "无法加载模型目录。请手动输入提供商和模型 ID；Daemon 会在智能体启动时验证。",
   "agent_form_reasoning": "推理强度",
   "agent_form_provider_default": "使用运行时默认值",
   "agent_provider_pi_builtin": "CoForge",

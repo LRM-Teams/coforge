@@ -43,6 +43,7 @@ export function Avatar({
   size = "md",
   layout = "tiles",
   online,
+  statusLabel,
   initials,
   className,
 }: {
@@ -52,6 +53,8 @@ export function Avatar({
   layout?: "tiles" | "stack";
   /** Presence dot. Omit it entirely when presence is unknown or irrelevant. */
   online?: boolean;
+  /** Localized presence text announced with the avatar. */
+  statusLabel?: string;
   /** Overrides the derived initials. Only meaningful for a single person. */
   initials?: string;
   className?: string;
@@ -103,12 +106,18 @@ export function Avatar({
   }
 
   return (
-    <span className="relative flex shrink-0">
+    <span
+      role={statusLabel ? "img" : undefined}
+      aria-label={
+        statusLabel ? `${people.map(({ name }) => name).join(", ")}, ${statusLabel}` : undefined
+      }
+      className="relative flex shrink-0"
+    >
       {face}
       <span
         aria-hidden="true"
         className={cn(
-          "absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-card",
+          "absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-card",
           online ? "bg-success" : "bg-offline",
         )}
       />

@@ -23,7 +23,6 @@ const request = {
       provider: RUNTIME_PROVIDER.PI,
       version: "1.0.0",
       displayName: "Pi",
-      kind: "external" as const,
     },
   ],
   registrationIdempotencyKey: "registration-1",

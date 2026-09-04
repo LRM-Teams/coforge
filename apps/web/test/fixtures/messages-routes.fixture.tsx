@@ -14,7 +14,7 @@ const agents = [
     displayName: "First Agent",
     createdAt: new Date("2026-08-29T00:00:00Z"),
     runtimeConfig: { provider: "pi" as const, model: "", reasoning: "" },
-    status: "inactive" as const,
+    status: { value: "inactive" as const, expiresAt: null },
   },
   {
     id: "agent-2",
@@ -24,7 +24,7 @@ const agents = [
     displayName: "Second Agent",
     createdAt: new Date("2026-08-29T00:00:00Z"),
     runtimeConfig: { provider: "pi" as const, model: "", reasoning: "" },
-    status: "inactive" as const,
+    status: { value: "inactive" as const, expiresAt: null },
   },
 ];
 const listAgents = mock(async () => agents);
@@ -33,6 +33,17 @@ const loadDirectConversation = mock(async ({ data }: { data: { agentId: string }
   senderMemberId: "member-1",
   agent: agents.find((agent) => agent.id === data.agentId) ?? agents[0],
   messages: [],
+}));
+const getUserProfile = mock(async () => ({
+  name: "Route Tester",
+  email: "route@example.com",
+  username: "route-tester",
+  description: "",
+  avatarUrl: null,
+}));
+const loadWorkspaceSwitcher = mock(async () => ({
+  workspaces: [{ id: "workspace-1", slug: "route-tester", name: "Route Tester's Workspace" }],
+  current: { id: "workspace-1", slug: "route-tester", name: "Route Tester's Workspace" },
 }));
 
 mock.module("@/features/agents/agents.functions", () => ({
@@ -82,32 +93,25 @@ mock.module("@/features/settings/settings.functions", () => ({
   saveUserTimeZone: mock(async () => ({ timeZone: null })),
 }));
 mock.module("@/features/profiles/profile.functions", () => ({
-  getUserProfile: mock(async () => ({
-    name: "Route Tester",
-    email: "route@example.com",
-    username: "route-tester",
-    description: "",
-    avatarUrl: null,
-  })),
+  getUserProfile,
   saveUserProfile: mock(async () => ({ name: "Route Tester", description: "" })),
 }));
 mock.module("@/server/auth/current-user", () => ({
   peekCurrentUser: mock(async () => undefined),
-  requireCurrentUser: mock(async () => ({
-    id: "user-1",
-    name: "Route Tester",
-    email: "route@example.com",
-    authingSub: "authing-route-tester",
-    username: "route-tester",
-  })),
 }));
 mock.module("@/features/workspaces/workspaces.functions", () => ({
-  loadWorkspaceSwitcher: mock(async () => ({
-    workspaces: [{ id: "workspace-1", slug: "route-tester", name: "Route Tester's Workspace" }],
-    current: { id: "workspace-1", slug: "route-tester", name: "Route Tester's Workspace" },
-  })),
+  loadWorkspaceSwitcher,
   selectWorkspace: mock(async () => {}),
   createWorkspace: mock(async () => {}),
+}));
+mock.module("centrifuge", () => ({
+  Centrifuge: class {
+    on() {
+      return this;
+    }
+    connect() {}
+    disconnect() {}
+  },
 }));
 
 const { getRouter } = await import("@/router");
@@ -116,6 +120,8 @@ afterEach(() => {
   cleanup();
   listAgents.mockClear();
   loadDirectConversation.mockClear();
+  getUserProfile.mockClear();
+  loadWorkspaceSwitcher.mockClear();
 });
 
 async function renderRoute(path: string) {
@@ -150,6 +156,23 @@ test("a direct URL renders the second Agent through the Outlet and highlights it
     "page",
   );
   expect(loadDirectConversation).toHaveBeenCalledWith({ data: { agentId: "agent-2" } });
+});
+
+test("reuses parent application data across sidebar destinations", async () => {
+  const { router } = await renderRoute("/messages/agent-1");
+  expect(getUserProfile).toHaveBeenCalledTimes(1);
+  expect(loadWorkspaceSwitcher).toHaveBeenCalledTimes(1);
+
+  await act(() =>
+    router.navigate({
+      to: "/agents/$agentId",
+      params: { agentId: "agent-1" },
+      search: { tab: "profile" },
+    }),
+  );
+
+  expect(getUserProfile).toHaveBeenCalledTimes(1);
+  expect(loadWorkspaceSwitcher).toHaveBeenCalledTimes(1);
 });
 
 test("an Agent profile shows its Computer, runtime configuration, and latest failure", async () => {

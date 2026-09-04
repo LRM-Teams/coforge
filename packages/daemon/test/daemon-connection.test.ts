@@ -133,6 +133,9 @@ test("sends Agent status transitions through the status RPC", async () => {
     computerId: config.computerId,
     agentId: "agent-1",
     status: "active",
+    daemonInstanceId: "daemon-1",
+    clientSeq: 1,
+    observedAtMs: 1_000,
   });
   await Promise.resolve();
 
@@ -147,6 +150,9 @@ test("sends Agent status transitions through the status RPC", async () => {
     computerId: config.computerId,
     agentId: "agent-1",
     status: "active",
+    daemonInstanceId: "daemon-1",
+    clientSeq: 1,
+    observedAtMs: 1_000,
   });
 });
 
@@ -174,6 +180,9 @@ test("serializes Agent status reports so inactive cannot be overtaken", async ()
       computerId: config.computerId,
       agentId: "agent-1",
       status,
+      daemonInstanceId: "daemon-1",
+      clientSeq: status === "active" ? 1 : 2,
+      observedAtMs: status === "active" ? 1_000 : 2_000,
     });
 
   report("active");

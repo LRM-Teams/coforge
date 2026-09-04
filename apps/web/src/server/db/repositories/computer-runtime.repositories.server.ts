@@ -22,7 +22,13 @@ const runtimeShape = {
 } as const;
 
 function runtimeProvider(value: string): RuntimeProvider {
-  if (value === RUNTIME_PROVIDER.CODEX || value === RUNTIME_PROVIDER.CLAUDE_CODE) return value;
+  if (
+    value === RUNTIME_PROVIDER.COFORGE ||
+    value === RUNTIME_PROVIDER.PI ||
+    value === RUNTIME_PROVIDER.CODEX ||
+    value === RUNTIME_PROVIDER.CLAUDE_CODE
+  )
+    return value;
   throw new Error("Computer runtime has an invalid provider");
 }
 

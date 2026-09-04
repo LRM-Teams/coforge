@@ -66,9 +66,10 @@ describe("CentrifugoRpcHandler", () => {
       {
         put: async (status) => {
           statuses.push(status);
+          return true;
         },
         get: async () => "inactive",
-        snapshot: async () => ({ status: "inactive", expiresAt: null }),
+        snapshot: async () => undefined,
       },
       {
         publish: async (channel, data) => {
@@ -84,6 +85,9 @@ describe("CentrifugoRpcHandler", () => {
       computerId: "computer-1",
       agentId: "agent-1",
       status: "active",
+      daemonInstanceId: "daemon-1",
+      clientSeq: 1,
+      observedAtMs: 1_000,
     });
 
     expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
@@ -95,17 +99,55 @@ describe("CentrifugoRpcHandler", () => {
         computerId: "computer-1",
         agentId: "agent-1",
         status: "active",
+        daemonInstanceId: "daemon-1",
+        clientSeq: 1,
+        observedAtMs: 1_000,
       },
     ]);
     expect(publications).toEqual([
       {
         channel: "status:workspace-1",
-        data: { agentId: "agent-1", status: "active", expiresAt: 91_000 },
+        data: {
+          agentId: "agent-1",
+          status: "active",
+          expiresAt: 91_000,
+          daemonInstanceId: "daemon-1",
+          clientSeq: 1,
+          observedAtMs: 1_000,
+        },
       },
     ]);
     expect(
       await method(payload, { principal: { ...principal(), computerId: "computer-2" } }),
     ).toEqual({ code: 403, message: "Agent status is not authorized" });
+  });
+
+  test("does not publish stale handler input", async () => {
+    const publications: unknown[] = [];
+    const method = createAgentStatusMethod(
+      { getById: async () => ({ workspaceId: "workspace-1", computerId: "computer-1" }) },
+      { put: async () => false, get: async () => "active", snapshot: async () => undefined },
+      {
+        publish: async (...args) => {
+          publications.push(args);
+        },
+      },
+    );
+    await method(
+      encodeAgentStatus({
+        protocolMajor: 1,
+        requestId: "stale",
+        workspaceId: "workspace-1",
+        computerId: "computer-1",
+        agentId: "agent-1",
+        status: "inactive",
+        daemonInstanceId: "daemon-1",
+        clientSeq: 1,
+        observedAtMs: 1,
+      }),
+      { principal: principal() },
+    );
+    expect(publications).toEqual([]);
   });
 
   test("replaces the exact Computer's external Code Agent snapshot", async () => {
@@ -118,7 +160,7 @@ describe("CentrifugoRpcHandler", () => {
       requestId: "inventory-1",
       workspaceId: "workspace-1",
       computerId: "computer-1",
-      runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex", kind: "external" }],
+      runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
       catalogs: [{ provider: "codex", models: [] }],
     });
 
@@ -126,9 +168,7 @@ describe("CentrifugoRpcHandler", () => {
     expect(updates).toEqual([
       {
         scope: { workspaceId: "workspace-1", computerId: "computer-1" },
-        runtimes: [
-          { provider: "codex", version: "0.151.0", displayName: "Codex", kind: "external" },
-        ],
+        runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
         catalogs: [{ provider: "codex", models: [] }],
       },
     ]);

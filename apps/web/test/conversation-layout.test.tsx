@@ -7,6 +7,7 @@ import { cleanup, render, within } from "@testing-library/react";
 import {
   ConversationLayout,
   EmptyConversation,
+  useConversationAgentStatus,
 } from "@/features/conversations/conversation-layout";
 import { getRouter } from "@/router";
 
@@ -18,6 +19,7 @@ const agent = {
   displayName: "Release Helper",
   createdAt: "2026-08-20T12:00:00.000Z",
   runtimeConfig: { runtime: "codex" as const, model: "gpt-5" },
+  status: { value: "active" as const, expiresAt: Date.now() + 60_000 },
 };
 
 function renderLayout(agents = [agent], selectedAgentId = agent.id) {
@@ -41,7 +43,8 @@ test("shows real Agents as typed conversation links and highlights the selection
   expect(link.getAttribute("href")).toBe("/en/messages/agent-1");
   expect(link.getAttribute("aria-current")).toBe("page");
   expect(page.queryByText("Codex / gpt-5")).toBeNull();
-  expect(page.queryByText(/online|unread/i)).toBeNull();
+  expect(page.getByLabelText("Release Helper, Online")).toBeTruthy();
+  expect(page.queryByText(/unread/i)).toBeNull();
 });
 
 test("shows the chat empty state without an Agents action", () => {
@@ -55,4 +58,19 @@ test("shows the chat empty state without an Agents action", () => {
   const page = within(document.body);
   expect(page.getByText("No Agents available for private messages")).toBeTruthy();
   expect(page.queryByRole("link")).toBeNull();
+});
+
+test("keeps an authorized conversation when its Agent status is temporarily absent", () => {
+  function SelectedConversation() {
+    const status = useConversationAgentStatus();
+    return <p>{status ?? "presence unknown"}</p>;
+  }
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <ConversationLayout agents={[]} selectedAgentId="agent-1">
+        <SelectedConversation />
+      </ConversationLayout>
+    </RouterContextProvider>,
+  );
+  expect(within(document.body).getByText("presence unknown")).toBeTruthy();
 });

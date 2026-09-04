@@ -1,8 +1,12 @@
-import { Outlet, createFileRoute, useParams } from "@tanstack/react-router";
+import { Outlet, createFileRoute, getRouteApi, useParams } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 
-import { listAgents } from "@/features/agents/agents.functions";
+import { getAgentStatusConnectionToken, listAgents } from "@/features/agents/agents.functions";
+import { useAgentStatuses } from "@/features/agents/agent-status-realtime";
 import { ConversationLayout } from "@/features/conversations/conversation-layout";
 import { PageLoadError } from "@/features/errors/page-load-error";
+
+const appRoute = getRouteApi("/_app");
 
 export const Route = createFileRoute("/_app/messages")({
   loader: () => listAgents(),
@@ -12,9 +16,18 @@ export const Route = createFileRoute("/_app/messages")({
 
 function MessagesPage() {
   const agents = Route.useLoaderData();
+  const { currentWorkspace } = appRoute.useLoaderData();
+  const refreshAgents = useServerFn(listAgents);
+  const getConnectionToken = useServerFn(getAgentStatusConnectionToken);
+  const visibleAgents = useAgentStatuses({
+    agents,
+    workspaceId: currentWorkspace?.id,
+    refresh: refreshAgents,
+    getConnectionToken,
+  });
   const params = useParams({ from: "/_app/messages/$agentId", shouldThrow: false });
   return (
-    <ConversationLayout agents={agents} selectedAgentId={params?.agentId}>
+    <ConversationLayout agents={visibleAgents} selectedAgentId={params?.agentId}>
       <Outlet />
     </ConversationLayout>
   );

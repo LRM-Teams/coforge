@@ -42,7 +42,7 @@ test("computer registration sends the stable method and rejects incompatible maj
   expect(() => client.register({ ...request, protocolMajor: 2 })).toThrow("unsupported");
 });
 
-test("registration codec encodes builtin and external kinds explicitly", () => {
+test("registration codec preserves runtime provider metadata", () => {
   const request = {
     protocolMajor: 1,
     requestId: "r",
@@ -52,51 +52,17 @@ test("registration codec encodes builtin and external kinds explicitly", () => {
     osVersion: "1",
     computerVersion: "1",
     registrationIdempotencyKey: "i",
-    runtimes: [
-      { provider: RUNTIME_PROVIDER.PI, version: "1", displayName: "Pi", kind: "builtin" as const },
-    ],
+    runtimes: [{ provider: RUNTIME_PROVIDER.PI, version: "1", displayName: "Pi" }],
   } satisfies Parameters<ComputerRegistrationClient["register"]>[0];
   expect(decodeComputerRegisterRequest(encodeComputerRegisterRequest(request)).runtimes).toEqual(
     request.runtimes,
   );
-  const external = { ...request.runtimes[0], kind: "external" as const };
+  const external = request.runtimes[0];
   const externalPayload = encodeComputerRegisterRequest({
     ...request,
     runtimes: [external],
   });
   expect(decodeComputerRegisterRequest(externalPayload).runtimes).toEqual([external]);
-
-  // Simulate a pre-kind payload by removing RuntimeMetadata.kind (field 4,
-  // wire bytes 0x20 0x02) while retaining the request's later fields.
-  const kindFieldOffset = externalPayload.lastIndexOf(0x20);
-  const runtimesFieldOffset = externalPayload.lastIndexOf(0x42, kindFieldOffset);
-  const oldPayload = new Uint8Array([
-    ...externalPayload.slice(0, kindFieldOffset),
-    ...externalPayload.slice(kindFieldOffset + 2),
-  ]);
-  oldPayload[runtimesFieldOffset + 1] -= 2;
-  expect(decodeComputerRegisterRequest(oldPayload).runtimes[0].kind).toBe("external");
-});
-
-test("provider and kind together identify runtimes", () => {
-  const runtimes = [
-    {
-      provider: RUNTIME_PROVIDER.PI,
-      version: "builtin",
-      displayName: "Pi",
-      kind: "builtin" as const,
-    },
-    {
-      provider: RUNTIME_PROVIDER.PI,
-      version: "1.0.0",
-      displayName: "Pi external",
-      kind: "external" as const,
-    },
-  ];
-  expect(runtimes.map(({ provider, kind }) => `${provider}:${kind}`)).toEqual([
-    "pi:builtin",
-    "pi:external",
-  ]);
 });
 
 test("daemon runtime code-agent inventory round trips as a complete external snapshot", () => {
@@ -110,13 +76,11 @@ test("daemon runtime code-agent inventory round trips as a complete external sna
         provider: RUNTIME_PROVIDER.CODEX,
         version: "0.151.0",
         displayName: "Codex",
-        kind: "external" as const,
       },
       {
         provider: RUNTIME_PROVIDER.CLAUDE_CODE,
         version: "2.1.0",
         displayName: "Claude Code",
-        kind: "external" as const,
       },
     ],
     catalogs: [

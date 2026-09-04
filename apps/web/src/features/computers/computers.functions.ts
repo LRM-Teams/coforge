@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import type { CodeAgentModelMetadata, RuntimeProvider } from "@coforge/protocol";
 import {
+  computerIdInputSchema,
   readUsageInputSchema,
   scanUsageInputSchema,
   setRuntimeVisibilityInputSchema,
@@ -75,10 +76,6 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
             machineId: true,
             kind: true,
             ownerId: true,
-            modelCatalogs: {
-              select: { provider: true, models: true, observedAt: true },
-              orderBy: { provider: "asc" },
-            },
           },
         },
       },
@@ -88,7 +85,6 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
   ]);
   return connections.map(({ computer, createdAt }) => {
     const computerRuntimes = runtimes.filter((runtime) => runtime.computerId === computer.id);
-    const visibleProviders = new Set(computerRuntimes.map((runtime) => runtime.provider));
     return {
       id: computer.id,
       machineId: computer.machineId,
@@ -97,21 +93,50 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
       ownedByCurrentUser: computer.ownerId === user.id,
       online: getComputerStatus(workspaceId, computer.id).online,
       runtimes: computerRuntimes.map(({ ownerId: _ownerId, ...runtime }) => runtime),
-      modelCatalogs: computer.modelCatalogs
-        .filter(
-          (catalog) =>
-            catalog.provider === "pi" || visibleProviders.has(runtimeProvider(catalog.provider)),
-        )
-        .map((catalog) => ({
-          provider: runtimeProvider(catalog.provider),
-          models: modelMetadata(catalog.models),
-          observedAt: catalog.observedAt,
-        }))
-        .filter((catalog) => catalog.models !== undefined)
-        .map((catalog) => ({ ...catalog, models: catalog.models! })),
     };
   });
 });
+
+export const getComputerRuntimeCatalog = createServerFn({ method: "GET" })
+  .validator(computerIdInputSchema)
+  .handler(async ({ data }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const { db, visibility } = runtimeVisibility();
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const [connection, runtimes] = await Promise.all([
+      db.workspaceComputer.findUnique({
+        where: {
+          workspaceId_computerId: { workspaceId, computerId: data.computerId },
+        },
+        select: {
+          computer: {
+            select: {
+              modelCatalogs: {
+                select: { provider: true, models: true, observedAt: true },
+                orderBy: { provider: "asc" },
+              },
+            },
+          },
+        },
+      }),
+      visibility.list({ workspaceId, userId: user.id }),
+    ]);
+    if (!connection) throw new Error("Computer is not available");
+    const visibleProviders = new Set(
+      runtimes
+        .filter((runtime) => runtime.computerId === data.computerId)
+        .map((runtime) => runtime.provider),
+    );
+    return connection.computer.modelCatalogs
+      .filter((catalog) => visibleProviders.has(runtimeProvider(catalog.provider)))
+      .map((catalog) => ({
+        provider: runtimeProvider(catalog.provider),
+        models: modelMetadata(catalog.models),
+        observedAt: catalog.observedAt,
+      }))
+      .filter((catalog) => catalog.models !== undefined)
+      .map((catalog) => ({ ...catalog, models: catalog.models! }));
+  });
 
 export const setRuntimeVisibility = createServerFn({ method: "POST" })
   .validator(setRuntimeVisibilityInputSchema)
@@ -159,6 +184,7 @@ function modelMetadata(value: unknown): CodeAgentModelMetadata[] | undefined {
 }
 
 function runtimeProvider(value: string): RuntimeProvider {
-  if (value === "codex" || value === "claude-code" || value === "pi") return value;
+  if (value === "coforge" || value === "codex" || value === "claude-code" || value === "pi")
+    return value;
   throw new Error("Computer reported an unknown runtime provider");
 }

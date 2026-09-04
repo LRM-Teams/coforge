@@ -1,63 +1,89 @@
-import { expect, mock, test } from "bun:test";
+import { expect, test } from "bun:test";
 
 import {
   applyAgentStatusEvent,
-  createAgentStatusConnectedHandler,
   decodeAgentStatusEvent,
   expireAgentStatuses,
+  mergeAgentStatusSnapshot,
+  type AgentStatusEvent,
+  type AgentStatusView,
 } from "../src/features/agents/agent-status-realtime";
 
-const agents = [
+const ordering = { daemonInstanceId: "daemon-1", clientSeq: 2, observedAtMs: 2_000 };
+const agents: Array<{ id: string; name: string; status: AgentStatusView }> = [
   {
     id: "agent-1",
-    status: "inactive" as const,
-    statusExpiresAt: null,
+    name: "Current",
+    status: { value: "active" as const, expiresAt: 90_000, ordering },
   },
 ];
 
-test("applies a realtime status event only to its Agent", () => {
+function event(overrides: Partial<AgentStatusEvent> = {}): AgentStatusEvent {
+  return {
+    agentId: "agent-1",
+    status: "active",
+    expiresAt: 100_000,
+    daemonInstanceId: "daemon-1",
+    clientSeq: 2,
+    observedAtMs: 2_000,
+    ...overrides,
+  };
+}
+
+test("uses ordering metadata for publications and idempotent lease refreshes", () => {
+  expect(applyAgentStatusEvent(agents, event({ clientSeq: 1 }))).toEqual(agents);
+  expect(applyAgentStatusEvent(agents, event({ status: "inactive", expiresAt: null }))).toEqual(
+    agents,
+  );
+  expect(applyAgentStatusEvent(agents, event())[0]?.status.expiresAt).toBe(100_000);
+  expect(applyAgentStatusEvent(agents, event({ expiresAt: 80_000 }))[0]?.status.expiresAt).toBe(
+    90_000,
+  );
   expect(
-    applyAgentStatusEvent(agents, {
-      agentId: "agent-1",
-      status: "active",
-      expiresAt: 90_000,
-    }),
-  ).toEqual([{ id: "agent-1", status: "active", statusExpiresAt: 90_000 }]);
+    applyAgentStatusEvent(agents, event({ clientSeq: 3 }))[0]?.status.ordering?.clientSeq,
+  ).toBe(3);
+  expect(
+    applyAgentStatusEvent(agents, event({ daemonInstanceId: "daemon-2", observedAtMs: 1_999 })),
+  ).toEqual(agents);
+  expect(
+    applyAgentStatusEvent(agents, event({ daemonInstanceId: "daemon-2", observedAtMs: 2_001 }))[0]
+      ?.status.ordering?.daemonInstanceId,
+  ).toBe("daemon-2");
+  const replacement = applyAgentStatusEvent(
+    agents,
+    event({ daemonInstanceId: "daemon-2", observedAtMs: 2_001 }),
+  );
+  expect(
+    applyAgentStatusEvent(
+      replacement,
+      event({ status: "inactive", expiresAt: null, clientSeq: 3 }),
+    ),
+  ).toEqual(replacement);
+});
+
+test("snapshot merges membership and fields without letting unordered status replace ordered status", () => {
+  expect(
+    mergeAgentStatusSnapshot(agents, [
+      { id: "agent-1", name: "Renamed", status: { value: "inactive" as const, expiresAt: null } },
+      { id: "agent-2", name: "Added", status: { value: "inactive" as const, expiresAt: null } },
+    ]),
+  ).toEqual([
+    { ...agents[0], name: "Renamed" },
+    { id: "agent-2", name: "Added", status: { value: "inactive", expiresAt: null } },
+  ]);
 });
 
 test("expires an active Agent locally when its lease renewal stops", () => {
-  expect(
-    expireAgentStatuses([{ id: "agent-1", status: "active", statusExpiresAt: 90_000 }], 90_001),
-  ).toEqual([{ id: "agent-1", status: "inactive", statusExpiresAt: null }]);
+  expect(expireAgentStatuses(agents, 90_001)[0]?.status).toEqual({
+    value: "inactive",
+    expiresAt: null,
+    ordering,
+  });
 });
 
 test("rejects malformed realtime status publications", () => {
-  const valid = new TextEncoder().encode(
-    JSON.stringify({ agentId: "agent-1", status: "active", expiresAt: 90_000 }),
+  expect(decodeAgentStatusEvent(new TextEncoder().encode(JSON.stringify(event())))).toEqual(
+    event(),
   );
-  expect(decodeAgentStatusEvent(valid)).toEqual({
-    agentId: "agent-1",
-    status: "active",
-    expiresAt: 90_000,
-  });
-  expect(
-    decodeAgentStatusEvent({ agentId: "agent-1", status: "inactive", expiresAt: null }),
-  ).toEqual({ agentId: "agent-1", status: "inactive", expiresAt: null });
   expect(() => decodeAgentStatusEvent(new TextEncoder().encode('{"status":"online"}'))).toThrow();
-});
-
-test("refreshes the Agent snapshot on the initial connection and every reconnect", async () => {
-  const snapshots = [[{ id: "agent-1" }], [{ id: "agent-2" }]];
-  const refresh = mock(async () => snapshots.shift() ?? []);
-  const apply = mock((_agents: Array<{ id: string }>) => {});
-  const connected = createAgentStatusConnectedHandler(refresh, apply);
-
-  await connected();
-  await connected();
-
-  expect(refresh).toHaveBeenCalledTimes(2);
-  expect(apply.mock.calls.map(([agents]) => agents)).toEqual([
-    [{ id: "agent-1" }],
-    [{ id: "agent-2" }],
-  ]);
 });

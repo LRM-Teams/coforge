@@ -56,7 +56,9 @@ function dependencies() {
             computer: {
               select: {
                 modelCatalogs: {
-                  where: { provider: config.provider },
+                  where: {
+                    provider: config.provider,
+                  },
                   select: { models: true },
                 },
               },
@@ -65,12 +67,11 @@ function dependencies() {
         });
         if (!connection) return false;
         if (
-          config.provider !== RUNTIME_PROVIDER.PI &&
-          config.provider !== RUNTIME_PROVIDER.COFORGE &&
           !(await runtimeVisibility.canSelect({ workspaceId, userId }, computerId, config.provider))
         )
           return false;
         if (!config.model) return !config.modelProvider && !config.reasoning;
+        if (config.provider === RUNTIME_PROVIDER.COFORGE && config.modelProvider) return true;
         const models = connection.computer.modelCatalogs[0]?.models;
         if (!Array.isArray(models)) return false;
         return models.some((value) => {
@@ -110,8 +111,21 @@ export const listAgents = createServerFn({ method: "GET" }).handler(async () => 
     agents.map(async (agent) => {
       const status = agent.computerId
         ? await statuses.snapshot({ workspaceId, computerId: agent.computerId, agentId: agent.id })
-        : { status: "inactive" as const, expiresAt: null };
-      return { ...agent, status: status.status, statusExpiresAt: status.expiresAt };
+        : undefined;
+      return {
+        ...agent,
+        status: {
+          value: status?.status ?? ("inactive" as const),
+          expiresAt: status?.expiresAt ?? null,
+          ordering: status
+            ? {
+                daemonInstanceId: status.daemonInstanceId,
+                clientSeq: status.clientSeq,
+                observedAtMs: status.observedAtMs,
+              }
+            : null,
+        },
+      };
     }),
   );
 });

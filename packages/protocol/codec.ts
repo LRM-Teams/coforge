@@ -2,7 +2,6 @@ import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   ComputerRegisterRequestSchema,
   ComputerRegisterResponseSchema,
-  RuntimeKind,
 } from "./gen/coforge/rpc/v1/computer_pb";
 import {
   RUNTIME_PROVIDER,
@@ -57,19 +56,16 @@ import type {
 
 const runtimeMetadata = (runtime: RuntimeMetadata) => ({
   ...runtime,
-  kind: runtime.kind === "builtin" ? RuntimeKind.BUILTIN : RuntimeKind.EXTERNAL,
 });
 
 const decodedRuntimeMetadata = (runtime: {
   provider: string;
   version: string;
   displayName: string;
-  kind: RuntimeKind;
 }): RuntimeMetadata => ({
   provider: parseRuntimeProvider(runtime.provider),
   version: runtime.version,
   displayName: runtime.displayName,
-  kind: runtime.kind === RuntimeKind.BUILTIN ? "builtin" : "external",
 });
 
 const modelCatalog = (catalog: CodeAgentModelCatalog) => ({
@@ -424,7 +420,14 @@ export function decodeAgentActivity(bytes: Uint8Array): AgentActivity {
 
 export function encodeAgentStatus(value: AgentStatus): Uint8Array {
   validateAgentStatus(value);
-  return toBinary(AgentStatusSchema, create(AgentStatusSchema, value));
+  return toBinary(
+    AgentStatusSchema,
+    create(AgentStatusSchema, {
+      ...value,
+      clientSeq: BigInt(value.clientSeq),
+      observedAtMs: BigInt(value.observedAtMs),
+    }),
+  );
 }
 
 export function decodeAgentStatus(bytes: Uint8Array): AgentStatus {
@@ -436,6 +439,9 @@ export function decodeAgentStatus(bytes: Uint8Array): AgentStatus {
     computerId: value.computerId,
     agentId: value.agentId,
     status: value.status,
+    daemonInstanceId: value.daemonInstanceId,
+    clientSeq: Number(value.clientSeq),
+    observedAtMs: Number(value.observedAtMs),
   };
   validateAgentStatus(status);
   return status;
@@ -448,6 +454,9 @@ function validateAgentStatus(value: {
   computerId: string;
   agentId: string;
   status: string;
+  daemonInstanceId: string;
+  clientSeq: number;
+  observedAtMs: number;
 }): asserts value is AgentStatus {
   if (
     value.protocolMajor !== 1 ||
@@ -455,6 +464,11 @@ function validateAgentStatus(value: {
     !value.workspaceId ||
     !value.computerId ||
     !value.agentId ||
+    !value.daemonInstanceId ||
+    !Number.isSafeInteger(value.clientSeq) ||
+    value.clientSeq < 1 ||
+    !Number.isSafeInteger(value.observedAtMs) ||
+    value.observedAtMs < 1 ||
     (value.status !== "active" && value.status !== "inactive")
   )
     throw new Error("invalid agent status");

@@ -20,9 +20,11 @@
     "format:check": "oxfmt --check .",
     "lint": "oxlint .",
     "typecheck": "tsc --noEmit",
-    "check": "bun run format:check && bun run lint && bun run typecheck",
+    "check": "bun run check:models && bun run format:check && bun run lint && bun run typecheck",
     "build": "bun build --compile ./src/runner.ts --outfile ./dist/coforge-agent",
-    "pack:check": "bun pm pack --dry-run"
+    "pack:check": "bun pm pack --dry-run",
+    "generate:models": "bun scripts/generate-coforge-models.ts",
+    "check:models": "bun scripts/generate-coforge-models.ts --check"
   },
   "dependencies": {
     "@coforge/protocol": "workspace:*",

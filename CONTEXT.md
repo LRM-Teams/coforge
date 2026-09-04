@@ -51,11 +51,11 @@ workspace is the same as the conversation's workspace.
 A durable text record in a DirectConversation, sent by one of its members.
 
 **Agent status**:
-The two-value online status derived from the local Agent runtime process: `online` while the process is running and `offline` after it exits or is stopped. `agent:status` is emitted only when this value changes; it is not an independently persisted state machine.
+The volatile two-value lease status derived from the local Agent runtime process: `online` while the process is running and `offline` after it exits or is stopped. Lease renewals may replay the same logical status. Records carry daemon instance, client sequence, and the daemon instance start time in `observedAtMs`; same-instance records order by sequence and cross-instance records order by that instance rank. Browser snapshots and live events use the same merge rule.
 _Avoid_: starting, ready, degraded, failed
 
 **Agent activity**:
-The timeline of runtime lifecycle and provider diagnostics reported by the daemon over its single Workspace Connection WSS. `agent:status` is sparse and reports only `online` or `offline`; `agent:activity` records provider-neutral diagnostics. Provider-specific output remains behind adapters.
+The timeline of runtime lifecycle and provider diagnostics reported by the daemon over its single Workspace Connection WSS. `agent:status` reports only leased `online` or `offline`; `agent:activity` records provider-neutral diagnostics. Provider-specific output remains behind adapters.
 _Avoid_: Agent status, runtime state machine
 
 **Agent workspace**:
@@ -85,6 +85,8 @@ _Avoid_: Global runtime, public Computer, installation ownership
 
 **Code Agent model catalog**:
 The replaceable model and reasoning selection metadata advertised for one Code Agent provider on one Computer. Pi entries also carry the underlying model provider needed to disambiguate model IDs. A listed model is a supported selection, not proof that the current account is entitled to run it. The catalog validates Agent runtime configuration; it is not a credential or global model registry.
+
+The built-in CoForge catalog is release-generated from the pinned Pi SDK for CoForge's supported single-API-key providers and embedded in `@coforge/agent`/Daemon. External user-installed Pi discovery remains local and dynamic.
 _Avoid_: static model list, Agent runtime, provider credential
 
 **Agent API key**:

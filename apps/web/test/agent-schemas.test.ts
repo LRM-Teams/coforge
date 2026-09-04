@@ -26,9 +26,9 @@ describe("createAgentInputSchema", () => {
     ).toMatchObject({
       name: "release-helper",
       description: "Builds and releases the project.",
-      model: " gpt-5 ",
-      modelProvider: " openai ",
-      reasoning: " high ",
+      model: "gpt-5",
+      modelProvider: "openai",
+      reasoning: "high",
     });
   });
 

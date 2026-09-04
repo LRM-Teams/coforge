@@ -110,6 +110,9 @@ message AgentStatus {
   string computer_id = 4;
   string agent_id = 5;
   string status = 6;
+  string daemon_instance_id = 7;
+  uint64 client_seq = 8;
+  uint64 observed_at_ms = 9;
 }
 
 message AgentMessageRequest {

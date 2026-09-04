@@ -95,7 +95,8 @@ export function createAgentStatusMethod(
       agent.computerId !== status.computerId
     )
       return { code: 403, message: "Agent status is not authorized" };
-    await (statuses ?? getAgentStatusCache()).put(status);
+    const accepted = await (statuses ?? getAgentStatusCache()).put(status);
+    if (!accepted) return new Uint8Array();
     if (events) {
       await events.publish(
         agentStatusChannel(status.workspaceId),
@@ -103,6 +104,9 @@ export function createAgentStatusMethod(
           agentId: status.agentId,
           status: status.status,
           expiresAt: status.status === "active" ? now() + AGENT_STATUS_LEASE_MS : null,
+          daemonInstanceId: status.daemonInstanceId,
+          clientSeq: status.clientSeq,
+          observedAtMs: status.observedAtMs,
         }),
       );
     }
@@ -348,10 +352,7 @@ export function createDaemonRuntimeCodeAgentsUpdateMethod(inventory: {
     if (
       request.protocolMajor !== 1 ||
       !request.requestId ||
-      request.runtimes.some(
-        (runtime) =>
-          runtime.kind !== "external" || runtime.provider === "pi" || !runtime.version.trim(),
-      ) ||
+      request.runtimes.some((runtime) => !runtime.version.trim()) ||
       !validModelCatalogs(request.catalogs)
     )
       return { code: 400, message: "invalid Code Agent inventory" };

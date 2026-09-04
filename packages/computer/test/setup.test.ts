@@ -289,9 +289,7 @@ test("setup forwards discovered runtime metadata to registration", async () => {
           osVersion: "bun-test",
           computerVersion: "test",
           machineId: "linux:test-machine-id",
-          runtimes: [
-            { provider: "codex", version: "1.2.3", displayName: "Codex", kind: "external" },
-          ],
+          runtimes: [{ provider: "codex", version: "1.2.3", displayName: "Codex" }],
         };
       },
     },
@@ -310,9 +308,7 @@ test("setup forwards discovered runtime metadata to registration", async () => {
   });
 
   await setup.run({ workspaceSlug: "workspace-a" });
-  expect(runtimes).toEqual([
-    { provider: "codex", version: "1.2.3", displayName: "Codex", kind: "external" },
-  ]);
+  expect(runtimes).toEqual([{ provider: "codex", version: "1.2.3", displayName: "Codex" }]);
 });
 
 test("setup preserves the previous registration when the Daemon launcher fails", async () => {

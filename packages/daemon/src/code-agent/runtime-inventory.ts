@@ -8,6 +8,8 @@ import { agentEnvironment } from "./environment";
 import { JsonlProcess } from "./jsonl-process";
 import { probeClaudeCodeVersion, resolveClaudeCodeExecutable } from "./claude-code/runtime";
 import { COFORGE_DAEMON_VERSION } from "../version";
+import { COFORGE_PROVIDER_MODELS_GENERATED } from "@coforge/agent";
+import { COFORGE_AGENT_RUNTIME_METADATA } from "./pi/metadata";
 
 export interface ExternalCodeAgentProbe {
   which(name: string): string | undefined;
@@ -88,14 +90,12 @@ export async function discoverExternalCodeAgents(
                 : provider === RUNTIME_PROVIDER.CODEX
                   ? "Codex"
                   : "Claude Code",
-            kind: "external",
           });
         continue;
       }
       if (provider === RUNTIME_PROVIDER.CLAUDE_CODE) {
         const version = await probeClaudeCodeVersion(executable, probe.spawn);
-        if (version)
-          runtimes.push({ provider, version, displayName: "Claude Code", kind: "external" });
+        if (version) runtimes.push({ provider, version, displayName: "Claude Code" });
         continue;
       }
       const process = probe.spawn(executable);
@@ -120,7 +120,6 @@ export async function discoverExternalCodeAgents(
               : provider === RUNTIME_PROVIDER.CODEX
                 ? "Codex"
                 : "Claude Code",
-          kind: "external",
         });
     } catch {
       // An executable without a usable version is not available inventory.
@@ -143,10 +142,11 @@ export async function discoverCodeAgentInventory(
   options: { probe?: ExternalCodeAgentProbe; commands?: CatalogCommands; cwd?: string } = {},
 ): Promise<CodeAgentInventory> {
   const probe = options.probe ?? bunProbe;
-  const runtimes = await discoverExternalCodeAgents(probe);
+  const runtimes = [COFORGE_AGENT_RUNTIME_METADATA, ...(await discoverExternalCodeAgents(probe))];
   const cwd = options.cwd ?? process.cwd();
   const commands = options.commands ?? {};
   const discoveries: Array<Promise<CodeAgentModelCatalog | undefined>> = [];
+  discoveries.push(Promise.resolve(discoverCoforgeCatalog()));
   if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.PI)) {
     const executable = probe.which("pi");
     if (executable)
@@ -164,6 +164,13 @@ export async function discoverCodeAgentInventory(
     (catalog): catalog is CodeAgentModelCatalog => catalog !== undefined,
   );
   return { runtimes, catalogs };
+}
+
+function discoverCoforgeCatalog(): CodeAgentModelCatalog {
+  return {
+    provider: RUNTIME_PROVIDER.COFORGE,
+    models: COFORGE_PROVIDER_MODELS_GENERATED.map((model) => ({ ...model })),
+  };
 }
 
 async function discoverCodexCatalog(

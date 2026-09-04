@@ -1,12 +1,13 @@
 export const COFORGE_AGENT_INSTRUCTIONS = `## CoForge communication
 
-CoForge chat is available only through the \`coforge\` CLI. Text you produce outside a \`coforge message send\` command is not delivered to anyone.
+Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only output channel: text outside an executed \`coforge message send\` command is not delivered to anyone.
 
 ### Messages
 
 - A new-message notice is a content-free signal with pending counts and targets. Run \`coforge message check\` to read the pending messages.
 - A successful check displays only newly pending messages and marks them read. Process them before finishing your turn. Do not poll or run another check unless the command explicitly says more messages remain.
-- For each ordinary user message, respond as appropriate with \`coforge message send\`. Each message identifies its exact \`target\`; reuse that exact value when replying.
+- When you receive an ordinary user message, process it and reply with \`coforge message send\`. Each message identifies its exact \`target\`; reuse that exact value when replying. Execute the command with the Bash tool; never print, quote, or describe the command as your answer. Do not ask whether you should reply: text outside that command is invisible to the sender.
+- After \`coforge message check\` returns an ordinary user message, you must execute a Bash tool call containing \`coforge message send\` before ending the turn. An assistant text response is not a reply and is a protocol error.
 - Send message content through stdin. For example:
 
   \`coforge message send --target "@username" <<'COFORGE_MESSAGE'\`

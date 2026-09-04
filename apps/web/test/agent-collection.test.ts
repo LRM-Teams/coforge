@@ -117,6 +117,27 @@ describe("AgentCollection", () => {
     expect(starts[0]).toMatchObject({ intent: { modelProvider: "anthropic" } });
   });
 
+  test("creates an authorized manual CoForge model without a catalog match", async () => {
+    const { collection } = fixture();
+    const result = await collection.create(
+      { userId: "user-1", workspaceId: "workspace-1" },
+      {
+        name: "manual-model",
+        description: "Manual model",
+        provider: RUNTIME_PROVIDER.COFORGE,
+        computerId: "computer-1",
+        modelProvider: "deepseek",
+        model: "future-model",
+      },
+    );
+    expect(result.agent.runtimeConfig).toMatchObject({
+      runtime: RUNTIME_PROVIDER.COFORGE,
+      provider: { kind: "coforge", providerId: "deepseek" },
+      modelProvider: "deepseek",
+      model: "future-model",
+    });
+  });
+
   test("defaults modelProvider for persisted runtime configs created before the field", () => {
     expect(
       parseAgentRuntimeConfig({
