@@ -47,7 +47,7 @@ redaction, and a non-root deployment identity.
 | Track | Candidate identity | Test target | Production effect |
 | --- | --- | --- | --- |
 | Cloud application | Full `registry/repository@sha256:...` image reference | `staging` GitHub Environment and Compose project | Deploy the same digest to production Compose |
-| Local Computer distribution | A release version plus its manifest's SHA-256 checksum for every platform's Computer and Daemon binary | Version published behind the staging feed's `latest` pointer | Copy the identical version's bytes to the production feed and point its `latest` at it |
+| Local Computer distribution | A release version plus its manifest's SHA-256 checksum for every platform's Computer and Daemon binary | Version published behind the staging feed's `latest` pointer | Build the same commit against the production feed, publish it, then point production's `latest` at it |
 
 The daemon runtime role is released inside `coforge-daemon`; it is not a third local
 product component. `@coforge/agent` is independently packable for dependency and
@@ -251,6 +251,24 @@ semantics:
 An exact version is enough to select an installation because Computer and
 Daemon are released and versioned together; there is no independent Daemon
 version to disambiguate.
+
+Staging and production artifacts are **not interchangeable**. The feed a build
+trusts is compiled into it (`COFORGE_RELEASE_FEED_URL`, see
+`packages/computer/src/release-channel.ts`), so a binary built for staging carries
+the staging feed address and would keep updating itself from staging if it were
+copied into the production feed. Promotion therefore rebuilds the same commit
+against the production feed rather than copying bytes; what carries across
+environments is the commit and the test evidence, not the artifact.
+
+Publishing a local-distribution release is **manual**. The workflow exposes only
+`workflow_dispatch`; it is not triggered by merging to `main`. Continuous publish
+on merge suits the cloud application, which replaces a running service, but a
+client release leaves a persistent artifact set behind, and at the current user
+count a build per merge is waste. Adding a trigger later is one line.
+
+The Computer distribution is published to the release feed only. It is **not
+published to npm**; that channel is purely additive and can be introduced later
+without changing anything here.
 
 ## Main to staging
 

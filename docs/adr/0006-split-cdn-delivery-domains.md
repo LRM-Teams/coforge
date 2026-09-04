@@ -1,6 +1,8 @@
 # ADR 0006: Separate delivery domains for attachments and releases
 
-Status: accepted (2026-09-03)
+Status: accepted (2026-09-03); the release-feed contents are narrowed by
+[ADR 0007](0007-checksum-manifest-release-distribution.md) — the domain split
+stands, but the objects behind the release domain are no longer signed envelopes
 
 ## Context
 
