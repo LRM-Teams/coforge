@@ -1,15 +1,9 @@
-import { createPublicKey, verify } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-const RELEASE_SET_PATTERN = /^sha256:[0-9a-f]{64}$/;
+import { ReleaseEnvelopeError, verifyReleaseEnvelope } from "@coforge/protocol";
 
-type SignedEnvelope = {
-  schema_version: 1;
-  key_id: string;
-  payload: string;
-  signature: string;
-};
+const RELEASE_SET_PATTERN = /^sha256:[0-9a-f]{64}$/;
 
 type ArtifactIdentity = { size: number; sha256: string };
 type ComponentReference = ArtifactIdentity & { url: string };
@@ -35,7 +29,7 @@ type ComponentManifest = {
 
 type BundleMember = ArtifactIdentity & {
   component_manifest_sha256: string;
-  payload: string;
+  url: string;
 };
 
 type InstallationBundle = {
@@ -140,10 +134,23 @@ export class ComputerUpdater {
         `release-sets/${resolved.releaseSet}/bundles/`,
       );
       const bundle = this.#verifyEnvelope<InstallationBundle>(bundleBytes).value;
-      const payloads = this.#verifyBundle(bundle, {
+      const members = this.#verifyBundleMetadata(bundle, {
         computer: { digest: computerReference.sha256, manifest: computerManifest },
         daemon: { digest: daemonReference.sha256, manifest: daemonManifest },
       });
+      const artifactPrefix = `release-sets/${resolved.releaseSet}/artifacts/`;
+      const [computerPayload, daemonPayload] = await Promise.all(
+        (["computer", "daemon"] as const).map((component) =>
+          this.#downloadImmutable(
+            {
+              ...members[component],
+              url: `release-sets/${resolved.releaseSet}/${members[component].url}`,
+            },
+            artifactPrefix,
+          ),
+        ),
+      );
+      const payloads = { computer: computerPayload!, daemon: daemonPayload! };
 
       const previousState = await this.#readJson<ActiveState>("active.json");
       await this.#installVersion(resolved.releaseSet, payloads);
@@ -219,35 +226,13 @@ export class ComputerUpdater {
   }
 
   #verifyEnvelope<T>(bytes: Uint8Array): { value: T; payloadBytes: Uint8Array } {
-    let envelope: SignedEnvelope;
     try {
-      envelope = JSON.parse(new TextDecoder().decode(bytes)) as SignedEnvelope;
-    } catch {
-      throw new UpdateError("UPDATE_FEED_INVALID", "signed document is not valid JSON");
-    }
-    if (
-      envelope?.schema_version !== 1 ||
-      typeof envelope.key_id !== "string" ||
-      typeof envelope.payload !== "string" ||
-      typeof envelope.signature !== "string"
-    ) {
-      throw new UpdateError("UPDATE_FEED_INVALID", "signed document envelope is invalid");
-    }
-    const key = this.#trustedKeys[envelope.key_id];
-    if (!key) throw integrity(`untrusted signing key: ${envelope.key_id}`);
-    const signed = Buffer.from(`coforge-release-v1\n${envelope.key_id}\n${envelope.payload}`);
-    let valid = false;
-    try {
-      valid = verify(null, signed, createPublicKey(key), Buffer.from(envelope.signature, "base64"));
-    } catch {
-      throw integrity("signed document signature is malformed");
-    }
-    if (!valid) throw integrity("signed document signature is invalid");
-    const payloadBytes = Buffer.from(envelope.payload, "base64");
-    try {
-      return { value: JSON.parse(payloadBytes.toString("utf8")) as T, payloadBytes };
-    } catch {
-      throw new UpdateError("UPDATE_FEED_INVALID", "signed payload is not valid JSON");
+      return verifyReleaseEnvelope<T>(bytes, this.#trustedKeys);
+    } catch (error) {
+      if (!(error instanceof ReleaseEnvelopeError)) throw error;
+      throw error.code === "INTEGRITY"
+        ? integrity(error.message)
+        : new UpdateError("UPDATE_FEED_INVALID", error.message);
     }
   }
 
@@ -289,30 +274,33 @@ export class ComputerUpdater {
     }
   }
 
-  #verifyBundle(
+  /** Everything the bundle asserts about itself is checked before either payload is fetched:
+   * a bundle that names the wrong component manifest, or disagrees with that manifest about
+   * the bytes, is rejected without spending a download. The bytes themselves are bound by
+   * #downloadImmutable against the identity returned here. */
+  #verifyBundleMetadata(
     bundle: InstallationBundle,
     components: Record<"computer" | "daemon", { digest: string; manifest: ComponentManifest }>,
-  ): Record<"computer" | "daemon", Uint8Array> {
+  ): Record<"computer" | "daemon", BundleMember> {
     if (bundle?.schema_version !== 1) {
       throw new UpdateError("UPDATE_FEED_INVALID", "installation bundle schema is invalid");
     }
-    const output = {} as Record<"computer" | "daemon", Uint8Array>;
+    const members = {} as Record<"computer" | "daemon", BundleMember>;
     for (const component of ["computer", "daemon"] as const) {
       const member = bundle[component];
-      if (!validIdentity(member) || typeof member.payload !== "string") {
+      if (!validIdentity(member) || typeof member.url !== "string") {
         throw new UpdateError("UPDATE_FEED_INVALID", `${component} bundle member is invalid`);
       }
       if (member.component_manifest_sha256 !== components[component].digest) {
         throw integrity(`${component} bundle member names the wrong component manifest`);
       }
-      const payload = Buffer.from(member.payload, "base64");
       const manifestIdentity = components[component].manifest.artifacts[this.#target]!;
-      if (!matchesIdentity(payload, member) || !sameIdentity(member, manifestIdentity)) {
+      if (!sameIdentity(member, manifestIdentity)) {
         throw integrity(`${component} payload does not match both recorded identities`);
       }
-      output[component] = payload;
+      members[component] = member;
     }
-    return output;
+    return members;
   }
 
   async #downloadImmutable(
@@ -322,20 +310,37 @@ export class ComputerUpdater {
     if (
       !validReference(reference) ||
       !reference.url.startsWith(requiredPrefix) ||
-      !safeRelativePath(reference.url)
+      !safeRelativePath(reference.url) ||
+      !this.#resolvesWithin(reference.url, requiredPrefix)
     ) {
       throw new UpdateError(
         "UPDATE_FEED_INVALID",
         "immutable artifact URL crosses its declared namespace",
       );
     }
-    const bytes = await this.#download(reference.url);
+    // The signed reference states the exact size, so a body that exceeds it is already known
+    // to be wrong and there is no reason to buffer the rest of it. Without this a malicious
+    // feed could exhaust memory before the digest check ever runs.
+    const bytes = await this.#download(reference.url, reference.size);
     if (!matchesIdentity(bytes, reference))
       throw integrity(`downloaded artifact failed integrity: ${reference.url}`);
     return bytes;
   }
 
-  async #download(path: string): Promise<Uint8Array> {
+  /** safeRelativePath only rejects a literal `..`, but the URL parser also normalises the
+   * percent-encoded spellings, so `artifacts/%2e%2e/evil` climbs out of the namespace while
+   * reading as a safe relative path. Compare what the request will actually ask for. */
+  #resolvesWithin(url: string, requiredPrefix: string): boolean {
+    try {
+      return new URL(url, this.#baseUrl).pathname.startsWith(
+        new URL(requiredPrefix, this.#baseUrl).pathname,
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  async #download(path: string, expectedSize?: number): Promise<Uint8Array> {
     const url = new URL(path, this.#baseUrl);
     if (url.origin !== this.#baseUrl.origin || !url.pathname.startsWith(this.#baseUrl.pathname)) {
       throw new UpdateError("UPDATE_FEED_INVALID", "release URL escapes the configured feed");
@@ -352,7 +357,15 @@ export class ComputerUpdater {
         `release object unavailable without a trusted redirect: ${path}`,
       );
     }
-    return new Uint8Array(await response.arrayBuffer());
+    const declared = Number(response.headers.get("content-length"));
+    if (expectedSize !== undefined && Number.isFinite(declared) && declared > expectedSize) {
+      throw integrity(`release object is larger than its recorded size: ${path}`);
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (expectedSize !== undefined && bytes.byteLength > expectedSize) {
+      throw integrity(`release object is larger than its recorded size: ${path}`);
+    }
+    return bytes;
   }
 
   async #installVersion(

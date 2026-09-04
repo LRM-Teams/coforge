@@ -144,6 +144,9 @@ releases/daemon/{version}/manifest.json
 releases/daemon/{version}/{component-artifact}
 release-sets/{id}/manifest.json
 release-sets/{id}/bundles/{platform-architecture-package}
+release-sets/{id}/artifacts/{component}
+bootstrap/v1/manifest.json
+bootstrap/v1/{platform-architecture}/coforge-installer[.exe]
 channels.json
 computer/install.sh
 computer/install.ps1
@@ -154,9 +157,14 @@ component name, full `main` source commit, platform/architecture, byte size,
 SHA-256, and signing metadata for every build artifact. A release-set manifest
 contains the exact Computer and Daemon manifest digests, their declared local-
 protocol compatibility, and the CDN URL, size, SHA-256, and signing metadata for
-each platform's Computer installation bundle. Each bundle contains both process
-payloads and an internal copy or equivalent proof of the selected release-set
-identity. All paths below `releases/` and `release-sets/` are write-once. Once
+each platform's Computer installation bundle. A bundle is a small signed
+document that *references* both process payloads by relative URL, size and
+SHA-256 rather than carrying them inline, so a payload is fetched and verified
+as raw bytes instead of being base64-decoded out of a several-hundred-megabyte
+JSON document. A body larger than the size the signed reference records is
+rejected before the digest is checked. The signed digests bind the bytes exactly as an inline copy
+would; the updater checks a bundle against both component manifests before it
+fetches either payload, so a mismatched bundle costs no download. All paths below `releases/` and `release-sets/` are write-once. Once
 published, changing any byte requires a new component version or release-set
 identity.
 
@@ -237,12 +245,36 @@ private bucket endpoint or credentials. A redirect to OSS, an anonymously
 readable origin object, or a CDN fetch that cannot be tied to the same bytes
 fails publication.
 
-The updater ships a trusted release verification key and refuses an
+The updater ships a set of trusted release verification keys and refuses an
 installation bundle, component manifest, release set, or channel snapshot whose
 signature or digest does not verify. After unpacking, it also verifies both
-process payloads against the selected component identities. The signing format,
-protected key custody, rotation, revocation, and first-install trust bootstrap
-require a separate reviewed implementation.
+process payloads against the selected component identities. Revocation and the
+first-install trust bootstrap still require a separate reviewed implementation;
+the signing format, key custody, and rotation are recorded below.
+
+Envelopes are `{schema_version, key_id, payload, signature}`, where `payload` is
+base64 and `signature` covers the bytes `coforge-release-v1\n<key_id>\n<payload>`.
+Ed25519 and ECDSA P-256 are both accepted — P-256 because Alibaba Cloud KMS
+offers no Ed25519 key spec, and the verifier's algorithm support is compiled into
+every shipped binary, so a production key held in KMS has to be possible before
+any public key ships.
+
+A build trusts exactly the key set compiled into it. The sets live in
+`release/trusted-keys/<channel>.json`, checked in so that changing who may sign a
+release is a reviewed commit with a history rather than a CI settings edit; the
+release workflow will feed the file for its channel to
+`COFORGE_RELEASE_TRUSTED_KEYS` and the matching feed to `COFORGE_RELEASE_FEED_URL`.
+No workflow sets either variable yet, so today every build carries an empty trust
+set and refuses every artifact. Staging and production are
+therefore different artifacts by construction, and a staging build cannot verify
+a production signature. Private keys live only in the signing environment's
+secret store and never on a workstation.
+
+Rotation relies on `trustedKeys` being a map: add the new `key_id` alongside the
+old one, sign a release with the **old** key so existing installations accept the
+version that carries both, wait for that version to roll out, then sign with the
+new key and retire the old entry in a later release. Removing a key before its
+successor has rolled out strands every installation that has not upgraded.
 The `curl | bash` form is a convenience, not independent proof that its mutable
 script was trustworthy; the release must also offer a download-review-execute
 path and an exact immutable release-set selector.

@@ -42,6 +42,8 @@ async function fixture(
     test?: "current" | null;
     tamperSignature?: boolean;
     tamperPayload?: boolean;
+    tamperBundleIdentity?: boolean;
+    oversizePayload?: boolean;
     target?: string;
   } = {},
 ) {
@@ -50,7 +52,9 @@ async function fixture(
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   const target = options.target ?? (process.platform === "darwin" ? "darwin-x64" : "linux-x64");
   const computer = Buffer.from("computer-v2");
-  const daemon = Buffer.from(options.tamperPayload ? "tampered-daemon" : "daemon-v2");
+  // Same byte length as the genuine payload, so this exercises the digest check rather than
+  // the size cap; oversize bodies are covered separately.
+  const daemon = Buffer.from(options.tamperPayload ? "daemon-vX" : "daemon-v2");
   const expectedDaemon = Buffer.from("daemon-v2");
   const computerManifest = envelope(
     {
@@ -78,13 +82,13 @@ async function fixture(
       component_manifest_sha256: computerManifestDigest,
       size: computer.length,
       sha256: sha256(computer),
-      payload: computer.toString("base64"),
+      url: "artifacts/computer",
     },
     daemon: {
       component_manifest_sha256: daemonManifestDigest,
-      size: daemon.length,
-      sha256: sha256(daemon),
-      payload: daemon.toString("base64"),
+      size: options.tamperBundleIdentity ? expectedDaemon.length + 1 : expectedDaemon.length,
+      sha256: sha256(expectedDaemon),
+      url: "artifacts/daemon",
     },
   };
   const bundle = envelope(bundlePayload, privateKey);
@@ -129,14 +133,22 @@ async function fixture(
     ["/channels.json", channelBytes],
     [`/release-sets/${actualSelector}/manifest.json`, releaseBytes],
     [`/release-sets/${actualSelector}/bundles/${target}.json`, bundle],
+    [`/release-sets/${actualSelector}/artifacts/computer`, computer],
+    [
+      `/release-sets/${actualSelector}/artifacts/daemon`,
+      options.oversizePayload ? Buffer.alloc(daemon.length * 4, 0x41) : daemon,
+    ],
     ["/releases/computer/2.0.0/manifest.json", computerManifest],
     ["/releases/daemon/2.0.0/manifest.json", daemonManifest],
   ]);
+  const requested: string[] = [];
   let server: ReturnType<typeof Bun.serve>;
   server = Bun.serve({
     port: 0,
     fetch(request) {
-      const bytes = files.get(new URL(request.url).pathname);
+      const path = new URL(request.url).pathname;
+      requested.push(path);
+      const bytes = files.get(path);
       return bytes ? new Response(Buffer.from(bytes)) : new Response("not found", { status: 404 });
     },
   });
@@ -147,6 +159,7 @@ async function fixture(
     baseUrl: `http://localhost:${server.port}/`,
     target,
     selector: actualSelector,
+    requested,
   };
 }
 
@@ -205,13 +218,38 @@ test("invalid signatures and decreasing generations are rejected", async () => {
   });
 });
 
-test("both extracted process payloads must match their component identities", async () => {
+test("a served payload that does not match its signed digest is rejected", async () => {
   const input = await fixture({ tamperPayload: true });
+
+  // The signed bundle and component manifest agree; only the bytes the feed serves differ,
+  // which is what a compromised bucket looks like. Pin the message so the test cannot start
+  // passing for some earlier reason.
+  await expect(updater(input).install("latest")).rejects.toMatchObject({
+    code: "UPDATE_INTEGRITY_FAILED",
+    message: expect.stringContaining("downloaded artifact failed integrity"),
+  });
+  await expect(readFile(join(input.directory, "active.json"))).rejects.toThrow();
+});
+
+test("a payload larger than its recorded size is rejected before it is buffered", async () => {
+  const input = await fixture({ oversizePayload: true });
 
   await expect(updater(input).install("latest")).rejects.toMatchObject({
     code: "UPDATE_INTEGRITY_FAILED",
+    message: expect.stringContaining("larger than its recorded size"),
   });
-  await expect(readFile(join(input.directory, "active.json"))).rejects.toThrow();
+});
+
+test("a bundle that disagrees with its component manifest is rejected before downloading", async () => {
+  const input = await fixture({ tamperBundleIdentity: true });
+
+  await expect(updater(input).install("latest")).rejects.toMatchObject({
+    code: "UPDATE_INTEGRITY_FAILED",
+    message: expect.stringContaining("does not match both recorded identities"),
+  });
+  expect(input.requested).toContain(`/release-sets/${input.selector}/bundles/${input.target}.json`);
+  expect(input.requested).not.toContain(`/release-sets/${input.selector}/artifacts/daemon`);
+  expect(input.requested).not.toContain(`/release-sets/${input.selector}/artifacts/computer`);
 });
 
 test("activation preserves a complete previous bundle and rollback works offline", async () => {
