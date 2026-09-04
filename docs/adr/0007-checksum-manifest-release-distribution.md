@@ -42,17 +42,22 @@ Both are more permissive than what we had built.
 Distribute through a pointer file and an unsigned checksum manifest:
 
 ```text
-latest                                 plain text version string
-<version>/manifest.json                { version, commit, buildDate, platforms }
+latest                                       plain text version string
+<version>/manifest.json                      { version, commit, buildDate, platforms }
 <version>/<target>/coforge-computer
+<version>/<target>/coforge-computer.sha256   bare hex SHA-256 of that platform's coforge-computer
 <version>/<target>/coforge-daemon
 ```
 
-Integrity comes from TLS to the delivery domain plus the SHA-256 recorded in the
-manifest for every binary. `install.sh` pins no digest of its own: it fetches
-`latest`, then the manifest, then verifies what it downloads. That single change
-removes the bootstrap tier, the second workflow, the redirect route and the cache
-coupling they forced.
+Integrity comes from TLS to the delivery domain plus a SHA-256 recorded for every
+binary. `install.sh` pins no digest of its own: it fetches `latest`, then a small
+sidecar checksum file (`coforge-computer.sha256`), then verifies what it
+downloads - not `manifest.json` itself, which a POSIX shell has no safe way to
+parse; see `docs/release.md` for why the sidecar exists alongside the manifest.
+`updater.ts`, which runs after Computer is installed and has a real JSON parser,
+reads `manifest.json` directly instead. Removing the signed envelope in favor of
+either checksum source removes the bootstrap tier, the second workflow, the
+redirect route and the cache coupling they forced.
 
 `manifest.json` keeps a `schema_version` so a signature field can be added later
 without a format break, matching how Claude Code keeps signing available behind a
@@ -98,9 +103,15 @@ protection and `release/trusted-keys/` are all deleted. The staging signing key
 was destroyed and its GitHub Environment secret removed.
 
 Kept: versioned install directories with symlink activation, rollback through the
-recorded previous version, the post-install offline integrity check, refusal of
-redirects, the download size cap, and writing the pointer last so a failed
-publish leaves only unreferenced objects.
+recorded previous version, the post-install offline integrity check, the download
+size cap, and writing the pointer last so a failed publish leaves only
+unreferenced objects. Refusal of redirects is kept in `updater.ts` only.
+`install.sh` follows redirects deliberately (`curl --location`), the way
+`curl | sh` bootstrap scripts for comparable tools do, and instead constrains
+what a redirect may resolve to via `--proto` and `--tlsv1.2`, which apply to a
+followed redirect as much as the original request. `install.ps1` has no
+equivalent protocol-constrained-follow available to it and refuses redirects
+outright.
 
 The updater's selection modes narrow to `latest` or an exact version; `test` and
 `sha256:` selectors are gone.

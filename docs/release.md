@@ -131,9 +131,10 @@ The local feed is a mutable pointer file plus one immutable manifest and
 platform-binary tree per version:
 
 ```text
-latest                                  plain text, one version string, e.g. "0.1.0"
-<version>/manifest.json                 unsigned JSON: schema_version, version, commit, buildDate, platforms
+latest                                       plain text, one version string, e.g. "0.1.0"
+<version>/manifest.json                      unsigned JSON: schema_version, version, commit, buildDate, platforms
 <version>/<target>/coforge-computer
+<version>/<target>/coforge-computer.sha256   bare lowercase hex SHA-256 of that platform's coforge-computer, nothing else
 <version>/<target>/coforge-daemon
 computer/install.sh
 computer/install.ps1
@@ -153,6 +154,22 @@ mirrors how Claude Code and `@botiverse/raft-daemon` ship updates; CoForge's
 manifest nests `computer` and `daemon` per platform only because it ships two
 binaries where those tools ship one.
 
+`coforge-computer.sha256` is a sidecar, not a substitute for the manifest: it
+exists because `install.sh` and `install.ps1` are the bootstrap that fetches
+Computer itself, before any real JSON parser is available to them, and POSIX
+`sed`/`awk` cannot parse JSON correctly - an unanchored regex over the whole
+manifest document can be made to extract a different value than a real parser
+would, which is a real vulnerability, not a hypothetical one. The sidecar is
+one line of hex and nothing else (not `sha256sum`'s two-field
+`<hex>  <filename>` format), so both installers can validate it with a POSIX
+`case` pattern instead of parsing anything. It must always equal the
+`computer` entry's `checksum` for the same `<version>/<target>` in
+`manifest.json` - the release workflow generates both from the same bytes in
+the same step (see "Main to staging" below) - and the two are never allowed to
+drift apart. `updater.ts`, which runs after Computer is already installed and
+has a real `JSON.parse`, keeps reading `manifest.json` directly and never
+reads the sidecar; only the two bootstrap scripts do.
+
 Every publication ships both components together under one version identity;
 there is no mechanism to change only Computer or only Daemon while reusing the
 other's prior artifact. `coforge-computer` still depends on `coforge-daemon`
@@ -168,10 +185,14 @@ fails partway through therefore leaves at most an unreferenced version
 directory; `latest` never points at incomplete or missing objects.
 
 A version string is opaque to the client: the updater and both installers
-accept any value matching `[A-Za-z0-9.+-]{1,100}` with no `..` segment - the
-same rule the `latest` pointer's own content must satisfy. Enforcing a SemVer
-or prerelease-label discipline on top of that is a publishing-workflow policy,
-not a wire-format requirement, and is out of scope here.
+accept any value matching `[A-Za-z0-9.+-]{1,100}`, further rejecting a `..`
+segment, a bare `.` on its own (which as a directory name means "the versions
+directory itself" and would let a payload land outside any per-version
+directory), and a leading `-` (which could be mistaken for a flag by a tool
+that later receives the value on a command line) - the same rule the `latest`
+pointer's own content must satisfy. Enforcing a SemVer or prerelease-label
+discipline on top of that is a publishing-workflow policy, not a wire-format
+requirement, and is out of scope here.
 
 The feed is served beneath `https://releases.coforge.cn/` from a private
 release bucket. Attachments and releases use two separate accelerated domains
@@ -199,9 +220,10 @@ staging version rather than the production one. The web UI therefore
 renders the command from the origin the visitor already reached; it must not
 carry a fixed host, which would hand every staging visitor the production
 command. Whichever origin serves it, the entry point must not expose an OSS
-bucket hostname or replace the manifest-checksum verification
-performed by the installer, and the web UI must not link to a CDN or OSS origin
-directly.
+bucket hostname or replace the checksum verification the bootstrap scripts
+perform against the sidecar (`install.sh`, `install.ps1`) or the updater
+performs against `manifest.json` after Computer is installed, and the web UI
+must not link to a CDN or OSS origin directly.
 
 Users never depend on or discover the OSS bucket URL. Immutable version objects
 use a long immutable cache policy; `latest` uses revalidation/no-cache. A
@@ -260,6 +282,27 @@ copied into the production feed. Promotion therefore rebuilds the same commit
 against the production feed rather than copying bytes; what carries across
 environments is the commit and the test evidence, not the artifact.
 
+`install.sh` and `install.ps1` read the same `COFORGE_RELEASE_FEED_URL`
+variable, but unconditionally and at runtime: any `https://` value is
+accepted, not just the compiled-in default. This is deliberate, not an
+oversight of the rule above: `release-channel.ts` hardens the *compiled*,
+long-lived binary that auto-updates itself indefinitely, where a runtime
+toggle would let it be silently redirected to an untrusted feed on every
+future update. The bootstrap scripts are the opposite shape - a one-shot the
+user explicitly runs (`curl … | sh` / `irm … | iex`) from a command they can
+read before running it - and anyone able to set this variable in that same
+invoking shell can equally set `PATH` or a proxy variable to redirect the
+script's requests, so restricting the variable here would not remove an
+attacker capability, only a legitimate one it may be used for: pointing a
+manual or scripted install at a non-default feed (a staging or private feed).
+No such use is implemented or documented today - `installCommands()` in
+`apps/web/src/features/install/install-commands.ts` renders a plain
+`{origin}/computer/install.sh`, not a feed URL, so how a staging deployment's
+served copy of `install.sh` would reach the staging feed by default (as
+opposed to a caller exporting the variable by hand) is unresolved and belongs
+to the not-yet-built publishing workflow, not to this variable. Both scripts
+carry the threat-model half of this reasoning inline as a comment.
+
 Publishing a local-distribution release is **manual**. The workflow exposes only
 `workflow_dispatch`; it is not triggered by merging to `main`. Continuous publish
 on merge suits the cloud application, which replaces a running service, but a
@@ -308,10 +351,14 @@ tracks' `latest` pointers are never the same object):
    Linux, and macOS platform matrix, with the approved Bun executable targets.
    Do not rebuild one platform after another platform passed.
 3. Compute every platform's Computer and Daemon binary byte size and SHA-256
-   checksum and assemble the version's `manifest.json`.
-4. Publish `manifest.json` and every platform binary beneath the new
-   `<version>/` prefix on the staging feed. Prove anonymous/direct reads of
-   their exact private-origin keys are rejected, then re-read them through
+   checksum, assemble the version's `manifest.json`, and generate each
+   platform's `coforge-computer.sha256` sidecar from the same Computer binary
+   bytes and the same checksum computation as the manifest entry - the two
+   must never be allowed to diverge.
+4. Publish `manifest.json`, every platform's `coforge-computer.sha256`
+   sidecar, and every platform binary beneath the new `<version>/` prefix on
+   the staging feed. Prove anonymous/direct reads of their exact
+   private-origin keys are rejected, then re-read them through
    `releases.coforge.cn` and compare consumer-visible bytes with the workflow
    source bytes.
 5. Only after every object under `<version>/` is published and verified,
