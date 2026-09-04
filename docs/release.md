@@ -159,9 +159,10 @@ contains the exact Computer and Daemon manifest digests, their declared local-
 protocol compatibility, and the CDN URL, size, SHA-256, and signing metadata for
 each platform's Computer installation bundle. A bundle is a small signed
 document that *references* both process payloads by relative URL, size and
-SHA-256 rather than carrying them inline, so a payload is streamed and verified
+SHA-256 rather than carrying them inline, so a payload is fetched and verified
 as raw bytes instead of being base64-decoded out of a several-hundred-megabyte
-JSON document. The signed digests bind the bytes exactly as an inline copy
+JSON document. A body larger than the size the signed reference records is
+rejected before the digest is checked. The signed digests bind the bytes exactly as an inline copy
 would; the updater checks a bundle against both component manifests before it
 fetches either payload, so a mismatched bundle costs no download. All paths below `releases/` and `release-sets/` are write-once. Once
 published, changing any byte requires a new component version or release-set
@@ -244,7 +245,7 @@ private bucket endpoint or credentials. A redirect to OSS, an anonymously
 readable origin object, or a CDN fetch that cannot be tied to the same bytes
 fails publication.
 
-The updater ships a trusted release verification key and refuses an
+The updater ships a set of trusted release verification keys and refuses an
 installation bundle, component manifest, release set, or channel snapshot whose
 signature or digest does not verify. After unpacking, it also verifies both
 process payloads against the selected component identities. Revocation and the
@@ -261,8 +262,10 @@ any public key ships.
 A build trusts exactly the key set compiled into it. The sets live in
 `release/trusted-keys/<channel>.json`, checked in so that changing who may sign a
 release is a reviewed commit with a history rather than a CI settings edit; the
-release workflow feeds the file for its channel to `COFORGE_RELEASE_TRUSTED_KEYS`
-and the matching feed to `COFORGE_RELEASE_FEED_URL`. Staging and production are
+release workflow will feed the file for its channel to
+`COFORGE_RELEASE_TRUSTED_KEYS` and the matching feed to `COFORGE_RELEASE_FEED_URL`.
+No workflow sets either variable yet, so today every build carries an empty trust
+set and refuses every artifact. Staging and production are
 therefore different artifacts by construction, and a staging build cannot verify
 a production signature. Private keys live only in the signing environment's
 secret store and never on a workstation.

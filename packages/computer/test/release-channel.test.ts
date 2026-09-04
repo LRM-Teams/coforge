@@ -77,9 +77,9 @@ test.each(["staging", "production"])("the checked-in %s trust set parses", async
   const path = new URL(`../../../release/trusted-keys/${channel}.json`, import.meta.url);
   const raw = await Bun.file(path).text();
 
-  const keys = parseReleaseTrustedKeys(raw);
-
-  for (const keyId of Object.keys(keys)) {
+  // production is empty today, so assert the parse itself rather than looping over nothing.
+  expect(() => parseReleaseTrustedKeys(raw)).not.toThrow();
+  for (const keyId of Object.keys(parseReleaseTrustedKeys(raw))) {
     expect(keyId).toStartWith(`coforge-release-${channel === "production" ? "prod" : channel}`);
   }
 });
@@ -96,4 +96,39 @@ test("production has no signing key yet, so a production build trusts nothing", 
   const path = new URL("../../../release/trusted-keys/production.json", import.meta.url);
 
   expect(parseReleaseTrustedKeys(await Bun.file(path).text())).toEqual({});
+});
+
+test("rejects a feed URL that is unusable rather than deferring the failure", () => {
+  // The updater is constructed while commands are registered, so an unvalidated bad URL
+  // surfaced as a bare TypeError from `login --help`, with nothing in CI to catch it.
+  expect(() => resolveReleaseFeedUrl("not a url")).toThrow(/not a valid URL/);
+  expect(() => resolveReleaseFeedUrl("http://releases.coforge.cn/")).toThrow(/must use HTTPS/);
+});
+
+test("rejects a trusted key the verifier could never use", () => {
+  const rsa = generateKeyPairSync("rsa", { modulusLength: 2048 }).publicKey.export({
+    type: "spki",
+    format: "pem",
+  });
+  const p384 = generateKeyPairSync("ec", { namedCurve: "secp384r1" }).publicKey.export({
+    type: "spki",
+    format: "pem",
+  });
+
+  for (const key of [rsa, p384]) {
+    expect(() => parseReleaseTrustedKeys(JSON.stringify({ k: key }))).toThrow(
+      /must be Ed25519 or ECDSA P-256/,
+    );
+  }
+});
+
+test("keeps a key id that collides with an Object prototype member", () => {
+  const key = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" });
+
+  // Built as text: in an object literal `__proto__:` sets the prototype rather than an own
+  // property, so JSON.stringify would never emit the key this test is about.
+  const encoded = JSON.stringify(key);
+  const parsed = parseReleaseTrustedKeys(`{"__proto__":${encoded},"constructor":${encoded}}`);
+
+  expect(Object.keys(parsed).sort()).toEqual(["__proto__", "constructor"]);
 });

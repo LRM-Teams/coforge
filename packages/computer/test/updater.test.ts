@@ -43,6 +43,7 @@ async function fixture(
     tamperSignature?: boolean;
     tamperPayload?: boolean;
     tamperBundleIdentity?: boolean;
+    oversizePayload?: boolean;
     target?: string;
   } = {},
 ) {
@@ -51,7 +52,9 @@ async function fixture(
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   const target = options.target ?? (process.platform === "darwin" ? "darwin-x64" : "linux-x64");
   const computer = Buffer.from("computer-v2");
-  const daemon = Buffer.from(options.tamperPayload ? "tampered-daemon" : "daemon-v2");
+  // Same byte length as the genuine payload, so this exercises the digest check rather than
+  // the size cap; oversize bodies are covered separately.
+  const daemon = Buffer.from(options.tamperPayload ? "daemon-vX" : "daemon-v2");
   const expectedDaemon = Buffer.from("daemon-v2");
   const computerManifest = envelope(
     {
@@ -131,7 +134,10 @@ async function fixture(
     [`/release-sets/${actualSelector}/manifest.json`, releaseBytes],
     [`/release-sets/${actualSelector}/bundles/${target}.json`, bundle],
     [`/release-sets/${actualSelector}/artifacts/computer`, computer],
-    [`/release-sets/${actualSelector}/artifacts/daemon`, daemon],
+    [
+      `/release-sets/${actualSelector}/artifacts/daemon`,
+      options.oversizePayload ? Buffer.alloc(daemon.length * 4, 0x41) : daemon,
+    ],
     ["/releases/computer/2.0.0/manifest.json", computerManifest],
     ["/releases/daemon/2.0.0/manifest.json", daemonManifest],
   ]);
@@ -223,6 +229,15 @@ test("a served payload that does not match its signed digest is rejected", async
     message: expect.stringContaining("downloaded artifact failed integrity"),
   });
   await expect(readFile(join(input.directory, "active.json"))).rejects.toThrow();
+});
+
+test("a payload larger than its recorded size is rejected before it is buffered", async () => {
+  const input = await fixture({ oversizePayload: true });
+
+  await expect(updater(input).install("latest")).rejects.toMatchObject({
+    code: "UPDATE_INTEGRITY_FAILED",
+    message: expect.stringContaining("larger than its recorded size"),
+  });
 });
 
 test("a bundle that disagrees with its component manifest is rejected before downloading", async () => {

@@ -310,20 +310,37 @@ export class ComputerUpdater {
     if (
       !validReference(reference) ||
       !reference.url.startsWith(requiredPrefix) ||
-      !safeRelativePath(reference.url)
+      !safeRelativePath(reference.url) ||
+      !this.#resolvesWithin(reference.url, requiredPrefix)
     ) {
       throw new UpdateError(
         "UPDATE_FEED_INVALID",
         "immutable artifact URL crosses its declared namespace",
       );
     }
-    const bytes = await this.#download(reference.url);
+    // The signed reference states the exact size, so a body that exceeds it is already known
+    // to be wrong and there is no reason to buffer the rest of it. Without this a malicious
+    // feed could exhaust memory before the digest check ever runs.
+    const bytes = await this.#download(reference.url, reference.size);
     if (!matchesIdentity(bytes, reference))
       throw integrity(`downloaded artifact failed integrity: ${reference.url}`);
     return bytes;
   }
 
-  async #download(path: string): Promise<Uint8Array> {
+  /** safeRelativePath only rejects a literal `..`, but the URL parser also normalises the
+   * percent-encoded spellings, so `artifacts/%2e%2e/evil` climbs out of the namespace while
+   * reading as a safe relative path. Compare what the request will actually ask for. */
+  #resolvesWithin(url: string, requiredPrefix: string): boolean {
+    try {
+      return new URL(url, this.#baseUrl).pathname.startsWith(
+        new URL(requiredPrefix, this.#baseUrl).pathname,
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  async #download(path: string, expectedSize?: number): Promise<Uint8Array> {
     const url = new URL(path, this.#baseUrl);
     if (url.origin !== this.#baseUrl.origin || !url.pathname.startsWith(this.#baseUrl.pathname)) {
       throw new UpdateError("UPDATE_FEED_INVALID", "release URL escapes the configured feed");
@@ -340,7 +357,15 @@ export class ComputerUpdater {
         `release object unavailable without a trusted redirect: ${path}`,
       );
     }
-    return new Uint8Array(await response.arrayBuffer());
+    const declared = Number(response.headers.get("content-length"));
+    if (expectedSize !== undefined && Number.isFinite(declared) && declared > expectedSize) {
+      throw integrity(`release object is larger than its recorded size: ${path}`);
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (expectedSize !== undefined && bytes.byteLength > expectedSize) {
+      throw integrity(`release object is larger than its recorded size: ${path}`);
+    }
+    return bytes;
   }
 
   async #installVersion(

@@ -49,7 +49,12 @@ export function verifyReleaseEnvelope<T>(
   ) {
     throw feedInvalid("signed document envelope is invalid");
   }
-  const key = trustedKeys[envelope.key_id];
+  // Own properties only: `constructor`, `__proto__` and friends are inherited and truthy, so
+  // a plain lookup lets those key ids past this check and into createPublicKey, which rejects
+  // them only incidentally.
+  const key = Object.hasOwn(trustedKeys, envelope.key_id)
+    ? trustedKeys[envelope.key_id]
+    : undefined;
   if (!key) throw integrity(`untrusted signing key: ${envelope.key_id}`);
   const signed = Buffer.from(`coforge-release-v1\n${envelope.key_id}\n${envelope.payload}`);
   const signature = Buffer.from(envelope.signature, "base64");
