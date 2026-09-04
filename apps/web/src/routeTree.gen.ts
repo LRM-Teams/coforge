@@ -25,6 +25,8 @@ import { Route as ApiMeRouteImport } from './routes/api/me'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AuthLogoutRouteImport } from './routes/auth/logout'
+import { Route as ComputerInstallDotps1RouteImport } from './routes/computer.install[.]ps1'
+import { Route as ComputerInstallDotshRouteImport } from './routes/computer.install[.]sh'
 import { Route as OauthDeviceRouteImport } from './routes/oauth/device'
 import { Route as OauthTokenRouteImport } from './routes/oauth/token'
 import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
@@ -120,6 +122,16 @@ const AuthLoginRoute = AuthLoginRouteImport.update({
 const AuthLogoutRoute = AuthLogoutRouteImport.update({
   id: '/auth/logout',
   path: '/auth/logout',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ComputerInstallDotps1Route = ComputerInstallDotps1RouteImport.update({
+  id: '/computer/install.ps1',
+  path: '/computer/install.ps1',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ComputerInstallDotshRoute = ComputerInstallDotshRouteImport.update({
+  id: '/computer/install.sh',
+  path: '/computer/install.sh',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OauthDeviceRoute = OauthDeviceRouteImport.update({
@@ -224,6 +236,8 @@ export interface FileRoutesByFullPath {
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
+  '/computer/install.ps1': typeof ComputerInstallDotps1Route
+  '/computer/install.sh': typeof ComputerInstallDotshRoute
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
@@ -255,6 +269,8 @@ export interface FileRoutesByTo {
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
+  '/computer/install.ps1': typeof ComputerInstallDotps1Route
+  '/computer/install.sh': typeof ComputerInstallDotshRoute
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
@@ -290,6 +306,8 @@ export interface FileRoutesById {
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/logout': typeof AuthLogoutRoute
+  '/computer/install.ps1': typeof ComputerInstallDotps1Route
+  '/computer/install.sh': typeof ComputerInstallDotshRoute
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
@@ -325,6 +343,8 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/auth/login'
     | '/auth/logout'
+    | '/computer/install.ps1'
+    | '/computer/install.sh'
     | '/oauth/device'
     | '/oauth/token'
     | '/agents/$agentId'
@@ -356,6 +376,8 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/auth/login'
     | '/auth/logout'
+    | '/computer/install.ps1'
+    | '/computer/install.sh'
     | '/oauth/device'
     | '/oauth/token'
     | '/agents/$agentId'
@@ -390,6 +412,8 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/auth/login'
     | '/auth/logout'
+    | '/computer/install.ps1'
+    | '/computer/install.sh'
     | '/oauth/device'
     | '/oauth/token'
     | '/_app/agents/$agentId'
@@ -422,6 +446,8 @@ export interface RootRouteChildren {
   AuthCallbackRoute: typeof AuthCallbackRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthLogoutRoute: typeof AuthLogoutRoute
+  ComputerInstallDotps1Route: typeof ComputerInstallDotps1Route
+  ComputerInstallDotshRoute: typeof ComputerInstallDotshRoute
   OauthDeviceRoute: typeof OauthDeviceRoute
   OauthTokenRoute: typeof OauthTokenRoute
   ApiAgentAttachmentUploadCapabilitiesRoute: typeof ApiAgentAttachmentUploadCapabilitiesRoute
@@ -544,6 +570,20 @@ declare module '@tanstack/react-router' {
       path: '/auth/logout'
       fullPath: '/auth/logout'
       preLoaderRoute: typeof AuthLogoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/computer/install.ps1': {
+      id: '/computer/install.ps1'
+      path: '/computer/install.ps1'
+      fullPath: '/computer/install.ps1'
+      preLoaderRoute: typeof ComputerInstallDotps1RouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/computer/install.sh': {
+      id: '/computer/install.sh'
+      path: '/computer/install.sh'
+      fullPath: '/computer/install.sh'
+      preLoaderRoute: typeof ComputerInstallDotshRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/oauth/device': {
@@ -744,6 +784,8 @@ const rootRouteChildren: RootRouteChildren = {
   AuthCallbackRoute: AuthCallbackRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthLogoutRoute: AuthLogoutRoute,
+  ComputerInstallDotps1Route: ComputerInstallDotps1Route,
+  ComputerInstallDotshRoute: ComputerInstallDotshRoute,
   OauthDeviceRoute: OauthDeviceRoute,
   OauthTokenRoute: OauthTokenRoute,
   ApiAgentAttachmentUploadCapabilitiesRoute:
