@@ -84,6 +84,25 @@ Secret 和 Variable 的区别不是「重不重要」，而是**能不能读回�
 | `AUTHING_APP_ID`            | Authing 应用 ID                     |
 | `STAGING_PUBLIC_HEALTH_URL` | `https://staging.coforge.cn/health` |
 
+### 触发 Computer 本地分发发布
+
+云应用走 push-to-main 自动部署，但本地 Computer/Daemon 发布是手动的（见
+[`docs/release.md`](../../docs/release.md#local-computer-distribution-model)）：只挂
+`workflow_dispatch`，不挂 `on: push`。触发一次 staging 发布：
+
+```sh
+gh workflow run release-staging.yml --repo LRM-Teams/coforge
+# 或指定版本号，不填则自动生成 0.0.0-dev.<run_number>-<short sha>
+gh workflow run release-staging.yml --repo LRM-Teams/coforge -f version=0.2.0-rc.1
+```
+
+workflow 读取上面同一张表里的 `ALIYUN_OSS_ACCESS_KEY_ID` / `ALIYUN_OSS_ACCESS_KEY_SECRET`，
+跑 `scripts/release/publish.ts` 把 Computer/Daemon 发布到
+`coforge-releases-staging` bucket（`https://releases-staging.coforge.cn`），
+默认只编译四个 POSIX target（不含 Windows，见该脚本的注释）。用
+`gh run watch` 或仓库 Actions 页面看进度；发布记录留在 workflow run 里，不写入本
+README。
+
 ### 批量配置
 
 一条条 `gh secret set` 在开生产环境时会很痛。`gh` 支持从文件整批导入：
