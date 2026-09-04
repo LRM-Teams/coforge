@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun build --compile ./src/cli.ts --outfile ./dist/coforge-computer",
+    "build": "bun build --compile --env=COFORGE_RELEASE_* ./src/cli.ts --outfile ./dist/coforge-computer",
     "check": "bun run format:check && bun run lint && bun run typecheck",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",

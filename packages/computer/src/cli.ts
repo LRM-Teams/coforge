@@ -15,6 +15,7 @@ import {
   resolveDaemonSocketPath,
 } from "./paths";
 import { ComputerUpdater, UpdateError } from "./updater";
+import { COFORGE_RELEASE_FEED_URL, COFORGE_RELEASE_TRUSTED_KEYS } from "./release-channel";
 import { FileComputerConfig } from "./local-config";
 import { resolveComputerConfigDirectory } from "./paths";
 import { ComputerSetup } from "./setup/computer-setup";
@@ -41,10 +42,6 @@ import { followComputerLogs } from "./logging/computer-logs";
 
 const VERSION = "0.1.0";
 const DEFAULT_SERVER_URL = "https://coforge.cn";
-const DEFAULT_RELEASES_URL = "https://releases.coforge.cn/";
-const RELEASE_KEY = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAv+p12qm4iWEzQxMHxwm3gMmm2J86UYuUEp4Viy115bA=
------END PUBLIC KEY-----`;
 
 export interface LoginCommand {
   run(serverUrl: string, options: { json: boolean }): Promise<void>;
@@ -411,8 +408,8 @@ function createUpdateCommand(io: { stdout: (line: string) => void }): UpdateComm
   });
   const target = currentComputerPlatform().releaseTarget;
   const updater = new ComputerUpdater({
-    baseUrl: DEFAULT_RELEASES_URL,
-    trustedKeys: { "coforge-release-unprovisioned": RELEASE_KEY },
+    baseUrl: COFORGE_RELEASE_FEED_URL,
+    trustedKeys: COFORGE_RELEASE_TRUSTED_KEYS,
     target,
     installRoot,
     binaryDirectory,

@@ -1,15 +1,9 @@
-import { createPublicKey, verify } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-const RELEASE_SET_PATTERN = /^sha256:[0-9a-f]{64}$/;
+import { ReleaseEnvelopeError, verifyReleaseEnvelope } from "@coforge/protocol";
 
-type SignedEnvelope = {
-  schema_version: 1;
-  key_id: string;
-  payload: string;
-  signature: string;
-};
+const RELEASE_SET_PATTERN = /^sha256:[0-9a-f]{64}$/;
 
 type ArtifactIdentity = { size: number; sha256: string };
 type ComponentReference = ArtifactIdentity & { url: string };
@@ -219,35 +213,13 @@ export class ComputerUpdater {
   }
 
   #verifyEnvelope<T>(bytes: Uint8Array): { value: T; payloadBytes: Uint8Array } {
-    let envelope: SignedEnvelope;
     try {
-      envelope = JSON.parse(new TextDecoder().decode(bytes)) as SignedEnvelope;
-    } catch {
-      throw new UpdateError("UPDATE_FEED_INVALID", "signed document is not valid JSON");
-    }
-    if (
-      envelope?.schema_version !== 1 ||
-      typeof envelope.key_id !== "string" ||
-      typeof envelope.payload !== "string" ||
-      typeof envelope.signature !== "string"
-    ) {
-      throw new UpdateError("UPDATE_FEED_INVALID", "signed document envelope is invalid");
-    }
-    const key = this.#trustedKeys[envelope.key_id];
-    if (!key) throw integrity(`untrusted signing key: ${envelope.key_id}`);
-    const signed = Buffer.from(`coforge-release-v1\n${envelope.key_id}\n${envelope.payload}`);
-    let valid = false;
-    try {
-      valid = verify(null, signed, createPublicKey(key), Buffer.from(envelope.signature, "base64"));
-    } catch {
-      throw integrity("signed document signature is malformed");
-    }
-    if (!valid) throw integrity("signed document signature is invalid");
-    const payloadBytes = Buffer.from(envelope.payload, "base64");
-    try {
-      return { value: JSON.parse(payloadBytes.toString("utf8")) as T, payloadBytes };
-    } catch {
-      throw new UpdateError("UPDATE_FEED_INVALID", "signed payload is not valid JSON");
+      return verifyReleaseEnvelope<T>(bytes, this.#trustedKeys);
+    } catch (error) {
+      if (!(error instanceof ReleaseEnvelopeError)) throw error;
+      throw error.code === "INTEGRITY"
+        ? integrity(error.message)
+        : new UpdateError("UPDATE_FEED_INVALID", error.message);
     }
   }
 
