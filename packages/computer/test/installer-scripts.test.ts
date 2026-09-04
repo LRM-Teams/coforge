@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -50,67 +50,34 @@ function currentTarget(): string {
   return target;
 }
 
-/** A PATH with jq's directory removed, so a test can exercise install.sh's bash-only regex
- * fallback. curl, uname, sed, tr, awk, chmod, and shasum/openssl still resolve from /usr and
- * /bin, so only the jq code path is disabled. */
-function pathWithoutJq(): string {
-  const jq = Bun.spawnSync({ cmd: ["which", "jq"] })
-    .stdout.toString()
-    .trim();
-  const path = process.env.PATH ?? "";
-  if (!jq) return path;
-  const jqDirectory = jq.slice(0, jq.lastIndexOf("/"));
-  return path
-    .split(":")
-    .filter((entry) => entry !== jqDirectory)
-    .join(":");
-}
-
-/** Serves the four-object feed install.sh consumes: a "latest" pointer, one version's
- * manifest, and that version's computer binary for the target. The served binary is itself a
- * shell script that records the arguments it is invoked with, so the test can assert install.sh
- * chose the right version and forwarded it correctly. */
+/** Serves the two objects install.sh consumes for a version: a sidecar checksum file
+ * (`<version>/<target>/coforge-computer.sha256`, a bare hex line - no manifest.json, no jq, no
+ * sed-based JSON parsing) and that version's computer binary. Also serves "/latest". The served
+ * binary is itself a shell script that records the arguments it is invoked with, so a test can
+ * assert install.sh chose the right version and forwarded it correctly. */
 async function serveFixture(
   options: {
     version?: string;
     target?: string;
     tamperChecksum?: boolean;
     argumentLog?: string;
-    omitPlatform?: boolean;
+    omitSidecar?: boolean;
+    latestContent?: string;
   } = {},
 ) {
   const version = options.version ?? "3.2.1";
   const target = options.target ?? currentTarget();
   const log = options.argumentLog ?? "/dev/null";
   const computer = Buffer.from(`#!/bin/sh\nprintf '%s\\n' "$@" > "${log}"\n`);
-  const daemon = Buffer.from("#!/bin/sh\nexit 0\n");
   const checksum = options.tamperChecksum ? "0".repeat(64) : sha256hex(computer);
 
-  const manifest = {
-    schema_version: 1,
-    version,
-    commit: "b".repeat(40),
-    buildDate: "2026-09-04T12:00:00Z",
-    platforms: options.omitPlatform
-      ? {}
-      : {
-          [target]: {
-            computer: { binary: "coforge-computer", checksum, size: computer.length },
-            daemon: {
-              binary: "coforge-daemon",
-              checksum: sha256hex(daemon),
-              size: daemon.length,
-            },
-          },
-        },
-  };
-
   const files = new Map<string, Uint8Array>([
-    ["/latest", Buffer.from(`${version}\n`)],
-    [`/${version}/manifest.json`, Buffer.from(JSON.stringify(manifest))],
+    ["/latest", Buffer.from(options.latestContent ?? `${version}\n`)],
     [`/${version}/${target}/coforge-computer`, computer],
-    [`/${version}/${target}/coforge-daemon`, daemon],
   ]);
+  if (!options.omitSidecar) {
+    files.set(`/${version}/${target}/coforge-computer.sha256`, Buffer.from(`${checksum}\n`));
+  }
 
   const requested: string[] = [];
   const server = Bun.serve({
@@ -126,65 +93,58 @@ async function serveFixture(
   return { baseUrl: `http://localhost:${server.port}`, version, target, requested };
 }
 
-for (const withoutJq of [false, true] as const) {
-  test(`install.sh resolves latest and an explicit version${withoutJq ? " without jq" : " with jq"}`, async () => {
-    const directory = await mkdtemp(join(tmpdir(), "coforge-install-script-"));
-    temporaryDirectories.push(directory);
-    const log = join(directory, "arguments");
+test("install.sh resolves latest and an explicit version, and never touches manifest.json", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "coforge-install-script-"));
+  temporaryDirectories.push(directory);
+  const log = join(directory, "arguments");
 
-    for (const selector of ["latest", "3.2.1"] as const) {
-      const fixture = await serveFixture({ argumentLog: log });
-      const child = await run(["--version", selector], {
-        ...process.env,
-        ...(withoutJq ? { PATH: pathWithoutJq() } : {}),
-        COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
-        COFORGE_INSTALLER_TEST_MODE: "1",
-      });
-      expect(child.exitCode).toBe(0);
-      expect((await readFile(log, "utf8")).trim().split("\n")).toEqual([
-        "install",
-        "--version",
-        "3.2.1",
-      ]);
-      // Only the computer binary is fetched; install.sh's own job ends at exec-ing it, and the
-      // exec'd binary's own `install` command is what fetches the daemon payload.
-      expect(fixture.requested).not.toContain(
-        `/${fixture.version}/${fixture.target}/coforge-daemon`,
-      );
-    }
-
-    const omitted = await run([], {
+  for (const selector of ["latest", "3.2.1"] as const) {
+    const fixture = await serveFixture({ argumentLog: log });
+    const child = await run(["--version", selector], {
       ...process.env,
-      ...(withoutJq ? { PATH: pathWithoutJq() } : {}),
-      COFORGE_RELEASE_FEED_URL: (await serveFixture({ argumentLog: log })).baseUrl,
+      COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
       COFORGE_INSTALLER_TEST_MODE: "1",
     });
-    expect(omitted.exitCode).toBe(0);
+    expect(child.exitCode).toBe(0);
     expect((await readFile(log, "utf8")).trim().split("\n")).toEqual([
       "install",
       "--version",
       "3.2.1",
     ]);
+    // Only the computer binary and its sidecar checksum are fetched; install.sh no longer
+    // downloads or parses manifest.json at all (B1), and its own job ends at running the
+    // computer binary - that binary's own `install` command is what fetches the daemon payload.
+    expect(fixture.requested).not.toContain(`/${fixture.version}/manifest.json`);
+    expect(fixture.requested).not.toContain(`/${fixture.version}/${fixture.target}/coforge-daemon`);
+  }
+
+  const omitted = await run([], {
+    ...process.env,
+    COFORGE_RELEASE_FEED_URL: (await serveFixture({ argumentLog: log })).baseUrl,
+    COFORGE_INSTALLER_TEST_MODE: "1",
   });
-}
+  expect(omitted.exitCode).toBe(0);
+  expect((await readFile(log, "utf8")).trim().split("\n")).toEqual([
+    "install",
+    "--version",
+    "3.2.1",
+  ]);
+});
 
-for (const withoutJq of [false, true] as const) {
-  test(`install.sh reports a missing platform entry the same way${withoutJq ? " without jq" : " with jq"}`, async () => {
-    const fixture = await serveFixture({ omitPlatform: true });
+test("install.sh fails closed when the sidecar checksum is missing", async () => {
+  const fixture = await serveFixture({ omitSidecar: true });
 
-    const child = await run(["--version", "latest"], {
-      ...process.env,
-      ...(withoutJq ? { PATH: pathWithoutJq() } : {}),
-      COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
-      COFORGE_INSTALLER_TEST_MODE: "1",
-    });
-
-    expect(child.exitCode).not.toBe(0);
-    expect(child.stderr).toContain("no computer entry");
+  const child = await run(["--version", "latest"], {
+    ...process.env,
+    COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+    COFORGE_INSTALLER_TEST_MODE: "1",
   });
-}
 
-test("install.sh rejects a downloaded binary that fails its manifest checksum", async () => {
+  expect(child.exitCode).not.toBe(0);
+  expect(fixture.requested).not.toContain(`/${fixture.version}/${fixture.target}/coforge-computer`);
+});
+
+test("install.sh rejects a downloaded binary that fails its sidecar checksum", async () => {
   const fixture = await serveFixture({ tamperChecksum: true });
 
   const child = await run(["--version", "latest"], {
@@ -207,6 +167,17 @@ test("install.sh rejects an unparsable version before making any request", async
   expect(child.stderr).toContain("version must be");
 });
 
+test("install.sh rejects '.' and a version starting with '-' before making any request", async () => {
+  for (const invalid of [".", "-rf"]) {
+    const child = await run(["--version", invalid], {
+      ...process.env,
+      COFORGE_RELEASE_FEED_URL: "http://localhost:1",
+    });
+    expect(child.exitCode).not.toBe(0);
+    expect(child.stderr).toContain("version must be");
+  }
+});
+
 test("install.sh refuses a plain-HTTP feed outside test mode", async () => {
   const child = await run(["--version", "latest"], {
     ...process.env,
@@ -215,6 +186,96 @@ test("install.sh refuses a plain-HTTP feed outside test mode", async () => {
 
   expect(child.exitCode).not.toBe(0);
   expect(child.stderr).toContain("HTTPS");
+});
+
+const invalidLatestPointers: Array<[name: string, content: string]> = [
+  ["an HTML error page", "<html><body>502 Bad Gateway</body></html>"],
+  ["content containing a traversal segment", ".."],
+  ["an empty body", ""],
+];
+
+for (const [name, latestContent] of invalidLatestPointers) {
+  test(`install.sh fails closed and never fetches the binary when the latest pointer returns ${name}`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), "coforge-install-script-"));
+    temporaryDirectories.push(directory);
+    const log = join(directory, "arguments");
+    const fixture = await serveFixture({ latestContent, argumentLog: log });
+
+    const child = await run(["--version", "latest"], {
+      ...process.env,
+      COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+      COFORGE_INSTALLER_TEST_MODE: "1",
+    });
+
+    expect(child.exitCode).not.toBe(0);
+    // Pin the exact message: without this, is_valid_version() being stubbed to always succeed
+    // would still fail closed for most of these bodies (they do not form a URL segment the
+    // fixture recognizes, so the next download 404s) but with a different, unrelated error -
+    // which would let the test keep passing even though the check under test was disabled.
+    expect(child.stderr).toContain("install.sh: the latest pointer did not return a valid version");
+    expect(fixture.requested).not.toContain(
+      `/${fixture.version}/${fixture.target}/coforge-computer`,
+    );
+    await expect(readFile(log, "utf8")).rejects.toThrow();
+  });
+}
+
+test("install.sh caps the size of the latest pointer and sidecar downloads", async () => {
+  // Both objects are tiny, feed-controlled text - "latest" has no advertised size at all, and
+  // the sidecar's is a single 64-character checksum line - so a response well past the 4096-byte
+  // cap must be rejected before the script trusts any of it (N4). curl checks a declared
+  // Content-Length against `--max-filesize` before downloading, so this does not require
+  // actually streaming an unbounded body to prove the cap is enforced.
+  const version = "3.2.1";
+  const target = currentTarget();
+  const oversized = Buffer.alloc(5000, 0x61);
+  const files = new Map<string, Uint8Array>([
+    ["/latest", oversized],
+    [`/${version}/${target}/coforge-computer.sha256`, oversized],
+  ]);
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      const bytes = files.get(new URL(request.url).pathname);
+      return bytes ? new Response(Buffer.from(bytes)) : new Response("not found", { status: 404 });
+    },
+  });
+  servers.push(server);
+  const feedUrl = `http://localhost:${server.port}`;
+
+  const latestChild = await run(["--version", "latest"], {
+    ...process.env,
+    COFORGE_RELEASE_FEED_URL: feedUrl,
+    COFORGE_INSTALLER_TEST_MODE: "1",
+  });
+  expect(latestChild.exitCode).not.toBe(0);
+
+  const sidecarChild = await run(["--version", version], {
+    ...process.env,
+    COFORGE_RELEASE_FEED_URL: feedUrl,
+    COFORGE_INSTALLER_TEST_MODE: "1",
+  });
+  expect(sidecarChild.exitCode).not.toBe(0);
+});
+
+test("install.sh removes its temporary directory after a successful install instead of exec-leaking it", async () => {
+  // Regression test for N1: `exec`-ing the computer binary replaces this shell process, so the
+  // `trap ... EXIT` cleanup never runs and the ~138 MB binary is left behind in $TMPDIR on every
+  // install. Point $TMPDIR at an empty, dedicated directory and assert it is empty again once
+  // the script (which runs the binary as an ordinary child, not via exec) exits successfully.
+  const testTmpDir = await mkdtemp(join(tmpdir(), "coforge-tmpdir-"));
+  temporaryDirectories.push(testTmpDir);
+  const fixture = await serveFixture();
+
+  const child = await run(["--version", "latest"], {
+    ...process.env,
+    TMPDIR: testTmpDir,
+    COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+    COFORGE_INSTALLER_TEST_MODE: "1",
+  });
+
+  expect(child.exitCode).toBe(0);
+  expect(await readdir(testTmpDir)).toEqual([]);
 });
 
 test("install scripts fail closed and stay within the current user's own account", async () => {
@@ -226,9 +287,19 @@ test("install scripts fail closed and stay within the current user's own account
   expect(powershell).not.toContain("Program Files");
   expect(powershell).not.toContain("Start-Process -Verb RunAs");
   // Neither installer pins a checksum for any published object: every payload is verified
-  // against the checksum the feed's own manifest.json names at install time.
+  // against the checksum its feed-hosted sidecar (install.sh, install.ps1) or manifest.json
+  // (the updater) names at install time.
   expect(shell).not.toMatch(/[0-9a-f]{64}/);
   expect(powershell).not.toMatch(/[0-9a-f]{64}/);
   expect(shell).toContain("HTTPS");
   expect(powershell).toContain("HTTPS");
+  // Neither script may ever pass a literal 0 to curl's/Invoke-WebRequest's size cap, which curl
+  // treats as "unlimited" (N4).
+  expect(shell).not.toMatch(/--max-filesize\s+["']?0(?!\d)/);
+  // install.sh no longer parses JSON in the shell at all (B1): no jq invocation, and no request
+  // for the manifest ("install.sh resolves latest and an explicit version, and never touches
+  // manifest.json" above proves that behaviorally; this just confirms no code path can even
+  // construct that request).
+  expect(shell).not.toContain("jq ");
+  expect(shell).not.toContain("/manifest.json");
 });
