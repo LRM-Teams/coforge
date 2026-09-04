@@ -33,6 +33,9 @@ async function fixture(
     malformedManifest?: boolean;
     omitLatest?: boolean;
     omitPlatform?: boolean;
+    manifestVersion?: string;
+    swapComputerBinary?: boolean;
+    redirectLatest?: boolean;
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "coforge-updater-"));
@@ -44,18 +47,24 @@ async function fixture(
 
   const manifest = {
     schema_version: 1,
-    version,
+    version: options.manifestVersion ?? version,
     commit: "a".repeat(40),
     buildDate: "2026-09-04T12:00:00Z",
     platforms: options.omitPlatform
       ? {}
       : {
           [target]: {
-            computer: {
-              binary: "coforge-computer",
-              checksum: sha256hex(computer),
-              size: computer.length,
-            },
+            // swapComputerBinary makes the "computer" entry point at the daemon's own name and
+            // identity, so the payload it describes is self-consistent (its checksum matches
+            // what the feed actually serves at that path) and only the binary-name pin can catch
+            // it - see the B3-3 test below.
+            computer: options.swapComputerBinary
+              ? { binary: "coforge-daemon", checksum: sha256hex(daemon), size: daemon.length }
+              : {
+                  binary: "coforge-computer",
+                  checksum: sha256hex(computer),
+                  size: computer.length,
+                },
             daemon: {
               binary: "coforge-daemon",
               checksum: sha256hex(daemon),
@@ -79,7 +88,15 @@ async function fixture(
     [`/${version}/${target}/coforge-computer`, servedComputer],
     [`/${version}/${target}/coforge-daemon`, servedDaemon],
   ]);
-  if (!options.omitLatest) files.set("/latest", Buffer.from(`${version}\n`));
+  // redirectLatest points "/latest" at a 302 whose destination serves the very same, otherwise
+  // completely valid, version content - so a full install would succeed if the redirect refusal
+  // were the only thing missing, rather than tripping over some unrelated 404 downstream. See
+  // the B3-2 redirect test below.
+  if (options.redirectLatest) {
+    files.set("/latest-real", Buffer.from(`${version}\n`));
+  } else if (!options.omitLatest) {
+    files.set("/latest", Buffer.from(`${version}\n`));
+  }
 
   const requested: string[] = [];
   const server = Bun.serve({
@@ -87,6 +104,9 @@ async function fixture(
     fetch(request) {
       const path = new URL(request.url).pathname;
       requested.push(path);
+      if (options.redirectLatest && path === "/latest") {
+        return new Response(null, { status: 302, headers: { Location: "/latest-real" } });
+      }
       const bytes = files.get(path);
       return bytes ? new Response(Buffer.from(bytes)) : new Response("not found", { status: 404 });
     },
@@ -160,6 +180,65 @@ test("a latest pointer that is not a version string is rejected", async () => {
   });
 
   await expect(manager.install("latest")).rejects.toMatchObject({ code: "UPDATE_FEED_INVALID" });
+});
+
+test("a redirected feed response is rejected even when the redirect target is otherwise a complete, valid install", async () => {
+  // Everything the redirect leads to - the resolved version, its manifest, and both binaries -
+  // is completely valid. Only `response.redirected` distinguishes this from a legitimate
+  // install, so this is the one thing standing between passing and failing: a redirect to
+  // something that also fails on its own merits (a 404, a malformed manifest) would not prove
+  // the redirect check itself is doing the rejecting.
+  const input = await fixture({ redirectLatest: true });
+
+  await expect(updater(input).install("latest")).rejects.toMatchObject({
+    code: "UPDATE_FEED_INVALID",
+  });
+});
+
+test("a manifest whose version field does not match the requested version is rejected", async () => {
+  const input = await fixture({ manifestVersion: "9.9.9" });
+
+  await expect(updater(input).install("latest")).rejects.toMatchObject({
+    code: "UPDATE_FEED_INVALID",
+    message: expect.stringContaining("does not match requested version"),
+  });
+});
+
+test("a manifest that pins the computer artifact to the daemon's binary name is rejected", async () => {
+  const input = await fixture({ swapComputerBinary: true });
+
+  await expect(updater(input).install("latest")).rejects.toMatchObject({
+    code: "UPDATE_FEED_INVALID",
+  });
+  // Caught during manifest validation, before either artifact is downloaded - the swapped entry
+  // is otherwise self-consistent (its checksum matches the daemon bytes the feed actually serves
+  // at that path), so only the binary-name pin catches it.
+  expect(input.requested).not.toContain(`/${input.version}/${input.target}/coforge-computer`);
+});
+
+test("a version of '.' or one that starts with '-' is rejected", async () => {
+  const input = await fixture();
+  for (const invalid of [".", "-rf"]) {
+    await expect(updater(input).install(invalid)).rejects.toMatchObject({
+      code: "UPDATE_FEED_INVALID",
+    });
+  }
+  // Rejected before any network access. Without this, a "." or "-rf" selector that slipped past
+  // validation would still 404 against the feed and fail with the same UPDATE_FEED_INVALID code,
+  // which would let this test pass for the wrong reason.
+  expect(input.requested).toEqual([]);
+});
+
+test("rollback refuses a previous version of '.' or one that starts with '-'", async () => {
+  const input = await fixture();
+  await updater(input).install("latest");
+  for (const invalid of [".", "-rf"]) {
+    await writeFile(
+      join(input.directory, "active.json"),
+      `${JSON.stringify({ schema_version: 1, current: input.version, previous: invalid })}\n`,
+    );
+    await expect(updater(input).rollback()).rejects.toMatchObject({ code: "UPDATE_NO_ROLLBACK" });
+  }
 });
 
 test("a manifest with an invalid schema is rejected", async () => {

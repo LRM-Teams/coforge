@@ -6,6 +6,20 @@ const CHECKSUM_PATTERN = /^[0-9a-f]{64}$/;
 // version string with no path separators and no traversal segment.
 const VERSION_PATTERN = /^[A-Za-z0-9.+-]{1,100}$/;
 
+/** A version is both a URL segment and an on-disk directory name under "versions/", so beyond
+ * the character-class pattern above it must reject two further values that pattern alone would
+ * accept: "." on its own, which as a directory name means "the versions directory itself" and
+ * would let a payload land outside any per-version directory (a lone "." never triggers the
+ * "*.." substring check, which only catches two consecutive dots); and a leading "-", which
+ * would let the value be mistaken for a flag by curl, a shell, or any other tool it later
+ * reaches. Both #assertVersion and rollback() must go through this single function so neither
+ * path can drift from the other's notion of "valid". */
+function isValidVersion(value: string): boolean {
+  return (
+    VERSION_PATTERN.test(value) && value !== "." && !value.includes("..") && !value.startsWith("-")
+  );
+}
+
 type ArtifactIdentity = { size: number; checksum: string };
 type PlatformArtifact = ArtifactIdentity & { binary: string };
 
@@ -73,7 +87,10 @@ export class ComputerUpdater {
   async install(selection: string): Promise<{ version: string; previous: string | null }> {
     return this.#withLock(async () => {
       const version = await this.#resolveSelection(selection);
-      const manifest = this.#parseManifest(await this.#download(`${version}/manifest.json`));
+      const manifest = this.#parseManifest(
+        await this.#download(`${version}/manifest.json`),
+        version,
+      );
       const platform = manifest.platforms[this.#target];
       if (!platform) {
         throw new UpdateError(
@@ -102,7 +119,7 @@ export class ComputerUpdater {
   async rollback(): Promise<{ version: string; previous: string }> {
     return this.#withLock(async () => {
       const active = await this.#readJson<ActiveState>("active.json");
-      if (!active?.previous || !VERSION_PATTERN.test(active.previous)) {
+      if (!active?.previous || !isValidVersion(active.previous)) {
         throw new UpdateError("UPDATE_NO_ROLLBACK", "no previous verified version is available");
       }
       await this.#assertInstalled(active.previous);
@@ -131,23 +148,23 @@ export class ComputerUpdater {
   }
 
   #assertVersion(value: string, message: string): void {
-    if (!VERSION_PATTERN.test(value) || value.includes("..")) {
+    if (!isValidVersion(value)) {
       throw new UpdateError("UPDATE_FEED_INVALID", message);
     }
   }
 
-  #parseManifest(bytes: Uint8Array): ReleaseManifest {
+  #parseManifest(bytes: Uint8Array, expectedVersion: string): ReleaseManifest {
     let value: unknown;
     try {
       value = JSON.parse(new TextDecoder().decode(bytes));
     } catch {
       throw new UpdateError("UPDATE_FEED_INVALID", "manifest is not valid JSON");
     }
-    this.#assertManifest(value);
+    this.#assertManifest(value, expectedVersion);
     return value;
   }
 
-  #assertManifest(value: unknown): asserts value is ReleaseManifest {
+  #assertManifest(value: unknown, expectedVersion: string): asserts value is ReleaseManifest {
     const manifest = value as ReleaseManifest | undefined;
     if (
       manifest?.schema_version !== 1 ||
@@ -158,6 +175,17 @@ export class ComputerUpdater {
       manifest.platforms === null
     ) {
       throw new UpdateError("UPDATE_FEED_INVALID", "manifest schema is invalid");
+    }
+    // The manifest is fetched from "<version>/manifest.json", so its own "version" field is
+    // redundant unless it is also checked: without this, a feed object served under the wrong
+    // version path (a stale cache entry, a misconfigured proxy, or a swapped object) would pass
+    // every other check here and only be caught later, if at all, by an unrelated checksum
+    // mismatch.
+    if (manifest.version !== expectedVersion) {
+      throw new UpdateError(
+        "UPDATE_FEED_INVALID",
+        `manifest version ${manifest.version} does not match requested version ${expectedVersion}`,
+      );
     }
     for (const [platformName, entry] of Object.entries(manifest.platforms)) {
       if (!validPlatformEntry(entry)) {
