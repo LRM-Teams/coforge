@@ -46,6 +46,12 @@ jobs:
       - name: Check deploy scripts
         run: mise run check:deploy
 
+      - name: Test release build script
+        run: mise run test:release
+
+      - name: Check release build script
+        run: mise run check:release
+
   computer:
     name: Computer
     runs-on: ubuntu-latest

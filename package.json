@@ -14,7 +14,9 @@
     "build": "bun run --cwd packages/protocol generate && bun run --filter \"*\" --if-present build",
     "check": "actionlint && bun run --cwd packages/protocol generate && bun run --filter \"*\" --if-present check",
     "test:deploy": "bun test scripts/deploy/deployment.test.ts",
-    "check:deploy": "bunx oxfmt --check scripts/deploy && bunx oxlint scripts/deploy && mise exec -- shellcheck scripts/deploy/remote-deploy.sh"
+    "check:deploy": "bunx oxfmt --check scripts/deploy && bunx oxlint scripts/deploy && mise exec -- shellcheck scripts/deploy/remote-deploy.sh",
+    "test:release": "bun test scripts/release",
+    "check:release": "bunx oxfmt --check scripts/release && bunx oxlint scripts/release && mise exec -- shellcheck scripts/release/install.sh"
   },
   "devDependencies": {
     "@bufbuild/buf": "1.72.0",
