@@ -10,7 +10,11 @@ import {
 type AgentActivityPublicationDependencies = {
   proxySecret: string | undefined;
   agentBelongsToWorkspace(workspaceId: string, agentId: string): Promise<boolean>;
-  agentBelongsToComputer(workspaceId: string, agentId: string, computerId: string): Promise<boolean>;
+  agentBelongsToComputer(
+    workspaceId: string,
+    agentId: string,
+    computerId: string,
+  ): Promise<boolean>;
   computerBelongsToWorkspace(workspaceId: string, computerId: string): Promise<boolean>;
   observe(activity: TrustedAgentActivity): Promise<void>;
 };

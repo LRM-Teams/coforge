@@ -40,11 +40,13 @@ function renderConversation(
     rerender(nextConversation: DirectConversationView) {
       view.rerender(
         <RouterContextProvider router={getRouter()}>
-          <DirectConversation
-            conversation={nextConversation}
-            onSend={onSend}
-            onRefresh={onRefresh}
-          />
+          <AppToastProvider>
+            <DirectConversation
+              conversation={nextConversation}
+              onSend={onSend}
+              onRefresh={onRefresh}
+            />
+          </AppToastProvider>
         </RouterContextProvider>,
       );
     },

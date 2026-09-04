@@ -11,6 +11,7 @@ import { ArrowDown, ArrowUp, FileText, Paperclip } from "lucide-react";
 import { BackToAgents } from "@/features/conversations/conversation-layout";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { useAppToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
@@ -43,6 +44,7 @@ export function DirectConversation({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [file, setFile] = useState<File>();
+  const toast = useAppToast();
   const [newMessageCount, setNewMessageCount] = useState(0);
   const historyRef = useRef<HTMLDivElement>(null);
   const followingLatestRef = useRef(true);
@@ -54,7 +56,6 @@ export function DirectConversation({
   const lastSequence = conversation.messages.at(-1)?.sequence;
 
   useLayoutEffect(() => {
-    let pendingScroll: number | undefined;
     const firstRender = previousConversationIdRef.current === undefined;
     const changedConversation =
       previousConversationIdRef.current !== undefined &&
@@ -71,20 +72,19 @@ export function DirectConversation({
 
     if (firstRender || changedConversation || followingLatestRef.current) {
       scrollToLatest("instant");
-      pendingScroll = window.requestAnimationFrame(() => scrollToLatest("instant"));
       setNewMessageCount(0);
       followingLatestRef.current = true;
     } else if (receivedMessageCount > 0) {
       setNewMessageCount((count) => count + receivedMessageCount);
     }
-    return () => {
-      if (pendingScroll !== undefined) window.cancelAnimationFrame(pendingScroll);
-    };
+    return undefined;
   }, [conversation.conversationId, lastSequence]);
 
   function scrollToLatest(behavior: ScrollBehavior) {
     const history = historyRef.current;
-    history?.scrollTo({ top: history.scrollHeight, behavior });
+    if (!history) return;
+    history.scrollTo({ top: history.scrollHeight, behavior });
+    history.scrollTop = history.scrollHeight;
   }
 
   function trackReadingPosition() {
@@ -148,7 +148,9 @@ export function DirectConversation({
       setBody("");
       setFile(undefined);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : m.conversation_send_error());
+      const message = m.conversation_send_error();
+      setError(message);
+      toast.error(message, cause);
     } finally {
       sendingRef.current = false;
       setSending(false);

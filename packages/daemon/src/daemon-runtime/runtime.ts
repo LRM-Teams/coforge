@@ -416,24 +416,28 @@ export class DaemonRuntime {
           return;
         }
         if (runtimeEvent.type !== "completed") return;
-        emit(runtimeEvent.status === "failed" ? {
-          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-          requestId: crypto.randomUUID(),
-          workspaceId: this.#connection.workspaceId,
-          agentId,
-          activity: "error",
-          level: "error",
-          message: "Agent runtime failed.",
-          diagnostic: runtimeFailureDiagnostic("turn failure"),
-        } : {
-          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-          requestId: crypto.randomUUID(),
-          workspaceId: this.#connection.workspaceId,
-          agentId,
-          activity: "turn_completed",
-          level: "info",
-          message: "Agent turn completed.",
-        });
+        emit(
+          runtimeEvent.status === "failed"
+            ? {
+                protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+                requestId: crypto.randomUUID(),
+                workspaceId: this.#connection.workspaceId,
+                agentId,
+                activity: "error",
+                level: "error",
+                message: "Agent runtime failed.",
+                diagnostic: runtimeFailureDiagnostic("turn failure"),
+              }
+            : {
+                protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+                requestId: crypto.randomUUID(),
+                workspaceId: this.#connection.workspaceId,
+                agentId,
+                activity: "turn_completed",
+                level: "info",
+                message: "Agent turn completed.",
+              },
+        );
         void this.drainAppInboxNotices(agentId).catch(() => {});
       });
       runtime.session.onExit(() => {
@@ -1015,7 +1019,11 @@ function runtimeFailureDiagnostic(message: string) {
   const safe = scrubActivityText(message);
   let hash = 2166136261;
   for (const character of safe) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
-  return { errorClass: "AgentRuntimeError", reason: "runtime_failure", fingerprint: (hash >>> 0).toString(16).padStart(8, "0") };
+  return {
+    errorClass: "AgentRuntimeError",
+    reason: "runtime_failure",
+    fingerprint: (hash >>> 0).toString(16).padStart(8, "0"),
+  };
 }
 
 function validUsageWindow(window: UsageSnapshot["primary"], now: number): UsageSnapshot["primary"] {

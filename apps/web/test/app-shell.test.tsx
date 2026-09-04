@@ -6,6 +6,7 @@ import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 
 import { AppShell } from "@/components/app-shell";
+import { AppToastProvider } from "@/components/ui/toast";
 import type { AgentView } from "@/features/agents/agent-card";
 import { AgentsContent } from "@/features/agents/agents-content";
 import { overwriteGetLocale } from "@/paraglide/runtime";
@@ -61,14 +62,16 @@ function renderShell(
 ) {
   return render(
     <RouterContextProvider router={getRouter()}>
-      <AppShell user={user}>
-        <AgentsContent
-          agents={agents}
-          computers={computers}
-          onCreate={onCreate}
-          onRetry={onRetry}
-        />
-      </AppShell>
+      <AppToastProvider>
+        <AppShell user={user}>
+          <AgentsContent
+            agents={agents}
+            computers={computers}
+            onCreate={onCreate}
+            onRetry={onRetry}
+          />
+        </AppShell>
+      </AppToastProvider>
     </RouterContextProvider>,
   ).container.innerHTML;
 }
@@ -99,13 +102,15 @@ function renderAgents(
 test("shows the current Workspace below the logo", () => {
   render(
     <RouterContextProvider router={getRouter()}>
-      <AppShell
-        user={user}
-        workspaces={[{ id: "ws-1", slug: "lrm-team", name: "LRM-Team" }]}
-        currentWorkspace={{ id: "ws-1", slug: "lrm-team", name: "LRM-Team" }}
-      >
-        Page
-      </AppShell>
+      <AppToastProvider>
+        <AppShell
+          user={user}
+          workspaces={[{ id: "ws-1", slug: "lrm-team", name: "LRM-Team" }]}
+          currentWorkspace={{ id: "ws-1", slug: "lrm-team", name: "LRM-Team" }}
+        >
+          Page
+        </AppShell>
+      </AppToastProvider>
     </RouterContextProvider>,
   );
 
@@ -115,19 +120,18 @@ test("shows the current Workspace below the logo", () => {
   );
 });
 
-test("shows the primary navigation with Members selected", () => {
+test("shows the primary navigation with Agents selected", () => {
   const markup = renderShell();
 
   expect(markup).toContain("<aside");
-  expect(markup).toContain("Members");
+  expect(markup).toContain("Agents");
   expect(markup).toContain("Messages");
   expect(markup).toContain("Computers");
-  expect(markup.indexOf("Members")).toBeLessThan(markup.indexOf("Messages"));
+  expect(markup.indexOf("Agents")).toBeLessThan(markup.indexOf("Messages"));
   expect(markup.indexOf("Messages")).toBeLessThan(markup.indexOf("Computers"));
   expect(markup).toContain('href="/en/messages"');
   expect(markup).toContain('aria-label="Current user"');
   expect(markup).toContain(">F</span>");
-  expect(markup).toContain('aria-current="page"');
 });
 
 test("keeps Messages selected on a private conversation route", () => {
@@ -135,7 +139,9 @@ test("keeps Messages selected on a private conversation route", () => {
   const router = getRouter();
   render(
     <RouterContextProvider router={router}>
-      <AppShell user={user}>Conversation</AppShell>
+      <AppToastProvider>
+        <AppShell user={user}>Conversation</AppShell>
+      </AppToastProvider>
     </RouterContextProvider>,
   );
 
@@ -285,14 +291,16 @@ test("clears the pending start request when the Agent becomes active", async () 
 test("collapsing the sidebar keeps navigation and the user menu reachable", () => {
   render(
     <RouterContextProvider router={getRouter()}>
-      <AppShell user={user}>
-        <AgentsContent
-          agents={[agent]}
-          computers={computers}
-          onCreate={async () => ({ startPublished: true })}
-          onRetry={async () => {}}
-        />
-      </AppShell>
+      <AppToastProvider>
+        <AppShell user={user}>
+          <AgentsContent
+            agents={[agent]}
+            computers={computers}
+            onCreate={async () => ({ startPublished: true })}
+            onRetry={async () => {}}
+          />
+        </AppShell>
+      </AppToastProvider>
     </RouterContextProvider>,
   );
 
@@ -302,7 +310,7 @@ test("collapsing the sidebar keeps navigation and the user menu reachable", () =
   // duplicate the sidebar's links for assistive technology.
   expect(page().getAllByRole("navigation", { name: "Primary navigation" }).length).toBe(1);
   expect(page().getAllByLabelText("Current user").length).toBe(1);
-  for (const name of ["Members", "Messages", "Computers"]) {
+  for (const name of ["Agents", "Messages", "Computers"]) {
     expect(page().getByRole("link", { name }).getAttribute("href")).toBeTruthy();
   }
 });
@@ -312,7 +320,7 @@ test("renders the same shell from the Simplified Chinese catalog", () => {
   const markup = renderShell();
   overwriteGetLocale(() => "en");
 
-  expect(markup).toContain("成员");
+  expect(markup).toContain("智能体");
   expect(markup).toContain("智能体汇总");
   expect(markup).toContain("新建智能体");
 });

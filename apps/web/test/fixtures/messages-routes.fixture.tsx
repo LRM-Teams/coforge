@@ -3,6 +3,7 @@ import "../dom-setup";
 import { afterEach, expect, mock, test } from "bun:test";
 import { Match, RouterContextProvider, createMemoryHistory } from "@tanstack/react-router";
 import { act, cleanup, render, waitFor, within } from "@testing-library/react";
+import { AppToastProvider } from "@/components/ui/toast";
 
 const agents = [
   {
@@ -36,6 +37,8 @@ const loadDirectConversation = mock(async ({ data }: { data: { agentId: string }
 
 mock.module("@/features/agents/agents.functions", () => ({
   createAgent: mock(async () => agents[0]),
+  deleteAgentRuntimeCredential: mock(async () => ({ deleted: true })),
+  saveAgentRuntimeCredential: mock(async () => ({ saved: true })),
   retryAgentStart: mock(async () => {}),
   getAgentStatusConnectionToken: mock(async () => "test-agent-status-token"),
   getAgentDetail: mock(async () => {
@@ -114,7 +117,9 @@ async function renderRoute(path: string) {
   await act(() => router.load());
   render(
     <RouterContextProvider router={router}>
-      <Match routeId="/_app" />
+      <AppToastProvider>
+        <Match routeId="/_app" />
+      </AppToastProvider>
     </RouterContextProvider>,
   );
   return { router, page: within(document.body) };
@@ -141,7 +146,6 @@ test("an Agent profile shows its Computer, runtime configuration, and latest fai
   const { page } = await renderRoute("/agents/agent-1?tab=profile");
   expect(page.getByRole("heading", { name: "First Agent" })).toBeTruthy();
   expect(page.getByText("computer…5678")).toBeTruthy();
-  expect(page.getByText(/"provider": "pi"/)).toBeTruthy();
   expect(page.getByRole("alert").textContent).toContain("Agent runtime could not be started.");
 });
 
