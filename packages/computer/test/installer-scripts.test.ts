@@ -11,7 +11,7 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })));
 });
 
-const script = resolve(import.meta.dir, "../../../install.sh");
+const script = resolve(import.meta.dir, "../../../scripts/release/install.sh");
 
 /** Bun.spawnSync blocks the whole JS thread, including the fixture Bun.serve running in this
  * same process - a synchronous spawn here would deadlock the moment the script tries to reach
@@ -286,8 +286,14 @@ test("install.sh removes its temporary directory after a successful install inst
 });
 
 test("install scripts fail closed and stay within the current user's own account", async () => {
-  const shell = await readFile(resolve(import.meta.dir, "../../../install.sh"), "utf8");
-  const powershell = await readFile(resolve(import.meta.dir, "../../../install.ps1"), "utf8");
+  const shell = await readFile(
+    resolve(import.meta.dir, "../../../scripts/release/install.sh"),
+    "utf8",
+  );
+  const powershell = await readFile(
+    resolve(import.meta.dir, "../../../scripts/release/install.ps1"),
+    "utf8",
+  );
 
   expect(shell).not.toContain("sudo");
   expect(shell).not.toContain("/usr/local");

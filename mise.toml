@@ -71,6 +71,12 @@ run = "bun run test:deploy"
 [tasks."check:deploy"]
 run = "bun run check:deploy"
 
+[tasks."test:release"]
+run = "bun run test:release"
+
+[tasks."check:release"]
+run = "bun run check:release"
+
 [tasks."test:oss-cdn"]
 run = "bun run test:oss-cdn"
 
