@@ -1,41 +1,20 @@
 import { chmod, mkdir, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { ReleaseEnvelopeError, verifyReleaseEnvelope } from "@coforge/protocol";
+const CHECKSUM_PATTERN = /^[0-9a-f]{64}$/;
+// Matches the pointer file, a version directory, and a manifest.json platform entry: a bare
+// version string with no path separators and no traversal segment.
+const VERSION_PATTERN = /^[A-Za-z0-9.+-]{1,100}$/;
 
-const RELEASE_SET_PATTERN = /^sha256:[0-9a-f]{64}$/;
+type ArtifactIdentity = { size: number; checksum: string };
+type PlatformArtifact = ArtifactIdentity & { binary: string };
 
-type ArtifactIdentity = { size: number; sha256: string };
-type ComponentReference = ArtifactIdentity & { url: string };
-
-type ChannelSnapshot = {
+type ReleaseManifest = {
   schema_version: 1;
-  generation: number;
-  channels: Record<"production" | "test", { current: string | null; previous: string | null }>;
-};
-
-type ReleaseSet = {
-  schema_version: 1;
-  components: Record<"computer" | "daemon", ComponentReference>;
-  bundles: Record<string, ComponentReference>;
-};
-
-type ComponentManifest = {
-  schema_version: 1;
-  component: "computer" | "daemon";
   version: string;
-  artifacts: Record<string, ArtifactIdentity>;
-};
-
-type BundleMember = ArtifactIdentity & {
-  component_manifest_sha256: string;
-  url: string;
-};
-
-type InstallationBundle = {
-  schema_version: 1;
-  computer: BundleMember;
-  daemon: BundleMember;
+  commit: string;
+  buildDate: string;
+  platforms: Record<string, { computer: PlatformArtifact; daemon: PlatformArtifact }>;
 };
 
 type ActiveState = {
@@ -46,7 +25,7 @@ type ActiveState = {
 
 type InstalledIdentity = {
   schema_version: 1;
-  release_set: string;
+  version: string;
   computer: ArtifactIdentity;
   daemon: ArtifactIdentity;
 };
@@ -56,9 +35,7 @@ export class UpdateError extends Error {
     readonly code:
       | "UPDATE_BUSY"
       | "UPDATE_FEED_INVALID"
-      | "UPDATE_GENERATION_ROLLBACK"
       | "UPDATE_INTEGRITY_FAILED"
-      | "UPDATE_NOT_PUBLISHED"
       | "UPDATE_NO_ROLLBACK"
       | "UPDATE_UNSUPPORTED_TARGET",
     message: string,
@@ -70,7 +47,6 @@ export class UpdateError extends Error {
 
 export interface ComputerUpdaterOptions {
   baseUrl: string;
-  trustedKeys: Readonly<Record<string, string>>;
   target: string;
   installRoot: string;
   binaryDirectory?: string;
@@ -79,7 +55,6 @@ export interface ComputerUpdaterOptions {
 
 export class ComputerUpdater {
   readonly #baseUrl: URL;
-  readonly #trustedKeys: Readonly<Record<string, string>>;
   readonly #target: string;
   readonly #installRoot: string;
   readonly #binaryDirectory: string;
@@ -89,96 +64,46 @@ export class ComputerUpdater {
     this.#baseUrl = new URL(
       options.baseUrl.endsWith("/") ? options.baseUrl : `${options.baseUrl}/`,
     );
-    this.#trustedKeys = options.trustedKeys;
     this.#target = options.target;
     this.#installRoot = options.installRoot;
     this.#binaryDirectory = options.binaryDirectory ?? join(options.installRoot, "bin");
     this.#fetch = options.fetch ?? globalThis.fetch;
   }
 
-  async install(selection: string): Promise<{ releaseSet: string; previous: string | null }> {
+  async install(selection: string): Promise<{ version: string; previous: string | null }> {
     return this.#withLock(async () => {
-      const resolved = await this.#resolveSelection(selection);
-      const releaseBytes = await this.#download(
-        `release-sets/${resolved.releaseSet}/manifest.json`,
-      );
-      const verifiedRelease = this.#verifyEnvelope<ReleaseSet>(releaseBytes);
-      if (sha256(verifiedRelease.payloadBytes) !== resolved.releaseSet) {
-        throw integrity("release-set payload does not match its immutable selector");
-      }
-      this.#assertReleaseSet(verifiedRelease.value);
-
-      const computerReference = verifiedRelease.value.components.computer;
-      const daemonReference = verifiedRelease.value.components.daemon;
-      const [computerBytes, daemonBytes] = await Promise.all([
-        this.#downloadImmutable(computerReference, "releases/computer/"),
-        this.#downloadImmutable(daemonReference, "releases/daemon/"),
-      ]);
-      const computerManifest = this.#verifyEnvelope<ComponentManifest>(computerBytes).value;
-      const daemonManifest = this.#verifyEnvelope<ComponentManifest>(daemonBytes).value;
-      this.#assertComponentManifest(computerManifest, "computer");
-      this.#assertComponentManifest(daemonManifest, "daemon");
-
-      const bundleReference = verifiedRelease.value.bundles[this.#target];
-      if (!bundleReference) {
+      const version = await this.#resolveSelection(selection);
+      const manifest = this.#parseManifest(await this.#download(`${version}/manifest.json`));
+      const platform = manifest.platforms[this.#target];
+      if (!platform) {
         throw new UpdateError(
           "UPDATE_UNSUPPORTED_TARGET",
-          `release set has no bundle for ${this.#target}`,
+          `manifest has no platform entry for ${this.#target}`,
         );
       }
-      const bundleBytes = await this.#downloadImmutable(
-        {
-          ...bundleReference,
-          url: `release-sets/${resolved.releaseSet}/${bundleReference.url}`,
-        },
-        `release-sets/${resolved.releaseSet}/bundles/`,
-      );
-      const bundle = this.#verifyEnvelope<InstallationBundle>(bundleBytes).value;
-      const members = this.#verifyBundleMetadata(bundle, {
-        computer: { digest: computerReference.sha256, manifest: computerManifest },
-        daemon: { digest: daemonReference.sha256, manifest: daemonManifest },
-      });
-      const artifactPrefix = `release-sets/${resolved.releaseSet}/artifacts/`;
-      const [computerPayload, daemonPayload] = await Promise.all(
-        (["computer", "daemon"] as const).map((component) =>
-          this.#downloadImmutable(
-            {
-              ...members[component],
-              url: `release-sets/${resolved.releaseSet}/${members[component].url}`,
-            },
-            artifactPrefix,
-          ),
-        ),
-      );
-      const payloads = { computer: computerPayload!, daemon: daemonPayload! };
+      const [computerBytes, daemonBytes] = await Promise.all([
+        this.#downloadArtifact(version, platform.computer),
+        this.#downloadArtifact(version, platform.daemon),
+      ]);
+      const payloads = { computer: computerBytes, daemon: daemonBytes };
 
       const previousState = await this.#readJson<ActiveState>("active.json");
-      await this.#installVersion(resolved.releaseSet, payloads);
+      await this.#installVersion(version, payloads);
       const previous =
-        previousState?.current === resolved.releaseSet
+        previousState?.current === version
           ? previousState.previous
           : (previousState?.current ?? null);
-      const active = {
-        schema_version: 1,
-        current: resolved.releaseSet,
-        previous,
-      } satisfies ActiveState;
+      const active: ActiveState = { schema_version: 1, current: version, previous };
       await this.#activate(active);
-      if (resolved.generation !== null) {
-        await this.#writeJsonAtomic("update-state.json", {
-          schema_version: 1,
-          generation: resolved.generation,
-        });
-      }
-      return { releaseSet: resolved.releaseSet, previous };
+      return { version, previous };
     });
   }
 
-  async rollback(): Promise<{ releaseSet: string; previous: string }> {
+  async rollback(): Promise<{ version: string; previous: string }> {
     return this.#withLock(async () => {
       const active = await this.#readJson<ActiveState>("active.json");
-      if (!active?.previous || !RELEASE_SET_PATTERN.test(active.previous)) {
-        throw new UpdateError("UPDATE_NO_ROLLBACK", "no previous verified bundle is available");
+      if (!active?.previous || !VERSION_PATTERN.test(active.previous)) {
+        throw new UpdateError("UPDATE_NO_ROLLBACK", "no previous verified version is available");
       }
       await this.#assertInstalled(active.previous);
       const next: ActiveState = {
@@ -187,157 +112,72 @@ export class ComputerUpdater {
         previous: active.current,
       };
       await this.#activate(next);
-      return { releaseSet: next.current, previous: next.previous! };
+      return { version: next.current, previous: next.previous! };
     });
   }
 
-  async #resolveSelection(
-    selection: string,
-  ): Promise<{ releaseSet: string; generation: number | null }> {
-    if (RELEASE_SET_PATTERN.test(selection)) return { releaseSet: selection, generation: null };
-    if (selection !== "latest" && selection !== "test") {
-      throw new UpdateError(
-        "UPDATE_FEED_INVALID",
-        "version must be latest, test, or an exact sha256 release-set id",
-      );
+  /** "latest" (or an omitted CLI selection, which the CLI defaults to "latest") resolves
+   * through the feed's pointer file. Anything else must already be a well-formed version
+   * string; there is no "test" or "sha256:" selection mode any more. */
+  async #resolveSelection(selection: string): Promise<string> {
+    if (selection === "latest" || selection === "") {
+      const bytes = await this.#download("latest");
+      const version = new TextDecoder().decode(bytes).trim();
+      this.#assertVersion(version, "latest pointer does not contain a valid version");
+      return version;
     }
-    const channel = selection === "latest" ? "production" : "test";
-    const bytes = await this.#download("channels.json");
-    const snapshot = this.#verifyEnvelope<ChannelSnapshot>(bytes).value;
-    this.#assertChannels(snapshot);
-    const state = await this.#readJson<{ generation?: number }>("update-state.json");
-    if (typeof state?.generation === "number" && snapshot.generation < state.generation) {
-      throw new UpdateError(
-        "UPDATE_GENERATION_ROLLBACK",
-        `channel generation ${snapshot.generation} is older than accepted generation ${state.generation}`,
-      );
-    }
-    const current = snapshot.channels[channel].current;
-    if (current === null) {
-      throw new UpdateError("UPDATE_NOT_PUBLISHED", `${channel} is not published`);
-    }
-    if (!RELEASE_SET_PATTERN.test(current)) {
-      throw new UpdateError(
-        "UPDATE_FEED_INVALID",
-        `${channel}.current is not an immutable release-set id`,
-      );
-    }
-    return { releaseSet: current, generation: snapshot.generation };
+    this.#assertVersion(selection, "version must be latest or a valid version string");
+    return selection;
   }
 
-  #verifyEnvelope<T>(bytes: Uint8Array): { value: T; payloadBytes: Uint8Array } {
+  #assertVersion(value: string, message: string): void {
+    if (!VERSION_PATTERN.test(value) || value.includes("..")) {
+      throw new UpdateError("UPDATE_FEED_INVALID", message);
+    }
+  }
+
+  #parseManifest(bytes: Uint8Array): ReleaseManifest {
+    let value: unknown;
     try {
-      return verifyReleaseEnvelope<T>(bytes, this.#trustedKeys);
-    } catch (error) {
-      if (!(error instanceof ReleaseEnvelopeError)) throw error;
-      throw error.code === "INTEGRITY"
-        ? integrity(error.message)
-        : new UpdateError("UPDATE_FEED_INVALID", error.message);
-    }
-  }
-
-  #assertChannels(value: ChannelSnapshot): void {
-    if (
-      value?.schema_version !== 1 ||
-      !Number.isSafeInteger(value.generation) ||
-      value.generation < 0 ||
-      !validChannel(value.channels?.production) ||
-      !validChannel(value.channels?.test)
-    ) {
-      throw new UpdateError("UPDATE_FEED_INVALID", "channel snapshot schema is invalid");
-    }
-  }
-
-  #assertReleaseSet(value: ReleaseSet): void {
-    if (
-      value?.schema_version !== 1 ||
-      !validReference(value.components?.computer) ||
-      !validReference(value.components?.daemon) ||
-      typeof value.bundles !== "object" ||
-      value.bundles === null
-    ) {
-      throw new UpdateError("UPDATE_FEED_INVALID", "release-set manifest schema is invalid");
-    }
-  }
-
-  #assertComponentManifest(value: ComponentManifest, component: "computer" | "daemon"): void {
-    if (
-      value?.schema_version !== 1 ||
-      value.component !== component ||
-      typeof value.version !== "string" ||
-      !validIdentity(value.artifacts?.[this.#target])
-    ) {
-      throw new UpdateError(
-        "UPDATE_FEED_INVALID",
-        `${component} manifest schema is invalid for ${this.#target}`,
-      );
-    }
-  }
-
-  /** Everything the bundle asserts about itself is checked before either payload is fetched:
-   * a bundle that names the wrong component manifest, or disagrees with that manifest about
-   * the bytes, is rejected without spending a download. The bytes themselves are bound by
-   * #downloadImmutable against the identity returned here. */
-  #verifyBundleMetadata(
-    bundle: InstallationBundle,
-    components: Record<"computer" | "daemon", { digest: string; manifest: ComponentManifest }>,
-  ): Record<"computer" | "daemon", BundleMember> {
-    if (bundle?.schema_version !== 1) {
-      throw new UpdateError("UPDATE_FEED_INVALID", "installation bundle schema is invalid");
-    }
-    const members = {} as Record<"computer" | "daemon", BundleMember>;
-    for (const component of ["computer", "daemon"] as const) {
-      const member = bundle[component];
-      if (!validIdentity(member) || typeof member.url !== "string") {
-        throw new UpdateError("UPDATE_FEED_INVALID", `${component} bundle member is invalid`);
-      }
-      if (member.component_manifest_sha256 !== components[component].digest) {
-        throw integrity(`${component} bundle member names the wrong component manifest`);
-      }
-      const manifestIdentity = components[component].manifest.artifacts[this.#target]!;
-      if (!sameIdentity(member, manifestIdentity)) {
-        throw integrity(`${component} payload does not match both recorded identities`);
-      }
-      members[component] = member;
-    }
-    return members;
-  }
-
-  async #downloadImmutable(
-    reference: ComponentReference,
-    requiredPrefix: string,
-  ): Promise<Uint8Array> {
-    if (
-      !validReference(reference) ||
-      !reference.url.startsWith(requiredPrefix) ||
-      !safeRelativePath(reference.url) ||
-      !this.#resolvesWithin(reference.url, requiredPrefix)
-    ) {
-      throw new UpdateError(
-        "UPDATE_FEED_INVALID",
-        "immutable artifact URL crosses its declared namespace",
-      );
-    }
-    // The signed reference states the exact size, so a body that exceeds it is already known
-    // to be wrong and there is no reason to buffer the rest of it. Without this a malicious
-    // feed could exhaust memory before the digest check ever runs.
-    const bytes = await this.#download(reference.url, reference.size);
-    if (!matchesIdentity(bytes, reference))
-      throw integrity(`downloaded artifact failed integrity: ${reference.url}`);
-    return bytes;
-  }
-
-  /** safeRelativePath only rejects a literal `..`, but the URL parser also normalises the
-   * percent-encoded spellings, so `artifacts/%2e%2e/evil` climbs out of the namespace while
-   * reading as a safe relative path. Compare what the request will actually ask for. */
-  #resolvesWithin(url: string, requiredPrefix: string): boolean {
-    try {
-      return new URL(url, this.#baseUrl).pathname.startsWith(
-        new URL(requiredPrefix, this.#baseUrl).pathname,
-      );
+      value = JSON.parse(new TextDecoder().decode(bytes));
     } catch {
-      return false;
+      throw new UpdateError("UPDATE_FEED_INVALID", "manifest is not valid JSON");
     }
+    this.#assertManifest(value);
+    return value;
+  }
+
+  #assertManifest(value: unknown): asserts value is ReleaseManifest {
+    const manifest = value as ReleaseManifest | undefined;
+    if (
+      manifest?.schema_version !== 1 ||
+      typeof manifest.version !== "string" ||
+      typeof manifest.commit !== "string" ||
+      typeof manifest.buildDate !== "string" ||
+      typeof manifest.platforms !== "object" ||
+      manifest.platforms === null
+    ) {
+      throw new UpdateError("UPDATE_FEED_INVALID", "manifest schema is invalid");
+    }
+    for (const [platformName, entry] of Object.entries(manifest.platforms)) {
+      if (!validPlatformEntry(entry)) {
+        throw new UpdateError(
+          "UPDATE_FEED_INVALID",
+          `manifest platform entry for ${platformName} is invalid`,
+        );
+      }
+    }
+  }
+
+  async #downloadArtifact(version: string, artifact: PlatformArtifact): Promise<Uint8Array> {
+    const bytes = await this.#download(
+      `${version}/${this.#target}/${artifact.binary}`,
+      artifact.size,
+    );
+    if (!matchesIdentity(bytes, artifact)) {
+      throw integrity(`downloaded artifact failed integrity: ${artifact.binary}`);
+    }
+    return bytes;
   }
 
   async #download(path: string, expectedSize?: number): Promise<Uint8Array> {
@@ -357,6 +197,9 @@ export class ComputerUpdater {
         `release object unavailable without a trusted redirect: ${path}`,
       );
     }
+    // The manifest states the exact size, so a body that exceeds it is already known to be
+    // wrong and there is no reason to buffer the rest of it. Without this a malicious or
+    // compromised feed could exhaust memory before the checksum check ever runs.
     const declared = Number(response.headers.get("content-length"));
     if (expectedSize !== undefined && Number.isFinite(declared) && declared > expectedSize) {
       throw integrity(`release object is larger than its recorded size: ${path}`);
@@ -369,15 +212,14 @@ export class ComputerUpdater {
   }
 
   async #installVersion(
-    releaseSet: string,
+    version: string,
     payloads: Record<"computer" | "daemon", Uint8Array>,
   ): Promise<void> {
-    const versionName = releaseSet.slice("sha256:".length);
     const versions = join(this.#installRoot, "versions");
-    const destination = join(versions, versionName);
+    const destination = join(versions, version);
     try {
       await stat(destination);
-      await this.#assertInstalled(releaseSet);
+      await this.#assertInstalled(version);
       return;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
@@ -385,7 +227,7 @@ export class ComputerUpdater {
         throw integrity("an immutable version directory already exists but is incomplete");
       }
     }
-    const staging = join(this.#installRoot, ".staging", `${versionName}-${crypto.randomUUID()}`);
+    const staging = join(this.#installRoot, ".staging", `${version}-${crypto.randomUUID()}`);
     const computerName = this.#target.startsWith("windows-")
       ? "coforge-computer.exe"
       : "coforge-computer";
@@ -394,16 +236,16 @@ export class ComputerUpdater {
       : "coforge-daemon";
     const installedIdentity: InstalledIdentity = {
       schema_version: 1,
-      release_set: releaseSet,
-      computer: { size: payloads.computer.byteLength, sha256: sha256(payloads.computer) },
-      daemon: { size: payloads.daemon.byteLength, sha256: sha256(payloads.daemon) },
+      version,
+      computer: { size: payloads.computer.byteLength, checksum: checksum(payloads.computer) },
+      daemon: { size: payloads.daemon.byteLength, checksum: checksum(payloads.daemon) },
     };
     await mkdir(staging, { recursive: true, mode: 0o700 });
     try {
       await Promise.all([
         writeFile(join(staging, computerName), payloads.computer, { mode: 0o700 }),
         writeFile(join(staging, daemonName), payloads.daemon, { mode: 0o700 }),
-        writeFile(join(staging, "release-set"), `${releaseSet}\n`, { mode: 0o600 }),
+        writeFile(join(staging, "version"), `${version}\n`, { mode: 0o600 }),
         writeFile(join(staging, "installation.json"), `${JSON.stringify(installedIdentity)}\n`, {
           mode: 0o600,
         }),
@@ -421,8 +263,8 @@ export class ComputerUpdater {
     }
   }
 
-  async #assertInstalled(releaseSet: string): Promise<void> {
-    const version = join(this.#installRoot, "versions", releaseSet.slice("sha256:".length));
+  async #assertInstalled(version: string): Promise<void> {
+    const directory = join(this.#installRoot, "versions", version);
     const computerName = this.#target.startsWith("windows-")
       ? "coforge-computer.exe"
       : "coforge-computer";
@@ -431,16 +273,16 @@ export class ComputerUpdater {
       : "coforge-daemon";
     try {
       const [computer, daemon, marker, identityText] = await Promise.all([
-        readFile(join(version, computerName)),
-        readFile(join(version, daemonName)),
-        readFile(join(version, "release-set"), "utf8"),
-        readFile(join(version, "installation.json"), "utf8"),
+        readFile(join(directory, computerName)),
+        readFile(join(directory, daemonName)),
+        readFile(join(directory, "version"), "utf8"),
+        readFile(join(directory, "installation.json"), "utf8"),
       ]);
       const identity = JSON.parse(identityText) as InstalledIdentity;
       if (
-        marker.trim() !== releaseSet ||
+        marker.trim() !== version ||
         identity.schema_version !== 1 ||
-        identity.release_set !== releaseSet ||
+        identity.version !== version ||
         !validIdentity(identity.computer) ||
         !validIdentity(identity.daemon) ||
         !matchesIdentity(computer, identity.computer) ||
@@ -460,7 +302,7 @@ export class ComputerUpdater {
     if (this.#target.startsWith("windows-")) {
       const launcher = [
         "@echo off",
-        `for /f "usebackq tokens=*" %%i in (\`powershell -NoProfile -Command "(Get-Content -Raw '${join(this.#installRoot, "active.json").replaceAll("'", "''")}' | ConvertFrom-Json).current.Substring(7)"\`) do set COFORGE_ACTIVE=%%i`,
+        `for /f "usebackq tokens=*" %%i in (\`powershell -NoProfile -Command "(Get-Content -Raw '${join(this.#installRoot, "active.json").replaceAll("'", "''")}' | ConvertFrom-Json).current"\`) do set COFORGE_ACTIVE=%%i`,
         `"${join(this.#installRoot, "versions")}\\%COFORGE_ACTIVE%\\coforge-computer.exe" %*`,
         "",
       ].join("\r\n");
@@ -472,7 +314,7 @@ export class ComputerUpdater {
     }
     const activeLink = join(this.#installRoot, "active");
     const temporaryActive = `${activeLink}.${crypto.randomUUID()}.tmp`;
-    await symlink(join("versions", state.current.slice("sha256:".length)), temporaryActive, "dir");
+    await symlink(join("versions", state.current), temporaryActive, "dir");
     await rename(temporaryActive, activeLink);
     const shim = join(this.#binaryDirectory, "coforge-computer");
     const temporaryShim = `${shim}.${crypto.randomUUID()}.tmp`;
@@ -516,8 +358,8 @@ export class ComputerUpdater {
   }
 }
 
-function sha256(bytes: Uint8Array): string {
-  return `sha256:${new Bun.CryptoHasher("sha256").update(bytes).digest("hex")}`;
+function checksum(bytes: Uint8Array): string {
+  return new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
 }
 
 function validIdentity(value: unknown): value is ArtifactIdentity {
@@ -526,44 +368,33 @@ function validIdentity(value: unknown): value is ArtifactIdentity {
     typeof candidate?.size === "number" &&
     Number.isSafeInteger(candidate.size) &&
     candidate.size >= 0 &&
-    typeof candidate.sha256 === "string" &&
-    RELEASE_SET_PATTERN.test(candidate.sha256)
+    typeof candidate.checksum === "string" &&
+    CHECKSUM_PATTERN.test(candidate.checksum)
   );
 }
 
-function validReference(value: unknown): value is ComponentReference {
-  return validIdentity(value) && typeof (value as ComponentReference).url === "string";
-}
-
-function safeRelativePath(value: string): boolean {
-  return (
-    !value.startsWith("/") &&
-    !value.includes("\\") &&
-    !value.includes("?") &&
-    !value.includes("#") &&
-    value.split("/").every((part) => part !== "" && part !== "." && part !== "..")
-  );
-}
-
-function validChannel(
+/** The binary field is a single path segment appended directly to the download URL and to
+ * on-disk paths, so it must not carry a separator or a traversal segment. It is also pinned to
+ * the feed's fixed naming (docs/release.md) rather than merely validated as "some safe
+ * filename": otherwise a manifest that swapped the two names would pass every other check and
+ * only be caught if the swapped checksums happened to differ. */
+function validPlatformEntry(
   value: unknown,
-): value is { current: string | null; previous: string | null } {
-  const channel = value as { current?: unknown; previous?: unknown } | undefined;
+): value is { computer: PlatformArtifact; daemon: PlatformArtifact } {
+  const candidate = value as { computer?: unknown; daemon?: unknown } | undefined;
   return (
-    channel !== undefined &&
-    (channel.current === null ||
-      (typeof channel.current === "string" && RELEASE_SET_PATTERN.test(channel.current))) &&
-    (channel.previous === null ||
-      (typeof channel.previous === "string" && RELEASE_SET_PATTERN.test(channel.previous)))
+    validArtifact(candidate?.computer, "coforge-computer") &&
+    validArtifact(candidate?.daemon, "coforge-daemon")
   );
+}
+
+function validArtifact(value: unknown, expectedBinary: string): value is PlatformArtifact {
+  const candidate = value as PlatformArtifact | undefined;
+  return validIdentity(candidate) && candidate.binary === expectedBinary;
 }
 
 function matchesIdentity(bytes: Uint8Array, identity: ArtifactIdentity): boolean {
-  return bytes.byteLength === identity.size && sha256(bytes) === identity.sha256;
-}
-
-function sameIdentity(left: ArtifactIdentity, right: ArtifactIdentity): boolean {
-  return left.size === right.size && left.sha256 === right.sha256;
+  return bytes.byteLength === identity.size && checksum(bytes) === identity.checksum;
 }
 
 function integrity(message: string): UpdateError {

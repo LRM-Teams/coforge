@@ -15,7 +15,7 @@ import {
   resolveDaemonSocketPath,
 } from "./paths";
 import { ComputerUpdater, UpdateError } from "./updater";
-import { COFORGE_RELEASE_FEED_URL, COFORGE_RELEASE_TRUSTED_KEYS } from "./release-channel";
+import { COFORGE_RELEASE_FEED_URL } from "./release-channel";
 import { FileComputerConfig } from "./local-config";
 import { resolveComputerConfigDirectory } from "./paths";
 import { ComputerSetup } from "./setup/computer-setup";
@@ -124,10 +124,10 @@ export async function runCli(
       .command(operation)
       .description(
         operation === "install"
-          ? "Install one verified Computer release set for the current user."
-          : "Atomically upgrade to one verified Computer release set.",
+          ? "Install one verified Computer version for the current user."
+          : "Atomically upgrade to one verified Computer version.",
       )
-      .option("--version <selector>", "latest, test, or an exact sha256 release-set id", "latest")
+      .option("--version <selector>", "latest|<version>", "latest")
       .action((options: { version: string }) => {
         const updater = requireUpdater(dependencies);
         return updater[operation](options.version);
@@ -409,7 +409,6 @@ function createUpdateCommand(io: { stdout: (line: string) => void }): UpdateComm
   const target = currentComputerPlatform().releaseTarget;
   const updater = new ComputerUpdater({
     baseUrl: COFORGE_RELEASE_FEED_URL,
-    trustedKeys: COFORGE_RELEASE_TRUSTED_KEYS,
     target,
     installRoot,
     binaryDirectory,
@@ -417,15 +416,15 @@ function createUpdateCommand(io: { stdout: (line: string) => void }): UpdateComm
   return {
     async install(version) {
       const result = await updater.install(version);
-      io.stdout(`Installed ${result.releaseSet}`);
+      io.stdout(`Installed ${result.version}`);
     },
     async upgrade(version) {
       const result = await updater.install(version);
-      io.stdout(`Activated ${result.releaseSet}`);
+      io.stdout(`Activated ${result.version}`);
     },
     async rollback() {
       const result = await updater.rollback();
-      io.stdout(`Rolled back to ${result.releaseSet}`);
+      io.stdout(`Rolled back to ${result.version}`);
     },
   };
 }
