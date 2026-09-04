@@ -4,10 +4,11 @@ Status: accepted (2026-09-03)
 
 ## Context
 
-Two content classes are delivered from private Alibaba Cloud OSS buckets
+Two delivery classes are served from private Alibaba Cloud OSS buckets
 through CDN, and their access requirements are opposite:
 
-- chat attachments must be unreadable without a short-lived client signature;
+- private user files (chat attachments and authenticated user avatars) must be
+  unreadable without a short-lived client signature;
 - release artifacts and `channels.json` must be anonymously readable, because
   `curl … install.sh | sh` and the updater cannot present a credential. Their
   integrity comes from the release-set digests and the signed `channels.json`,
@@ -57,7 +58,7 @@ EdgeScript dependency, a rule-condition budget shared with conditional origin
 (five references per domain), and isolation that holds only while the rules are
 correct. Nothing in the product depends on the two classes sharing a hostname.
 
-**A separate registrable domain for attachments.** Serving user-uploaded
+**A separate registrable domain for private user files.** Serving user-uploaded
 content from a different site, the way GitHub uses `githubusercontent.com`, is
 the stronger form of this isolation: subdomains of one registrable domain still
 share a cookie namespace when a cookie is set with a `Domain` attribute. Our

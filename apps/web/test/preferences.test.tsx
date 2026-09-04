@@ -13,6 +13,13 @@ import { overwriteGetLocale } from "@/paraglide/runtime";
 import { getRouter } from "@/router";
 
 const signedInUser = { name: "Frank An", email: "frank@example.com" };
+const profile = {
+  name: "Frank An",
+  email: "frank@example.com",
+  username: "frankan",
+  description: "Building CoForge.",
+  avatarUrl: null,
+};
 
 overwriteGetLocale(() => "en");
 
@@ -47,9 +54,13 @@ function renderSettings() {
 
     return (
       <SettingsContent
+        profile={profile}
         locale="en"
         theme={theme}
         timeZone={null}
+        onProfileSave={async () => {}}
+        onAvatarUpload={async () => {}}
+        onAvatarRemove={async () => {}}
         onLocaleChange={() => {}}
         onThemeChange={changeTheme}
         onTimeZoneChange={() => {}}
@@ -65,9 +76,13 @@ test("searches time zones by city and sends the IANA identifier to persistence",
   let selected = "";
   const view = render(
     <SettingsContent
+      profile={profile}
       locale="en"
       theme="system"
       timeZone={null}
+      onProfileSave={async () => {}}
+      onAvatarUpload={async () => {}}
+      onAvatarRemove={async () => {}}
       onLocaleChange={() => {}}
       onThemeChange={() => {}}
       onTimeZoneChange={(timeZone) => {
@@ -76,6 +91,7 @@ test("searches time zones by city and sends the IANA identifier to persistence",
     />,
   );
 
+  await user.click(view.getByRole("button", { name: "Preferences" }));
   await user.click(view.getByRole("combobox", { name: "Time zone" }));
   expect(view.getByRole("status").classList.contains("empty:py-0")).toBeTrue();
   await user.type(view.getByRole("combobox", { name: "Search time zones" }), "Tokyo");
@@ -89,6 +105,7 @@ test("switches to dark mode and remembers the preference", async () => {
   const view = renderSettings();
 
   expect(view.getByRole("heading", { name: "Settings" })).toBeTruthy();
+  await user.click(view.getByRole("button", { name: "Preferences" }));
   await user.click(view.getByRole("button", { name: "Dark" }));
 
   expect(document.documentElement.classList.contains("dark")).toBeTrue();
@@ -98,7 +115,54 @@ test("switches to dark mode and remembers the preference", async () => {
 test("uses the system color scheme by default", () => {
   const view = renderSettings();
 
-  expect(view.getByRole("button", { name: "System" }).getAttribute("aria-pressed")).toBe("true");
+  expect(view.getByRole("button", { name: "Account" }).getAttribute("aria-current")).toBe("page");
+});
+
+test("edits the profile name and description and uploads a profile image on save", async () => {
+  const user = userEvent.setup({ document });
+  let savedName = "";
+  let savedDescription = "";
+  let uploadedFile: File | undefined;
+  const view = render(
+    <SettingsContent
+      profile={profile}
+      locale="en"
+      theme="system"
+      timeZone={null}
+      onProfileSave={async (nextProfile) => {
+        savedName = nextProfile.name;
+        savedDescription = nextProfile.description;
+      }}
+      onAvatarUpload={async (file) => {
+        uploadedFile = file;
+      }}
+      onAvatarRemove={async () => {}}
+      onLocaleChange={() => {}}
+      onThemeChange={() => {}}
+      onTimeZoneChange={() => {}}
+    />,
+  );
+
+  expect(view.getByText("@frankan")).toBeTruthy();
+  expect(view.queryByRole("textbox", { name: "Description" })).toBeNull();
+  await user.click(view.getByRole("button", { name: "Edit" }));
+  const name = view.getByRole("textbox", { name: "Name" });
+  await user.clear(name);
+  await user.type(name, "Frank An Updated");
+  const description = view.getByRole("textbox", { name: "Description" });
+  await user.clear(description);
+  await user.type(description, "Helping teams ship reliable software.");
+
+  const file = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "avatar.png", {
+    type: "image/png",
+  });
+  await user.upload(view.getByLabelText("Replace picture"), file);
+  expect(uploadedFile).toBeUndefined();
+  await user.click(view.getByRole("button", { name: "Save" }));
+  expect(savedName).toBe("Frank An Updated");
+  expect(savedDescription).toBe("Helping teams ship reliable software.");
+  expect(uploadedFile).toBe(file);
+  expect(view.queryByRole("textbox", { name: "Description" })).toBeNull();
 });
 
 test("uses the current user avatar as the personal settings menu trigger without a tooltip", () => {

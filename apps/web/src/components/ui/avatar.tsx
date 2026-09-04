@@ -15,6 +15,7 @@ export type AvatarTone = 1 | 2 | 3 | 4 | 5 | 6;
 
 export type AvatarPerson = {
   name: string;
+  src?: string | null;
   tone?: AvatarTone;
 };
 
@@ -126,6 +127,16 @@ function Face({
   initials?: string;
   className?: string;
 }) {
+  if (person.src) {
+    return (
+      <img
+        src={person.src}
+        alt=""
+        className={cn("shrink-0 object-cover", sizeClassName[size], className)}
+      />
+    );
+  }
+
   return (
     <span
       aria-hidden="true"

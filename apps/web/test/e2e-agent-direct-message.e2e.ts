@@ -44,7 +44,12 @@ if (requireEnvironment("COFORGE_E2E_ALLOW_RESET") !== "1")
 const workspaceId = "10000000-0000-4000-8000-000000000001";
 const workspaceRoot = join(import.meta.dir, "../../../.amp/e2e/workspace-root");
 const daemonStateDirectory = join(import.meta.dir, "../../../.amp/e2e/daemon-state");
-const attachmentDirectory = join(import.meta.dir, "../.data/attachments", workspaceId);
+const attachmentDirectory = join(
+  import.meta.dir,
+  "../.data/files/workspaces",
+  workspaceId,
+  "attachments",
+);
 
 test("Agent runtime, status, Message Inbox, and App Inbox cross the real system", async () => {
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });

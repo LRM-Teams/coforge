@@ -5,6 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { SettingsContent } from "@/components/settings-content";
 import { useAppToast } from "@/components/ui/toast";
 import { PageLoadError } from "@/features/errors/page-load-error";
+import { saveUserProfile } from "@/features/profiles/profile.functions";
 import { getUserPreferences, saveUserTimeZone } from "@/features/settings/settings.functions";
 import { getLocale, setLocale } from "@/paraglide/runtime";
 import { m } from "@/paraglide/messages";
@@ -20,8 +21,10 @@ export const Route = createFileRoute("/_app/settings")({
 function SettingsPage() {
   const [theme, setTheme] = useState<Theme>("system");
   const { timeZone: savedTimeZone } = Route.useLoaderData();
+  const { user: profile } = Route.useRouteContext();
   const [timeZone, setTimeZone] = useState(savedTimeZone);
   const saveTimeZone = useServerFn(saveUserTimeZone);
+  const saveProfile = useServerFn(saveUserProfile);
   const router = useRouter();
   const toast = useAppToast();
   const locale = getLocale();
@@ -69,11 +72,49 @@ function SettingsPage() {
     }
   }
 
+  async function changeProfile(input: { name: string; description: string }) {
+    try {
+      await saveProfile({ data: input });
+      await router.invalidate({ sync: true });
+    } catch (cause) {
+      toast.error(m.settings_profile_save_error(), cause);
+      throw cause;
+    }
+  }
+
+  async function uploadAvatar(file: File) {
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const response = await fetch("/api/me/avatar", { method: "POST", body: form });
+      if (!response.ok) throw new Error("Profile image upload failed");
+      await router.invalidate({ sync: true });
+    } catch (cause) {
+      toast.error(m.settings_avatar_save_error(), cause);
+      throw cause;
+    }
+  }
+
+  async function removeAvatar() {
+    try {
+      const response = await fetch("/api/me/avatar", { method: "DELETE" });
+      if (!response.ok) throw new Error("Profile image removal failed");
+      await router.invalidate({ sync: true });
+    } catch (cause) {
+      toast.error(m.settings_avatar_save_error(), cause);
+      throw cause;
+    }
+  }
+
   return (
     <SettingsContent
+      profile={profile}
       locale={locale}
       theme={theme}
       timeZone={timeZone}
+      onProfileSave={changeProfile}
+      onAvatarUpload={uploadAvatar}
+      onAvatarRemove={removeAvatar}
       onLocaleChange={setLocale}
       onThemeChange={changeTheme}
       onTimeZoneChange={changeTimeZone}

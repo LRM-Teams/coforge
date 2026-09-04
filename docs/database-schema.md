@@ -60,6 +60,14 @@ business foreign keys. Membership, Agent ownership, and Computer ownership use
 the internal User UUID. Existing rows are backfilled by the migration before
 the legacy external column is removed.
 
+`User.displayName` stores the user's optional editable name override; when it
+is null, the application displays the current identity-provider name.
+`User.description` stores the editable profile description. The optional
+`avatarObjectKey` and `avatarContentType` identify the user's current private
+avatar in the shared user-files store; image bytes and delivery URLs are never
+stored in PostgreSQL. Replacing an avatar writes a new immutable object before
+the row points to it, then removes the previous object.
+
 Setup persistence consists of `User`, `UserIdentity`, `Workspace`,
 `WorkspaceMembership`, `Computer`, and `WorkspaceComputer`. `WorkspaceComputer`
 is the durable binding and contains the workspace/computer foreign keys. Its

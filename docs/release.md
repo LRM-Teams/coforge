@@ -214,7 +214,7 @@ release bucket. Attachments and releases use two separate accelerated domains
 fronts only the release bucket and applies no client URL signing, because
 installers and updaters must fetch anonymously and integrity comes from the
 release-set digests and the signed `channels.json`; `files.coforge.cn` fronts
-only the attachment bucket and requires a signature. Each domain has its own
+only the private user-files bucket and requires a signature. Each domain has its own
 RAM permissions, cache/access rules, and logs, and neither is authorized to
 read the other's bucket, so no origin rule can fall back from one class to the
 other. A CDN path maps one to one onto its object key; no business prefix is

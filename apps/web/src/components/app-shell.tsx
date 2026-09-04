@@ -40,6 +40,7 @@ const railLinkActiveProps = {
 export type AppUser = {
   name: string;
   email: string;
+  avatarUrl?: string | null;
 };
 
 export function AppShell({
@@ -260,7 +261,11 @@ function UserMenu({ user }: { user: AppUser }) {
         aria-label={m.controls_current_user()}
         className="flex items-center rounded-xl outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
       >
-        <Avatar people={[{ name: user.name }]} size="lg" className="md:size-8" />
+        <Avatar
+          people={[{ name: user.name, src: user.avatarUrl }]}
+          size="lg"
+          className="md:size-8"
+        />
       </DropdownMenuTrigger>
       <DropdownMenuContent
         side="top"

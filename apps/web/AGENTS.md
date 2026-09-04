@@ -81,6 +81,7 @@ instructions for the TanStack Start Web/backend modular monolith.
   │   ├── computers/
   │   ├── conversations/
   │   ├── projects/
+  │   ├── profiles/
   │   └── attachments/
   ├── components/
   │   ├── layout/
@@ -96,6 +97,9 @@ instructions for the TanStack Start Web/backend modular monolith.
 - Keep `components/layout` limited to layout concerns and `components/ui`
   limited to reusable UI primitives. Do not turn either directory into a
   catch-all for feature behavior.
+- `src/features/profiles/profile.functions.ts` owns the authenticated current-user
+  profile read and description mutation. Avatar bytes and profile persistence
+  stay under `src/server/profiles/` and `src/server/db/repositories/`.
 - Use TanStack `Link`, `useNavigate`, and typed route APIs for internal
   navigation. Use ordinary anchors only for external URLs or intentional
   document downloads.
