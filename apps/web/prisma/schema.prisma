@@ -241,6 +241,7 @@ model ConversationMember {
   workspaceId    String       @db.Uuid
   userId         String?      @db.Uuid
   agentId        String?      @db.Uuid
+  agentReadThroughSequence Int @default(0)
   conversation   Conversation @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user           User?        @relation(fields: [userId], references: [id], onDelete: Cascade)

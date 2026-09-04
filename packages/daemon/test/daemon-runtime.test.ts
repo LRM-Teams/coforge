@@ -56,8 +56,83 @@ function agentLaunchConfig(
   return { agentApiKey, providerConfig };
 }
 
+async function queueHarness(
+  options: {
+    credential?: Promise<string>;
+    notify?: (notice: string) => void | Promise<void>;
+  } = {},
+) {
+  const credentials = new InMemoryDaemonCredentialStore();
+  await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+  const notices: string[] = [];
+  const acknowledgements: string[] = [];
+  let sessions = 0;
+  let mints = 0;
+  const runtime = new DaemonRuntime(
+    connection,
+    () => ({
+      provider: "pi",
+      async createAgentSession() {
+        sessions++;
+        return {
+          ...sessionSpy(),
+          async notify(notice: string) {
+            notices.push(notice);
+            await options.notify?.(notice);
+          },
+        };
+      },
+    }),
+    credentials,
+    {
+      create: () => ({
+        async start() {},
+        async ready() {},
+        async stop() {},
+        async requestAgentLaunchConfig() {
+          mints++;
+          return agentLaunchConfig(
+            options.credential ? await options.credential : `sk_agent_${"a".repeat(43)}`,
+          );
+        },
+        async revokeAgentApiKey() {},
+        async sendAgentDeliveryAck(ack) {
+          acknowledgements.push(ack.deliveryId);
+        },
+      }),
+    },
+  );
+  await runtime.start(connection);
+  return {
+    runtime,
+    notices,
+    acknowledgements,
+    sessions: () => sessions,
+    mints: () => mints,
+    delivery: (sequence: number) =>
+      runtime.handleAgentMessage({
+        protocolMajor: 1,
+        requestId: `request-${sequence}`,
+        messageId: `message-${sequence}`,
+        deliveryId: `delivery-${sequence}`,
+        sequence,
+        workspaceId: connection.workspaceId,
+        conversationId: "conversation-a",
+        agentId: "agent-a",
+        body: "private",
+        method: "agent:deliver",
+        target: "@ada",
+      }),
+  };
+}
+
+const recovery = {
+  resumeMessages: [],
+  unreadSummary: { "@ada": 1 },
+};
+
 describe("DaemonRuntime", () => {
-  test("message check returns only newly pending messages and drains them once", async () => {
+  test("message check returns canonical user messages and drains attention once", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     let reads = 0;
@@ -136,9 +211,79 @@ describe("DaemonRuntime", () => {
       `sk_agent_${"a".repeat(43)}`,
     );
 
-    expect(first.messages.map(({ id }) => id)).toEqual(["message-7"]);
+    expect(first.messages.map(({ id }) => id)).toEqual(["message-5", "message-7"]);
     expect(second.messages).toEqual([]);
     expect(reads).toBe(1);
+    await runtime.stop();
+  });
+
+  test("message check returns every user message in the canonical page despite later attention", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const ranges: Array<number | undefined> = [];
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        createAgentSession: async () => ({ ...sessionSpy(), async notify() {} }),
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+          async sendAgentDeliveryAck() {},
+          async agentMessage(request) {
+            ranges.push(request.fromSequence);
+            const sequences = request.fromSequence === undefined ? [1, 2] : [3];
+            return {
+              protocolMajor: 1,
+              requestId: request.requestId,
+              accepted: true,
+              attentionCount: 1,
+              hasNewer: sequences.at(-1)! < 3,
+              messages: sequences.map((sequence) => ({
+                id: `message-${sequence}`,
+                sequence,
+                sender: sequence === 2 ? "@agent-a" : "@ada",
+                target: "@ada",
+                body: `body-${sequence}`,
+                createdAt: "2026-09-03T00:00:00Z",
+              })),
+            };
+          },
+        }),
+      },
+    );
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", config);
+    await runtime.handleAgentMessage({
+      protocolMajor: 1,
+      requestId: "delivery-3",
+      messageId: "message-3",
+      deliveryId: "delivery-3",
+      sequence: 3,
+      workspaceId: connection.workspaceId,
+      conversationId: "conversation-a",
+      agentId: "agent-a",
+      body: "body-3",
+      method: "agent:deliver",
+      target: "@ada",
+    });
+    const context = runtime.issueAgentContext("agent-a");
+    const result = await runtime.agentMessage(
+      context,
+      { requestId: "check-range", context, operation: "check", limit: 2 },
+      `sk_agent_${"a".repeat(43)}`,
+    );
+
+    expect(ranges).toEqual([undefined, 3]);
+    expect(result.messages.map(({ sequence }) => sequence)).toEqual([1, 3]);
     await runtime.stop();
   });
 
@@ -716,6 +861,102 @@ describe("DaemonRuntime", () => {
     await runtime.stop();
   });
 
+  test("flushes buffered starts before delivery without losing starts received during flush", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    let startListener:
+      | ((intent: Parameters<DaemonRuntime["handleAgentStart"]>[0]) => void)
+      | undefined;
+    let messageListener:
+      | ((message: Parameters<DaemonRuntime["handleAgentMessage"]>[0]) => void)
+      | undefined;
+    const events: string[] = [];
+    let notifyStarted!: () => void;
+    const notifying = new Promise<void>((resolve) => (notifyStarted = resolve));
+    let releaseNotify!: () => void;
+    const notifyGate = new Promise<void>((resolve) => (releaseNotify = resolve));
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        createAgentSession: async ({ agentId }) => {
+          events.push(`start:${agentId}`);
+          return {
+            ...sessionSpy(),
+            async notify() {
+              events.push(`notify:${agentId}`);
+              notifyStarted();
+              await notifyGate;
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          onAgentStart(callback) {
+            startListener = callback;
+            return () => {};
+          },
+          onAgentMessage(callback) {
+            messageListener = callback;
+            return () => {};
+          },
+          async ready() {
+            messageListener?.({
+              protocolMajor: 1,
+              requestId: "delivery-1",
+              messageId: "message-1",
+              deliveryId: "delivery-1",
+              sequence: 1,
+              workspaceId: connection.workspaceId,
+              conversationId: "conversation-a",
+              agentId: "agent-a",
+              body: "hello",
+              method: "agent:deliver",
+              target: "@ada",
+            });
+            startListener?.({
+              protocolMajor: 1,
+              requestId: "start-1",
+              workspaceId: connection.workspaceId,
+              computerId: connection.computerId,
+              agentId: "agent-a",
+              provider: "pi",
+              model: "default",
+              reasoning: "balanced",
+            });
+          },
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async sendAgentDeliveryAck() {},
+          async stop() {},
+        }),
+      },
+    );
+
+    const starting = runtime.start(connection);
+    await notifying;
+    startListener?.({
+      protocolMajor: 1,
+      requestId: "start-2",
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "agent-b",
+      provider: "pi",
+      model: "default",
+      reasoning: "balanced",
+    });
+    releaseNotify();
+    await starting;
+    await Bun.sleep(0);
+
+    expect(events).toEqual(["start:agent-a", "notify:agent-a", "start:agent-b"]);
+    await runtime.stop();
+  });
+
   test("recreates transport after a failed start", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
@@ -1031,6 +1272,81 @@ describe("DaemonRuntime", () => {
     release(`sk_agent_${"a".repeat(43)}`);
     await Promise.all([first, second]);
     await runtime.stop();
+  });
+
+  test("queues launch recovery before live delivery", async () => {
+    let release!: (credential: string) => void;
+    const credential = new Promise<string>((resolve) => (release = resolve));
+    const harness = await queueHarness({ credential });
+    const launch = harness.runtime.startAgent("agent-a", config, undefined, "recovery", recovery);
+    const live = harness.delivery(2);
+
+    release(`sk_agent_${"a".repeat(43)}`);
+    await Promise.all([launch, live]);
+    expect(harness.notices[0]).toContain("CoForge recovery notice");
+    expect(harness.notices[1]).toContain("CoForge inbox notice");
+    expect(harness.acknowledgements).toEqual(["delivery-2"]);
+    await harness.runtime.stop();
+  });
+
+  test("active recovery rebind keeps its runtime and precedes live delivery", async () => {
+    let releaseRecovery!: () => void;
+    const recoveryGate = new Promise<void>((resolve) => (releaseRecovery = resolve));
+    const harness = await queueHarness({
+      notify: (notice) => (notice.includes("CoForge recovery notice") ? recoveryGate : undefined),
+    });
+    const active = await harness.runtime.startAgent("agent-a", config);
+    const rebound = harness.runtime.startAgent("agent-a", config, undefined, "recovery", recovery);
+    const live = harness.delivery(2);
+    await Bun.sleep(0);
+
+    expect(harness.notices).toHaveLength(1);
+    expect(harness.acknowledgements).toEqual([]);
+    releaseRecovery();
+    expect(await rebound).toBe(active);
+    await live;
+    expect(harness.notices[1]).toContain("CoForge inbox notice");
+    expect(harness.acknowledgements).toEqual(["delivery-2"]);
+    expect(harness.sessions()).toBe(1);
+    expect(harness.mints()).toBe(1);
+    await harness.runtime.stop();
+  });
+
+  test("continues live delivery after recovery notify fails", async () => {
+    const harness = await queueHarness({
+      notify(notice) {
+        if (notice.includes("CoForge recovery notice")) throw new Error("notice rejected");
+      },
+    });
+    await harness.runtime.startAgent("agent-a", config);
+
+    await Promise.all([
+      harness.runtime.startAgent("agent-a", config, undefined, "recovery", recovery),
+      harness.delivery(2),
+    ]);
+    expect(harness.notices).toHaveLength(2);
+    expect(harness.notices[1]).toContain("CoForge inbox notice");
+    expect(harness.acknowledgements).toEqual(["delivery-2"]);
+    await harness.runtime.stop();
+  });
+
+  test("stop lets current input finish without continuing queued items", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const harness = await queueHarness({ notify: () => gate });
+    await harness.runtime.startAgent("agent-a", config);
+    const current = harness.delivery(1);
+    const queued = harness.delivery(2);
+    void queued.catch(() => {});
+    await Bun.sleep(0);
+    const stop = harness.runtime.stopAgent("agent-a");
+    release();
+
+    await Promise.all([current, stop]);
+    await expect(queued).rejects.toThrow("stopping");
+    expect(harness.notices).toHaveLength(1);
+    expect(harness.acknowledgements).toEqual(["delivery-1"]);
+    await harness.runtime.stop();
   });
 
   test("stopAgent during credential mint cancels that launch and permits a later launch", async () => {

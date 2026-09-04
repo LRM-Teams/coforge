@@ -39,6 +39,23 @@ export type AgentLaunchConfig = {
 };
 
 const AGENT_STATUS_REFRESH_MS = 30_000;
+const RECONNECT_READY_RETRY_MS = 1_000;
+
+export interface DaemonConnectionTiming {
+  schedule(callback: () => void, delayMs: number): unknown;
+  cancel(timer: unknown): void;
+}
+
+const defaultDaemonConnectionTiming: DaemonConnectionTiming = {
+  schedule(callback, delayMs) {
+    const timer = setTimeout(callback, delayMs);
+    timer.unref();
+    return timer;
+  },
+  cancel(timer) {
+    clearTimeout(timer as ReturnType<typeof setTimeout>);
+  },
+};
 
 /** Configuration identifying the daemon's Workspace connection. */
 export interface DaemonConnectionConfig {
@@ -158,9 +175,12 @@ export class DaemonConnection implements DaemonConnectionClient {
   #hasConnected = false;
   #agentStartListener: ((intent: AgentStartIntent) => void) | undefined;
   #agentMessageListener: ((message: AgentMessageDelivery) => void) | undefined;
+  #readyPublications: Array<AgentStartIntent | AgentMessageDelivery> | undefined;
   #token = "";
   #lastReadyRequest: DaemonRuntimeReadyRequest | undefined;
   #reconnectListener: (() => void) | undefined;
+  #readyRecoveryClient: CentrifugeWorkspaceClient | undefined;
+  #readyRetryTimer: unknown;
   readonly #pendingActivity = new Map<string, AgentActivity>();
   readonly #supersededActivityLaunches = new Map<string, Set<string>>();
   readonly #latestStatuses = new Map<string, AgentStatus>();
@@ -171,6 +191,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     private readonly endpoint: string,
     private readonly clientFactory: CentrifugeWorkspaceClientFactory = defaultCentrifugeWorkspaceClientFactory,
     private readonly agentMessageHttpClient: AgentMessageHttpClient = defaultAgentMessageHttpClient,
+    private readonly timing: DaemonConnectionTiming = defaultDaemonConnectionTiming,
   ) {
     if (!endpoint) throw new Error("cloud endpoint not configured");
   }
@@ -203,6 +224,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     client.on("disconnected", () => {
       if (client === this.#client) {
         this.#connected = false;
+        this.#cancelReadyRecovery();
       }
     });
     await new Promise<void>((resolve, reject) => {
@@ -227,18 +249,15 @@ export class DaemonConnection implements DaemonConnectionClient {
         this.#flushLatestStatuses(client);
         this.#startStatusRefresh();
         if (reconnect && this.#lastReadyRequest) {
-          void this.#sendReady(client, this.#lastReadyRequest)
-            .then(() => this.#reconnectListener?.())
-            .catch(() => {
-              // A reconnect handshake is best effort. A later reconnect retries
-              // the last successful runtime registration.
-            });
+          this.#readyPublications ??= [];
+          this.#startReadyRecovery(client, this.#lastReadyRequest);
         }
         resolve();
       });
       client.on("error", reject);
       client.connect();
     }).catch((error) => {
+      this.#cancelReadyRecovery();
       subscription?.unsubscribe();
       this.#daemonSubscription = undefined;
       client.disconnect();
@@ -435,12 +454,14 @@ export class DaemonConnection implements DaemonConnectionClient {
         const message = decodeAgentMessageDelivery(data);
         if (message.protocolMajor !== 1 || message.workspaceId !== workspaceId)
           throw new Error("agent message targets another Workspace");
-        this.#agentMessageListener?.(message);
+        if (this.#readyPublications) this.#readyPublications.push(message);
+        else this.#agentMessageListener?.(message);
       } catch {
         const intent = decodeAgentStartIntent(data);
         if (intent.protocolMajor !== 1 || intent.workspaceId !== workspaceId)
           throw new Error("agent intent targets another Workspace");
-        this.#agentStartListener?.(intent);
+        if (this.#readyPublications) this.#readyPublications.push(intent);
+        else this.#agentStartListener?.(intent);
       }
     } catch {
       // Invalid publications are rejected at the protocol boundary and never reach the runtime.
@@ -466,8 +487,13 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async ready(request: DaemonRuntimeReadyRequest): Promise<void> {
     if (!this.#connected || !this.#client) throw new Error("daemon connection is not connected");
-    await this.#sendReady(this.#client, request);
-    this.#lastReadyRequest = request;
+    this.#readyPublications = [];
+    try {
+      await this.#sendReady(this.#client, request);
+      this.#lastReadyRequest = request;
+    } finally {
+      this.#dispatchReadyPublications();
+    }
   }
 
   async updateCodeAgents(request: DaemonRuntimeCodeAgentsUpdateRequest): Promise<void> {
@@ -485,8 +511,54 @@ export class DaemonConnection implements DaemonConnectionClient {
     await client.rpc(DAEMON_RUNTIME_READY_METHOD, encodeDaemonRuntimeReadyRequest(request));
   }
 
+  #startReadyRecovery(client: CentrifugeWorkspaceClient, request: DaemonRuntimeReadyRequest): void {
+    if (this.#readyRecoveryClient === client) return;
+    this.#cancelReadyRecovery();
+    this.#readyRecoveryClient = client;
+    void this.#attemptReadyRecovery(client, request);
+  }
+
+  async #attemptReadyRecovery(
+    client: CentrifugeWorkspaceClient,
+    request: DaemonRuntimeReadyRequest,
+  ): Promise<void> {
+    if (client !== this.#client || client !== this.#readyRecoveryClient || !this.#connected) return;
+    try {
+      await this.#sendReady(client, request);
+    } catch {
+      if (client !== this.#client || client !== this.#readyRecoveryClient || !this.#connected)
+        return;
+      this.#readyRetryTimer = this.timing.schedule(() => {
+        this.#readyRetryTimer = undefined;
+        void this.#attemptReadyRecovery(client, request);
+      }, RECONNECT_READY_RETRY_MS);
+      return;
+    }
+    if (client !== this.#client || client !== this.#readyRecoveryClient || !this.#connected) return;
+    this.#readyRecoveryClient = undefined;
+    this.#dispatchReadyPublications();
+    this.#reconnectListener?.();
+  }
+
+  #cancelReadyRecovery(): void {
+    if (this.#readyRetryTimer !== undefined) this.timing.cancel(this.#readyRetryTimer);
+    this.#readyRetryTimer = undefined;
+    this.#readyRecoveryClient = undefined;
+  }
+
+  #dispatchReadyPublications(): void {
+    const publications = this.#readyPublications;
+    this.#readyPublications = undefined;
+    if (!publications) return;
+    for (const publication of publications)
+      if ("provider" in publication) this.#agentStartListener?.(publication);
+    for (const publication of publications)
+      if (!("provider" in publication)) this.#agentMessageListener?.(publication);
+  }
+
   async stop(): Promise<void> {
     const client = this.#client;
+    this.#cancelReadyRecovery();
     if (this.#statusRefreshTimer) clearInterval(this.#statusRefreshTimer);
     this.#statusRefreshTimer = undefined;
     await this.#statusRpcQueue;
@@ -497,6 +569,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#hasConnected = false;
     this.#agentStartListener = undefined;
     this.#agentMessageListener = undefined;
+    this.#readyPublications = undefined;
     this.#lastReadyRequest = undefined;
     this.#reconnectListener = undefined;
     this.#pendingActivity.clear();

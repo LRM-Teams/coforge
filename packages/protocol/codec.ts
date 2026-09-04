@@ -58,6 +58,16 @@ const runtimeMetadata = (runtime: RuntimeMetadata) => ({
   ...runtime,
 });
 
+function assertUint(value: number, maximum: number, field: string): void {
+  if (!Number.isSafeInteger(value) || value < 0 || value > maximum)
+    throw new Error(`invalid ${field}`);
+}
+
+function safeUint64(value: bigint, field: string): number {
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error(`invalid ${field}`);
+  return Number(value);
+}
+
 const decodedRuntimeMetadata = (runtime: {
   provider: string;
   version: string;
@@ -187,6 +197,21 @@ export function decodeDaemonRuntimeUsageScanResponse(bytes: Uint8Array) {
 }
 
 export function encodeAgentStartIntent(value: AgentStartIntent): Uint8Array {
+  if ((value.resumeMessages?.length ?? 0) > 100)
+    throw new Error("Agent recovery resumeMessages exceeds 100");
+  const recoveryMessages = [
+    ...(value.wakeMessage ? [value.wakeMessage] : []),
+    ...(value.resumeMessages ?? []),
+  ];
+  if (
+    new Set(recoveryMessages.map(({ messageId }) => messageId)).size !== recoveryMessages.length ||
+    new Set(recoveryMessages.map(({ deliveryId }) => deliveryId)).size !== recoveryMessages.length
+  )
+    throw new Error("invalid agent recovery context");
+  for (const message of recoveryMessages)
+    assertUint(message.sequence, Number.MAX_SAFE_INTEGER, "Agent recovery sequence");
+  for (const count of Object.values(value.unreadSummary ?? {}))
+    assertUint(count, 0xffff_ffff, "Agent unread count");
   const providerConfig = value.providerConfig
     ? parseAgentRuntimeProviderConfig(
         value.providerConfig.kind,
@@ -204,6 +229,17 @@ export function encodeAgentStartIntent(value: AgentStartIntent): Uint8Array {
           }
         : undefined,
       messageType: AGENT_START_MESSAGE_TYPE,
+      wakeMessage: value.wakeMessage
+        ? { ...value.wakeMessage, sequence: BigInt(value.wakeMessage.sequence) }
+        : undefined,
+      resumeMessages: (value.resumeMessages ?? []).map((message) => ({
+        ...message,
+        sequence: BigInt(message.sequence),
+      })),
+      unreadSummary: Object.entries(value.unreadSummary ?? {}).map(([target, count]) => ({
+        target,
+        count,
+      })),
     }),
   );
 }
@@ -220,6 +256,35 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     throw new Error("invalid agent start intent");
   if (!["coforge", "pi", "codex", "claude-code"].includes(v.provider))
     throw new Error(`unsupported runtime provider: ${v.provider}`);
+  const recoveryMessages = [...(v.wakeMessage ? [v.wakeMessage] : []), ...v.resumeMessages];
+  const summaryTargets = new Set(v.unreadSummary.map(({ target }) => target));
+  const messageIds = new Set(recoveryMessages.map(({ messageId }) => messageId));
+  const deliveryIds = new Set(recoveryMessages.map(({ deliveryId }) => deliveryId));
+  if (
+    v.resumeMessages.length > 100 ||
+    recoveryMessages.some(
+      (message) =>
+        !message.messageId ||
+        !message.deliveryId ||
+        !message.conversationId ||
+        !message.target.startsWith("@") ||
+        message.sequence < 1n ||
+        message.sequence > BigInt(Number.MAX_SAFE_INTEGER),
+    ) ||
+    messageIds.size !== recoveryMessages.length ||
+    deliveryIds.size !== recoveryMessages.length ||
+    v.unreadSummary.some((entry) => !entry.target.startsWith("@") || entry.count < 1) ||
+    summaryTargets.size !== v.unreadSummary.length
+  )
+    throw new Error("invalid agent recovery context");
+  const recoveryMessage = (message: (typeof recoveryMessages)[number]) => ({
+    messageId: message.messageId,
+    deliveryId: message.deliveryId,
+    conversationId: message.conversationId,
+    sequence: Number(message.sequence),
+    target: message.target,
+    latestSender: message.latestSender,
+  });
   return {
     protocolMajor: v.protocolMajor,
     requestId: v.requestId,
@@ -237,6 +302,15 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
         )
       : undefined,
     ...(v.sessionId ? { sessionId: v.sessionId } : {}),
+    ...(v.wakeMessage ? { wakeMessage: recoveryMessage(v.wakeMessage) } : {}),
+    ...(v.resumeMessages.length ? { resumeMessages: v.resumeMessages.map(recoveryMessage) } : {}),
+    ...(v.unreadSummary.length
+      ? {
+          unreadSummary: Object.fromEntries(
+            v.unreadSummary.map((entry) => [entry.target, entry.count]),
+          ),
+        }
+      : {}),
   };
 }
 
@@ -250,6 +324,7 @@ function parseAgentRuntimeProviderConfig(
 }
 
 export function encodeAgentMessageDelivery(value: AgentMessageDelivery): Uint8Array {
+  assertUint(value.sequence, Number.MAX_SAFE_INTEGER, "Agent message sequence");
   return toBinary(
     AgentMessageDeliverySchema,
     create(AgentMessageDeliverySchema, {
@@ -285,7 +360,7 @@ export function decodeAgentMessageDelivery(bytes: Uint8Array): AgentMessageDeliv
     requestId: value.requestId,
     messageId: value.messageId,
     deliveryId: value.deliveryId,
-    sequence: Number(value.sequence),
+    sequence: safeUint64(value.sequence, "Agent message sequence"),
     workspaceId: value.workspaceId,
     conversationId: value.conversationId,
     agentId: value.agentId,
@@ -296,6 +371,7 @@ export function decodeAgentMessageDelivery(bytes: Uint8Array): AgentMessageDeliv
   };
 }
 export function encodeAgentMessageDeliveryAck(value: AgentMessageDeliveryAck): Uint8Array {
+  assertUint(value.sequence, Number.MAX_SAFE_INTEGER, "Agent delivery ACK sequence");
   return toBinary(
     AgentMessageDeliveryAckSchema,
     create(AgentMessageDeliveryAckSchema, { ...value, sequence: BigInt(value.sequence) }),
@@ -313,7 +389,11 @@ export function decodeAgentMessageDeliveryAck(bytes: Uint8Array): AgentMessageDe
     !v.sequence
   )
     throw new Error("invalid agent delivery ack");
-  return { ...v, sequence: Number(v.sequence), method: AGENT_MESSAGE_ACK_METHOD };
+  return {
+    ...v,
+    sequence: safeUint64(v.sequence, "Agent delivery ACK sequence"),
+    method: AGENT_MESSAGE_ACK_METHOD,
+  };
 }
 export function encodeAgentActivity(value: AgentActivity): Uint8Array {
   validateAgentActivity(value);
@@ -329,7 +409,18 @@ export function encodeAgentActivity(value: AgentActivity): Uint8Array {
   );
 }
 export function encodeAgentMessageRequest(value: AgentMessageRequest): Uint8Array {
-  return toBinary(AgentMessageRequestSchema, create(AgentMessageRequestSchema, value));
+  if (value.fromSequence !== undefined)
+    assertUint(value.fromSequence, Number.MAX_SAFE_INTEGER, "Agent message from sequence");
+  if (value.throughSequence !== undefined)
+    assertUint(value.throughSequence, Number.MAX_SAFE_INTEGER, "Agent message through sequence");
+  return toBinary(
+    AgentMessageRequestSchema,
+    create(AgentMessageRequestSchema, {
+      ...value,
+      fromSequence: BigInt(value.fromSequence ?? 0),
+      throughSequence: BigInt(value.throughSequence ?? 0),
+    }),
+  );
 }
 export function decodeAgentMessageRequest(bytes: Uint8Array): AgentMessageRequest {
   const v = fromBinary(AgentMessageRequestSchema, bytes);
@@ -345,6 +436,12 @@ export function decodeAgentMessageRequest(bytes: Uint8Array): AgentMessageReques
     after: v.after || undefined,
     around: v.around || undefined,
     limit: v.limit || undefined,
+    fromSequence: v.fromSequence
+      ? safeUint64(v.fromSequence, "Agent message from sequence")
+      : undefined,
+    throughSequence: v.throughSequence
+      ? safeUint64(v.throughSequence, "Agent message through sequence")
+      : undefined,
   };
 }
 export function encodeCloudAgentMessageResponse(value: CloudAgentMessageResponse): Uint8Array {

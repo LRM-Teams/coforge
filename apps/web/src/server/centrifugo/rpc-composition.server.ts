@@ -164,7 +164,11 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
         [WORKSPACE_LIST_METHOD]: createWorkspaceListMethod(query),
         [WORKSPACE_GET_METHOD]: createWorkspaceGetMethod(query),
         [DAEMON_RUNTIME_READY_METHOD]: createDaemonRuntimeReadyMethod(
-          new WorkspaceAgentRecovery(agentRepository, centrifugo),
+          new WorkspaceAgentRecovery(
+            agentRepository,
+            new PrismaDirectConversationRepository(db),
+            centrifugo,
+          ),
         ),
         [DAEMON_CONNECTION_STATUS_METHOD]: createDaemonConnectionStatusMethod(),
         [DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD]: createDaemonRuntimeCodeAgentsUpdateMethod(

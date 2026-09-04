@@ -333,7 +333,9 @@ Daemon 仅为被 Web/backend 暂缓的 Agent response 保存短期 continuation 
 2. daemon 按 Workspace、conversation 与 Agent scope 定位 `AgentSession`，调用 provider-neutral `notify`；
 3. 只有 `AgentSession`/`notify` 成功接受 attention 后，daemon 才返回 ACK；拒绝或失败不得 ACK；
 4. ACK 只表示 attention 已被当前 Agent session 接受，不表示 Agent 执行开始、完成或产生 response；
-5. attention 是易失提示，断线、进程退出或 ACK 丢失都可能造成丢失或重复。恢复时 Agent 通过独立 HTTPS read RPC，以云端 canonical Message 和 read boundary 找回尚未读取的消息，而不是依赖本地 inbox。
+5. attention 是易失提示，断线、进程退出或 ACK 丢失都可能造成丢失或重复。每个 Agent ConversationMember 持久化单调递增的 `agentReadThroughSequence`；无锚点的普通 read 从当前 canonical boundary 的下一条消息开始，成功返回的连续查询范围可包含并跨越该 Agent 自己已发送的已知消息，但绝不能跳过查询未返回的 User 消息。`before`、`after`、`around` 等显式历史跳转与 delivery ACK 都不推进阅读位置；conversation sequence 是总顺序，不声称仅由 User 消息组成或具有额外的无缺口保证；
+6. Daemon ready/reconnect 时，Web/backend 从该 canonical read boundary 读取每个 Agent 的私聊恢复上下文。`agent:start` 的 `resumeMessages` 是仅包含 message ID、delivery ID、conversation ID、sequence、target 与 latest sender 的恢复元数据，不含正文；每个 Agent 总计最多 100 条，并从各 target 最老未读开始。`unreadSummary` 严格只是公共 `@username` target 到完整未读总数的映射，不含正文、ID、sequence 或 cursor；
+7. Daemon 在 runtime 启动后先把恢复消息注册到易失 attention index 并发送不含正文的恢复通知，再处理启动期间按到达顺序缓存的 live delivery。Agent 仍通过独立 HTTPS read RPC 拉取正文；恢复批次不进入 standing instructions、不产生 start ACK，也不形成 durable local queue。
 
 ### 6.2 Agent 到云端
 
@@ -346,7 +348,7 @@ Daemon 仅为被 Web/backend 暂缓的 Agent response 保存短期 continuation 
 
 - response、Agent execution 状态与 delivery ACK 是不同维度；
 - WebSocket attention 与连接内写队列只负责唤醒，不是 durable source of truth；
-- attention 丢失后的恢复依赖 canonical Message/read boundary；
+- attention 丢失后的恢复依赖 canonical Message/read boundary；delivery ACK、start ACK 和 `unreadSummary` 都不是阅读确认；
 - 不使用数据库 command mailbox 或 claim/lease，除非先形成新的架构决策。
 
 ## 7. 端到端链路
@@ -438,7 +440,7 @@ Computer 始终只保存一个 active Workspace binding。setup 使用 Workspace
 
 ## 13. 首批故障验证
 
-以下是后续验证项；attention 丢失后的 canonical Message/read-boundary 恢复链路尚未完整实现，不能视为已经具备：
+以下是持续故障验证项；当前自动化测试仅覆盖 read boundary/range 分页、启动期 FIFO、恢复通知失败隔离等已实现语义，其余项目仍需端到端故障注入验证：
 
 1. `notify` 拒绝或失败时不 ACK，成功接受后 ACK，但 ACK 不代表 Agent 执行完成；
 2. daemon 断线或重启造成 attention 丢失后，Agent 能通过 HTTPS read RPC 与 read boundary 找回未读 canonical Message；

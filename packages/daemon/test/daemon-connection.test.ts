@@ -9,6 +9,7 @@ import {
   decodeAgentActivity,
   decodeAgentStatus,
   decodeAgentMessageDeliveryAck,
+  encodeAgentMessageDelivery,
   encodeAgentStartIntent,
 } from "@coforge/protocol";
 import { DAEMON_RUNTIME_READY_METHOD } from "@coforge/protocol";
@@ -332,6 +333,180 @@ test("resends the last successful ready request after reconnect", async () => {
   expect(readyCalls[1]).toEqual(readyCalls[0]!);
 });
 
+test("buffers reconnect publications until ready settles and dispatches starts first", async () => {
+  const fake = fakeClient();
+  let settleReady!: () => void;
+  let readyCalls = 0;
+  fake.client.rpc = async (method) => {
+    if (method === DAEMON_RUNTIME_READY_METHOD && ++readyCalls === 2)
+      await new Promise<void>((resolve) => (settleReady = resolve));
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  const dispatched: string[] = [];
+  transport.onAgentStart(() => dispatched.push("start"));
+  transport.onAgentMessage(() => dispatched.push("delivery"));
+  await transport.start("secret", config);
+  await transport.ready({
+    protocolMajor: 1,
+    requestId: "ready-1",
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    workerInstanceId: "runtime-1",
+    startedAt: 123,
+  });
+
+  fake.connect();
+  fake.publish(
+    `daemon:${config.computerId}`,
+    encodeAgentMessageDelivery({
+      protocolMajor: 1,
+      requestId: "delivery-1",
+      messageId: "message-1",
+      deliveryId: "delivery-1",
+      sequence: 1,
+      workspaceId: config.workspaceId,
+      conversationId: "conversation-1",
+      agentId: "agent-1",
+      body: "hello",
+      method: "agent:deliver",
+      target: "@alice",
+    }),
+  );
+  fake.publish(
+    `daemon:${config.computerId}`,
+    encodeAgentStartIntent({
+      protocolMajor: 1,
+      requestId: "start-1",
+      workspaceId: config.workspaceId,
+      computerId: config.computerId,
+      agentId: "agent-1",
+      provider: "pi",
+      model: "default",
+      reasoning: "balanced",
+    }),
+  );
+  expect(dispatched).toEqual([]);
+
+  settleReady();
+  await Bun.sleep(0);
+  expect(dispatched).toEqual(["start", "delivery"]);
+});
+
+test("retries reconnect ready on the same connection before releasing buffered publications", async () => {
+  const fake = fakeClient();
+  let rejectReady!: (error: Error) => void;
+  let readyCalls = 0;
+  let retryReady!: () => void;
+  fake.client.rpc = async (method) => {
+    if (method === DAEMON_RUNTIME_READY_METHOD && ++readyCalls === 2)
+      await new Promise<void>((_resolve, reject) => (rejectReady = reject));
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client, undefined, {
+    schedule: (callback) => {
+      retryReady = callback;
+      return 1;
+    },
+    cancel: () => {},
+  });
+  const dispatched: string[] = [];
+  let reconnects = 0;
+  transport.onAgentStart(() => dispatched.push("start"));
+  transport.onAgentMessage(() => dispatched.push("delivery"));
+  transport.onReconnect(() => reconnects++);
+  await transport.start("secret", config);
+  await transport.ready({
+    protocolMajor: 1,
+    requestId: "ready-1",
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    workerInstanceId: "runtime-1",
+    startedAt: 123,
+  });
+
+  fake.connect();
+  fake.publish(
+    `daemon:${config.computerId}`,
+    encodeAgentMessageDelivery({
+      protocolMajor: 1,
+      requestId: "delivery-1",
+      messageId: "message-1",
+      deliveryId: "delivery-1",
+      sequence: 1,
+      workspaceId: config.workspaceId,
+      conversationId: "conversation-1",
+      agentId: "agent-1",
+      body: "hello",
+      method: "agent:deliver",
+      target: "@alice",
+    }),
+  );
+  fake.publish(
+    `daemon:${config.computerId}`,
+    encodeAgentStartIntent({
+      protocolMajor: 1,
+      requestId: "start-1",
+      workspaceId: config.workspaceId,
+      computerId: config.computerId,
+      agentId: "agent-1",
+      provider: "pi",
+      model: "default",
+      reasoning: "balanced",
+    }),
+  );
+  rejectReady(new Error("reconnect ready failed"));
+  await Bun.sleep(0);
+  expect(dispatched).toEqual([]);
+  expect(reconnects).toBe(0);
+
+  retryReady();
+  await Bun.sleep(0);
+
+  expect(readyCalls).toBe(3);
+  expect(dispatched).toEqual(["start", "delivery"]);
+  expect(reconnects).toBe(1);
+});
+
+test("stop cancels a pending reconnect ready retry", async () => {
+  const fake = fakeClient();
+  let readyCalls = 0;
+  let retryReady!: () => void;
+  let cancelled = false;
+  fake.client.rpc = async (method) => {
+    if (method === DAEMON_RUNTIME_READY_METHOD && ++readyCalls === 2)
+      throw new Error("reconnect ready failed");
+    return new Uint8Array();
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client, undefined, {
+    schedule: (callback) => {
+      retryReady = callback;
+      return 1;
+    },
+    cancel: () => {
+      cancelled = true;
+    },
+  });
+  await transport.start("secret", config);
+  await transport.ready({
+    protocolMajor: 1,
+    requestId: "ready-1",
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    workerInstanceId: "runtime-1",
+    startedAt: 123,
+  });
+
+  fake.connect();
+  await Bun.sleep(0);
+  await transport.stop();
+  retryReady();
+  await Bun.sleep(0);
+
+  expect(cancelled).toBe(true);
+  expect(readyCalls).toBe(2);
+});
+
 test("receives only publications directed to its Computer", async () => {
   const fake = fakeClient();
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
@@ -378,6 +553,7 @@ test("contains a reconnect ready failure and retries on the next reconnect", asy
 
   fake.connect();
   await Promise.resolve();
+  fake.disconnect();
   fake.connect();
   await Promise.resolve();
 

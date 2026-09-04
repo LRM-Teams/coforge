@@ -26,7 +26,23 @@ export type DirectConversationPageOptions = {
   after?: string;
   around?: string;
   limit?: number;
+  fromSequence?: number;
+  throughSequence?: number;
 };
+
+export type AgentRecoveryContext = {
+  resumeMessages: Array<{
+    messageId: string;
+    deliveryId: string;
+    conversationId: string;
+    sequence: number;
+    target: string;
+    latestSender: string;
+  }>;
+  unreadSummary: Readonly<Record<string, number>>;
+};
+
+const AGENT_RECOVERY_MESSAGE_LIMIT = 100;
 
 type DirectConversationMessageRow = Prisma.MessageGetPayload<{
   include: { sender: { include: { agent: true } }; attachment: true };
@@ -93,6 +109,7 @@ export type DirectConversationRepository = {
     target: string,
     afterSequence?: number,
   ): ReturnType<NonNullable<DirectConversationRepository["readMessages"]>>;
+  readAgentRecoveryContext?(workspaceId: string, agentId: string): Promise<AgentRecoveryContext>;
   sendAgentMessage?(
     conversationId: string,
     agentId: string,
@@ -369,6 +386,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   ) {
     const userId = await this.userIdForUsername(target);
     const conversation = await this.getOrCreateUserAgent(workspaceId, userId, agentId);
+    const agentMember = await this.db.conversationMember.findFirst({
+      where: { conversationId: conversation.id, agentId },
+      select: { agentReadThroughSequence: true },
+    });
+    if (!agentMember) throw new Error("Agent is not a conversation member");
     const limit = Math.min(Math.max(page.limit ?? 50, 1), 100);
     const anchor =
       (page.before ?? page.after ?? page.around)
@@ -424,11 +446,20 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         hasNewer: afterRows.length > afterCount,
       };
     }
+    const isHistoryRead = Boolean(page.before || page.after || page.around);
+    const effectiveFromSequence = isHistoryRead
+      ? page.fromSequence
+      : (page.fromSequence ?? agentMember.agentReadThroughSequence + 1);
+    const effectiveSequence = {
+      ...(effectiveFromSequence !== undefined ? { gte: effectiveFromSequence } : {}),
+      ...(page.throughSequence !== undefined ? { lte: page.throughSequence } : {}),
+      ...(anchor && page.before ? { lt: anchor.sequence } : {}),
+      ...(anchor && page.after ? { gt: anchor.sequence } : {}),
+    };
     const rows = await this.db.message.findMany({
       where: {
         conversationId: conversation.id,
-        ...(anchor && page.before ? { sequence: { lt: anchor.sequence } } : {}),
-        ...(anchor && page.after ? { sequence: { gt: anchor.sequence } } : {}),
+        ...(Object.keys(effectiveSequence).length ? { sequence: effectiveSequence } : {}),
       },
       orderBy: { sequence: page.before ? "desc" : "asc" },
       take: limit + 1,
@@ -436,11 +467,93 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     });
     const hasMore = rows.length > limit;
     const messages = map(rows.slice(0, limit).sort((a, b) => a.sequence - b.sequence));
+    const isBoundaryRead =
+      !isHistoryRead && effectiveFromSequence === agentMember.agentReadThroughSequence + 1;
+    const agentReadThroughSequence = isBoundaryRead ? (messages.at(-1)?.sequence ?? 0) : 0;
+    if (agentReadThroughSequence) {
+      await this.db.conversationMember.updateMany({
+        where: {
+          conversationId: conversation.id,
+          agentId,
+          agentReadThroughSequence: { lt: agentReadThroughSequence },
+        },
+        data: { agentReadThroughSequence },
+      });
+    }
     return {
       messages,
       hasOlder: page.after ? Boolean(anchor) : page.before ? hasMore : false,
-      hasNewer: page.before ? Boolean(anchor) : page.after ? hasMore : false,
+      hasNewer: page.before ? Boolean(anchor) : page.after || !isHistoryRead ? hasMore : false,
     };
+  }
+
+  async readAgentRecoveryContext(
+    workspaceId: string,
+    agentId: string,
+  ): Promise<AgentRecoveryContext> {
+    return this.db.$transaction(
+      async (tx) => {
+        const members = await tx.conversationMember.findMany({
+          where: { workspaceId, agentId },
+          orderBy: { conversationId: "asc" },
+          select: {
+            conversationId: true,
+            agentReadThroughSequence: true,
+            conversation: {
+              select: {
+                members: {
+                  where: { userId: { not: null } },
+                  select: { user: { select: { username: true } } },
+                },
+              },
+            },
+          },
+        });
+        const resumeMessages: AgentRecoveryContext["resumeMessages"] = [];
+        const unreadSummary: Record<string, number> = {};
+        for (const member of members) {
+          const username = member.conversation.members[0]?.user?.username;
+          if (!username) throw new Error("Agent conversation has no public user target");
+          const target = `@${username}`;
+          if (target in unreadSummary)
+            throw new Error(`duplicate Agent recovery target: ${target}`);
+          const where = {
+            conversationId: member.conversationId,
+            sequence: { gt: member.agentReadThroughSequence },
+            sender: { userId: { not: null } },
+          } as const;
+          const count = await tx.message.count({ where });
+          if (!count) continue;
+          unreadSummary[target] = count;
+          const budget = AGENT_RECOVERY_MESSAGE_LIMIT - resumeMessages.length;
+          if (!budget) continue;
+          const messages = await tx.message.findMany({
+            where,
+            orderBy: { sequence: "asc" },
+            take: budget,
+            select: {
+              id: true,
+              sequence: true,
+              deliveries: { where: { agentId }, select: { deliveryId: true }, take: 1 },
+            },
+          });
+          for (const message of messages) {
+            const delivery = message.deliveries[0];
+            if (!delivery) throw new Error(`Unread Agent message has no delivery: ${message.id}`);
+            resumeMessages.push({
+              messageId: message.id,
+              deliveryId: delivery.deliveryId,
+              conversationId: member.conversationId,
+              sequence: message.sequence,
+              target,
+              latestSender: target,
+            });
+          }
+        }
+        return { resumeMessages, unreadSummary };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
   }
 
   async readPendingAgentContext(

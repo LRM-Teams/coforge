@@ -13,6 +13,7 @@ import {
   decodeAgentStatusEvent,
   type AgentStatusEvent,
 } from "../src/features/agents/agent-status-realtime";
+import { RedisAgentStatusCache } from "../src/server/agents/agent-status.server";
 import { verifyDaemonApiKey } from "../src/server/auth/daemon-api-key.server";
 import { PrismaDaemonApiKeyRepository } from "../src/server/db/repositories/daemon-api-key.repositories.server";
 import { ComputerRegistrar } from "../src/server/computers/registration.server";
@@ -54,6 +55,7 @@ const attachmentDirectory = join(
 test("Agent runtime, status, Message Inbox, and App Inbox cross the real system", async () => {
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
   const redis = new Bun.RedisClient(requireEnvironment("REDIS_URL"));
+  const statuses = new RedisAgentStatusCache(redis);
   await db.$executeRawUnsafe(
     'TRUNCATE TABLE "agent_api_keys", "daemon_api_keys", "agent_message_deliveries", "messages", "conversation_members", "conversations", "agents", "workspace_computers", "computers", "workspace_memberships", "user_identities", "users", "workspaces", "attachments" CASCADE',
   );
@@ -189,8 +191,12 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     const runtimeConfigPath = join(agentWorkspace, ".e2e-runtime-config.json");
     await waitFor(async () => Bun.file(pidPath).exists());
     await waitFor(async () => Bun.file(runtimeConfigPath).exists());
-    const statusKey = `coforge:agent-status:v1:${workspaceId}:${registration.computerId}:${created.agent.id}`;
-    await waitFor(async () => (await redis.get(statusKey)) === "active");
+    const statusScope = {
+      workspaceId,
+      computerId: registration.computerId,
+      agentId: created.agent.id,
+    };
+    await waitFor(async () => (await statuses.get(statusScope)) === "active");
     await waitFor(() => statusEvents.some((event) => event.status === "active"));
     expect(await agentsPage()).toContain("Online");
     expect(await Bun.file(runtimeConfigPath).json()).toEqual({
@@ -354,7 +360,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     await waitFor(
       () => !pidExists(firstProcesses.directPid) && !pidExists(firstProcesses.descendantPid),
     );
-    await waitFor(async () => (await redis.get(statusKey)) === null);
+    await waitFor(async () => (await statuses.get(statusScope)) === "inactive");
     await waitFor(() => statusEvents.some((event) => event.status === "inactive"));
     expect(await agentsPage()).toContain("Offline");
     expect(runtime.agentProcessManager.size).toBe(0);
@@ -384,7 +390,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     expect(replacementProcesses.descendantPid).not.toBe(firstProcesses.descendantPid);
     expect(pidExists(replacementProcesses.directPid)).toBe(true);
     expect(pidExists(replacementProcesses.descendantPid)).toBe(true);
-    await waitFor(async () => (await redis.get(statusKey)) === "active");
+    await waitFor(async () => (await statuses.get(statusScope)) === "active");
     await waitFor(() => statusEvents.filter((event) => event.status === "active").length >= 2);
     expect(await agentsPage()).toContain("Online");
     await waitFor(
