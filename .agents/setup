@@ -78,6 +78,24 @@ fi
 
 export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
 
+install_codex() {
+	if command -v codex >/dev/null 2>&1; then
+		return
+	fi
+
+	curl -fsSL https://chatgpt.com/codex/install.sh | sh
+}
+
+install_claude_code() {
+	if command -v claude >/dev/null 2>&1; then
+		return
+	fi
+
+	curl -fsSL https://claude.ai/install.sh | bash
+}
+
+run_step "Install Codex CLI" install_codex
+run_step "Install Claude Code CLI" install_claude_code
 run_step "Install Docker" install_docker
 run_step "Install Linux credential store" install_linux_credential_store
 run_step "Install pinned toolchain" "$mise_bin" install --locked
