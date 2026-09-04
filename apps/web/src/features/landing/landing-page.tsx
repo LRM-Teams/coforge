@@ -1,6 +1,7 @@
 import { ArrowRight, ArrowUp, Check, Cpu, MessageCircle, Monitor } from "lucide-react";
 
 import { Avatar } from "@/components/ui/avatar";
+import { installCommands } from "@/features/install/install-commands";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
@@ -57,7 +58,7 @@ function LocaleSwitch() {
   );
 }
 
-export function LandingPage({ installScriptUrl }: { installScriptUrl: string }) {
+export function LandingPage({ installOrigin }: { installOrigin: string }) {
   const teammate = { name: m.landing_scene_teammate_name(), tone: 4 as const };
   const agent = { name: m.landing_scene_agent_name(), tone: 1 as const };
 
@@ -209,7 +210,7 @@ export function LandingPage({ installScriptUrl }: { installScriptUrl: string }) 
             <pre className="mt-3 overflow-x-auto font-mono text-[13px] leading-6 whitespace-pre">
               <code>
                 <span className="text-accent dark:text-accent-foreground">$ </span>
-                {`curl -fsSL ${installScriptUrl} | sh`}
+                {installCommands(installOrigin).posix}
                 {"\n"}
                 <span className="landing-rise inline-block" style={{ animationDelay: "1.6s" }}>
                   <Check aria-hidden="true" className="mr-1.5 inline size-3.5 text-success" />

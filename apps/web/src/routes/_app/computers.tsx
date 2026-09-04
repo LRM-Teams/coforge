@@ -5,19 +5,24 @@ import { AddComputerDialog } from "@/features/computers/add-computer-dialog";
 import { ComputerLayout } from "@/features/computers/computer-layout";
 import { listComputers } from "@/features/computers/computers.functions";
 import { PageLoadError } from "@/features/errors/page-load-error";
+import { getInstallOrigin } from "@/features/install/install.functions";
 import { getUserPreferences } from "@/features/settings/settings.functions";
 
 export const Route = createFileRoute("/_app/computers")({
   loader: async () => {
-    const [computers, preferences] = await Promise.all([listComputers(), getUserPreferences()]);
-    return { computers, timeZone: preferences.timeZone };
+    const [computers, preferences, installOrigin] = await Promise.all([
+      listComputers(),
+      getUserPreferences(),
+      getInstallOrigin(),
+    ]);
+    return { computers, timeZone: preferences.timeZone, installOrigin };
   },
   errorComponent: PageLoadError,
   component: ComputersPage,
 });
 
 function ComputersPage() {
-  const { computers } = Route.useLoaderData();
+  const { computers, installOrigin } = Route.useLoaderData();
   const params = useParams({ from: "/_app/computers/$computerId", shouldThrow: false });
   const [addComputerOpen, setAddComputerOpen] = useState(false);
 
@@ -30,7 +35,11 @@ function ComputersPage() {
       >
         <Outlet />
       </ComputerLayout>
-      <AddComputerDialog open={addComputerOpen} onOpenChange={setAddComputerOpen} />
+      <AddComputerDialog
+        open={addComputerOpen}
+        onOpenChange={setAddComputerOpen}
+        installOrigin={installOrigin}
+      />
     </>
   );
 }

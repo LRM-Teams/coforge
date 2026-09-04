@@ -43,9 +43,10 @@ authorized to read the other's bucket, and neither accepts or forwards
 application login cookies. Application session cookies stay host-only, so a
 delivery subdomain never receives them.
 
-The public installation entry points stay on the main site
-(`https://coforge.cn/computer/install.sh` and `install.ps1`) and route to the
-release feed. Clients continue to treat delivery URLs as opaque values, and the
+The public installation entry points stay on the site rather than on a delivery
+domain (`/computer/install.sh` and `/computer/install.ps1`), and route to the
+release feed. Each environment serves them from its own origin, so a command
+copied from staging installs the staging release set. Clients continue to treat delivery URLs as opaque values, and the
 database still stores only object keys.
 
 ## Rejected alternatives
