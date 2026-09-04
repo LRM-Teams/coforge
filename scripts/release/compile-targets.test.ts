@@ -17,7 +17,9 @@ test("every release target used by updater.ts, install.sh and install.ps1 maps t
   ];
   for (const target of targets) {
     expect(isReleaseTarget(target)).toBe(true);
-    expect(resolveBunCompileTarget(target)).toBe(`bun-${target}`);
+    // Compared as a plain string: the return type is a union of the six literals, which a
+    // `bun-${string}` template type is not assignable to.
+    expect(String(resolveBunCompileTarget(target))).toBe(`bun-${target}`);
   }
 });
 

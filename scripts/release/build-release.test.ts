@@ -282,7 +282,7 @@ test("install.sh fails when one bit of a sidecar checksum is flipped", async () 
   const { exitCode, stderr } = await runInstallSh(baseUrl);
 
   expect(exitCode).not.toBe(0);
-  expect(stderr).toContain("checksum");
+  expect(stderr).toContain("failed its checksum check");
 });
 
 test("ComputerUpdater rejects a tree whose manifest checksum was tampered with, with UPDATE_INTEGRITY_FAILED", async () => {

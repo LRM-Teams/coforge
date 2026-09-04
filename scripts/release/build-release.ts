@@ -19,11 +19,11 @@ export function isValidReleaseVersion(value: string): boolean {
   );
 }
 
-// A release target is also a URL segment and an on-disk directory name (<version>/<target>/...),
-// but unlike the version it never comes from outside this repository - it is always one of the
-// fixed strings scripts/release/compile-targets.ts maps to a bun compile target. This check exists
-// purely so a caller's typo in that fixed set fails loudly here instead of writing outside the
-// version directory.
+// A release target is also a URL segment and an on-disk directory name (<version>/<target>/...).
+// Unlike the version it never comes from outside this repository, so this is a containment check
+// rather than a spelling one: it stops a target from escaping the version directory or the URL
+// path. A misspelt target is caught upstream by resolveBunCompileTarget, which only accepts the
+// six known values and throws otherwise.
 const TARGET_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
 
 function isValidReleaseTarget(value: string): boolean {
