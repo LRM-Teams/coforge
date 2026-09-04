@@ -107,7 +107,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     { userId: DEV_BROWSER_USER.id, workspaceId },
     {
       name: "e2e-agent",
-      displayName: "E2E Agent",
+      description: "End-to-end test Agent",
       provider: "pi",
       computerId: registration.computerId,
       model: "e2e-model",

@@ -3,13 +3,10 @@ import type { AgentRecord, AgentRepository } from "../db/repositories/agent.repo
 import { publicAgentRuntimeConfig } from "./agent-runtime-config.server";
 
 const providers = new Set<unknown>(Object.values(RUNTIME_PROVIDER));
-const HANDLE_MAX_LENGTH = 48;
-const DISPLAY_NAME_MAX_LENGTH = 100;
-const CONFIG_VALUE_MAX_LENGTH = 200;
 
 export type AgentCreateInput = {
   name: string;
-  displayName: string;
+  description: string;
   provider: RuntimeProvider;
   model?: string;
   modelProvider?: string;
@@ -29,12 +26,6 @@ type RuntimeAvailability = {
     config: { provider: RuntimeProvider; model: string; modelProvider: string; reasoning: string },
   ): Promise<boolean>;
 };
-
-function bounded(value: string | undefined, label: string, maximum: number) {
-  const normalized = value?.trim() ?? "";
-  if (normalized.length > maximum) throw new Error(`${label} is too long`);
-  return normalized;
-}
 
 export class AgentCollection {
   constructor(
@@ -56,17 +47,15 @@ export class AgentCollection {
 
   async create(principal: AgentPrincipal, input: AgentCreateInput) {
     const name = input.name.trim().toLowerCase();
-    if (!name || name.length > HANDLE_MAX_LENGTH || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name))
-      throw new Error("name must be a lowercase handle using letters, digits, and hyphens");
-    const displayName = bounded(input.displayName, "displayName", DISPLAY_NAME_MAX_LENGTH);
-    if (!displayName) throw new Error("displayName is required");
+    if (!name) throw new Error("name is required");
+    const description = input.description.trim();
     if (!providers.has(input.provider)) throw new Error("provider is not supported");
     if (!input.computerId) throw new Error("computer is required");
     const selection = {
       provider: input.provider,
-      model: bounded(input.model, "model", CONFIG_VALUE_MAX_LENGTH),
-      modelProvider: bounded(input.modelProvider, "modelProvider", CONFIG_VALUE_MAX_LENGTH),
-      reasoning: bounded(input.reasoning, "reasoning", CONFIG_VALUE_MAX_LENGTH),
+      model: input.model?.trim() ?? "",
+      modelProvider: input.modelProvider?.trim() ?? "",
+      reasoning: input.reasoning?.trim() ?? "",
     };
     if (
       !(await this.availability.canRun(
@@ -81,7 +70,8 @@ export class AgentCollection {
       workspaceId: principal.workspaceId,
       ownerId: principal.userId,
       name,
-      displayName,
+      displayName: name,
+      description,
       computerId: input.computerId,
       runtimeConfig: {
         runtime: selection.provider,

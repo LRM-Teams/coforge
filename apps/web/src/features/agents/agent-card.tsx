@@ -11,6 +11,7 @@ export type AgentView = {
   id: string;
   name: string;
   displayName: string;
+  description?: string;
   createdAt: Date | string;
   runtimeConfig: {
     runtime: "coforge" | "pi" | "codex" | "claude-code";
@@ -80,6 +81,7 @@ export function AgentCard({
               </Link>
             </h2>
             <p className="truncate text-xs text-muted-foreground">@{agent.name}</p>
+            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{agent.description}</p>
           </div>
         </div>
         <Link

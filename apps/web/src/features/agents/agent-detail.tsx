@@ -108,6 +108,7 @@ function Profile({
     [m.agent_profile_id(), detail.id],
     [m.agent_profile_name(), detail.name],
     [m.agent_profile_display_name(), detail.displayName],
+    ...(detail.description ? [[m.agent_profile_description(), detail.description]] : []),
     [m.agent_profile_owner(), `@${detail.owner.username}`],
     [m.agent_profile_created(), formatDateForDisplay(detail.createdAt, timeZone)],
   ];

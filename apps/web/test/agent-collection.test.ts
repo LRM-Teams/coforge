@@ -66,7 +66,7 @@ describe("AgentCollection", () => {
       { userId: "user-1", workspaceId: "workspace-1" },
       {
         name: "  MY-Agent  ",
-        displayName: " My Agent ",
+        description: "Build and release helper",
         provider: RUNTIME_PROVIDER.COFORGE,
         computerId: "computer-1",
         model: " model-a ",
@@ -80,7 +80,7 @@ describe("AgentCollection", () => {
       workspaceId: "workspace-1",
       ownerId: "user-1",
       name: "my-agent",
-      displayName: "My Agent",
+      displayName: "my-agent",
       runtimeConfig: {
         runtime: "coforge",
         provider: { kind: "coforge", providerId: "anthropic" },
@@ -102,7 +102,7 @@ describe("AgentCollection", () => {
       { userId: "user-1", workspaceId: "workspace-1" },
       {
         name: "external-pi",
-        displayName: "External Pi",
+        description: "External Pi agent",
         provider: RUNTIME_PROVIDER.PI,
         computerId: "computer-1",
         modelProvider: "anthropic",
@@ -134,7 +134,7 @@ describe("AgentCollection", () => {
       { userId: "user-1", workspaceId: "workspace-1" },
       {
         name: "builder",
-        displayName: "Builder",
+        description: "Build helper",
         provider: RUNTIME_PROVIDER.CODEX,
         computerId: "computer-1",
       },
@@ -158,7 +158,7 @@ describe("AgentCollection", () => {
         { userId: "user-1", workspaceId: "workspace-1" },
         {
           name: "builder",
-          displayName: "Builder",
+          description: "Build helper",
           provider: RUNTIME_PROVIDER.CODEX,
           computerId: "computer-1",
         },

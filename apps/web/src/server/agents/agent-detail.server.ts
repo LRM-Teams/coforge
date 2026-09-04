@@ -20,6 +20,7 @@ type DetailAgent = {
   workspaceId: string;
   name: string;
   displayName: string;
+  description?: string;
   createdAt: Date;
   owner: { id: string; username: string };
   runtimeConfig: Prisma.JsonValue;
