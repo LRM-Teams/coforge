@@ -96,7 +96,9 @@ export const SETUP_HINTS = {
   SETUP_WORKSPACE_RPC_UNAVAILABLE:
     "Workspace queries are not available until their approved CoForge RPC methods are defined and implemented.",
   SETUP_WORKSPACE_REQUIRED:
-    "Open setup from the Workspace page so its setup intent supplies the target Workspace.",
+    "Run `coforge-computer setup --workspace <slug>` with the Workspace slug shown on its page.",
+  SETUP_WORKSPACE_INVALID:
+    "Use a Workspace slug of lowercase letters, digits, and hyphens (matching the slug shown on the Workspace page).",
   SETUP_WORKSPACE_NOT_FOUND: "Check the Workspace slug and your account access, then rerun setup.",
 } as const;
 

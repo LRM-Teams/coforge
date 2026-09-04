@@ -34,6 +34,7 @@ import {
   resolveDaemonExecutablePath,
 } from "@coforge/daemon";
 import { createWorkspaceLookup } from "./workspace/lookup";
+import { isValidComputerWorkspaceSlug } from "./workspace/workspace-slug";
 import { registrationIdempotencyKey } from "./registration/idempotency-key";
 import { writeSetupResult } from "./cli/setup-output";
 import { createCommand as createClientCommand } from "./daemon-client";
@@ -108,13 +109,25 @@ export async function runCli(
     });
   program
     .command("setup")
-    .description("Configure the Workspace supplied by the setup intent.")
+    .description("Register this Computer with one Workspace and start its Daemon.")
     .option("--server <url>", "CoForge server URL", DEFAULT_SERVER_URL)
+    .option(
+      "--workspace <slug>",
+      "Workspace slug to join (falls back to COFORGE_SETUP_INTENT when omitted)",
+    )
     .option("--json", "write one stable JSON result to stdout")
-    .action((options: { server: string; json?: boolean }, command: Command) => {
+    .action((options: { server: string; json?: boolean; workspace?: string }, command: Command) => {
       setupSelected = true;
       json = options.json ?? false;
-      return dependencies.setup.run(readSetupIntentWorkspace(), {
+      const workspaceSlug = resolveSetupWorkspace(options.workspace);
+      if (workspaceSlug !== undefined && !isValidComputerWorkspaceSlug(workspaceSlug)) {
+        throw setupError(
+          "SETUP_WORKSPACE_INVALID",
+          `Workspace slug '${workspaceSlug}' is not valid.`,
+          "workspace-lookup",
+        );
+      }
+      return dependencies.setup.run(workspaceSlug, {
         serverUrl: command.getOptionValueSource("server") === "cli" ? options.server : undefined,
         json,
       });
@@ -198,7 +211,15 @@ export async function runCli(
   return 0;
 }
 
-/** Workspace pages/installer bootstrap this value; it is not user input. */
+/** `--workspace` wins when the user supplies it explicitly; the setup-intent environment
+ * variable is a fallback source, not a second required input. A blank `--workspace ""`
+ * counts as supplied (and is later rejected as invalid) rather than falling through. */
+function resolveSetupWorkspace(cliWorkspace: string | undefined): string | undefined {
+  return cliWorkspace !== undefined ? cliWorkspace : readSetupIntentWorkspace();
+}
+
+/** e2e/automation bootstrap bypass: production install flows never set this env var, so the
+ * normal path is the explicit `--workspace <slug>` flag above. */
 function readSetupIntentWorkspace(): string | undefined {
   const raw = process.env.COFORGE_SETUP_INTENT;
   if (!raw) return undefined;

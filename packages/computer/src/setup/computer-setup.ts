@@ -92,7 +92,7 @@ export class ComputerSetup {
     if (!input.workspaceSlug) {
       throw setupError(
         "SETUP_WORKSPACE_REQUIRED",
-        "Setup requires a Workspace setup intent; Computer does not select Workspaces.",
+        "Setup requires a target Workspace: pass `--workspace <slug>`, or set COFORGE_SETUP_INTENT for automated setup.",
       );
     }
     let workspace: AccessibleWorkspace;

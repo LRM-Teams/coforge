@@ -6,3 +6,10 @@ export function installCommands(origin: string): { posix: string; windows: strin
     windows: `irm ${origin}/computer/install.ps1 | iex`,
   };
 }
+
+/** The explicit second step of the two-command install flow: join the installed Computer to one
+ * Workspace by slug. Kept beside installCommands so the full sequence has one source of truth,
+ * even though this half doesn't depend on the deployment origin. */
+export function setupCommand(workspaceSlug: string): string {
+  return `coforge-computer setup --workspace ${workspaceSlug}`;
+}

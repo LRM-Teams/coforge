@@ -122,18 +122,157 @@ test("unexpected login failures are normalized without exposing diagnostics", as
   expect(stderr.join("\n")).not.toContain("access-secret");
 });
 
-test("setup does not accept a user-supplied Workspace option", async () => {
-  const calls: Array<{ workspaceSlug: string | undefined; json: boolean }> = [];
+test("setup with no --workspace and no setup-intent falls back to undefined", async () => {
+  const previousIntent = process.env.COFORGE_SETUP_INTENT;
+  delete process.env.COFORGE_SETUP_INTENT;
+  try {
+    const calls: Array<{ workspaceSlug: string | undefined; json: boolean }> = [];
+    const setup: SetupCommand = {
+      async run(workspaceSlug, options) {
+        calls.push({ workspaceSlug, json: options.json });
+      },
+    };
+    const dependencies = { login: { async run() {} }, setup };
+
+    await expect(runCli(["setup"], dependencies)).resolves.toBe(0);
+
+    expect(calls).toEqual([{ workspaceSlug: undefined, json: false }]);
+  } finally {
+    if (previousIntent === undefined) delete process.env.COFORGE_SETUP_INTENT;
+    else process.env.COFORGE_SETUP_INTENT = previousIntent;
+  }
+});
+
+test("setup forwards an explicit --workspace slug", async () => {
+  const calls: Array<{ workspaceSlug: string | undefined }> = [];
   const setup: SetupCommand = {
-    async run(workspaceSlug, options) {
-      calls.push({ workspaceSlug, json: options.json });
+    async run(workspaceSlug) {
+      calls.push({ workspaceSlug });
     },
   };
   const dependencies = { login: { async run() {} }, setup };
 
-  await expect(runCli(["setup"], dependencies)).resolves.toBe(0);
+  await expect(runCli(["setup", "--workspace", "acme-inc"], dependencies)).resolves.toBe(0);
 
-  expect(calls).toEqual([{ workspaceSlug: undefined, json: false }]);
+  expect(calls).toEqual([{ workspaceSlug: "acme-inc" }]);
+});
+
+test("setup falls back to COFORGE_SETUP_INTENT when --workspace is omitted", async () => {
+  const previousIntent = process.env.COFORGE_SETUP_INTENT;
+  process.env.COFORGE_SETUP_INTENT = JSON.stringify({ workspaceSlug: "intent-workspace" });
+  try {
+    const calls: Array<{ workspaceSlug: string | undefined }> = [];
+    const setup: SetupCommand = {
+      async run(workspaceSlug) {
+        calls.push({ workspaceSlug });
+      },
+    };
+    const dependencies = { login: { async run() {} }, setup };
+
+    await expect(runCli(["setup"], dependencies)).resolves.toBe(0);
+
+    expect(calls).toEqual([{ workspaceSlug: "intent-workspace" }]);
+  } finally {
+    if (previousIntent === undefined) delete process.env.COFORGE_SETUP_INTENT;
+    else process.env.COFORGE_SETUP_INTENT = previousIntent;
+  }
+});
+
+test("--workspace takes priority over COFORGE_SETUP_INTENT", async () => {
+  const previousIntent = process.env.COFORGE_SETUP_INTENT;
+  process.env.COFORGE_SETUP_INTENT = JSON.stringify({ workspaceSlug: "intent-workspace" });
+  try {
+    const calls: Array<{ workspaceSlug: string | undefined }> = [];
+    const setup: SetupCommand = {
+      async run(workspaceSlug) {
+        calls.push({ workspaceSlug });
+      },
+    };
+    const dependencies = { login: { async run() {} }, setup };
+
+    await expect(runCli(["setup", "--workspace", "cli-workspace"], dependencies)).resolves.toBe(0);
+
+    expect(calls).toEqual([{ workspaceSlug: "cli-workspace" }]);
+  } finally {
+    if (previousIntent === undefined) delete process.env.COFORGE_SETUP_INTENT;
+    else process.env.COFORGE_SETUP_INTENT = previousIntent;
+  }
+});
+
+test("an invalid --workspace slug fails locally without reaching the setup command", async () => {
+  const stderr: string[] = [];
+  const setup: SetupCommand = {
+    async run() {
+      throw new Error("must not be called for an invalid slug");
+    },
+  };
+  const dependencies = { login: { async run() {} }, setup };
+
+  const exitCode = await runCli(["setup", "--workspace", "Not Valid!"], dependencies, {
+    stdout: () => undefined,
+    stderr: (line) => stderr.push(line),
+  });
+
+  expect(exitCode).toBe(1);
+  expect(stderr.join("\n")).toContain("SETUP_WORKSPACE_INVALID");
+  expect(stderr.join("\n")).toContain("Hint:");
+});
+
+test("an empty --workspace value is rejected rather than falling back to the setup intent", async () => {
+  const previousIntent = process.env.COFORGE_SETUP_INTENT;
+  process.env.COFORGE_SETUP_INTENT = JSON.stringify({ workspaceSlug: "intent-workspace" });
+  try {
+    const setup: SetupCommand = {
+      async run() {
+        throw new Error("must not be called for an empty slug");
+      },
+    };
+    const dependencies = { login: { async run() {} }, setup };
+    const stderr: string[] = [];
+
+    const exitCode = await runCli(["setup", "--workspace", ""], dependencies, {
+      stdout: () => undefined,
+      stderr: (line) => stderr.push(line),
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stderr.join("\n")).toContain("SETUP_WORKSPACE_INVALID");
+  } finally {
+    if (previousIntent === undefined) delete process.env.COFORGE_SETUP_INTENT;
+    else process.env.COFORGE_SETUP_INTENT = previousIntent;
+  }
+});
+
+test("JSON setup with neither --workspace nor COFORGE_SETUP_INTENT reports an actionable hint", async () => {
+  const previousIntent = process.env.COFORGE_SETUP_INTENT;
+  delete process.env.COFORGE_SETUP_INTENT;
+  try {
+    const stdout: string[] = [];
+    const dependencies = {
+      login: { async run() {} },
+      setup: {
+        async run() {
+          throw setupError(
+            "SETUP_WORKSPACE_REQUIRED",
+            "Setup requires a target Workspace: pass `--workspace <slug>`, or set COFORGE_SETUP_INTENT for automated setup.",
+          );
+        },
+      },
+    };
+
+    const exitCode = await runCli(["setup", "--json"], dependencies, {
+      stdout: (line) => stdout.push(line),
+      stderr: () => undefined,
+    });
+
+    expect(exitCode).toBe(1);
+    const output = JSON.parse(stdout[0]!);
+    expect(output.error.code).toBe("SETUP_WORKSPACE_REQUIRED");
+    expect(output.error.hint).toContain("--workspace <slug>");
+  } finally {
+    if (previousIntent === undefined) delete process.env.COFORGE_SETUP_INTENT;
+    else process.env.COFORGE_SETUP_INTENT = previousIntent;
+  }
 });
 
 test("setup forwards an explicit server URL", async () => {
