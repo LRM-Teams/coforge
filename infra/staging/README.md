@@ -69,15 +69,17 @@ public，镜像包默认公开，ECS 拉镜像不需要登录。
 | `AUTHING_APP_SECRET`                                     | Web 登录换 token                              |
 | `COFORGE_SESSION_SECRET`                                 | 云端 `coforge_session` 签名密钥，须与本机不同 |
 | `COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY`                   | 64 位十六进制 Agent Runtime 凭据加密主密钥    |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`                     | 阿里云北京 OTLP Traces 接入地址（含 Token）  |
 
 | 需要配的变量（staging 环境） | 用途                                |
 | ---------------------------- | ----------------------------------- |
 | `AUTHING_APP_ID`             | Authing 应用 ID                     |
 | `STAGING_PUBLIC_HEALTH_URL`  | `https://staging.coforge.cn/health` |
 
-部署时 workflow 把 Authing 应用 ID、应用密钥、session 密钥和 Agent Runtime 凭据主密钥写入主机
+部署时 workflow 把 Authing 应用 ID、应用密钥、session 密钥、Agent Runtime 凭据主密钥和 OTLP Traces
+接入地址写入主机
 `infra/staging/secrets/`。`remote-deploy.sh` 通过 Compose secrets 只把它们挂载给 Web；
-这些值不会写入 Compose `.env` 或容器环境。Issuer 固定为
+这些值不会写入 Compose `.env`；OTLP 接入地址通过文件路径变量提供给 Web。Issuer 固定为
 `https://coforge.authing.cn/oidc`，callback 固定为
 `https://staging.coforge.cn/auth/callback`，变更必须走代码评审。改 GitHub Environment 后须
 重新部署才会进容器。不要把这些值提交进 git，也不要在主机 bootstrap 循环里用

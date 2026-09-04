@@ -7,6 +7,7 @@ import { getMessageRequestIdempotency } from "../../server/conversations/redis-m
 import { getDatabaseClient } from "../../server/db/client.server";
 import { PrismaDirectConversationRepository } from "../../server/db/repositories/direct-conversation.repositories.server";
 import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
+import { withMessageSendTrace } from "../../server/observability/tracing.server";
 
 const MAX_BODY_LENGTH = 8_000;
 
@@ -63,18 +64,29 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
   .validator(validateSend)
   .handler(async ({ data }) => {
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const { conversations, opened, workspaceId } = await context(user, data.agentId);
-    return new SendDirectMessage(
-      conversations,
-      getMessageRequestIdempotency(),
-      createCentrifugoServerApi(),
-    ).execute({
-      requestId: data.requestId,
-      workspaceId,
-      conversationId: opened.conversationId,
-      senderMemberId: opened.senderMemberId,
-      senderUserId: user.id,
-      body: data.body,
-      attachmentId: data.attachmentId,
-    });
+    return withMessageSendTrace(
+      data.requestId,
+      { "coforge.agent_id": data.agentId },
+      async (sendTrace) => {
+        const { conversations, opened, workspaceId } = await sendTrace.measure(
+          "message.context",
+          () => context(user, data.agentId),
+        );
+        return sendTrace.measure("message.persist_and_publish", () =>
+          new SendDirectMessage(
+            conversations,
+            getMessageRequestIdempotency(),
+            createCentrifugoServerApi(),
+          ).execute({
+            requestId: data.requestId,
+            workspaceId,
+            conversationId: opened.conversationId,
+            senderMemberId: opened.senderMemberId,
+            senderUserId: user.id,
+            body: data.body,
+            attachmentId: data.attachmentId,
+          }),
+        );
+      },
+    );
   });
