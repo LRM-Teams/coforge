@@ -18,7 +18,6 @@
   "landing_scene_composer_placeholder": "Message release-fix",
   "landing_scene_terminal_title": "Connect a Computer",
   "landing_scene_terminal_hint": "One command and it's connected.",
-  "landing_scene_install_command": "curl -fsSL https://coforge.cn/computer/install.sh | sh",
   "landing_scene_terminal_connected": "Computer connected as mia-mbp",
   "landing_scene_terminal_runtimes": "runtimes: claude-code, codex, pi",
   "landing_point_conversations_title": "Just ask, in chat",

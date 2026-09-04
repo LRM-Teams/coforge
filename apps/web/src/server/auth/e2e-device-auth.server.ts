@@ -1,16 +1,8 @@
 import { importJWK, SignJWT, type JWK } from "jose";
 
+import { publicOrigin } from "@/server/http/public-origin.server";
+
 const CLIENT_ID = "coforge-computer";
-const issuer = (request: Request) => {
-  const url = new URL(request.url);
-  const forwardedProto = request.headers.get("x-forwarded-proto");
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  if (forwardedProto && forwardedHost) {
-    url.protocol = `${forwardedProto.split(",")[0].trim()}:`;
-    url.host = forwardedHost.split(",")[0].trim();
-  }
-  return url.origin;
-};
 
 function enabled(): boolean {
   return process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1";
@@ -26,7 +18,7 @@ const pending = new Map<string, { expires: number; polls: number }>();
  * but the public route and ComputerSetup flow remain unchanged. */
 export function oauthDiscovery(request: Request): Response {
   if (!enabled()) return unavailable();
-  const base = issuer(request);
+  const base = publicOrigin(request);
   return Response.json(
     {
       issuer: base,
@@ -49,7 +41,7 @@ export async function e2eDevice(request: Request): Promise<Response> {
     {
       device_code: code,
       user_code: "E2E-APPROVE",
-      verification_uri: `${issuer(request)}/oauth/verify`,
+      verification_uri: `${publicOrigin(request)}/oauth/verify`,
       expires_in: 60,
       interval: 0,
     },

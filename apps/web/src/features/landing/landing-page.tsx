@@ -57,7 +57,7 @@ function LocaleSwitch() {
   );
 }
 
-export function LandingPage() {
+export function LandingPage({ installScriptUrl }: { installScriptUrl: string }) {
   const teammate = { name: m.landing_scene_teammate_name(), tone: 4 as const };
   const agent = { name: m.landing_scene_agent_name(), tone: 1 as const };
 
@@ -209,7 +209,7 @@ export function LandingPage() {
             <pre className="mt-3 overflow-x-auto font-mono text-[13px] leading-6 whitespace-pre">
               <code>
                 <span className="text-accent dark:text-accent-foreground">$ </span>
-                {m.landing_scene_install_command()}
+                {`curl -fsSL ${installScriptUrl} | sh`}
                 {"\n"}
                 <span className="landing-rise inline-block" style={{ animationDelay: "1.6s" }}>
                   <Check aria-hidden="true" className="mr-1.5 inline size-3.5 text-success" />

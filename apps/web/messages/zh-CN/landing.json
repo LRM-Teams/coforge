@@ -18,7 +18,6 @@
   "landing_scene_composer_placeholder": "发消息到 release-fix",
   "landing_scene_terminal_title": "连接一台电脑",
   "landing_scene_terminal_hint": "一条命令，装好就连上。",
-  "landing_scene_install_command": "curl -fsSL https://coforge.cn/computer/install.sh | sh",
   "landing_scene_terminal_connected": "电脑已连接：mia-mbp",
   "landing_scene_terminal_runtimes": "runtimes: claude-code, codex, pi",
   "landing_point_conversations_title": "想干什么，说一声",
