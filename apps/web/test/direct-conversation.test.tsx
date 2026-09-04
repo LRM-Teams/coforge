@@ -25,11 +25,17 @@ function renderConversation(
   conversation = base,
   onSend = mock(async (_body: string, _requestId: string) => {}),
   onRefresh = mock(async () => {}),
+  agentStatus: "active" | "inactive" = "active",
 ) {
   const view = render(
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
-        <DirectConversation conversation={conversation} onSend={onSend} onRefresh={onRefresh} />
+        <DirectConversation
+          conversation={conversation}
+          agentStatus={agentStatus}
+          onSend={onSend}
+          onRefresh={onRefresh}
+        />
       </AppToastProvider>
     </RouterContextProvider>,
   );
@@ -43,6 +49,7 @@ function renderConversation(
           <AppToastProvider>
             <DirectConversation
               conversation={nextConversation}
+              agentStatus={agentStatus}
               onSend={onSend}
               onRefresh={onRefresh}
             />
@@ -65,6 +72,7 @@ const firstMessage: DirectConversationView["messages"][number] = {
 test("renders the empty private conversation", () => {
   const { page } = renderConversation();
   expect(page.getByRole("heading", { name: "Release Helper" })).toBeTruthy();
+  expect(page.getByLabelText("Release Helper, Online")).toBeTruthy();
   expect(page.getByText("@release-helper")).toBeTruthy();
   expect(page.getByText("No messages yet")).toBeTruthy();
   expect(page.queryByRole("link", { name: /Back to messages/i })).toBeNull();

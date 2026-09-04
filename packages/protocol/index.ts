@@ -166,6 +166,9 @@ export type AgentStatus = {
   computerId: string;
   agentId: string;
   status: "active" | "inactive";
+  daemonInstanceId: string;
+  clientSeq: number;
+  observedAtMs: number;
 };
 export type AgentMessageRequest = {
   protocolMajor: number;

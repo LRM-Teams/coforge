@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, getRouteApi, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
 import { SettingsContent } from "@/components/settings-content";
@@ -12,6 +12,8 @@ import { m } from "@/paraglide/messages";
 
 type Theme = "system" | "light" | "dark";
 
+const appRoute = getRouteApi("/_app");
+
 export const Route = createFileRoute("/_app/settings")({
   loader: () => getUserPreferences(),
   errorComponent: PageLoadError,
@@ -21,7 +23,7 @@ export const Route = createFileRoute("/_app/settings")({
 function SettingsPage() {
   const [theme, setTheme] = useState<Theme>("system");
   const { timeZone: savedTimeZone } = Route.useLoaderData();
-  const { user: profile } = Route.useRouteContext();
+  const { user: profile } = appRoute.useLoaderData();
   const [timeZone, setTimeZone] = useState(savedTimeZone);
   const saveTimeZone = useServerFn(saveUserTimeZone);
   const saveProfile = useServerFn(saveUserProfile);

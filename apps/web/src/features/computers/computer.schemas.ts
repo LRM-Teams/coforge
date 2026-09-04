@@ -6,6 +6,7 @@ const runtimeInput = z.object({
   provider: z.enum(RUNTIME_PROVIDER),
 });
 
+export const computerIdInputSchema = z.object({ computerId: z.string().min(1) });
 export const scanUsageInputSchema = runtimeInput;
 export const readUsageInputSchema = runtimeInput;
 export const setRuntimeVisibilityInputSchema = z.object({

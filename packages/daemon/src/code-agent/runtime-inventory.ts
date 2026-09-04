@@ -8,7 +8,7 @@ import { agentEnvironment } from "./environment";
 import { JsonlProcess } from "./jsonl-process";
 import { probeClaudeCodeVersion, resolveClaudeCodeExecutable } from "./claude-code/runtime";
 import { COFORGE_DAEMON_VERSION } from "../version";
-import { discoverModels } from "@coforge/agent";
+import { COFORGE_PROVIDER_MODELS_GENERATED } from "@coforge/agent";
 import { COFORGE_AGENT_RUNTIME_METADATA } from "./pi/metadata";
 
 export interface ExternalCodeAgentProbe {
@@ -146,7 +146,7 @@ export async function discoverCodeAgentInventory(
   const cwd = options.cwd ?? process.cwd();
   const commands = options.commands ?? {};
   const discoveries: Array<Promise<CodeAgentModelCatalog | undefined>> = [];
-  discoveries.push(discoverCoforgeCatalog(cwd));
+  discoveries.push(Promise.resolve(discoverCoforgeCatalog()));
   if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.PI)) {
     const executable = probe.which("pi");
     if (executable)
@@ -166,18 +166,11 @@ export async function discoverCodeAgentInventory(
   return { runtimes, catalogs };
 }
 
-async function discoverCoforgeCatalog(cwd: string): Promise<CodeAgentModelCatalog | undefined> {
-  try {
-    const snapshot = await discoverModels(cwd);
-    const models = Array.isArray(snapshot) ? snapshot : asRecord(snapshot)?.models;
-    if (!Array.isArray(models)) throw new Error("CoForge model catalog is unavailable");
-    return {
-      provider: RUNTIME_PROVIDER.COFORGE,
-      models: models.map(piModel).filter(isModel).slice(0, 200),
-    };
-  } catch {
-    return undefined;
-  }
+function discoverCoforgeCatalog(): CodeAgentModelCatalog {
+  return {
+    provider: RUNTIME_PROVIDER.COFORGE,
+    models: COFORGE_PROVIDER_MODELS_GENERATED.map((model) => ({ ...model })),
+  };
 }
 
 async function discoverCodexCatalog(

@@ -29,50 +29,50 @@ const agent = {
     provider: { kind: "default" as const },
     model: "gpt-5",
   },
-  status: "inactive" as const,
+  status: { value: "inactive" as const, expiresAt: null },
 };
 const computers = [
   {
     id: "computer-1",
     machineId: "machine-1",
     runtimes: [{ provider: "codex" }, { provider: "claude-code" }],
-    modelCatalogs: [
+  },
+];
+const modelCatalogs = [
+  {
+    provider: "coforge",
+    models: [
       {
-        provider: "coforge",
-        models: [
-          {
-            id: "gpt-5",
-            displayName: "GPT-5",
-            description: "",
-            modelProvider: "openai",
-            reasoningEfforts: ["medium"],
-            defaultReasoning: "medium",
-            recommended: true,
-          },
-          {
-            id: "claude-sonnet",
-            displayName: "Claude Sonnet",
-            description: "",
-            modelProvider: "anthropic",
-            reasoningEfforts: [],
-            defaultReasoning: "",
-            recommended: false,
-          },
-        ],
+        id: "gpt-5",
+        displayName: "GPT-5",
+        description: "",
+        modelProvider: "openai",
+        reasoningEfforts: ["medium"],
+        defaultReasoning: "medium",
+        recommended: true,
       },
       {
-        provider: "claude-code",
-        models: [
-          {
-            id: "sonnet",
-            displayName: "Sonnet",
-            description: "",
-            modelProvider: "",
-            reasoningEfforts: ["low", "high"],
-            defaultReasoning: "high",
-            recommended: true,
-          },
-        ],
+        id: "claude-sonnet",
+        displayName: "Claude Sonnet",
+        description: "",
+        modelProvider: "anthropic",
+        reasoningEfforts: [],
+        defaultReasoning: "",
+        recommended: false,
+      },
+    ],
+  },
+  {
+    provider: "claude-code",
+    models: [
+      {
+        id: "sonnet",
+        displayName: "Sonnet",
+        description: "",
+        modelProvider: "",
+        reasoningEfforts: ["low", "high"],
+        defaultReasoning: "high",
+        recommended: true,
       },
     ],
   },
@@ -92,6 +92,7 @@ function renderShell(
             computers={computers}
             onCreate={onCreate}
             onRetry={onRetry}
+            onLoadRuntimeCatalog={async () => modelCatalogs}
           />
         </AppShell>
       </AppToastProvider>
@@ -108,6 +109,7 @@ function renderAgents(
   onCreate = async () => ({ startPublished: true }),
   defaultCreateDialogOpen = false,
   onRetry = async () => {},
+  onLoadRuntimeCatalog = async () => modelCatalogs,
 ) {
   render(
     <RouterContextProvider router={getRouter()}>
@@ -116,6 +118,7 @@ function renderAgents(
         computers={computers}
         onCreate={onCreate}
         onRetry={onRetry}
+        onLoadRuntimeCatalog={onLoadRuntimeCatalog}
         defaultCreateDialogOpen={defaultCreateDialogOpen}
       />
     </RouterContextProvider>,
@@ -143,14 +146,14 @@ test("shows the current Workspace below the logo", () => {
   );
 });
 
-test("shows the primary navigation with Agents selected", () => {
+test("shows the primary navigation with Members selected", () => {
   const markup = renderShell();
 
   expect(markup).toContain("<aside");
-  expect(markup).toContain("Agents");
+  expect(markup).toContain("Members");
   expect(markup).toContain("Messages");
   expect(markup).toContain("Computers");
-  expect(markup.indexOf("Agents")).toBeLessThan(markup.indexOf("Messages"));
+  expect(markup.indexOf("Members")).toBeLessThan(markup.indexOf("Messages"));
   expect(markup.indexOf("Messages")).toBeLessThan(markup.indexOf("Computers"));
   expect(markup).toContain('href="/en/messages"');
   expect(markup).toContain('aria-label="Current user"');
@@ -189,13 +192,13 @@ test("renders persisted Agent fields without fabricated details", () => {
 
 test("shows Agent status on the avatar", () => {
   renderShell([
-    { ...agent, status: "active" },
+    { ...agent, status: { value: "active", expiresAt: Date.now() + 60_000 } },
     {
       ...agent,
       id: "agent-2",
       name: "research-helper",
       displayName: "Research Helper",
-      status: "inactive",
+      status: { value: "inactive", expiresAt: null },
     },
   ]);
 
@@ -212,6 +215,62 @@ test("shows Agent status on the avatar", () => {
 test("shows an empty state", () => {
   renderAgents([]);
   expect(page().getByText("No agents yet")).toBeTruthy();
+});
+
+test("loads model catalogs only when the creation dialog opens", async () => {
+  const loadRuntimeCatalog = mock(async () => modelCatalogs);
+  renderAgents([], undefined, false, undefined, loadRuntimeCatalog);
+
+  expect(loadRuntimeCatalog).not.toHaveBeenCalled();
+  fireEvent.click(page().getByRole("button", { name: "New agent" }));
+
+  await waitFor(() => expect(loadRuntimeCatalog).toHaveBeenCalledWith("computer-1"));
+  fireEvent.click(page().getByRole("button", { name: "Cancel" }));
+  fireEvent.click(page().getByRole("button", { name: "New agent" }));
+  await act(async () => {});
+  expect(loadRuntimeCatalog).toHaveBeenCalledTimes(1);
+});
+
+test("offers to retry when a model catalog request fails", async () => {
+  const loadRuntimeCatalog = mock(async () => {
+    if (loadRuntimeCatalog.mock.calls.length === 1) throw new Error("catalog unavailable");
+    return modelCatalogs;
+  });
+  renderAgents([], undefined, true, undefined, loadRuntimeCatalog);
+
+  await waitFor(() => expect(page().getByRole("button", { name: "Try again" })).toBeTruthy());
+  fireEvent.click(page().getByRole("button", { name: "Try again" }));
+
+  await waitFor(() => expect(loadRuntimeCatalog).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(page().queryByRole("button", { name: "Try again" })).toBeNull());
+});
+
+test("submits a manual CoForge model when catalog loading fails", async () => {
+  const onCreate = mock(async () => ({ startPublished: true }));
+  renderAgents([], onCreate, true, undefined, async () => {
+    throw new Error("catalog unavailable");
+  });
+  fireEvent.change(await page().findByLabelText("Name"), { target: { value: "manual-agent" } });
+  fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
+    target: { value: "Manual catalog fallback" },
+  });
+  await waitFor(() =>
+    expect(page().getByText(/Enter the provider and model ID manually/)).toBeTruthy(),
+  );
+  fireEvent.change(page().getByLabelText("Model provider"), { target: { value: "deepseek" } });
+  fireEvent.change(page().getByLabelText("Model"), { target: { value: "deepseek-chat" } });
+  fireEvent.click(page().getByRole("button", { name: "Create agent" }));
+  await waitFor(() =>
+    expect(onCreate).toHaveBeenCalledWith({
+      name: "manual-agent",
+      description: "Manual catalog fallback",
+      provider: "coforge",
+      model: "deepseek-chat",
+      modelProvider: "deepseek",
+      reasoning: "",
+      computerId: "computer-1",
+    }),
+  );
 });
 
 test("submits the public creation form callback", async () => {
@@ -286,6 +345,7 @@ test("retries an inactive Agent start", async () => {
         computers={computers}
         onCreate={async () => ({ startPublished: true })}
         onRetry={onRetry}
+        onLoadRuntimeCatalog={async () => modelCatalogs}
       />
     </RouterContextProvider>,
   );
@@ -319,6 +379,7 @@ test("clears the pending start request when the Agent becomes active", async () 
         computers={computers}
         onCreate={async () => ({ startPublished: true })}
         onRetry={onRetry}
+        onLoadRuntimeCatalog={async () => modelCatalogs}
       />
     </RouterContextProvider>,
   );
@@ -328,10 +389,11 @@ test("clears the pending start request when the Agent becomes active", async () 
   view.rerender(
     <RouterContextProvider router={getRouter()}>
       <AgentsContent
-        agents={[{ ...agent, status: "active" }]}
+        agents={[{ ...agent, status: { value: "active", expiresAt: Date.now() + 60_000 } }]}
         computers={computers}
         onCreate={async () => ({ startPublished: true })}
         onRetry={onRetry}
+        onLoadRuntimeCatalog={async () => modelCatalogs}
       />
     </RouterContextProvider>,
   );
@@ -349,6 +411,7 @@ test("collapsing the sidebar keeps navigation and the user menu reachable", () =
             computers={computers}
             onCreate={async () => ({ startPublished: true })}
             onRetry={async () => {}}
+            onLoadRuntimeCatalog={async () => modelCatalogs}
           />
         </AppShell>
       </AppToastProvider>
@@ -361,7 +424,7 @@ test("collapsing the sidebar keeps navigation and the user menu reachable", () =
   // duplicate the sidebar's links for assistive technology.
   expect(page().getAllByRole("navigation", { name: "Primary navigation" }).length).toBe(1);
   expect(page().getAllByLabelText("Current user").length).toBe(1);
-  for (const name of ["Agents", "Messages", "Computers"]) {
+  for (const name of ["Members", "Messages", "Computers"]) {
     expect(page().getByRole("link", { name }).getAttribute("href")).toBeTruthy();
   }
 });
@@ -371,6 +434,7 @@ test("renders the same shell from the Simplified Chinese catalog", () => {
   const markup = renderShell();
   overwriteGetLocale(() => "en");
 
+  expect(markup).toContain("成员");
   expect(markup).toContain("智能体");
   expect(markup).toContain("智能体汇总");
   expect(markup).toContain("新建智能体");

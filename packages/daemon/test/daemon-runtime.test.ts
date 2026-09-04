@@ -435,9 +435,11 @@ describe("DaemonRuntime", () => {
 
     await runtime.start(connection);
     await runtime.startAgent("agent-a", config);
+    await Bun.sleep(2);
     await runtime.stop();
 
     expect(statuses.map(({ status }) => status)).toEqual(["active", "inactive"]);
+    expect(new Set(statuses.map(({ observedAtMs }) => observedAtMs)).size).toBe(1);
     expect(statusAtTransportStop).toBe("inactive");
   });
 

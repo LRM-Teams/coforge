@@ -21,6 +21,7 @@
   "agent_form_computer": "Computer",
   "agent_form_model": "Model",
   "agent_form_model_provider": "Model provider",
+  "agent_form_catalog_manual_help": "The model catalog could not be loaded. Enter the provider and model ID manually; the Daemon will validate them when the Agent starts.",
   "agent_form_reasoning": "Reasoning",
   "agent_form_provider_default": "Use provider default",
   "agent_provider_pi_builtin": "CoForge",

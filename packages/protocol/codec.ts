@@ -420,7 +420,14 @@ export function decodeAgentActivity(bytes: Uint8Array): AgentActivity {
 
 export function encodeAgentStatus(value: AgentStatus): Uint8Array {
   validateAgentStatus(value);
-  return toBinary(AgentStatusSchema, create(AgentStatusSchema, value));
+  return toBinary(
+    AgentStatusSchema,
+    create(AgentStatusSchema, {
+      ...value,
+      clientSeq: BigInt(value.clientSeq),
+      observedAtMs: BigInt(value.observedAtMs),
+    }),
+  );
 }
 
 export function decodeAgentStatus(bytes: Uint8Array): AgentStatus {
@@ -432,6 +439,9 @@ export function decodeAgentStatus(bytes: Uint8Array): AgentStatus {
     computerId: value.computerId,
     agentId: value.agentId,
     status: value.status,
+    daemonInstanceId: value.daemonInstanceId,
+    clientSeq: Number(value.clientSeq),
+    observedAtMs: Number(value.observedAtMs),
   };
   validateAgentStatus(status);
   return status;
@@ -444,6 +454,9 @@ function validateAgentStatus(value: {
   computerId: string;
   agentId: string;
   status: string;
+  daemonInstanceId: string;
+  clientSeq: number;
+  observedAtMs: number;
 }): asserts value is AgentStatus {
   if (
     value.protocolMajor !== 1 ||
@@ -451,6 +464,11 @@ function validateAgentStatus(value: {
     !value.workspaceId ||
     !value.computerId ||
     !value.agentId ||
+    !value.daemonInstanceId ||
+    !Number.isSafeInteger(value.clientSeq) ||
+    value.clientSeq < 1 ||
+    !Number.isSafeInteger(value.observedAtMs) ||
+    value.observedAtMs < 1 ||
     (value.status !== "active" && value.status !== "inactive")
   )
     throw new Error("invalid agent status");

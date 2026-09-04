@@ -150,10 +150,33 @@ describe("external Code Agent inventory", () => {
     const coforgeCatalog = inventory.catalogs.find((catalog) => catalog.provider === "coforge");
     expect(coforgeCatalog).toBeDefined();
     expect(coforgeCatalog?.models.length).toBeGreaterThan(0);
-    expect(coforgeCatalog?.models[0]).toMatchObject({
-      id: "aion-labs/aion-2.0",
-      modelProvider: "openrouter",
-    });
+    expect(coforgeCatalog?.models.length).toBeLessThanOrEqual(200);
+    expect(new Set(coforgeCatalog?.models.map((model) => model.modelProvider))).toEqual(
+      new Set([
+        "deepseek",
+        "minimax",
+        "minimax-cn",
+        "zai",
+        "zai-coding-cn",
+        "moonshotai",
+        "moonshotai-cn",
+        "kimi-coding",
+        "qwen-token-plan",
+        "qwen-token-plan-cn",
+        "openrouter",
+        "openai",
+        "anthropic",
+        "google",
+        "xai",
+        "xiaomi",
+      ]),
+    );
+    expect(coforgeCatalog?.models).toContainEqual(
+      expect.objectContaining({ id: "aion-labs/aion-2.0", modelProvider: "openrouter" }),
+    );
+    expect(coforgeCatalog?.models).toContainEqual(
+      expect.objectContaining({ id: "deepseek/deepseek-chat", modelProvider: "openrouter" }),
+    );
     expect(inventory.catalogs).toEqual([
       coforgeCatalog!,
       {

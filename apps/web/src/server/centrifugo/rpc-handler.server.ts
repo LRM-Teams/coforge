@@ -95,7 +95,8 @@ export function createAgentStatusMethod(
       agent.computerId !== status.computerId
     )
       return { code: 403, message: "Agent status is not authorized" };
-    await (statuses ?? getAgentStatusCache()).put(status);
+    const accepted = await (statuses ?? getAgentStatusCache()).put(status);
+    if (!accepted) return new Uint8Array();
     if (events) {
       await events.publish(
         agentStatusChannel(status.workspaceId),
@@ -103,6 +104,9 @@ export function createAgentStatusMethod(
           agentId: status.agentId,
           status: status.status,
           expiresAt: status.status === "active" ? now() + AGENT_STATUS_LEASE_MS : null,
+          daemonInstanceId: status.daemonInstanceId,
+          clientSeq: status.clientSeq,
+          observedAtMs: status.observedAtMs,
         }),
       );
     }

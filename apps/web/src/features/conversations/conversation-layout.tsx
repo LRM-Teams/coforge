@@ -5,8 +5,14 @@ import { MessagesSquare } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
+import type { AgentStatusView } from "@/features/agents/agent-status-realtime";
 
-type ConversationAgent = { id: string; name: string; displayName: string };
+export type ConversationAgent = {
+  id: string;
+  name: string;
+  displayName: string;
+  status: AgentStatusView;
+};
 
 /**
  * Lets the conversation put the "back to the list" control in its own header
@@ -14,6 +20,9 @@ type ConversationAgent = { id: string; name: string; displayName: string };
  * by the URL; the layout owns the state and shares the way back.
  */
 const BackToAgentsContext = createContext<(() => void) | undefined>(undefined);
+const ConversationAgentStatusContext = createContext<"active" | "inactive" | undefined | null>(
+  null,
+);
 
 /**
  * Two panels on the app's ground: the agent list and the conversation. Below
@@ -30,6 +39,7 @@ export function ConversationLayout({
 }) {
   const [showMobileAgents, setShowMobileAgents] = useState(!selectedAgentId);
   const listHidden = Boolean(selectedAgentId) && !showMobileAgents;
+  const selectedAgentStatus = agents.find((agent) => agent.id === selectedAgentId)?.status.value;
 
   return (
     <main className="flex h-svh min-w-0 gap-2 p-2">
@@ -59,7 +69,16 @@ export function ConversationLayout({
                     selected && "bg-muted",
                   )}
                 >
-                  <Avatar people={[{ name: agent.displayName }]} size="lg" />
+                  <Avatar
+                    people={[{ name: agent.displayName }]}
+                    size="lg"
+                    online={agent.status.value === "active"}
+                    statusLabel={
+                      agent.status.value === "active"
+                        ? m.agent_status_online()
+                        : m.agent_status_offline()
+                    }
+                  />
                   <span className="flex min-w-0 flex-1 flex-col gap-1">
                     <span className="truncate text-xs font-medium">{agent.displayName}</span>
                     <span className="truncate text-xs text-muted-foreground">@{agent.name}</span>
@@ -78,11 +97,19 @@ export function ConversationLayout({
         )}
       >
         <BackToAgentsContext value={() => setShowMobileAgents(true)}>
-          {children}
+          <ConversationAgentStatusContext value={selectedAgentStatus}>
+            {children}
+          </ConversationAgentStatusContext>
         </BackToAgentsContext>
       </section>
     </main>
   );
+}
+
+export function useConversationAgentStatus() {
+  const status = useContext(ConversationAgentStatusContext);
+  if (status === null) throw new Error("ConversationAgentStatusContext is unavailable");
+  return status;
 }
 
 /** Returns to the agent list on small screens, where only one panel fits. */

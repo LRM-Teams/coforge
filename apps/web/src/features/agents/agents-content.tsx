@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Plus, Search, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -28,10 +28,12 @@ type ComputerOption = {
   machineId: string;
   online?: boolean;
   runtimes: { provider: string }[];
-  modelCatalogs: { provider: string; models: CodeAgentModelMetadata[] }[];
 };
 
+type RuntimeCatalog = { provider: string; models: CodeAgentModelMetadata[] };
+
 function runtimeProvider(value: FormDataEntryValue | null): CreateAgentInput["provider"] {
+  if (value === "pi") return "pi";
   if (value === "codex") return "codex";
   if (value === "claude-code") return "claude-code";
   return "coforge";
@@ -43,6 +45,7 @@ export function AgentsContent({
   timeZone = null,
   onCreate,
   onRetry,
+  onLoadRuntimeCatalog,
   defaultCreateDialogOpen = false,
 }: {
   agents: AgentView[];
@@ -50,6 +53,7 @@ export function AgentsContent({
   timeZone?: string | null;
   onCreate: (input: CreateAgentInput) => Promise<{ startPublished: boolean }>;
   onRetry: (agentId: string) => Promise<void>;
+  onLoadRuntimeCatalog: (computerId: string) => Promise<RuntimeCatalog[]>;
   defaultCreateDialogOpen?: boolean;
 }) {
   const [search, setSearch] = useState("");
@@ -61,14 +65,19 @@ export function AgentsContent({
   const [provider, setProvider] = useState<CreateAgentInput["provider"]>("coforge");
   const [modelProvider, setModelProvider] = useState("");
   const [modelKey, setModelKey] = useState("");
+  const [catalogsByComputer, setCatalogsByComputer] = useState<
+    Record<string, RuntimeCatalog[] | undefined>
+  >({});
+  const [catalogLoadError, setCatalogLoadError] = useState<string>();
+  const [catalogRetry, setCatalogRetry] = useState(0);
+  const loadingCatalogs = useRef(new Set<string>());
   const selectedComputer = computers.find((computer) => computer.id === computerId);
   const availableProviders = [
     "coforge",
     ...(selectedComputer?.runtimes.map((runtime) => runtime.provider) ?? []),
   ];
-  const selectedCatalog = selectedComputer?.modelCatalogs.find(
-    (catalog) => catalog.provider === provider,
-  );
+  const runtimeCatalogs = catalogsByComputer[computerId];
+  const selectedCatalog = runtimeCatalogs?.find((catalog) => catalog.provider === provider);
   const modelProviders = [
     ...new Set(
       (selectedCatalog?.models ?? [])
@@ -83,6 +92,24 @@ export function AgentsContent({
     `${agent.displayName} ${agent.name}`.toLowerCase().includes(search.trim().toLowerCase()),
   );
 
+  useEffect(() => {
+    if (
+      !open ||
+      !computerId ||
+      catalogsByComputer[computerId] !== undefined ||
+      loadingCatalogs.current.has(computerId)
+    )
+      return;
+    loadingCatalogs.current.add(computerId);
+    void onLoadRuntimeCatalog(computerId)
+      .then((catalogs) => {
+        setCatalogsByComputer((current) => ({ ...current, [computerId]: catalogs }));
+        setCatalogLoadError((current) => (current === computerId ? undefined : current));
+      })
+      .catch(() => setCatalogLoadError(computerId))
+      .finally(() => loadingCatalogs.current.delete(computerId));
+  }, [catalogRetry, catalogsByComputer, computerId, onLoadRuntimeCatalog, open]);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -96,12 +123,15 @@ export function AgentsContent({
     }
     setSubmitting(true);
     try {
+      const manualCatalog = catalogLoadError === computerId;
       const result = await onCreate({
         name,
         description,
         provider,
-        model: selectedModel?.id,
-        modelProvider: modelProvider || undefined,
+        model: manualCatalog ? String(form.get("model") ?? "").trim() : selectedModel?.id,
+        modelProvider: manualCatalog
+          ? String(form.get("modelProvider") ?? "").trim() || undefined
+          : modelProvider || undefined,
         reasoning: String(form.get("reasoning") ?? "").trim(),
         computerId: String(form.get("computerId") ?? ""),
       });
@@ -151,7 +181,7 @@ export function AgentsContent({
         <section className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredAgents.map((agent) => (
             <AgentCard
-              key={`${agent.id}:${agent.status}`}
+              key={`${agent.id}:${agent.status.value}`}
               agent={agent}
               timeZone={timeZone}
               onRetry={onRetry}
@@ -268,9 +298,11 @@ export function AgentsContent({
                         {() =>
                           provider === "coforge"
                             ? m.agent_provider_pi_builtin()
-                            : provider === "codex"
-                              ? "Codex"
-                              : "Claude Code"
+                            : provider === "pi"
+                              ? "Pi"
+                              : provider === "codex"
+                                ? "Codex"
+                                : "Claude Code"
                         }
                       </SelectValue>
                     </SelectTrigger>
@@ -286,81 +318,130 @@ export function AgentsContent({
                     </SelectContent>
                   </Select>
                 </div>
-                {provider === "coforge" && (
+                {catalogLoadError === computerId ? (
+                  <label className="grid min-w-0 gap-1.5 text-sm">
+                    {m.agent_form_model_provider()}
+                    <input
+                      name="modelProvider"
+                      required={provider === "coforge"}
+                      maxLength={100}
+                      className="h-9 min-w-0 rounded-md border bg-background px-3 outline-none focus:ring-2 focus:ring-ring/30"
+                    />
+                  </label>
+                ) : (
+                  provider === "coforge" && (
+                    <div className="grid min-w-0 gap-1.5 text-sm">
+                      <span>
+                        {m.agent_form_model_provider()}{" "}
+                        <span className="sr-only">{m.agent_optional()}</span>
+                      </span>
+                      <Select
+                        name="modelProvider"
+                        disabled={!runtimeCatalogs}
+                        value={modelProvider}
+                        onValueChange={(value) => {
+                          if (value !== null) {
+                            setModelProvider(value);
+                            setModelKey("");
+                          }
+                        }}
+                      >
+                        <SelectTrigger
+                          aria-label={m.agent_form_model_provider()}
+                          className="h-9 min-w-0"
+                        >
+                          <SelectValue>
+                            {() => modelProvider || m.agent_form_provider_default()}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">{m.agent_form_provider_default()}</SelectItem>
+                          {modelProviders.map((value) => (
+                            <SelectItem key={value} value={value}>
+                              {value}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )
+                )}
+                {catalogLoadError === computerId ? (
+                  <label className="grid min-w-0 gap-1.5 text-sm">
+                    {m.agent_form_model()}
+                    <input
+                      name="model"
+                      required
+                      maxLength={200}
+                      className="h-9 min-w-0 rounded-md border bg-background px-3 outline-none focus:ring-2 focus:ring-ring/30"
+                    />
+                  </label>
+                ) : (
                   <div className="grid min-w-0 gap-1.5 text-sm">
                     <span>
-                      {m.agent_form_model_provider()}{" "}
-                      <span className="sr-only">{m.agent_optional()}</span>
+                      {m.agent_form_model()} <span className="sr-only">{m.agent_optional()}</span>
                     </span>
                     <Select
-                      name="modelProvider"
-                      value={modelProvider}
-                      onValueChange={(value) => {
-                        if (value !== null) {
-                          setModelProvider(value);
-                          setModelKey("");
-                        }
-                      }}
+                      name="model"
+                      disabled={!runtimeCatalogs}
+                      value={modelKey}
+                      onValueChange={(value) => value !== null && setModelKey(value)}
                     >
                       <SelectTrigger
-                        aria-label={m.agent_form_model_provider()}
+                        aria-label={`${m.agent_form_model()} ${m.agent_optional()}`}
                         className="h-9 min-w-0"
                       >
                         <SelectValue>
-                          {() => modelProvider || m.agent_form_provider_default()}
+                          {() =>
+                            selectedModel
+                              ? selectedModel.modelProvider
+                                ? `${selectedModel.modelProvider} / ${selectedModel.displayName}`
+                                : selectedModel.displayName
+                              : m.agent_form_provider_default()
+                          }
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="">{m.agent_form_provider_default()}</SelectItem>
-                        {modelProviders.map((value) => (
-                          <SelectItem key={value} value={value}>
-                            {value}
-                          </SelectItem>
-                        ))}
+                        {selectedCatalog?.models
+                          .filter(
+                            (model) =>
+                              provider !== "coforge" || model.modelProvider === modelProvider,
+                          )
+                          .map((model) => (
+                            <SelectItem
+                              key={modelOptionValue(model)}
+                              value={modelOptionValue(model)}
+                            >
+                              {model.modelProvider
+                                ? `${model.modelProvider} / ${model.displayName}`
+                                : model.displayName}
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
                   </div>
                 )}
-                <div className="grid min-w-0 gap-1.5 text-sm">
-                  <span>
-                    {m.agent_form_model()} <span className="sr-only">{m.agent_optional()}</span>
-                  </span>
-                  <Select
-                    name="model"
-                    value={modelKey}
-                    onValueChange={(value) => value !== null && setModelKey(value)}
+                {catalogLoadError === computerId && (
+                  <div
+                    role="alert"
+                    className="grid gap-2 text-sm text-destructive-text sm:col-span-2"
                   >
-                    <SelectTrigger
-                      aria-label={`${m.agent_form_model()} ${m.agent_optional()}`}
-                      className="h-9 min-w-0"
+                    <span>{m.agent_form_catalog_manual_help()}</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="justify-self-start"
+                      onClick={() => {
+                        setCatalogLoadError(undefined);
+                        setCatalogRetry((current) => current + 1);
+                      }}
                     >
-                      <SelectValue>
-                        {() =>
-                          selectedModel
-                            ? selectedModel.modelProvider
-                              ? `${selectedModel.modelProvider} / ${selectedModel.displayName}`
-                              : selectedModel.displayName
-                            : m.agent_form_provider_default()
-                        }
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">{m.agent_form_provider_default()}</SelectItem>
-                      {selectedCatalog?.models
-                        .filter(
-                          (model) =>
-                            provider !== "coforge" || model.modelProvider === modelProvider,
-                        )
-                        .map((model) => (
-                          <SelectItem key={modelOptionValue(model)} value={modelOptionValue(model)}>
-                            {model.modelProvider
-                              ? `${model.modelProvider} / ${model.displayName}`
-                              : model.displayName}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                      {m.controls_retry()}
+                    </Button>
+                  </div>
+                )}
                 <div className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
                   <span>
                     {m.agent_form_reasoning()} <span className="sr-only">{m.agent_optional()}</span>

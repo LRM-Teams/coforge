@@ -88,6 +88,7 @@ export class DaemonRuntime {
     string,
     { launchId: string; clientSeq: number; stopping: boolean }
   >();
+  readonly #agentStatusSequences = new Map<string, number>();
   readonly #pendingAgentApiKeyRevokes = new Set<string>();
   readonly #observedUsage = new Map<CodeAgentProvider, UsageSnapshot>();
   readonly #agentProxy?: {
@@ -628,6 +629,8 @@ export class DaemonRuntime {
   }
 
   #sendAgentStatus(agentId: string, status: "active" | "inactive"): void {
+    const clientSeq = (this.#agentStatusSequences.get(agentId) ?? 0) + 1;
+    this.#agentStatusSequences.set(agentId, clientSeq);
     this.#transport.sendAgentStatus?.({
       protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
       requestId: crypto.randomUUID(),
@@ -635,6 +638,9 @@ export class DaemonRuntime {
       computerId: this.#connection.computerId,
       agentId,
       status,
+      daemonInstanceId: this.#runtimeInstanceId,
+      clientSeq,
+      observedAtMs: this.#startedAt,
     });
   }
 

@@ -33,10 +33,12 @@ export type DirectConversationView = {
 
 export function DirectConversation({
   conversation,
+  agentStatus,
   onSend,
   onRefresh,
 }: {
   conversation: DirectConversationView;
+  agentStatus?: "active" | "inactive";
   onSend: (body: string, requestId: string, attachmentId?: string) => Promise<void>;
   onRefresh: () => Promise<void>;
 }) {
@@ -168,6 +170,18 @@ export function DirectConversation({
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-5">
         <BackToAgents />
+        <Avatar
+          people={[{ name: conversation.agent.displayName }]}
+          size="sm"
+          online={agentStatus ? agentStatus === "active" : undefined}
+          statusLabel={
+            agentStatus
+              ? agentStatus === "active"
+                ? m.agent_status_online()
+                : m.agent_status_offline()
+              : undefined
+          }
+        />
         <h1 className="truncate text-base font-medium">{conversation.agent.displayName}</h1>
         <span className="hidden shrink-0 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground sm:block">
           @{conversation.agent.name}

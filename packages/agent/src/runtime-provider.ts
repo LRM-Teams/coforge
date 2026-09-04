@@ -2,7 +2,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 export const RUNTIME_PROVIDER_CONFIG_ENV = "COFORGE_RUNTIME_PROVIDER_CONFIG";
 
-const PROVIDER_API_KEY_ENV: Record<string, string> = {
+export const COFORGE_MODEL_PROVIDER_API_KEY_ENV = {
   deepseek: "DEEPSEEK_API_KEY",
   minimax: "MINIMAX_API_KEY",
   "minimax-cn": "MINIMAX_CN_API_KEY",
@@ -19,10 +19,10 @@ const PROVIDER_API_KEY_ENV: Record<string, string> = {
   google: "GEMINI_API_KEY",
   xai: "XAI_API_KEY",
   xiaomi: "XIAOMI_API_KEY",
-};
+} as const;
 
 const HOST_PROVIDER_ENV = [
-  ...Object.values(PROVIDER_API_KEY_ENV),
+  ...Object.values(COFORGE_MODEL_PROVIDER_API_KEY_ENV),
   "ANTHROPIC_OAUTH_TOKEN",
   "AZURE_OPENAI_BASE_URL",
   "AZURE_OPENAI_RESOURCE_NAME",

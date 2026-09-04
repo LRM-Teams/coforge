@@ -10,7 +10,8 @@ import {
 } from "@/features/workspaces/workspaces.functions";
 
 export const Route = createFileRoute("/_app")({
-  beforeLoad: async () => {
+  staleTime: Infinity,
+  loader: async () => {
     const [user, switcher] = await Promise.all([getUserProfile(), loadWorkspaceSwitcher()]);
     return { user, workspaces: switcher.workspaces, currentWorkspace: switcher.current };
   },
@@ -18,7 +19,7 @@ export const Route = createFileRoute("/_app")({
 });
 
 function AppLayout() {
-  const { user, workspaces, currentWorkspace } = Route.useRouteContext();
+  const { user, workspaces, currentWorkspace } = Route.useLoaderData();
   const router = useRouter();
   const select = useServerFn(selectWorkspace);
   const create = useServerFn(createWorkspace);

@@ -6,6 +6,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { m } from "@/paraglide/messages";
 import { formatDateForDisplay } from "@/lib/dates";
+import type { AgentStatusView } from "./agent-status-realtime";
 
 export type AgentView = {
   id: string;
@@ -17,8 +18,7 @@ export type AgentView = {
     runtime: "coforge" | "pi" | "codex" | "claude-code";
     model: string;
   };
-  status: "active" | "inactive";
-  statusExpiresAt?: number | null;
+  status: AgentStatusView;
 };
 
 const providerLabels = {
@@ -48,14 +48,14 @@ export function AgentCard({
     : providerLabels[agent.runtimeConfig.runtime];
 
   useEffect(() => {
-    if (agent.status === "active") {
+    if (agent.status.value === "active") {
       setRequested(false);
       return;
     }
     if (!requested) return;
     const timer = window.setTimeout(() => setRequested(false), retryRequestCooldownMs);
     return () => window.clearTimeout(timer);
-  }, [agent.status, requested]);
+  }, [agent.status.value, requested]);
 
   return (
     <article
@@ -67,7 +67,10 @@ export function AgentCard({
           <Avatar
             people={[{ name: agent.displayName }]}
             size="lg"
-            online={agent.status === "active"}
+            online={agent.status.value === "active"}
+            statusLabel={
+              agent.status.value === "active" ? m.agent_status_online() : m.agent_status_offline()
+            }
           />
           <div className="min-w-0">
             <h2 className="text-base leading-tight font-semibold">
@@ -96,10 +99,10 @@ export function AgentCard({
         <div>
           <p className="text-sm text-card-foreground">{runtime}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {agent.status === "active" ? m.agent_status_online() : m.agent_status_offline()}
+            {agent.status.value === "active" ? m.agent_status_online() : m.agent_status_offline()}
           </p>
         </div>
-        {agent.status === "inactive" && !requested && (
+        {agent.status.value === "inactive" && !requested && (
           <Button
             type="button"
             size="sm"
