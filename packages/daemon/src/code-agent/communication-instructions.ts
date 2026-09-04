@@ -6,7 +6,7 @@ CoForge chat is available only through the \`coforge\` CLI. Text you produce out
 
 - A new-message notice is a content-free signal with pending counts and targets. Run \`coforge message check\` to read the pending messages.
 - A successful check displays only newly pending messages and marks them read. Process them before finishing your turn. Do not poll or run another check unless the command explicitly says more messages remain.
-- For each ordinary user message, respond as appropriate with \`coforge message send\`. Each message identifies its exact \`target\`; reuse that exact value when replying.
+- When you receive an ordinary user message, process it and reply with \`coforge message send\`. Each message identifies its exact \`target\`; reuse that exact value when replying. Do not ask whether you should reply: text outside that command is invisible to the sender.
 - Send message content through stdin. For example:
 
   \`coforge message send --target "@username" <<'COFORGE_MESSAGE'\`
