@@ -62,19 +62,67 @@ intentionally unreachable — no plaintext, not even redirects.
 镜像直接推到 GitHub 自带的 ghcr.io（用仓库内置令牌，无需注册、无需密钥）。仓库是
 public，镜像包默认公开，ECS 拉镜像不需要登录。
 
-| 需要配的密钥（staging 环境）                             | 用途                                          |
-| -------------------------------------------------------- | --------------------------------------------- |
-| `DEPLOY_SSH_HOST` / `DEPLOY_SSH_USER` / `DEPLOY_SSH_KEY` | 部署时连接服务器                              |
-| `DEPLOY_SSH_HOST_KEY`                                    | 服务器指纹校验                                |
-| `AUTHING_APP_SECRET`                                     | Web 登录换 token                              |
-| `COFORGE_SESSION_SECRET`                                 | 云端 `coforge_session` 签名密钥，须与本机不同 |
-| `COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY`                | 64 位十六进制 Agent 凭据加密主密钥            |
-| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`                     | 阿里云北京 OTLP Traces 接入地址（含 Token）  |
+Secret 和 Variable 的区别不是「重不重要」，而是**能不能读回来**。Secret 写进去就再也
+看不到值，所以只放真正的机密；其余放 Variable，配错时能一眼看出来，改一个主机名也不用
+重设一遍。
 
-| 需要配的变量（staging 环境） | 用途                                |
-| ---------------------------- | ----------------------------------- |
-| `AUTHING_APP_ID`             | Authing 应用 ID                     |
-| `STAGING_PUBLIC_HEALTH_URL`  | `https://staging.coforge.cn/health` |
+| Secret（staging 环境）                    | 用途                                          |
+| ----------------------------------------- | --------------------------------------------- |
+| `DEPLOY_SSH_KEY`                          | 部署时连接服务器的私钥                        |
+| `DEPLOY_SSH_HOST_KEY`                     | 服务器指纹校验                                |
+| `AUTHING_APP_SECRET`                      | Web 登录换 token                              |
+| `COFORGE_SESSION_SECRET`                  | 云端 `coforge_session` 签名密钥，须与本机不同 |
+| `COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY` | 64 位十六进制 Agent 凭据加密主密钥            |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`      | 阿里云北京 OTLP Traces 接入地址，**含 Token**，所以是 secret 而不是 variable |
+| `ALIYUN_OSS_ACCESS_KEY_ID`                | 发布产物上传用的 RAM 用户                     |
+| `ALIYUN_OSS_ACCESS_KEY_SECRET`            | 同上                                          |
+
+| Variable（staging 环境）    | 用途                                |
+| --------------------------- | ----------------------------------- |
+| `DEPLOY_SSH_HOST`           | 部署目标主机名                      |
+| `DEPLOY_SSH_USER`           | 部署登录用户名                      |
+| `AUTHING_APP_ID`            | Authing 应用 ID                     |
+| `STAGING_PUBLIC_HEALTH_URL` | `https://staging.coforge.cn/health` |
+
+### 批量配置
+
+一条条 `gh secret set` 在开生产环境时会很痛。`gh` 支持从文件整批导入：
+
+```sh
+# 临时文件放仓库外，用完立刻删
+cat > /tmp/coforge-staging.secrets <<'EOF'
+DEPLOY_SSH_KEY=...
+AUTHING_APP_SECRET=...
+COFORGE_SESSION_SECRET=...
+EOF
+gh secret set -f /tmp/coforge-staging.secrets --env staging --repo LRM-Teams/coforge
+rm -f /tmp/coforge-staging.secrets
+
+gh variable set -f /tmp/coforge-staging.vars --env staging --repo LRM-Teams/coforge
+```
+
+开生产环境时同样两条命令，把 `--env` 换成 `production`。核对配全了没有：
+
+```sh
+gh secret list --env staging --repo LRM-Teams/coforge
+gh variable list --env staging --repo LRM-Teams/coforge
+```
+
+### 这些值分别在什么时候生效
+
+同样叫「环境变量」，这个仓库里有几种完全不同的注入时机，混淆会导致「改了没反应」：
+
+| 来源 | 谁读 | 什么时候生效 |
+| --- | --- | --- |
+| GitHub Environment secret / variable | 部署 workflow | workflow 运行时 |
+| `infra/staging/secrets/` 下的 Compose secret | 容器里的 Web | 容器启动时；**改完要重新部署** |
+| Compose `environment:` | 容器里的服务 | 同上 |
+| `apps/web/.env` | 本地开发的 Web | bun 启动时自动加载 |
+| `COFORGE_DAEMON_*` / `COFORGE_RELEASE_FEED_URL` | 已发布的二进制 | **编译期内联**；改环境变量无效，必须重新构建发布 |
+
+最后一行最容易踩：那两个值看着像运行时环境变量，但它们在 `bun build --compile` 时就被
+写死进二进制了。这是刻意的——见
+[ADR 0007](../../docs/adr/0007-checksum-manifest-release-distribution.md)。
 
 部署时 workflow 把 Authing 应用 ID、应用密钥、session 密钥、Agent Runtime 凭据主密钥和 OTLP Traces
 接入地址写入主机

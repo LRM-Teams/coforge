@@ -352,6 +352,28 @@ test("authenticates and declares the Computer-directed Daemon channel in Centrif
   }
 });
 
+describe("staging environment configuration", () => {
+  test("non-secret deploy targets are variables, not write-only secrets", async () => {
+    const workflow = await Bun.file(
+      new URL("../../.github/workflows/deploy-staging.yml", import.meta.url),
+    ).text();
+
+    // A secret cannot be read back, so a hostname stored as one is invisible when it is
+    // wrong and has to be re-entered to change. Only values that must stay unreadable
+    // belong in secrets.
+    expect(workflow).toContain("${{ vars.DEPLOY_SSH_HOST }}");
+    expect(workflow).toContain("${{ vars.DEPLOY_SSH_USER }}");
+    expect(workflow).not.toContain("secrets.DEPLOY_SSH_HOST }}");
+    expect(workflow).not.toContain("secrets.DEPLOY_SSH_USER }}");
+
+    // The private key, the host fingerprint and the OTLP endpoint stay secrets: the first
+    // two are credentials, and the endpoint embeds an access token.
+    expect(workflow).toContain("${{ secrets.DEPLOY_SSH_KEY }}");
+    expect(workflow).toContain("${{ secrets.DEPLOY_SSH_HOST_KEY }}");
+    expect(workflow).toContain("${{ secrets.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT }}");
+  });
+});
+
 test("GitHub workflows pin external actions to full commit SHAs", async () => {
   for (const path of [
     "../../.github/workflows/ci.yml",
