@@ -51,6 +51,29 @@ import { getLogger } from "@logtape/logtape";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
 
+type AgentInputCompletion = {
+  resolve: () => void;
+  reject: (error: unknown) => void;
+};
+
+type AgentInput =
+  | {
+      kind: "recovery";
+      context: Pick<AgentStartIntent, "wakeMessage" | "resumeMessages" | "unreadSummary">;
+      completion: AgentInputCompletion;
+    }
+  | {
+      kind: "delivery";
+      message: AgentMessageDelivery;
+      completion: AgentInputCompletion;
+    };
+
+type AgentInputQueue = {
+  items: AgentInput[];
+  drain?: Promise<void>;
+  closed: boolean;
+};
+
 export function generateRuntimeInstanceId(): string {
   return crypto.randomUUID();
 }
@@ -82,6 +105,7 @@ export class DaemonRuntime {
   readonly #agentProxyTokens = new Map<string, string>();
   readonly #agentApiKeys = new Map<string, string>();
   readonly #agentLaunches = new Map<string, Promise<AgentRuntime>>();
+  readonly #agentInputQueues = new Map<string, AgentInputQueue>();
   readonly #stoppingAgents = new Set<string>();
   readonly #agentStops = new Map<string, Promise<void>>();
   readonly #currentActivityLaunches = new Map<
@@ -259,14 +283,17 @@ export class DaemonRuntime {
         pending.length = 0;
         return;
       }
+      const buffered = pending.splice(0);
+      buffering = false;
       this.#started = true;
       this.#activityEnabled = true;
-      for (const delivery of pending) {
-        if ("provider" in delivery) await this.handleAgentStart(delivery).catch(() => {});
-        else await this.handleAgentMessage(delivery).catch(() => {});
-      }
-      pending.length = 0;
-      buffering = false;
+      const flushes: Promise<unknown>[] = [];
+      for (const delivery of buffered)
+        if ("provider" in delivery) flushes.push(this.handleAgentStart(delivery).catch(() => {}));
+      for (const delivery of buffered)
+        if (!("provider" in delivery))
+          flushes.push(this.handleAgentMessage(delivery).catch(() => {}));
+      await Promise.all(flushes);
     } catch (error) {
       this.#unsubscribeAgentStart?.();
       this.#unsubscribeAgentStart = undefined;
@@ -300,22 +327,121 @@ export class DaemonRuntime {
     config: AgentRuntimeConfig,
     sessionId?: string,
     requestId: string = crypto.randomUUID(),
+    recovery?: Pick<AgentStartIntent, "wakeMessage" | "resumeMessages" | "unreadSummary">,
   ): Promise<AgentRuntime> {
     if (this.#stopping || !this.#started)
       return Promise.reject(new Error("daemon runtime is not running"));
     if (this.#stoppingAgents.has(agentId) || this.#agentProcessManager.isStopping(agentId))
       return Promise.reject(new Error(`Agent runtime is stopping: ${agentId}`));
+    const recoveryCompletion = recovery
+      ? this.#enqueueAgentInput(agentId, (completion) => ({
+          kind: "recovery",
+          context: recovery,
+          completion,
+        }))
+      : undefined;
     const existingLaunch = this.#agentLaunches.get(agentId);
-    if (existingLaunch) return existingLaunch;
-    if (this.#agentProcessManager.session(agentId))
-      return Promise.reject(new Error(`Agent runtime is already active: ${agentId}`));
+    if (existingLaunch) {
+      return recoveryCompletion
+        ? Promise.all([existingLaunch, recoveryCompletion]).then(([runtime]) => runtime)
+        : existingLaunch;
+    }
+    const activeRuntime = this.#agentProcessManager.runtime(agentId);
+    if (activeRuntime) {
+      if (!recovery)
+        return Promise.reject(new Error(`Agent runtime is already active: ${agentId}`));
+      this.#ensureAgentInputDrain(agentId);
+      return recoveryCompletion!.then(() => activeRuntime);
+    }
 
     // Register the launch before its first await so concurrent starts cannot mint twice.
-    const launch = this.#launchAgent(agentId, config, sessionId, requestId).finally(() => {
-      this.#agentLaunches.delete(agentId);
-    });
+    // Launch failure is surfaced by `launch`; the item completion is also rejected when cleared.
+    void recoveryCompletion?.catch(() => {});
+    const launch = this.#launchAgent(agentId, config, sessionId, requestId)
+      .then(
+        async (runtime) => {
+          this.#ensureAgentInputDrain(agentId);
+          if (recoveryCompletion) await recoveryCompletion;
+          return runtime;
+        },
+        (error: unknown) => {
+          this.#closeAgentInputQueue(agentId, error);
+          throw error;
+        },
+      )
+      .finally(() => {
+        this.#agentLaunches.delete(agentId);
+      });
     this.#agentLaunches.set(agentId, launch);
     return launch;
+  }
+
+  #enqueueAgentInput(
+    agentId: string,
+    create: (completion: AgentInputCompletion) => AgentInput,
+  ): Promise<void> {
+    const queue = this.#agentInputQueues.get(agentId) ?? { items: [], closed: false };
+    if (queue.closed) return Promise.reject(new Error(`Agent runtime is stopping: ${agentId}`));
+    const completion = new Promise<void>((resolve, reject) => {
+      queue.items.push(create({ resolve, reject }));
+    });
+    this.#agentInputQueues.set(agentId, queue);
+    return completion;
+  }
+
+  #ensureAgentInputDrain(agentId: string): void {
+    const queue = this.#agentInputQueues.get(agentId);
+    if (!queue || queue.closed || queue.drain || !this.#agentProcessManager.session(agentId))
+      return;
+    queue.drain = this.#drainAgentInputs(agentId, queue).finally(() => {
+      queue.drain = undefined;
+      if (queue.closed || !queue.items.length) {
+        if (this.#agentInputQueues.get(agentId) === queue) this.#agentInputQueues.delete(agentId);
+        return;
+      }
+      this.#ensureAgentInputDrain(agentId);
+    });
+  }
+
+  async #drainAgentInputs(agentId: string, queue: AgentInputQueue): Promise<void> {
+    while (!queue.closed) {
+      const item = queue.items.shift();
+      if (!item) return;
+      if (item.kind === "delivery") {
+        try {
+          await this.#messageAttention.receive(item.message);
+          item.completion.resolve();
+        } catch (error) {
+          item.completion.reject(error);
+        }
+        continue;
+      }
+      const messages = [
+        ...(item.context.wakeMessage ? [item.context.wakeMessage] : []),
+        ...(item.context.resumeMessages ?? []),
+      ];
+      try {
+        if (messages.length || Object.keys(item.context.unreadSummary ?? {}).length)
+          await this.#messageAttention.recover(agentId, messages, item.context.unreadSummary ?? {});
+      } catch (error) {
+        logger.warn("Agent recovery notice was not accepted; canonical unread state remains", {
+          event: "agent.recovery_notice.rejected",
+          agent_id: agentId,
+          error_code: error instanceof Error ? error.name : "UnknownError",
+        });
+      }
+      item.completion.resolve();
+    }
+  }
+
+  #closeAgentInputQueue(agentId: string, error: unknown): void {
+    const queue = this.#agentInputQueues.get(agentId);
+    if (!queue) return;
+    queue.closed = true;
+    for (const item of queue.items.splice(0)) {
+      item.completion.reject(error);
+    }
+    if (!queue.drain) this.#agentInputQueues.delete(agentId);
   }
 
   async #launchAgent(
@@ -536,6 +662,11 @@ export class DaemonRuntime {
       },
       intent.sessionId,
       intent.requestId,
+      {
+        wakeMessage: intent.wakeMessage,
+        resumeMessages: intent.resumeMessages,
+        unreadSummary: intent.unreadSummary,
+      },
     );
   }
 
@@ -547,12 +678,25 @@ export class DaemonRuntime {
       throw new Error("unsupported agent protocol major");
     if (message.workspaceId !== this.#connection.workspaceId)
       throw new Error("agent message targets another Workspace");
+    const delivery = this.#enqueueAgentInput(message.agentId, (completion) => ({
+      kind: "delivery",
+      message,
+      completion,
+    }));
     if (!this.#agentProcessManager.session(message.agentId)) {
       const wakeable = this.#agentProcessManager.restartConfig(message.agentId);
-      if (!wakeable) throw new Error("Agent is inactive");
-      await this.startAgent(message.agentId, wakeable.config, wakeable.sessionId);
+      if (!wakeable && !this.#agentLaunches.has(message.agentId)) {
+        this.#closeAgentInputQueue(message.agentId, new Error("Agent is inactive"));
+        return delivery;
+      }
+      if (this.#agentLaunches.has(message.agentId)) return delivery;
+      if (!wakeable) return delivery;
+      const launch = this.startAgent(message.agentId, wakeable.config, wakeable.sessionId);
+      await Promise.all([launch, delivery]);
+      return;
     }
-    await this.#messageAttention.receive(message);
+    this.#ensureAgentInputDrain(message.agentId);
+    await delivery;
   }
 
   stopAgent(agentId: string): Promise<void> {
@@ -560,6 +704,7 @@ export class DaemonRuntime {
     if (existingStop) return existingStop;
     // Close this Agent's launch gate and local capabilities before the first await.
     this.#stoppingAgents.add(agentId);
+    this.#closeAgentInputQueue(agentId, new Error(`Agent runtime is stopping: ${agentId}`));
     const activityLaunch = this.#currentActivityLaunches.get(agentId);
     if (activityLaunch) activityLaunch.stopping = true;
     this.#revokeLocalLaunch(
@@ -684,37 +829,35 @@ export class DaemonRuntime {
       if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
       const messages: AgentMessageRecord[] = [];
       for (const item of attention) {
-        const result = await this.#transport.agentMessage(
-          {
-            protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-            requestId: request.requestId,
-            agentId,
-            workspaceId: this.#connection.workspaceId,
-            operation: "read",
-            target: item.target,
-            before: request.before,
-            after: request.after,
-            around: request.around,
-            limit: request.limit,
-          },
-          agentApiKey,
-        );
-        if (!result.accepted) continue;
-        messages.push(
-          ...result.messages.filter(
+        let fromSequence: number | undefined;
+        let visibleSequence = 0;
+        while (fromSequence === undefined || fromSequence <= item.latestSequence) {
+          const result = await this.#transport.agentMessage(
+            {
+              protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+              requestId: request.requestId,
+              agentId,
+              workspaceId: this.#connection.workspaceId,
+              operation: "read",
+              target: item.target,
+              limit: request.limit,
+              fromSequence,
+              throughSequence: item.latestSequence,
+            },
+            agentApiKey,
+          );
+          if (!result.accepted) break;
+          const page = result.messages.filter(
             ({ sequence }) =>
-              sequence >= item.firstPendingSequence && sequence <= item.latestSequence,
-          ),
-        );
-        const visibleSequence = Math.max(
-          0,
-          ...result.messages
-            .filter(
-              ({ sequence }) =>
-                sequence >= item.firstPendingSequence && sequence <= item.latestSequence,
-            )
-            .map(({ sequence }) => sequence),
-        );
+              (fromSequence === undefined || sequence >= fromSequence) &&
+              sequence <= item.latestSequence,
+          );
+          if (!page.length) break;
+          messages.push(...page.filter(({ sender }) => sender === item.target));
+          visibleSequence = Math.max(visibleSequence, ...page.map(({ sequence }) => sequence));
+          fromSequence = visibleSequence + 1;
+          if (!result.hasNewer) break;
+        }
         if (visibleSequence > 0)
           this.#messageAttention.recordModelSeen(agentId, item.target, visibleSequence);
       }
@@ -950,6 +1093,8 @@ export class DaemonRuntime {
     this.#stopping = true;
     this.#started = false;
     this.#activityEnabled = false;
+    for (const agentId of this.#agentInputQueues.keys())
+      this.#closeAgentInputQueue(agentId, new Error("daemon runtime is stopping"));
     this.#unsubscribeAgentStart?.();
     this.#unsubscribeAgentStart = undefined;
     this.#unsubscribeAgentMessage?.();

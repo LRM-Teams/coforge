@@ -215,3 +215,32 @@ test("advances the model cursor while retaining newer attention", async () => {
     { target: "@ada", pendingCount: 1, firstPendingSequence: 8, latestSequence: 8 },
   ]);
 });
+
+test("recovery directs every target with messages beyond the batch to canonical unread", async () => {
+  const notices: string[] = [];
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session((notice) => notices.push(notice)) },
+    async () => {},
+  );
+
+  await index.recover(
+    "agent-1",
+    [
+      {
+        messageId: "message-1",
+        deliveryId: "delivery-1",
+        conversationId: "conversation-1",
+        sequence: 1,
+        target: "@ada",
+        latestSender: "@ada",
+      },
+    ],
+    { "@ada": 2, "@grace": 1 },
+  );
+
+  expect(notices).toHaveLength(1);
+  expect(notices[0]).toContain("Run `coforge message check` to read indexed messages.");
+  expect(notices[0]).toContain("Run `coforge message read --target @ada` to read that target.");
+  expect(notices[0]).toContain("Run `coforge message read --target @grace` to read that target.");
+});

@@ -99,6 +99,10 @@ export class AgentProcessManager {
     return runtime?.session;
   }
 
+  runtime(agentId: string): AgentRuntime | undefined {
+    return this.#runtimes.get(agentId);
+  }
+
   restartConfig(agentId: string): AgentRestartConfig | undefined {
     return this.#restartConfigs.get(agentId);
   }

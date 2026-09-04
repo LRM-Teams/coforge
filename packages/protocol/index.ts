@@ -121,6 +121,17 @@ export type AgentStartIntent = {
   reasoning: string;
   sessionId?: string;
   providerConfig?: AgentRuntimeProviderConfig;
+  wakeMessage?: AgentRecoveryMessage;
+  resumeMessages?: AgentRecoveryMessage[];
+  unreadSummary?: Readonly<Record<string, number>>;
+};
+export type AgentRecoveryMessage = {
+  messageId: string;
+  deliveryId: string;
+  conversationId: string;
+  sequence: number;
+  target: string;
+  latestSender: string;
 };
 export type AgentMessageDelivery = {
   protocolMajor: number;
@@ -175,6 +186,8 @@ export type AgentMessageRequest = {
   requestId: string;
   agentId: string;
   workspaceId: string;
+  fromSequence?: number;
+  throughSequence?: number;
   operation: "read" | "send";
   target: string;
   body?: string;

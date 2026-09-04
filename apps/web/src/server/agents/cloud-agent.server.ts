@@ -9,6 +9,7 @@ import {
 import { daemonControlChannel, type CentrifugoServerApi } from "../centrifugo/server-api.server";
 import { runtimeStartFields } from "./agent-collection.server";
 import type { AgentRepository } from "../db/repositories/agent.repositories.server";
+import type { AgentRecoveryContext } from "../db/repositories/direct-conversation.repositories.server";
 
 export type AgentStartAuthorization = {
   computerIdForAuthorizedAgent(
@@ -57,12 +58,16 @@ export class CloudAgentUseCase {
 export class WorkspaceAgentRecovery {
   constructor(
     private readonly agents: AgentRepository,
+    private readonly conversations: {
+      readAgentRecoveryContext(workspaceId: string, agentId: string): Promise<AgentRecoveryContext>;
+    },
     private readonly api: CentrifugoServerApi,
   ) {}
 
   async recoverWorkspace(workspaceId: string, computerId: string) {
     const agents = await this.agents.listForComputer(workspaceId, computerId);
     for (const agent of agents) {
+      const recovery = await this.conversations.readAgentRecoveryContext(workspaceId, agent.id);
       await this.api.publish(
         daemonControlChannel(computerId),
         encodeAgentStartIntent({
@@ -72,6 +77,7 @@ export class WorkspaceAgentRecovery {
           computerId,
           agentId: agent.id,
           ...runtimeStartFields(agent.runtimeConfig),
+          ...recovery,
         }),
       );
     }

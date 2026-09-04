@@ -47,6 +47,26 @@ message AgentStartIntent {
   // Explicit envelope discriminator; never infer message type from payload fields.
   string message_type = 11;
   AgentRuntimeProviderConfig provider_config = 12;
+  AgentRecoveryMessage wake_message = 13;
+  repeated AgentRecoveryMessage resume_messages = 14;
+  repeated AgentUnreadSummaryEntry unread_summary = 15;
+}
+
+message AgentRecoveryMessage {
+  reserved 7;
+  reserved "body";
+
+  string message_id = 1;
+  string delivery_id = 2;
+  string conversation_id = 3;
+  uint64 sequence = 4;
+  string target = 5;
+  string latest_sender = 6;
+}
+
+message AgentUnreadSummaryEntry {
+  string target = 1;
+  uint32 count = 2;
 }
 
 message AgentRuntimeProviderConfig {
@@ -129,6 +149,8 @@ message AgentMessageRequest {
   string after = 11;
   string around = 12;
   uint32 limit = 13;
+  uint64 from_sequence = 14;
+  uint64 through_sequence = 15;
 }
 message CloudAgentMessageRecord {
   string id = 1;

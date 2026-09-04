@@ -33,6 +33,21 @@ describe("CloudAgentUseCase", () => {
         ],
       },
       {
+        readAgentRecoveryContext: async () => ({
+          resumeMessages: [
+            {
+              messageId: "message-1",
+              deliveryId: "delivery-1",
+              conversationId: "conversation-1",
+              sequence: 7,
+              target: "@alice",
+              latestSender: "@alice",
+            },
+          ],
+          unreadSummary: { "@alice": 4 },
+        }),
+      },
+      {
         publish: async (channel, payload) => {
           channels.push(channel);
           payloads.push(payload);
@@ -51,6 +66,17 @@ describe("CloudAgentUseCase", () => {
       provider: "claude-code",
       model: "sonnet",
       reasoning: "high",
+      resumeMessages: [
+        {
+          messageId: "message-1",
+          deliveryId: "delivery-1",
+          conversationId: "conversation-1",
+          sequence: 7,
+          target: "@alice",
+          latestSender: "@alice",
+        },
+      ],
+      unreadSummary: { "@alice": 4 },
     });
   });
 

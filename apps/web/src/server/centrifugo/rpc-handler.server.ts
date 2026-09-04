@@ -143,6 +143,8 @@ export function createAgentMessageMethod(
         after: request.after,
         around: request.around,
         limit: request.limit,
+        fromSequence: request.fromSequence,
+        throughSequence: request.throughSequence,
       };
       const result = repository.readMessagesPage
         ? await repository.readMessagesPage(
