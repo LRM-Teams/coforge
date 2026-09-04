@@ -144,6 +144,9 @@ releases/daemon/{version}/manifest.json
 releases/daemon/{version}/{component-artifact}
 release-sets/{id}/manifest.json
 release-sets/{id}/bundles/{platform-architecture-package}
+release-sets/{id}/artifacts/{component}
+bootstrap/v1/manifest.json
+bootstrap/v1/{platform-architecture}/coforge-installer[.exe]
 channels.json
 computer/install.sh
 computer/install.ps1
@@ -154,9 +157,13 @@ component name, full `main` source commit, platform/architecture, byte size,
 SHA-256, and signing metadata for every build artifact. A release-set manifest
 contains the exact Computer and Daemon manifest digests, their declared local-
 protocol compatibility, and the CDN URL, size, SHA-256, and signing metadata for
-each platform's Computer installation bundle. Each bundle contains both process
-payloads and an internal copy or equivalent proof of the selected release-set
-identity. All paths below `releases/` and `release-sets/` are write-once. Once
+each platform's Computer installation bundle. A bundle is a small signed
+document that *references* both process payloads by relative URL, size and
+SHA-256 rather than carrying them inline, so a payload is streamed and verified
+as raw bytes instead of being base64-decoded out of a several-hundred-megabyte
+JSON document. The signed digests bind the bytes exactly as an inline copy
+would; the updater checks a bundle against both component manifests before it
+fetches either payload, so a mismatched bundle costs no download. All paths below `releases/` and `release-sets/` are write-once. Once
 published, changing any byte requires a new component version or release-set
 identity.
 

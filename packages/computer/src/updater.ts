@@ -29,7 +29,7 @@ type ComponentManifest = {
 
 type BundleMember = ArtifactIdentity & {
   component_manifest_sha256: string;
-  payload: string;
+  url: string;
 };
 
 type InstallationBundle = {
@@ -134,10 +134,23 @@ export class ComputerUpdater {
         `release-sets/${resolved.releaseSet}/bundles/`,
       );
       const bundle = this.#verifyEnvelope<InstallationBundle>(bundleBytes).value;
-      const payloads = this.#verifyBundle(bundle, {
+      const members = this.#verifyBundleMetadata(bundle, {
         computer: { digest: computerReference.sha256, manifest: computerManifest },
         daemon: { digest: daemonReference.sha256, manifest: daemonManifest },
       });
+      const artifactPrefix = `release-sets/${resolved.releaseSet}/artifacts/`;
+      const [computerPayload, daemonPayload] = await Promise.all(
+        (["computer", "daemon"] as const).map((component) =>
+          this.#downloadImmutable(
+            {
+              ...members[component],
+              url: `release-sets/${resolved.releaseSet}/${members[component].url}`,
+            },
+            artifactPrefix,
+          ),
+        ),
+      );
+      const payloads = { computer: computerPayload!, daemon: daemonPayload! };
 
       const previousState = await this.#readJson<ActiveState>("active.json");
       await this.#installVersion(resolved.releaseSet, payloads);
@@ -261,30 +274,33 @@ export class ComputerUpdater {
     }
   }
 
-  #verifyBundle(
+  /** Everything the bundle asserts about itself is checked before either payload is fetched:
+   * a bundle that names the wrong component manifest, or disagrees with that manifest about
+   * the bytes, is rejected without spending a download. The bytes themselves are bound by
+   * #downloadImmutable against the identity returned here. */
+  #verifyBundleMetadata(
     bundle: InstallationBundle,
     components: Record<"computer" | "daemon", { digest: string; manifest: ComponentManifest }>,
-  ): Record<"computer" | "daemon", Uint8Array> {
+  ): Record<"computer" | "daemon", BundleMember> {
     if (bundle?.schema_version !== 1) {
       throw new UpdateError("UPDATE_FEED_INVALID", "installation bundle schema is invalid");
     }
-    const output = {} as Record<"computer" | "daemon", Uint8Array>;
+    const members = {} as Record<"computer" | "daemon", BundleMember>;
     for (const component of ["computer", "daemon"] as const) {
       const member = bundle[component];
-      if (!validIdentity(member) || typeof member.payload !== "string") {
+      if (!validIdentity(member) || typeof member.url !== "string") {
         throw new UpdateError("UPDATE_FEED_INVALID", `${component} bundle member is invalid`);
       }
       if (member.component_manifest_sha256 !== components[component].digest) {
         throw integrity(`${component} bundle member names the wrong component manifest`);
       }
-      const payload = Buffer.from(member.payload, "base64");
       const manifestIdentity = components[component].manifest.artifacts[this.#target]!;
-      if (!matchesIdentity(payload, member) || !sameIdentity(member, manifestIdentity)) {
+      if (!sameIdentity(member, manifestIdentity)) {
         throw integrity(`${component} payload does not match both recorded identities`);
       }
-      output[component] = payload;
+      members[component] = member;
     }
-    return output;
+    return members;
   }
 
   async #downloadImmutable(
