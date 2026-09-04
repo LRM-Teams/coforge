@@ -323,10 +323,3 @@ export {
   encodeCloudAgentMessageResponse,
   decodeCloudAgentMessageResponse,
 } from "./codec";
-export {
-  verifyReleaseEnvelope,
-  ReleaseEnvelopeError,
-  assertBootstrapManifest,
-  BOOTSTRAP_MANIFEST_PATH,
-} from "./release-envelope";
-export type { SignedEnvelope, BootstrapManifest } from "./release-envelope";

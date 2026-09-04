@@ -2,7 +2,7 @@
 
 Status: approved workflow contract; the cloud staging deployment workflow is implemented; production stays disabled behind the human approval gate
 
-Updated: 2026-08-31
+Updated: 2026-09-04
 
 This document is the canonical release specification for CoForge. It defines
 which artifact may move between environments, who authorizes that movement,
@@ -15,15 +15,15 @@ implements this contract without duplicating it.
 - Keep one long-lived branch, `main`. Short-lived branches open a PR into
   `main`, run CI, and do not deploy. Do not add a long-lived `dev` branch.
 - Treat cloud applications and the local Computer distribution as distinct
-  release tracks. Inside the local track, Computer and Daemon retain independent
-  package versions and artifact identities, while users install only a Computer
-  bundle assembled from one verified-compatible pair.
+  release tracks. Inside the local track, Computer and Daemon are two
+  independently buildable packages that are nonetheless built, tested, and
+  published together under one shared release version; users install only
+  the Computer entry point.
 - Build each release candidate once for a `main` commit and give it an immutable
-  identity: a registry digest for a cloud image, or a release-set digest plus
-  per-bundle and per-payload checksums for the local Computer distribution.
+  identity: a registry digest for a cloud image, or a version string plus its
+  manifest's per-platform SHA-256 checksums for the local Computer distribution.
 - Publish `main` candidates to the track's isolated `staging` environment or
-  `test` distribution channel. A pre-production target never pretends to be
-  production.
+  release feed. A pre-production target never pretends to be production.
 - When production is introduced, promote the exact artifact that passed
   staging.
   Do not rebuild, repackage, or substitute a mutable tag or channel alias.
@@ -47,36 +47,29 @@ redaction, and a non-root deployment identity.
 | Track | Candidate identity | Test target | Production effect |
 | --- | --- | --- | --- |
 | Cloud application | Full `registry/repository@sha256:...` image reference | `staging` GitHub Environment and Compose project | Deploy the same digest to production Compose |
-| Local Computer distribution | Release-set digest, both component-manifest digests, and every platform installation-bundle checksum | Test release set selected by `channels.json` | Select the same tested release-set and bundle bytes in production |
+| Local Computer distribution | A release version plus its manifest's SHA-256 checksum for every platform's Computer and Daemon binary | Version published behind the staging feed's `latest` pointer | Build the same commit against the production feed, publish it, then point production's `latest` at it |
 
 The daemon runtime role is released inside `coforge-daemon`; it is not a third local
 product component. `@coforge/agent` is independently packable for dependency and
 verification purposes, but the exact installed package remains part of the
 Daemon component payload rather than becoming a third user-facing component.
-The local distribution deliberately separates four layers:
 
-| Layer | Cardinality and meaning |
-| --- | --- |
-| Package component | Two independently buildable, versioned, and packable source units: `coforge-computer` and `coforge-daemon`; Computer declares Daemon as a package dependency, and Daemon declares an exact `@coforge/agent` runtime dependency |
-| Component artifact | Two independently versioned build outputs that may be reused when the peer did not change |
-| Computer installation bundle | One user download per platform/architecture containing both compatible process payloads |
-| Release set | One immutable compatibility and integrity identity that pins both component artifacts and every platform bundle |
+Computer and Daemon are two independently buildable, versioned, and packable
+source units - Computer declares Daemon as a package dependency, and Daemon
+declares an exact `@coforge/agent` runtime dependency - but they are released
+together under one shared version identity. Every publication ships both
+components' binaries for every supported platform beneath that version,
+recorded in one `manifest.json` that names each binary's byte size and SHA-256
+checksum. There is no separate release-set digest, per-component manifest, or
+installation-bundle archive: integrity comes from TLS in transit plus the
+manifest's checksums, not a signed multi-tier envelope, and a version is either
+published completely or not at all.
 
 Users install, upgrade, and invoke only Computer. Daemon is not a second
 user-installed product or public CLI entry point, but it still runs as an
-independent OS process. A bundle may contain two executables or another reviewed
-self-contained representation; the archive/embedding format remains an
-implementation decision and must not collapse the runtime process boundary.
-
-After the initial local-distribution bootstrap, one promotion transaction may
-change only the Computer component digest or only the Daemon component digest.
-The unchanged peer artifact is reused without rebuilding, and a new installation
-bundle is assembled from the new pair. This keeps approval and evidence scoped
-to one component while every user still receives an atomic compatible
-installation. The bootstrap is the one exception: it establishes the first
-complete pair when neither peer exists, and its approval names both component
-manifests. Any later transaction that changes both components together requires
-a separate architecture decision.
+independent OS process. The two binaries are fetched and verified separately
+per platform; an implementation must not collapse the runtime process boundary
+between them.
 
 ## Release identity and evidence
 
@@ -86,8 +79,8 @@ Every deployment or local-distribution publication record must identify:
 | --- | --- |
 | `source_commit` | Full Git commit SHA on `main`; host-initiated rollback uses the explicit `manual` sentinel and remains bound to immutable image digests |
 | `track` | Cloud application or local Computer distribution |
-| `artifact_identity` | Cloud image digest or local release-set, changed-component, and both component-manifest digests |
-| `artifact_members` | Image reference or component versions plus platform installation-bundle names, sizes, SHA-256 checksums, and signatures |
+| `artifact_identity` | Cloud image digest or local release version and its manifest's SHA-256 |
+| `artifact_members` | Image reference or, per platform, each Computer/Daemon binary's name, size, and SHA-256 checksum |
 | `environment_or_channel` | Isolated `staging` or `production` target |
 | `workflow_run` | GitHub Actions run URL or stable run ID; host-initiated rollback uses the explicit `manual` sentinel |
 | `previous_identity` | Last known healthy digest/manifest, or an explicit bootstrap marker; cloud JSONL names this `previous_digest` |
@@ -99,9 +92,9 @@ Every deployment or local-distribution publication record must identify:
 
 Tags, versions, filenames, and channel names are useful labels, but they do not
 replace immutable identity. Compose must ultimately resolve a cloud service as
-`registry/repository@sha256:...`; a local-package channel must resolve an exact
-release-set digest, whose component manifests, platform bundle, and extracted
-process payloads also match their recorded digests.
+`registry/repository@sha256:...`; a local `latest` pointer must resolve an
+exact version whose manifest and every downloaded binary also match their
+recorded SHA-256 checksums.
 
 ## Cloud environment model
 
@@ -134,87 +127,80 @@ informal blanket approval or enable production.
 
 ## Local Computer distribution model
 
-The local feed has two reusable component-artifact trees, immutable Computer
-installation release sets, and one mutable channel snapshot:
+The local feed is a mutable pointer file plus one immutable manifest and
+platform-binary tree per version:
 
 ```text
-releases/computer/{version}/manifest.json
-releases/computer/{version}/{component-artifact}
-releases/daemon/{version}/manifest.json
-releases/daemon/{version}/{component-artifact}
-release-sets/{id}/manifest.json
-release-sets/{id}/bundles/{platform-architecture-package}
-release-sets/{id}/artifacts/{component}
-bootstrap/v1/manifest.json
-bootstrap/v1/{platform-architecture}/coforge-installer[.exe]
-channels.json
+latest                                       plain text, one version string, e.g. "0.1.0"
+<version>/manifest.json                      unsigned JSON: schema_version, version, commit, buildDate, platforms
+<version>/<target>/coforge-computer
+<version>/<target>/coforge-computer.sha256   bare lowercase hex SHA-256 of that platform's coforge-computer, nothing else
+<version>/<target>/coforge-daemon
 computer/install.sh
 computer/install.ps1
 ```
 
-Computer and daemon manifests use independent SemVer versions and contain the
-component name, full `main` source commit, platform/architecture, byte size,
-SHA-256, and signing metadata for every build artifact. A release-set manifest
-contains the exact Computer and Daemon manifest digests, their declared local-
-protocol compatibility, and the CDN URL, size, SHA-256, and signing metadata for
-each platform's Computer installation bundle. A bundle is a small signed
-document that *references* both process payloads by relative URL, size and
-SHA-256 rather than carrying them inline, so a payload is fetched and verified
-as raw bytes instead of being base64-decoded out of a several-hundred-megabyte
-JSON document. A body larger than the size the signed reference records is
-rejected before the digest is checked. The signed digests bind the bytes exactly as an inline copy
-would; the updater checks a bundle against both component manifests before it
-fetches either payload, so a mismatched bundle costs no download. All paths below `releases/` and `release-sets/` are write-once. Once
-published, changing any byte requires a new component version or release-set
-identity.
+`<target>` is one of the existing `releaseTarget` values: `linux-x64`,
+`linux-arm64`, `darwin-x64`, `darwin-arm64`, `windows-x64`, `windows-arm64`.
+`manifest.json` names, for every supported target, the Computer and Daemon
+binary's file name, byte size, and SHA-256 checksum (bare lowercase hex, no
+`sha256:` prefix). `commit` (the full `main` source SHA) and `buildDate` exist
+to look up how a version was built after the fact; they are not themselves
+verified by the installer. `schema_version` is reserved so a future payload-
+signing field could be added without breaking older installers, but signing is
+explicitly out of scope for this contract: **integrity comes from HTTPS in
+transit plus the manifest's SHA-256 checksums, not a signed envelope.** This
+mirrors how Claude Code and `@botiverse/raft-daemon` ship updates; CoForge's
+manifest nests `computer` and `daemon` per platform only because it ships two
+binaries where those tools ship one.
 
-The component trees exist so an unchanged Computer or Daemon artifact can be
-reused and audited; they do not create a supported second Daemon installer.
-`coforge-computer` depends on `coforge-daemon` at the package/build boundary,
-the Daemon artifact contains its exact installed `@coforge/agent` dependency,
-and the release-set assembly is the only user distribution boundary.
+`coforge-computer.sha256` is a sidecar, not a substitute for the manifest: it
+exists because `install.sh` and `install.ps1` are the bootstrap that fetches
+Computer itself, before any real JSON parser is available to them, and POSIX
+`sed`/`awk` cannot parse JSON correctly - an unanchored regex over the whole
+manifest document can be made to extract a different value than a real parser
+would, which is a real vulnerability, not a hypothetical one. The sidecar is
+one line of hex and nothing else (not `sha256sum`'s two-field
+`<hex>  <filename>` format), so both installers can validate it with a POSIX
+`case` pattern instead of parsing anything. It must always equal the
+`computer` entry's `checksum` for the same `<version>/<target>` in
+`manifest.json` - the release workflow generates both from the same bytes in
+the same step (see "Main to staging" below) - and the two are never allowed to
+drift apart. `updater.ts`, which runs after Computer is already installed and
+has a real `JSON.parse`, keeps reading `manifest.json` directly and never
+reads the sidecar; only the two bootstrap scripts do.
 
-`channels.json` is the only mutable selection object. Its signed payload has a
-schema version, a monotonic generation, and two channel entries whose `current`
-and `previous` fields are either a canonical release-set digest string or JSON
-null. An initial unpublished generation therefore has this logical shape:
+Every publication ships both components together under one version identity;
+there is no mechanism to change only Computer or only Daemon while reusing the
+other's prior artifact. `coforge-computer` still depends on `coforge-daemon`
+at the package/build boundary, and the Daemon artifact still carries its exact
+installed `@coforge/agent` dependency, but both are built, tested, and
+promoted as a single unit.
 
-```json
-{
-  "channels": {
-    "test": { "current": null, "previous": null },
-    "production": { "current": null, "previous": null }
-  }
-}
-```
+All objects beneath a `<version>/` prefix are write-once: once published,
+changing any byte requires a new version string. `latest` is the feed's only
+mutable object, and it is written **last** - every object under the new
+`<version>/` it will point to is uploaded and verified first. A publish that
+fails partway through therefore leaves at most an unreferenced version
+directory; `latest` never points at incomplete or missing objects.
 
-The exact wire schema and signature encoding belong to the updater
-implementation, but these semantics do not: consumers fetch one generation,
-never combine separate mutable computer and daemon pointers, reject an unknown
-schema or invalid signature, and never fall back to a legacy `latest` alias.
-For an unpublished channel, both `current` and `previous` are null inside the
-signed payload; this is the only empty-channel representation. Selecting a
-channel whose `current` is null fails closed with a stable not-published result:
-an installer or updater must not fall back to the other channel, a component
-manifest, or any mutable alias.
-The writer is globally serialized and replaces the complete object only after
-verifying that the source generation or ETag did not change.
-
-MVP version policy is deliberately small:
-
-- only `x.y.z-alpha.N` and stable `x.y.z` are publishable;
-- `test` may select an alpha or stable release set;
-- `production` may select only a stable release set;
-- beta and release-candidate labels are rejected until a later policy change;
-- version comparison uses a complete SemVer parser, not custom string sorting.
+A version string is opaque to the client: the updater and both installers
+accept any value matching `[A-Za-z0-9.+-]{1,100}`, further rejecting a `..`
+segment, a bare `.` on its own (which as a directory name means "the versions
+directory itself" and would let a payload land outside any per-version
+directory), and a leading `-` (which could be mistaken for a flag by a tool
+that later receives the value on a command line) - the same rule the `latest`
+pointer's own content must satisfy. Enforcing a SemVer or prerelease-label
+discipline on top of that is a publishing-workflow policy, not a wire-format
+requirement, and is out of scope here.
 
 The feed is served beneath `https://releases.coforge.cn/` from a private
 release bucket. Attachments and releases use two separate accelerated domains
 (see [ADR 0006](adr/0006-split-cdn-delivery-domains.md)): `releases.coforge.cn`
 fronts only the release bucket and applies no client URL signing, because
-installers and updaters must fetch anonymously and integrity comes from the
-release-set digests and the signed `channels.json`; `files.coforge.cn` fronts
-only the private user-files bucket and requires a signature. Each domain has its own
+installers and updaters must fetch anonymously and integrity now comes from
+TLS plus the manifest's checksums, not from any signed object; `files.coforge.cn`
+fronts only the private user-files bucket and requires a signature. Each domain has its own
 RAM permissions, cache/access rules, and logs, and neither is authorized to
 read the other's bucket, so no origin rule can fall back from one class to the
 other. A CDN path maps one to one onto its object key; no business prefix is
@@ -230,59 +216,26 @@ https://staging.coforge.cn/computer/install.sh         https://staging.coforge.c
 
 Each deployment serves its own pair and routes them to the release feed that
 deployment trusts, because a `curl … | sh` taken from staging must install the
-staging release set rather than the production one. The web UI therefore
+staging version rather than the production one. The web UI therefore
 renders the command from the origin the visitor already reached; it must not
 carry a fixed host, which would hand every staging visitor the production
 command. Whichever origin serves it, the entry point must not expose an OSS
-bucket hostname or replace the immutable release-set and payload verification
-performed by the installer, and the web UI must not link to a CDN or OSS origin
-directly.
+bucket hostname or replace the checksum verification the bootstrap scripts
+perform against the sidecar (`install.sh`, `install.ps1`) or the updater
+performs against `manifest.json` after Computer is installed, and the web UI
+must not link to a CDN or OSS origin directly.
 
-Users never depend on or discover the OSS bucket URL. Immutable release objects
-use a long immutable cache policy; `channels.json` uses revalidation/no-cache. A
+Users never depend on or discover the OSS bucket URL. Immutable version objects
+use a long immutable cache policy; `latest` uses revalidation/no-cache. A
 publication is incomplete until the workflow refreshes affected CDN objects and
 downloads the consumer-visible bytes again to compare them with its local
-manifests and installation bundles. For every publication, the workflow must
+manifest and binaries. For every publication, the workflow must
 also prove that an unsigned anonymous/direct GET of the exact OSS object key is
 rejected, while the public CDN URL succeeds through the configured private-origin
 authorization. The durable record stores only the pass/fail evidence, not the
 private bucket endpoint or credentials. A redirect to OSS, an anonymously
 readable origin object, or a CDN fetch that cannot be tied to the same bytes
 fails publication.
-
-The updater ships a set of trusted release verification keys and refuses an
-installation bundle, component manifest, release set, or channel snapshot whose
-signature or digest does not verify. After unpacking, it also verifies both
-process payloads against the selected component identities. Revocation and the
-first-install trust bootstrap still require a separate reviewed implementation;
-the signing format, key custody, and rotation are recorded below.
-
-Envelopes are `{schema_version, key_id, payload, signature}`, where `payload` is
-base64 and `signature` covers the bytes `coforge-release-v1\n<key_id>\n<payload>`.
-Ed25519 and ECDSA P-256 are both accepted — P-256 because Alibaba Cloud KMS
-offers no Ed25519 key spec, and the verifier's algorithm support is compiled into
-every shipped binary, so a production key held in KMS has to be possible before
-any public key ships.
-
-A build trusts exactly the key set compiled into it. The sets live in
-`release/trusted-keys/<channel>.json`, checked in so that changing who may sign a
-release is a reviewed commit with a history rather than a CI settings edit; the
-release workflow will feed the file for its channel to
-`COFORGE_RELEASE_TRUSTED_KEYS` and the matching feed to `COFORGE_RELEASE_FEED_URL`.
-No workflow sets either variable yet, so today every build carries an empty trust
-set and refuses every artifact. Staging and production are
-therefore different artifacts by construction, and a staging build cannot verify
-a production signature. Private keys live only in the signing environment's
-secret store and never on a workstation.
-
-Rotation relies on `trustedKeys` being a map: add the new `key_id` alongside the
-old one, sign a release with the **old** key so existing installations accept the
-version that carries both, wait for that version to roll out, then sign with the
-new key and retire the old entry in a later release. Removing a key before its
-successor has rolled out strands every installation that has not upgraded.
-The `curl | bash` form is a convenience, not independent proof that its mutable
-script was trustworthy; the release must also offer a download-review-execute
-path and an exact immutable release-set selector.
 
 ### Per-user installation
 
@@ -301,27 +254,64 @@ or reuse another user's installation.
 - Windows resolves program and application data below the current user's
   `LocalAppData`; only Computer may use a current-user startup mechanism.
 
-The installer maintains a user-owned versioned installation directory. It downloads one Computer
-installation bundle into staging, verifies the signed release set, bundle, and
-both contained process payloads, activates only after the complete set passes,
-preserves the prior bundle for rollback, and never relocates stable machine
-identity, credentials, configuration, or user data into a versioned directory.
-Only the `coforge-computer` shim enters the current user's PATH. The Daemon
-payload remains inside the versioned installation directory, is never registered as its own system
-or user service, and is launched by Computer through the exact path selected by
-the active release set.
+The installer maintains a user-owned versioned installation directory. It downloads
+the Computer and Daemon binaries into staging, verifies each against the
+manifest's recorded size and SHA-256 checksum, activates only after both
+payloads pass, preserves the prior version for rollback, and never relocates
+stable machine identity, credentials, configuration, or user data into a
+versioned directory. Only the `coforge-computer` shim enters the current
+user's PATH. The Daemon payload remains inside the versioned installation
+directory, is never registered as its own system or user service, and is
+launched by Computer through the exact path selected by the active version.
 
-Both `install.sh` and `install.ps1` expose three selection modes with identical
+Both `install.sh` and `install.ps1` expose two selection modes with identical
 semantics:
 
-- omitted or `--version latest` selects `production.current`;
-- `--version test` selects `test.current`;
-- `--version <release-set-id>` selects one exact immutable release set.
+- omitted or `--version latest` resolves the feed's `latest` pointer;
+- `--version <version>` selects one exact published version.
 
-An exact component SemVer is not enough to select an installation because
-Computer and Daemon versions are independent. An implementation may offer a
-friendlier exact selector only when it resolves unambiguously to a signed
-release-set digest and one platform bundle.
+An exact version is enough to select an installation because Computer and
+Daemon are released and versioned together; there is no independent Daemon
+version to disambiguate.
+
+Staging and production artifacts are **not interchangeable**. The feed a build
+trusts is compiled into it (`COFORGE_RELEASE_FEED_URL`, see
+`packages/computer/src/release-channel.ts`), so a binary built for staging carries
+the staging feed address and would keep updating itself from staging if it were
+copied into the production feed. Promotion therefore rebuilds the same commit
+against the production feed rather than copying bytes; what carries across
+environments is the commit and the test evidence, not the artifact.
+
+`install.sh` and `install.ps1` read the same `COFORGE_RELEASE_FEED_URL`
+variable, but unconditionally and at runtime: any `https://` value is
+accepted, not just the compiled-in default. This is deliberate, not an
+oversight of the rule above: `release-channel.ts` hardens the *compiled*,
+long-lived binary that auto-updates itself indefinitely, where a runtime
+toggle would let it be silently redirected to an untrusted feed on every
+future update. The bootstrap scripts are the opposite shape - a one-shot the
+user explicitly runs (`curl … | sh` / `irm … | iex`) from a command they can
+read before running it - and anyone able to set this variable in that same
+invoking shell can equally set `PATH` or a proxy variable to redirect the
+script's requests, so restricting the variable here would not remove an
+attacker capability, only a legitimate one it may be used for: pointing a
+manual or scripted install at a non-default feed (a staging or private feed).
+No such use is implemented or documented today - `installCommands()` in
+`apps/web/src/features/install/install-commands.ts` renders a plain
+`{origin}/computer/install.sh`, not a feed URL, so how a staging deployment's
+served copy of `install.sh` would reach the staging feed by default (as
+opposed to a caller exporting the variable by hand) is unresolved and belongs
+to the not-yet-built publishing workflow, not to this variable. Both scripts
+carry the threat-model half of this reasoning inline as a comment.
+
+Publishing a local-distribution release is **manual**. The workflow exposes only
+`workflow_dispatch`; it is not triggered by merging to `main`. Continuous publish
+on merge suits the cloud application, which replaces a running service, but a
+client release leaves a persistent artifact set behind, and at the current user
+count a build per merge is waste. Adding a trigger later is one line.
+
+The Computer distribution is published to the release feed only. It is **not
+published to npm**; that channel is purely additive and can be introduced later
+without changing anything here.
 
 ## Main to staging
 
@@ -351,65 +341,44 @@ unavailable.
 
 ### Local Computer distribution
 
-Before ordinary one-component releases can run, an initial bootstrap transaction
-must establish the first complete local distribution:
-
-1. Start only from a signed channel generation in which both `test` and
-   `production` have null `current` and `previous` values, and verify that no
-   prior component or release-set identity is being overwritten.
-2. Build the first Computer and Daemon component artifacts once for the complete
-   platform matrix, create and sign both component manifests, verify their local-
-   protocol compatibility, and assemble every Computer installation bundle.
-3. Create one immutable initial release set that names both first component-
-   manifest digests and every bundle digest. Publish it through the same private-
-   origin and CDN verification gates as any later release.
-4. Move only `test.current` from null to that release set, leaving
-   `test.previous` null; run the complete local-distribution verification matrix,
-   and record both component identities as the bootstrap candidate.
-5. `production.current` and `production.previous` remain null until a human
-   approves the exact stable release-set digest, both component-manifest digests,
-   and the test evidence. Promotion then moves only `production.current` to those
-   already tested bytes; it does not rebuild, repackage, or re-sign them.
-
-After that bootstrap, the automated local-distribution path changes one
-component at a time:
+The automated local-distribution path always publishes both components
+together, to the track's own feed (a staging build trusts a different
+`COFORGE_RELEASE_FEED_URL` than a production build compiles in, so the two
+tracks' `latest` pointers are never the same object):
 
 1. Run the repository gates for the exact `main` commit.
-2. Build that component's required Windows, Linux, and macOS artifacts once
-   with the approved Bun executable targets. Do not rebuild the unchanged peer
-   or rebuild one platform after another platform passed.
-3. Create and sign the immutable changed-component manifest, then publish its
-   exact artifact bytes beneath its version directory.
-4. Reuse the unchanged peer artifacts, verify compatibility, and assemble one
-   Computer installation bundle per supported platform/architecture. Each
-   bundle contains the Computer and Daemon process payload selected by the new
-   pair; only Computer is exposed as the installed user command.
-5. Create and sign a new immutable release-set manifest. It changes only the
-   candidate component digest, retains the production peer digest, and records
-   every newly assembled installation-bundle digest and size.
-6. Publish the release-set manifest and bundles beneath their immutable paths.
-   Prove anonymous/direct reads of their exact private-origin keys are rejected,
-   then re-read them through `releases.coforge.cn` and compare
-   consumer-visible bytes with the workflow source bytes.
-7. Under the global channel writer lock, move `test.previous` to the old
-   `test.current` and set `test.current` to the new release-set digest. Replace
-   the complete signed `channels.json` with a higher generation.
-8. Refresh and re-read `channels.json` through `releases.coforge.cn`, then
-   run the local-distribution checks below using the test selector.
-9. Record the component, release-set, and bundle digests as healthy only after
-   every required check passes.
-10. On failure, restore `test.current` from the recorded previous release set,
-   verify it, and record the candidate and rollback outcomes. For a verified
-   first publication, restore `test.current` to null and keep `test.previous`
-   null in a newly signed higher generation; installers continue to fail closed
-   for that unpublished channel.
+2. Build the Computer and Daemon artifacts once for the complete Windows,
+   Linux, and macOS platform matrix, with the approved Bun executable targets.
+   Do not rebuild one platform after another platform passed.
+3. Compute every platform's Computer and Daemon binary byte size and SHA-256
+   checksum, assemble the version's `manifest.json`, and generate each
+   platform's `coforge-computer.sha256` sidecar from the same Computer binary
+   bytes and the same checksum computation as the manifest entry - the two
+   must never be allowed to diverge.
+4. Publish `manifest.json`, every platform's `coforge-computer.sha256`
+   sidecar, and every platform binary beneath the new `<version>/` prefix on
+   the staging feed. Prove anonymous/direct reads of their exact
+   private-origin keys are rejected, then re-read them through
+   `releases.coforge.cn` and compare consumer-visible bytes with the workflow
+   source bytes.
+5. Only after every object under `<version>/` is published and verified,
+   write the staging feed's `latest` pointer to the new version. A publish
+   that fails before this step leaves an unreferenced version directory that
+   no installer will ever resolve.
+6. Refresh and re-read `latest` through the staging feed, then run the
+   local-distribution checks below against the version it resolves.
+7. Record the version and its manifest checksums as healthy only after every
+   required check passes.
+8. On failure, leave the staging feed's `latest` pointing at the last healthy
+   version - do not advance it - and record the candidate and its failure.
+   For a verified first publication, leave `latest` unpublished; installers
+   continue to fail closed for that unpublished feed.
 
-An alpha release ends here. A stable release is not production-ready merely
-because it has no prerelease suffix: the exact stable release set must pass this
-test path first. The workflow must not publish a mutable production alias,
-change both component digests, offer Daemon as a separate user installation, or
-treat one component's evidence as approval for the entire newly assembled
-bundle.
+An alpha or prerelease-labelled version ends here. A stable version is not
+production-ready merely because it carries no prerelease suffix: the exact
+version must pass this staging path first. The workflow must not publish
+directly to the production feed, publish an incomplete platform matrix, or
+treat a partial publication as approval for the whole version.
 
 ## Staging to production
 
@@ -439,37 +408,35 @@ is invalid.
 
 ### Local Computer distribution
 
-The local Computer distribution uses the same two-party boundary:
+The local Computer distribution uses the same two-party boundary, but what
+crosses it is the **source commit and its evidence, not the artifact**. Staging
+and production binaries cannot be the same bytes: the feed a build trusts is
+compiled into it, so a staging binary copied into the production feed would keep
+updating itself from staging. Promotion therefore rebuilds:
 
-1. An Agent verifies `test.current` is a stable release set. When production is
-   non-empty, it must differ from `production.current` in exactly one component
-   digest and retain the exact production peer digest. For the initial
-   production bootstrap, `production.current` and `production.previous` must
-   instead both be null in the verified signed channel generation, while
-   `test.current` must be the tested initial two-component release set described
-   above. The Agent prepares the release-set digest, both
-   component-manifest digests, every platform installation-bundle checksum,
-   source commit, test run and evidence, compatibility result, known risks, and
-   `production.current` / `production.previous` identities.
-2. A human approves or rejects that exact release-set digest and either the one
-   named changed component or the explicitly named initial two-component
-   bootstrap. A component version, filename, branch, channel name, unspecified
-   “latest package,” or approval that could cover an unspecified component is
-   invalid.
-3. After approval, the Agent verifies `test.current`, its signatures, component
-   manifests, installation bundles, and extracted payload identities still
-   match the approval and test evidence.
-4. Under the channel writer lock, it moves `production.current` to
-   `production.previous`, sets `production.current` to the already tested
-   release-set digest, increments the generation, signs the complete
-   `channels.json`, and publishes only that selection object.
-5. The Agent refreshes and re-reads `channels.json` through the public CDN,
-   verifies the production selector resolves the approved release set, runs the
-   production local-distribution checks, and records the result.
+1. An Agent verifies the staging feed's `latest` resolves a stable version (no
+   prerelease suffix). It prepares that version, the source commit it was built
+   from, the staging test run and its evidence, and the production feed's
+   current `latest` for comparison.
+2. A human approves or rejects that exact commit and version. A filename,
+   branch, channel name, or unspecified "latest build" approval is invalid.
+3. After approval, the Agent builds the approved commit against the production
+   feed configuration, producing a distinct set of binaries whose only intended
+   difference from the staging set is the compiled-in feed address.
+4. The Agent publishes the new manifest, checksum sidecars and binaries beneath
+   the production feed's `<version>/` path, then re-reads each object from the
+   production feed and confirms it matches what was published.
+5. Only after that confirmation does the Agent write the production feed's
+   `latest` pointer to the approved version.
+6. The Agent refreshes and re-reads the production feed's `latest`, verifies it
+   resolves the approved version, runs the production local-distribution checks,
+   and records the result.
 
-Changing either component manifest, any bundle file or checksum, or the
-unchanged peer digest creates a new release set and invalidates approval. Do
-not rebuild, repackage, re-sign, or re-notarize a bundle during promotion.
+Building a commit other than the approved one, or altering the source between
+approval and build, invalidates the approval. Because the artifacts are rebuilt
+rather than copied, the production checks in the next section are the evidence
+that the production binaries work — the staging evidence attests to the commit,
+not to those bytes.
 
 ## Health verification
 
@@ -495,13 +462,11 @@ verification. Capture failure diagnostics without secrets.
 
 ### Local Computer distribution
 
-A local Computer release set is healthy only when:
+A local Computer release version is healthy only when:
 
-1. the selected channel generation is signed, monotonic, and resolves the
-   requested release-set digest and no other;
-2. the release set, both component manifests, the selected platform bundle, and
-   both extracted process payloads match their recorded signatures, SHA-256
-   checksums, and sizes;
+1. the feed's `latest` pointer resolves the requested version and no other;
+2. the version's manifest and every downloaded platform binary match their
+   recorded byte sizes and SHA-256 checksums;
 3. an unsigned anonymous/direct GET of each exact private OSS object key is
    rejected, the CDN succeeds through private-origin authorization, the
    CDN-retrieved bytes match the workflow's source bytes, and no package URL
@@ -509,14 +474,14 @@ A local Computer release set is healthy only when:
 4. clean per-user Computer install and supported per-user upgrade checks pass
    without a separate Daemon install or elevation on every required target
    platform/architecture;
-5. both installed processes report the expected component versions and artifact
-   identities and reach their local readiness boundaries;
+5. both installed processes report the expected version and reach their
+   local readiness boundaries;
 6. computer-to-daemon Unix-socket and protocol compatibility passes for the
-   declared release set, including a workspace-child startup smoke test;
+   declared version, including a workspace-child startup smoke test;
 7. stable machine identity, credentials, configuration, and application data
    survive the version-store activation; and
-8. the previous Computer installation bundle remains installed or recoverable
-   and a rollback rehearsal can reactivate it without network access.
+8. the previous Computer installation remains installed or recoverable and a
+   rollback rehearsal can reactivate it without network access.
 
 The implementation must define the required platform matrix and exact command
 seams before a local distribution channel can be promoted.
@@ -548,47 +513,47 @@ valid recovery plan and the release must not proceed.
 
 ### Local Computer distribution
 
-If test publication or production verification fails, atomically restore the
-affected channel's `current` selection from its signed `previous` release-set
-digest, increment the generation, sign the complete `channels.json`, refresh
-the CDN, and verify the selector and installation again. Because an MVP
-transaction changes only one component, the peer component remains unchanged.
+If staging publication or production verification fails, leave the affected
+feed's `latest` pointing at its last healthy version - do not advance it -
+refresh the CDN, and verify the selector and installation again. Because both
+components always publish together, there is no separately unchanged peer to
+preserve.
 
-Devices that already activated a failed release set use the local versioned installation directory
-to stop the processes, reactivate the retained previous Computer installation
-bundle, restart Computer and Daemon, and repeat health checks. If persisted
-state or protocol changes make this unsafe, production promotion must remain
-disabled until a reviewed forward-repair path exists.
+Devices that already activated a failed version use the local versioned
+installation directory to stop the processes, reactivate the retained
+previous Computer installation, restart Computer and Daemon, and repeat
+health checks. If persisted state or protocol changes make this unsafe,
+production promotion must remain disabled until a reviewed forward-repair
+path exists.
 
 Local-distribution rollback reselects and reactivates recorded immutable bytes.
 It does not rebuild old source, copy an unverified file into a release path, or
 assume that a lower display version is installable. An unrelated later
-production rollback requires human approval of the exact target release-set
-digest unless a separately approved incident policy says otherwise.
+production rollback requires human approval of the exact target version
+unless a separately approved incident policy says otherwise.
 
 ## Audit records
 
 Keep both the platform's deployment or publication record and the durable
-release record defined above for every staging or test release, production promotion,
+release record defined above for every staging release, production promotion,
 failed attempt, and rollback. Record the human approver and exact approved
 artifact identity for production, the previous and resulting identities,
 verification evidence, rollback trigger and result, and the final observed
 state. An interrupted release is a recorded outcome, not a missing entry. The
 records must reveal the selected and next rollback identities without relying
 on an Agent's private memory, and must never contain secrets. Local records also
-preserve the previous and resulting `channels.json` generations, release-set
-digests, both component-manifest digests, every platform bundle digest, the
-single changed component, CDN verification, and signature key identifier.
+preserve the previous and resulting version strings, the manifest's per-platform
+SHA-256 checksums, and CDN verification evidence.
 
 ## Routine release boundary
 
 Before any mutating deployment, verify all of the following:
 
 - the source commit is on `main` and repository checks passed;
-- the requested image or local release set and installation bundle exist and
+- the requested image or local release version and its manifest exist and
   their immutable identities resolve;
 - the target has isolated secrets/credentials and a unique concurrency group;
-- the track-specific configuration or channel metadata validates;
+- the track-specific configuration or feed manifest validates;
 - the applicable cloud or local-package verification checks are defined;
 - local distribution proves anonymous/direct reads of each exact private-origin
   object key fail while CDN private-origin retrieval returns the verified bytes
@@ -596,8 +561,8 @@ Before any mutating deployment, verify all of the following:
 - the previous healthy identity is recorded, or the target is verified and
   recorded as empty for a first deployment;
 - no secret will enter workflow input, command arguments, logs, or artifacts;
-- production has durable human approval for the exact image or release-set
-  digest and, for a local distribution, the single changed component.
+- production has durable human approval for the exact image digest or, for a
+  local distribution, the exact version string.
 
 Routine releases may update application containers only. Shared Caddy routes,
 host firewall rules, registry credentials, deployment-user permissions,
@@ -605,11 +570,13 @@ databases, and GitHub Environment protection are infrastructure changes. Make
 them through separate approved work with a backup, validation, and rollback
 plan; never smuggle them into an application release.
 
-Local Computer-bundle formats, signing/notarization keys and algorithms, update
-protocols, distribution credentials, platform matrices, and compatibility wire
-fields are likewise separate security or infrastructure changes. Review them
-before enabling their operator interfaces; do not weaken the topology,
-single-component transaction, signature, or per-user installation boundaries.
+Local Computer manifest formats, code-signing/notarization keys and algorithms
+(operating-system code signing, unrelated to this contract's checksum-only
+release integrity model), update protocols, distribution credentials,
+platform matrices, and compatibility wire fields are likewise separate
+security or infrastructure changes. Review them before enabling their
+operator interfaces; do not weaken the topology or per-user installation
+boundaries.
 
 ## Implementation status
 
@@ -621,10 +588,10 @@ disabled behind the human approval gate. The release Skill must stop rather
 than reconstruct or invoke the removed gateway workflow.
 
 The local feed topology and `releases.coforge.cn` consumer boundary above
-are approved, but no feed or installer exists yet. Archive formats,
-platform/architecture matrices, signature key lifecycle, and updater commands
-remain unimplemented. The release Skill may inspect and prepare their evidence,
-but it must not invent publication, signing, or updater commands.
+are approved, but no feed or publishing workflow exists yet. Platform/
+architecture matrices, distribution credentials, and updater commands remain
+unimplemented. The release Skill may inspect and prepare their evidence, but
+it must not invent publication or updater commands.
 
 ## Official references
 
@@ -634,7 +601,6 @@ but it must not invent publication, signing, or updater commands.
 - [GitHub artifact attestations for binaries and manifests](https://docs.github.com/en/actions/concepts/security/artifact-attestations)
 - [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html)
 - [Bun standalone executable and cross-compilation targets](https://bun.sh/docs/bundler/executables)
-- [The Update Framework specification](https://theupdateframework.github.io/specification/)
 - [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/)
 - [Apple macOS Library directory details](https://developer.apple.com/library/archive/documentation/FileManagement/Conceptual/FileSystemProgrammingGuide/MacOSXDirectories/MacOSXDirectories.html)
 - [Microsoft known folder identifiers](https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid)
