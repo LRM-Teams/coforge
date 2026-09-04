@@ -38,6 +38,29 @@ const computers = [
     runtimes: [{ provider: "codex" }, { provider: "claude-code" }],
     modelCatalogs: [
       {
+        provider: "coforge",
+        models: [
+          {
+            id: "gpt-5",
+            displayName: "GPT-5",
+            description: "",
+            modelProvider: "openai",
+            reasoningEfforts: ["medium"],
+            defaultReasoning: "medium",
+            recommended: true,
+          },
+          {
+            id: "claude-sonnet",
+            displayName: "Claude Sonnet",
+            description: "",
+            modelProvider: "anthropic",
+            reasoningEfforts: [],
+            defaultReasoning: "",
+            recommended: false,
+          },
+        ],
+      },
+      {
         provider: "claude-code",
         models: [
           {
@@ -215,6 +238,30 @@ test("submits the public creation form callback", async () => {
       reasoning: "high",
       computerId: "computer-1",
     }),
+  );
+});
+
+test("selects a CoForge model provider before its model", async () => {
+  const browserUser = userEvent.setup({ document });
+  const onCreate = mock(async () => ({ startPublished: true }));
+  renderAgents([], onCreate, true);
+  fireEvent.change(await page().findByLabelText("Name"), { target: { value: "model-helper" } });
+  fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
+    target: { value: "Uses a selected model provider" },
+  });
+  await browserUser.click(page().getByRole("combobox", { name: "Model provider" }));
+  await browserUser.click(page().getByRole("option", { name: "anthropic" }));
+  await browserUser.click(page().getByRole("combobox", { name: "Model Optional" }));
+  await browserUser.click(page().getByRole("option", { name: "anthropic / Claude Sonnet" }));
+  fireEvent.click(page().getByRole("button", { name: "Create agent" }));
+  await waitFor(() =>
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "coforge",
+        modelProvider: "anthropic",
+        model: "claude-sonnet",
+      }),
+    ),
   );
 });
 

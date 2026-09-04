@@ -143,9 +143,11 @@ describe("DaemonRuntime", () => {
   });
 
   test("preserves a server-held draft and returns its opaque token only to the server", async () => {
+    const stateDirectory = join(tmpdir(), `coforge-message-drafts-${crypto.randomUUID()}`);
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const operations: string[] = [];
+    const messageRequests: Array<{ requestId: string; holdToken?: string }> = [];
     const runtime = new DaemonRuntime(
       connection,
       () => ({
@@ -165,6 +167,7 @@ describe("DaemonRuntime", () => {
           async sendAgentDeliveryAck() {},
           async agentMessage(request) {
             operations.push(request.operation);
+            messageRequests.push({ requestId: request.requestId, holdToken: request.holdToken });
             return request.requestId === "send-1"
               ? {
                   protocolMajor: 1,
@@ -196,6 +199,9 @@ describe("DaemonRuntime", () => {
           },
         }),
       },
+      undefined,
+      async () => ({ runtimes: [], catalogs: [] }),
+      stateDirectory,
     );
     await runtime.start(connection);
     await runtime.startAgent("agent-a", config);
@@ -227,12 +233,54 @@ describe("DaemonRuntime", () => {
     expect(held).not.toHaveProperty("seenUpToSequence");
     expect(held).not.toHaveProperty("holdToken");
     expect(operations).toEqual(["send"]);
+    expect(messageRequests).toEqual([{ requestId: "send-1" }]);
 
-    const sent = await runtime.agentMessage(
-      context,
+    await runtime.stop();
+    const recoveredRuntime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        createAgentSession: async () => ({ ...sessionSpy(), async notify() {} }),
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          async requestAgentApiKey() {
+            return `sk_agent_${"b".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async sendAgentDeliveryAck() {},
+          async agentMessage(request) {
+            operations.push(request.operation);
+            messageRequests.push({ requestId: request.requestId, holdToken: request.holdToken });
+            return {
+              protocolMajor: 1,
+              requestId: request.requestId,
+              accepted: true,
+              attentionCount: 0,
+              messageId: "sent",
+              messages: [],
+              sideEffectDecision: "forward" as const,
+            };
+          },
+        }),
+      },
+      undefined,
+      async () => ({ runtimes: [], catalogs: [] }),
+      stateDirectory,
+    );
+    await recoveredRuntime.start(connection);
+    await recoveredRuntime.startAgent("agent-a", config);
+    const recoveredContext = recoveredRuntime.issueAgentContext("agent-a");
+
+    const sent = await recoveredRuntime.agentMessage(
+      recoveredContext,
       {
         requestId: "send-2",
-        context,
+        context: recoveredContext,
         operation: "send",
         target: "@ada",
         sendDraft: true,
@@ -241,15 +289,41 @@ describe("DaemonRuntime", () => {
     );
     expect(sent).toMatchObject({ accepted: true, sideEffectDecision: "forward" });
     expect(operations).toEqual(["send", "send"]);
+    expect(messageRequests).toEqual([
+      { requestId: "send-1" },
+      { requestId: "send-2", holdToken: "server-opaque-token" },
+    ]);
 
-    const ordinarySend = await runtime.agentMessage(
-      context,
-      { requestId: "send-3", context, operation: "send", target: "@ada", body: "follow-up" },
+    await expect(
+      recoveredRuntime.agentMessage(
+        recoveredContext,
+        {
+          requestId: "send-cleared",
+          context: recoveredContext,
+          operation: "send",
+          target: "@ada",
+          sendDraft: true,
+        },
+        `sk_agent_${"a".repeat(43)}`,
+      ),
+    ).rejects.toThrow("No held draft");
+
+    const ordinarySend = await recoveredRuntime.agentMessage(
+      recoveredContext,
+      {
+        requestId: "send-3",
+        context: recoveredContext,
+        operation: "send",
+        target: "@ada",
+        body: "follow-up",
+      },
       `sk_agent_${"a".repeat(43)}`,
     );
     expect(ordinarySend).toMatchObject({ accepted: true, sideEffectDecision: "forward" });
     expect(operations).toEqual(["send", "send", "send"]);
-    await runtime.stop();
+    expect(messageRequests.at(-1)).toEqual({ requestId: "send-3", holdToken: undefined });
+    await recoveredRuntime.stop();
+    await rm(stateDirectory, { recursive: true, force: true });
   });
 
   test("keeps an Agent active without a process, wakes it for a message, and deactivates it", async () => {
@@ -387,9 +461,7 @@ describe("DaemonRuntime", () => {
       },
       undefined,
       async () => ({
-        runtimes: [
-          { provider: "codex", version: "0.151.0", displayName: "Codex", kind: "external" },
-        ],
+        runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
         catalogs: [{ provider: "codex", models: [] }],
       }),
     );
@@ -399,7 +471,7 @@ describe("DaemonRuntime", () => {
     expect(updates[0]).toMatchObject({
       workspaceId: connection.workspaceId,
       computerId: connection.computerId,
-      runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex", kind: "external" }],
+      runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
       catalogs: [{ provider: "codex", models: [] }],
     });
     await runtime.stop();

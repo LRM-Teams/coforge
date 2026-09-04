@@ -348,10 +348,7 @@ export function createDaemonRuntimeCodeAgentsUpdateMethod(inventory: {
     if (
       request.protocolMajor !== 1 ||
       !request.requestId ||
-      request.runtimes.some(
-        (runtime) =>
-          runtime.kind !== "external" || runtime.provider === "pi" || !runtime.version.trim(),
-      ) ||
+      request.runtimes.some((runtime) => !runtime.version.trim()) ||
       !validModelCatalogs(request.catalogs)
     )
       return { code: 400, message: "invalid Code Agent inventory" };

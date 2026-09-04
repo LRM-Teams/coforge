@@ -329,9 +329,6 @@ export function DirectConversation({
               className="sr-only"
             />
           </label>
-          <p className="ml-3 truncate text-xs text-muted-foreground">
-            {m.conversation_auto_refresh()}
-          </p>
           <Button
             type="submit"
             size="icon"

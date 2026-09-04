@@ -118,7 +118,7 @@ describe("CentrifugoRpcHandler", () => {
       requestId: "inventory-1",
       workspaceId: "workspace-1",
       computerId: "computer-1",
-      runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex", kind: "external" }],
+      runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
       catalogs: [{ provider: "codex", models: [] }],
     });
 
@@ -126,9 +126,7 @@ describe("CentrifugoRpcHandler", () => {
     expect(updates).toEqual([
       {
         scope: { workspaceId: "workspace-1", computerId: "computer-1" },
-        runtimes: [
-          { provider: "codex", version: "0.151.0", displayName: "Codex", kind: "external" },
-        ],
+        runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
         catalogs: [{ provider: "codex", models: [] }],
       },
     ]);

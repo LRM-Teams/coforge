@@ -40,6 +40,7 @@ import {
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentMessageAttentionIndex } from "./agent-message-attention-index";
 import { AgentInboxStateMachine } from "./agent-inbox-state-machine";
+import { AgentMessageDraftStore } from "../persistence/agent-message-draft-store";
 import { AgentAppInbox, type MintAppItem } from "../agent-app-inbox/agent-app-inbox";
 import { isAgentApiKey } from "../credentials/agent-api-key";
 import {
@@ -740,14 +741,13 @@ export class DaemonRuntime {
     if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
     if (request.operation === "send" && request.target) {
       const startedAt = performance.now();
-      const inbox = this.#agentInboxes.get(agentId) ?? new AgentInboxStateMachine();
-      this.#agentInboxes.set(agentId, inbox);
-      const draft = request.sendDraft ? inbox.draft(request.target) : undefined;
+      const inbox = this.#agentInbox(agentId);
+      const draft = request.sendDraft ? await inbox.draft(request.target) : undefined;
       if (request.sendDraft && !draft)
         throw new Error(`No held draft for target: ${request.target}`);
       const body = draft?.body ?? request.body;
       if (body === undefined) throw new Error("Agent message body is required");
-      if (!request.sendDraft) inbox.save(request.target, body);
+      if (!request.sendDraft) await inbox.save(request.target, body);
       if (request.sendDraft && !draft?.holdToken)
         throw new Error(`Held draft token is unavailable for target: ${request.target}`);
       const result = await this.#transport.agentMessage(
@@ -765,8 +765,8 @@ export class DaemonRuntime {
         agentApiKey,
       );
       if (result.sideEffectDecision === "hold" && result.holdToken)
-        inbox.replace(request.target, body, result.holdToken);
-      else if (result.accepted) inbox.clear(request.target);
+        await inbox.replace(request.target, body, result.holdToken);
+      else if (result.accepted) await inbox.clear(request.target);
       if (result.messages.length > 0) {
         this.#messageAttention.recordModelSeen(
           agentId,
@@ -877,6 +877,14 @@ export class DaemonRuntime {
     const opened = AgentAppInbox.open(this.stateDirectory, this.#connection.workspaceId, agentId);
     this.#appInboxes.set(agentId, opened);
     return opened;
+  }
+
+  #agentInbox(agentId: string): AgentInboxStateMachine {
+    const existing = this.#agentInboxes.get(agentId);
+    if (existing) return existing;
+    const inbox = new AgentInboxStateMachine(new AgentMessageDraftStore(agentId));
+    this.#agentInboxes.set(agentId, inbox);
+    return inbox;
   }
 
   async #notifyAppItem(agentId: string, itemId: string): Promise<void> {

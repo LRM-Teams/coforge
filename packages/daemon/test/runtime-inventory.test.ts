@@ -82,9 +82,9 @@ describe("external Code Agent inventory", () => {
     );
 
     expect(runtimes).toEqual([
-      { provider: "pi", version: "0.9.1", displayName: "Pi", kind: "external" },
-      { provider: "codex", version: "0.151.0", displayName: "Codex", kind: "external" },
-      { provider: "claude-code", version: "2.1.0", displayName: "Claude Code", kind: "external" },
+      { provider: "pi", version: "0.9.1", displayName: "Pi" },
+      { provider: "codex", version: "0.151.0", displayName: "Codex" },
+      { provider: "claude-code", version: "2.1.0", displayName: "Claude Code" },
     ]);
   });
 
@@ -105,7 +105,7 @@ describe("external Code Agent inventory", () => {
     };
 
     await expect(discoverExternalCodeAgents(probe)).resolves.toEqual([
-      { provider: "codex", version: "0.151.0", displayName: "Codex", kind: "external" },
+      { provider: "codex", version: "0.151.0", displayName: "Codex" },
     ]);
     expect(probed).toEqual(["codex:/bin/codex"]);
   });
@@ -142,7 +142,20 @@ describe("external Code Agent inventory", () => {
       },
     });
 
+    expect(inventory.runtimes[0]).toEqual({
+      provider: "coforge",
+      version: "builtin",
+      displayName: "CoForge",
+    });
+    const coforgeCatalog = inventory.catalogs.find((catalog) => catalog.provider === "coforge");
+    expect(coforgeCatalog).toBeDefined();
+    expect(coforgeCatalog?.models.length).toBeGreaterThan(0);
+    expect(coforgeCatalog?.models[0]).toMatchObject({
+      id: "aion-labs/aion-2.0",
+      modelProvider: "openrouter",
+    });
     expect(inventory.catalogs).toEqual([
+      coforgeCatalog!,
       {
         provider: "pi",
         models: [

@@ -74,12 +74,12 @@ packages/
 
 必须保持以下区别：
 
-| 名称                  | 发布边界                                                                                | 运行时关系                          | 核心职责                                                   |
-| --------------------- | --------------------------------------------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------- |
-| `coforge-computer`    | 独立 package component；唯一面向用户的本地安装入口，并依赖 `coforge-daemon` package           | 独立 OS 进程                        | 机器身份、安装升级、启动/停止和健康检查 coforge-daemon     |
-| `coforge-daemon`      | 独立 package component；作为 Computer 的构建/分发依赖随 Computer 安装，不单独提供用户安装入口 | 独立 OS 进程                        | 对齐期望/实际 workspace 集合，管理子进程生命周期和崩溃恢复 |
-| Agent runtime        | 不独立发布                                                                              | CoForge 在 daemon 内创建 SDK session；外部 runtime 是 OS 子进程 | provider-neutral driver 后的 Agent 执行                   |
-| `@coforge/agent`      | 可独立打包的 runtime package；不是本地产品组件或用户安装入口                            | daemon 内创建的 SDK session | 封装 Pi SDK、内置 extensions、skills 和 CoForge Agent factory |
+| 名称               | 发布边界                                                                                      | 运行时关系                                                      | 核心职责                                                      |
+| ------------------ | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------- |
+| `coforge-computer` | 独立 package component；唯一面向用户的本地安装入口，并依赖 `coforge-daemon` package           | 独立 OS 进程                                                    | 机器身份、安装升级、启动/停止和健康检查 coforge-daemon        |
+| `coforge-daemon`   | 独立 package component；作为 Computer 的构建/分发依赖随 Computer 安装，不单独提供用户安装入口 | 独立 OS 进程                                                    | 对齐期望/实际 workspace 集合，管理子进程生命周期和崩溃恢复    |
+| Agent runtime      | 不独立发布                                                                                    | CoForge 在 daemon 内创建 SDK session；外部 runtime 是 OS 子进程 | provider-neutral driver 后的 Agent 执行                       |
+| `@coforge/agent`   | 可独立打包的 runtime package；不是本地产品组件或用户安装入口                                  | daemon 内创建的 SDK session                                     | 封装 Pi SDK、内置 extensions、skills 和 CoForge Agent factory |
 
 因此禁止把 daemon runtime 拆成第三个本地产品组件。需要隔离的是运行时进程，而不是发布包。
 
@@ -316,6 +316,8 @@ Agent start intent (`agent:start`) 使用现有 `coforge.rpc.v1` WSS/RPC control
 
 当前 MVP 不引入本地 durable message inbox/outbox 或完整的 per-Agent delivery ledger。云端 canonical Message 与每个参与者的 read boundary 是消息恢复真相；Agent Activity 不进入本地 spool，也不 replay。
 
+Daemon 仅为被 Web/backend 暂缓的 Agent response 保存短期 continuation draft，使明确的 `--send-draft` 在 Daemon 重启后仍可继续。每个 Agent 使用 `${COFORGE_CLI_DRAFT_STATE_DIR:-<OS temp>}/coforge-cli-attested-send/<encoded-agent-id>/continue-state.json` 私有原子替换文件；versioned envelope 内的 draft 只含 target、body、opaque hold token 和 `savedAt`，并在 10 分钟后过期。普通 send 总是以新 body 创建或替换 draft 并移除旧 token；Web/backend 接受 send 后立即清除对应 draft。该状态不包含 API key、canonical Message、request id、delivery state 或重试队列，不会自动发送，因此不是 durable message outbox；过期或缺失 draft 的明确发送会失败。
+
 稳定身份分为：
 
 - `message_id`：云端 canonical message 的身份；
@@ -365,14 +367,14 @@ Agent start intent (`agent:start`) 使用现有 `coforge.rpc.v1` WSS/RPC control
 
 当前初始基线为：
 
-| 组件             | 技术基线                                      |
-| ---------------- | --------------------------------------------- |
-| Edge             | Caddy 2.11.4                                  |
-| 实时传输         | Standalone Centrifugo OSS                     |
-| Web/backend      | Bun 1.4 + TanStack Start + Nitro Bun preset   |
-| 本地 package/runtime | Bun 1.4                                   |
-| CI workflow 检查 | actionlint 1.7.12 + ShellCheck 0.11.0         |
-| 数据库           | PostgreSQL（开发 Docker；生产可托管）+ Prisma |
+| 组件                 | 技术基线                                      |
+| -------------------- | --------------------------------------------- |
+| Edge                 | Caddy 2.11.4                                  |
+| 实时传输             | Standalone Centrifugo OSS                     |
+| Web/backend          | Bun 1.4 + TanStack Start + Nitro Bun preset   |
+| 本地 package/runtime | Bun 1.4                                       |
+| CI workflow 检查     | actionlint 1.7.12 + ShellCheck 0.11.0         |
+| 数据库               | PostgreSQL（开发 Docker；生产可托管）+ Prisma |
 
 精确版本以 `mise.toml` 为准。升级版本时必须同时更新锁文件、CI 和本文，不能只改本机环境。
 

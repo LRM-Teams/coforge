@@ -2,7 +2,6 @@ import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   ComputerRegisterRequestSchema,
   ComputerRegisterResponseSchema,
-  RuntimeKind,
 } from "./gen/coforge/rpc/v1/computer_pb";
 import {
   RUNTIME_PROVIDER,
@@ -57,19 +56,16 @@ import type {
 
 const runtimeMetadata = (runtime: RuntimeMetadata) => ({
   ...runtime,
-  kind: runtime.kind === "builtin" ? RuntimeKind.BUILTIN : RuntimeKind.EXTERNAL,
 });
 
 const decodedRuntimeMetadata = (runtime: {
   provider: string;
   version: string;
   displayName: string;
-  kind: RuntimeKind;
 }): RuntimeMetadata => ({
   provider: parseRuntimeProvider(runtime.provider),
   version: runtime.version,
   displayName: runtime.displayName,
-  kind: runtime.kind === RuntimeKind.BUILTIN ? "builtin" : "external",
 });
 
 const modelCatalog = (catalog: CodeAgentModelCatalog) => ({

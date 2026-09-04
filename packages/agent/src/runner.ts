@@ -5,6 +5,7 @@ import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
+  createBashTool,
   getAgentDir,
   ModelRuntime,
   runRpcMode,
@@ -12,6 +13,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { getCoforgeAgentDir, getCoforgeSessionDir } from "./paths";
+import { withRuntimeEnvironment } from "./runtime-provider";
 
 export const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   cwd,
@@ -48,6 +50,7 @@ export async function createSession(options: {
   reasoning?: string;
   apiKey: string;
   instructions: string;
+  environment?: Readonly<Record<string, string>>;
 }) {
   const cwd = options.cwd;
   const agentDir = options.agentDir ?? getCoforgeAgentDir(cwd);
@@ -55,18 +58,24 @@ export async function createSession(options: {
     options.sessionDir ??
     (options.agentId ? getCoforgeSessionDir(cwd) : join(agentDir, "sessions"));
   if (!options.apiKey) throw new Error("CoForge runtime provider API key is required");
-  const modelRuntime = await ModelRuntime.create({
-    authPath: join(agentDir, "auth.json"),
-    modelsPath: join(agentDir, "models.json"),
-  });
-  if (options.modelProvider)
-    await modelRuntime.setRuntimeApiKey(options.modelProvider, options.apiKey);
-  const services = await createAgentSessionServices({
-    cwd,
-    agentDir,
-    modelRuntime,
-    resourceLoaderOptions: { systemPromptOverride: () => options.instructions },
-  });
+  const { modelRuntime, services } = await withRuntimeEnvironment(
+    options.environment ?? {},
+    async () => {
+      const modelRuntime = await ModelRuntime.create({
+        authPath: join(agentDir, "auth.json"),
+        modelsPath: join(agentDir, "models.json"),
+      });
+      if (options.modelProvider)
+        await modelRuntime.setRuntimeApiKey(options.modelProvider, options.apiKey);
+      const services = await createAgentSessionServices({
+        cwd,
+        agentDir,
+        modelRuntime,
+        resourceLoaderOptions: { systemPromptOverride: () => options.instructions },
+      });
+      return { modelRuntime, services };
+    },
+  );
   const skillDiagnostics = services.resourceLoader.getSkills().diagnostics;
   if (skillDiagnostics.length > 0)
     throw new Error(`Cannot start with ${skillDiagnostics.length} skill diagnostic(s)`);
@@ -81,6 +90,18 @@ export async function createSession(options: {
     sessionManager,
     ...(model ? { model } : {}),
     ...(options.reasoning ? { thinkingLevel: options.reasoning as never } : {}),
+    ...(options.environment
+      ? {
+          customTools: [
+            createBashTool(cwd, {
+              spawnHook: ({ env, ...context }) => ({
+                ...context,
+                env: { ...env, ...options.environment },
+              }),
+            }),
+          ],
+        }
+      : {}),
   });
   return {
     ...created,

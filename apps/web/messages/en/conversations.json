@@ -13,7 +13,6 @@
   "conversation_send": "Send",
   "conversation_sending": "Sending…",
   "conversation_send_error": "The message could not be sent. Try again.",
-  "conversation_auto_refresh": "Replies refresh automatically.",
   "conversation_one_new_message": "1 new message",
   "conversation_new_messages": "{count} new messages",
   "conversation_attachment_label": "Add attachment",

@@ -111,17 +111,18 @@ export async function run(args: readonly string[], transport: MessageTransport):
     return { attachmentId: invocation.attachmentId, path: invocation.output };
   }
   const { command } = invocation;
-  if (command === "send")
-    return formatMessageRead(
-      await transport.send(
-        invocation.target,
-        invocation.sendDraft ? undefined : await new Response(Bun.stdin.stream()).text(),
-        {
-          sendDraft: invocation.sendDraft,
-          continueAnyway: invocation.continueAnyway,
-        },
-      ),
+  if (command === "send") {
+    const result = await transport.send(
+      invocation.target,
+      invocation.sendDraft ? undefined : await new Response(Bun.stdin.stream()).text(),
+      {
+        sendDraft: invocation.sendDraft,
+        continueAnyway: invocation.continueAnyway,
+      },
     );
+    if (isHeldSend(result)) throw heldSendError(invocation.target);
+    return formatMessageRead(result);
+  }
   if (command === "check") return formatMessageCheck(await transport.check());
   return formatMessageRead(
     await transport.read(invocation.target, invocation.command === "read" ? invocation : undefined),
@@ -151,6 +152,18 @@ function formatMessageRead(result: unknown): string {
         }
       : {}),
   });
+}
+
+function isHeldSend(result: unknown): result is { accepted: false; sideEffectDecision: "hold" } {
+  if (!result || typeof result !== "object") return false;
+  const response = result as { accepted?: unknown; sideEffectDecision?: unknown };
+  return response.accepted === false && response.sideEffectDecision === "hold";
+}
+
+function heldSendError(target: string): Error {
+  return new Error(
+    `Message was saved as a draft. Next commands: coforge message send --target "${target}" to replace/update it; coforge message send --target "${target}" --send-draft to send it unchanged; coforge message send --target "${target}" --send-draft --anyway as the escape hatch.`,
+  );
 }
 
 function formatInboxCheck(result: unknown): string {

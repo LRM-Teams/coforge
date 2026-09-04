@@ -26,6 +26,7 @@ import type { CreateAgentInput } from "./agent.schemas";
 type ComputerOption = {
   id: string;
   machineId: string;
+  online?: boolean;
   runtimes: { provider: string }[];
   modelCatalogs: { provider: string; models: CodeAgentModelMetadata[] }[];
 };
@@ -58,18 +59,25 @@ export function AgentsContent({
   const [deferredStart, setDeferredStart] = useState(false);
   const [computerId, setComputerId] = useState(computers[0]?.id ?? "");
   const [provider, setProvider] = useState<CreateAgentInput["provider"]>("coforge");
+  const [modelProvider, setModelProvider] = useState("");
   const [modelKey, setModelKey] = useState("");
   const selectedComputer = computers.find((computer) => computer.id === computerId);
   const availableProviders = [
     "coforge",
-    ...(selectedComputer?.runtimes.some((runtime) => runtime.provider === "pi") ? ["pi"] : []),
     ...(selectedComputer?.runtimes.map((runtime) => runtime.provider) ?? []),
   ];
   const selectedCatalog = selectedComputer?.modelCatalogs.find(
     (catalog) => catalog.provider === provider,
   );
+  const modelProviders = [
+    ...new Set(
+      (selectedCatalog?.models ?? [])
+        .map((model) => model.modelProvider)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
   const selectedModel = selectedCatalog?.models.find(
-    (model) => modelOptionValue(model) === modelKey,
+    (model) => modelOptionValue(model) === modelKey && model.modelProvider === modelProvider,
   );
   const filteredAgents = agents.filter((agent) =>
     `${agent.displayName} ${agent.name}`.toLowerCase().includes(search.trim().toLowerCase()),
@@ -93,7 +101,7 @@ export function AgentsContent({
         description,
         provider,
         model: selectedModel?.id,
-        modelProvider: selectedModel?.modelProvider || undefined,
+        modelProvider: modelProvider || undefined,
         reasoning: String(form.get("reasoning") ?? "").trim(),
         computerId: String(form.get("computerId") ?? ""),
       });
@@ -196,7 +204,8 @@ export function AgentsContent({
                     onValueChange={(value) => {
                       if (value !== null) {
                         setComputerId(value);
-                        setProvider("pi");
+                        setProvider("coforge");
+                        setModelProvider("");
                         setModelKey("");
                       }
                     }}
@@ -207,7 +216,15 @@ export function AgentsContent({
                     <SelectContent>
                       {computers.map((computer) => (
                         <SelectItem key={computer.id} value={computer.id}>
-                          {computer.machineId}
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span className="truncate">{computer.machineId}</span>
+                            <span className="shrink-0 text-muted-foreground">
+                              ·{" "}
+                              {computer.online
+                                ? m.computer_status_online()
+                                : m.computer_status_offline()}
+                            </span>
+                          </span>
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -241,6 +258,7 @@ export function AgentsContent({
                     onValueChange={(value) => {
                       if (value !== null) {
                         setProvider(runtimeProvider(value));
+                        setModelProvider("");
                         setModelKey("");
                       }
                     }}
@@ -268,6 +286,41 @@ export function AgentsContent({
                     </SelectContent>
                   </Select>
                 </div>
+                {provider === "coforge" && (
+                  <div className="grid min-w-0 gap-1.5 text-sm">
+                    <span>
+                      {m.agent_form_model_provider()}{" "}
+                      <span className="sr-only">{m.agent_optional()}</span>
+                    </span>
+                    <Select
+                      name="modelProvider"
+                      value={modelProvider}
+                      onValueChange={(value) => {
+                        if (value !== null) {
+                          setModelProvider(value);
+                          setModelKey("");
+                        }
+                      }}
+                    >
+                      <SelectTrigger
+                        aria-label={m.agent_form_model_provider()}
+                        className="h-9 min-w-0"
+                      >
+                        <SelectValue>
+                          {() => modelProvider || m.agent_form_provider_default()}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">{m.agent_form_provider_default()}</SelectItem>
+                        {modelProviders.map((value) => (
+                          <SelectItem key={value} value={value}>
+                            {value}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div className="grid min-w-0 gap-1.5 text-sm">
                   <span>
                     {m.agent_form_model()} <span className="sr-only">{m.agent_optional()}</span>
@@ -293,13 +346,18 @@ export function AgentsContent({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="">{m.agent_form_provider_default()}</SelectItem>
-                      {selectedCatalog?.models.map((model) => (
-                        <SelectItem key={modelOptionValue(model)} value={modelOptionValue(model)}>
-                          {model.modelProvider
-                            ? `${model.modelProvider} / ${model.displayName}`
-                            : model.displayName}
-                        </SelectItem>
-                      ))}
+                      {selectedCatalog?.models
+                        .filter(
+                          (model) =>
+                            provider !== "coforge" || model.modelProvider === modelProvider,
+                        )
+                        .map((model) => (
+                          <SelectItem key={modelOptionValue(model)} value={modelOptionValue(model)}>
+                            {model.modelProvider
+                              ? `${model.modelProvider} / ${model.displayName}`
+                              : model.displayName}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>

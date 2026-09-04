@@ -56,7 +56,9 @@ function dependencies() {
             computer: {
               select: {
                 modelCatalogs: {
-                  where: { provider: config.provider },
+                  where: {
+                    provider: config.provider,
+                  },
                   select: { models: true },
                 },
               },

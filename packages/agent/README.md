@@ -1,8 +1,8 @@
 # coforge-agent
 
-`@coforge/agent` is CoForge's built-in code-agent runtime. It runs as an
-independent resident child process of `coforge-daemon` and currently uses the
-official Pi SDK.
+`@coforge/agent` is CoForge's built-in code-agent runtime. It is hosted by
+`coforge-daemon` in the daemon process (the package also exposes a standalone
+RPC runner for packaging and tests) and currently uses the official Pi SDK.
 
 The package owns Pi-specific SDK setup, extensions, and skills. It is bundled
 with the Daemon release and is not installed directly by users.

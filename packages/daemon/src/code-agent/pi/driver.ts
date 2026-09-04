@@ -90,6 +90,7 @@ export class CoforgeDriver extends PiDriver {
       reasoning: runtime.reasoning,
       apiKey: runtime.providerConfig.apiKey,
       instructions: COFORGE_AGENT_INSTRUCTIONS,
+      environment: agentEnvironment(options.environment),
     });
     return new AgentSessionImpl(session);
   }
