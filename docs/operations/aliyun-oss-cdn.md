@@ -1,7 +1,7 @@
 # 阿里云 OSS/CDN provisioning runbook
 
-状态：待 operator 执行；`files.coforge.cn` 与 `releases.coforge.cn` 尚不可按本文视为
-已上线
+状态：**staging 两个域名已上线**（见第 10 节的实际记录）；生产的
+`files.coforge.cn` 与 `releases.coforge.cn` 仍待 operator 执行，尚不可按本文视为已上线
 
 适用范围：两个 private content bucket、两个加速域名 `files.coforge.cn` 与
 `releases.coforge.cn`、最小权限 RAM、访问日志、验收与回滚
@@ -150,7 +150,8 @@ EdgeScript：域名边界本身就是 fail-closed 的，一个域名请求另一
 
    | 域名 | match | POP TTL | weight | client `Cache-Control` |
    | --- | --- | --- | --- | --- |
-   | `releases.coforge.cn` | `/channels.json` | `0`, Force Revalidation | `99` | `no-cache, must-revalidate` |
+   | `releases.coforge.cn` | `/latest` | `0`, Force Revalidation | `99` | `no-cache, must-revalidate` |
+   | `releases.coforge.cn` | `/*/manifest.json` | `0`, Force Revalidation | `99` | `no-cache, must-revalidate` |
    | `releases.coforge.cn` | `/` | `31536000` seconds | `80` | `public, max-age=31536000, immutable` |
    | `files.coforge.cn` | `/` | `0` | `80` | `private, no-store` |
 
@@ -248,3 +249,41 @@ consumer-visible hostname 重跑完整 gate；任何一项失败立即执行回�
 - [OSS RAM policies](https://www.alibabacloud.com/help/en/oss/user-guide/ram-policy/)
 - [OSS Block Public Access](https://www.alibabacloud.com/help/en/oss/how-to-prevent-the-creation-of-public-read-and-write-buckets)
 - [OSS access logging](https://www.alibabacloud.com/help/en/oss/user-guide/logging)
+
+## 10. Staging 实际配置记录（2026-09-04）
+
+生产环境尚未 provision。以下是 staging 已经执行并验证过的状态，供后续 operator 和
+Agent 参照，不要按前面的步骤重复创建。
+
+| | `files-staging.coforge.cn` | `releases-staging.coforge.cn` |
+| --- | --- | --- |
+| bucket | `coforge-files-staging` | `coforge-releases-staging` |
+| 业务类型 | 图片小文件 | 大文件下载 |
+| 加速区域 | 仅中国内地 | 仅中国内地 |
+| 私有 Bucket 回源 | 已开启（同账号 STS，只读） | 已开启（同账号 STS，只读） |
+| URL 鉴权 | **开启**，未签名即 `403` | **不开启**——安装与更新必须匿名可取 |
+| 证书 | `cert-d7orsd` | `cert-a4kn7` |
+| 协议重定向 | `HTTP -> HTTPS` | `HTTP -> HTTPS` |
+| Delete Cookie / Set-Cookie | 均已配置 | 均已配置 |
+
+两个 bucket 都是私有 + 阻止公共访问 + OSS 完全托管加密（AES256），华北 2（北京），
+标准存储、同城冗余。
+
+**⚠️ 两张证书都是免费个人测试证书，90 天，不自动续期：`cert-d7orsd` 于 2026-12-02
+到期，`cert-a4kn7` 于 2026-12-03 到期。** 到期后 staging 的 HTTPS 直接失效且没有告警。
+账号每年有 20 张免费额度，重新签发是免费的，但必须有人主动做。
+
+验证过的行为，可用 `curl -sI` 复现：
+
+- `https://files-staging.coforge.cn/` → `403` + `X-Tengine-Error: denied by req auth:
+  no url arg auth_key`（签名鉴权 fail closed）
+- `https://releases-staging.coforge.cn/latest` → 目前 `404` + `x-oss-cdn-auth: success`
+  （回源授权正常，只是还没有发布过任何产物）
+- 两个域名的 `http://` 均返回 `301` 到 `https://`
+
+**待补**：`releases-staging` 的缓存规则目前是 `/` 365 天 + `/channels.json` 0 秒，
+按第 5.3 节的新表需要改成 `/latest` 与 `/*/manifest.json` 走 0 秒。不改的话发布了新
+版本，客户端在缓存过期前读不到——而且失败是静默的。
+
+CDN real-time log delivery 与 OSS access logging 两项 staging 均**未启用**，属于已知
+缺口：出事时没有取证能力。
