@@ -2,20 +2,18 @@ import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { installCommands } from "@/features/install/install-commands";
 import { m } from "@/paraglide/messages";
 
 type OperatingSystem = "macos-linux" | "windows";
 
-const commands: Record<OperatingSystem, string> = {
-  "macos-linux": "curl -fsSL https://coforge.cn/computer/install.sh | sh",
-  windows: "irm https://coforge.cn/computer/install.ps1 | iex",
-};
-
-/** The per-OS command that installs CoForge Computer on the User's machine. */
-export function ComputerInstallCommand() {
+/** The per-OS command that installs CoForge Computer on the User's machine, rooted at the
+ * deployment they are signed in to rather than at a fixed host. */
+export function ComputerInstallCommand({ installOrigin }: { installOrigin: string }) {
   const [operatingSystem, setOperatingSystem] = useState<OperatingSystem>("macos-linux");
   const [copied, setCopied] = useState(false);
-  const command = commands[operatingSystem];
+  const commands = installCommands(installOrigin);
+  const command = operatingSystem === "windows" ? commands.windows : commands.posix;
 
   async function copyCommand() {
     await navigator.clipboard.writeText(command);

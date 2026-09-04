@@ -220,18 +220,23 @@ read the other's bucket, so no origin rule can fall back from one class to the
 other. A CDN path maps one to one onto its object key; no business prefix is
 rewritten away. Neither domain accepts or forwards application login cookies.
 
-The public installation entry points are served from the main site:
+The public installation entry points are served by the site itself, at a path
+that is the same in every environment:
 
 ```text
-https://coforge.cn/computer/install.sh
-https://coforge.cn/computer/install.ps1
+https://coforge.cn/computer/install.sh                 https://coforge.cn/computer/install.ps1
+https://staging.coforge.cn/computer/install.sh         https://staging.coforge.cn/computer/install.ps1
 ```
 
-These stable URLs are the user-facing bootstrap boundary and must route to the
-corresponding release installer under the CDN release feed. They must not
-expose an OSS bucket hostname or replace the immutable release-set and payload
-verification performed by the installer. The web UI should link to these main-
-site entry points rather than directly to the CDN or OSS origin.
+Each deployment serves its own pair and routes them to the release feed that
+deployment trusts, because a `curl … | sh` taken from staging must install the
+staging release set rather than the production one. The web UI therefore
+renders the command from the origin the visitor already reached; it must not
+carry a fixed host, which would hand every staging visitor the production
+command. Whichever origin serves it, the entry point must not expose an OSS
+bucket hostname or replace the immutable release-set and payload verification
+performed by the installer, and the web UI must not link to a CDN or OSS origin
+directly.
 
 Users never depend on or discover the OSS bucket URL. Immutable release objects
 use a long immutable cache policy; `channels.json` uses revalidation/no-cache. A

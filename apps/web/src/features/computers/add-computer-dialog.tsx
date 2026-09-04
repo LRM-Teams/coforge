@@ -19,9 +19,11 @@ type ComputerType = "local" | "cloud";
 export function AddComputerDialog({
   open,
   onOpenChange,
+  installOrigin,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  installOrigin: string;
 }) {
   const [computerType, setComputerType] = useState<ComputerType>("local");
   const [step, setStep] = useState<"choose" | "install">("choose");
@@ -74,7 +76,7 @@ export function AddComputerDialog({
               />
             </div>
           ) : (
-            <ComputerInstallCommand />
+            <ComputerInstallCommand installOrigin={installOrigin} />
           )}
 
           <div className="flex items-center justify-end gap-3 border-t px-6 py-4 sm:px-8">
