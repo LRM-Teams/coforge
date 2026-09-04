@@ -41,7 +41,7 @@ services:
       AUTHING_ISSUER: https://coforge.authing.cn/oidc
       AUTHING_REDIRECT_URI: https://staging.coforge.cn/auth/callback
       COFORGE_SESSION_SECRET_FILE: /run/secrets/coforge_session_secret
-      COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY_FILE: /run/secrets/coforge_agent_runtime_credential_key
+      COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY_FILE: /run/secrets/coforge_agent_credential_encryption_key
       COFORGE_CENTRIFUGO_API_URL: http://centrifugo:8000/api
       COFORGE_CENTRIFUGO_API_KEY: ${COFORGE_CENTRIFUGO_API_KEY:?deploy script writes .env}
       COFORGE_CENTRIFUGO_PROXY_SECRET: ${COFORGE_CENTRIFUGO_PROXY_SECRET:?deploy script writes .env}
@@ -63,7 +63,7 @@ services:
         uid: "1000"
         gid: "1000"
         mode: 0400
-      - source: coforge_agent_runtime_credential_key
+      - source: coforge_agent_credential_encryption_key
         uid: "1000"
         gid: "1000"
         mode: 0400
@@ -199,8 +199,8 @@ secrets:
     environment: AUTHING_APP_SECRET
   coforge_session_secret:
     environment: COFORGE_SESSION_SECRET
-  coforge_agent_runtime_credential_key:
-    environment: COFORGE_AGENT_RUNTIME_CREDENTIAL_KEY
+  coforge_agent_credential_encryption_key:
+    environment: COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY
   otel_traces_endpoint:
     file: ./secrets/otel_traces_endpoint
   redis_password:
