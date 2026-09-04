@@ -281,9 +281,20 @@ Agent 参照，不要按前面的步骤重复创建。
   （回源授权正常，只是还没有发布过任何产物）
 - 两个域名的 `http://` 均返回 `301` 到 `https://`
 
-**待补**：`releases-staging` 的缓存规则目前是 `/` 365 天 + `/channels.json` 0 秒，
-按第 5.3 节的新表需要改成 `/latest` 与 `/*/manifest.json` 走 0 秒。不改的话发布了新
-版本，客户端在缓存过期前读不到——而且失败是静默的。
+`releases-staging` 的缓存规则已按新的 feed 布局改好（2026-09-05）：
+
+| 匹配 | 类型 | 过期 | 强制回源验证 | 权重 |
+| --- | --- | --- | --- | --- |
+| `json` | 文件后缀名 | 0 秒 | 开启 | 99 |
+| `/latest` | 目录 | 0 秒 | 开启 | 99 |
+| `/` | 目录 | 365 天 | 关闭 | 80 |
+
+`manifest.json` 用后缀匹配而不是 `/*/manifest.json`，因为阿里云的「目录」类型不支持
+通配符；feed 里只有 manifest 是 `.json`，覆盖范围正好。权重 99 压过全目录那条，否则
+`latest` 会被 365 天规则盖住，发布了新版本客户端读不到，而且失败是静默的。
+
+`<version>/<target>/coforge-computer.sha256` 落在 365 天那条规则下，这是对的：sidecar
+和它描述的二进制一样按版本不可变。
 
 CDN real-time log delivery 与 OSS access logging 两项 staging 均**未启用**，属于已知
 缺口：出事时没有取证能力。
