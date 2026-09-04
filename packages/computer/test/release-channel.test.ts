@@ -68,3 +68,32 @@ test("the build script always sets the release variables so they inline", async 
   expect(build.indexOf("COFORGE_RELEASE_TRUSTED_KEYS=")).toBeLessThan(build.indexOf("bun build"));
   expect(build).toContain("--env=COFORGE_RELEASE_*");
 });
+
+/** The trusted key set is checked in rather than held only in CI configuration, so that
+ * changing who may sign a release is a reviewed commit with a history, not a settings edit.
+ * These files are what the release workflow feeds to COFORGE_RELEASE_TRUSTED_KEYS, so a
+ * malformed one must fail here rather than at build time. */
+test.each(["staging", "production"])("the checked-in %s trust set parses", async (channel) => {
+  const path = new URL(`../../../release/trusted-keys/${channel}.json`, import.meta.url);
+  const raw = await Bun.file(path).text();
+
+  const keys = parseReleaseTrustedKeys(raw);
+
+  for (const keyId of Object.keys(keys)) {
+    expect(keyId).toStartWith(`coforge-release-${channel === "production" ? "prod" : channel}`);
+  }
+});
+
+test("the staging trust set carries exactly the provisioned key", async () => {
+  const path = new URL("../../../release/trusted-keys/staging.json", import.meta.url);
+
+  const keys = parseReleaseTrustedKeys(await Bun.file(path).text());
+
+  expect(Object.keys(keys)).toEqual(["coforge-release-staging-1"]);
+});
+
+test("production has no signing key yet, so a production build trusts nothing", async () => {
+  const path = new URL("../../../release/trusted-keys/production.json", import.meta.url);
+
+  expect(parseReleaseTrustedKeys(await Bun.file(path).text())).toEqual({});
+});

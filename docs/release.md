@@ -240,9 +240,31 @@ fails publication.
 The updater ships a trusted release verification key and refuses an
 installation bundle, component manifest, release set, or channel snapshot whose
 signature or digest does not verify. After unpacking, it also verifies both
-process payloads against the selected component identities. The signing format,
-protected key custody, rotation, revocation, and first-install trust bootstrap
-require a separate reviewed implementation.
+process payloads against the selected component identities. Revocation and the
+first-install trust bootstrap still require a separate reviewed implementation;
+the signing format, key custody, and rotation are recorded below.
+
+Envelopes are `{schema_version, key_id, payload, signature}`, where `payload` is
+base64 and `signature` covers the bytes `coforge-release-v1\n<key_id>\n<payload>`.
+Ed25519 and ECDSA P-256 are both accepted — P-256 because Alibaba Cloud KMS
+offers no Ed25519 key spec, and the verifier's algorithm support is compiled into
+every shipped binary, so a production key held in KMS has to be possible before
+any public key ships.
+
+A build trusts exactly the key set compiled into it. The sets live in
+`release/trusted-keys/<channel>.json`, checked in so that changing who may sign a
+release is a reviewed commit with a history rather than a CI settings edit; the
+release workflow feeds the file for its channel to `COFORGE_RELEASE_TRUSTED_KEYS`
+and the matching feed to `COFORGE_RELEASE_FEED_URL`. Staging and production are
+therefore different artifacts by construction, and a staging build cannot verify
+a production signature. Private keys live only in the signing environment's
+secret store and never on a workstation.
+
+Rotation relies on `trustedKeys` being a map: add the new `key_id` alongside the
+old one, sign a release with the **old** key so existing installations accept the
+version that carries both, wait for that version to roll out, then sign with the
+new key and retire the old entry in a later release. Removing a key before its
+successor has rolled out strands every installation that has not upgraded.
 The `curl | bash` form is a convenience, not independent proof that its mutable
 script was trustworthy; the release must also offer a download-review-execute
 path and an exact immutable release-set selector.
