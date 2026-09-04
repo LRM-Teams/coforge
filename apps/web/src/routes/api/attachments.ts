@@ -1,10 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { z } from "zod";
 import type { PrismaClient } from "../../../generated/client";
 import { requireBrowserUser } from "#/server/auth/require-user.server";
 import { storeAttachment } from "#/server/attachments/attachment.server";
 import { getDatabaseClient } from "#/server/db/client.server";
 import { toPublicServerError } from "#/server/errors/public-error.server";
 import { AppError, isAppError, type AppErrorCode } from "#/lib/app-error";
+
+const attachmentUploadInputSchema = z.object({
+  conversationId: z.string().min(1),
+  file: z.custom<File>(isFile),
+});
 
 export const Route = createFileRoute("/api/attachments")({
   server: {
@@ -40,10 +46,17 @@ export async function handleAttachmentUpload(
     }
     const conversationId = form.get("conversationId");
     const file = form.get("file");
-    if (typeof conversationId !== "string" || !isFile(file)) throw new AppError("INVALID_INPUT");
+    const input = attachmentUploadInputSchema.safeParse({ conversationId, file });
+    if (!input.success) throw new AppError("INVALID_INPUT");
     const db = dependencies.database();
     if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
-    return Response.json(await dependencies.store(db, { userId: user.id, conversationId, file }));
+    return Response.json(
+      await dependencies.store(db, {
+        userId: user.id,
+        conversationId: input.data.conversationId,
+        file: input.data.file,
+      }),
+    );
   } catch (error) {
     const publicError = toPublicServerError(error);
     if (!isAppError(publicError)) throw publicError;
@@ -57,7 +70,7 @@ export async function handleAttachmentUpload(
   }
 }
 
-function isFile(value: FormDataEntryValue | null): value is File {
+function isFile(value: unknown): value is File {
   return (
     typeof value === "object" &&
     value !== null &&

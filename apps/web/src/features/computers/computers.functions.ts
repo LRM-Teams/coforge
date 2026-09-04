@@ -1,6 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import type { CodeAgentModelMetadata, RuntimeProvider } from "@coforge/protocol";
+import {
+  readUsageInputSchema,
+  scanUsageInputSchema,
+  setRuntimeVisibilityInputSchema,
+} from "./computer.schemas";
 import { requireBrowserUser } from "../../server/auth/require-user.server";
 import { getDatabaseClient } from "../../server/db/client.server";
 import {
@@ -20,7 +25,7 @@ function runtimeVisibility() {
 }
 
 export const scanUsage = createServerFn({ method: "POST" })
-  .validator((data: { computerId: string; provider: RuntimeProvider }) => data)
+  .validator(scanUsageInputSchema)
   .handler(async ({ data }) => {
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
     const { db, visibility } = runtimeVisibility();
@@ -38,7 +43,7 @@ export const scanUsage = createServerFn({ method: "POST" })
   });
 
 export const readUsage = createServerFn({ method: "GET" })
-  .validator((data: { computerId: string; provider: RuntimeProvider }) => data)
+  .validator(readUsageInputSchema)
   .handler(async ({ data }) => {
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
     const { db, visibility } = runtimeVisibility();
@@ -109,15 +114,7 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
 });
 
 export const setRuntimeVisibility = createServerFn({ method: "POST" })
-  .validator((data: unknown) => {
-    if (!data || typeof data !== "object" || Array.isArray(data))
-      throw new Error("runtime visibility input is required");
-    const runtimeId = Reflect.get(data, "runtimeId");
-    const isPublic = Reflect.get(data, "isPublic");
-    if (typeof runtimeId !== "string" || !runtimeId || typeof isPublic !== "boolean")
-      throw new Error("runtime visibility input is invalid");
-    return { runtimeId, isPublic };
-  })
+  .validator(setRuntimeVisibilityInputSchema)
   .handler(async ({ data }) => {
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
     const { db, visibility } = runtimeVisibility();

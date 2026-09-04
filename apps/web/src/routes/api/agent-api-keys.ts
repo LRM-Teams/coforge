@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { z } from "zod";
 import {
   createAgentApiKey,
   findAgentApiKey,
@@ -14,6 +15,12 @@ import {
   readOptionalAgentRuntimeCredentialEncryptionKey,
 } from "#/server/agents/agent-runtime-credentials.server";
 import { PrismaAgentRuntimeCredentialRepository } from "#/server/db/repositories/agent-runtime-credential.repositories.server";
+
+const createAgentApiKeyInputSchema = z.object({
+  agentId: z.string().min(1),
+  workspaceId: z.string().min(1),
+});
+const revokeAgentApiKeyInputSchema = z.object({ apiKey: z.string().min(1) });
 
 export const Route = createFileRoute("/api/agent-api-keys")({
   server: {
@@ -33,22 +40,22 @@ export const Route = createFileRoute("/api/agent-api-keys")({
         } catch {
           return Response.json({ error: "unauthorized" }, { status: 401 });
         }
-        let body: { agentId?: unknown; workspaceId?: unknown };
+        let body: unknown;
         try {
           body = await request.json();
         } catch {
           return Response.json({ error: "bad request" }, { status: 400 });
         }
-        if (typeof body.agentId !== "string" || typeof body.workspaceId !== "string")
-          return Response.json({ error: "bad request" }, { status: 400 });
+        const input = createAgentApiKeyInputSchema.safeParse(body);
+        if (!input.success) return Response.json({ error: "bad request" }, { status: 400 });
         const db = getDatabaseClient();
         if (!db) return Response.json({ error: "service unavailable" }, { status: 503 });
         const agent = await db.agent.findFirst({
           where: {
-            id: body.agentId,
-            workspaceId: body.workspaceId,
+            id: input.data.agentId,
+            workspaceId: input.data.workspaceId,
             computerId: principal.computerId,
-            owner: { memberships: { some: { workspaceId: body.workspaceId } } },
+            owner: { memberships: { some: { workspaceId: input.data.workspaceId } } },
             workspace: {
               members: { some: { userId: principal.userId } },
               computers: { some: { computerId: principal.computerId } },
@@ -56,7 +63,7 @@ export const Route = createFileRoute("/api/agent-api-keys")({
           },
           select: { id: true, workspaceId: true, ownerId: true, runtimeConfig: true },
         });
-        if (principal.workspaceId !== body.workspaceId || !agent)
+        if (principal.workspaceId !== input.data.workspaceId || !agent)
           return Response.json({ error: "forbidden" }, { status: 403 });
         const providerConfig = await new AgentRuntimeCredentials(
           new PrismaAgentRuntimeCredentialRepository(db),
@@ -89,20 +96,20 @@ export const Route = createFileRoute("/api/agent-api-keys")({
         } catch {
           return Response.json({ error: "unauthorized" }, { status: 401 });
         }
-        let body: { apiKey?: unknown };
+        let body: unknown;
         try {
           body = await request.json();
         } catch {
           return Response.json({ error: "bad request" }, { status: 400 });
         }
-        if (typeof body.apiKey !== "string")
-          return Response.json({ error: "bad request" }, { status: 400 });
+        const input = revokeAgentApiKeyInputSchema.safeParse(body);
+        if (!input.success) return Response.json({ error: "bad request" }, { status: 400 });
         const db = getDatabaseClient();
         if (!db) return Response.json({ error: "service unavailable" }, { status: 503 });
         const repository = new PrismaAgentApiKeyRepository(db);
         let apiKey;
         try {
-          apiKey = await findAgentApiKey(body.apiKey, repository);
+          apiKey = await findAgentApiKey(input.data.apiKey, repository);
         } catch {
           return Response.json({ error: "unauthorized" }, { status: 401 });
         }

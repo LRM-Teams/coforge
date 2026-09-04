@@ -1,7 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
-import { createAgentInputSchema } from "./agent.schemas";
+import {
+  agentIdSchema,
+  createAgentInputSchema,
+  saveAgentRuntimeCredentialInputSchema,
+} from "./agent.schemas";
 import { getDatabaseClient } from "../../server/db/client.server";
 import {
   PrismaAgentRepository,
@@ -121,10 +125,7 @@ export const getAgentStatusConnectionToken = createServerFn({ method: "GET" }).h
 });
 
 export const retryAgentStart = createServerFn({ method: "POST" })
-  .validator((agentId: unknown) => {
-    if (typeof agentId !== "string" || !agentId) throw new Error("Agent id is required");
-    return agentId;
-  })
+  .validator(agentIdSchema)
   .handler(async ({ data: agentId }) => {
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
     const { collection, db } = dependencies();
@@ -146,10 +147,7 @@ export const createAgent = createServerFn({ method: "POST" })
   });
 
 export const getAgentDetail = createServerFn({ method: "GET" })
-  .validator((agentId: unknown) => {
-    if (typeof agentId !== "string" || !agentId) throw new Error("Agent id is required");
-    return agentId;
-  })
+  .validator(agentIdSchema)
   .handler(async ({ data: agentId }) => {
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
     const db = getDatabaseClient();
@@ -191,15 +189,7 @@ export const getAgentDetail = createServerFn({ method: "GET" })
   });
 
 export const saveAgentRuntimeCredential = createServerFn({ method: "POST" })
-  .validator((data: unknown) => {
-    if (!data || typeof data !== "object" || Array.isArray(data))
-      throw new Error("Agent runtime credential input is required");
-    const agentId = Reflect.get(data, "agentId");
-    const apiKey = Reflect.get(data, "apiKey");
-    if (typeof agentId !== "string" || !agentId || typeof apiKey !== "string")
-      throw new Error("Agent runtime credential input is invalid");
-    return { agentId, apiKey };
-  })
+  .validator(saveAgentRuntimeCredentialInputSchema)
   .handler(async ({ data }) => {
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
     const db = getDatabaseClient();
@@ -238,10 +228,7 @@ export const saveAgentRuntimeCredential = createServerFn({ method: "POST" })
   });
 
 export const deleteAgentRuntimeCredential = createServerFn({ method: "POST" })
-  .validator((agentId: unknown) => {
-    if (typeof agentId !== "string" || !agentId) throw new Error("Agent id is required");
-    return agentId;
-  })
+  .validator(agentIdSchema)
   .handler(async ({ data: agentId }) => {
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
     const db = getDatabaseClient();
