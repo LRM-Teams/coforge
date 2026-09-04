@@ -301,6 +301,36 @@ describe("staging Authing runtime injection", () => {
   });
 });
 
+describe("staging attachment persistence", () => {
+  test("attachment bytes are written to a named volume rather than the container layer", async () => {
+    const compose = await Bun.file(
+      new URL("../../infra/staging/docker-compose.yml", import.meta.url),
+    ).text();
+    const webStart = compose.indexOf("\n  web:\n");
+    const centrifugoStart = compose.indexOf("\n  centrifugo:\n");
+    const webBlock = compose.slice(webStart, centrifugoStart);
+
+    // Without both halves the app falls back to $PWD/.data/attachments inside the
+    // container, and every deployment silently discards what users uploaded.
+    expect(webBlock).toContain("COFORGE_ATTACHMENT_STORAGE_DIR: /data/attachments");
+    expect(webBlock).toContain("- coforge_staging_attachments:/data/attachments");
+    expect(compose).toContain("name: coforge_staging_attachments");
+  });
+
+  test("the image owns the mount point so the volume is not created root-owned", async () => {
+    const dockerfile = await Bun.file(
+      new URL("../../apps/web/Dockerfile", import.meta.url),
+    ).text();
+    const runtimeStage = dockerfile.slice(dockerfile.lastIndexOf("FROM "));
+
+    const mountPoint = runtimeStage.indexOf("mkdir -p /data/attachments");
+    const dropPrivileges = runtimeStage.indexOf("USER bun");
+    expect(mountPoint).toBeGreaterThanOrEqual(0);
+    expect(runtimeStage).toContain("chown -R bun:bun /data");
+    expect(mountPoint).toBeLessThan(dropPrivileges);
+  });
+});
+
 test("authenticates and declares the Computer-directed Daemon channel in Centrifugo", async () => {
   for (const [path, connectEndpoint] of [
     [
