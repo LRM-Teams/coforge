@@ -36,6 +36,7 @@ import {
   DaemonRuntime,
   InMemoryDaemonCredentialStore,
   PiDriver,
+  defaultCentrifugeWorkspaceClientFactory,
   startAgentProxy,
 } from "../../../packages/daemon";
 
@@ -136,6 +137,12 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
   const credentials = new InMemoryDaemonCredentialStore();
   await credentials.save(workspaceId, registration.computerId, registration.daemonApiKey);
   let runtime: DaemonRuntime | undefined;
+  let daemonClient: ReturnType<typeof defaultCentrifugeWorkspaceClientFactory> | undefined;
+  let daemonConnectionCount = 0;
+  let resolveDaemonDisconnected: (() => void) | undefined;
+  let resolveDaemonReconnected: (() => void) | undefined;
+  const daemonDisconnected = new Promise<void>((resolve) => (resolveDaemonDisconnected = resolve));
+  const daemonReconnected = new Promise<void>((resolve) => (resolveDaemonReconnected = resolve));
   const proxy = startAgentProxy({
     runtime: {
       agentMessage: (...args) => runtime!.agentMessage(...args),
@@ -162,7 +169,22 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
         ],
       }),
     credentials,
-    { create: () => new DaemonConnection("ws://127.0.0.1:8000/connection/websocket") },
+    {
+      create: () =>
+        new DaemonConnection(
+          "ws://127.0.0.1:8000/connection/websocket",
+          (endpoint, token, data) => {
+            const client = defaultCentrifugeWorkspaceClientFactory(endpoint, token, data);
+            daemonClient = client;
+            client.on("connected", () => {
+              daemonConnectionCount++;
+              if (daemonConnectionCount === 2) setTimeout(() => resolveDaemonReconnected?.(), 0);
+            });
+            client.on("disconnected", () => resolveDaemonDisconnected?.());
+            return client;
+          },
+        ),
+    },
     proxy,
     async () => ({ runtimes: [], catalogs: [] }),
     daemonStateDirectory,
@@ -355,6 +377,51 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     expect(
       firstLaunchActivity.every(({ computerId }) => computerId === registration.computerId),
     ).toBe(true);
+
+    daemonClient!.disconnect();
+    await daemonDisconnected;
+    const offlineMessage = await sender.execute({
+      requestId: crypto.randomUUID(),
+      workspaceId,
+      conversationId: opened.conversationId,
+      senderMemberId: opened.senderMemberId,
+      senderUserId: DEV_BROWSER_USER.id,
+      body: "E2E offline recovery message",
+    });
+    daemonClient!.connect();
+    await daemonReconnected;
+    const recoveryCompletionPath = join(agentWorkspace, ".e2e-agent-recovery-complete.json");
+    await waitFor(
+      async () => Bun.file(recoveryCompletionPath).exists() || Bun.file(errorPath).exists(),
+    );
+    if (await Bun.file(errorPath).exists()) throw new Error(await Bun.file(errorPath).text());
+    expect(await Bun.file(recoveryCompletionPath).json()).toEqual({
+      pid: firstProcesses.directPid,
+      recoveredBodies: ["E2E offline recovery message"],
+      replyAccepted: true,
+    });
+    expect(await readProcesses(processesPath)).toEqual(firstProcesses);
+    expect(runtime.agentProcessManager.size).toBe(1);
+    expect(
+      (await db.message.findMany({ orderBy: { sequence: "asc" } })).map(({ body }) => body),
+    ).toEqual([
+      "E2E User message",
+      "E2E Agent reply",
+      "E2E offline recovery message",
+      "E2E recovery reply",
+    ]);
+    expect(
+      (
+        await db.conversationMember.findUniqueOrThrow({
+          where: {
+            conversationId_agentId: {
+              conversationId: opened.conversationId,
+              agentId: created.agent.id,
+            },
+          },
+        })
+      ).agentReadThroughSequence,
+    ).toBe(offlineMessage.sequence);
 
     await runtime.stopAgent(created.agent.id);
     await waitFor(

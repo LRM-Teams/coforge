@@ -87,6 +87,34 @@ async function handle(command: {
       }
       return;
     }
+    if (command.message?.startsWith("[CoForge recovery notice:") === true) {
+      try {
+        const checked = await call("check", "message-recovery-check");
+        const target = checked.summaries?.[0]?.target;
+        if (!target) throw new Error("recovery attention target missing");
+        const recoveredBodies = checked.messages?.map(({ body }) => body) ?? [];
+        if (!recoveredBodies.includes("E2E offline recovery message"))
+          throw new Error("canonical offline message missing from recovery check");
+        const held = await call("send", "agent-recovery-reply", target, "E2E recovery reply");
+        if (held.accepted !== false || held.sideEffectDecision !== "hold")
+          throw new Error("recovery reply did not observe freshness hold");
+        const reply = await call("send", "agent-recovery-reply", target, undefined, {
+          sendDraft: true,
+        });
+        await Bun.write(
+          ".e2e-agent-recovery-complete.json",
+          JSON.stringify({
+            pid: process.pid,
+            recoveredBodies,
+            replyAccepted: reply.accepted,
+          }),
+        );
+        write({ type: "agent_settled" });
+      } catch (error) {
+        await fail(error, "Agent recovery E2E failed");
+      }
+      return;
+    }
     if (command.message?.startsWith("[CoForge inbox notice:") === true) {
       try {
         const checked = await callInbox("check", "message-inbox-check");
@@ -97,6 +125,8 @@ async function handle(command: {
         const message = held.messages?.find(({ body }) => body === "E2E User message");
         if (held.accepted !== false || held.sideEffectDecision !== "hold" || !message)
           throw new Error("Agent send did not hold with canonical User context");
+        const read = await call("read", "message-read-after-hold", target);
+        if (!read.accepted) throw new Error("Agent could not advance the canonical read boundary");
         let attachmentType: MIMEType;
         try {
           attachmentType = new MIMEType(message.attachment?.contentType ?? "");
