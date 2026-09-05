@@ -28,6 +28,7 @@ message DaemonRuntimeReadyRequest {
   string computer_id = 4;
   string worker_instance_id = 5;
   int64 started_at = 6;
+  repeated string running_agent_ids = 7;
 }
 
 message DaemonRuntimeCodeAgentsUpdateRequest {

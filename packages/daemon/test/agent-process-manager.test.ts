@@ -66,11 +66,13 @@ describe("AgentProcessManager", () => {
     expect(manager.status("agent-1")).toBe("active");
     expect(manager.status("agent-2")).toBe("inactive");
     expect(manager.activeAgentIds()).toEqual(["agent-1"]);
+    expect(manager.runningAgentIds()).toEqual(["agent-1"]);
     await manager.stop("agent-1");
     expect(session.disposeCalls).toBe(1);
     expect(manager.size).toBe(0);
     expect(manager.status("agent-1")).toBe("inactive");
     expect(manager.activeAgentIds()).toEqual([]);
+    expect(manager.runningAgentIds()).toEqual([]);
   });
 
   test("retains provider configuration for the driver launch", async () => {
@@ -138,6 +140,8 @@ describe("AgentProcessManager", () => {
 
     expect(manager.status("agent-1")).toBe("active");
     expect(manager.restartConfig("agent-1")).toEqual({ config, sessionId: undefined });
+    expect(manager.activeAgentIds()).toEqual(["agent-1"]);
+    expect(manager.runningAgentIds()).toEqual([]);
     await manager.stop("agent-1");
     expect(manager.status("agent-1")).toBe("inactive");
     expect(manager.restartConfig("agent-1")).toBeUndefined();

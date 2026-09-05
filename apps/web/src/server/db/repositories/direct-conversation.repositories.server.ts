@@ -38,11 +38,15 @@ export type AgentRecoveryContext = {
     sequence: number;
     target: string;
     latestSender: string;
+    body: string;
   }>;
   unreadSummary: Readonly<Record<string, number>>;
 };
 
+export type PendingAgentDelivery = AgentRecoveryContext["resumeMessages"][number];
+
 const AGENT_RECOVERY_MESSAGE_LIMIT = 100;
+const PUBLIC_USERNAME_TARGET = /^@[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?$/;
 
 type DirectConversationMessageRow = Prisma.MessageGetPayload<{
   include: { sender: { include: { agent: true } }; attachment: true };
@@ -76,6 +80,7 @@ export type DirectConversationRepository = {
   }>;
   receiveDeliveryAck?(input: {
     workspaceId: string;
+    computerId: string;
     agentId: string;
     deliveryId?: string;
     messageId: string;
@@ -110,6 +115,16 @@ export type DirectConversationRepository = {
     afterSequence?: number,
   ): ReturnType<NonNullable<DirectConversationRepository["readMessages"]>>;
   readAgentRecoveryContext?(workspaceId: string, agentId: string): Promise<AgentRecoveryContext>;
+  readPendingAgentDeliveries?(
+    workspaceId: string,
+    agentId: string,
+  ): Promise<PendingAgentDelivery[]>;
+  advanceAgentReadThrough?(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+    seenUpToSequence: number,
+  ): Promise<number>;
   sendAgentMessage?(
     conversationId: string,
     agentId: string,
@@ -351,6 +366,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
 
   async receiveDeliveryAck(input: {
     workspaceId: string;
+    computerId: string;
     agentId: string;
     deliveryId: string;
     messageId: string;
@@ -363,10 +379,47 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         agentId: input.agentId,
         messageId: input.messageId,
         sequence: input.sequence,
+        agent: { computerId: input.computerId },
       },
       data: { receivedAt: new Date() },
     });
     if (result.count !== 1) throw new Error("delivery acknowledgement is not authorized");
+  }
+
+  async readPendingAgentDeliveries(
+    workspaceId: string,
+    agentId: string,
+  ): Promise<PendingAgentDelivery[]> {
+    const deliveries = await this.db.agentMessageDelivery.findMany({
+      where: { workspaceId, agentId, receivedAt: null },
+      orderBy: [{ createdAt: "asc" }, { deliveryId: "asc" }],
+      select: {
+        deliveryId: true,
+        messageId: true,
+        conversationId: true,
+        sequence: true,
+        message: {
+          select: {
+            body: true,
+            sender: { select: { user: { select: { username: true } } } },
+          },
+        },
+      },
+    });
+    return deliveries.map((delivery) => {
+      const target = `@${delivery.message.sender.user?.username ?? ""}`;
+      if (!PUBLIC_USERNAME_TARGET.test(target))
+        throw new Error("pending Agent delivery sender must be a public @username");
+      return {
+        messageId: delivery.messageId,
+        deliveryId: delivery.deliveryId,
+        conversationId: delivery.conversationId,
+        sequence: delivery.sequence,
+        target,
+        latestSender: target,
+        body: delivery.message.body,
+      };
+    });
   }
 
   async readMessages(
@@ -534,6 +587,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             select: {
               id: true,
               sequence: true,
+              body: true,
               deliveries: { where: { agentId }, select: { deliveryId: true }, take: 1 },
             },
           });
@@ -547,6 +601,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
               sequence: message.sequence,
               target,
               latestSender: target,
+              body: message.body,
             });
           }
         }
@@ -554,6 +609,33 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       },
       { isolationLevel: "RepeatableRead" },
     );
+  }
+
+  async advanceAgentReadThrough(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+    seenUpToSequence: number,
+  ): Promise<number> {
+    const userId = await this.userIdForUsername(target);
+    const conversation = await this.getOrCreateUserAgent(workspaceId, userId, agentId);
+    const latest = await this.db.message.findFirst({
+      where: { conversationId: conversation.id },
+      orderBy: { sequence: "desc" },
+      select: { sequence: true },
+    });
+    const bounded = Math.min(seenUpToSequence, latest?.sequence ?? 0);
+    if (bounded)
+      await this.db.conversationMember.updateMany({
+        where: {
+          conversationId: conversation.id,
+          workspaceId,
+          agentId,
+          agentReadThroughSequence: { lt: bounded },
+        },
+        data: { agentReadThroughSequence: bounded },
+      });
+    return bounded;
   }
 
   async readPendingAgentContext(

@@ -149,6 +149,7 @@ test("Agent start preserves its runtime provider config", () => {
       sequence: 3,
       target: "@alice",
       latestSender: "@alice",
+      body: "wake body",
     },
     resumeMessages: [
       {
@@ -158,6 +159,7 @@ test("Agent start preserves its runtime provider config", () => {
         sequence: 4,
         target: "@alice",
         latestSender: "@alice",
+        body: "resume body",
       },
     ],
     unreadSummary: { "@alice": 12 },
@@ -189,6 +191,7 @@ test("Agent recovery codec rejects unsafe sequences and unread counts", () => {
           sequence: Number.MAX_SAFE_INTEGER + 1,
           target: "@alice",
           latestSender: "@alice",
+          body: "body",
         },
       ],
     }),
@@ -237,6 +240,7 @@ test("Agent recovery codec limits resume messages to 100 on encode and decode", 
     sequence: index + 1,
     target: "@alice",
     latestSender: "@alice",
+    body: "body",
   }));
 
   expect(() => encodeAgentStartIntent({ ...base, resumeMessages })).toThrow("100");
@@ -261,6 +265,7 @@ test("Agent recovery decode rejects duplicate message and delivery IDs across wa
     sequence: 1n,
     target: "@alice",
     latestSender: "@alice",
+    body: "body",
   };
   for (const duplicate of [
     { ...recoveryMessage, deliveryId: "delivery-2", sequence: 2n },
@@ -292,6 +297,7 @@ test("Agent recovery encode rejects duplicate message and delivery IDs across wa
     sequence: 1,
     target: "@alice",
     latestSender: "@alice",
+    body: "body",
   };
   const base = {
     protocolMajor: 1,

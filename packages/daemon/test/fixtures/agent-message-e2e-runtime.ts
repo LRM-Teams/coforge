@@ -9,6 +9,7 @@ const descendant = Bun.spawn({
 const decoder = new TextDecoder();
 let buffer = "";
 const runtimeConfig = { modelProvider: "", model: "", reasoning: "" };
+let messageNoticeCount = 0;
 
 for await (const chunk of Bun.stdin.stream()) {
   buffer += decoder.decode(chunk, { stream: true });
@@ -87,25 +88,21 @@ async function handle(command: {
       }
       return;
     }
-    if (command.message?.startsWith("[CoForge recovery notice:") === true) {
+    if (command.message?.startsWith("New message received:") === true) {
       try {
-        const checked = await call("check", "message-recovery-check");
-        const target = checked.summaries?.[0]?.target;
-        if (!target) throw new Error("recovery attention target missing");
-        const recoveredBodies = checked.messages?.map(({ body }) => body) ?? [];
-        if (!recoveredBodies.includes("E2E offline recovery message"))
-          throw new Error("canonical offline message missing from recovery check");
-        const held = await call("send", "agent-recovery-reply", target, "E2E recovery reply");
-        if (held.accepted !== false || held.sideEffectDecision !== "hold")
-          throw new Error("recovery reply did not observe freshness hold");
-        const reply = await call("send", "agent-recovery-reply", target, undefined, {
-          sendDraft: true,
-        });
+        if (!command.message.includes("E2E offline recovery message"))
+          throw new Error("offline message body missing from recovery input");
+        const target = command.message.match(/\[target=([^ ]+)/)?.[1];
+        const sequence = Number(command.message.match(/ seq=(\d+)\]/)?.[1]);
+        if (!target || !Number.isSafeInteger(sequence))
+          throw new Error("recovery target or sequence missing from model input");
+        const reply = await call("send", "agent-recovery-reply", target, "E2E recovery reply");
         await Bun.write(
           ".e2e-agent-recovery-complete.json",
           JSON.stringify({
             pid: process.pid,
-            recoveredBodies,
+            recoveredBodies: ["E2E offline recovery message"],
+            sequence,
             replyAccepted: reply.accepted,
           }),
         );
@@ -117,11 +114,42 @@ async function handle(command: {
     }
     if (command.message?.startsWith("[CoForge inbox notice:") === true) {
       try {
+        messageNoticeCount++;
         const checked = await callInbox("check", "message-inbox-check");
         const target = checked.entries?.find((entry) => entry.kind === "message_target")
           ?.messageTarget?.target;
         if (typeof target !== "string") throw new Error("attention target missing");
-        const held = await call("send", "agent-reply-request", target, "E2E Agent reply");
+        const held = await call(
+          "send",
+          messageNoticeCount === 1 ? "agent-reply-request" : "agent-recovery-probe",
+          target,
+          messageNoticeCount === 1 ? "E2E Agent reply" : "E2E recovery reply",
+        );
+        const recovered = held.messages?.find(
+          ({ body }) => body === "E2E offline recovery message",
+        );
+        if (recovered) {
+          if (!Number.isSafeInteger(recovered.sequence))
+            throw new Error("recovered message sequence missing");
+          if (held.accepted !== false || held.sideEffectDecision !== "hold")
+            throw new Error("recovery reply did not observe canonical freshness hold");
+          const read = await call("read", "message-recovery-read", target);
+          if (!read.accepted) throw new Error("Agent could not read the recovered message");
+          const reply = await call("send", "agent-recovery-reply", target, undefined, {
+            sendDraft: true,
+          });
+          await Bun.write(
+            ".e2e-agent-recovery-complete.json",
+            JSON.stringify({
+              pid: process.pid,
+              recoveredBodies: [recovered.body],
+              sequence: recovered.sequence,
+              replyAccepted: reply.accepted,
+            }),
+          );
+          write({ type: "agent_settled" });
+          return;
+        }
         const message = held.messages?.find(({ body }) => body === "E2E User message");
         if (held.accepted !== false || held.sideEffectDecision !== "hold" || !message)
           throw new Error("Agent send did not hold with canonical User context");
@@ -231,6 +259,7 @@ async function call(
     sideEffectDecision?: string;
     messages?: Array<{
       body?: string;
+      sequence?: number;
       attachment?: {
         id?: string;
         fileName?: string;

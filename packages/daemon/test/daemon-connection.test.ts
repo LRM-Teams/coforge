@@ -9,6 +9,7 @@ import {
   decodeAgentActivity,
   decodeAgentStatus,
   decodeAgentMessageDeliveryAck,
+  decodeDaemonRuntimeReadyRequest,
   encodeAgentMessageDelivery,
   encodeAgentStartIntent,
 } from "@coforge/protocol";
@@ -317,20 +318,31 @@ test("resends the last successful ready request after reconnect", async () => {
   transport.onReconnect(reconnect);
   await transport.start("secret", config);
   expect(readyCalls).toHaveLength(0);
-  await transport.ready({
+  let runningAgentIds = ["agent-1"];
+  let requestSequence = 0;
+  await transport.ready(() => ({
     protocolMajor: 1,
-    requestId: "ready-1",
+    requestId: `ready-${++requestSequence}`,
     workspaceId: config.workspaceId,
     computerId: config.computerId,
     workerInstanceId: "runtime-1",
     startedAt: 123,
-  });
+    runningAgentIds,
+  }));
 
+  runningAgentIds = ["agent-2"];
   fake.connect();
   await reconnected;
 
   expect(readyCalls).toHaveLength(2);
-  expect(readyCalls[1]).toEqual(readyCalls[0]!);
+  expect(decodeDaemonRuntimeReadyRequest(readyCalls[0]!)).toMatchObject({
+    requestId: "ready-1",
+    runningAgentIds: ["agent-1"],
+  });
+  expect(decodeDaemonRuntimeReadyRequest(readyCalls[1]!)).toMatchObject({
+    requestId: "ready-2",
+    runningAgentIds: ["agent-2"],
+  });
 });
 
 test("buffers reconnect publications until ready settles and dispatches starts first", async () => {
@@ -347,14 +359,15 @@ test("buffers reconnect publications until ready settles and dispatches starts f
   transport.onAgentStart(() => dispatched.push("start"));
   transport.onAgentMessage(() => dispatched.push("delivery"));
   await transport.start("secret", config);
-  await transport.ready({
+  await transport.ready(() => ({
     protocolMajor: 1,
     requestId: "ready-1",
     workspaceId: config.workspaceId,
     computerId: config.computerId,
     workerInstanceId: "runtime-1",
     startedAt: 123,
-  });
+    runningAgentIds: [],
+  }));
 
   fake.connect();
   fake.publish(
@@ -397,10 +410,13 @@ test("retries reconnect ready on the same connection before releasing buffered p
   const fake = fakeClient();
   let rejectReady!: (error: Error) => void;
   let readyCalls = 0;
+  const readyPayloads: Uint8Array[] = [];
   let retryReady!: () => void;
-  fake.client.rpc = async (method) => {
-    if (method === DAEMON_RUNTIME_READY_METHOD && ++readyCalls === 2)
-      await new Promise<void>((_resolve, reject) => (rejectReady = reject));
+  fake.client.rpc = async (method, data) => {
+    if (method === DAEMON_RUNTIME_READY_METHOD) {
+      readyPayloads.push(data);
+      if (++readyCalls === 2) await new Promise<void>((_resolve, reject) => (rejectReady = reject));
+    }
     return new Uint8Array();
   };
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client, undefined, {
@@ -416,14 +432,17 @@ test("retries reconnect ready on the same connection before releasing buffered p
   transport.onAgentMessage(() => dispatched.push("delivery"));
   transport.onReconnect(() => reconnects++);
   await transport.start("secret", config);
-  await transport.ready({
+  let runningAgentIds = ["agent-before-retry"];
+  let requestSequence = 0;
+  await transport.ready(() => ({
     protocolMajor: 1,
-    requestId: "ready-1",
+    requestId: `ready-${++requestSequence}`,
     workspaceId: config.workspaceId,
     computerId: config.computerId,
     workerInstanceId: "runtime-1",
     startedAt: 123,
-  });
+    runningAgentIds,
+  }));
 
   fake.connect();
   fake.publish(
@@ -460,10 +479,15 @@ test("retries reconnect ready on the same connection before releasing buffered p
   expect(dispatched).toEqual([]);
   expect(reconnects).toBe(0);
 
+  runningAgentIds = ["agent-during-retry"];
   retryReady();
   await Bun.sleep(0);
 
   expect(readyCalls).toBe(3);
+  expect(decodeDaemonRuntimeReadyRequest(readyPayloads[2]!)).toMatchObject({
+    requestId: "ready-3",
+    runningAgentIds: ["agent-during-retry"],
+  });
   expect(dispatched).toEqual(["start", "delivery"]);
   expect(reconnects).toBe(1);
 });
@@ -488,14 +512,15 @@ test("stop cancels a pending reconnect ready retry", async () => {
     },
   });
   await transport.start("secret", config);
-  await transport.ready({
+  await transport.ready(() => ({
     protocolMajor: 1,
     requestId: "ready-1",
     workspaceId: config.workspaceId,
     computerId: config.computerId,
     workerInstanceId: "runtime-1",
     startedAt: 123,
-  });
+    runningAgentIds: [],
+  }));
 
   fake.connect();
   await Bun.sleep(0);
@@ -542,14 +567,15 @@ test("contains a reconnect ready failure and retries on the next reconnect", asy
   };
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
   await transport.start("secret", config);
-  await transport.ready({
+  await transport.ready(() => ({
     protocolMajor: 1,
     requestId: "ready-1",
     workspaceId: config.workspaceId,
     computerId: config.computerId,
     workerInstanceId: "runtime-1",
     startedAt: 123,
-  });
+    runningAgentIds: [],
+  }));
 
   fake.connect();
   await Promise.resolve();

@@ -53,15 +53,13 @@ message AgentStartIntent {
 }
 
 message AgentRecoveryMessage {
-  reserved 7;
-  reserved "body";
-
   string message_id = 1;
   string delivery_id = 2;
   string conversation_id = 3;
   uint64 sequence = 4;
   string target = 5;
   string latest_sender = 6;
+  string body = 7;
 }
 
 message AgentUnreadSummaryEntry {
@@ -151,6 +149,7 @@ message AgentMessageRequest {
   uint32 limit = 13;
   uint64 from_sequence = 14;
   uint64 through_sequence = 15;
+  uint64 seen_up_to_sequence = 16;
 }
 message CloudAgentMessageRecord {
   string id = 1;

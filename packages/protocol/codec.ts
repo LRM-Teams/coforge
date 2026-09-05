@@ -108,6 +108,7 @@ const decodedModelCatalog = (catalog: {
 });
 
 export function encodeDaemonRuntimeReadyRequest(value: DaemonRuntimeReadyRequest): Uint8Array {
+  assertRunningAgentIds(value.runningAgentIds);
   return toBinary(
     DaemonRuntimeReadyRequestSchema,
     create(DaemonRuntimeReadyRequestSchema, {
@@ -119,7 +120,21 @@ export function encodeDaemonRuntimeReadyRequest(value: DaemonRuntimeReadyRequest
 
 export function decodeDaemonRuntimeReadyRequest(bytes: Uint8Array): DaemonRuntimeReadyRequest {
   const value = fromBinary(DaemonRuntimeReadyRequestSchema, bytes);
-  return { ...value, startedAt: Number(value.startedAt) };
+  assertRunningAgentIds(value.runningAgentIds);
+  return {
+    protocolMajor: value.protocolMajor,
+    requestId: value.requestId,
+    workspaceId: value.workspaceId,
+    computerId: value.computerId,
+    workerInstanceId: value.workerInstanceId,
+    startedAt: Number(value.startedAt),
+    runningAgentIds: [...value.runningAgentIds],
+  };
+}
+
+function assertRunningAgentIds(agentIds: readonly string[]): void {
+  if (agentIds.some((agentId) => !agentId) || new Set(agentIds).size !== agentIds.length)
+    throw new Error("Daemon running Agent IDs must be non-empty and unique");
 }
 
 export function encodeDaemonRuntimeCodeAgentsUpdateRequest(
@@ -208,8 +223,10 @@ export function encodeAgentStartIntent(value: AgentStartIntent): Uint8Array {
     new Set(recoveryMessages.map(({ deliveryId }) => deliveryId)).size !== recoveryMessages.length
   )
     throw new Error("invalid agent recovery context");
-  for (const message of recoveryMessages)
+  for (const message of recoveryMessages) {
+    if (!message.body) throw new Error("Agent recovery body is required");
     assertUint(message.sequence, Number.MAX_SAFE_INTEGER, "Agent recovery sequence");
+  }
   for (const count of Object.values(value.unreadSummary ?? {}))
     assertUint(count, 0xffff_ffff, "Agent unread count");
   const providerConfig = value.providerConfig
@@ -267,6 +284,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
         !message.messageId ||
         !message.deliveryId ||
         !message.conversationId ||
+        !message.body ||
         !message.target.startsWith("@") ||
         message.sequence < 1n ||
         message.sequence > BigInt(Number.MAX_SAFE_INTEGER),
@@ -284,6 +302,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     sequence: Number(message.sequence),
     target: message.target,
     latestSender: message.latestSender,
+    body: message.body,
   });
   return {
     protocolMajor: v.protocolMajor,
@@ -413,17 +432,31 @@ export function encodeAgentMessageRequest(value: AgentMessageRequest): Uint8Arra
     assertUint(value.fromSequence, Number.MAX_SAFE_INTEGER, "Agent message from sequence");
   if (value.throughSequence !== undefined)
     assertUint(value.throughSequence, Number.MAX_SAFE_INTEGER, "Agent message through sequence");
+  if (value.seenUpToSequence !== undefined) {
+    if (value.operation !== "send")
+      throw new Error("Agent message seen-up-to sequence is only valid for send");
+    assertUint(
+      value.seenUpToSequence,
+      Number.MAX_SAFE_INTEGER,
+      "Agent message seen-up-to sequence",
+    );
+    if (value.seenUpToSequence < 1)
+      throw new Error("Agent message seen-up-to sequence must be positive");
+  }
   return toBinary(
     AgentMessageRequestSchema,
     create(AgentMessageRequestSchema, {
       ...value,
       fromSequence: BigInt(value.fromSequence ?? 0),
       throughSequence: BigInt(value.throughSequence ?? 0),
+      seenUpToSequence: BigInt(value.seenUpToSequence ?? 0),
     }),
   );
 }
 export function decodeAgentMessageRequest(bytes: Uint8Array): AgentMessageRequest {
   const v = fromBinary(AgentMessageRequestSchema, bytes);
+  if (v.seenUpToSequence && v.operation !== "send")
+    throw new Error("Agent message seen-up-to sequence is only valid for send");
   if (!v.requestId || !v.agentId || !["read", "send"].includes(v.operation) || !v.target)
     throw new Error("invalid cloud agent message request");
   return {
@@ -441,6 +474,9 @@ export function decodeAgentMessageRequest(bytes: Uint8Array): AgentMessageReques
       : undefined,
     throughSequence: v.throughSequence
       ? safeUint64(v.throughSequence, "Agent message through sequence")
+      : undefined,
+    seenUpToSequence: v.seenUpToSequence
+      ? safeUint64(v.seenUpToSequence, "Agent message seen-up-to sequence")
       : undefined,
   };
 }

@@ -111,6 +111,10 @@ export class AgentProcessManager {
     return [...this.#restartConfigs.keys()];
   }
 
+  runningAgentIds(): string[] {
+    return [...this.#runtimes.keys()];
+  }
+
   isStopping(agentId: string): boolean {
     return this.#stopping.has(agentId);
   }

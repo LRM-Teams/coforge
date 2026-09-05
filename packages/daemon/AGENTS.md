@@ -53,8 +53,9 @@ boundary, then update this map if the ownership changes.
   authorizes `--anyway`. It does not model runtime busy/idle turns, and
   there is no Daemon or runtime pool abstraction.
 - `connection/` owns the daemon's long-lived WSS connection, ordered
-  replay, reconnect, and protocol transport mechanics. Domain decisions remain
-  above it.
+  replay, reconnect, and protocol transport mechanics. Every initial ready,
+  reconnect ready, and ready retry obtains a fresh request and current running
+  Agent ID snapshot from the runtime. Domain decisions remain above it.
 - `agent-runtime/` owns Agent lifecycle and the finite state machine whose only
   status values are `active` and `inactive`. `starting`, `stopping`, tool use,
   turns, commands, file operations, warnings, and provider errors are activity
@@ -76,9 +77,12 @@ boundary, then update this map if the ownership changes.
   app-server `developerInstructions`, Claude Code uses its system-prompt-file
   option, and CoForge Agent uses its resource-loader system-prompt override. Do
   not copy the text into each driver or write `AGENTS.md`/`CLAUDE.md` into the user's Agent workspace
-  for providers that support native injection. Deliver body-free Message/App
-  Inbox wakeups separately as turn input; never append them to the standing
-  instructions.
+  for providers that support native injection. Deliver Message recovery bodies
+  directly as turn input and App Inbox wakeups separately; never append them to the standing
+  instructions. A start for an already running Agent preserves its process,
+  session, and config, accepts only `wakeMessage`, and ignores that start's
+  `resumeMessages` and `unreadSummary`. A still-launching Agent is not reported
+  as running and accepts the full recovery context on its shared launch.
 - `agent-app-inbox/` owns typed App-item identity, validation, retention, and
   acknowledgement. It is separate from canonical chat Message attention.
 - `persistence/` owns durable local state and atomic App Inbox storage. A

@@ -268,7 +268,7 @@ export class DaemonRuntime {
         computerId: connection.computerId,
         serverHttpUrl: connection.serverHttpUrl,
       });
-      await this.#transport.ready({
+      await this.#transport.ready(() => ({
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
         requestId: crypto.randomUUID(),
         workspaceId: connection.workspaceId,
@@ -277,7 +277,8 @@ export class DaemonRuntime {
         // Protocol field retained for compatibility with the existing ready handshake.
         workerInstanceId: this.#runtimeInstanceId,
         startedAt: this.#startedAt,
-      });
+        runningAgentIds: this.#readyRunningAgentIds(),
+      }));
       await this.#reportCodeAgents(connection).catch(() => {});
       if (this.#stopping) {
         pending.length = 0;
@@ -333,6 +334,43 @@ export class DaemonRuntime {
       return Promise.reject(new Error("daemon runtime is not running"));
     if (this.#stoppingAgents.has(agentId) || this.#agentProcessManager.isStopping(agentId))
       return Promise.reject(new Error(`Agent runtime is stopping: ${agentId}`));
+    const existingLaunch = this.#agentLaunches.get(agentId);
+    if (existingLaunch) {
+      const recoveryCompletion = recovery
+        ? this.#enqueueAgentInput(agentId, (completion) => ({
+            kind: "recovery",
+            context: recovery,
+            completion,
+          }))
+        : undefined;
+      if (!recoveryCompletion) return existingLaunch;
+      const extendedLaunch = Promise.all([existingLaunch, recoveryCompletion])
+        .then(([runtime]) => runtime)
+        .finally(() => {
+          if (this.#agentLaunches.get(agentId) === extendedLaunch)
+            this.#agentLaunches.delete(agentId);
+        });
+      this.#agentLaunches.set(agentId, extendedLaunch);
+      return extendedLaunch;
+    }
+    const activeRuntime = this.#agentProcessManager.runtime(agentId);
+    if (activeRuntime) {
+      if (!recovery)
+        return Promise.reject(new Error(`Agent runtime is already active: ${agentId}`));
+      const recoveryCompletion = recovery.wakeMessage
+        ? this.#enqueueAgentInput(agentId, (completion) => ({
+            kind: "recovery",
+            context: { wakeMessage: recovery.wakeMessage },
+            completion,
+          }))
+        : undefined;
+      if (!recoveryCompletion) return Promise.resolve(activeRuntime);
+      this.#ensureAgentInputDrain(agentId);
+      return recoveryCompletion.then(() => activeRuntime);
+    }
+
+    this.#messageAttention.clearAgent(agentId);
+
     const recoveryCompletion = recovery
       ? this.#enqueueAgentInput(agentId, (completion) => ({
           kind: "recovery",
@@ -340,20 +378,6 @@ export class DaemonRuntime {
           completion,
         }))
       : undefined;
-    const existingLaunch = this.#agentLaunches.get(agentId);
-    if (existingLaunch) {
-      return recoveryCompletion
-        ? Promise.all([existingLaunch, recoveryCompletion]).then(([runtime]) => runtime)
-        : existingLaunch;
-    }
-    const activeRuntime = this.#agentProcessManager.runtime(agentId);
-    if (activeRuntime) {
-      if (!recovery)
-        return Promise.reject(new Error(`Agent runtime is already active: ${agentId}`));
-      this.#ensureAgentInputDrain(agentId);
-      return recoveryCompletion!.then(() => activeRuntime);
-    }
-
     // Register the launch before its first await so concurrent starts cannot mint twice.
     // Launch failure is surfaced by `launch`; the item completion is also rejected when cleared.
     void recoveryCompletion?.catch(() => {});
@@ -370,7 +394,7 @@ export class DaemonRuntime {
         },
       )
       .finally(() => {
-        this.#agentLaunches.delete(agentId);
+        if (this.#agentLaunches.get(agentId) === launch) this.#agentLaunches.delete(agentId);
       });
     this.#agentLaunches.set(agentId, launch);
     return launch;
@@ -429,6 +453,26 @@ export class DaemonRuntime {
           agent_id: agentId,
           error_code: error instanceof Error ? error.name : "UnknownError",
         });
+        if (this.#agentLaunches.has(agentId)) {
+          this.#stoppingAgents.add(agentId);
+          this.#closeAgentInputQueue(agentId, error);
+          const activityLaunch = this.#currentActivityLaunches.get(agentId);
+          if (activityLaunch) activityLaunch.stopping = true;
+          this.#revokeLocalLaunch(
+            agentId,
+            this.#agentContexts.get(agentId),
+            this.#agentProxyTokens.get(agentId),
+          );
+          let rejection = error;
+          try {
+            await this.#releaseAgentRuntime(agentId);
+            if (!this.#agentStops.has(agentId)) this.#stoppingAgents.delete(agentId);
+          } catch (cleanupError) {
+            rejection = cleanupError;
+          }
+          item.completion.reject(rejection);
+          return;
+        }
       }
       item.completion.resolve();
     }
@@ -570,6 +614,7 @@ export class DaemonRuntime {
       });
       runtime.session.onExit(() => {
         if (this.#currentActivityLaunches.get(agentId) !== launch) return;
+        this.#messageAttention.clearAgent(agentId);
         this.#revokeLocalLaunch(agentId, localContext, proxyToken);
         void this.#revokeAgentApiKey(agentApiKey).catch(() => {
           // Local access is already revoked. Remote failure remains visible
@@ -737,6 +782,12 @@ export class DaemonRuntime {
   async #stopAgent(agentId: string): Promise<void> {
     const launch = this.#agentLaunches.get(agentId);
     if (launch) await Promise.allSettled([launch]);
+    const inputDrain = this.#agentInputQueues.get(agentId)?.drain;
+    if (inputDrain) await Promise.allSettled([inputDrain]);
+    await this.#releaseAgentRuntime(agentId);
+  }
+
+  async #releaseAgentRuntime(agentId: string): Promise<void> {
     const results = await Promise.allSettled([
       this.#revokeAgentApiKey(this.#agentApiKeys.get(agentId)),
       this.#agentProcessManager.stop(agentId),
@@ -748,6 +799,17 @@ export class DaemonRuntime {
     this.#currentActivityLaunches.delete(agentId);
     this.#messageAttention.clearAgent(agentId);
     this.#sendAgentStatus(agentId, "inactive");
+  }
+
+  #readyRunningAgentIds(): string[] {
+    return this.#agentProcessManager
+      .runningAgentIds()
+      .filter(
+        (agentId) =>
+          !this.#agentLaunches.has(agentId) &&
+          !this.#stoppingAgents.has(agentId) &&
+          !this.#agentProcessManager.isStopping(agentId),
+      );
   }
 
   #revokeLocalLaunch(agentId: string, context?: string, proxyToken?: string): void {
@@ -910,6 +972,8 @@ export class DaemonRuntime {
           body,
           holdToken: draft?.holdToken,
           continueAnyway: request.continueAnyway,
+          seenUpToSequence:
+            this.#messageAttention.modelSeenSequence(agentId, request.target) || undefined,
         },
         agentApiKey,
       );

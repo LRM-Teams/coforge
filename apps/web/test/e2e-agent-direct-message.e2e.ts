@@ -398,6 +398,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     expect(await Bun.file(recoveryCompletionPath).json()).toEqual({
       pid: firstProcesses.directPid,
       recoveredBodies: ["E2E offline recovery message"],
+      sequence: offlineMessage.sequence,
       replyAccepted: true,
     });
     expect(await readProcesses(processesPath)).toEqual(firstProcesses);

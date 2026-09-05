@@ -74,6 +74,65 @@ test("duplicate delivery is not counted or noticed twice", async () => {
   expect(notices).toBe(1);
 });
 
+test("a replacement session receives the same recovery IDs while duplicates stay deduplicated", async () => {
+  const notices: string[] = [];
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => session((notice) => notices.push(notice)) },
+    async () => {},
+  );
+  const message = {
+    messageId: "message-recovery",
+    deliveryId: "delivery-recovery",
+    conversationId: "conversation-1",
+    sequence: 1,
+    target: "@ada",
+    latestSender: "@ada",
+    body: "recover this body",
+  };
+
+  await index.recover("agent-1", [message], { "@ada": 1 });
+  await index.recover("agent-1", [message], { "@ada": 1 });
+  index.clearAgent("agent-1");
+  await index.recover("agent-1", [message], { "@ada": 1 });
+
+  expect(notices).toHaveLength(2);
+  expect(notices.every((notice) => notice.includes("recover this body"))).toBe(true);
+});
+
+test("an old notification completion cannot mark a replacement generation notified", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let notices = 0;
+  const acks: string[] = [];
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    {
+      session: () => ({
+        ...session(),
+        notify: async () => {
+          notices++;
+          if (notices === 1) await gate;
+        },
+      }),
+    },
+    async (ack) => {
+      acks.push(ack.deliveryId);
+    },
+  );
+
+  const old = index.receive(delivery("one"));
+  await Bun.sleep(0);
+  index.clearAgent("agent-1");
+  release();
+  await old;
+  expect(acks).toEqual([]);
+  await index.receive(delivery("one"));
+
+  expect(notices).toBe(2);
+  expect(acks).toEqual(["delivery-one"]);
+});
+
 test("does not expose an internal sender user id", async () => {
   const internalUserId = "2c9d2c18-2a0b-4a95-9e5a-111111111111";
   const index = new AgentMessageAttentionIndex("workspace-1", runtime, async () => {});
@@ -234,13 +293,56 @@ test("recovery directs every target with messages beyond the batch to canonical 
         sequence: 1,
         target: "@ada",
         latestSender: "@ada",
+        body: "Please resume this work",
       },
     ],
     { "@ada": 2, "@grace": 1 },
   );
 
   expect(notices).toHaveLength(1);
-  expect(notices[0]).toContain("Run `coforge message check` to read indexed messages.");
-  expect(notices[0]).toContain("Run `coforge message read --target @ada` to read that target.");
-  expect(notices[0]).toContain("Run `coforge message read --target @grace` to read that target.");
+  expect(notices[0]).toContain("New message received:");
+  expect(notices[0]).toContain("[target=@ada msg=message- seq=1] @ada: Please resume this work");
+  expect(notices[0]).toContain("Respond as appropriate. Complete all your work before stopping.");
+  expect(notices[0]).toContain(
+    "Run `coforge message read --target @ada` to read additional messages.",
+  );
+  expect(notices[0]).toContain("run `coforge message read --target @grace` to read them.");
+  expect(index.modelSeenSequence("agent-1", "@ada")).toBe(1);
+});
+
+test("recovery rejected by the model remains unseen and retryable", async () => {
+  let reject = true;
+  const notices: string[] = [];
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    {
+      session: () => ({
+        ...session(),
+        notify: async (notice: string) => {
+          notices.push(notice);
+          if (reject) throw new Error("model rejected recovery");
+        },
+      }),
+    },
+    async () => {},
+  );
+  const message = {
+    messageId: "message-retry",
+    deliveryId: "delivery-retry",
+    conversationId: "conversation-1",
+    sequence: 3,
+    target: "@ada",
+    latestSender: "@ada",
+    body: "Retry this recovery",
+  };
+
+  await expect(index.recover("agent-1", [message], { "@ada": 1 })).rejects.toThrow(
+    "model rejected recovery",
+  );
+  expect(index.modelSeenSequence("agent-1", "@ada")).toBe(0);
+  expect(index.check("agent-1")).toEqual([]);
+  reject = false;
+  await index.recover("agent-1", [message], { "@ada": 1 });
+  expect(notices).toHaveLength(2);
+  expect(index.modelSeenSequence("agent-1", "@ada")).toBe(3);
 });
