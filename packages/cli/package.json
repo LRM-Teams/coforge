@@ -12,7 +12,10 @@
   ],
   "type": "module",
   "module": "index.ts",
-  "exports": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./runner": "./src/cli.ts"
+  },
   "scripts": {
     "test": "bun test",
     "format": "oxfmt .",

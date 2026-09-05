@@ -71,6 +71,11 @@ case "$feed_url" in
     ;;
 esac
 
+command -v gzip >/dev/null 2>&1 || {
+  echo "install.sh: gzip is required to install CoForge" >&2
+  exit 1
+}
+
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64) target=linux-x64 ;;
   Linux-aarch64|Linux-arm64) target=linux-arm64 ;;
@@ -126,7 +131,18 @@ if [ -z "$expected_sha256" ] || [ "${#expected_sha256}" -ne 64 ]; then
 fi
 
 computer_path="$temporary_directory/coforge-computer"
-fetch --max-filesize "$max_binary_bytes" --output "$computer_path" "$feed_url/$version/$target/coforge-computer"
+compressed_path="$temporary_directory/coforge-computer.gz"
+fetch --max-filesize "$max_binary_bytes" --output "$compressed_path" "$feed_url/$version/$target/coforge-computer.gz"
+# Limit the output both while expanding and after completion. POSIX ulimit -f is measured
+# in 512-byte blocks, so this matches max_binary_bytes without trusting gzip metadata.
+(ulimit -f 1048576; gzip -dc "$compressed_path" > "$computer_path") || {
+  echo "install.sh: compressed binary could not be decompressed safely" >&2
+  exit 1
+}
+[ "$(wc -c < "$computer_path" | tr -d '[:space:]')" -le "$max_binary_bytes" ] || {
+  echo "install.sh: decompressed binary exceeds the size limit" >&2
+  exit 1
+}
 
 if command -v sha256sum >/dev/null 2>&1; then
   actual_sha256=$(sha256sum "$computer_path" | awk '{print $1}')

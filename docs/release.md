@@ -133,12 +133,23 @@ platform-binary tree per version:
 ```text
 latest                                       plain text, one version string, e.g. "0.1.0"
 <version>/manifest.json                      unsigned JSON: schema_version, version, commit, buildDate, platforms
-<version>/<target>/coforge-computer
+<version>/<target>/coforge-computer.gz       gzip transport copy
 <version>/<target>/coforge-computer.sha256   bare lowercase hex SHA-256 of that platform's coforge-computer, nothing else
-<version>/<target>/coforge-daemon
+<version>/<target>/coforge-daemon.gz         gzip transport copy
 computer/install.sh
 computer/install.ps1
 ```
+
+Manifests record the uncompressed artifact identity and required
+`gzip: { binary, size, checksum }` metadata for each compressed download.
+Updaters verify compressed size and checksum, bound decompression by the
+uncompressed recorded size, then verify the uncompressed identity before
+activation. Only gzip binaries are published; manifests without gzip and
+missing or invalid gzip objects fail closed, without raw-download fallback.
+Both bootstrap scripts download gzip and check the uncompressed checksum
+sidecar after bounded expansion. POSIX bootstrap requires the gzip utility;
+PowerShell uses .NET GZipStream. Compression does not reduce
+installed executable size and never permits overwriting a published version.
 
 `<target>` is one of the existing `releaseTarget` values: `linux-x64`,
 `linux-arm64`, `darwin-x64`, `darwin-arm64`, `windows-x64`, `windows-arm64`.
@@ -263,6 +274,18 @@ versioned directory. Only the `coforge-computer` shim enters the current
 user's PATH. The Daemon payload remains inside the versioned installation
 directory, is never registered as its own system or user service, and is
 launched by Computer through the exact path selected by the active version.
+
+Installation also writes a tiny version-local `coforge` launcher which invokes
+that directory's `coforge-daemon __agent-cli`. Daemon prepends its own
+executable directory to Agent PATH. The Agent CLI implementation remains in
+`packages/cli`, compiled into Daemon; its internal entry does not initialize
+logging, sockets, cloud connections or Workspace recovery. Users continue to
+run only Computer management commands; Agents execute `coforge`.
+This adds neither a third native payload nor a Bun/npm requirement. The
+launcher is covered by the installed version's offline integrity check and
+does not follow a later active-version switch underneath an existing Daemon.
+The installer supplies this launcher; Daemon startup does not repair older
+installations. No older-client or older-installer compatibility is maintained.
 
 Both `install.sh` and `install.ps1` expose two selection modes with identical
 semantics:

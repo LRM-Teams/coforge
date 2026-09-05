@@ -62,6 +62,9 @@ async function serveFixture(
     tamperChecksum?: boolean;
     argumentLog?: string;
     omitSidecar?: boolean;
+    omitGzip?: boolean;
+    gzipStatus?: number;
+    corruptGzip?: boolean;
     latestContent?: string;
   } = {},
 ) {
@@ -73,8 +76,13 @@ async function serveFixture(
 
   const files = new Map<string, Uint8Array>([
     ["/latest", Buffer.from(options.latestContent ?? `${version}\n`)],
-    [`/${version}/${target}/coforge-computer`, computer],
   ]);
+  if (!options.omitGzip) {
+    files.set(
+      `/${version}/${target}/coforge-computer.gz`,
+      options.corruptGzip ? Buffer.from("not gzip") : Bun.gzipSync(computer),
+    );
+  }
   if (!options.omitSidecar) {
     files.set(`/${version}/${target}/coforge-computer.sha256`, Buffer.from(`${checksum}\n`));
   }
@@ -85,6 +93,9 @@ async function serveFixture(
     fetch(request) {
       const path = new URL(request.url).pathname;
       requested.push(path);
+      if (path.endsWith("/coforge-computer.gz") && options.gzipStatus) {
+        return new Response("failure", { status: options.gzipStatus });
+      }
       const bytes = files.get(path);
       return bytes ? new Response(Buffer.from(bytes)) : new Response("not found", { status: 404 });
     },
@@ -116,6 +127,12 @@ test("install.sh resolves latest and an explicit version, and never touches mani
     // computer binary - that binary's own `install` command is what fetches the daemon payload.
     expect(fixture.requested).not.toContain(`/${fixture.version}/manifest.json`);
     expect(fixture.requested).not.toContain(`/${fixture.version}/${fixture.target}/coforge-daemon`);
+    expect(fixture.requested).toContain(
+      `/${fixture.version}/${fixture.target}/coforge-computer.gz`,
+    );
+    expect(fixture.requested).not.toContain(
+      `/${fixture.version}/${fixture.target}/coforge-computer`,
+    );
   }
 
   const omitted = await run([], {
@@ -130,6 +147,34 @@ test("install.sh resolves latest and an explicit version, and never touches mani
     "3.2.1",
   ]);
 });
+
+test("install.sh fails on gzip HTTP 404 without requesting a raw binary", async () => {
+  const missingGzip = await serveFixture({ omitGzip: true });
+  const child = await run(["--version", missingGzip.version], {
+    ...process.env,
+    COFORGE_RELEASE_FEED_URL: missingGzip.baseUrl,
+    COFORGE_INSTALLER_TEST_MODE: "1",
+  });
+  expect(child.exitCode).not.toBe(0);
+  expect(missingGzip.requested).not.toContain(
+    `/${missingGzip.version}/${missingGzip.target}/coforge-computer`,
+  );
+});
+
+for (const options of [{ corruptGzip: true }, { gzipStatus: 500 }]) {
+  test(`install.sh fails closed without raw fallback for ${JSON.stringify(options)}`, async () => {
+    const fixture = await serveFixture(options);
+    const child = await run(["--version", fixture.version], {
+      ...process.env,
+      COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+      COFORGE_INSTALLER_TEST_MODE: "1",
+    });
+    expect(child.exitCode).not.toBe(0);
+    expect(fixture.requested).not.toContain(
+      `/${fixture.version}/${fixture.target}/coforge-computer`,
+    );
+  });
+}
 
 test("install.sh fails closed when the sidecar checksum is missing", async () => {
   const fixture = await serveFixture({ omitSidecar: true });
@@ -186,6 +231,18 @@ test("install.sh refuses a plain-HTTP feed outside test mode", async () => {
 
   expect(child.exitCode).not.toBe(0);
   expect(child.stderr).toContain("HTTPS");
+});
+
+test("install.sh clearly reports when gzip is unavailable", async () => {
+  const emptyPath = await mkdtemp(join(tmpdir(), "coforge-empty-path-"));
+  temporaryDirectories.push(emptyPath);
+  const child = await run(["--version", "3.2.1"], {
+    PATH: emptyPath,
+    COFORGE_RELEASE_FEED_URL: "https://releases.example.test",
+  });
+
+  expect(child.exitCode).not.toBe(0);
+  expect(child.stderr).toContain("gzip is required");
 });
 
 const invalidLatestPointers: Array<[name: string, content: string]> = [
@@ -321,4 +378,8 @@ test("install scripts fail closed and stay within the current user's own account
   // construct that request).
   expect(shell).not.toContain("jq ");
   expect(shell).not.toContain("/manifest.json");
+  expect(shell).toContain("coforge-computer.gz");
+  expect(powershell).toContain("coforge-computer.gz");
+  expect(powershell).toContain("System.IO.Compression.GZipStream");
+  expect(powershell).not.toContain('target/coforge-computer"');
 });

@@ -83,7 +83,10 @@ export {
   defaultCentrifugeWorkspaceClientFactory,
 } from "./src/connection/daemon-connection";
 
-if (import.meta.main) {
+if (import.meta.main && Bun.argv[2] === "__agent-cli") {
+  const { runAgentCli } = await import("@coforge/cli/runner");
+  await runAgentCli(Bun.argv.slice(3));
+} else if (import.meta.main) {
   const socketIndex = Bun.argv.indexOf("--socket");
   const socketPath = socketIndex >= 0 ? Bun.argv[socketIndex + 1] : undefined;
   const stateIndex = Bun.argv.indexOf("--state-directory");

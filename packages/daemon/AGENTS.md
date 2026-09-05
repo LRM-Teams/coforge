@@ -39,6 +39,13 @@ introduced incrementally. Do not create a new directory or rename an existing
 module solely for aesthetics; first state the responsibility that requires the
 boundary, then update this map if the ownership changes.
 
+`index.ts` also dispatches the internal `__agent-cli` entry to
+`@coforge/cli/runner` before starting logging, sockets or Workspace recovery.
+Agent command parsing and transport remain in `packages/cli`, compiled into
+Daemon. This is not a user-facing Daemon management CLI.
+Computer's updater installs the version-local launcher. Daemon startup does
+not mutate the installation or supply missing files for older installers.
+
 ### Layer rules
 
 - `main.ts` only assembles dependencies and starts the daemon. It does not

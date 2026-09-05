@@ -39,6 +39,12 @@ The layout describes ownership, not permission to create empty layers. Keep an
 existing file in place when it still has one clear responsibility; move code
 only when a real boundary is needed.
 
+`src/updater.ts` owns verified gzip installation and the version-local
+`coforge` launcher targeting the installed Daemon's internal Agent CLI entry.
+Computer owns writing it into staging, recording its identity and verifying
+it on rollback. There is no legacy installer compatibility path.
+Computer's user command tree does not own Agent message commands.
+
 ### Layer rules
 
 - `main.ts` and `cli/` know about process arguments and terminal concerns only.

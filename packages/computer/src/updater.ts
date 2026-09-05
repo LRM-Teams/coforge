@@ -21,7 +21,10 @@ function isValidVersion(value: string): boolean {
 }
 
 type ArtifactIdentity = { size: number; checksum: string };
-type PlatformArtifact = ArtifactIdentity & { binary: string };
+type PlatformArtifact = ArtifactIdentity & {
+  binary: string;
+  gzip: ArtifactIdentity & { binary: string };
+};
 
 type ReleaseManifest = {
   schema_version: 1;
@@ -42,6 +45,7 @@ type InstalledIdentity = {
   version: string;
   computer: ArtifactIdentity;
   daemon: ArtifactIdentity;
+  agentCli: ArtifactIdentity;
 };
 
 export class UpdateError extends Error {
@@ -198,10 +202,33 @@ export class ComputerUpdater {
   }
 
   async #downloadArtifact(version: string, artifact: PlatformArtifact): Promise<Uint8Array> {
-    const bytes = await this.#download(
-      `${version}/${this.#target}/${artifact.binary}`,
-      artifact.size,
+    const download = artifact.gzip;
+    let bytes = await this.#download(
+      `${version}/${this.#target}/${download.binary}`,
+      download.size,
     );
+    if (!matchesIdentity(bytes, download)) {
+      throw integrity(`downloaded artifact failed integrity: ${download.binary}`);
+    }
+    const reader = new Response(Buffer.from(bytes))
+      .body!.pipeThrough(new DecompressionStream("gzip"))
+      .getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        size += chunk.value.byteLength;
+        if (size > artifact.size) throw integrity("decompressed artifact exceeds recorded size");
+        chunks.push(chunk.value);
+      }
+      bytes = Buffer.concat(chunks);
+    } catch {
+      throw integrity(`compressed artifact is invalid: ${artifact.binary}`);
+    } finally {
+      await reader.cancel().catch(() => {});
+    }
     if (!matchesIdentity(bytes, artifact)) {
       throw integrity(`downloaded artifact failed integrity: ${artifact.binary}`);
     }
@@ -262,17 +289,28 @@ export class ComputerUpdater {
     const daemonName = this.#target.startsWith("windows-")
       ? "coforge-daemon.exe"
       : "coforge-daemon";
+    const agentCli = new TextEncoder().encode(
+      this.#target.startsWith("windows-")
+        ? '@echo off\r\n"%~dp0coforge-daemon.exe" __agent-cli %*\r\n'
+        : '#!/bin/sh\nexec "${0%/*}/coforge-daemon" __agent-cli "$@"\n',
+    );
     const installedIdentity: InstalledIdentity = {
       schema_version: 1,
       version,
       computer: { size: payloads.computer.byteLength, checksum: checksum(payloads.computer) },
       daemon: { size: payloads.daemon.byteLength, checksum: checksum(payloads.daemon) },
+      agentCli: { size: agentCli.byteLength, checksum: checksum(agentCli) },
     };
     await mkdir(staging, { recursive: true, mode: 0o700 });
     try {
       await Promise.all([
         writeFile(join(staging, computerName), payloads.computer, { mode: 0o700 }),
         writeFile(join(staging, daemonName), payloads.daemon, { mode: 0o700 }),
+        writeFile(
+          join(staging, this.#target.startsWith("windows-") ? "coforge.cmd" : "coforge"),
+          agentCli,
+          { mode: 0o700 },
+        ),
         writeFile(join(staging, "version"), `${version}\n`, { mode: 0o600 }),
         writeFile(join(staging, "installation.json"), `${JSON.stringify(installedIdentity)}\n`, {
           mode: 0o600,
@@ -307,6 +345,16 @@ export class ComputerUpdater {
         readFile(join(directory, "installation.json"), "utf8"),
       ]);
       const identity = JSON.parse(identityText) as InstalledIdentity;
+      if (
+        !validIdentity(identity.agentCli) ||
+        !matchesIdentity(
+          await readFile(
+            join(directory, this.#target.startsWith("windows-") ? "coforge.cmd" : "coforge"),
+          ),
+          identity.agentCli,
+        )
+      )
+        throw integrity("installed Agent CLI failed its offline integrity check");
       if (
         marker.trim() !== version ||
         identity.schema_version !== 1 ||
@@ -418,7 +466,12 @@ function validPlatformEntry(
 
 function validArtifact(value: unknown, expectedBinary: string): value is PlatformArtifact {
   const candidate = value as PlatformArtifact | undefined;
-  return validIdentity(candidate) && candidate.binary === expectedBinary;
+  return (
+    validIdentity(candidate) &&
+    candidate.binary === expectedBinary &&
+    validIdentity(candidate.gzip) &&
+    candidate.gzip.binary === `${expectedBinary}.gz`
+  );
 }
 
 function matchesIdentity(bytes: Uint8Array, identity: ArtifactIdentity): boolean {
