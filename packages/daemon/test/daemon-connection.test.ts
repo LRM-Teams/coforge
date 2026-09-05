@@ -12,6 +12,7 @@ import {
   decodeDaemonRuntimeReadyRequest,
   encodeAgentMessageDelivery,
   encodeAgentStartIntent,
+  encodeAgentStopIntent,
 } from "@coforge/protocol";
 import { DAEMON_RUNTIME_READY_METHOD } from "@coforge/protocol";
 
@@ -345,7 +346,7 @@ test("resends the last successful ready request after reconnect", async () => {
   });
 });
 
-test("buffers reconnect publications until ready settles and dispatches starts first", async () => {
+test("buffers reconnect publications until ready settles and preserves control arrival order", async () => {
   const fake = fakeClient();
   let settleReady!: () => void;
   let readyCalls = 0;
@@ -357,6 +358,7 @@ test("buffers reconnect publications until ready settles and dispatches starts f
   const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
   const dispatched: string[] = [];
   transport.onAgentStart(() => dispatched.push("start"));
+  transport.onAgentStop(() => dispatched.push("stop"));
   transport.onAgentMessage(() => dispatched.push("delivery"));
   await transport.start("secret", config);
   await transport.ready(() => ({
@@ -372,18 +374,12 @@ test("buffers reconnect publications until ready settles and dispatches starts f
   fake.connect();
   fake.publish(
     `daemon:${config.computerId}`,
-    encodeAgentMessageDelivery({
+    encodeAgentStopIntent({
       protocolMajor: 1,
-      requestId: "delivery-1",
-      messageId: "message-1",
-      deliveryId: "delivery-1",
-      sequence: 1,
+      requestId: "stop-1",
       workspaceId: config.workspaceId,
-      conversationId: "conversation-1",
+      computerId: config.computerId,
       agentId: "agent-1",
-      body: "hello",
-      method: "agent:deliver",
-      target: "@alice",
     }),
   );
   fake.publish(
@@ -403,7 +399,7 @@ test("buffers reconnect publications until ready settles and dispatches starts f
 
   settleReady();
   await Bun.sleep(0);
-  expect(dispatched).toEqual(["start", "delivery"]);
+  expect(dispatched).toEqual(["stop", "start"]);
 });
 
 test("retries reconnect ready on the same connection before releasing buffered publications", async () => {
@@ -488,7 +484,7 @@ test("retries reconnect ready on the same connection before releasing buffered p
     requestId: "ready-3",
     runningAgentIds: ["agent-during-retry"],
   });
-  expect(dispatched).toEqual(["start", "delivery"]);
+  expect(dispatched).toEqual(["delivery", "start"]);
   expect(reconnects).toBe(1);
 });
 

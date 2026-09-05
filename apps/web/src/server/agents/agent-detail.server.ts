@@ -22,6 +22,7 @@ type DetailAgent = {
   displayName: string;
   description?: string;
   createdAt: Date;
+  computerId?: string | null;
   owner: { id: string; username: string };
   runtimeConfig: Prisma.JsonValue;
 };

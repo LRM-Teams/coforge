@@ -44,7 +44,11 @@ import {
   createAgentDeliveryAckMethod,
   createAgentMessageMethod,
 } from "./rpc-handler.server";
-import { CloudAgentUseCase, WorkspaceAgentRecovery } from "../agents/cloud-agent.server";
+import {
+  PublishAgentRuntimeControl,
+  WorkspaceAgentRecovery,
+} from "../agents/agent-runtime-control.server";
+import { getAgentRuntimeLock } from "../agents/agent-runtime-lock.server";
 import { createCentrifugoServerApi } from "./server-api.server";
 import {
   AGENT_START_METHOD,
@@ -168,6 +172,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
             agentRepository,
             new PrismaDirectConversationRepository(db),
             centrifugo,
+            getAgentRuntimeLock(),
           ),
         ),
         [DAEMON_CONNECTION_STATUS_METHOD]: createDaemonConnectionStatusMethod(),
@@ -176,7 +181,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
         ),
         [DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD]: createDaemonRuntimeUsageScanResultMethod(),
         [AGENT_START_METHOD]: createAgentStartMethod(
-          new CloudAgentUseCase(agentAuthorization, centrifugo, async () => {}),
+          new PublishAgentRuntimeControl(agentAuthorization, centrifugo, async () => {}),
         ),
         [AGENT_STATUS_METHOD]: createAgentStatusMethod(agentRepository, undefined, centrifugo),
         [AGENT_MESSAGE_ACK_METHOD]: createAgentDeliveryAckMethod(

@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/dialog";
 import { m } from "@/paraglide/messages";
 import { formatDateForDisplay } from "@/lib/dates";
+import { AgentRuntimeFields, type RuntimeOptions } from "./agent-runtime-fields";
+import type { UpdateAgentInput } from "./agent.schemas";
 
 type Detail = Awaited<ReturnType<typeof import("./agents.functions").getAgentDetail>>;
 
@@ -24,12 +26,16 @@ export function AgentDetail({
   timeZone,
   onSaveRuntimeCredential,
   onDeleteRuntimeCredential,
+  onUpdate,
+  onLoadRuntimeOptions,
 }: {
   detail: Detail;
   tab: "profile" | "activity";
   timeZone: string | null;
   onSaveRuntimeCredential: (apiKey: string) => Promise<void>;
   onDeleteRuntimeCredential: () => Promise<void>;
+  onUpdate: (input: UpdateAgentInput) => Promise<void>;
+  onLoadRuntimeOptions: (computerId: string) => Promise<RuntimeOptions>;
 }) {
   return (
     <main className="flex-1 p-4 sm:p-5 md:p-6">
@@ -77,6 +83,8 @@ export function AgentDetail({
           timeZone={timeZone}
           onSaveRuntimeCredential={onSaveRuntimeCredential}
           onDeleteRuntimeCredential={onDeleteRuntimeCredential}
+          onUpdate={onUpdate}
+          onLoadRuntimeOptions={onLoadRuntimeOptions}
         />
       ) : (
         <Activity detail={detail} timeZone={timeZone} />
@@ -90,13 +98,18 @@ function Profile({
   timeZone,
   onSaveRuntimeCredential,
   onDeleteRuntimeCredential,
+  onUpdate,
+  onLoadRuntimeOptions,
 }: {
   detail: Detail;
   timeZone: string | null;
   onSaveRuntimeCredential: (apiKey: string) => Promise<void>;
   onDeleteRuntimeCredential: () => Promise<void>;
+  onUpdate: (input: UpdateAgentInput) => Promise<void>;
+  onLoadRuntimeOptions: (computerId: string) => Promise<RuntimeOptions>;
 }) {
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const toast = useAppToast();
   const runtime = configValue(detail.runtimeConfig, "runtime");
@@ -115,10 +128,17 @@ function Profile({
   return (
     <div className="mt-6 grid gap-5 lg:grid-cols-2">
       <section className="rounded-xl border bg-card p-5">
-        <h2 className="flex items-center gap-2 font-semibold">
-          <Bot className="size-4" />
-          {m.agent_profile_basic()}
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="flex items-center gap-2 font-semibold">
+            <Bot className="size-4" /> {m.agent_profile_basic()}
+          </h2>
+          {detail.ownedByCurrentUser && (
+            <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
+              <Pencil />
+              {m.agent_edit()}
+            </Button>
+          )}
+        </div>
         <dl className="mt-4 grid gap-4">
           {fields.map(([label, value]) => (
             <div key={label}>
@@ -128,6 +148,89 @@ function Profile({
           ))}
         </dl>
       </section>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogPortal keepMounted>
+          <DialogBackdrop />
+          <DialogPopup>
+            <form
+              onSubmit={async (event) => {
+                event.preventDefault();
+                setSaving(true);
+                const form = new FormData(event.currentTarget);
+                try {
+                  await onUpdate({
+                    agentId: detail.id,
+                    name: String(form.get("name") ?? ""),
+                    description: String(form.get("description") ?? ""),
+                    provider: runtimeProviderValue(form.get("provider")),
+                    modelProvider: String(form.get("modelProvider") ?? ""),
+                    model: String(form.get("model") ?? ""),
+                    reasoning: String(form.get("reasoning") ?? ""),
+                  });
+                  setEditOpen(false);
+                } catch (cause) {
+                  toast.error(m.agent_update_error(), cause);
+                } finally {
+                  setSaving(false);
+                }
+              }}
+            >
+              <div className="px-6 pt-6">
+                <DialogTitle>{m.agent_edit_title()}</DialogTitle>
+                <DialogDescription>{m.agent_edit_description()}</DialogDescription>
+              </div>
+              <div className="grid gap-3 px-6 py-6">
+                <label>
+                  {m.agent_form_name()}
+                  <input
+                    name="name"
+                    required
+                    defaultValue={detail.name}
+                    className="mt-1 h-9 w-full rounded-md border px-3"
+                  />
+                </label>
+                <label>
+                  {m.agent_profile_description()}
+                  <textarea
+                    name="description"
+                    required
+                    defaultValue={detail.description}
+                    className="mt-1 w-full rounded-md border p-3"
+                  />
+                </label>
+                <label className="sm:col-span-2">
+                  {m.agent_form_computer()}
+                  <input
+                    readOnly
+                    value={detail.computer?.label ?? detail.computerId ?? ""}
+                    className="mt-1 h-9 w-full rounded-md border bg-muted px-3"
+                  />
+                </label>
+                <AgentRuntimeFields
+                  open={editOpen}
+                  computerId={detail.computerId ?? ""}
+                  initial={{
+                    provider: runtimeProviderValue(runtime),
+                    modelProvider: configValue(detail.runtimeConfig, "modelProvider"),
+                    model: configValue(detail.runtimeConfig, "model"),
+                    reasoning: configValue(detail.runtimeConfig, "reasoning"),
+                  }}
+                  onLoad={onLoadRuntimeOptions}
+                />
+              </div>
+              <div className="flex justify-end gap-3 border-t px-6 py-4">
+                <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
+                  {m.controls_cancel()}
+                </Button>
+                <Button type="submit" disabled={saving}>
+                  {m.agent_runtime_save()}
+                </Button>
+              </div>
+            </form>
+          </DialogPopup>
+        </DialogPortal>
+      </Dialog>
       <section className="rounded-xl border bg-card p-5">
         <h2 className="flex items-center gap-2 font-semibold">
           <Monitor className="size-4" />
@@ -302,6 +405,11 @@ function Profile({
       </Dialog>
     </div>
   );
+}
+
+function runtimeProviderValue(value: FormDataEntryValue | null): UpdateAgentInput["provider"] {
+  if (value === "pi" || value === "codex" || value === "claude-code") return value;
+  return "coforge";
 }
 
 function configValue(config: unknown, field: string) {

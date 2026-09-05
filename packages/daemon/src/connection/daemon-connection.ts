@@ -1,6 +1,7 @@
 import { Centrifuge } from "centrifuge/build/protobuf";
 import {
   decodeAgentStartIntent,
+  decodeAgentStopIntent,
   decodeDaemonRuntimeUsageScanRequest,
   encodeDaemonRuntimeUsageScanResponse,
   decodeAgentMessageDelivery,
@@ -21,6 +22,7 @@ import {
   type AgentActivity,
   type AgentStatus,
   type AgentStartIntent,
+  type AgentStopIntent,
   type AgentMessageDelivery,
   type AgentMessageDeliveryAck,
   type AgentMessageRequest,
@@ -86,6 +88,7 @@ export interface DaemonConnectionClient {
   stop(): Promise<void>;
   onReconnect?(callback: () => void): () => void;
   onAgentStart?(callback: (intent: AgentStartIntent) => void): () => void;
+  onAgentStop?(callback: (intent: AgentStopIntent) => void): () => void;
   onAgentMessage?(callback: (message: AgentMessageDelivery) => void): () => void;
   sendAgentActivity?(activity: AgentActivity): void;
   sendAgentStatus?(status: AgentStatus): void;
@@ -174,8 +177,15 @@ export class DaemonConnection implements DaemonConnectionClient {
   #connected = false;
   #hasConnected = false;
   #agentStartListener: ((intent: AgentStartIntent) => void) | undefined;
+  #agentStopListener: ((intent: AgentStopIntent) => void) | undefined;
   #agentMessageListener: ((message: AgentMessageDelivery) => void) | undefined;
-  #readyPublications: Array<AgentStartIntent | AgentMessageDelivery> | undefined;
+  #readyPublications:
+    | Array<
+        | { kind: "start"; value: AgentStartIntent }
+        | { kind: "stop"; value: AgentStopIntent }
+        | { kind: "message"; value: AgentMessageDelivery }
+      >
+    | undefined;
   #token = "";
   #readyRequestFactory: (() => DaemonRuntimeReadyRequest) | undefined;
   #reconnectListener: (() => void) | undefined;
@@ -270,6 +280,13 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#agentStartListener = callback;
     return () => {
       if (this.#agentStartListener === callback) this.#agentStartListener = undefined;
+    };
+  }
+
+  onAgentStop(callback: (intent: AgentStopIntent) => void): () => void {
+    this.#agentStopListener = callback;
+    return () => {
+      if (this.#agentStopListener === callback) this.#agentStopListener = undefined;
     };
   }
 
@@ -454,14 +471,25 @@ export class DaemonConnection implements DaemonConnectionClient {
         const message = decodeAgentMessageDelivery(data);
         if (message.protocolMajor !== 1 || message.workspaceId !== workspaceId)
           throw new Error("agent message targets another Workspace");
-        if (this.#readyPublications) this.#readyPublications.push(message);
+        if (this.#readyPublications)
+          this.#readyPublications.push({ kind: "message", value: message });
         else this.#agentMessageListener?.(message);
       } catch {
-        const intent = decodeAgentStartIntent(data);
-        if (intent.protocolMajor !== 1 || intent.workspaceId !== workspaceId)
-          throw new Error("agent intent targets another Workspace");
-        if (this.#readyPublications) this.#readyPublications.push(intent);
-        else this.#agentStartListener?.(intent);
+        try {
+          const intent = decodeAgentStopIntent(data);
+          if (intent.protocolMajor !== 1 || intent.workspaceId !== workspaceId)
+            throw new Error("agent intent targets another Workspace");
+          if (this.#readyPublications)
+            this.#readyPublications.push({ kind: "stop", value: intent });
+          else this.#agentStopListener?.(intent);
+        } catch {
+          const intent = decodeAgentStartIntent(data);
+          if (intent.protocolMajor !== 1 || intent.workspaceId !== workspaceId)
+            throw new Error("agent intent targets another Workspace");
+          if (this.#readyPublications)
+            this.#readyPublications.push({ kind: "start", value: intent });
+          else this.#agentStartListener?.(intent);
+        }
       }
     } catch {
       // Invalid publications are rejected at the protocol boundary and never reach the runtime.
@@ -553,10 +581,11 @@ export class DaemonConnection implements DaemonConnectionClient {
     const publications = this.#readyPublications;
     this.#readyPublications = undefined;
     if (!publications) return;
-    for (const publication of publications)
-      if ("provider" in publication) this.#agentStartListener?.(publication);
-    for (const publication of publications)
-      if (!("provider" in publication)) this.#agentMessageListener?.(publication);
+    for (const publication of publications) {
+      if (publication.kind === "start") this.#agentStartListener?.(publication.value);
+      else if (publication.kind === "stop") this.#agentStopListener?.(publication.value);
+      else this.#agentMessageListener?.(publication.value);
+    }
   }
 
   async stop(): Promise<void> {
@@ -571,6 +600,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#connected = false;
     this.#hasConnected = false;
     this.#agentStartListener = undefined;
+    this.#agentStopListener = undefined;
     this.#agentMessageListener = undefined;
     this.#readyPublications = undefined;
     this.#readyRequestFactory = undefined;

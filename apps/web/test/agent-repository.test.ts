@@ -39,6 +39,12 @@ function repository(): AgentRepository {
       records.push(agent);
       return agent;
     },
+    update: async (id, input) => {
+      const current = records.find((agent) => agent.id === id);
+      if (!current) throw new Error("not found");
+      Object.assign(current, input);
+      return current;
+    },
   };
 }
 

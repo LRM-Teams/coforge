@@ -48,6 +48,7 @@ const loadWorkspaceSwitcher = mock(async () => ({
 
 mock.module("@/features/agents/agents.functions", () => ({
   createAgent: mock(async () => agents[0]),
+  updateAgent: mock(async () => ({ restart: "not-required" })),
   deleteAgentRuntimeCredential: mock(async () => ({ deleted: true })),
   saveAgentRuntimeCredential: mock(async () => ({ saved: true })),
   retryAgentStart: mock(async () => {}),

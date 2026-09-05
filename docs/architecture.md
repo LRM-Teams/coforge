@@ -322,6 +322,19 @@ Claude Code Usage 使用两种来源：按需扫描优先调用 CLI 的 `/usage`
 
 Agent start intent (`agent:start`) 使用现有 `coforge.rpc.v1` WSS/RPC control path；intent 必须包含目标 `computer_id`、完整的非敏感 runtime config，并以 `workspace_id` 做 scope 校验。Web/backend 必须确认目标与 Agent 当前绑定的 Computer 一致，再发布到 `daemon:<computer_id>`，只有该 Computer 对应的 Daemon 连接可以接收。Provider config 使用 `kind` 和可选的 `provider_id`；Agent Runtime Provider API Key 以 AES-GCM 加密后保存在 Agent 的 runtime config JSON 中，不通过 WSS 发送。Daemon 在现有、绑定到 Agent owner 与 Computer 的启动授权 HTTPS 请求中取得 Agent API Key 和解密后的 provider config，再原样交给 driver；Daemon 主流程不根据 Runtime 类型解释这些字段。Pi 的模型选择同时携带 `model_provider` 与 `model`，避免不同底层 provider 的同名模型冲突；Codex 和 Claude Code 使用各自目录中的模型 ID。无 session_id 创建新 session，有 session_id 由 driver 尝试 provider resume；driver 无法确认 resume 时必须返回明确错误，不得伪造成功。每次实际 launch 生成新的 `launch_id`，Activity 携带该 launch 内递增的 `client_seq` 和 `occurred_at`；Daemon current-launch gate 是旧 launch 隔离的生产保证，丢弃旧 session 的延迟 event/onExit。`agent:activity` 复用同一条 daemon WSS，但只向受限 Activity namespace 做 best-effort publication，不走业务 RPC。断线时 transport 内存仅保留每个 Agent 最新一条，并只在同一 launch 内按 `client_seq` 拒绝倒退；它不比较 UUID，也没有可信事实可独立判断首次观察到的两个 launch 的新旧。重连最多刷新一条；不落盘、不等待 ACK。Web 校验可信 scope 和字段并持久化成功到达的 observation，但没有跨连接 current-launch 事实来源，因此不声称已实现服务端 stale rejection。
 
+Agent 配置编辑保持当前 Computer assignment 不变。名称和描述只更新 Web/backend
+中的 canonical Agent metadata，不重启 Runtime。Provider、模型、reasoning 或 Agent
+专属 Provider API Key 变化时，Web/backend 按顺序发布独立、版本化的 `agent:stop`，
+持久化新配置，再发布 `agent:start`；协议不存在 `agent:replace`。Daemon 对同一 Agent
+保存正在执行的 stop Promise，后续 start 只等待该 Promise，不建立通用启动队列；旧
+Session 或外部进程未确认退出前不得创建替代 Runtime，停止失败则本次启动失败。Activity
+表现与 Raft 1.0.17 对齐：stop 请求本身不产生 `stopping` Activity；停止完成后先报告
+inactive status，再报告 `stopped` Activity；新 Runtime 创建成功后先报告 active status，
+再报告 `starting` Activity。启动失败报告 inactive 与 `launch_failed`，不能伪装在线。
+Web/backend 使用按 Agent ID 获取的 PostgreSQL session advisory lock 串行化配置修改、
+凭据修改、手动重试与重连恢复，且恢复在锁内重新读取 canonical runtime config，避免旧配置
+start 插入 stop 与替代 start 之间；metadata-only 写入不得覆盖 runtime config。
+
 ## 6. 消息投递语义
 
 当前 MVP 不引入本地 durable message inbox/outbox 或完整的 per-Agent delivery ledger。云端 canonical Message 与每个参与者的 read boundary 是消息恢复真相；Agent Activity 不进入本地 spool，也不 replay。

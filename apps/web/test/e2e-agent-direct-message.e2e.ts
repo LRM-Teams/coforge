@@ -25,8 +25,8 @@ import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
 } from "../src/server/db/repositories/agent.repositories.server";
-import { AgentCollection } from "../src/server/agents/agent-collection.server";
-import { CloudAgentUseCase } from "../src/server/agents/cloud-agent.server";
+import { ManageAgents } from "../src/server/agents/manage-agents.server";
+import { PublishAgentRuntimeControl } from "../src/server/agents/agent-runtime-control.server";
 import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
 import { SendDirectMessage } from "../src/server/conversations/direct-message.server";
 import { RedisMessageRequestIdempotency } from "../src/server/conversations/redis-message-request-idempotency.server";
@@ -107,10 +107,11 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     workspaceId,
     computerId: registration.computerId,
   });
-  const created = await new AgentCollection(
+  const created = await new ManageAgents(
     agents,
-    { start: async () => undefined },
+    { start: async () => undefined, stop: async () => undefined },
     { canRun: async () => true },
+    { run: async (_agentId, callback) => callback() },
   ).create(
     { userId: DEV_BROWSER_USER.id, workspaceId },
     {
@@ -424,36 +425,41 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       ).agentReadThroughSequence,
     ).toBe(offlineMessage.sequence);
 
-    await runtime.stopAgent(created.agent.id);
-    await waitFor(
-      () => !pidExists(firstProcesses.directPid) && !pidExists(firstProcesses.descendantPid),
-    );
-    await waitFor(async () => (await statuses.get(statusScope)) === "inactive");
-    await waitFor(() => statusEvents.some((event) => event.status === "inactive"));
-    expect(await agentsPage()).toContain("Offline");
-    expect(runtime.agentProcessManager.size).toBe(0);
-    await rm(processesPath, { force: true });
-
-    await new CloudAgentUseCase(
+    const runtimeControl = new PublishAgentRuntimeControl(
       new RepositoryAgentAuthorization(agents),
       createCentrifugoServerApi(),
       async () => undefined,
-    ).start(
-      {
-        protocolMajor: 1,
-        requestId: crypto.randomUUID(),
-        workspaceId,
-        computerId: registration.computerId,
-        agentId: created.agent.id,
-        provider: "pi",
-        model: "e2e-model",
-        modelProvider: "e2e-provider",
-        reasoning: "balanced",
-      },
-      DEV_BROWSER_USER.id,
     );
-    await waitFor(async () => Bun.file(processesPath).exists());
+    const updated = await new ManageAgents(
+      agents,
+      runtimeControl,
+      {
+        canRun: async () => true,
+      },
+      { run: async (_agentId, callback) => callback() },
+    ).update(
+      { userId: DEV_BROWSER_USER.id, workspaceId },
+      {
+        agentId: created.agent.id,
+        name: "e2e-agent-updated",
+        description: "Updated end-to-end test Agent",
+        provider: "pi",
+        model: "e2e-model-updated",
+        modelProvider: "e2e-provider",
+        reasoning: "high",
+      },
+    );
+    expect(updated.restart).toBe("published");
+    await waitFor(async () => {
+      if (!(await Bun.file(processesPath).exists())) return false;
+      const processes = await readProcesses(processesPath);
+      return processes.directPid !== firstProcesses.directPid;
+    });
     const replacementProcesses = await readProcesses(processesPath);
+    await waitFor(
+      () => !pidExists(firstProcesses.directPid) && !pidExists(firstProcesses.descendantPid),
+    );
+    await waitFor(() => statusEvents.some((event) => event.status === "inactive"));
     expect(replacementProcesses.directPid).not.toBe(firstProcesses.directPid);
     expect(replacementProcesses.descendantPid).not.toBe(firstProcesses.descendantPid);
     expect(pidExists(replacementProcesses.directPid)).toBe(true);
@@ -461,6 +467,11 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     await waitFor(async () => (await statuses.get(statusScope)) === "active");
     await waitFor(() => statusEvents.filter((event) => event.status === "active").length >= 2);
     expect(await agentsPage()).toContain("Online");
+    expect(await Bun.file(runtimeConfigPath).json()).toEqual({
+      modelProvider: "e2e-provider",
+      model: "e2e-model-updated",
+      reasoning: "high",
+    });
     await waitFor(
       async () =>
         (await db.agentActivity.count({
@@ -522,10 +533,10 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     const profile = await fetch(`http://127.0.0.1:8789/agents/${created.agent.id}?tab=profile`);
     expect(profile.status).toBe(200);
     const profileHtml = await profile.text();
-    expect(profileHtml).toContain("e2e-agent");
+    expect(profileHtml).toContain("e2e-agent-updated");
     expect(profileHtml).toContain(registration.computerId.slice(0, 8));
-    expect(profileHtml).toContain("e2e-model");
-    expect(profileHtml).toContain("balanced");
+    expect(profileHtml).toContain("e2e-model-updated");
+    expect(profileHtml).toContain("high");
     expect(profileHtml).toContain(errorMessage);
 
     let activityHtml = "";
