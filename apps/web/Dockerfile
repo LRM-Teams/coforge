@@ -13,6 +13,12 @@ RUN bun install --frozen-lockfile
 COPY apps/web apps/web
 COPY packages/agent packages/agent
 COPY packages/protocol packages/protocol
+# apps/web embeds these two scripts verbatim at build time (Vite `?raw` import - see
+# apps/web/src/server/install/install-script.server.ts) to serve /computer/install.sh and
+# /computer/install.ps1 without a runtime file read, since nothing under scripts/ is otherwise
+# copied into this image.
+COPY scripts/release/install.sh scripts/release/install.sh
+COPY scripts/release/install.ps1 scripts/release/install.ps1
 
 # Generated outputs are gitignored but required for the build: buf-generated
 # protobuf modules (packages/protocol/gen) and the prisma client
