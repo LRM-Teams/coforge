@@ -1,8 +1,8 @@
 # CoForge release contract
 
-Status: approved workflow contract; the cloud staging deployment workflow is implemented; production stays disabled behind the human approval gate
+Status: approved workflow contract; the cloud staging deployment workflow and a local Computer distribution staging publish workflow are implemented; production stays disabled behind the human approval gate
 
-Updated: 2026-09-04
+Updated: 2026-09-05
 
 This document is the canonical release specification for CoForge. It defines
 which artifact may move between environments, who authorizes that movement,
@@ -297,11 +297,16 @@ attacker capability, only a legitimate one it may be used for: pointing a
 manual or scripted install at a non-default feed (a staging or private feed).
 No such use is implemented or documented today - `installCommands()` in
 `apps/web/src/features/install/install-commands.ts` renders a plain
-`{origin}/computer/install.sh`, not a feed URL, so how a staging deployment's
-served copy of `install.sh` would reach the staging feed by default (as
-opposed to a caller exporting the variable by hand) is unresolved and belongs
-to the not-yet-built publishing workflow, not to this variable. Both scripts
-carry the threat-model half of this reasoning inline as a comment.
+`{origin}/computer/install.sh`, not a feed URL, and `apps/web` now serves that
+path with the exact bytes of `scripts/release/install.sh` (embedded at build
+time; see `apps/web/src/server/install/install-script.server.ts`) unchanged -
+the same script, with the same compiled-in `https://releases.coforge.cn`
+default, is served from every deployment. How a staging deployment's served
+copy of `install.sh` would reach the staging feed *by default* (as opposed to
+a caller exporting the variable by hand) therefore remains unresolved and
+belongs to a future per-environment publishing/serving decision, not to this
+variable. Both scripts carry the threat-model half of this reasoning inline
+as a comment.
 
 Publishing a local-distribution release is **manual**. The workflow exposes only
 `workflow_dispatch`; it is not triggered by merging to `main`. Continuous publish
@@ -588,10 +593,47 @@ disabled behind the human approval gate. The release Skill must stop rather
 than reconstruct or invoke the removed gateway workflow.
 
 The local feed topology and `releases.coforge.cn` consumer boundary above
-are approved, but no feed or publishing workflow exists yet. Platform/
-architecture matrices, distribution credentials, and updater commands remain
-unimplemented. The release Skill may inspect and prepare their evidence, but
-it must not invent publication or updater commands.
+are approved. `scripts/release/publish.ts`, run manually through
+`.github/workflows/release-staging.yml` (`workflow_dispatch` only, `environment:
+staging`), now implements a first version of the "Main to staging" local-
+distribution path: it runs the repository gates, cross-compiles Computer and
+Daemon for a set of release targets, assembles the version tree
+(`build-release.ts`), uploads every object `buildReleaseTree` lists, reads
+each one back and compares bytes, and only then writes and re-reads the
+staging feed's `latest` pointer - all directly against the private OSS
+bucket origin over its signed HTTP API (no `ossutil`/SDK dependency; see
+`scripts/release/publish.ts`'s own header comment).
+
+Two known gaps remain against the contract above, and neither is silently
+papered over:
+
+- **Platform matrix**: `publish.ts --targets` defaults to the four POSIX
+  targets (`linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`), not the
+  "complete Windows, Linux, and macOS platform matrix" step 2 requires, and
+  `release-staging.yml` does not override that default. A real staging
+  publish through the current workflow therefore does not yet ship
+  `windows-x64`/`windows-arm64` binaries; Windows Computer/Daemon behavior has
+  not been verified end to end. Passing `--targets` with all six is possible
+  today, but nothing has proven the Windows binaries actually work first.
+- **CDN verification (steps 4 and 6)**: `publish.ts` verifies every object by
+  reading it back with a signed request against the OSS bucket origin
+  itself, not by re-reading `releases-staging.coforge.cn`, and it does not
+  refresh CDN caches or prove that an anonymous/direct GET of the OSS object
+  key is rejected while the CDN succeeds - `scripts/verify-oss-cdn.ts`
+  already implements exactly that probe, but is not yet wired into this
+  publish workflow. The staging CDN's cache rules themselves are no longer a
+  blocker: `docs/operations/aliyun-oss-cdn.md` Section 10 records that
+  `releases-staging` now revalidates `/latest` and `*.json` on every request
+  while `<version>/*` stays immutable for 365 days, which is the layout this
+  feed needs. What is still missing is only the verification step - nothing
+  in this workflow proves the CDN actually serves what OSS accepted.
+
+Distribution credentials (`ALIYUN_OSS_ACCESS_KEY_ID`/`ALIYUN_OSS_ACCESS_KEY_SECRET`,
+see `infra/staging/README.md`) and updater commands (`packages/computer/src/
+updater.ts`, `install.sh`, `install.ps1`) were already implemented before this
+publish workflow. The release Skill may still inspect and prepare evidence for
+the gaps above, but must not invent a CDN-verified publication or a Windows
+release claim this workflow does not yet produce.
 
 ## Official references
 
