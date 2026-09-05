@@ -20,10 +20,12 @@ export function AddComputerDialog({
   open,
   onOpenChange,
   installOrigin,
+  workspaceSlug,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   installOrigin: string;
+  workspaceSlug: string | null;
 }) {
   const [computerType, setComputerType] = useState<ComputerType>("local");
   const [step, setStep] = useState<"choose" | "install">("choose");
@@ -76,7 +78,7 @@ export function AddComputerDialog({
               />
             </div>
           ) : (
-            <ComputerInstallCommand installOrigin={installOrigin} />
+            <ComputerInstallCommand installOrigin={installOrigin} workspaceSlug={workspaceSlug} />
           )}
 
           <div className="flex items-center justify-end gap-3 border-t px-6 py-4 sm:px-8">

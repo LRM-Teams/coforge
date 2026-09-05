@@ -2,22 +2,39 @@ import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { installCommands } from "@/features/install/install-commands";
+import { installCommands, setupCommand } from "@/features/install/install-commands";
 import { m } from "@/paraglide/messages";
 
 type OperatingSystem = "macos-linux" | "windows";
 
 /** The per-OS command that installs CoForge Computer on the User's machine, rooted at the
- * deployment they are signed in to rather than at a fixed host. */
-export function ComputerInstallCommand({ installOrigin }: { installOrigin: string }) {
+ * deployment they are signed in to rather than at a fixed host, followed by the explicit
+ * second command that joins it to the current Workspace. The two stay separate commands
+ * (rather than one auto-chained script) so joining a second Workspace from the same
+ * machine later has an equally natural, explicit expression. */
+export function ComputerInstallCommand({
+  installOrigin,
+  workspaceSlug,
+}: {
+  installOrigin: string;
+  workspaceSlug: string | null;
+}) {
   const [operatingSystem, setOperatingSystem] = useState<OperatingSystem>("macos-linux");
-  const [copied, setCopied] = useState(false);
+  const [installCopied, setInstallCopied] = useState(false);
+  const [setupCopied, setSetupCopied] = useState(false);
   const commands = installCommands(installOrigin);
   const command = operatingSystem === "windows" ? commands.windows : commands.posix;
+  const joinCommand = workspaceSlug ? setupCommand(workspaceSlug) : null;
 
-  async function copyCommand() {
+  async function copyInstallCommand() {
     await navigator.clipboard.writeText(command);
-    setCopied(true);
+    setInstallCopied(true);
+  }
+
+  async function copySetupCommand() {
+    if (!joinCommand) return;
+    await navigator.clipboard.writeText(joinCommand);
+    setSetupCopied(true);
   }
 
   return (
@@ -43,7 +60,7 @@ export function ComputerInstallCommand({ installOrigin }: { installOrigin: strin
             }
             onClick={() => {
               setOperatingSystem(id);
-              setCopied(false);
+              setInstallCopied(false);
             }}
           >
             {label}
@@ -61,13 +78,37 @@ export function ComputerInstallCommand({ installOrigin }: { installOrigin: strin
             variant="secondary"
             size="icon"
             aria-label={m.computer_copy_command()}
-            onClick={copyCommand}
+            onClick={copyInstallCommand}
           >
-            {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+            {installCopied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
           </Button>
         </div>
-        {copied && <p className="mt-2 text-xs text-success">{m.computer_command_copied()}</p>}
+        {installCopied && (
+          <p className="mt-2 text-xs text-success">{m.computer_command_copied()}</p>
+        )}
       </div>
+      {joinCommand && (
+        <div>
+          <p className="text-sm font-medium">{m.computer_setup_step()}</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {m.computer_setup_step_description({ workspace: workspaceSlug ?? "" })}
+          </p>
+          <div className="mt-4 flex items-center gap-2 rounded-xl bg-terminal p-4 text-sm text-terminal-foreground">
+            <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap">{joinCommand}</code>
+            <Button
+              variant="secondary"
+              size="icon"
+              aria-label={m.computer_copy_setup_command()}
+              onClick={copySetupCommand}
+            >
+              {setupCopied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+            </Button>
+          </div>
+          {setupCopied && (
+            <p className="mt-2 text-xs text-success">{m.computer_setup_command_copied()}</p>
+          )}
+        </div>
+      )}
       <div className="rounded-xl bg-muted p-4 text-sm leading-6 text-muted-foreground">
         {m.computer_install_note()}
       </div>
