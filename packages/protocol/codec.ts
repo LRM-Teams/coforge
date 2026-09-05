@@ -24,6 +24,7 @@ import {
 } from "./gen/coforge/rpc/v1/daemon_runtime_pb";
 import {
   AgentStartIntentSchema,
+  AgentStopIntentSchema,
   AgentMessageDeliverySchema,
   AgentActivitySchema,
   AgentStatusSchema,
@@ -33,6 +34,7 @@ import {
 } from "./gen/coforge/rpc/v1/workspace_pb";
 import type {
   AgentStartIntent,
+  AgentStopIntent,
   AgentRuntimeProviderConfig,
   AgentMessageDelivery,
   AgentActivity,
@@ -43,6 +45,7 @@ import type {
 } from "./index";
 import {
   AGENT_START_MESSAGE_TYPE,
+  AGENT_STOP_MESSAGE_TYPE,
   USAGE_SCAN_MESSAGE_TYPE,
   USAGE_SCAN_RESPONSE_MESSAGE_TYPE,
 } from "./index";
@@ -330,6 +333,33 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
           ),
         }
       : {}),
+  };
+}
+
+export function encodeAgentStopIntent(value: AgentStopIntent): Uint8Array {
+  return toBinary(
+    AgentStopIntentSchema,
+    create(AgentStopIntentSchema, { ...value, messageType: AGENT_STOP_MESSAGE_TYPE }),
+  );
+}
+
+export function decodeAgentStopIntent(bytes: Uint8Array): AgentStopIntent {
+  const value = fromBinary(AgentStopIntentSchema, bytes);
+  if (
+    value.messageType !== AGENT_STOP_MESSAGE_TYPE ||
+    !value.requestId ||
+    !value.workspaceId ||
+    !value.computerId ||
+    !value.agentId
+  )
+    throw new Error("invalid agent stop intent");
+  return {
+    protocolMajor: value.protocolMajor,
+    requestId: value.requestId,
+    workspaceId: value.workspaceId,
+    computerId: value.computerId,
+    agentId: value.agentId,
+    messageType: value.messageType,
   };
 }
 

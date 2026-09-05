@@ -6,10 +6,12 @@ import {
   deleteAgentRuntimeCredential,
   getAgentDetail,
   saveAgentRuntimeCredential,
+  updateAgent,
 } from "@/features/agents/agents.functions";
 import { m } from "@/paraglide/messages";
 import { getUserPreferences } from "@/features/settings/settings.functions";
 import { PageLoadError } from "@/features/errors/page-load-error";
+import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
 
 function detailTab(value: unknown): "profile" | "activity" {
   if (value === "activity") return "activity";
@@ -37,17 +39,37 @@ function AgentDetailPage() {
   const router = useRouter();
   const saveCredential = useServerFn(saveAgentRuntimeCredential);
   const deleteCredential = useServerFn(deleteAgentRuntimeCredential);
+  const update = useServerFn(updateAgent);
+  const loadComputers = useServerFn(listComputers);
+  const loadCatalog = useServerFn(getComputerRuntimeCatalog);
   return (
     <AgentDetail
       detail={detail}
       timeZone={timeZone}
       tab={Route.useSearch().tab}
+      onLoadRuntimeOptions={async (computerId) => {
+        const [computers, catalogs] = await Promise.all([
+          loadComputers(),
+          loadCatalog({ data: { computerId } }),
+        ]);
+        return {
+          providers:
+            computers
+              .find((computer) => computer.id === computerId)
+              ?.runtimes.map((runtime) => runtime.provider) ?? [],
+          catalogs,
+        };
+      }}
       onSaveRuntimeCredential={async (apiKey) => {
         await saveCredential({ data: { agentId: detail.id, apiKey } });
         await router.invalidate({ sync: true });
       }}
       onDeleteRuntimeCredential={async () => {
         await deleteCredential({ data: detail.id });
+        await router.invalidate({ sync: true });
+      }}
+      onUpdate={async (input) => {
+        await update({ data: input });
         await router.invalidate({ sync: true });
       }}
     />

@@ -50,6 +50,11 @@ export interface AgentRepository {
   listForComputer(workspaceId: string, computerId: string): Promise<AgentRecord[]>;
   listOwnedInWorkspace(workspaceId: string, ownerId: string): Promise<AgentRecord[]>;
   create(input: Omit<AgentRecord, "id" | "createdAt">): Promise<AgentRecord>;
+  update(
+    id: string,
+    input: Pick<AgentRecord, "name" | "displayName" | "description"> &
+      Partial<Pick<AgentRecord, "runtimeConfig">>,
+  ): Promise<AgentRecord>;
 }
 
 export class PrismaAgentRepository implements AgentRepository {
@@ -86,6 +91,14 @@ export class PrismaAgentRepository implements AgentRepository {
 
   async create(input: Omit<AgentRecord, "id" | "createdAt">) {
     return mapAgent(await this.db.agent.create({ data: input }));
+  }
+
+  async update(
+    id: string,
+    input: Pick<AgentRecord, "name" | "displayName" | "description"> &
+      Partial<Pick<AgentRecord, "runtimeConfig">>,
+  ) {
+    return mapAgent(await this.db.agent.update({ where: { id }, data: input }));
   }
 }
 

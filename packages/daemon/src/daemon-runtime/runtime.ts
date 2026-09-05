@@ -30,6 +30,7 @@ import {
   type AgentMessageRecord,
   type AgentMessageResponse,
   type AgentStartIntent,
+  type AgentStopIntent,
   type AgentMessageDelivery,
   type InboxResponse,
   type LocalAgentMessageRequest,
@@ -92,6 +93,7 @@ export class DaemonRuntime {
   #stopping = false;
   #activityEnabled = false;
   #unsubscribeAgentStart: (() => void) | undefined;
+  #unsubscribeAgentStop: (() => void) | undefined;
   #unsubscribeAgentMessage: (() => void) | undefined;
   #unsubscribeReconnect: (() => void) | undefined;
   #unsubscribeUsageScan: (() => void) | undefined;
@@ -228,18 +230,29 @@ export class DaemonRuntime {
     mkdirSync(connection.workspaceRoot, { recursive: true });
     const token = await this.#credentials.load(connection.workspaceId, connection.computerId);
     if (!token) throw new Error("Workspace credential is missing");
-    const pending: Array<AgentStartIntent | AgentMessageDelivery> = [];
+    const pending: Array<
+      | { kind: "start"; value: AgentStartIntent }
+      | { kind: "stop"; value: AgentStopIntent }
+      | { kind: "message"; value: AgentMessageDelivery }
+    > = [];
     let buffering = true;
     const receiveAgentStart = (intent: AgentStartIntent) => {
       if (buffering) {
-        pending.push(intent);
+        pending.push({ kind: "start", value: intent });
         return;
       }
       void this.handleAgentStart(intent).catch(() => {});
     };
+    const receiveAgentStop = (intent: AgentStopIntent) => {
+      if (buffering) {
+        pending.push({ kind: "stop", value: intent });
+        return;
+      }
+      void this.handleAgentStop(intent).catch(() => {});
+    };
     const receiveAgentMessage = (message: AgentMessageDelivery) => {
       if (buffering) {
-        pending.push(message);
+        pending.push({ kind: "message", value: message });
         return;
       }
       void this.handleAgentMessage(message).catch(() => {});
@@ -262,6 +275,7 @@ export class DaemonRuntime {
       // Register publication listeners before the ready RPC. The server may
       // recover persisted Agents immediately as part of that RPC.
       this.#unsubscribeAgentStart = this.#transport.onAgentStart?.(receiveAgentStart);
+      this.#unsubscribeAgentStop = this.#transport.onAgentStop?.(receiveAgentStop);
       this.#unsubscribeAgentMessage = this.#transport.onAgentMessage?.(receiveAgentMessage);
       await this.#transport.start(token, {
         workspaceId: connection.workspaceId,
@@ -289,15 +303,21 @@ export class DaemonRuntime {
       this.#started = true;
       this.#activityEnabled = true;
       const flushes: Promise<unknown>[] = [];
-      for (const delivery of buffered)
-        if ("provider" in delivery) flushes.push(this.handleAgentStart(delivery).catch(() => {}));
-      for (const delivery of buffered)
-        if (!("provider" in delivery))
-          flushes.push(this.handleAgentMessage(delivery).catch(() => {}));
+      for (const publication of buffered) {
+        if (publication.kind === "start")
+          flushes.push(this.handleAgentStart(publication.value).catch(() => {}));
+        else if (publication.kind === "stop")
+          flushes.push(this.handleAgentStop(publication.value).catch(() => {}));
+      }
+      for (const publication of buffered)
+        if (publication.kind === "message")
+          flushes.push(this.handleAgentMessage(publication.value).catch(() => {}));
       await Promise.all(flushes);
     } catch (error) {
       this.#unsubscribeAgentStart?.();
       this.#unsubscribeAgentStart = undefined;
+      this.#unsubscribeAgentStop?.();
+      this.#unsubscribeAgentStop = undefined;
       this.#unsubscribeAgentMessage?.();
       this.#unsubscribeAgentMessage = undefined;
       this.#unsubscribeUsageScan?.();
@@ -496,15 +516,6 @@ export class DaemonRuntime {
   ): Promise<AgentRuntime> {
     const launch = { launchId: crypto.randomUUID(), clientSeq: 0, stopping: false };
     this.#currentActivityLaunches.set(agentId, launch);
-    this.#emitAgentActivity(agentId, launch, {
-      protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-      requestId,
-      workspaceId: this.#connection.workspaceId,
-      agentId,
-      activity: "starting",
-      level: "info",
-      message: "Agent runtime is starting.",
-    });
     let agentApiKey: string | undefined;
     let stage: "credential" | "runtime" = "credential";
     try {
@@ -621,6 +632,7 @@ export class DaemonRuntime {
           // through the transport contract and is never treated as success.
         });
         unsubscribe();
+        if (launch.stopping) return;
         emit({
           protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
           requestId: crypto.randomUUID(),
@@ -630,10 +642,19 @@ export class DaemonRuntime {
           level: "info",
           message: "Agent runtime stopped",
         });
-        if (!launch.stopping && this.#currentActivityLaunches.get(agentId) === launch)
+        if (this.#currentActivityLaunches.get(agentId) === launch)
           this.#currentActivityLaunches.delete(agentId);
       });
       this.#sendAgentStatus(agentId, "active");
+      this.#emitAgentActivity(agentId, launch, {
+        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+        requestId,
+        workspaceId: this.#connection.workspaceId,
+        agentId,
+        activity: "starting",
+        level: "info",
+        message: "Agent runtime is starting.",
+      });
       void this.drainAppInboxNotices(agentId).catch(() => {});
       return runtime;
     } catch (error) {
@@ -648,6 +669,7 @@ export class DaemonRuntime {
         }
       }
       if (!this.#stopping && !this.#stoppingAgents.has(agentId)) {
+        this.#sendAgentStatus(agentId, "inactive");
         this.#emitAgentActivity(agentId, launch, {
           protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
           requestId: crypto.randomUUID(),
@@ -696,6 +718,8 @@ export class DaemonRuntime {
       throw new Error("agent intent targets another Workspace");
     if (intent.computerId && intent.computerId !== this.#connection.computerId)
       throw new Error("agent intent targets another Computer");
+    const stopping = this.#agentStops.get(intent.agentId);
+    if (stopping) await stopping;
     return this.startAgent(
       intent.agentId,
       {
@@ -713,6 +737,16 @@ export class DaemonRuntime {
         unreadSummary: intent.unreadSummary,
       },
     );
+  }
+
+  async handleAgentStop(intent: AgentStopIntent): Promise<void> {
+    if (intent.protocolMajor !== WORKSPACE_PROTOCOL_MAJOR)
+      throw new Error("unsupported agent protocol major");
+    if (intent.workspaceId !== this.#connection.workspaceId)
+      throw new Error("agent intent targets another Workspace");
+    if (intent.computerId !== this.#connection.computerId)
+      throw new Error("agent intent targets another Computer");
+    await this.stopAgent(intent.agentId);
   }
 
   async handleAgentMessage(message: AgentMessageDelivery): Promise<void> {
@@ -784,10 +818,11 @@ export class DaemonRuntime {
     if (launch) await Promise.allSettled([launch]);
     const inputDrain = this.#agentInputQueues.get(agentId)?.drain;
     if (inputDrain) await Promise.allSettled([inputDrain]);
-    await this.#releaseAgentRuntime(agentId);
+    await this.#releaseAgentRuntime(agentId, true);
   }
 
-  async #releaseAgentRuntime(agentId: string): Promise<void> {
+  async #releaseAgentRuntime(agentId: string, publishStopped = false): Promise<void> {
+    const activityLaunch = this.#currentActivityLaunches.get(agentId);
     const results = await Promise.allSettled([
       this.#revokeAgentApiKey(this.#agentApiKeys.get(agentId)),
       this.#agentProcessManager.stop(agentId),
@@ -796,9 +831,19 @@ export class DaemonRuntime {
       (result): result is PromiseRejectedResult => result.status === "rejected",
     );
     if (failure) throw failure.reason;
-    this.#currentActivityLaunches.delete(agentId);
     this.#messageAttention.clearAgent(agentId);
     this.#sendAgentStatus(agentId, "inactive");
+    if (publishStopped && activityLaunch)
+      this.#emitAgentActivity(agentId, activityLaunch, {
+        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+        requestId: crypto.randomUUID(),
+        workspaceId: this.#connection.workspaceId,
+        agentId,
+        activity: "stopped",
+        level: "info",
+        message: "Agent runtime stopped",
+      });
+    this.#currentActivityLaunches.delete(agentId);
   }
 
   #readyRunningAgentIds(): string[] {
@@ -1161,6 +1206,8 @@ export class DaemonRuntime {
       this.#closeAgentInputQueue(agentId, new Error("daemon runtime is stopping"));
     this.#unsubscribeAgentStart?.();
     this.#unsubscribeAgentStart = undefined;
+    this.#unsubscribeAgentStop?.();
+    this.#unsubscribeAgentStop = undefined;
     this.#unsubscribeAgentMessage?.();
     this.#unsubscribeAgentMessage = undefined;
     this.#unsubscribeUsageScan?.();

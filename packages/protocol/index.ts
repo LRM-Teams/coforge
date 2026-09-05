@@ -10,11 +10,14 @@ export const DAEMON_RUNTIME_USAGE_SCAN_METHOD = "daemon:usage_scan" as const;
 export const DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD = "daemon:usage_scan_result" as const;
 export const AGENT_START_METHOD = "agent:start" as const;
 export const AGENT_START_MESSAGE_TYPE = "coforge.rpc.v1.AgentStartIntent" as const;
+export const AGENT_STOP_METHOD = "agent:stop" as const;
+export const AGENT_STOP_MESSAGE_TYPE = "coforge.rpc.v1.AgentStopIntent" as const;
 export const USAGE_SCAN_MESSAGE_TYPE = "coforge.rpc.v1.DaemonRuntimeUsageScanRequest" as const;
 export const USAGE_SCAN_RESPONSE_MESSAGE_TYPE =
   "coforge.rpc.v1.DaemonRuntimeUsageScanResponse" as const;
 export type DaemonRuntimeMessageType =
   | typeof AGENT_START_MESSAGE_TYPE
+  | typeof AGENT_STOP_MESSAGE_TYPE
   | typeof USAGE_SCAN_MESSAGE_TYPE
   | typeof USAGE_SCAN_RESPONSE_MESSAGE_TYPE;
 export const AGENT_MESSAGE_METHOD = "agent:deliver" as const;
@@ -125,6 +128,14 @@ export type AgentStartIntent = {
   wakeMessage?: AgentRecoveryMessage;
   resumeMessages?: AgentRecoveryMessage[];
   unreadSummary?: Readonly<Record<string, number>>;
+};
+export type AgentStopIntent = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  computerId: string;
+  agentId: string;
+  messageType?: typeof AGENT_STOP_MESSAGE_TYPE;
 };
 export type AgentRecoveryMessage = {
   messageId: string;
@@ -326,6 +337,8 @@ export {
 export {
   encodeAgentStartIntent,
   decodeAgentStartIntent,
+  encodeAgentStopIntent,
+  decodeAgentStopIntent,
   encodeAgentMessageDelivery,
   decodeAgentMessageDelivery,
   encodeAgentMessageDeliveryAck,

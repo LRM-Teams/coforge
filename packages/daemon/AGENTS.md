@@ -90,6 +90,10 @@ not mutate the installation or supply missing files for older installers.
   session, and config, accepts only `wakeMessage`, and ignores that start's
   `resumeMessages` and `unreadSummary`. A still-launching Agent is not reported
   as running and accepts the full recovery context on its shared launch.
+  Agent lifecycle control uses separate versioned `agent:start` and
+  `agent:stop` intents; there is no `agent:replace`. A stop emits no
+  `stopping` activity. If a start follows a stop for the same Agent, control
+  handling waits for confirmed stop completion before launching the replacement.
 - `agent-app-inbox/` owns typed App-item identity, validation, retention, and
   acknowledgement. It is separate from canonical chat Message attention.
 - `persistence/` owns durable local state and atomic App Inbox storage. A

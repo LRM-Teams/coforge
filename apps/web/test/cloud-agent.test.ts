@@ -2,57 +2,67 @@ import { describe, expect, test } from "bun:test";
 import {
   decodeAgentMessageDelivery,
   decodeAgentStartIntent,
+  decodeAgentStopIntent,
   encodeAgentActivity,
   RUNTIME_PROVIDER,
 } from "@coforge/protocol";
-import { CloudAgentUseCase, WorkspaceAgentRecovery } from "../src/server/agents/cloud-agent.server";
+import {
+  PublishAgentRuntimeControl,
+  WorkspaceAgentRecovery,
+} from "../src/server/agents/agent-runtime-control.server";
 
-describe("CloudAgentUseCase", () => {
+describe("PublishAgentRuntimeControl", () => {
   test("ready recovery publishes stored runtime config for every Workspace Agent", async () => {
     const payloads: Uint8Array[] = [];
     const channels: string[] = [];
     const recoveryReads: string[] = [];
     const pendingReads: string[] = [];
+    const agents = [
+      {
+        id: "agent-running",
+        workspaceId: "workspace-1",
+        ownerId: "user-1",
+        computerId: "computer-1",
+        name: "running",
+        displayName: "Running",
+        createdAt: new Date(),
+        runtimeConfig: {
+          runtime: RUNTIME_PROVIDER.PI,
+          provider: { kind: "default" as const },
+          model: "default",
+          modelProvider: "",
+          reasoning: "balanced",
+        },
+      },
+      {
+        id: "agent-1",
+        workspaceId: "workspace-1",
+        ownerId: "user-1",
+        computerId: "computer-1",
+        name: "builder",
+        displayName: "Builder",
+        createdAt: new Date(),
+        runtimeConfig: {
+          runtime: RUNTIME_PROVIDER.CLAUDE_CODE,
+          provider: { kind: "default" as const },
+          model: "sonnet",
+          modelProvider: "",
+          reasoning: "high",
+        },
+      },
+    ];
     const recovery = new WorkspaceAgentRecovery(
       {
-        getById: async () => undefined,
+        getById: async (id) => agents.find((agent) => agent.id === id),
         listOwnedInWorkspace: async () => [],
         listInWorkspace: async () => [],
         create: async () => {
           throw new Error("not used");
         },
-        listForComputer: async () => [
-          {
-            id: "agent-running",
-            workspaceId: "workspace-1",
-            ownerId: "user-1",
-            name: "running",
-            displayName: "Running",
-            createdAt: new Date(),
-            runtimeConfig: {
-              runtime: RUNTIME_PROVIDER.PI,
-              provider: { kind: "default" },
-              model: "default",
-              modelProvider: "",
-              reasoning: "balanced",
-            },
-          },
-          {
-            id: "agent-1",
-            workspaceId: "workspace-1",
-            ownerId: "user-1",
-            name: "builder",
-            displayName: "Builder",
-            createdAt: new Date(),
-            runtimeConfig: {
-              runtime: RUNTIME_PROVIDER.CLAUDE_CODE,
-              provider: { kind: "default" },
-              model: "sonnet",
-              modelProvider: "",
-              reasoning: "high",
-            },
-          },
-        ],
+        update: async () => {
+          throw new Error("not used");
+        },
+        listForComputer: async () => agents.map((agent) => structuredClone(agent)),
       },
       {
         readAgentRecoveryContext: async (_workspaceId, agentId) => {
@@ -93,6 +103,7 @@ describe("CloudAgentUseCase", () => {
           payloads.push(payload);
         },
       },
+      { run: async (_agentId, callback) => callback() },
     );
 
     await recovery.recoverWorkspace("workspace-1", "computer-1", ["agent-running"]);
@@ -134,10 +145,78 @@ describe("CloudAgentUseCase", () => {
     });
   });
 
+  test("orders recovery after a runtime mutation and starts from the fresh locked config", async () => {
+    let releaseMutation = () => {};
+    const mutationGate = new Promise<void>((resolve) => {
+      releaseMutation = resolve;
+    });
+    let tail = Promise.resolve();
+    const lock = {
+      run: async <T>(_agentId: string, callback: () => Promise<T>) => {
+        const previous = tail;
+        let release = () => {};
+        tail = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await previous;
+        try {
+          return await callback();
+        } finally {
+          release();
+        }
+      },
+    };
+    const current = {
+      id: "agent-1",
+      workspaceId: "workspace-1",
+      ownerId: "user-1",
+      computerId: "computer-1",
+      name: "builder",
+      displayName: "Builder",
+      createdAt: new Date(),
+      runtimeConfig: {
+        runtime: RUNTIME_PROVIDER.PI,
+        provider: { kind: "default" as const },
+        model: "stale-model",
+        modelProvider: "",
+        reasoning: "",
+      },
+    };
+    const payloads: Uint8Array[] = [];
+    const mutation = lock.run(current.id, async () => {
+      await mutationGate;
+      current.runtimeConfig.model = "fresh-model";
+    });
+    const recovery = new WorkspaceAgentRecovery(
+      {
+        getById: async () => current,
+        listOwnedInWorkspace: async () => [],
+        listInWorkspace: async () => [],
+        listForComputer: async () => [structuredClone(current)],
+        create: async () => current,
+        update: async () => current,
+      },
+      {
+        readAgentRecoveryContext: async () => ({ resumeMessages: [], unreadSummary: {} }),
+        readPendingAgentDeliveries: async () => [],
+      },
+      { publish: async (_channel, payload) => void payloads.push(payload) },
+      lock,
+    );
+
+    const recovering = recovery.recoverWorkspace("workspace-1", "computer-1", []);
+    await Promise.resolve();
+    expect(payloads).toEqual([]);
+    releaseMutation();
+    await Promise.all([mutation, recovering]);
+
+    expect(decodeAgentStartIntent(payloads[0]!)).toMatchObject({ model: "fresh-model" });
+  });
+
   test("publishes an Agent start when optional model and reasoning are empty", async () => {
     const payloads: Uint8Array[] = [];
     const channels: string[] = [];
-    const useCase = new CloudAgentUseCase(
+    const useCase = new PublishAgentRuntimeControl(
       {
         computerIdForAuthorizedAgent: async () => "computer-1",
       },
@@ -171,7 +250,7 @@ describe("CloudAgentUseCase", () => {
   test("derives the start target from the authorized Agent and routes scoped activity", async () => {
     const published: Uint8Array[] = [];
     const activities: unknown[] = [];
-    const useCase = new CloudAgentUseCase(
+    const useCase = new PublishAgentRuntimeControl(
       {
         computerIdForAuthorizedAgent: async () => "computer-1",
       },
@@ -218,7 +297,7 @@ describe("CloudAgentUseCase", () => {
   });
 
   test("rejects an activity for another agent", async () => {
-    const useCase = new CloudAgentUseCase(
+    const useCase = new PublishAgentRuntimeControl(
       { computerIdForAuthorizedAgent: async () => "computer-1" },
       { publish: async () => {} },
       async () => {},
@@ -240,5 +319,42 @@ describe("CloudAgentUseCase", () => {
         { workspaceId: "w", agentId: "other" },
       ),
     ).rejects.toThrow("scope");
+  });
+
+  test("publishes an authorized Agent stop with only identity fields", async () => {
+    const payloads: Uint8Array[] = [];
+    const useCase = new PublishAgentRuntimeControl(
+      { computerIdForAuthorizedAgent: async () => "computer-1" },
+      {
+        publish: async (_channel, payload) => {
+          payloads.push(payload);
+        },
+      },
+      async () => {},
+    );
+    await useCase.stop(
+      {
+        protocolMajor: 1,
+        requestId: "stop-1",
+        workspaceId: "workspace-1",
+        computerId: "forged",
+        agentId: "agent-1",
+      },
+      "user-1",
+    );
+    expect(decodeAgentStopIntent(payloads[0]!)).toEqual(
+      expect.objectContaining({ computerId: "computer-1", agentId: "agent-1" }),
+    );
+    const denied = new PublishAgentRuntimeControl(
+      { computerIdForAuthorizedAgent: async () => undefined },
+      { publish: async () => {} },
+      async () => {},
+    );
+    await expect(
+      denied.stop(
+        { protocolMajor: 1, requestId: "x", workspaceId: "w", computerId: "c", agentId: "a" },
+        "u",
+      ),
+    ).rejects.toThrow("authorized");
   });
 });

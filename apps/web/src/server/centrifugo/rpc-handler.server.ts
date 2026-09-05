@@ -17,7 +17,7 @@ import {
   type RuntimeMetadata,
 } from "@coforge/protocol";
 import { getUsageCache, type UsageCache, type UsageSnapshot } from "./usage-cache.server";
-import { CloudAgentUseCase } from "../agents/cloud-agent.server";
+import { PublishAgentRuntimeControl } from "../agents/agent-runtime-control.server";
 import { decodeAgentMessageDeliveryAck } from "@coforge/protocol";
 import { decodeAgentMessageRequest, encodeCloudAgentMessageResponse } from "@coforge/protocol";
 import { SendDirectMessage } from "../conversations/direct-message.server";
@@ -66,7 +66,7 @@ export function createAgentDeliveryAckMethod(repository: {
   };
 }
 
-export function createAgentStartMethod(useCase: CloudAgentUseCase): CentrifugoRpcMethod {
+export function createAgentStartMethod(useCase: PublishAgentRuntimeControl): CentrifugoRpcMethod {
   return async (payload, metadata) => {
     if (!metadata.principal.userId) return { code: 401, message: "authentication required" };
     try {

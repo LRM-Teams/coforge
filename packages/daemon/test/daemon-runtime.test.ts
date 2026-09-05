@@ -62,6 +62,7 @@ async function queueHarness(
     launch?: () => void | Promise<void>;
     notify?: (notice: string) => void | Promise<void>;
     dispose?: () => void | Promise<void>;
+    lifecycle?: (event: string) => void;
   } = {},
 ) {
   const credentials = new InMemoryDaemonCredentialStore();
@@ -105,6 +106,12 @@ async function queueHarness(
           );
         },
         async revokeAgentApiKey() {},
+        sendAgentStatus(status) {
+          options.lifecycle?.(`status:${status.status}`);
+        },
+        sendAgentActivity(activity) {
+          options.lifecycle?.(`activity:${activity.activity}`);
+        },
         async sendAgentDeliveryAck(ack) {
           acknowledgements.push(ack.deliveryId);
         },
@@ -142,6 +149,91 @@ const recovery = {
 };
 
 describe("DaemonRuntime", () => {
+  test("orders stop completion before replacement start lifecycle", async () => {
+    let releaseDispose!: () => void;
+    const disposeGate = new Promise<void>((resolve) => (releaseDispose = resolve));
+    const lifecycle: string[] = [];
+    const harness = await queueHarness({
+      dispose: () => disposeGate,
+      lifecycle: (event) => lifecycle.push(event),
+    });
+    const intent = {
+      protocolMajor: 1,
+      requestId: "start-1",
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "agent-a",
+      provider: "pi" as const,
+      model: "default",
+      reasoning: "balanced",
+    };
+    await harness.runtime.handleAgentStart(intent);
+
+    const stopping = harness.runtime.handleAgentStop({
+      protocolMajor: 1,
+      requestId: "stop-1",
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "agent-a",
+    });
+    const restarting = harness.runtime.handleAgentStart({ ...intent, requestId: "start-2" });
+    await Bun.sleep(0);
+    expect(harness.sessions()).toBe(1);
+    expect(lifecycle).toEqual(["status:active", "activity:starting"]);
+
+    releaseDispose();
+    await Promise.all([stopping, restarting]);
+    expect(harness.sessions()).toBe(2);
+    expect(lifecycle).toEqual([
+      "status:active",
+      "activity:starting",
+      "status:inactive",
+      "activity:stopped",
+      "status:active",
+      "activity:starting",
+    ]);
+    await harness.runtime.stop();
+  });
+
+  test("does not control-start a replacement when the same Agent stop fails", async () => {
+    let releaseDispose!: () => void;
+    const disposeGate = new Promise<void>((resolve) => (releaseDispose = resolve));
+    const harness = await queueHarness({
+      async dispose() {
+        await disposeGate;
+        throw new Error("dispose failed");
+      },
+    });
+    const intent = {
+      protocolMajor: 1,
+      requestId: "start-1",
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "agent-a",
+      provider: "pi" as const,
+      model: "default",
+      reasoning: "balanced",
+    };
+    await harness.runtime.handleAgentStart(intent);
+
+    const stopping = harness.runtime.handleAgentStop({
+      protocolMajor: 1,
+      requestId: "stop-1",
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "agent-a",
+    });
+    const restarting = harness.runtime.handleAgentStart({ ...intent, requestId: "start-2" });
+    const results = Promise.allSettled([stopping, restarting]);
+    releaseDispose();
+    expect(await results).toEqual([
+      expect.objectContaining({ status: "rejected", reason: expect.any(Error) }),
+      expect.objectContaining({ status: "rejected", reason: expect.any(Error) }),
+    ]);
+    expect(harness.sessions()).toBe(1);
+    await harness.runtime.stop().catch(() => undefined);
+  });
+
   test("message check returns canonical user messages and drains attention once", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
@@ -1931,6 +2023,7 @@ describe("DaemonRuntime", () => {
   test("reports a safe launch failure and blocks retry when startup cleanup is unresolved", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const lifecycle: string[] = [];
     const activities: import("@coforge/protocol").AgentActivity[] = [];
     let credentialRequests = 0;
     const runtime = new DaemonRuntime(
@@ -1947,8 +2040,12 @@ describe("DaemonRuntime", () => {
           async start() {},
           async ready() {},
           async stop() {},
+          sendAgentStatus(status) {
+            lifecycle.push(`status:${status.status}`);
+          },
           sendAgentActivity(activity) {
             activities.push(activity);
+            lifecycle.push(`activity:${activity.activity}`);
           },
           async requestAgentLaunchConfig() {
             credentialRequests++;
@@ -1963,12 +2060,13 @@ describe("DaemonRuntime", () => {
     await expect(runtime.startAgent("agent-a", config)).rejects.toThrow(
       "process tree did not exit",
     );
-    expect(activities.map(({ activity }) => activity)).toEqual(["starting", "launch_failed"]);
-    expect(activities[1]).toMatchObject({
+    expect(lifecycle).toEqual(["status:inactive", "activity:launch_failed"]);
+    expect(activities.map(({ activity }) => activity)).toEqual(["launch_failed"]);
+    expect(activities[0]).toMatchObject({
       agentId: "agent-a",
       activity: "launch_failed",
       level: "error",
-      clientSeq: 2,
+      clientSeq: 1,
       message: "Agent process cleanup could not be confirmed. Replacement launch is blocked.",
     });
     await expect(runtime.startAgent("agent-a", config)).rejects.toThrow("stopping");
