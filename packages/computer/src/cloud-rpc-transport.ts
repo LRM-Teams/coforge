@@ -178,14 +178,24 @@ export function resolveCentrifugoWebSocketEndpoint(serverUrl: string, env = Bun.
   return centrifugoWebSocketEndpoint(serverUrl, override);
 }
 
-/** DaemonCore's server connection endpoint; the staging backend owns this route. */
+/**
+ * Daemon's server connection endpoint. The Daemon connects through
+ * Centrifugo's standard client WebSocket path, same as the browser;
+ * Centrifugo's official Connect Proxy (not a URL prefix) distinguishes the
+ * Daemon API key connect data from a browser's JWT. See docs/architecture.md's
+ * "Standalone Centrifugo" section and ADR 0004.
+ */
 export function daemonConnectionEndpoint(serverUrl: string): string {
-  const url = new URL(serverUrl);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = "/daemon/connect";
-  return url.toString();
+  return centrifugoWebSocketEndpoint(serverUrl);
 }
 
+/**
+ * E2E-only split endpoint, mirroring `resolveCentrifugoWebSocketEndpoint`.
+ * Locally and in E2E the Daemon's WSS target (Centrifugo's exposed port) and
+ * `serverUrl` (the Web HTTP origin) are different hosts/ports because nothing
+ * fronts them with one reverse proxy the way Caddy does in staging/production;
+ * production has no override and keeps deriving WSS from `serverUrl`.
+ */
 export function resolveDaemonConnectionEndpoint(serverUrl: string, env = Bun.env): string {
   const override =
     env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1"

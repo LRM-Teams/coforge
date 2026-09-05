@@ -6,6 +6,7 @@ import {
   centrifugoWebSocketEndpoint,
   daemonConnectionEndpoint,
   resolveCentrifugoWebSocketEndpoint,
+  resolveDaemonConnectionEndpoint,
   type CentrifugeClient,
   type CentrifugeFactory,
 } from "../src/cloud-rpc-transport";
@@ -139,9 +140,12 @@ test("Centrifugo websocket endpoint uses the Centrifugo websocket path", () => {
   );
 });
 
-test("Daemon connection endpoint uses the DaemonCore /daemon/connect path", () => {
+test("Daemon connection endpoint reuses Centrifugo's client websocket path, not a bespoke prefix", () => {
   expect(daemonConnectionEndpoint("https://staging.example/api?tenant=one")).toBe(
-    "wss://staging.example/daemon/connect?tenant=one",
+    "wss://staging.example/connection/websocket?tenant=one",
+  );
+  expect(daemonConnectionEndpoint("https://staging.example/api?tenant=one")).toBe(
+    centrifugoWebSocketEndpoint("https://staging.example/api?tenant=one"),
   );
 });
 
@@ -155,6 +159,21 @@ test("E2E-only websocket override splits RPC from the Web HTTP server", () => {
   expect(
     resolveCentrifugoWebSocketEndpoint("http://localhost:8789", {
       COFORGE_E2E_CENTRIFUGO_ENDPOINT: "ws://localhost:8000/connection/websocket",
+    }),
+  ).toBe("ws://localhost:8789/connection/websocket");
+});
+
+test("E2E-only daemon connection override splits the Daemon's WSS target from the Web HTTP server", () => {
+  expect(
+    resolveDaemonConnectionEndpoint("http://localhost:8789", {
+      COFORGE_E2E_ALLOW_DEVICE_AUTH: "1",
+      COFORGE_E2E_DAEMON_CONNECTION_ENDPOINT: "ws://localhost:8000/connection/websocket",
+    }),
+  ).toBe("ws://localhost:8000/connection/websocket");
+  // Without the E2E flag, production behavior applies: derive WSS from serverUrl.
+  expect(
+    resolveDaemonConnectionEndpoint("http://localhost:8789", {
+      COFORGE_E2E_DAEMON_CONNECTION_ENDPOINT: "ws://localhost:8000/connection/websocket",
     }),
   ).toBe("ws://localhost:8789/connection/websocket");
 });
