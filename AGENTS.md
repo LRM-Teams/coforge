@@ -152,6 +152,10 @@ These instructions apply to the entire repository.
 - Start bug fixes with a regression test. Do not remove or weaken a valid test merely to make CI pass.
 - Keep refactoring in the independent review stage rather than expanding a red-green implementation slice.
 
+## Testing
+
+- When writing or modifying tests, investigating test failures, or reviewing test changes, read and follow [the testing guidance](docs/agents/testing.md). Unrelated tasks do not require loading this document.
+
 ## Toolchain
 
 - Use `mise` as the repository's development tool and version manager.
