@@ -153,6 +153,18 @@ gh variable list --env staging --repo LRM-Teams/coforge
 写死进二进制了。这是刻意的——见
 [ADR 0007](../../docs/adr/0007-checksum-manifest-release-distribution.md)。
 
+`COFORGE_RELEASE_FEED_URL` **有两个消费者，同一个值**：
+
+| 消费者 | 怎么拿到 | 生效时机 |
+| --- | --- | --- |
+| 已发布的 Computer 二进制 | `bun build --compile` 内联 | 编译期，改环境变量无效 |
+| Web 服务的 `/computer/install.sh` / `install.ps1` | Compose `environment:` | 容器启动时，改完要重新部署 |
+
+Web 这一侧是在返回安装脚本时把脚本里写死的生产 feed 换成本部署的 feed，
+这样 `curl https://staging.coforge.cn/computer/install.sh | sh` 装的是 staging 版本
+而不是生产版本（`docs/release.md` 的 "Local Computer distribution model"）。
+**没配这个变量时这两个端点返回 503，不会返回一个指向错误 feed 的 200。**
+
 部署时 workflow 把 Authing 应用 ID、应用密钥、session 密钥、Agent Runtime 凭据主密钥和 OTLP Traces
 接入地址写入主机
 `infra/staging/secrets/`。`remote-deploy.sh` 通过 Compose secrets 只把它们挂载给 Web；

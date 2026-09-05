@@ -50,6 +50,10 @@ services:
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT_FILE: /run/secrets/otel_traces_endpoint
       OTEL_SERVICE_NAME: coforge-web
       OTEL_DEPLOYMENT_ENVIRONMENT: staging
+      # Which release feed this deployment's `curl .../computer/install.sh | sh` installs
+      # from. Not a secret, and deployment-specific by design: docs/release.md requires a
+      # staging entry point to install the staging build, never the production one.
+      COFORGE_RELEASE_FEED_URL: https://releases-staging.coforge.cn
       COFORGE_FILE_STORAGE_DIR: /data/files
     volumes:
       - coforge_staging_files:/data/files

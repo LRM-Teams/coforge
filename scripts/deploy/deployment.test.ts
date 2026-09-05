@@ -320,6 +320,20 @@ describe("staging user file persistence", () => {
     expect(compose).toContain("name: coforge_staging_files");
   });
 
+  test("staging serves install.sh pointing at the staging feed, not the production one", async () => {
+    const compose = await Bun.file(
+      new URL("../../infra/staging/docker-compose.yml", import.meta.url),
+    ).text();
+    const webStart = compose.indexOf("\n  web:\n");
+    const migrateStart = compose.indexOf("\n  migrate:\n");
+    const webBlock = compose.slice(webStart, migrateStart);
+
+    // Unset, and /computer/install.sh answers 503 instead of installing anything; set to the
+    // production feed, and `curl https://staging.coforge.cn/... | sh` would install the
+    // production build on a staging machine. Both are silent from CI's point of view.
+    expect(webBlock).toContain("COFORGE_RELEASE_FEED_URL: https://releases-staging.coforge.cn");
+  });
+
   test("the image owns the mount point so the volume is not created root-owned", async () => {
     const dockerfile = await Bun.file(new URL("../../apps/web/Dockerfile", import.meta.url)).text();
     const runtimeStage = dockerfile.slice(dockerfile.lastIndexOf("FROM "));
