@@ -6,8 +6,10 @@ import { join } from "node:path";
 import { buildReleaseTree, type ReleaseInputs, type ReleaseTree } from "./build-release";
 import type { ReleaseTarget } from "./compile-targets";
 import {
+  assertVersionIsUnpublished,
   DEFAULT_TARGETS,
   LATEST_OBJECT_KEY,
+  manifestObjectKey,
   ossAuthorizationHeader,
   ossSignature,
   ossStringToSign,
@@ -73,6 +75,10 @@ interface FakeOssOptions {
   credentials?: OssCredentials;
   failUploadKeys?: Set<string>;
   tamperReadbackKeys?: Set<string>;
+  /** Objects that already exist in the bucket before the publish starts. */
+  preexistingKeys?: Set<string>;
+  /** Keys whose existence probe answers with an ambiguous status instead of 200/404. */
+  failProbeKeys?: Set<string>;
 }
 
 interface FakeOss {
@@ -83,6 +89,7 @@ interface FakeOss {
 function startFakeOssServer(bucket: string, options: FakeOssOptions = {}): FakeOss {
   const credentials = options.credentials ?? CREDENTIALS;
   const store = new Map<string, Uint8Array>();
+  for (const key of options.preexistingKeys ?? []) store.set(key, new Uint8Array([0x7b, 0x7d]));
   const calls: Array<{ method: string; key: string }> = [];
 
   const server = Bun.serve({
@@ -94,10 +101,10 @@ function startFakeOssServer(bucket: string, options: FakeOssOptions = {}): FakeO
       calls.push({ method, key: objectKey });
 
       const date = request.headers.get("date") ?? "";
-      const contentType = method === "PUT" ? (request.headers.get("content-type") ?? "") : "";
+      const contentType = request.headers.get("content-type") ?? "";
       const authorization = request.headers.get("authorization") ?? "";
       const expectedStringToSign = ossStringToSign({
-        method: method as "PUT" | "GET",
+        method: method as "PUT" | "GET" | "HEAD",
         bucket,
         objectKey,
         date,
@@ -123,6 +130,16 @@ function startFakeOssServer(bucket: string, options: FakeOssOptions = {}): FakeO
         }
         store.set(objectKey, new Uint8Array(await request.arrayBuffer()));
         return new Response(null, { status: 200 });
+      }
+
+      if (method === "HEAD") {
+        if (options.failProbeKeys?.has(objectKey)) {
+          return new Response(null, {
+            status: 403,
+            headers: { "x-oss-request-id": "fake-request-id-probe-fail" },
+          });
+        }
+        return new Response(null, { status: store.has(objectKey) ? 200 : 404 });
       }
 
       if (method === "GET") {
@@ -225,8 +242,13 @@ test("a successful publish uploads every object, verifies every object, then wri
   expect(result.latestKey).toBe(LATEST_OBJECT_KEY);
   expect(result.uploaded).toEqual(tree.files);
 
+  // The manifest is uploaded last, after every binary, so that its presence means "this version
+  // is complete" - which is exactly what the republish guard's HEAD probe reads.
+  const manifestKey = manifestObjectKey(tree.version);
   const expectedSequence = [
-    ...tree.files.map((key) => ({ method: "PUT", key })),
+    { method: "HEAD", key: manifestKey },
+    ...tree.files.filter((key) => key !== manifestKey).map((key) => ({ method: "PUT", key })),
+    { method: "PUT", key: manifestKey },
     ...tree.files.map((key) => ({ method: "GET", key })),
     { method: "PUT", key: LATEST_OBJECT_KEY },
     { method: "GET", key: LATEST_OBJECT_KEY },
@@ -245,8 +267,8 @@ test("a successful publish uploads every object, verifies every object, then wri
 test("a failed object upload never writes latest, and stops before uploading later objects", async () => {
   const outputDirectory = await tempDir("coforge-publish-tree-");
   const tree = await fixtureTree("9.9.9-upload-fail", outputDirectory);
-  // Fail the very first object in the sorted, deterministic file list.
-  const failingKey = tree.files[0];
+  // Fail the first object actually uploaded - the manifest is deferred to last, so it is not it.
+  const failingKey = tree.files.find((key) => key !== manifestObjectKey(tree.version));
   if (!failingKey) throw new Error("fixture tree produced no files");
   const fake = startFakeOssServer(BUCKET, { failUploadKeys: new Set([failingKey]) });
 
@@ -257,8 +279,82 @@ test("a failed object upload never writes latest, and stops before uploading lat
     }),
   ).rejects.toThrow(/OSS upload failed: HTTP 500/);
 
-  expect(fake.calls).toEqual([{ method: "PUT", key: failingKey }]);
+  expect(fake.calls).toEqual([
+    { method: "HEAD", key: manifestObjectKey(tree.version) },
+    { method: "PUT", key: failingKey },
+  ]);
+  // A publish that dies mid-upload must not leave the manifest behind, or the version would be
+  // permanently burned by its own failure instead of being retryable.
+  expect(
+    fake.calls.some((call) => call.method === "PUT" && call.key.endsWith("manifest.json")),
+  ).toBe(false);
   expect(fake.calls.some((call) => call.key === LATEST_OBJECT_KEY)).toBe(false);
+});
+
+test("republishing a version that already completed is refused before anything is uploaded", async () => {
+  const outputDirectory = await tempDir("coforge-publish-republish-");
+  const tree = await fixtureTree("9.9.9-already-live", outputDirectory);
+  const fake = startFakeOssServer(BUCKET, {
+    preexistingKeys: new Set([manifestObjectKey(tree.version)]),
+  });
+
+  await expect(
+    uploadReleaseTree(outputDirectory, tree, {
+      target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
+      credentials: CREDENTIALS,
+    }),
+  ).rejects.toThrow(/9\.9\.9-already-live is already published/);
+
+  // The point of the guard is that a live version's bytes are never touched: the CDN caches
+  // `<version>/*` for a year, so a second publish would leave different bytes on different edges.
+  expect(fake.calls).toEqual([{ method: "HEAD", key: manifestObjectKey(tree.version) }]);
+});
+
+test("a version left half-uploaded by an earlier failure can still be published", async () => {
+  const outputDirectory = await tempDir("coforge-publish-retry-");
+  const tree = await fixtureTree("9.9.9-retry-ok", outputDirectory);
+  // A partial publish uploaded some binaries but never reached the manifest, which is exactly
+  // what the manifest-last ordering guarantees. That version must remain publishable.
+  const partial = tree.files.find((key) => key !== manifestObjectKey(tree.version));
+  if (!partial) throw new Error("fixture tree produced no files");
+  const fake = startFakeOssServer(BUCKET, { preexistingKeys: new Set([partial]) });
+
+  const result = await uploadReleaseTree(outputDirectory, tree, {
+    target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
+    credentials: CREDENTIALS,
+  });
+
+  expect(result.latestKey).toBe(LATEST_OBJECT_KEY);
+});
+
+test("an ambiguous existence probe aborts the publish instead of reading as absent", async () => {
+  const outputDirectory = await tempDir("coforge-publish-probe-fail-");
+  const tree = await fixtureTree("9.9.9-probe-fail", outputDirectory);
+  const fake = startFakeOssServer(BUCKET, {
+    failProbeKeys: new Set([manifestObjectKey(tree.version)]),
+  });
+
+  // A 403 must not be mistaken for "not published yet" - that would overwrite a live version on a
+  // transient credential or permission fault.
+  await expect(
+    uploadReleaseTree(outputDirectory, tree, {
+      target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
+      credentials: CREDENTIALS,
+    }),
+  ).rejects.toThrow(/OSS probe failed: HTTP 403/);
+
+  expect(fake.calls.every((call) => call.method === "HEAD")).toBe(true);
+});
+
+test("assertVersionIsUnpublished resolves for a version the feed has never seen", async () => {
+  const fake = startFakeOssServer(BUCKET);
+
+  await assertVersionIsUnpublished("1.2.3-fresh", {
+    target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
+    credentials: CREDENTIALS,
+  });
+
+  expect(fake.calls).toEqual([{ method: "HEAD", key: "1.2.3-fresh/manifest.json" }]);
 });
 
 /* ------------------------------------------------------------------------------------------- */
@@ -346,6 +442,9 @@ test("a failed publish never prints the access key, secret, or an Authorization 
   const combined = [...stdout, ...stderr].join("\n");
   expect(combined).not.toContain(wrongSecret);
   expect(combined).not.toContain(CREDENTIALS.accessKeySecret);
+  // The key id is not a secret the way the secret is, but a real OSS error body echoes it back
+  // alongside StringToSign, so printing one is the same mistake as printing the other.
+  expect(combined).not.toContain(CREDENTIALS.accessKeyId);
   expect(combined.toLowerCase()).not.toContain("authorization");
   expect(combined).not.toContain("StringToSign");
 });

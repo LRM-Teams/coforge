@@ -9,6 +9,10 @@
  * through therefore leaves at most an unreferenced version directory; `latest` never points at
  * incomplete or missing objects."
  *
+ * Published versions are also immutable: the publish refuses to start if `<version>/manifest.json`
+ * already exists. The feed's CDN caches `<version>/*` for 365 days, so overwriting a live version
+ * would leave different bytes on different edge nodes for up to a year.
+ *
  * Upload happens over OSS's plain HTTP API, signed by hand (Authorization-header V1 signature),
  * deliberately without the `ossutil` CLI or the Alibaba Cloud SDK - see AGENTS.md's "no new
  * runtime dependency" and the CR description for why a ~40-line HMAC-SHA1 signer was preferred
@@ -58,7 +62,7 @@ function canonicalizedResource(bucket: string, objectKey: string): string {
 }
 
 export function ossStringToSign(options: {
-  method: "PUT" | "GET";
+  method: "PUT" | "GET" | "HEAD";
   bucket: string;
   objectKey: string;
   date: string;
@@ -173,6 +177,64 @@ async function getObject(
 
 export const LATEST_OBJECT_KEY = "latest";
 
+/** The object that marks a version as fully uploaded. It is written last (see
+ * `uploadReleaseTree`), so its presence means every other object under `<version>/` is already
+ * there - which is what lets `assertVersionIsUnpublished` use it as a completion marker. */
+export function manifestObjectKey(version: string): string {
+  return `${version}/manifest.json`;
+}
+
+/** Resolves true when the object exists, false on a 404, and throws on anything else - an
+ * ambiguous status (403, 5xx) must not be read as "absent", or the caller would overwrite a
+ * published version on a transient error. */
+async function objectExists(
+  target: OssTarget,
+  objectKey: string,
+  credentials: OssCredentials,
+  date: string,
+  fetchImpl: typeof fetch,
+): Promise<boolean> {
+  const stringToSign = ossStringToSign({
+    method: "HEAD",
+    bucket: target.bucket,
+    objectKey,
+    date,
+    contentType: "",
+  });
+  const response = await fetchImpl(target.objectUrl(objectKey), {
+    method: "HEAD",
+    headers: { Date: date, Authorization: ossAuthorizationHeader(credentials, stringToSign) },
+  });
+  await response.body?.cancel();
+  if (response.status === 404) return false;
+  if (!response.ok) throw ossError("probe", objectKey, response);
+  return true;
+}
+
+/** Refuses to republish a version that already completed. Published versions are immutable: the
+ * feed's CDN caches `<version>/*` for 365 days (docs/operations/aliyun-oss-cdn.md), so a second
+ * publish under the same version would leave different bytes on different edge nodes for up to a
+ * year - `install.sh` verifying an old sidecar against an old binary would silently install the
+ * older build. A publish that failed partway through never wrote the manifest, so retrying that
+ * is still allowed; only a completed version is protected. */
+export async function assertVersionIsUnpublished(
+  version: string,
+  options: Pick<UploadOptions, "target" | "credentials"> & {
+    fetchImpl?: typeof fetch;
+    now?: () => Date;
+  },
+): Promise<void> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const now = options.now ?? ((): Date => new Date());
+  const key = manifestObjectKey(version);
+  if (await objectExists(options.target, key, options.credentials, ossDate(now()), fetchImpl)) {
+    throw new Error(
+      `Release version ${version} is already published (${key} exists). Published versions are ` +
+        `immutable - publish a new version instead of overwriting this one.`,
+    );
+  }
+}
+
 export interface UploadOptions {
   target: OssTarget;
   credentials: OssCredentials;
@@ -199,7 +261,25 @@ export async function uploadReleaseTree(
   const now = options.now ?? (() => new Date());
   const log = options.log ?? ((): void => undefined);
 
-  for (const relativePath of tree.files) {
+  await assertVersionIsUnpublished(tree.version, {
+    target: options.target,
+    credentials: options.credentials,
+    fetchImpl,
+    now,
+  });
+
+  // The manifest is pinned last explicitly rather than relying on `tree.files` being sorted:
+  // `build-release.ts` sorts the whole list, so "manifest.json" only happens to sort after the
+  // current four POSIX targets. Adding a `windows-*` target would move it and silently break the
+  // completion marker `assertVersionIsUnpublished` depends on.
+  const manifestKey = manifestObjectKey(tree.version);
+  const manifestFiles = tree.files.filter((file) => file === manifestKey);
+  if (manifestFiles.length !== 1) {
+    throw new Error(`Release tree does not contain exactly one ${manifestKey} to upload last`);
+  }
+  const uploadOrder = [...tree.files.filter((file) => file !== manifestKey), manifestKey];
+
+  for (const relativePath of uploadOrder) {
     const bytes = await readFile(join(outputDirectory, relativePath));
     await putObject(
       options.target,

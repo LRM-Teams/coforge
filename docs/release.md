@@ -621,12 +621,12 @@ papered over:
   refresh CDN caches or prove that an anonymous/direct GET of the OSS object
   key is rejected while the CDN succeeds - `scripts/verify-oss-cdn.ts`
   already implements exactly that probe, but is not yet wired into this
-  publish workflow. Separately, `docs/operations/aliyun-oss-cdn.md`'s
-  Section 10 records that the staging CDN's current cache rule keeps `/` for
-  365 days, so even a fully verified OSS-origin publish will not become
-  visible through `releases-staging.coforge.cn` until that cache rule is
-  fixed to match Section 5.3 - until then, the OSS-origin read-back above is
-  the only verification that can be trusted for a staging publish.
+  publish workflow. The staging CDN's cache rules themselves are no longer a
+  blocker: `docs/operations/aliyun-oss-cdn.md` Section 10 records that
+  `releases-staging` now revalidates `/latest` and `*.json` on every request
+  while `<version>/*` stays immutable for 365 days, which is the layout this
+  feed needs. What is still missing is only the verification step - nothing
+  in this workflow proves the CDN actually serves what OSS accepted.
 
 Distribution credentials (`ALIYUN_OSS_ACCESS_KEY_ID`/`ALIYUN_OSS_ACCESS_KEY_SECRET`,
 see `infra/staging/README.md`) and updater commands (`packages/computer/src/
