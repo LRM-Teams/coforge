@@ -41,7 +41,12 @@ async function tempDir(prefix: string): Promise<string> {
 
 const CREDENTIALS: OssCredentials = { accessKeyId: "testkey", accessKeySecret: "testsecret" };
 const BUCKET = "coforge-releases-test";
-const TEST_TARGETS = ["linux-x64", "darwin-arm64"];
+// `windows-x64` is here for one reason: it sorts after "manifest.json", so it is what makes the
+// manifest-last upload order load-bearing. With only the POSIX targets (all of which sort before
+// `m`) `tree.files` already ends with the manifest, and reverting publish.ts to upload in plain
+// `tree.files` order passes every test in this file. Compilation is stubbed, so the extra target
+// costs nothing.
+const TEST_TARGETS = ["linux-x64", "darwin-arm64", "windows-x64"];
 
 function fixtureArtifacts(): Record<string, { computer: Uint8Array; daemon: Uint8Array }> {
   const artifacts: Record<string, { computer: Uint8Array; daemon: Uint8Array }> = {};
