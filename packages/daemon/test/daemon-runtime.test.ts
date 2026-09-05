@@ -807,10 +807,14 @@ describe("DaemonRuntime", () => {
     await runtime.stop();
   });
 
-  test("buffers publications delivered synchronously by ready and handles them in order", async () => {
+  test("starts all ready publications without blocking other Agents on a slow launch", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const startedAgents: string[] = [];
+    let releaseFirstCredential!: () => void;
+    const firstCredential = new Promise<void>((resolve) => (releaseFirstCredential = resolve));
+    let secondAgentActive!: () => void;
+    const secondActive = new Promise<void>((resolve) => (secondAgentActive = resolve));
     let listener: ((intent: Parameters<DaemonRuntime["handleAgentStart"]>[0]) => void) | undefined;
     const runtime = new DaemonRuntime(
       connection,
@@ -855,10 +859,14 @@ describe("DaemonRuntime", () => {
               sessionId: "session-b",
             });
           },
-          async requestAgentLaunchConfig() {
+          async requestAgentLaunchConfig({ agentId }) {
+            if (agentId === "agent-a") await firstCredential;
             return agentLaunchConfig(
               `sk_agent_${crypto.randomUUID().replaceAll("-", "").padEnd(43, "a")}`,
             );
+          },
+          sendAgentStatus({ agentId, status }) {
+            if (agentId === "agent-b" && status === "active") secondAgentActive();
           },
           async sendAgentActivity() {},
           async stop() {},
@@ -866,9 +874,18 @@ describe("DaemonRuntime", () => {
       },
     );
 
-    await runtime.start(connection);
-    expect(startedAgents).toEqual(["session-a", "session-b"]);
-    await runtime.stop();
+    const starting = runtime.start(connection);
+    try {
+      await secondActive;
+      expect(startedAgents).toEqual(["session-b"]);
+      releaseFirstCredential();
+      await starting;
+      expect(startedAgents).toEqual(["session-b", "session-a"]);
+    } finally {
+      releaseFirstCredential();
+      await starting;
+      await runtime.stop();
+    }
   });
 
   test("flushes buffered starts before delivery without losing starts received during flush", async () => {
@@ -885,6 +902,10 @@ describe("DaemonRuntime", () => {
     const notifying = new Promise<void>((resolve) => (notifyStarted = resolve));
     let releaseNotify!: () => void;
     const notifyGate = new Promise<void>((resolve) => (releaseNotify = resolve));
+    let releaseSecondCredential!: () => void;
+    const secondCredential = new Promise<void>((resolve) => (releaseSecondCredential = resolve));
+    let secondAgentActive!: () => void;
+    const secondActive = new Promise<void>((resolve) => (secondAgentActive = resolve));
     const runtime = new DaemonRuntime(
       connection,
       () => ({
@@ -938,8 +959,12 @@ describe("DaemonRuntime", () => {
               reasoning: "balanced",
             });
           },
-          async requestAgentLaunchConfig() {
+          async requestAgentLaunchConfig({ agentId }) {
+            if (agentId === "agent-b") await secondCredential;
             return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          sendAgentStatus({ agentId, status }) {
+            if (agentId === "agent-b" && status === "active") secondAgentActive();
           },
           async sendAgentDeliveryAck() {},
           async stop() {},
@@ -948,23 +973,33 @@ describe("DaemonRuntime", () => {
     );
 
     const starting = runtime.start(connection);
-    await notifying;
-    startListener?.({
-      protocolMajor: 1,
-      requestId: "start-2",
-      workspaceId: connection.workspaceId,
-      computerId: connection.computerId,
-      agentId: "agent-b",
-      provider: "pi",
-      model: "default",
-      reasoning: "balanced",
-    });
-    releaseNotify();
-    await starting;
-    await Bun.sleep(0);
+    try {
+      await notifying;
+      startListener?.({
+        protocolMajor: 1,
+        requestId: "start-2",
+        workspaceId: connection.workspaceId,
+        computerId: connection.computerId,
+        agentId: "agent-b",
+        provider: "pi",
+        model: "default",
+        reasoning: "balanced",
+      });
+      releaseNotify();
+      await starting;
+      // Live starts received during the initial flush run independently. Wait
+      // for the observable active status, not a timer tick or initial startup.
+      expect(events).toEqual(["start:agent-a", "notify:agent-a"]);
+      releaseSecondCredential();
+      await secondActive;
 
-    expect(events).toEqual(["start:agent-a", "notify:agent-a", "start:agent-b"]);
-    await runtime.stop();
+      expect(events).toEqual(["start:agent-a", "notify:agent-a", "start:agent-b"]);
+    } finally {
+      releaseNotify();
+      releaseSecondCredential();
+      await starting;
+      await runtime.stop();
+    }
   });
 
   test("recreates transport after a failed start", async () => {
