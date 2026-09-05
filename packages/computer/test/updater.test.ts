@@ -44,6 +44,18 @@ async function fixture(
   const version = options.version ?? "2.0.0";
   const computer = Buffer.from("computer-payload-v2");
   const daemon = Buffer.from("daemon-payload-v2");
+  const compressedComputer = Bun.gzipSync(computer);
+  const compressedDaemon = Bun.gzipSync(daemon);
+  const computerGzip = {
+    binary: "coforge-computer.gz",
+    size: compressedComputer.length,
+    checksum: sha256hex(compressedComputer),
+  };
+  const daemonGzip = {
+    binary: "coforge-daemon.gz",
+    size: compressedDaemon.length,
+    checksum: sha256hex(compressedDaemon),
+  };
 
   const manifest = {
     schema_version: 1,
@@ -59,16 +71,23 @@ async function fixture(
             // what the feed actually serves at that path) and only the binary-name pin can catch
             // it - see the B3-3 test below.
             computer: options.swapComputerBinary
-              ? { binary: "coforge-daemon", checksum: sha256hex(daemon), size: daemon.length }
+              ? {
+                  binary: "coforge-daemon",
+                  checksum: sha256hex(daemon),
+                  size: daemon.length,
+                  gzip: daemonGzip,
+                }
               : {
                   binary: "coforge-computer",
                   checksum: sha256hex(computer),
                   size: computer.length,
+                  gzip: computerGzip,
                 },
             daemon: {
               binary: "coforge-daemon",
               checksum: sha256hex(daemon),
               size: daemon.length,
+              gzip: daemonGzip,
             },
           },
         },
@@ -85,8 +104,8 @@ async function fixture(
 
   const files = new Map<string, Uint8Array>([
     [`/${version}/manifest.json`, manifestBytes],
-    [`/${version}/${target}/coforge-computer`, servedComputer],
-    [`/${version}/${target}/coforge-daemon`, servedDaemon],
+    [`/${version}/${target}/coforge-computer.gz`, Bun.gzipSync(new Uint8Array(servedComputer))],
+    [`/${version}/${target}/coforge-daemon.gz`, Bun.gzipSync(new Uint8Array(servedDaemon))],
   ]);
   // redirectLatest points "/latest" at a 302 whose destination serves the very same, otherwise
   // completely valid, version content - so a full install would succeed if the redirect refusal
@@ -118,6 +137,7 @@ async function fixture(
     target,
     version,
     requested,
+    files,
   };
 }
 
@@ -128,6 +148,73 @@ function updater(input: Awaited<ReturnType<typeof fixture>>) {
     installRoot: input.directory,
   });
 }
+
+test("gzip corruption, missing objects, invalid paths and oversized expansion never activate", async () => {
+  for (const failure of [
+    "checksum",
+    "raw-checksum",
+    "missing",
+    "path",
+    "expansion",
+    "invalid-gzip",
+  ] as const) {
+    const input = await fixture();
+    const manifestPath = `/${input.version}/manifest.json`;
+    const manifest = JSON.parse(new TextDecoder().decode(input.files.get(manifestPath)));
+    const artifact = manifest.platforms[input.target].computer;
+    const raw = Bun.gunzipSync(
+      Buffer.from(input.files.get(`/${input.version}/${input.target}/coforge-computer.gz`)!),
+    );
+    const compressed =
+      failure === "invalid-gzip"
+        ? raw
+        : Bun.gzipSync(failure === "expansion" ? new Uint8Array(1024) : Buffer.from(raw));
+    artifact.gzip = {
+      binary: failure === "path" ? "../coforge-computer.gz" : "coforge-computer.gz",
+      size: compressed.length,
+      checksum: failure === "checksum" ? "0".repeat(64) : sha256hex(compressed),
+    };
+    if (failure === "raw-checksum") artifact.checksum = "0".repeat(64);
+    input.files.set(manifestPath, Buffer.from(JSON.stringify(manifest)));
+    if (failure === "missing")
+      input.files.delete(`/${input.version}/${input.target}/coforge-computer.gz`);
+    else input.files.set(`/${input.version}/${input.target}/coforge-computer.gz`, compressed);
+    await expect(updater(input).install(input.version)).rejects.toThrow();
+    expect(await Bun.file(join(input.directory, "active.json")).exists()).toBe(false);
+    expect(input.requested).not.toContain(`/${input.version}/${input.target}/coforge-computer`);
+  }
+});
+
+test("a manifest without gzip metadata is rejected rather than downloading raw binaries", async () => {
+  const input = await fixture();
+  const path = `/${input.version}/manifest.json`;
+  const manifest = JSON.parse(new TextDecoder().decode(input.files.get(path)));
+  delete manifest.platforms[input.target].computer.gzip;
+  input.files.set(path, Buffer.from(JSON.stringify(manifest)));
+  await expect(updater(input).install(input.version)).rejects.toMatchObject({
+    code: "UPDATE_FEED_INVALID",
+  });
+  expect(input.requested).toEqual([path]);
+});
+
+test("offline rollback rejects a missing or corrupted version-local Agent launcher", async () => {
+  for (const missing of [true, false]) {
+    const input = await fixture();
+    const client = updater(input);
+    await client.install(input.version);
+    await writeFile(
+      join(input.directory, "active.json"),
+      JSON.stringify({ schema_version: 1, current: "3.0.0", previous: input.version }),
+    );
+    const launcher = join(input.directory, "versions", input.version, "coforge");
+    if (missing) await rm(launcher);
+    else await writeFile(launcher, "wrong launcher");
+    await expect(client.rollback()).rejects.toThrow();
+    expect(JSON.parse(await readFile(join(input.directory, "active.json"), "utf8")).current).toBe(
+      "3.0.0",
+    );
+  }
+});
 
 test("latest and an exact version selector resolve to the same install", async () => {
   for (const selection of ["latest", "exact"] as const) {

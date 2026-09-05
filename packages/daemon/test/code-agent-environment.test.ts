@@ -10,10 +10,13 @@ test("makes the Agent-facing coforge binary available without Agent identity", (
   expect(environment).not.toHaveProperty("AGENT_ID");
 });
 
-test("daemon distribution provides coforge for Agent PATH lookup", async () => {
-  const executable = join(import.meta.dir, "../dist/coforge");
-  expect(await Bun.file(executable).exists()).toBe(true);
+test("installed version directory wins over an ambient or declared coforge command", () => {
+  expect(agentEnvironment({ PATH: "/other/bin" }).PATH?.split(":")[0]).toBe(
+    join(process.execPath, ".."),
+  );
+});
 
+test("source development resolves the CLI without a separately compiled daemon CLI", () => {
   const result = Bun.spawnSync(["coforge", "message", "check"], {
     cwd: "/tmp",
     env: agentEnvironment(undefined),

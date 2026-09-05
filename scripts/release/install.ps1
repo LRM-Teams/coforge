@@ -137,6 +137,38 @@ function Get-CoforgeObject([string]$Uri, [string]$OutFile, [long]$MaxBytes) {
   }
 }
 
+function Expand-CoforgeGzip([string]$InputFile, [string]$OutFile, [long]$MaxBytes) {
+  $inputStream = [System.IO.File]::OpenRead($InputFile)
+  try {
+    $gzipStream = [System.IO.Compression.GZipStream]::new(
+      $inputStream,
+      [System.IO.Compression.CompressionMode]::Decompress
+    )
+    try {
+      $outputStream = [System.IO.File]::Open($OutFile, [System.IO.FileMode]::Create)
+      try {
+        $buffer = New-Object byte[] 65536
+        [long]$total = 0
+        while ($true) {
+          $read = $gzipStream.Read($buffer, 0, $buffer.Length)
+          if ($read -le 0) { break }
+          $total += $read
+          if ($total -gt $MaxBytes) {
+            throw "install.ps1: decompressed binary exceeded the maximum allowed size of $MaxBytes bytes"
+          }
+          $outputStream.Write($buffer, 0, $read)
+        }
+      } finally {
+        $outputStream.Dispose()
+      }
+    } finally {
+      $gzipStream.Dispose()
+    }
+  } finally {
+    $inputStream.Dispose()
+  }
+}
+
 $temporaryDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("coforge-installer-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
 try {
@@ -172,7 +204,9 @@ try {
   }
 
   $computerPath = Join-Path $temporaryDirectory "coforge-computer.exe"
-  Get-CoforgeObject -Uri "$feedUrl/$Version/$target/coforge-computer" -OutFile $computerPath -MaxBytes $maxBinaryBytes
+  $compressedPath = Join-Path $temporaryDirectory "coforge-computer.gz"
+  Get-CoforgeObject -Uri "$feedUrl/$Version/$target/coforge-computer.gz" -OutFile $compressedPath -MaxBytes $maxBinaryBytes
+  Expand-CoforgeGzip -InputFile $compressedPath -OutFile $computerPath -MaxBytes $maxBinaryBytes
   $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $computerPath).Hash.ToLowerInvariant()
   if ($actualSha256 -ne $expectedSha256) {
     throw "install.ps1: downloaded binary failed its checksum check"

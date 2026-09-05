@@ -179,12 +179,16 @@ test("buildReleaseTree writes the full <version>/ tree and never a latest pointe
   expect(await readdir(outputDirectory)).toEqual([inputs.version]);
   await expect(stat(join(outputDirectory, "latest"))).rejects.toThrow();
 
-  for (const target of ALL_TARGETS) {
-    expect(result.files).toContain(`${inputs.version}/${target}/coforge-computer`);
-    expect(result.files).toContain(`${inputs.version}/${target}/coforge-computer.sha256`);
-    expect(result.files).toContain(`${inputs.version}/${target}/coforge-daemon`);
-  }
-  expect(result.files).toContain(`${inputs.version}/manifest.json`);
+  expect(result.files).toEqual(
+    [
+      `${inputs.version}/manifest.json`,
+      ...ALL_TARGETS.flatMap((target) => [
+        `${inputs.version}/${target}/coforge-computer.gz`,
+        `${inputs.version}/${target}/coforge-computer.sha256`,
+        `${inputs.version}/${target}/coforge-daemon.gz`,
+      ]),
+    ].sort(),
+  );
 });
 
 test("every target's sidecar checksum matches the manifest's checksum, and both match an independently recomputed sha256 of the bytes on disk", async () => {
@@ -197,11 +201,10 @@ test("every target's sidecar checksum matches the manifest's checksum, and both 
   );
 
   for (const target of ALL_TARGETS) {
-    const computerBytes = await readFile(
-      join(outputDirectory, version, target, "coforge-computer"),
+    const compressedComputer = await readFile(
+      join(outputDirectory, version, target, "coforge-computer.gz"),
     );
-    // Recomputed here, independently, from the bytes actually on disk - not compared against
-    // either of the two values buildReleaseTree itself produced.
+    const computerBytes = Buffer.from(Bun.gunzipSync(compressedComputer));
     const independentChecksum = sha256hex(computerBytes);
 
     const sidecar = (
@@ -212,6 +215,42 @@ test("every target's sidecar checksum matches the manifest's checksum, and both 
     expect(manifest.platforms[target].computer.size).toBe(computerBytes.byteLength);
     expect(manifest.platforms[target].computer.binary).toBe("coforge-computer");
     expect(manifest.platforms[target].daemon.binary).toBe("coforge-daemon");
+
+    for (const name of ["computer", "daemon"] as const) {
+      const compressed = await readFile(
+        join(outputDirectory, version, target, `coforge-${name}.gz`),
+      );
+      const decompressed = Buffer.from(Bun.gunzipSync(compressed));
+      expect(decompressed.equals(Buffer.from(inputs.artifacts[target]![name]))).toBe(true);
+      expect(manifest.platforms[target][name].size).toBe(decompressed.byteLength);
+      expect(manifest.platforms[target][name].checksum).toBe(sha256hex(decompressed));
+      expect(manifest.platforms[target][name].gzip).toEqual({
+        binary: `coforge-${name}.gz`,
+        size: compressed.byteLength,
+        checksum: sha256hex(compressed),
+      });
+      await expect(
+        stat(join(outputDirectory, version, target, `coforge-${name}`)),
+      ).rejects.toThrow();
+    }
+  }
+});
+
+test("buildReleaseTree produces deterministic gzip bytes", async () => {
+  const first = await tempDir("coforge-release-tree-");
+  const second = await tempDir("coforge-release-tree-");
+  const inputs = releaseInputs();
+  await buildReleaseTree(inputs, first);
+  await buildReleaseTree(inputs, second);
+
+  for (const target of ALL_TARGETS) {
+    for (const name of ["computer", "daemon"]) {
+      expect(
+        (await readFile(join(first, inputs.version, target, `coforge-${name}.gz`))).equals(
+          await readFile(join(second, inputs.version, target, `coforge-${name}.gz`)),
+        ),
+      ).toBe(true);
+    }
   }
 });
 

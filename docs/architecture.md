@@ -241,6 +241,14 @@ users/{user_id}/avatars/{avatar_id}/original
 
 coforge-computer 是机器级 supervisor，不执行 workspace 内的 Agent 业务。它是唯一面向用户的安装与升级入口，负责安装同一 release set 中的 Computer/Daemon payload，并管理登录后的机器身份、coforge-daemon 的启动停止与健康检查。
 
+Daemon 可执行文件承载 `packages/cli` 的内部 Agent 消息命令入口 `__agent-cli`，
+此入口在初始化日志、socket、云端连接和 Workspace 恢复之前分流。安装器在每个版本目录生成
+小型 `coforge` 启动脚本，固定调用同目录 Daemon；Daemon 把自身可执行文件目录放在
+Agent PATH 最前。用户执行 `coforge-computer`，Agent 执行 `coforge`，不额外发布第三个原生文件。Agent 授权仍由现有
+局部代理 context 约束，复用二进制不合并运行时职责。发布仅提供 gzip 压缩文件；
+安装器验证压缩与解压后身份，不保留旧原始文件 feed 的兼容分支，具体契约见
+[`docs/release.md`](release.md)。
+
 Computer 通过用户级方式托管 Daemon：Linux 和 Windows 由 Computer 按需启动并复用
 Daemon；macOS 由 Computer 安装用户级 `launchd` LaunchAgent（不需要 sudo），由
 `launchd` 负责登录时启动和崩溃重启，Computer 仍通过本地 Unix Socket 完成健康检查与

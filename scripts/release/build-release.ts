@@ -31,7 +31,10 @@ function isValidReleaseTarget(value: string): boolean {
 }
 
 type ArtifactIdentity = { size: number; checksum: string };
-type PlatformArtifact = ArtifactIdentity & { binary: string };
+type PlatformArtifact = ArtifactIdentity & {
+  binary: string;
+  gzip: ArtifactIdentity & { binary: string };
+};
 
 export type ReleaseInputs = {
   version: string;
@@ -81,24 +84,34 @@ export async function buildReleaseTree(
     // that happen to agree today. docs/release.md: "the two must never be allowed to diverge".
     const computerIdentity = artifactIdentity(artifact.computer);
     const daemonIdentity = artifactIdentity(artifact.daemon);
+    const compressedComputer = Bun.gzipSync(Buffer.from(artifact.computer), { level: 9 });
+    const compressedDaemon = Bun.gzipSync(Buffer.from(artifact.daemon), { level: 9 });
     platforms[target] = {
-      computer: { binary: "coforge-computer", ...computerIdentity },
-      daemon: { binary: "coforge-daemon", ...daemonIdentity },
+      computer: {
+        binary: "coforge-computer",
+        ...computerIdentity,
+        gzip: { binary: "coforge-computer.gz", ...artifactIdentity(compressedComputer) },
+      },
+      daemon: {
+        binary: "coforge-daemon",
+        ...daemonIdentity,
+        gzip: { binary: "coforge-daemon.gz", ...artifactIdentity(compressedDaemon) },
+      },
     };
 
     const targetDirectory = join(versionDirectory, target);
     await mkdir(targetDirectory, { recursive: true });
-    await writeFile(join(targetDirectory, "coforge-computer"), artifact.computer);
+    await writeFile(join(targetDirectory, "coforge-computer.gz"), compressedComputer);
     await writeFile(
       join(targetDirectory, "coforge-computer.sha256"),
       `${computerIdentity.checksum}\n`,
     );
-    await writeFile(join(targetDirectory, "coforge-daemon"), artifact.daemon);
+    await writeFile(join(targetDirectory, "coforge-daemon.gz"), compressedDaemon);
 
     files.push(
-      `${inputs.version}/${target}/coforge-computer`,
+      `${inputs.version}/${target}/coforge-computer.gz`,
       `${inputs.version}/${target}/coforge-computer.sha256`,
-      `${inputs.version}/${target}/coforge-daemon`,
+      `${inputs.version}/${target}/coforge-daemon.gz`,
     );
   }
 

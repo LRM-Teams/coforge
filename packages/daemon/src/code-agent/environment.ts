@@ -14,13 +14,10 @@ const SAFE_INHERITED_ENVIRONMENT = [
 ] as const;
 
 const CLI_BIN_DIRECTORIES = [
-  // The daemon distribution places the sibling `coforge` executable next to
-  // the compiled daemon.  Resolving from the executable, rather than cwd or
-  // workspace node_modules, also works when Computer launches an installed
-  // release from another directory.
+  // Computer installs a version-local `coforge` launcher next to the daemon.
+  // It invokes that version's Daemon binary, not a separately built CLI.
   dirname(process.execPath),
-  new URL("../../dist/", import.meta.url).pathname,
-  new URL("../../../../node_modules/.bin/", import.meta.url).pathname,
+  new URL("../../node_modules/.bin/", import.meta.url).pathname,
 ] as const;
 
 export function agentEnvironment(
@@ -32,7 +29,7 @@ export function agentEnvironment(
     if (value !== undefined) environment[name] = value;
   }
   const declaredPath = declared?.PATH;
-  const path = [declaredPath ?? environment.PATH, ...CLI_BIN_DIRECTORIES].filter(
+  const path = [...CLI_BIN_DIRECTORIES, declaredPath ?? environment.PATH].filter(
     (value): value is string => Boolean(value),
   );
   return { ...environment, ...declared, PATH: path.join(":") };

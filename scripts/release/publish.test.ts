@@ -487,7 +487,8 @@ test("--dry-run makes no network calls and reports the objects it would publish"
   expect(outcome.dryRun).toBe(true);
   expect(outcome.version).toBe("9.9.9-dry-run");
   expect(outcome.files).toContain("9.9.9-dry-run/manifest.json");
-  expect(outcome.files).toContain("9.9.9-dry-run/linux-x64/coforge-computer");
+  expect(outcome.files).toContain("9.9.9-dry-run/linux-x64/coforge-computer.gz");
+  expect(outcome.files).not.toContain("9.9.9-dry-run/linux-x64/coforge-computer");
   expect(outcome.latestKey).toBe(LATEST_OBJECT_KEY);
 });
 

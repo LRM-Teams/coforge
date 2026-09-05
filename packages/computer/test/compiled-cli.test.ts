@@ -2,9 +2,92 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { ComputerUpdater } from "../src/updater";
+import { buildReleaseTree } from "../../../scripts/release/build-release";
 
 let directory: string;
 let executable: string;
+let daemonExecutable: string;
+
+test("release-only installation provides the Agent CLI without a separate executable", async () => {
+  const feed = join(directory, "feed");
+  const version = "9.0.0-test";
+  const target = "linux-x64";
+  await buildReleaseTree(
+    {
+      version,
+      commit: "a".repeat(40),
+      buildDate: "2026-09-05T00:00:00Z",
+      artifacts: {
+        [target]: {
+          computer: new Uint8Array(await Bun.file(executable).arrayBuffer()),
+          daemon: new Uint8Array(await Bun.file(daemonExecutable).arrayBuffer()),
+        },
+      },
+    },
+    feed,
+  );
+  const requests: string[] = [];
+  const server = Bun.serve({
+    port: 0,
+    async fetch(request) {
+      const path = new URL(request.url).pathname;
+      requests.push(path);
+      if (path === "/agent/message") {
+        const body = await request.json();
+        return Response.json({ operation: body.operation, body: body.body, messages: [] });
+      }
+      return new Response(Bun.file(join(feed, path)));
+    },
+  });
+  try {
+    const root = join(directory, "installed with spaces");
+    await new ComputerUpdater({
+      baseUrl: server.url.toString(),
+      target,
+      installRoot: root,
+    }).install(version);
+    const bin = join(root, "versions", version);
+    await rm(join(bin, "coforge-computer"));
+    const invoke = async (args: string[], input = "") => {
+      const child = Bun.spawn([join(bin, "coforge"), ...args], {
+        cwd: directory,
+        env: {
+          HOME: join(directory, "agent-home"),
+          PATH: bin,
+          COFORGE_AGENT_CONTEXT: `sfp_${"a".repeat(43)}`,
+          COFORGE_AGENT_PROXY_URL: `${server.url}agent/message`,
+        },
+        stdin: new Blob([input]),
+        stdout: "pipe",
+        stderr: "pipe",
+        timeout: 5000,
+      });
+      return {
+        code: await child.exited,
+        stdout: await new Response(child.stdout).text(),
+        stderr: await new Response(child.stderr).text(),
+      };
+    };
+    expect(await invoke(["message", "check"])).toEqual({
+      code: 0,
+      stdout: "No new inbox messages.\n",
+      stderr: "",
+    });
+    const sent = await invoke(["message", "send", "--target", "@user"], "release-only hello");
+    expect(sent.code).toBe(0);
+    expect(sent.stdout).toContain("release-only hello");
+    expect((await invoke(["setup"])).code).toBe(1);
+    expect(
+      await Bun.file(join(directory, "agent-home", ".coforge", "computer", "config.json")).exists(),
+    ).toBe(false);
+    expect(requests).toContain(`/${version}/${target}/coforge-computer.gz`);
+    expect(requests).toContain(`/${version}/${target}/coforge-daemon.gz`);
+    expect(requests).not.toContain(`/${version}/${target}/coforge-computer`);
+  } finally {
+    server.stop(true);
+  }
+}, 30_000);
 
 beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "coforge-computer-cli-"));
@@ -14,6 +97,12 @@ beforeAll(async () => {
     compile: { outfile: executable },
   });
   if (!result.success) throw new AggregateError(result.logs, "failed to compile CLI fixture");
+  daemonExecutable = join(directory, "coforge-daemon");
+  const daemon = await Bun.build({
+    entrypoints: [new URL("../../daemon/index.ts", import.meta.url).pathname],
+    compile: { outfile: daemonExecutable },
+  });
+  if (!daemon.success) throw new AggregateError(daemon.logs, "failed to compile Daemon fixture");
 });
 
 afterAll(async () => {
