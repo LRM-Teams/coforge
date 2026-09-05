@@ -86,6 +86,7 @@ export type DaemonRuntimeReadyRequest = {
   computerId: string;
   workerInstanceId: string;
   startedAt: number;
+  runningAgentIds: string[];
 };
 export type DaemonRuntimeCodeAgentsUpdateRequest = {
   protocolMajor: number;
@@ -132,6 +133,7 @@ export type AgentRecoveryMessage = {
   sequence: number;
   target: string;
   latestSender: string;
+  body: string;
 };
 export type AgentMessageDelivery = {
   protocolMajor: number;
@@ -197,6 +199,7 @@ export type AgentMessageRequest = {
   after?: string;
   around?: string;
   limit?: number;
+  seenUpToSequence?: number;
 };
 export type CloudAgentMessageResponse = {
   protocolMajor: number;

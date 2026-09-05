@@ -17,12 +17,17 @@ export type MessageAttention = Readonly<{
   flags: readonly string[];
 }>;
 
-/** Daemon-owned volatile attention index. It deliberately never stores/forwards body text. */
+/** Daemon-owned volatile attention and model-visible sequence index. */
 export class AgentMessageAttentionIndex {
-  readonly #seenDeliveryIds = new Set<string>();
-  readonly #seenMessageIds = new Set<string>();
-  readonly #notified = new Set<string>();
-  readonly #notificationAttempts = new Map<string, Promise<void>>();
+  readonly #generations = new Map<
+    string,
+    {
+      seenDeliveryIds: Set<string>;
+      seenMessageIds: Set<string>;
+      notified: Set<string>;
+      notificationAttempts: Map<string, Promise<void>>;
+    }
+  >();
   readonly #attention = new Map<string, Map<string, MessageAttention>>();
   readonly #modelSeen = new Map<string, Map<string, number>>();
   readonly #workspaceId: string;
@@ -50,10 +55,12 @@ export class AgentMessageAttentionIndex {
       message.sequence < 1
     )
       throw new Error("invalid agent message scope");
-    if (this.#seenDeliveryIds.has(message.deliveryId)) {
-      if (!this.#notified.has(message.deliveryId)) {
-        const attempt = this.#notificationAttempts.get(message.deliveryId);
+    const generation = this.#generation(message.agentId);
+    if (generation.seenDeliveryIds.has(message.deliveryId)) {
+      if (!generation.notified.has(message.deliveryId)) {
+        const attempt = generation.notificationAttempts.get(message.deliveryId);
         await (attempt ?? this.#notify(message));
+        if (this.#generations.get(message.agentId) !== generation) return;
       }
       await this.sendAck({
         ...message,
@@ -62,7 +69,7 @@ export class AgentMessageAttentionIndex {
       });
       return;
     }
-    this.#seenDeliveryIds.add(message.deliveryId);
+    generation.seenDeliveryIds.add(message.deliveryId);
     const target = message.target;
     if (this.modelSeenSequence(message.agentId, target) >= message.sequence) {
       await this.sendAck({
@@ -89,6 +96,7 @@ export class AgentMessageAttentionIndex {
     byTarget.set(target, current);
     this.#attention.set(message.agentId, byTarget);
     await this.#notify(message, current);
+    if (this.#generations.get(message.agentId) !== generation) return;
     await this.sendAck({ ...message, method: "agent:deliver:ack", requestId: message.requestId });
   }
 
@@ -97,11 +105,13 @@ export class AgentMessageAttentionIndex {
     messages: readonly AgentRecoveryMessage[],
     unreadSummary: Readonly<Record<string, number>>,
   ): Promise<void> {
+    const generation = this.#generation(agentId);
     const session = this.#runtimes.session(agentId);
     if (!session?.notify) throw new Error("Agent session cannot receive a wakeup notice");
     const currentAttention = this.#attention.get(agentId) ?? new Map<string, MessageAttention>();
     const byTarget = new Map(currentAttention);
     const recoveredTargets = new Set<string>();
+    const suppliedTargets = new Set<string>();
     const recoveredCountByTarget = new Map<string, number>();
     const recoveredMessages: AgentRecoveryMessage[] = [];
     for (const message of [...messages].sort(
@@ -112,13 +122,15 @@ export class AgentMessageAttentionIndex {
         !message.messageId ||
         !message.deliveryId ||
         !message.conversationId ||
+        !message.body ||
         !message.target.startsWith("@") ||
         message.sequence < 1
       )
         throw new Error("invalid Agent recovery message");
+      suppliedTargets.add(message.target);
       if (
-        this.#seenDeliveryIds.has(message.deliveryId) ||
-        this.#seenMessageIds.has(message.messageId)
+        generation.seenDeliveryIds.has(message.deliveryId) ||
+        generation.seenMessageIds.has(message.messageId)
       )
         continue;
       recoveredMessages.push(message);
@@ -141,37 +153,46 @@ export class AgentMessageAttentionIndex {
       });
     }
     const summaryOnly = Object.entries(unreadSummary).filter(
-      ([target, count]) => !recoveredTargets.has(target) && target.startsWith("@") && count > 0,
+      ([target, count]) => !suppliedTargets.has(target) && target.startsWith("@") && count > 0,
     );
     if (!recoveredTargets.size && !summaryOnly.length) return;
-    const lines = [
-      ...[...recoveredTargets].map(
-        (target) =>
-          `${target}  pending: ${unreadSummary[target] ?? byTarget.get(target)?.pendingCount ?? 0} messages`,
-      ),
-      ...summaryOnly.map(([target, count]) => `${target}  pending: ${count} messages`),
-    ];
-    const instructions = [
-      ...(recoveredTargets.size ? ["Run `coforge message check` to read indexed messages."] : []),
-      ...Object.entries(unreadSummary)
-        .filter(
-          ([target, count]) =>
-            target.startsWith("@") && count > (recoveredCountByTarget.get(target) ?? 0),
-        )
-        .map(([target]) => `Run \`coforge message read --target ${target}\` to read that target.`),
-    ];
-    await session.notify(
-      `[CoForge recovery notice:\n${lines.join("\n")}\n${instructions.join("\n")}]`,
+    const lines = recoveredMessages.map(
+      (message) =>
+        `[target=${message.target} msg=${message.messageId.slice(0, 8)} seq=${message.sequence}] ${message.latestSender}: ${message.body}`,
     );
+    const instructions = Object.entries(unreadSummary)
+      .filter(
+        ([target, count]) =>
+          recoveredTargets.has(target) &&
+          target.startsWith("@") &&
+          count > (recoveredCountByTarget.get(target) ?? 0),
+      )
+      .map(
+        ([target]) =>
+          `Run \`coforge message read --target ${target}\` to read additional messages.`,
+      );
+    for (const [target, count] of summaryOnly)
+      instructions.push(
+        `${target} has ${count} unread message${count === 1 ? "" : "s"}; run \`coforge message read --target ${target}\` to read them.`,
+      );
+    const concrete = recoveredMessages.length
+      ? `${recoveredMessages.length === 1 ? "New message received:" : "New messages received:"}\n\n${lines.join("\n")}\n\nRespond as appropriate. Complete all your work before stopping.`
+      : "New messages received:";
+    await session.notify(
+      `${concrete}${instructions.length ? `\n\n${instructions.join("\n")}` : ""}`,
+    );
+    if (this.#generations.get(agentId) !== generation) return;
     this.#attention.set(agentId, byTarget);
     for (const message of recoveredMessages) {
-      this.#seenDeliveryIds.add(message.deliveryId);
-      this.#seenMessageIds.add(message.messageId);
-      this.#notified.add(message.deliveryId);
+      generation.seenDeliveryIds.add(message.deliveryId);
+      generation.seenMessageIds.add(message.messageId);
+      generation.notified.add(message.deliveryId);
+      this.recordModelSeen(agentId, message.target, message.sequence);
     }
   }
 
   #notify(message: AgentMessageDelivery, attention?: MessageAttention): Promise<void> {
+    const generation = this.#generation(message.agentId);
     const session = this.#runtimes.session(message.agentId);
     if (!session?.notify)
       return Promise.reject(new Error("Agent session cannot receive a wakeup notice"));
@@ -191,7 +212,8 @@ Run \`coforge message check\` to read pending messages.]`;
     const notification = Promise.resolve()
       .then(() => session.notify!(notice))
       .then(() => {
-        this.#notified.add(message.deliveryId);
+        if (this.#generations.get(message.agentId) === generation)
+          generation.notified.add(message.deliveryId);
         logger.info("Agent accepted inbox notice", {
           event: "agent.inbox_notice.accepted",
           request_id: message.requestId,
@@ -218,10 +240,24 @@ Run \`coforge message check\` to read pending messages.]`;
         throw error;
       })
       .finally(() => {
-        this.#notificationAttempts.delete(message.deliveryId);
+        if (this.#generations.get(message.agentId) === generation)
+          generation.notificationAttempts.delete(message.deliveryId);
       });
-    this.#notificationAttempts.set(message.deliveryId, notification);
+    generation.notificationAttempts.set(message.deliveryId, notification);
     return notification;
+  }
+
+  #generation(agentId: string) {
+    const existing = this.#generations.get(agentId);
+    if (existing) return existing;
+    const generation = {
+      seenDeliveryIds: new Set<string>(),
+      seenMessageIds: new Set<string>(),
+      notified: new Set<string>(),
+      notificationAttempts: new Map<string, Promise<void>>(),
+    };
+    this.#generations.set(agentId, generation);
+    return generation;
   }
 
   check(agentId: string): MessageAttention[] {
@@ -252,6 +288,7 @@ Run \`coforge message check\` to read pending messages.]`;
   }
 
   clearAgent(agentId: string): void {
+    this.#generations.delete(agentId);
     this.#attention.delete(agentId);
     this.#modelSeen.delete(agentId);
   }

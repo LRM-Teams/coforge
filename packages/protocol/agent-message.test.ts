@@ -10,6 +10,8 @@ import {
   encodeAgentMessageDelivery,
   encodeAgentMessageResponse,
   encodeCloudAgentMessageResponse,
+  encodeAgentMessageRequest,
+  decodeAgentMessageRequest,
   decodeLocalAgentMessageRequest,
   encodeLocalAgentMessageRequest,
 } from "./index";
@@ -29,6 +31,43 @@ test("round-trips an Agent direct message delivery", () => {
   } as const;
 
   expect(decodeAgentMessageDelivery(encodeAgentMessageDelivery(delivery))).toEqual(delivery);
+});
+
+test("round-trips only safe positive trusted model-seen sequences", () => {
+  const request = {
+    protocolMajor: 1,
+    requestId: "send-seen",
+    agentId: "agent-a",
+    workspaceId: "workspace-a",
+    operation: "send" as const,
+    target: "@ada",
+    body: "reply",
+    seenUpToSequence: 42,
+  };
+  expect(decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toMatchObject(request);
+  expect(() => encodeAgentMessageRequest({ ...request, seenUpToSequence: 0 })).toThrow("positive");
+  expect(() =>
+    encodeAgentMessageRequest({ ...request, seenUpToSequence: Number.MAX_SAFE_INTEGER + 1 }),
+  ).toThrow("sequence");
+});
+
+test("rejects seen-up-to sequences on non-send operations", () => {
+  const request = {
+    protocolMajor: 1,
+    requestId: "read-seen",
+    agentId: "agent-a",
+    workspaceId: "workspace-a",
+    operation: "read" as const,
+    target: "@ada",
+    seenUpToSequence: 42,
+  };
+  expect(() => encodeAgentMessageRequest(request)).toThrow("only valid for send");
+
+  const bytes = encodeAgentMessageRequest({ ...request, operation: "send", body: "reply" });
+  const operationOffset = new TextDecoder().decode(bytes).indexOf("send");
+  expect(operationOffset).toBeGreaterThanOrEqual(0);
+  bytes.set(new TextEncoder().encode("read"), operationOffset);
+  expect(() => decodeAgentMessageRequest(bytes)).toThrow("only valid for send");
 });
 
 test("round-trips all Agent delivery ACK identity and ordering fields", () => {

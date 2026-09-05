@@ -42,6 +42,7 @@ import type { CentrifugoServerApi } from "./server-api.server";
 export function createAgentDeliveryAckMethod(repository: {
   receiveDeliveryAck(input: {
     workspaceId: string;
+    computerId: string;
     agentId: string;
     deliveryId: string;
     messageId: string;
@@ -50,10 +51,14 @@ export function createAgentDeliveryAckMethod(repository: {
 }): CentrifugoRpcMethod {
   return async (payload, metadata) => {
     const ack = decodeAgentMessageDeliveryAck(payload);
-    if (!metadata.principal.userId || metadata.principal.workspaceId !== ack.workspaceId)
+    if (
+      !metadata.principal.userId ||
+      !metadata.principal.computerId ||
+      metadata.principal.workspaceId !== ack.workspaceId
+    )
       return { code: 403, message: "workspace scope is not authorized" };
     try {
-      await repository.receiveDeliveryAck(ack);
+      await repository.receiveDeliveryAck({ ...ack, computerId: metadata.principal.computerId });
       return new Uint8Array();
     } catch {
       return { code: 403, message: "delivery acknowledgement is not authorized" };
@@ -177,6 +182,17 @@ export function createAgentMessageMethod(
       });
     }
     const body = request.body ?? "";
+    let boundedSeenSequence = 0;
+    if (request.seenUpToSequence !== undefined) {
+      if (!repository.advanceAgentReadThrough)
+        throw new Error("Agent read-through advancement is unavailable");
+      boundedSeenSequence = await repository.advanceAgentReadThrough(
+        request.workspaceId,
+        agentId,
+        request.target,
+        request.seenUpToSequence,
+      );
+    }
     const bodyHash = await hashAgentDraft(body);
     const holds =
       holdStore ??
@@ -207,7 +223,7 @@ export function createAgentMessageMethod(
       request.workspaceId,
       agentId,
       request.target,
-      validPrior?.presentedThrough,
+      Math.max(validPrior?.presentedThrough ?? 0, boundedSeenSequence) || undefined,
     );
     const heldMessages = pending?.slice(-3) ?? [];
     if (heldMessages.length && !request.continueAnyway) {
@@ -293,7 +309,11 @@ function logHold(
 
 export const createDaemonRuntimeReadyMethod =
   (recovery?: {
-    recoverWorkspace(workspaceId: string, computerId: string): Promise<void>;
+    recoverWorkspace(
+      workspaceId: string,
+      computerId: string,
+      runningAgentIds: readonly string[],
+    ): Promise<void>;
   }): CentrifugoRpcMethod =>
   async (payload, metadata) => {
     const request = decodeDaemonRuntimeReadyRequest(payload);
@@ -311,7 +331,11 @@ export const createDaemonRuntimeReadyMethod =
     )
       return { code: 400, message: "invalid daemon runtime ready request" };
     try {
-      await recovery?.recoverWorkspace(request.workspaceId, request.computerId);
+      await recovery?.recoverWorkspace(
+        request.workspaceId,
+        request.computerId,
+        request.runningAgentIds,
+      );
       return new Uint8Array();
     } catch {
       return { code: 503, message: "Agent start recovery failed" };

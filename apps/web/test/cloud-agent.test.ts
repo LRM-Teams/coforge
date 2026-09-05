@@ -1,11 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { decodeAgentStartIntent, encodeAgentActivity, RUNTIME_PROVIDER } from "@coforge/protocol";
+import {
+  decodeAgentMessageDelivery,
+  decodeAgentStartIntent,
+  encodeAgentActivity,
+  RUNTIME_PROVIDER,
+} from "@coforge/protocol";
 import { CloudAgentUseCase, WorkspaceAgentRecovery } from "../src/server/agents/cloud-agent.server";
 
 describe("CloudAgentUseCase", () => {
   test("ready recovery publishes stored runtime config for every Workspace Agent", async () => {
     const payloads: Uint8Array[] = [];
     const channels: string[] = [];
+    const recoveryReads: string[] = [];
+    const pendingReads: string[] = [];
     const recovery = new WorkspaceAgentRecovery(
       {
         getById: async () => undefined,
@@ -15,6 +22,21 @@ describe("CloudAgentUseCase", () => {
           throw new Error("not used");
         },
         listForComputer: async () => [
+          {
+            id: "agent-running",
+            workspaceId: "workspace-1",
+            ownerId: "user-1",
+            name: "running",
+            displayName: "Running",
+            createdAt: new Date(),
+            runtimeConfig: {
+              runtime: RUNTIME_PROVIDER.PI,
+              provider: { kind: "default" },
+              model: "default",
+              modelProvider: "",
+              reasoning: "balanced",
+            },
+          },
           {
             id: "agent-1",
             workspaceId: "workspace-1",
@@ -33,19 +55,37 @@ describe("CloudAgentUseCase", () => {
         ],
       },
       {
-        readAgentRecoveryContext: async () => ({
-          resumeMessages: [
+        readAgentRecoveryContext: async (_workspaceId, agentId) => {
+          recoveryReads.push(agentId);
+          return {
+            resumeMessages: [
+              {
+                messageId: "message-1",
+                deliveryId: "delivery-1",
+                conversationId: "conversation-1",
+                sequence: 7,
+                target: "@alice",
+                latestSender: "@alice",
+                body: "recover this message",
+              },
+            ],
+            unreadSummary: { "@alice": 4 },
+          };
+        },
+        readPendingAgentDeliveries: async (_workspaceId, agentId) => {
+          pendingReads.push(agentId);
+          return [
             {
-              messageId: "message-1",
-              deliveryId: "delivery-1",
-              conversationId: "conversation-1",
-              sequence: 7,
-              target: "@alice",
-              latestSender: "@alice",
+              messageId: "running-message-1",
+              deliveryId: "running-delivery-1",
+              conversationId: "running-conversation-1",
+              sequence: 3,
+              target: "@bob",
+              latestSender: "@bob",
+              body: "redeliver this body",
             },
-          ],
-          unreadSummary: { "@alice": 4 },
-        }),
+          ];
+        },
       },
       {
         publish: async (channel, payload) => {
@@ -55,11 +95,24 @@ describe("CloudAgentUseCase", () => {
       },
     );
 
-    await recovery.recoverWorkspace("workspace-1", "computer-1");
+    await recovery.recoverWorkspace("workspace-1", "computer-1", ["agent-running"]);
 
-    expect(payloads).toHaveLength(1);
-    expect(channels).toEqual(["daemon:computer-1"]);
-    expect(decodeAgentStartIntent(payloads[0]!)).toMatchObject({
+    expect(payloads).toHaveLength(2);
+    expect(channels).toEqual(["daemon:computer-1", "daemon:computer-1"]);
+    expect(pendingReads).toEqual(["agent-running"]);
+    expect(recoveryReads).toEqual(["agent-1"]);
+    expect(decodeAgentMessageDelivery(payloads[0]!)).toMatchObject({
+      messageId: "running-message-1",
+      deliveryId: "running-delivery-1",
+      conversationId: "running-conversation-1",
+      sequence: 3,
+      workspaceId: "workspace-1",
+      agentId: "agent-running",
+      target: "@bob",
+      latestSender: "@bob",
+      body: "redeliver this body",
+    });
+    expect(decodeAgentStartIntent(payloads[1]!)).toMatchObject({
       workspaceId: "workspace-1",
       computerId: "computer-1",
       agentId: "agent-1",
@@ -74,6 +127,7 @@ describe("CloudAgentUseCase", () => {
           sequence: 7,
           target: "@alice",
           latestSender: "@alice",
+          body: "recover this message",
         },
       ],
       unreadSummary: { "@alice": 4 },

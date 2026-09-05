@@ -77,7 +77,7 @@ export interface AgentMessageHttpClient {
 /** Provider-neutral client contract for the daemon's Workspace connection. */
 export interface DaemonConnectionClient {
   start(token: string, config: DaemonConnectionConfig): Promise<void>;
-  ready(request: DaemonRuntimeReadyRequest): Promise<void>;
+  ready(createRequest: () => DaemonRuntimeReadyRequest): Promise<void>;
   updateCodeAgents?(request: DaemonRuntimeCodeAgentsUpdateRequest): Promise<void>;
   onUsageScan?(callback: (request: DaemonRuntimeUsageScanRequest) => Promise<void>): () => void;
   sendUsageScanResult?(
@@ -177,7 +177,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   #agentMessageListener: ((message: AgentMessageDelivery) => void) | undefined;
   #readyPublications: Array<AgentStartIntent | AgentMessageDelivery> | undefined;
   #token = "";
-  #lastReadyRequest: DaemonRuntimeReadyRequest | undefined;
+  #readyRequestFactory: (() => DaemonRuntimeReadyRequest) | undefined;
   #reconnectListener: (() => void) | undefined;
   #readyRecoveryClient: CentrifugeWorkspaceClient | undefined;
   #readyRetryTimer: unknown;
@@ -248,9 +248,9 @@ export class DaemonConnection implements DaemonConnectionClient {
         this.#flushPendingActivity(client);
         this.#flushLatestStatuses(client);
         this.#startStatusRefresh();
-        if (reconnect && this.#lastReadyRequest) {
+        if (reconnect && this.#readyRequestFactory) {
           this.#readyPublications ??= [];
-          this.#startReadyRecovery(client, this.#lastReadyRequest);
+          this.#startReadyRecovery(client, this.#readyRequestFactory);
         }
         resolve();
       });
@@ -485,12 +485,12 @@ export class DaemonConnection implements DaemonConnectionClient {
     );
   }
 
-  async ready(request: DaemonRuntimeReadyRequest): Promise<void> {
+  async ready(createRequest: () => DaemonRuntimeReadyRequest): Promise<void> {
     if (!this.#connected || !this.#client) throw new Error("daemon connection is not connected");
     this.#readyPublications = [];
     try {
-      await this.#sendReady(this.#client, request);
-      this.#lastReadyRequest = request;
+      await this.#sendReady(this.#client, createRequest());
+      this.#readyRequestFactory = createRequest;
     } finally {
       this.#dispatchReadyPublications();
     }
@@ -511,26 +511,29 @@ export class DaemonConnection implements DaemonConnectionClient {
     await client.rpc(DAEMON_RUNTIME_READY_METHOD, encodeDaemonRuntimeReadyRequest(request));
   }
 
-  #startReadyRecovery(client: CentrifugeWorkspaceClient, request: DaemonRuntimeReadyRequest): void {
+  #startReadyRecovery(
+    client: CentrifugeWorkspaceClient,
+    createRequest: () => DaemonRuntimeReadyRequest,
+  ): void {
     if (this.#readyRecoveryClient === client) return;
     this.#cancelReadyRecovery();
     this.#readyRecoveryClient = client;
-    void this.#attemptReadyRecovery(client, request);
+    void this.#attemptReadyRecovery(client, createRequest);
   }
 
   async #attemptReadyRecovery(
     client: CentrifugeWorkspaceClient,
-    request: DaemonRuntimeReadyRequest,
+    createRequest: () => DaemonRuntimeReadyRequest,
   ): Promise<void> {
     if (client !== this.#client || client !== this.#readyRecoveryClient || !this.#connected) return;
     try {
-      await this.#sendReady(client, request);
+      await this.#sendReady(client, createRequest());
     } catch {
       if (client !== this.#client || client !== this.#readyRecoveryClient || !this.#connected)
         return;
       this.#readyRetryTimer = this.timing.schedule(() => {
         this.#readyRetryTimer = undefined;
-        void this.#attemptReadyRecovery(client, request);
+        void this.#attemptReadyRecovery(client, createRequest);
       }, RECONNECT_READY_RETRY_MS);
       return;
     }
@@ -570,7 +573,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#agentStartListener = undefined;
     this.#agentMessageListener = undefined;
     this.#readyPublications = undefined;
-    this.#lastReadyRequest = undefined;
+    this.#readyRequestFactory = undefined;
     this.#reconnectListener = undefined;
     this.#pendingActivity.clear();
     this.#supersededActivityLaunches.clear();

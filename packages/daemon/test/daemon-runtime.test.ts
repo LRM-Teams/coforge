@@ -59,7 +59,9 @@ function agentLaunchConfig(
 async function queueHarness(
   options: {
     credential?: Promise<string>;
+    launch?: () => void | Promise<void>;
     notify?: (notice: string) => void | Promise<void>;
+    dispose?: () => void | Promise<void>;
   } = {},
 ) {
   const credentials = new InMemoryDaemonCredentialStore();
@@ -68,17 +70,22 @@ async function queueHarness(
   const acknowledgements: string[] = [];
   let sessions = 0;
   let mints = 0;
+  let readyFactory: (() => { runningAgentIds: string[] }) | undefined;
   const runtime = new DaemonRuntime(
     connection,
     () => ({
       provider: "pi",
       async createAgentSession() {
+        await options.launch?.();
         sessions++;
         return {
           ...sessionSpy(),
           async notify(notice: string) {
             notices.push(notice);
             await options.notify?.(notice);
+          },
+          async dispose() {
+            await options.dispose?.();
           },
         };
       },
@@ -87,7 +94,9 @@ async function queueHarness(
     {
       create: () => ({
         async start() {},
-        async ready() {},
+        async ready(createRequest) {
+          readyFactory = createRequest;
+        },
         async stop() {},
         async requestAgentLaunchConfig() {
           mints++;
@@ -109,6 +118,7 @@ async function queueHarness(
     acknowledgements,
     sessions: () => sessions,
     mints: () => mints,
+    runningAgentIds: () => readyFactory!().runningAgentIds,
     delivery: (sequence: number) =>
       runtime.handleAgentMessage({
         protocolMajor: 1,
@@ -1278,14 +1288,194 @@ describe("DaemonRuntime", () => {
     let release!: (credential: string) => void;
     const credential = new Promise<string>((resolve) => (release = resolve));
     const harness = await queueHarness({ credential });
-    const launch = harness.runtime.startAgent("agent-a", config, undefined, "recovery", recovery);
+    const launch = harness.runtime.startAgent("agent-a", config);
+    const launchRecovery = {
+      resumeMessages: [
+        {
+          messageId: "message-recovery",
+          deliveryId: "delivery-recovery",
+          conversationId: "conversation-a",
+          sequence: 1,
+          target: "@ada",
+          latestSender: "@ada",
+          body: "hello from recovery",
+        },
+      ],
+      unreadSummary: { "@ada": 1 },
+    };
+    const recoveryForLaunch = harness.runtime.startAgent(
+      "agent-a",
+      config,
+      undefined,
+      "recovery",
+      launchRecovery,
+    );
     const live = harness.delivery(2);
 
     release(`sk_agent_${"a".repeat(43)}`);
-    await Promise.all([launch, live]);
-    expect(harness.notices[0]).toContain("CoForge recovery notice");
+    const [started, recovered] = await Promise.all([launch, recoveryForLaunch, live]);
+    expect(recovered).toBe(started);
+    expect(harness.notices[0]).toContain("New message received:");
+    expect(harness.notices[0]).toContain("hello");
     expect(harness.notices[1]).toContain("CoForge inbox notice");
     expect(harness.acknowledgements).toEqual(["delivery-2"]);
+    expect(harness.sessions()).toBe(1);
+    await harness.runtime.stop();
+  });
+
+  test("ready waits for recovery added to an existing launch", async () => {
+    let releaseLaunch!: () => void;
+    let releaseRecovery!: () => void;
+    const launchGate = new Promise<void>((resolve) => (releaseLaunch = resolve));
+    const recoveryGate = new Promise<void>((resolve) => (releaseRecovery = resolve));
+    const harness = await queueHarness({ launch: () => launchGate, notify: () => recoveryGate });
+
+    const launching = harness.runtime.startAgent("agent-a", config);
+    const recovering = harness.runtime.startAgent(
+      "agent-a",
+      config,
+      undefined,
+      "recovery",
+      recovery,
+    );
+    releaseLaunch();
+    const started = await launching;
+
+    expect(harness.runningAgentIds()).toEqual([]);
+    releaseRecovery();
+    const recovered = await recovering;
+    expect(recovered).toBe(started);
+    expect(harness.sessions()).toBe(1);
+    expect(harness.runningAgentIds()).toEqual(["agent-a"]);
+    await harness.runtime.stop();
+  });
+
+  test("ready reports only Agents past recovery and outside stopping", async () => {
+    let releaseRecovery!: () => void;
+    let releaseDispose!: () => void;
+    const recoveryGate = new Promise<void>((resolve) => (releaseRecovery = resolve));
+    const disposeGate = new Promise<void>((resolve) => (releaseDispose = resolve));
+    const harness = await queueHarness({ notify: () => recoveryGate, dispose: () => disposeGate });
+    const launching = harness.runtime.startAgent("agent-a", config, undefined, "recovery", {
+      resumeMessages: [
+        {
+          messageId: "message-recovery",
+          deliveryId: "delivery-recovery",
+          conversationId: "conversation-a",
+          sequence: 1,
+          target: "@ada",
+          latestSender: "@ada",
+          body: "recover",
+        },
+      ],
+      unreadSummary: { "@ada": 1 },
+    });
+    await Bun.sleep(0);
+    expect(harness.runningAgentIds()).toEqual([]);
+    releaseRecovery();
+    await launching;
+    expect(harness.runningAgentIds()).toEqual(["agent-a"]);
+
+    const stopping = harness.runtime.stopAgent("agent-a");
+    expect(harness.runningAgentIds()).toEqual([]);
+    releaseDispose();
+    await stopping;
+    await harness.runtime.stop();
+  });
+
+  test("failed launch recovery disposes the runtime and can retry canonical recovery", async () => {
+    let notifyAttempts = 0;
+    let disposals = 0;
+    const harness = await queueHarness({
+      notify() {
+        notifyAttempts++;
+        if (notifyAttempts === 1) throw new Error("recovery rejected");
+      },
+      dispose() {
+        disposals++;
+      },
+    });
+    const recoveryContext = {
+      resumeMessages: [
+        {
+          messageId: "message-recovery",
+          deliveryId: "delivery-recovery",
+          conversationId: "conversation-a",
+          sequence: 1,
+          target: "@ada",
+          latestSender: "@ada",
+          body: "retry this recovery body",
+        },
+      ],
+      unreadSummary: { "@ada": 1 },
+    };
+
+    await expect(
+      harness.runtime.startAgent("agent-a", config, undefined, "failed-recovery", recoveryContext),
+    ).rejects.toThrow("recovery rejected");
+    expect(harness.runningAgentIds()).toEqual([]);
+    expect(disposals).toBe(1);
+
+    await harness.runtime.startAgent(
+      "agent-a",
+      config,
+      undefined,
+      "retried-recovery",
+      recoveryContext,
+    );
+    expect(harness.sessions()).toBe(2);
+    expect(harness.notices).toHaveLength(2);
+    expect(harness.notices.every((notice) => notice.includes("retry this recovery body"))).toBe(
+      true,
+    );
+    expect(harness.runningAgentIds()).toEqual(["agent-a"]);
+    await harness.runtime.stop();
+  });
+
+  test("failed launch recovery preserves an explicit stop fence until stop completes", async () => {
+    let rejectRecovery!: (error: Error) => void;
+    let markRecoveryStarted!: () => void;
+    let markDisposed!: () => void;
+    const recoveryGate = new Promise<void>((_, reject) => (rejectRecovery = reject));
+    const recoveryStarted = new Promise<void>((resolve) => (markRecoveryStarted = resolve));
+    const disposed = new Promise<void>((resolve) => (markDisposed = resolve));
+    const harness = await queueHarness({
+      async notify() {
+        markRecoveryStarted();
+        await recoveryGate;
+      },
+      dispose() {
+        markDisposed();
+      },
+    });
+    const launching = harness.runtime.startAgent(
+      "agent-a",
+      config,
+      undefined,
+      "blocked-recovery",
+      recovery,
+    );
+    await recoveryStarted;
+
+    const startDuringStop = launching.then(
+      () => "launch unexpectedly succeeded",
+      async () => {
+        try {
+          await harness.runtime.startAgent("agent-a", config);
+          return "start unexpectedly succeeded";
+        } catch (error) {
+          return error instanceof Error ? error.message : String(error);
+        }
+      },
+    );
+    const stopping = harness.runtime.stopAgent("agent-a");
+    rejectRecovery(new Error("recovery rejected"));
+    await expect(launching).rejects.toThrow("recovery rejected");
+    await disposed;
+
+    expect(await startDuringStop).toContain("stopping");
+    await stopping;
+    await harness.runtime.startAgent("agent-a", config);
     await harness.runtime.stop();
   });
 
@@ -1293,39 +1483,60 @@ describe("DaemonRuntime", () => {
     let releaseRecovery!: () => void;
     const recoveryGate = new Promise<void>((resolve) => (releaseRecovery = resolve));
     const harness = await queueHarness({
-      notify: (notice) => (notice.includes("CoForge recovery notice") ? recoveryGate : undefined),
+      notify: (notice) => (notice.includes("wake only") ? recoveryGate : undefined),
     });
     const active = await harness.runtime.startAgent("agent-a", config);
-    const rebound = harness.runtime.startAgent("agent-a", config, undefined, "recovery", recovery);
-    const live = harness.delivery(2);
+    const rebound = harness.runtime.startAgent("agent-a", config, undefined, "recovery", {
+      wakeMessage: {
+        messageId: "wake-message",
+        deliveryId: "wake-delivery",
+        conversationId: "conversation-a",
+        sequence: 3,
+        target: "@ada",
+        latestSender: "@ada",
+        body: "wake only",
+      },
+      resumeMessages: [
+        {
+          messageId: "resume-message",
+          deliveryId: "resume-delivery",
+          conversationId: "conversation-a",
+          sequence: 2,
+          target: "@ada",
+          latestSender: "@ada",
+          body: "must be ignored",
+        },
+      ],
+      unreadSummary: { "@grace": 9 },
+    });
+    const live = harness.delivery(4);
     await Bun.sleep(0);
 
     expect(harness.notices).toHaveLength(1);
+    expect(harness.notices[0]).toContain("wake only");
+    expect(harness.notices[0]).not.toContain("must be ignored");
+    expect(harness.notices[0]).not.toContain("@grace");
     expect(harness.acknowledgements).toEqual([]);
     releaseRecovery();
     expect(await rebound).toBe(active);
     await live;
     expect(harness.notices[1]).toContain("CoForge inbox notice");
-    expect(harness.acknowledgements).toEqual(["delivery-2"]);
+    expect(harness.acknowledgements).toEqual(["delivery-4"]);
     expect(harness.sessions()).toBe(1);
     expect(harness.mints()).toBe(1);
     await harness.runtime.stop();
   });
 
-  test("continues live delivery after recovery notify fails", async () => {
-    const harness = await queueHarness({
-      notify(notice) {
-        if (notice.includes("CoForge recovery notice")) throw new Error("notice rejected");
-      },
-    });
+  test("active rebind without a wake ignores resume context and continues live delivery", async () => {
+    const harness = await queueHarness();
     await harness.runtime.startAgent("agent-a", config);
 
     await Promise.all([
       harness.runtime.startAgent("agent-a", config, undefined, "recovery", recovery),
       harness.delivery(2),
     ]);
-    expect(harness.notices).toHaveLength(2);
-    expect(harness.notices[1]).toContain("CoForge inbox notice");
+    expect(harness.notices).toHaveLength(1);
+    expect(harness.notices[0]).toContain("CoForge inbox notice");
     expect(harness.acknowledgements).toEqual(["delivery-2"]);
     await harness.runtime.stop();
   });

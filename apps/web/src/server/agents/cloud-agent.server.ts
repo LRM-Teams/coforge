@@ -1,7 +1,10 @@
 import {
+  AGENT_MESSAGE_METHOD,
   AGENT_START_METHOD,
   AGENT_ACTIVITY_METHOD,
+  WORKSPACE_PROTOCOL_MAJOR,
   decodeAgentActivity,
+  encodeAgentMessageDelivery,
   encodeAgentStartIntent,
   type AgentActivity,
   type AgentStartIntent,
@@ -9,7 +12,10 @@ import {
 import { daemonControlChannel, type CentrifugoServerApi } from "../centrifugo/server-api.server";
 import { runtimeStartFields } from "./agent-collection.server";
 import type { AgentRepository } from "../db/repositories/agent.repositories.server";
-import type { AgentRecoveryContext } from "../db/repositories/direct-conversation.repositories.server";
+import type {
+  AgentRecoveryContext,
+  PendingAgentDelivery,
+} from "../db/repositories/direct-conversation.repositories.server";
 
 export type AgentStartAuthorization = {
   computerIdForAuthorizedAgent(
@@ -60,13 +66,42 @@ export class WorkspaceAgentRecovery {
     private readonly agents: AgentRepository,
     private readonly conversations: {
       readAgentRecoveryContext(workspaceId: string, agentId: string): Promise<AgentRecoveryContext>;
+      readPendingAgentDeliveries(
+        workspaceId: string,
+        agentId: string,
+      ): Promise<PendingAgentDelivery[]>;
     },
     private readonly api: CentrifugoServerApi,
   ) {}
 
-  async recoverWorkspace(workspaceId: string, computerId: string) {
+  async recoverWorkspace(
+    workspaceId: string,
+    computerId: string,
+    runningAgentIds: readonly string[],
+  ) {
+    const runningAgents = new Set(runningAgentIds);
     const agents = await this.agents.listForComputer(workspaceId, computerId);
     for (const agent of agents) {
+      if (runningAgents.has(agent.id)) {
+        const deliveries = await this.conversations.readPendingAgentDeliveries(
+          workspaceId,
+          agent.id,
+        );
+        for (const delivery of deliveries) {
+          await this.api.publish(
+            daemonControlChannel(computerId),
+            encodeAgentMessageDelivery({
+              protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+              requestId: crypto.randomUUID(),
+              workspaceId,
+              agentId: agent.id,
+              method: AGENT_MESSAGE_METHOD,
+              ...delivery,
+            }),
+          );
+        }
+        continue;
+      }
       const recovery = await this.conversations.readAgentRecoveryContext(workspaceId, agent.id);
       await this.api.publish(
         daemonControlChannel(computerId),

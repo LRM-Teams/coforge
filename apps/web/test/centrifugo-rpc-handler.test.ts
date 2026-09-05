@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   CentrifugoRpcAuthenticationError,
   CentrifugoRpcHandler,
+  createAgentDeliveryAckMethod,
   createAgentMessageMethod,
   createAgentStatusMethod,
   createDaemonRuntimeCodeAgentsUpdateMethod,
@@ -12,6 +13,7 @@ import {
 import { createCentrifugoRpcHandler } from "../src/server/centrifugo/rpc-composition.server";
 import {
   decodeCloudAgentMessageResponse,
+  encodeAgentMessageDeliveryAck,
   encodeAgentStatus,
   encodeAgentMessageRequest,
   encodeDaemonRuntimeCodeAgentsUpdateRequest,
@@ -51,6 +53,33 @@ const principal = (agentId?: string) => ({
 });
 
 describe("CentrifugoRpcHandler", () => {
+  test("authorizes delivery ACKs against the authenticated Computer", async () => {
+    const received: unknown[] = [];
+    const method = createAgentDeliveryAckMethod({
+      async receiveDeliveryAck(input) {
+        if (input.computerId !== "computer-1") throw new Error("wrong Computer");
+        received.push(input);
+      },
+    });
+    const payload = encodeAgentMessageDeliveryAck({
+      protocolMajor: 1,
+      method: "agent:deliver:ack",
+      requestId: "request-1",
+      workspaceId: "workspace-1",
+      agentId: "agent-1",
+      deliveryId: "delivery-1",
+      messageId: "message-1",
+      sequence: 1,
+    });
+
+    expect(
+      await method(payload, { principal: { ...principal(), computerId: "computer-2" } }),
+    ).toEqual({ code: 403, message: "delivery acknowledgement is not authorized" });
+    expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({ computerId: "computer-1", deliveryId: "delivery-1" });
+  });
+
   test("accepts a scoped Agent status from its assigned Computer", async () => {
     const statuses: unknown[] = [];
     const publications: unknown[] = [];
@@ -178,10 +207,10 @@ describe("CentrifugoRpcHandler", () => {
   });
 
   test("starts every existing Workspace Agent after the exact Computer reports ready", async () => {
-    const recovered: string[][] = [];
+    const recovered: unknown[][] = [];
     const method = createDaemonRuntimeReadyMethod({
-      recoverWorkspace: async (workspaceId, computerId) => {
-        recovered.push([workspaceId, computerId]);
+      recoverWorkspace: async (workspaceId, computerId, runningAgentIds) => {
+        recovered.push([workspaceId, computerId, runningAgentIds]);
       },
     });
     const payload = encodeDaemonRuntimeReadyRequest({
@@ -191,16 +220,17 @@ describe("CentrifugoRpcHandler", () => {
       computerId: "computer-1",
       workerInstanceId: "worker-1",
       startedAt: 1,
+      runningAgentIds: ["agent-running"],
     });
 
     expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
-    expect(recovered).toEqual([["workspace-1", "computer-1"]]);
+    expect(recovered).toEqual([["workspace-1", "computer-1", ["agent-running"]]]);
     expect(
       await method(payload, {
         principal: { ...principal(), computerId: "another-computer" },
       }),
     ).toEqual({ code: 403, message: "daemon runtime identity is not authorized" });
-    expect(recovered).toEqual([["workspace-1", "computer-1"]]);
+    expect(recovered).toEqual([["workspace-1", "computer-1", ["agent-running"]]]);
   });
 
   test("stores an available Daemon usage result as available", async () => {
@@ -309,8 +339,17 @@ describe("CentrifugoRpcHandler", () => {
   });
 
   test("allows a matching Agent API key to send", async () => {
+    const advances: unknown[] = [];
     const method = createAgentMessageMethod(
       {
+        async advanceAgentReadThrough(...args: unknown[]) {
+          advances.push(args);
+          return 5;
+        },
+        async readPendingAgentContext(...args: unknown[]) {
+          advances.push(["pending", ...args]);
+          return [];
+        },
         async userIdForUsername() {
           return "target-user";
         },
@@ -333,11 +372,34 @@ describe("CentrifugoRpcHandler", () => {
           return persist();
         },
       },
+      {
+        async issue() {
+          return "unused";
+        },
+        async get() {
+          return undefined;
+        },
+        async consume() {
+          return false;
+        },
+      },
     );
 
-    const result = await method(agentMessagePayload("agent-a", "send"), {
-      principal: principal("agent-a"),
-    });
+    const result = await method(
+      encodeAgentMessageRequest({
+        protocolMajor: 1,
+        requestId: "request-1",
+        workspaceId: "workspace-1",
+        agentId: "agent-a",
+        operation: "send",
+        target: "@user",
+        body: "Hello",
+        seenUpToSequence: 7,
+      }),
+      {
+        principal: principal("agent-a"),
+      },
+    );
     expect(result).toBeInstanceOf(Uint8Array);
     if (!(result instanceof Uint8Array)) throw new Error("expected an Agent message response");
     expect(decodeCloudAgentMessageResponse(result)).toMatchObject({
@@ -345,6 +407,33 @@ describe("CentrifugoRpcHandler", () => {
       accepted: true,
       messageId: "message-1",
     });
+    expect(advances).toEqual([
+      ["workspace-1", "agent-a", "@user", 7],
+      ["pending", "workspace-1", "agent-a", "@user", 5],
+    ]);
+  });
+
+  test("fails closed when a trusted seen sequence cannot be advanced", async () => {
+    const method = createAgentMessageMethod({}, {}, "send", {
+      async canUseAgent() {
+        return true;
+      },
+    });
+    await expect(
+      method(
+        encodeAgentMessageRequest({
+          protocolMajor: 1,
+          requestId: "request-1",
+          workspaceId: "workspace-1",
+          agentId: "agent-a",
+          operation: "send",
+          target: "@user",
+          body: "Hello",
+          seenUpToSequence: 7,
+        }),
+        { principal: principal("agent-a") },
+      ),
+    ).rejects.toThrow("advancement is unavailable");
   });
 
   test("composed protocol methods fail closed until persistence is wired", async () => {

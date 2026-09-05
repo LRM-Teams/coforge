@@ -4,6 +4,38 @@ import { buildUserAgentConversationCreateInput } from "../src/server/db/reposito
 import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
 
 describe("PrismaDirectConversationRepository", () => {
+  test("scopes a delivery ACK to the Agent's current Computer assignment", async () => {
+    const updates: object[] = [];
+    const db = {
+      agentMessageDelivery: {
+        updateMany: async (input: object) => {
+          updates.push(input);
+          return { count: 1 };
+        },
+      },
+    } as unknown as PrismaClient;
+
+    await new PrismaDirectConversationRepository(db).receiveDeliveryAck({
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      agentId: "agent-1",
+      deliveryId: "delivery-1",
+      messageId: "message-1",
+      sequence: 7,
+    });
+
+    expect(updates[0]).toMatchObject({
+      where: {
+        workspaceId: "workspace-1",
+        agentId: "agent-1",
+        deliveryId: "delivery-1",
+        messageId: "message-1",
+        sequence: 7,
+        agent: { computerId: "computer-1" },
+      },
+    });
+  });
+
   test("creates a User-Agent conversation through checked relation inputs", () => {
     expect(buildUserAgentConversationCreateInput("workspace-1", "user-1", "agent-1")).toEqual({
       workspace: { connect: { id: "workspace-1" } },
@@ -129,6 +161,75 @@ describe("PrismaDirectConversationRepository", () => {
     expect(updates[0]).toMatchObject({ data: { agentReadThroughSequence: 3 } });
   });
 
+  test("bounds and monotonically advances only the authorized Agent conversation", async () => {
+    const updates: object[] = [];
+    const db = {
+      message: { findFirst: async () => ({ sequence: 9 }) },
+      conversationMember: {
+        updateMany: async (input: object) => {
+          updates.push(input);
+          return { count: 1 };
+        },
+      },
+    } as unknown as PrismaClient;
+    class TestConversationRepository extends PrismaDirectConversationRepository {
+      override async userIdForUsername(target: string) {
+        expect(target).toBe("@alice");
+        return "user-1";
+      }
+      override async getOrCreateUserAgent(workspaceId: string, userId: string, agentId: string) {
+        expect([workspaceId, userId, agentId]).toEqual(["workspace-1", "user-1", "agent-1"]);
+        return { id: "conversation-1" };
+      }
+    }
+
+    const bounded = await new TestConversationRepository(db).advanceAgentReadThrough(
+      "workspace-1",
+      "agent-1",
+      "@alice",
+      999,
+    );
+
+    expect(bounded).toBe(9);
+    expect(updates).toEqual([
+      {
+        where: {
+          conversationId: "conversation-1",
+          workspaceId: "workspace-1",
+          agentId: "agent-1",
+          agentReadThroughSequence: { lt: 9 },
+        },
+        data: { agentReadThroughSequence: 9 },
+      },
+    ]);
+  });
+
+  test("returns zero without advancing when the authorized conversation has no messages", async () => {
+    let updates = 0;
+    const db = {
+      message: { findFirst: async () => null },
+      conversationMember: { updateMany: async () => void updates++ },
+    } as unknown as PrismaClient;
+    class TestConversationRepository extends PrismaDirectConversationRepository {
+      override async userIdForUsername() {
+        return "user-1";
+      }
+      override async getOrCreateUserAgent() {
+        return { id: "conversation-1" };
+      }
+    }
+
+    expect(
+      await new TestConversationRepository(db).advanceAgentReadThrough(
+        "workspace-1",
+        "agent-1",
+        "@alice",
+        999,
+      ),
+    ).toBe(0);
+    expect(updates).toBe(0);
+  });
+
   test("builds a stable per-target oldest-first recovery batch with a global limit", async () => {
     const takes: number[] = [];
     const memberQueries: object[] = [];
@@ -158,6 +259,7 @@ describe("PrismaDirectConversationRepository", () => {
           return Array.from({ length: count }, (_, offset) => ({
             id: `${where.conversationId}-message-${offset + 5}`,
             sequence: offset + 5,
+            body: `body-${offset + 5}`,
             deliveries: [{ deliveryId: `${where.conversationId}-delivery-${offset + 5}` }],
           }));
         },
@@ -181,6 +283,7 @@ describe("PrismaDirectConversationRepository", () => {
         sequence: 5,
         target: "@alice",
         latestSender: "@alice",
+        body: "body-5",
       },
       {
         messageId: "conversation-0-message-6",
@@ -189,6 +292,7 @@ describe("PrismaDirectConversationRepository", () => {
         sequence: 6,
         target: "@alice",
         latestSender: "@alice",
+        body: "body-6",
       },
     ]);
     expect(result.unreadSummary).toEqual({ "@alice": 75, "@bob": 75 });
@@ -251,5 +355,73 @@ describe("PrismaDirectConversationRepository", () => {
     await expect(
       new PrismaDirectConversationRepository(db).readAgentRecoveryContext("workspace-1", "agent-1"),
     ).rejects.toThrow("has no delivery");
+  });
+
+  test("reads all scoped unacknowledged deliveries oldest-first", async () => {
+    const queries: object[] = [];
+    const db = {
+      agentMessageDelivery: {
+        findMany: async (input: object) => {
+          queries.push(input);
+          return [
+            {
+              deliveryId: "delivery-1",
+              messageId: "message-1",
+              conversationId: "conversation-1",
+              sequence: 4,
+              message: {
+                body: "pending body",
+                sender: { user: { username: "alice" } },
+              },
+            },
+          ];
+        },
+      },
+    } as unknown as PrismaClient;
+
+    const result = await new PrismaDirectConversationRepository(db).readPendingAgentDeliveries(
+      "workspace-1",
+      "agent-1",
+    );
+
+    expect(queries[0]).toMatchObject({
+      where: { workspaceId: "workspace-1", agentId: "agent-1", receivedAt: null },
+      orderBy: [{ createdAt: "asc" }, { deliveryId: "asc" }],
+    });
+    expect(queries[0]).not.toHaveProperty("take");
+    expect(result).toEqual([
+      {
+        messageId: "message-1",
+        deliveryId: "delivery-1",
+        conversationId: "conversation-1",
+        sequence: 4,
+        target: "@alice",
+        latestSender: "@alice",
+        body: "pending body",
+      },
+    ]);
+  });
+
+  test("rejects a pending delivery without a valid public username target", async () => {
+    const db = {
+      agentMessageDelivery: {
+        findMany: async () => [
+          {
+            deliveryId: "delivery-1",
+            messageId: "message-1",
+            conversationId: "conversation-1",
+            sequence: 1,
+            message: { body: "body", sender: { user: { username: "Invalid Name" } } },
+          },
+        ],
+      },
+    } as unknown as PrismaClient;
+
+    await expect(
+      new PrismaDirectConversationRepository(db).readPendingAgentDeliveries(
+        "workspace-1",
+        "agent-1",
+      ),
+    ).rejects.toThrow("public @username");
   });
 });

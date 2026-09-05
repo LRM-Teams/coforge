@@ -332,10 +332,10 @@ Daemon 仅为被 Web/backend 暂缓的 Agent response 保存短期 continuation 
 1. backend 先持久化 canonical Message，再通过 Centrifugo 向目标 daemon 发布 attention；Centrifugo 不读取 PostgreSQL 或自行决定目标；
 2. daemon 按 Workspace、conversation 与 Agent scope 定位 `AgentSession`，调用 provider-neutral `notify`；
 3. 只有 `AgentSession`/`notify` 成功接受 attention 后，daemon 才返回 ACK；拒绝或失败不得 ACK；
-4. ACK 只表示 attention 已被当前 Agent session 接受，不表示 Agent 执行开始、完成或产生 response；
+4. ACK 只表示 attention 已被当前 Agent session 接受，不表示 Agent 执行开始、完成或产生 response；Web 仅接受已认证 Computer 为该 Agent 当前 assignment 的 ACK，并继续校验完整 delivery tuple；
 5. attention 是易失提示，断线、进程退出或 ACK 丢失都可能造成丢失或重复。每个 Agent ConversationMember 持久化单调递增的 `agentReadThroughSequence`；无锚点的普通 read 从当前 canonical boundary 的下一条消息开始，成功返回的连续查询范围可包含并跨越该 Agent 自己已发送的已知消息，但绝不能跳过查询未返回的 User 消息。`before`、`after`、`around` 等显式历史跳转与 delivery ACK 都不推进阅读位置；conversation sequence 是总顺序，不声称仅由 User 消息组成或具有额外的无缺口保证；
-6. Daemon ready/reconnect 时，Web/backend 从该 canonical read boundary 读取每个 Agent 的私聊恢复上下文。`agent:start` 的 `resumeMessages` 是仅包含 message ID、delivery ID、conversation ID、sequence、target 与 latest sender 的恢复元数据，不含正文；每个 Agent 总计最多 100 条，并从各 target 最老未读开始。`unreadSummary` 严格只是公共 `@username` target 到完整未读总数的映射，不含正文、ID、sequence 或 cursor；
-7. Daemon 在 runtime 启动后先把恢复消息注册到易失 attention index 并发送不含正文的恢复通知，再处理启动期间按到达顺序缓存的 live delivery。Agent 仍通过独立 HTTPS read RPC 拉取正文；恢复批次不进入 standing instructions、不产生 start ACK，也不形成 durable local queue。
+6. Daemon 每次 ready（包括 reconnect 与 ready retry）都从当前实际 runtime 快照动态上报 `runningAgentIds`，并为该次请求生成新 `requestId`。Web/backend 对不在该集合中的 persisted Agent 从 canonical read boundary 读取私聊恢复上下文并发布 `agent:start`；对仍在运行的 Agent 不发布 start，而是从 persisted `AgentMessageDelivery` ledger 按创建时间、delivery ID 确定性 oldest-first 读取全部尚未 ACK（`receivedAt` 为 null）的记录，以稳定的 message ID、delivery ID 和原正文重新发布现有 `agent:deliver`（每次重投可使用新的 request ID）。这一路径不推进 canonical read boundary，也不依赖或声称 Centrifugo 自动 history recovery。`agent:start` 的 `resumeMessages` 包含 message ID、delivery ID、conversation ID、sequence、target、latest sender 与正文；每个 Agent 总计最多 100 条，并从各 target 最老未读开始。`unreadSummary` 严格只是公共 `@username` target 到完整未读总数的映射，不含正文、ID、sequence 或 cursor；超出批次或仅有 summary 的 target 必须由 Agent 显式读取；
+7. 对未运行 Agent，Daemon 在新 runtime 启动后先把完整 `wakeMessage`、`resumeMessages` 与 `unreadSummary` 恢复上下文注册到易失 attention index，并将正文作为 Agent 的 model input，再处理启动期间按到达顺序缓存的 live delivery；仍在共享 launch 中、尚未进入运行集合的 Agent 同样接收该完整上下文。Ready 的 `runningAgentIds` 只包含已通过 shared launch/recovery gate 且不在 stopping 中的可投递 Agent。若收到的 `agent:start` 对应已运行 Agent，Daemon 保留原进程、session 与 config，只立即处理 `wakeMessage`，明确忽略该 start 的 `resumeMessages` 与 `unreadSummary`。Agent replacement launch 或 session exit 会清除且仅清除该 Agent 的易失代际去重状态；旧 session 的延迟 notify completion 不得写入新代际。恢复批次不进入 standing instructions、不产生专用 recovery ACK，也不形成 durable local queue。
 
 ### 6.2 Agent 到云端
 
@@ -348,7 +348,7 @@ Daemon 仅为被 Web/backend 暂缓的 Agent response 保存短期 continuation 
 
 - response、Agent execution 状态与 delivery ACK 是不同维度；
 - WebSocket attention 与连接内写队列只负责唤醒，不是 durable source of truth；
-- attention 丢失后的恢复依赖 canonical Message/read boundary；delivery ACK、start ACK 和 `unreadSummary` 都不是阅读确认；
+- attention 丢失后的恢复依赖 canonical Message/read boundary；恢复正文被 model 接受后，Daemon 在该 Agent 随后的 `send` side effect 上附带可信 `seenUpToSequence`，Web 据此为精确授权的会话单调推进且不超过当前 sequence。它不是专用恢复回执，也不表示 turn 完成；delivery ACK、start ACK 和 `unreadSummary` 都不是阅读确认；
 - 不使用数据库 command mailbox 或 claim/lease，除非先形成新的架构决策。
 
 ## 7. 端到端链路
