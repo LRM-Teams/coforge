@@ -164,10 +164,10 @@ These instructions apply to the entire repository.
 - Before adding, changing, or removing a mise task, read and follow
   [the mise task policy](docs/agents/mise-tasks.md).
 - Keep mise as the small, stable repository command surface: add a task only
-  for a documented developer/CI entry point, cross-workspace or cross-tool
-  orchestration, or behavior that needs mise task features. Keep package-owned
-  commands in that workspace's `package.json`; never mirror every package
-  script into `mise.toml`.
+  for a documented developer entry point, reusable repository gate,
+  cross-workspace or cross-tool orchestration, or behavior that needs mise task
+  features. Keep package-owned commands in that workspace's `package.json`;
+  never mirror every package script or add a CI-only forwarding task.
 - Give each operation one implementation owner. Keep short task declarations
   in `mise.toml`, substantial procedural logic in checked executable scripts,
   and CI-provider concerns in workflow YAML.

@@ -49,8 +49,8 @@ jobs:
       # so without this the release gate would not exercise the publish script it is about to run.
       - name: Check and test the release scripts
         run: |
-          mise run check:release
-          mise run test:release
+          bun run check:release
+          bun run test:release
 
   publish:
     name: Publish to the staging release feed

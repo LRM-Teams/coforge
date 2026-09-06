@@ -33,7 +33,8 @@ same executable-file pattern. CoForge adopts that division explicitly below.
 
 Add or retain a root mise task only when at least one condition is true:
 
-1. It is a documented command that developers or CI invoke directly.
+1. It is a documented developer command or reusable repository quality,
+   development, verification, or release entry point.
 2. It coordinates multiple workspaces, languages, tools, or ordered steps.
 3. It needs mise-owned features such as pinned tools, task environment,
    working directory, dependencies, confirmation, sources, or outputs.
@@ -47,6 +48,7 @@ Do not add a mise task for:
 - a one-off maintenance command or private convenience alias;
 - a package-internal helper used only by another package script;
 - every `package.json` script merely to make it available through mise;
+- a CI-only wrapper that merely forwards to an existing package script;
 - GitHub Actions permissions, matrices, hosted-runner setup, secrets, caches,
   artifact handling, or other CI-provider behavior.
 
@@ -56,7 +58,7 @@ Do not add a mise task for:
   native `dev`, `test`, `build`, `format`, `lint`, `typecheck`, generation, and
   database commands.
 - Expose a focused package operation through mise only when it independently
-  satisfies the admission rule, such as a separately reported CI job.
+  satisfies the admission rule; appearing as a separate CI step is not enough.
 - Give each operation one implementation owner. A mise task may delegate to a
   package script or executable repository script, but must not copy its
   procedural logic. Do not add a root `package.json` script whose only purpose

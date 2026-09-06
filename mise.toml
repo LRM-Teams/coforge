@@ -44,14 +44,6 @@ run = "bun run --cwd packages/protocol generate && cd packages/computer && bun r
 description = "Build the Computer package"
 run = "bun run --cwd packages/protocol generate && cd packages/computer && bun run build"
 
-[tasks."dev:frontend"]
-description = "Start the Web UI + control-plane Vite server on 8788"
-run = "./scripts/dev-frontend.sh"
-
-[tasks."dev:backend"]
-description = "Start the built Web/backend Nitro server on 8789"
-run = "./scripts/dev-backend.sh"
-
 [tasks."test:web"]
 description = "Run Web package tests"
 run = "bun run --cwd packages/protocol generate && cd apps/web && bun run test"
@@ -73,30 +65,6 @@ run = "bun run --cwd packages/protocol generate && cd apps/web && bun run check"
 [tasks."build:web"]
 description = "Build the Web package"
 run = "bun run --cwd packages/protocol generate && cd apps/web && bun run build"
-
-[tasks."test:deploy"]
-description = "Run deployment contract tests"
-run = "bun run test:deploy"
-
-[tasks."check:deploy"]
-description = "Run deployment script checks"
-run = "bun run check:deploy"
-
-[tasks."test:release"]
-description = "Run release script tests"
-run = "bun run test:release"
-
-[tasks."check:release"]
-description = "Run release script checks"
-run = "bun run check:release"
-
-[tasks."test:oss-cdn"]
-description = "Run OSS/CDN verifier tests"
-run = "bun run test:oss-cdn"
-
-[tasks."check:oss-cdn"]
-description = "Run OSS/CDN verifier checks"
-run = "bun run check:oss-cdn"
 
 [tasks."verify:oss-cdn"]
 description = "Verify OSS/CDN acceptance evidence"
