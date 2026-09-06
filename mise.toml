@@ -4,8 +4,8 @@ bun = "1.4"
 actionlint = "1.7.12"
 shellcheck = "0.11.0"
 
-[tasks.install]
-description = "Install all workspace dependencies"
+[tasks.setup]
+description = "Install frozen workspace dependencies"
 run = "bun install --frozen-lockfile"
 
 [tasks.test]
@@ -17,36 +17,35 @@ description = "Run repository format, lint, and type checks"
 run = "bun run check"
 
 [tasks.build]
-description = "Build deployable cloud applications"
+description = "Build all buildable workspaces"
 run = "bun run build"
 
 [tasks."test:computer"]
+description = "Run Computer package tests"
 run = "bun run --cwd packages/protocol generate && cd packages/computer && bun test"
 
 [tasks."test:daemon"]
+description = "Run Daemon package tests"
 run = "bun run --cwd packages/protocol generate && cd packages/daemon && bun run test"
 
 [tasks."check:daemon"]
+description = "Run Daemon package checks"
 run = "bun run --cwd packages/protocol generate && cd packages/daemon && bun run check"
 
 [tasks."build:daemon"]
+description = "Build the Daemon package"
 run = "bun run --cwd packages/protocol generate && cd packages/daemon && bun run build"
 
 [tasks."check:computer"]
+description = "Run Computer package checks"
 run = "bun run --cwd packages/protocol generate && cd packages/computer && bun run check"
 
 [tasks."build:computer"]
+description = "Build the Computer package"
 run = "bun run --cwd packages/protocol generate && cd packages/computer && bun run build"
 
-[tasks."dev:frontend"]
-description = "Start the Web UI + control-plane Vite server on 8788"
-run = "./scripts/dev-frontend.sh"
-
-[tasks."dev:backend"]
-description = "Start the built Web/backend Nitro server on 8789"
-run = "./scripts/dev-backend.sh"
-
 [tasks."test:web"]
+description = "Run Web package tests"
 run = "bun run --cwd packages/protocol generate && cd apps/web && bun run test"
 
 [tasks."test:e2e:agent-direct-message"]
@@ -60,28 +59,13 @@ amp orb services ensure >/dev/null || {
 """
 
 [tasks."check:web"]
+description = "Run Web package checks"
 run = "bun run --cwd packages/protocol generate && cd apps/web && bun run check"
 
 [tasks."build:web"]
+description = "Build the Web package"
 run = "bun run --cwd packages/protocol generate && cd apps/web && bun run build"
 
-[tasks."test:deploy"]
-run = "bun run test:deploy"
-
-[tasks."check:deploy"]
-run = "bun run check:deploy"
-
-[tasks."test:release"]
-run = "bun run test:release"
-
-[tasks."check:release"]
-run = "bun run check:release"
-
-[tasks."test:oss-cdn"]
-run = "bun run test:oss-cdn"
-
-[tasks."check:oss-cdn"]
-run = "bun run check:oss-cdn"
-
 [tasks."verify:oss-cdn"]
+description = "Verify OSS/CDN acceptance evidence"
 run = "bun run verify:oss-cdn"

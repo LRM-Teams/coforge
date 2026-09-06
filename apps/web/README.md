@@ -33,7 +33,7 @@ production Nitro server. Neither script uses port 3000.
 
 ```bash
 mise install
-mise run install
+mise run setup
 ./scripts/dev-frontend.sh    # http://127.0.0.1:8788
 ./scripts/dev-backend.sh     # http://127.0.0.1:8789 after a production build
 ```

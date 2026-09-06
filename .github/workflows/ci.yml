@@ -35,22 +35,22 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Test OSS/CDN acceptance verifier
-        run: mise run test:oss-cdn
+        run: bun run test:oss-cdn
 
       - name: Check OSS/CDN acceptance verifier
-        run: mise run check:oss-cdn
+        run: bun run check:oss-cdn
 
       - name: Test deploy identity contracts
-        run: mise run test:deploy
+        run: bun run test:deploy
 
       - name: Check deploy scripts
-        run: mise run check:deploy
+        run: bun run check:deploy
 
       - name: Test release build script
-        run: mise run test:release
+        run: bun run test:release
 
       - name: Check release build script
-        run: mise run check:release
+        run: bun run check:release
 
   computer:
     name: Computer
