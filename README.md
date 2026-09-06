@@ -72,7 +72,7 @@ Install the pinned toolchain and dependencies:
 
 ```bash
 mise install
-mise run install
+mise run setup
 ```
 
 Run tests first, then repository checks and production builds:

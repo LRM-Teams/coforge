@@ -161,6 +161,17 @@ These instructions apply to the entire repository.
 - Use `mise` as the repository's development tool and version manager.
 - Treat `mise.toml` as the source of truth for tool versions once present. Run `mise install`, then prefer `mise run <task>` or `mise exec -- <command>` over unpinned global tools.
 - Run `mise run test`, `mise run check`, and `mise run build` before submitting a change; CI runs them in that order.
+- Before adding, changing, or removing a mise task, read and follow
+  [the mise task policy](docs/agents/mise-tasks.md).
+- Keep mise as the small, stable repository command surface: add a task only
+  for a documented developer/CI entry point, cross-workspace or cross-tool
+  orchestration, or behavior that needs mise task features. Keep package-owned
+  commands in that workspace's `package.json`; never mirror every package
+  script into `mise.toml`.
+- Give each operation one implementation owner. Keep short task declarations
+  in `mise.toml`, substantial procedural logic in checked executable scripts,
+  and CI-provider concerns in workflow YAML.
+
 - Do not silently change a runtime or tool version. Update `mise.toml`, affected lockfiles, CI, and architecture documentation together.
 - Protobuf schemas under `packages/protocol/proto` must pass `buf lint` and
   `buf format --diff --exit-code`; do not use TypeScript lint rules as a
