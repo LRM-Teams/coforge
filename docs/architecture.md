@@ -372,6 +372,47 @@ Daemon 仅为被 Web/backend 暂缓的 Agent response 保存短期 continuation 
 - attention 丢失后的恢复依赖 canonical Message/read boundary；恢复正文被 model 接受后，Daemon 在该 Agent 随后的 `send` side effect 上附带可信 `seenUpToSequence`，Web 据此为精确授权的会话单调推进且不超过当前 sequence。它不是专用恢复回执，也不表示 turn 完成；delivery ACK、start ACK 和 `unreadSummary` 都不是阅读确认；
 - 不使用数据库 command mailbox 或 claim/lease，除非先形成新的架构决策。
 
+### 6.3 私聊 Thread
+
+Thread 仅适用于现有 User–Agent DirectConversation，不引入群聊、独立随机
+thread ID、独立会话或进程。一个 Agent 在主聊天和所有 Thread 中继续使用同一个
+既有 runtime session。Thread 的身份是顶层 Message 的 UUID；首条回复创建讨论，
+打开空讨论或输入草稿不创建 durable Thread。回复只属于该 Thread，不支持嵌套。
+
+公开主目标为 `@alice`。Agent 输入可使用 `@alice:<root UUID 的前 8 位十六进制字符>`，但
+Web/backend 生成的 Thread target（包括投递、读取结果和恢复）始终为
+`@alice:<完整 root UUID>`。sender 始终为 `@alice`，不带 root 后缀。短消息 ID 在授权
+conversation 内解析；必须恰好匹配一个顶层 Message，否则明确报错并要求完整 UUID，不得猜测。
+Daemon 在筛选 attention、读取或保存草稿、检查 model-visible position 和发送前，通过对父目标的
+已认证 HTTPS `around` 读取把短输入解析为完整 target；不缓存别名，也不把该 root lookup 展示给
+Agent 或推进阅读位置。主聊天与 Thread 的普通读取仍从
+各自未读边界开始；`before`、`after`、`around`、`limit` 保持范围读取能力，显式
+历史跳转不推进 canonical 或 Daemon 的阅读位置。背景通过普通父目标读取获得，
+例如 `message read --target @alice --around 12345678`；notice/check 不自动插入
+root 正文。不新增 `--root`、`--id`、消息分块或 AI 摘要。
+
+Message 的可空 `threadRootId` 引用同一 conversation 的顶层 Message。主聊天继续
+使用 ConversationMember 原有的 Agent 阅读位置；ThreadRead 按参与者和 root Message
+保存独立、单调递增的阅读位置。conversation sequence 仍为会话总顺序，过滤后的
+Thread 范围可有间隔，不能用 sequence 差计算待读条数。read、恢复、freshness hold
+与回复附带的可信 model-visible position 都限制到精确目标，绝不能清除主聊天或
+其他 Thread 的未读。附件继续使用已授权 conversation 内 committed Message 绑定。
+
+Daemon 的易失 Inbox 按完整 target 聚合，notice 仅携带目标、数量与 sender；
+check 返回该目标新消息。恢复批次同样按目标的独立阅读位置取消息，不改变已有
+runtime 生命周期和单条 WSS。Web 沿用 2 秒轮询；顶层消息提供回复数量和未读入口，
+桌面右侧讨论面板、移动端完整讨论视图及返回保留主聊天滚动位置；各目标草稿独立。
+
+交互目标格式参考已批准的 [Raft 1.0.17 官方发行包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)，
+不继承其未知默认 read 或自动 root 注入语义。持久化沿用
+[Prisma relation queries](https://www.prisma.io/docs/orm/prisma-client/queries/relation-queries)
+与 [PostgreSQL INSERT ON CONFLICT](https://www.postgresql.org/docs/current/sql-insert.html)
+的原子单调更新，无新服务或依赖。
+
+`mise run test:thread` 在显式提供 `THREAD_TEST_DATABASE_URL` 的本地 PostgreSQL 上
+验证发送、授权、前缀冲突和 read/recovery/hold 隔离；只创建和清理该测试自己的数据。
+该 `.integration.ts` 文件通过专用命令运行，不属于无数据库的普通 Bun 测试发现范围。
+
 ## 7. 端到端链路
 
 ```text

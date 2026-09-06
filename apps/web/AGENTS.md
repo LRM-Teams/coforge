@@ -52,6 +52,12 @@ instructions for the TanStack Start Web/backend modular monolith.
 
 ## Route and page organization
 
+- Direct-message threads belong to `features/conversations/` (selection, drafts,
+  discussion UI and authenticated functions), `server/conversations/` (send
+  routing), and `direct-conversation.repositories.server.ts` (root validation,
+  target-scoped ranges, read positions and recovery). A thread uses its root
+  Message identity, never a separate conversation or Agent runtime.
+
 - `src/routes/__root.tsx` owns the document shell: HTML, global head, global
   providers, styles, `HeadContent`, and `Scripts`.
 - Use pathless layout routes for shared application chrome. The current app

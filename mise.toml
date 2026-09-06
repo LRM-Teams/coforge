@@ -48,6 +48,10 @@ run = "bun run --cwd packages/protocol generate && cd packages/computer && bun r
 description = "Run Web package tests"
 run = "bun run --cwd packages/protocol generate && cd apps/web && bun run test"
 
+[tasks."test:thread"]
+description = "Run thread isolation against local PostgreSQL (THREAD_TEST_DATABASE_URL required)"
+run = "bun run --cwd packages/protocol generate && bun run --cwd apps/web db:generate && bun test ./apps/web/test/direct-thread.integration.ts"
+
 [tasks."test:e2e:agent-direct-message"]
 description = "Run the managed Agent direct-message end-to-end slice"
 run = """

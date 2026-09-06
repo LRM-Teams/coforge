@@ -50,6 +50,19 @@ workspace is the same as the conversation's workspace.
 **Message**:
 A durable text record in a DirectConversation, sent by one of its members.
 
+**Thread**:
+A discussion anchored to one top-level Message in a DirectConversation. Its
+identity is that root Message, not a separate conversation. Replies belong only
+to that Thread; a reply cannot anchor another Thread. A Thread exists only once
+its first reply is sent. All of an Agent's chats and Threads use the same Agent
+runtime session.
+
+**Message target**:
+The exact destination within a private User–Agent conversation: the main chat
+or a Thread rooted in a particular Message. Reading or replying to one target
+does not consume unread messages in another target. A sender identity is not a
+Message target and does not change when that sender replies in a Thread.
+
 **Agent status**:
 The volatile two-value lease status derived from the local Agent runtime process: `online` while the process is running and `offline` after it exits or is stopped. Lease renewals may replay the same logical status. Records carry daemon instance, client sequence, and the daemon instance start time in `observedAtMs`; same-instance records order by sequence and cross-instance records order by that instance rank. Browser snapshots and live events use the same merge rule.
 _Avoid_: starting, ready, degraded, failed

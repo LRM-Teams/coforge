@@ -7,7 +7,7 @@ import type {
 } from "@coforge/agent";
 import { readCodexUsage } from "./usage";
 import { agentEnvironment } from "../environment";
-import { JsonlProcess } from "../jsonl-process";
+import { JsonlProcess, JsonlRequestError } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { COFORGE_DAEMON_VERSION } from "../../version";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
@@ -121,6 +121,7 @@ class CodexAgentSession implements AgentSession {
   readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
   readonly #commandOutputBytes = new Map<string, number>();
   #state: CodexSessionState = { type: "idle" };
+  #starting: Promise<void> | undefined;
 
   constructor(process: JsonlProcess, threadId: string, agentId?: string, runtimeId?: string) {
     this.#process = process;
@@ -138,6 +139,16 @@ class CodexAgentSession implements AgentSession {
 
   async sendMessage(text: string): Promise<void> {
     if (this.#state.type !== "idle") throw new Error("code agent is already running");
+    const starting = this.#startTurn(text);
+    this.#starting = starting;
+    try {
+      await starting;
+    } finally {
+      if (this.#starting === starting) this.#starting = undefined;
+    }
+  }
+
+  async #startTurn(text: string): Promise<void> {
     this.#state = { type: "starting", completedTurnIds: new Set() };
     let response: Readonly<Record<string, unknown>>;
     try {
@@ -164,7 +175,7 @@ class CodexAgentSession implements AgentSession {
   }
 
   async notify(notice: string): Promise<void> {
-    await this.sendMessage(notice);
+    await this.#acceptNotice(notice);
     logger.info("Codex accepted inbox wakeup", {
       event: "codex.wakeup.accepted",
       agent_id: this.#agentId,
@@ -172,6 +183,42 @@ class CodexAgentSession implements AgentSession {
       notice_bytes: new TextEncoder().encode(notice).byteLength,
       outcome: "ok",
     });
+  }
+
+  async #acceptNotice(notice: string): Promise<void> {
+    // Only retry a rejected admission when the active turn ended. Other RPC
+    // failures remain failures so the daemon retains the unacknowledged attention.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (this.#starting) await this.#starting;
+      const state = this.#state;
+      if (state.type === "idle") return this.sendMessage(notice);
+      if (state.type !== "running") throw new Error("code agent cannot accept a notification");
+      try {
+        const response = await this.#process.request({
+          method: "turn/steer",
+          params: {
+            threadId: this.#threadId,
+            expectedTurnId: state.turnId,
+            input: [{ type: "text", text: notice }],
+          },
+        });
+        if (asRecord(response.result)?.turnId !== state.turnId) {
+          throw new Error("Codex did not accept the notification for the active turn");
+        }
+        return;
+      } catch (error) {
+        const rpcError =
+          error instanceof JsonlRequestError ? asRecord(error.responseError) : undefined;
+        if (
+          attempt > 0 ||
+          rpcError?.code !== -32600 ||
+          rpcError.message !== "no active turn to steer"
+        ) {
+          throw error;
+        }
+        if (this.#state === state) this.#state = { type: "idle" };
+      }
+    }
   }
 
   subscribe(listener: (event: AgentRuntimeEvent) => void): () => void {

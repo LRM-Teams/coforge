@@ -18,6 +18,7 @@ import {
   type CentrifugeWorkspaceClient,
 } from "../src/connection/daemon-connection";
 import { startAgentProxy, type AgentProxy } from "../src/agent-proxy";
+import type { AgentMessageRequest, CloudAgentMessageResponse } from "@coforge/protocol";
 
 function sessionSpy() {
   return {
@@ -48,6 +49,22 @@ const config: AgentRuntimeConfig = {
   modelProvider: "anthropic",
   reasoning: "balanced",
 };
+
+function messageRecord(
+  sequence: number,
+  sender: string,
+  target: string,
+  id = `message-${sequence}`,
+) {
+  return {
+    id,
+    sequence,
+    sender,
+    target,
+    body: `body-${sequence}`,
+    createdAt: "2026-09-03T00:00:00Z",
+  };
+}
 
 function agentLaunchConfig(
   agentApiKey: string,
@@ -143,6 +160,55 @@ async function queueHarness(
   };
 }
 
+async function messageHarness(
+  respond: (request: AgentMessageRequest) => Promise<CloudAgentMessageResponse>,
+) {
+  const credentials = new InMemoryDaemonCredentialStore();
+  await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+  const runtime = new DaemonRuntime(
+    connection,
+    () => ({
+      provider: "pi",
+      createAgentSession: async () => ({ ...sessionSpy(), async notify() {} }),
+    }),
+    credentials,
+    {
+      create: () => ({
+        async start() {},
+        async ready() {},
+        async stop() {},
+        async requestAgentApiKey() {
+          return `sk_agent_${"a".repeat(43)}`;
+        },
+        async revokeAgentApiKey() {},
+        async sendAgentDeliveryAck() {},
+        agentMessage: respond,
+      }),
+    },
+  );
+  await runtime.start(connection);
+  await runtime.startAgent("agent-a", config);
+  return {
+    runtime,
+    context: runtime.issueAgentContext("agent-a"),
+    apiKey: `sk_agent_${"a".repeat(43)}`,
+    deliver: (sequence: number, target: string) =>
+      runtime.handleAgentMessage({
+        protocolMajor: 1,
+        requestId: `delivery-${sequence}`,
+        messageId: `message-${sequence}`,
+        deliveryId: `delivery-${sequence}`,
+        sequence,
+        workspaceId: connection.workspaceId,
+        conversationId: "conversation-a",
+        agentId: "agent-a",
+        body: `body-${sequence}`,
+        method: "agent:deliver",
+        target,
+      }),
+  };
+}
+
 const recovery = {
   resumeMessages: [],
   unreadSummary: { "@ada": 1 },
@@ -234,89 +300,324 @@ describe("DaemonRuntime", () => {
     await harness.runtime.stop().catch(() => undefined);
   });
 
-  test("message check returns canonical user messages and drains attention once", async () => {
-    const credentials = new InMemoryDaemonCredentialStore();
-    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
-    let reads = 0;
-    const runtime = new DaemonRuntime(
-      connection,
-      () => ({
-        provider: "pi",
-        createAgentSession: async () => ({ ...sessionSpy(), async notify() {} }),
-      }),
-      credentials,
-      {
-        create: () => ({
-          async start() {},
-          async ready() {},
-          async stop() {},
-          async requestAgentApiKey() {
-            return `sk_agent_${"a".repeat(43)}`;
-          },
-          async revokeAgentApiKey() {},
-          async sendAgentDeliveryAck() {},
-          async agentMessage(request) {
-            reads++;
-            return {
-              protocolMajor: 1,
-              requestId: request.requestId,
-              accepted: true,
-              attentionCount: 1,
-              messages: [
-                {
-                  id: "message-5",
-                  sequence: 5,
-                  sender: "@ada",
-                  target: "@ada",
-                  body: "old message",
-                  createdAt: "2026-09-03T00:00:00Z",
-                },
-                {
-                  id: "message-7",
-                  sequence: 7,
-                  sender: "@ada",
-                  target: "@ada",
-                  body: "new message",
-                  createdAt: "2026-09-03T00:01:00Z",
-                },
-              ],
-            };
+  test.each(["@ada", "@ada:12345678"])(
+    "message check drains exact target %s in one session",
+    async (target) => {
+      const rootId = "12345678-1234-4234-8234-123456789abc";
+      const canonicalTarget = target.includes(":") ? `@ada:${rootId}` : target;
+      const credentials = new InMemoryDaemonCredentialStore();
+      await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+      let reads = 0;
+      let launches = 0;
+      const requests: Array<{ before?: string; around?: string; limit?: number }> = [];
+      const runtime = new DaemonRuntime(
+        connection,
+        () => ({
+          provider: "pi",
+          createAgentSession: async () => {
+            launches++;
+            return { ...sessionSpy(), async notify() {} };
           },
         }),
-      },
-    );
-    await runtime.start(connection);
-    await runtime.startAgent("agent-a", config);
-    const context = runtime.issueAgentContext("agent-a");
-    await runtime.handleAgentMessage({
-      protocolMajor: 1,
-      requestId: "delivery-request",
-      messageId: "message-7",
-      deliveryId: "delivery-7",
-      sequence: 7,
-      workspaceId: connection.workspaceId,
-      conversationId: "conversation-a",
-      agentId: "agent-a",
-      body: "new message",
-      method: "agent:deliver",
-      target: "@ada",
+        credentials,
+        {
+          create: () => ({
+            async start() {},
+            async ready() {},
+            async stop() {},
+            async requestAgentApiKey() {
+              return `sk_agent_${"a".repeat(43)}`;
+            },
+            async revokeAgentApiKey() {},
+            async sendAgentDeliveryAck() {},
+            async agentMessage(request) {
+              if (
+                target.includes(":") &&
+                request.target === "@ada" &&
+                request.around === "12345678"
+              )
+                return {
+                  protocolMajor: 1,
+                  requestId: request.requestId,
+                  accepted: true,
+                  attentionCount: 0,
+                  messages: [
+                    {
+                      id: rootId,
+                      sequence: 1,
+                      sender: "@ada",
+                      target: "@ada",
+                      body: "root",
+                      createdAt: "2026-09-03T00:00:00Z",
+                    },
+                  ],
+                };
+              reads++;
+              requests.push(request);
+              return {
+                protocolMajor: 1,
+                requestId: request.requestId,
+                accepted: true,
+                attentionCount: 1,
+                messages: [
+                  {
+                    id: "message-5",
+                    sequence: 5,
+                    sender: "@ada",
+                    target: canonicalTarget,
+                    body: "old message",
+                    createdAt: "2026-09-03T00:00:00Z",
+                  },
+                  {
+                    id: "message-7",
+                    sequence: 7,
+                    sender: "@ada",
+                    target: canonicalTarget,
+                    body: "new message",
+                    createdAt: "2026-09-03T00:01:00Z",
+                  },
+                ],
+              };
+            },
+          }),
+        },
+      );
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+      const context = runtime.issueAgentContext("agent-a");
+      await runtime.handleAgentMessage({
+        protocolMajor: 1,
+        requestId: "delivery-request",
+        messageId: "message-7",
+        deliveryId: "delivery-7",
+        sequence: 7,
+        workspaceId: connection.workspaceId,
+        conversationId: "conversation-a",
+        agentId: "agent-a",
+        body: "new message",
+        method: "agent:deliver",
+        target: canonicalTarget,
+      });
+
+      const first = await runtime.agentMessage(
+        context,
+        { requestId: "check-1", context, operation: "check" },
+        `sk_agent_${"a".repeat(43)}`,
+      );
+      const second = await runtime.agentMessage(
+        context,
+        { requestId: "check-2", context, operation: "check" },
+        `sk_agent_${"a".repeat(43)}`,
+      );
+
+      expect(first.messages.map(({ id }) => id)).toEqual(["message-5", "message-7"]);
+      expect(second.messages).toEqual([]);
+      expect(reads).toBe(1);
+      await runtime.agentMessage(
+        context,
+        { requestId: "history", context, operation: "read", target, around: "12345678", limit: 1 },
+        `sk_agent_${"a".repeat(43)}`,
+      );
+      expect(requests.at(-1)).toMatchObject({ around: "12345678", limit: 1 });
+      expect(launches).toBe(1);
+      await runtime.stop();
+    },
+  );
+
+  test("uses the full target and short-read position when sending to a short thread target", async () => {
+    const rootId = "12345678-1234-4234-8234-123456789abc";
+    const fullTarget = `@ada:${rootId}`;
+    const requests: AgentMessageRequest[] = [];
+    const harness = await messageHarness(async (request) => {
+      requests.push(request);
+      if (request.target === "@ada")
+        return {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: true,
+          attentionCount: 0,
+          messages: [messageRecord(1, "@ada", "@ada", rootId)],
+        };
+      return {
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messageId: request.operation === "send" ? "sent" : undefined,
+        messages: request.operation === "read" ? [messageRecord(7, "@ada", fullTarget)] : [],
+      };
     });
+    try {
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "read-short",
+          context: harness.context,
+          operation: "read",
+          target: "@ada:12345678",
+        },
+        harness.apiKey,
+      );
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "send-short",
+          context: harness.context,
+          operation: "send",
+          target: "@ada:12345678",
+          body: "reply",
+        },
+        harness.apiKey,
+      );
+      expect(requests.at(-1)).toMatchObject({
+        operation: "send",
+        target: fullTarget,
+        seenUpToSequence: 7,
+      });
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
 
-    const first = await runtime.agentMessage(
-      context,
-      { requestId: "check-1", context, operation: "check" },
-      `sk_agent_${"a".repeat(43)}`,
-    );
-    const second = await runtime.agentMessage(
-      context,
-      { requestId: "check-2", context, operation: "check" },
-      `sk_agent_${"a".repeat(43)}`,
-    );
+  test("reuses a short-target held draft token and body when sent with the full target", async () => {
+    const rootId = "12345678-1234-4234-8234-123456789abc";
+    const fullTarget = `@ada:${rootId}`;
+    const sends: AgentMessageRequest[] = [];
+    const harness = await messageHarness(async (request) => {
+      if (request.target === "@ada")
+        return {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: true,
+          attentionCount: 0,
+          messages: [messageRecord(1, "@ada", "@ada", rootId)],
+        };
+      sends.push(request);
+      return sends.length === 1
+        ? {
+            protocolMajor: 1,
+            requestId: request.requestId,
+            accepted: false,
+            attentionCount: 1,
+            messages: [],
+            sideEffectDecision: "hold",
+            holdToken: "opaque-token",
+          }
+        : {
+            protocolMajor: 1,
+            requestId: request.requestId,
+            accepted: true,
+            attentionCount: 0,
+            messageId: "sent",
+            messages: [],
+            sideEffectDecision: "forward",
+          };
+    });
+    try {
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "hold-short",
+          context: harness.context,
+          operation: "send",
+          target: "@ada:12345678",
+          body: "original body",
+        },
+        harness.apiKey,
+      );
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "send-full-draft",
+          context: harness.context,
+          operation: "send",
+          target: fullTarget,
+          sendDraft: true,
+        },
+        harness.apiKey,
+      );
+      expect(sends[1]).toMatchObject({
+        target: fullTarget,
+        body: "original body",
+        holdToken: "opaque-token",
+      });
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
 
-    expect(first.messages.map(({ id }) => id)).toEqual(["message-5", "message-7"]);
-    expect(second.messages).toEqual([]);
-    expect(reads).toBe(1);
-    await runtime.stop();
+  test("an empty read clears only attention that existed when the read started", async () => {
+    let releaseRead!: () => void;
+    const readGate = new Promise<void>((resolve) => (releaseRead = resolve));
+    let markReadEntered!: () => void;
+    const readEntered = new Promise<void>((resolve) => (markReadEntered = resolve));
+    const harness = await messageHarness(async (request) => {
+      if (request.operation === "read" && request.requestId === "held-read") {
+        markReadEntered();
+        await readGate;
+      }
+      return {
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messages:
+          request.requestId === "check-after-race" ? [messageRecord(9, "@ada", "@ada")] : [],
+      };
+    });
+    try {
+      await harness.deliver(7, "@ada");
+      const reading = harness.runtime.agentMessage(
+        harness.context,
+        { requestId: "held-read", context: harness.context, operation: "read", target: "@ada" },
+        harness.apiKey,
+      );
+      await readEntered;
+      await harness.deliver(9, "@ada");
+      releaseRead();
+      await reading;
+      const pending = await harness.runtime.agentMessage(
+        harness.context,
+        { requestId: "check-after-race", context: harness.context, operation: "check" },
+        harness.apiKey,
+      );
+      expect(pending.summaries).toEqual([
+        expect.objectContaining({ target: "@ada", latestSequence: 9 }),
+      ]);
+    } finally {
+      releaseRead();
+      await harness.runtime.stop();
+    }
+  });
+
+  test.each([
+    ["rejected", false, []],
+    ["wrong-target", true, [messageRecord(7, "@bea", "@bea")]],
+  ])("a %s read result does not clear target attention", async (_case, accepted, messages) => {
+    const harness = await messageHarness(async (request) => ({
+      protocolMajor: 1,
+      requestId: request.requestId,
+      accepted,
+      attentionCount: 1,
+      messages:
+        request.requestId === "check-preserved" ? [messageRecord(7, "@ada", "@ada")] : messages,
+    }));
+    try {
+      await harness.deliver(7, "@ada");
+      await harness.runtime.agentMessage(
+        harness.context,
+        { requestId: "read-result", context: harness.context, operation: "read", target: "@ada" },
+        harness.apiKey,
+      );
+      const pending = await harness.runtime.agentMessage(
+        harness.context,
+        { requestId: "check-preserved", context: harness.context, operation: "check" },
+        harness.apiKey,
+      );
+      expect(pending.summaries).toEqual([expect.objectContaining({ target: "@ada" })]);
+    } finally {
+      await harness.runtime.stop();
+    }
   });
 
   test("message check returns every user message in the canonical page despite later attention", async () => {
@@ -1371,6 +1672,27 @@ describe("DaemonRuntime", () => {
     await runtime.start(connection);
     expect(starts).toBe(1);
     await runtime.stop();
+  });
+
+  test("does not ACK rejected notification and accepts redelivery in the same session", async () => {
+    let attempts = 0;
+    const harness = await queueHarness({
+      notify: () => {
+        attempts++;
+        if (attempts === 1) throw new Error("code agent request failed");
+      },
+    });
+    try {
+      await harness.runtime.startAgent("agent-a", config);
+      await expect(harness.delivery(1)).rejects.toThrow("code agent request failed");
+      expect(harness.acknowledgements).toEqual([]);
+      await harness.delivery(1);
+      expect(attempts).toBe(2);
+      expect(harness.acknowledgements).toEqual(["delivery-1"]);
+      expect(harness.sessions()).toBe(1);
+    } finally {
+      await harness.runtime.stop();
+    }
   });
 
   test("shares a concurrent Agent launch and mints one credential", async () => {

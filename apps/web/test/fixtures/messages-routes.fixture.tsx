@@ -87,6 +87,7 @@ mock.module("@/features/agents/agents.functions", () => ({
 }));
 mock.module("@/features/conversations/conversations.functions", () => ({
   loadDirectConversation,
+  markDirectThreadRead: mock(async () => {}),
   sendDirectConversationMessage: mock(async () => {}),
 }));
 mock.module("@/features/settings/settings.functions", () => ({

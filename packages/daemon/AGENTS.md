@@ -48,6 +48,10 @@ not mutate the installation or supply missing files for older installers.
 
 ### Layer rules
 
+- `daemon-runtime/agent-message-attention-index.ts` owns full-target thread
+  attention and model-visible positions. `runtime.ts` routes those targets to
+  the existing Agent session; threads never create sessions or processes.
+
 - `main.ts` only assembles dependencies and starts the daemon. It does not
   contain Workspace, Agent, or protocol business logic.
 - `daemon-host/` owns login-session startup behavior (launchd, systemd user,

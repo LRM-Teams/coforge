@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { LocalAgentMessageRequest, LocalInboxRequest } from "@coforge/protocol";
 import { isAgentApiKey } from "./credentials/agent-api-key";
+import { AgentMessageRequestError } from "./connection/agent-message-request-error";
 
 export type AgentProxy = {
   url: string;
@@ -94,7 +95,17 @@ export function startAgentProxy(input: {
           payload.requestId.length === 0 ||
           !["check", "read", "send"].includes(payload.operation as string) ||
           (payload.continueAnyway !== undefined && typeof payload.continueAnyway !== "boolean") ||
-          (payload.sendDraft !== undefined && typeof payload.sendDraft !== "boolean")
+          (payload.sendDraft !== undefined && typeof payload.sendDraft !== "boolean") ||
+          [payload.before, payload.after, payload.around].some(
+            (anchor) => anchor !== undefined && (typeof anchor !== "string" || anchor.length === 0),
+          ) ||
+          [payload.before, payload.after, payload.around].filter((anchor) => anchor !== undefined)
+            .length > 1 ||
+          (payload.limit !== undefined &&
+            (typeof payload.limit !== "number" ||
+              !Number.isInteger(payload.limit) ||
+              payload.limit < 1 ||
+              payload.limit > 100))
         )
           return new Response("bad request", { status: 400 });
         const result = await input.runtime.agentMessage(
@@ -106,6 +117,10 @@ export function startAgentProxy(input: {
             body: typeof payload.body === "string" ? payload.body : undefined,
             continueAnyway: payload.continueAnyway === true || undefined,
             sendDraft: payload.sendDraft === true || undefined,
+            before: typeof payload.before === "string" ? payload.before : undefined,
+            after: typeof payload.after === "string" ? payload.after : undefined,
+            around: typeof payload.around === "string" ? payload.around : undefined,
+            limit: typeof payload.limit === "number" ? payload.limit : undefined,
             // Identity is exclusively the token binding. Never accept caller
             // supplied agentId/context fields as authorization input.
             context: binding.context,
@@ -118,6 +133,8 @@ export function startAgentProxy(input: {
       } catch (error) {
         // Deliberately do not expose runtime/transport exception text.
         if (error instanceof SyntaxError) return new Response("bad request", { status: 400 });
+        if (error instanceof AgentMessageRequestError)
+          return new Response(error.message, { status: 400 });
         return new Response("proxy request failed", { status: 502 });
       }
     },

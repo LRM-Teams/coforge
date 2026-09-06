@@ -1,4 +1,7 @@
-import { decodeAgentMessageResponse } from "@coforge/protocol";
+import { AGENT_MESSAGE_VALIDATION_MESSAGES, decodeAgentMessageResponse } from "@coforge/protocol";
+
+const SAFE_AGENT_PROXY_VALIDATION_ERRORS = new Set<string>(AGENT_MESSAGE_VALIDATION_MESSAGES);
+
 export function connectLocal(
   _socketPath: string,
   context: string,
@@ -33,7 +36,11 @@ export function connectLocal(
     } catch {
       throw new Error("agent proxy request failed (network or timeout)");
     }
-    if (!response.ok) throw new Error(`agent proxy request failed (${response.status})`);
+    if (!response.ok) {
+      const detail = response.status === 400 ? await response.text() : undefined;
+      if (detail && SAFE_AGENT_PROXY_VALIDATION_ERRORS.has(detail)) throw new Error(detail);
+      throw new Error(`agent proxy request failed (${response.status})`);
+    }
     return (await response.json()) as ReturnType<typeof decodeAgentMessageResponse>;
   };
   return {

@@ -5,6 +5,7 @@ import { DirectConversation } from "@/features/conversations/direct-conversation
 import { useConversationAgentStatus } from "@/features/conversations/conversation-layout";
 import {
   loadDirectConversation,
+  markDirectThreadRead,
   sendDirectConversationMessage,
 } from "@/features/conversations/conversations.functions";
 
@@ -19,16 +20,20 @@ function DirectConversationPage() {
   const { agentId } = Route.useParams();
   const router = useRouter();
   const send = useServerFn(sendDirectConversationMessage);
+  const markRead = useServerFn(markDirectThreadRead);
 
   return (
     <DirectConversation
       key={conversation.agent.id}
       conversation={conversation}
       agentStatus={agentStatus}
-      onSend={async (body, requestId, attachmentId) => {
-        await send({ data: { agentId, requestId, body, attachmentId } });
+      onSend={async (body, requestId, attachmentId, threadRootId) => {
+        await send({ data: { agentId, requestId, body, attachmentId, threadRootId } });
         await router.invalidate({ sync: true });
       }}
+      onReadThread={(threadRootId, throughSequence) =>
+        markRead({ data: { agentId, threadRootId, throughSequence } })
+      }
       onRefresh={() => router.invalidate({ sync: true })}
     />
   );

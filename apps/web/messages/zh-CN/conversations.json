@@ -16,5 +16,13 @@
   "conversation_one_new_message": "1 条新消息",
   "conversation_new_messages": "{count} 条新消息",
   "conversation_attachment_label": "添加附件",
+  "conversation_thread": "讨论",
+  "conversation_thread_reply": "在讨论中回复",
+  "conversation_thread_one_reply": "1 条回复",
+  "conversation_thread_replies": "{count} 条回复",
+  "conversation_thread_unread": "{count} 条未读",
+  "conversation_thread_back": "返回聊天",
+  "conversation_thread_root": "原始消息",
+  "conversation_thread_empty": "发送第一条回复以开始讨论。",
   "conversation_you": "我"
 }

@@ -1,10 +1,43 @@
 import { afterEach, expect, test } from "bun:test";
 import { startAgentProxy } from "../src/agent-proxy";
+import { AgentMessageRequestError } from "../src/connection/agent-message-request-error";
 
 const proxies: Array<{ close(): void }> = [];
 
 afterEach(() => {
   for (const proxy of proxies.splice(0)) proxy.close();
+});
+
+test("proxy returns safe Agent message failures and hides unknown failures", async () => {
+  for (const [failure, status, message] of [
+    [
+      AgentMessageRequestError.fromRpc(400, "ambiguous message prefix; use the full UUID"),
+      400,
+      "ambiguous message prefix; use the full UUID",
+    ],
+    [
+      AgentMessageRequestError.fromRpc(500, "database password leaked"),
+      502,
+      "proxy request failed",
+    ],
+  ] as const) {
+    const proxy = startAgentProxy({
+      runtime: {
+        agentMessage: async () => {
+          throw failure;
+        },
+      },
+    });
+    proxies.push(proxy);
+    const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+    const response = await fetch(proxy.url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ requestId: "request-1", operation: "read", target: "@ada" }),
+    });
+    expect(response.status).toBe(status);
+    expect(await response.text()).toBe(message);
+  }
 });
 
 test("one shared proxy maps opaque per-Agent tokens and fails closed", async () => {
@@ -98,6 +131,104 @@ test("Agent API key remains usable after an idle day without refresh", async () 
   expect(calls).toBe(2);
   proxy.revoke(token);
   expect((await request()).status).toBe(401);
+});
+
+test("proxy forwards validated range options with token-bound identity", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      issueAgentContext: () => "trusted-context",
+      agentMessage: async (_context, request) => {
+        calls.push(request);
+        return {};
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-1", `sk_agent_${"a".repeat(43)}`);
+
+  for (const options of [
+    { before: "before-id", limit: 1 },
+    { after: "after-id", limit: 100 },
+    { around: "around-id", limit: 25 },
+  ]) {
+    const response = await fetch(proxy.url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        requestId: `request-${calls.length}`,
+        operation: "read",
+        target: "@alice",
+        context: "caller-controlled",
+        ...options,
+      }),
+    });
+    expect(response.status).toBe(200);
+  }
+
+  expect(calls[0]).toMatchObject({
+    requestId: "request-0",
+    operation: "read",
+    target: "@alice",
+    before: "before-id",
+    limit: 1,
+    context: "trusted-context",
+  });
+  expect(calls[1]).toMatchObject({
+    requestId: "request-1",
+    operation: "read",
+    target: "@alice",
+    after: "after-id",
+    limit: 100,
+    context: "trusted-context",
+  });
+  expect(calls[2]).toMatchObject({
+    requestId: "request-2",
+    operation: "read",
+    target: "@alice",
+    around: "around-id",
+    limit: 25,
+    context: "trusted-context",
+  });
+});
+
+test("proxy rejects invalid range options before calling the runtime", async () => {
+  let calls = 0;
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => {
+        calls++;
+        return {};
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-1", `sk_agent_${"a".repeat(43)}`);
+  const invalidOptions = [
+    { before: "one", after: "two" },
+    { before: 42 },
+    { after: false },
+    { around: null },
+    { limit: 0 },
+    { limit: 101 },
+    { limit: 1.5 },
+    { limit: "10" },
+  ];
+
+  for (const options of invalidOptions) {
+    const response = await fetch(proxy.url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        requestId: crypto.randomUUID(),
+        operation: "read",
+        target: "@alice",
+        ...options,
+      }),
+    });
+    expect(response.status).toBe(400);
+  }
+  expect(calls).toBe(0);
 });
 
 test("proxy forwards an authorized attachment download without exposing the Agent API key", async () => {

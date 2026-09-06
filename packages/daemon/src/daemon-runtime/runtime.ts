@@ -51,6 +51,9 @@ import {
 import { getLogger } from "@logtape/logtape";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
+const FULL_THREAD_TARGET =
+  /^(@[^:]+):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+const SHORT_THREAD_TARGET = /^(@[^:]+):([0-9a-f]{8})$/;
 
 type AgentInputCompletion = {
   resolve: () => void;
@@ -927,13 +930,16 @@ export class DaemonRuntime {
     if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
     const agentId = [...this.#agentContexts.entries()].find(([, value]) => value === context)?.[0];
     if (!agentId) throw new Error("invalid agent local context");
+    if (!this.#transport.agentMessage) throw new Error("daemon connection is not connected");
+    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    const target = request.target
+      ? await this.#canonicalAgentMessageTarget(agentId, request.target, agentApiKey)
+      : undefined;
     if (request.operation === "check") {
       const startedAt = performance.now();
       const attention = this.#messageAttention
         .check(agentId)
-        .filter((item) => !request.target || item.target === request.target);
-      if (!this.#transport.agentMessage) throw new Error("daemon connection is not connected");
-      if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+        .filter((item) => !target || item.target === target);
       const messages: AgentMessageRecord[] = [];
       for (const item of attention) {
         let fromSequence: number | undefined;
@@ -955,12 +961,13 @@ export class DaemonRuntime {
           );
           if (!result.accepted) break;
           const page = result.messages.filter(
-            ({ sequence }) =>
+            ({ sequence, target }) =>
+              target === item.target &&
               (fromSequence === undefined || sequence >= fromSequence) &&
               sequence <= item.latestSequence,
           );
           if (!page.length) break;
-          messages.push(...page.filter(({ sender }) => sender === item.target));
+          messages.push(...page.filter(({ sender }) => sender === item.target.split(":")[0]));
           visibleSequence = Math.max(visibleSequence, ...page.map(({ sequence }) => sequence));
           fromSequence = visibleSequence + 1;
           if (!result.hasNewer) break;
@@ -993,19 +1000,16 @@ export class DaemonRuntime {
         messageId: "",
       };
     }
-    if (!this.#transport.agentMessage) throw new Error("daemon connection is not connected");
-    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
-    if (request.operation === "send" && request.target) {
+    if (request.operation === "send" && target) {
       const startedAt = performance.now();
       const inbox = this.#agentInbox(agentId);
-      const draft = request.sendDraft ? await inbox.draft(request.target) : undefined;
-      if (request.sendDraft && !draft)
-        throw new Error(`No held draft for target: ${request.target}`);
+      const draft = request.sendDraft ? await inbox.draft(target) : undefined;
+      if (request.sendDraft && !draft) throw new Error(`No held draft for target: ${target}`);
       const body = draft?.body ?? request.body;
       if (body === undefined) throw new Error("Agent message body is required");
-      if (!request.sendDraft) await inbox.save(request.target, body);
+      if (!request.sendDraft) await inbox.save(target, body);
       if (request.sendDraft && !draft?.holdToken)
-        throw new Error(`Held draft token is unavailable for target: ${request.target}`);
+        throw new Error(`Held draft token is unavailable for target: ${target}`);
       const result = await this.#transport.agentMessage(
         {
           protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
@@ -1013,23 +1017,23 @@ export class DaemonRuntime {
           agentId,
           workspaceId: this.#connection.workspaceId,
           operation: "send",
-          target: request.target,
+          target,
           body,
           holdToken: draft?.holdToken,
           continueAnyway: request.continueAnyway,
-          seenUpToSequence:
-            this.#messageAttention.modelSeenSequence(agentId, request.target) || undefined,
+          seenUpToSequence: this.#messageAttention.modelSeenSequence(agentId, target) || undefined,
         },
         agentApiKey,
       );
       if (result.sideEffectDecision === "hold" && result.holdToken)
-        await inbox.replace(request.target, body, result.holdToken);
-      else if (result.accepted) await inbox.clear(request.target);
-      if (result.messages.length > 0) {
+        await inbox.replace(target, body, result.holdToken);
+      else if (result.accepted) await inbox.clear(target);
+      const targetMessages = result.messages.filter((message) => message.target === target);
+      if (targetMessages.length > 0) {
         this.#messageAttention.recordModelSeen(
           agentId,
-          request.target,
-          Math.max(...result.messages.map(({ sequence }) => sequence)),
+          target,
+          Math.max(...targetMessages.map(({ sequence }) => sequence)),
         );
       }
       if (result.sideEffectDecision === "hold") {
@@ -1073,6 +1077,11 @@ export class DaemonRuntime {
         anywayAllowed: result.anywayAllowed,
       };
     }
+    const attentionUpperBound =
+      request.operation === "read" && target && !request.before && !request.after && !request.around
+        ? this.#messageAttention.check(agentId).find((item) => item.target === target)
+            ?.latestSequence
+        : undefined;
     const result = await this.#transport.agentMessage(
       {
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
@@ -1080,16 +1089,33 @@ export class DaemonRuntime {
         agentId,
         workspaceId: this.#connection.workspaceId,
         operation: request.operation,
-        target: request.target ?? "",
+        target: target ?? "",
         body: request.body,
+        before: request.before,
+        after: request.after,
+        around: request.around,
+        limit: request.limit,
       },
       agentApiKey,
     );
-    if (request.operation === "read" && result.accepted && request.target) {
-      const visibleSequence = Math.max(...result.messages.map(({ sequence }) => sequence), 0);
+    if (
+      request.operation === "read" &&
+      result.accepted &&
+      target &&
+      !request.before &&
+      !request.after &&
+      !request.around
+    ) {
+      const visibleSequence = Math.max(
+        ...result.messages
+          .filter((message) => message.target === target)
+          .map(({ sequence }) => sequence),
+        0,
+      );
       if (visibleSequence > 0)
-        this.#messageAttention.recordModelSeen(agentId, request.target, visibleSequence);
-      else this.#messageAttention.clear(agentId, request.target);
+        this.#messageAttention.recordModelSeen(agentId, target, visibleSequence);
+      else if (result.messages.length === 0 && attentionUpperBound !== undefined)
+        this.#messageAttention.clearThrough(agentId, target, attentionUpperBound);
     }
     return {
       requestId: request.requestId,
@@ -1098,7 +1124,44 @@ export class DaemonRuntime {
       messageId: result.messageId ?? "",
       messages: result.messages,
       summaries: [],
+      hasOlder: result.hasOlder,
+      hasNewer: result.hasNewer,
+      olderCursor: result.olderCursor,
+      newerCursor: result.newerCursor,
     };
+  }
+
+  async #canonicalAgentMessageTarget(
+    agentId: string,
+    target: string,
+    agentApiKey: string,
+  ): Promise<string> {
+    if (FULL_THREAD_TARGET.test(target) || !target.includes(":")) return target;
+    const match = SHORT_THREAD_TARGET.exec(target);
+    if (!match) return target;
+    const parent = match[1]!;
+    const result = await this.#transport.agentMessage!(
+      {
+        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+        requestId: crypto.randomUUID(),
+        agentId,
+        workspaceId: this.#connection.workspaceId,
+        operation: "read",
+        target: parent,
+        around: match[2],
+        limit: 1,
+      },
+      agentApiKey,
+    );
+    const root = result.messages[0];
+    if (
+      !result.accepted ||
+      result.messages.length !== 1 ||
+      root?.target !== parent ||
+      !FULL_THREAD_TARGET.test(`${parent}:${root.id}`)
+    )
+      throw new Error("thread target could not be resolved to one parent message");
+    return `${parent}:${root.id}`;
   }
 
   async mintAppItem(agentId: string, input: MintAppItem) {

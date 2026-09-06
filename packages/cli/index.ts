@@ -135,7 +135,7 @@ function formatMessageCheck(result: { messages: AgentMessageRecord[] }): string 
 }
 
 function formatMessage(message: AgentMessageRecord): string {
-  return `[target=${message.target} time=${message.createdAt}] ${message.sender}: ${message.body}`;
+  return `[target=${message.target} msg=${message.id.slice(0, 8)} time=${message.createdAt}] ${message.sender}: ${message.body}`;
 }
 
 function formatMessageRead(result: unknown): string {

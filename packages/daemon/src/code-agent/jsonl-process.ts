@@ -11,6 +11,12 @@ const logger = getLogger(["coforge", "daemon", "code-agent", "jsonl"]);
 
 type JsonRecord = Readonly<Record<string, unknown>>;
 
+export class JsonlRequestError extends Error {
+  constructor(readonly responseError: unknown) {
+    super("code agent request failed");
+  }
+}
+
 interface PendingRequest {
   resolve(value: JsonRecord): void;
   reject(error: Error): void;
@@ -169,7 +175,7 @@ export class JsonlProcess {
         outcome: record.success === false || record.error !== undefined ? "error" : "ok",
       });
       if (record.success === false || record.error !== undefined) {
-        pending.reject(new Error("code agent request failed"));
+        pending.reject(new JsonlRequestError(record.error));
       } else {
         pending.resolve(record);
       }
