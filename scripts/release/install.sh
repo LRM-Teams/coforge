@@ -87,8 +87,37 @@ esac
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/coforge-installer.XXXXXX")
 trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
 
+is_interactive=0
+if [ -t 2 ] && [ "${COFORGE_INSTALLER_NO_COLOR:-}" != "1" ]; then
+  is_interactive=1
+else
+  is_interactive=0
+fi
+
+if [ "$is_interactive" -eq 1 ]; then
+  bold='\033[1m'
+  muted='\033[2m'
+  accent='\033[36m'
+  success='\033[32m'
+  reset='\033[0m'
+else
+  bold=''; muted=''; accent=''; success=''; reset=''
+fi
+
+step() {
+  printf '%b\n' "${accent}==>${reset} ${bold}$1${reset}" >&2
+}
+
+done_step() {
+  printf '%b\n' "${success}   ✓${reset} $1" >&2
+}
+
 fetch() {
-  curl --fail --silent --show-error --location --proto "$curl_proto" --tlsv1.2 "$@"
+  if [ "$is_interactive" -eq 1 ] && [ "${COFORGE_INSTALLER_PROGRESS:-}" != "0" ]; then
+    curl --fail --progress-bar --show-error --location --proto "$curl_proto" --tlsv1.2 "$@"
+  else
+    curl --fail --silent --show-error --location --proto "$curl_proto" --tlsv1.2 "$@"
+  fi
 }
 
 # `latest` and the checksum sidecar (below) are both tiny, feed-controlled text objects with no
@@ -103,12 +132,17 @@ max_pointer_bytes=4096
 max_binary_bytes=536870912
 
 if [ "$version" = "latest" ]; then
+  step "Finding the latest CoForge version"
   latest_pointer=$(fetch --max-filesize "$max_pointer_bytes" "$feed_url/latest" | tr -d '[:space:]')
   is_valid_version "$latest_pointer" || {
     echo "install.sh: the latest pointer did not return a valid version" >&2
     exit 1
   }
   version=$latest_pointer
+fi
+
+if [ "$is_interactive" -eq 1 ]; then
+  printf '%b\n' "${muted}   CoForge Computer · $target · $version${reset}" >&2
 fi
 
 # Integrity for the binary comes from a sidecar checksum file, not a parsed manifest: POSIX sed
@@ -120,6 +154,7 @@ fi
 # packages/computer/src/updater.ts is a real TypeScript/JSON.parse consumer and keeps reading
 # manifest.json directly; that file is unaffected by this script.
 sidecar_path="$temporary_directory/coforge-computer.sha256"
+step "Preparing the download"
 fetch --max-filesize "$max_pointer_bytes" --output "$sidecar_path" "$feed_url/$version/$target/coforge-computer.sha256"
 expected_sha256=$(tr -d '[:space:]' < "$sidecar_path")
 case "$expected_sha256" in
@@ -132,9 +167,12 @@ fi
 
 computer_path="$temporary_directory/coforge-computer"
 compressed_path="$temporary_directory/coforge-computer.gz"
+step "Downloading CoForge Computer"
 fetch --max-filesize "$max_binary_bytes" --output "$compressed_path" "$feed_url/$version/$target/coforge-computer.gz"
+done_step "Download complete"
 # Limit the output both while expanding and after completion. POSIX ulimit -f is measured
 # in 512-byte blocks, so this matches max_binary_bytes without trusting gzip metadata.
+step "Unpacking and verifying"
 (ulimit -f 1048576; gzip -dc "$compressed_path" > "$computer_path") || {
   echo "install.sh: compressed binary could not be decompressed safely" >&2
   exit 1
@@ -155,10 +193,15 @@ fi
   echo "install.sh: downloaded binary failed its checksum check" >&2
   exit 1
 }
+done_step "Checksum verified"
 
 chmod 700 "$computer_path"
 # A plain (non-exec) invocation runs the binary as a child process, so the EXIT trap above still
 # fires once it returns and the temporary directory - including the ~138 MB binary - is removed.
 # `exec` would replace this shell with the child and skip the trap entirely, leaking that binary
 # into $TMPDIR on every single install.
+step "Installing CoForge"
 "$computer_path" install --version "$version"
+done_step "CoForge Computer $version installed"
+printf '%b\n' "" >&2
+printf '%b\n' "Next: ${accent}coforge-computer setup --workspace <slug>${reset}" >&2
