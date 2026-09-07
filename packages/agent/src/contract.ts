@@ -64,6 +64,14 @@ export type AgentRuntimeEvent =
   | { type: "completed"; status: "completed" | "interrupted" | "failed" };
 export interface AgentSession {
   sendMessage(message: string): Promise<void>;
+  /**
+   * Accept a notification in this session, including while work is in progress.
+   * Resolve at the adapter's delivery boundary, not after the whole run.
+   * Claude uses boundary-gated stdin write success; SDK/RPC adapters wait for
+   * native acceptance. Neither guarantees model processing or a reply.
+   * Reject failed delivery without ending an otherwise active run.
+   * Adapters own native steering/queued-input protocols; callers own retry/ACK.
+   */
   notify?(notice: string): Promise<void>;
   subscribe(listener: (event: AgentRuntimeEvent) => void): () => void;
   interrupt(): Promise<void>;
