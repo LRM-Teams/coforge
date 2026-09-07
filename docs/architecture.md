@@ -18,7 +18,7 @@ CoForge 让用户通过 Web 私聊或群聊多个 code agent，同时把 Agent �
 - 云端业务控制面、实时传输面与本地执行面边界清晰；
 - 先以最少服务跑通纵向链路，不提前引入 Kubernetes 或微服务拆分。
 
-首版是消息系统，不是命令或工作流平台。当前垂直切片只支持一个 Workspace 内 User↔Agent 的 DirectConversation、ConversationMember 和 Message；群聊暂不进入 MVP。run、stream event、generic job 和 workflow 暂不进入骨架核心。
+首版是消息系统，不是命令或工作流平台。当前垂直切片支持一个 Workspace 内 User↔Agent 的 DirectConversation，以及真人和 Agent 参与的公开频道。频道通知遵循成员 mute 设置与真人个人 mention 规则，Agent 发言不自动唤醒其他 Agent。run、stream event、generic job 和 workflow 暂不进入骨架核心。
 
 ## 2. 总体拓扑
 
@@ -413,10 +413,52 @@ runtime 生命周期和单条 WSS。Web 沿用 2 秒轮询；顶层消息提供�
 验证发送、授权、前缀冲突和 read/recovery/hold 隔离；只创建和清理该测试自己的数据。
 该 `.integration.ts` 文件通过专用命令运行，不属于无数据库的普通 Bun 测试发现范围。
 
+### 6.4 Workspace 公开频道
+
+公开仅指同一 Workspace：现有真人成员可以发现频道、读取完整历史及已发送的附件，
+Workspace 外部用户无权访问。任意现有真人成员可创建频道；创建者自动加入，
+其他成员主动加入后才能发送消息或上传附件。不新增 Workspace 邀请、角色或私有频道。
+每个 Workspace 有一个保留名称 `#general`，所有真人成员与 Agent 自动加入；迁移回填旧数据，
+Workspace 创建事务写入默认频道，Agent 创建事务同步加入，频道发现和打开时补齐现有成员。
+
+频道复用 Conversation、ConversationMember、Message 和 Attachment。Conversation 的
+`directKey` 与 `channelName` 恰有一个非空；频道名称在 Workspace 内唯一，限制为
+1–32 位小写字母、数字、下划线或连字符，首位为字母或数字。消息持久化使用
+conversation 行锁分配单调 sequence，沿用 Redis 请求幂等机制；senderMemberId
+标识发送者，不能因同为真人就将他人的消息显示成自己的消息。
+
+Web 复用聊天气泡、输入框和附件，增加频道列表、创建与加入入口；未加入时只读。
+沿用轮询和 canonical Message 历史恢复，当前返回完整历史，不新增真人持久化未读游标。
+Agent 通过已有独立 HTTPS RPC 使用 CLI `#channel` target 读写已加入的频道，
+仍复用单 Agent runtime session，不创建频道 session。当前不新增非默认频道的 Agent 加入入口。
+频道暂不提供 Thread、follow/unfollow；已有私聊 Thread 路由不变。
+
+ConversationMember 的 `channelMuted` 默认 false；Agent 使用自身凭证执行
+`coforge channel mute|unmute --target '#general'`。已加入且未 mute 的 Agent 可以接收
+普通真人消息通知；mute 后仅真人明确 `@agent-name` 穿透。Agent 发言及互相 mention
+均不自动唤醒，避免回复循环。mute 不等于 leave，不撤销主动读取历史或发送权限。
+
+mute 变更与消息创建使用同一 conversation 行锁串行化，仅影响之后创建消息的通知资格。
+消息事务按当时的成员偏好和 mention 写入 AgentMessageDelivery，重试沿用既有 delivery 身份，
+不按新的 mute 状态重算接收者。unmute 不补发静音期间的普通消息；此前合法产生的通知
+保留恢复资格。Agent check 与恢复只选择具有该 Agent delivery 的消息；显式 read 仍可读取
+已加入频道的历史。恢复沿用 canonical Message/read 边界，不建立新 inbox 或完整执行账本。
+频道 live notice 与启动恢复不把正文或历史注入模型，Agent 自主 check/read；不将普通频道
+消息解释为必须回复。共享 session 的保密提示属于行为约束，并不提供严格的跨受众上下文隔离。
+
+这些默认与时间规则是用户确认的 CoForge 决策。Raft 官方默认频道名为
+[#all](https://docs.raft.build/features/messaging/channels/)，不是 #general；官方
+[mute 上线说明](https://raft.build/resources/blog/how-a-feature-ships-for-raft-on-raft/)
+支持实际投递控制与 mention 例外，但不据此推断其服务端补投实现。
+
+`mise run test:channel` 使用显式本地 PostgreSQL/Redis 连接验证公开范围、默认加入、
+主动加入发送、附件权限、稳定发送者、并发消息顺序及 Agent mute/mention/恢复资格；
+不属于普通无数据库测试发现范围。
+
 ## 7. 端到端链路
 
 ```text
-用户 User↔Agent 私聊消息（群聊暂不支持）
+用户 User↔Agent 私聊消息，以及符合通知资格的真人频道消息
 → Web/backend：鉴权、会话成员校验、canonical message 持久化、路由
 → standalone Centrifugo：唯一 `agent` channel 上的 `agent:message` publication
 → 目标 daemon：通过 payload 的 `agent_id` 查找本地 runtime，并校验 Workspace/conversation scope

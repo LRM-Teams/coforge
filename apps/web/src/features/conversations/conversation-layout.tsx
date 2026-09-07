@@ -1,11 +1,12 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { MessagesSquare } from "lucide-react";
+import { Hash, MessagesSquare, Plus } from "lucide-react";
 
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import type { AgentStatusView } from "@/features/agents/agent-status-realtime";
+import { CreateChannelDialog } from "./create-channel-dialog";
 
 export type ConversationAgent = {
   id: string;
@@ -31,14 +32,21 @@ const ConversationAgentStatusContext = createContext<"active" | "inactive" | und
 export function ConversationLayout({
   agents,
   selectedAgentId,
+  channels = [],
+  selectedChannelId,
+  onCreateChannel,
   children,
 }: {
   agents: ConversationAgent[];
   selectedAgentId?: string;
+  channels?: { id: string; name: string; joined: boolean }[];
+  selectedChannelId?: string;
+  onCreateChannel?: (name: string) => Promise<void>;
   children: ReactNode;
 }) {
-  const [showMobileAgents, setShowMobileAgents] = useState(!selectedAgentId);
-  const listHidden = Boolean(selectedAgentId) && !showMobileAgents;
+  const [showMobileAgents, setShowMobileAgents] = useState(!selectedAgentId && !selectedChannelId);
+  const [createOpen, setCreateOpen] = useState(false);
+  const listHidden = Boolean(selectedAgentId || selectedChannelId) && !showMobileAgents;
   const selectedAgentStatus = agents.find((agent) => agent.id === selectedAgentId)?.status.value;
 
   return (
@@ -54,40 +62,82 @@ export function ConversationLayout({
           <h1 className="text-base font-medium">{m.messages_title()}</h1>
         </div>
 
-        <ul className="flex-1 overflow-y-auto p-2">
-          {agents.map((agent) => {
-            const selected = agent.id === selectedAgentId;
-            return (
-              <li key={agent.id}>
+        <div className="flex-1 overflow-y-auto p-2">
+          <div className="mb-1 flex h-9 items-center justify-between px-2.5">
+            <h2 className="text-xs font-medium text-muted-foreground">{m.channels_title()}</h2>
+            {onCreateChannel && (
+              <button
+                type="button"
+                aria-label={m.channel_create()}
+                onClick={() => setCreateOpen(true)}
+                className="rounded-md p-1 hover:bg-muted"
+              >
+                <Plus aria-hidden="true" className="size-4" />
+              </button>
+            )}
+          </div>
+          <ul aria-label={m.channels_title()} className="mb-4">
+            {channels.map((channel) => (
+              <li key={channel.id}>
                 <Link
-                  to="/messages/$agentId"
-                  params={{ agentId: agent.id }}
-                  aria-current={selected ? "page" : undefined}
+                  to="/messages/channels/$channelId"
+                  params={{ channelId: channel.id }}
+                  aria-current={channel.id === selectedChannelId ? "page" : undefined}
                   onClick={() => setShowMobileAgents(false)}
                   className={cn(
-                    "flex min-w-0 items-center gap-3 rounded-lg px-2.5 py-2.5 hover:bg-muted",
-                    selected && "bg-muted",
+                    "flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-2.5 text-sm hover:bg-muted",
+                    channel.id === selectedChannelId && "bg-muted",
                   )}
                 >
-                  <Avatar
-                    people={[{ name: agent.displayName }]}
-                    size="lg"
-                    online={agent.status.value === "active"}
-                    statusLabel={
-                      agent.status.value === "active"
-                        ? m.agent_status_online()
-                        : m.agent_status_offline()
-                    }
-                  />
-                  <span className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="truncate text-xs font-medium">{agent.displayName}</span>
-                    <span className="truncate text-xs text-muted-foreground">@{agent.name}</span>
-                  </span>
+                  <Hash aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{channel.name}</span>
+                  {channel.joined && (
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      {m.channel_joined()}
+                    </span>
+                  )}
                 </Link>
               </li>
-            );
-          })}
-        </ul>
+            ))}
+          </ul>
+          <h2 className="px-2.5 py-2 text-xs font-medium text-muted-foreground">
+            {m.messages_agents_action()}
+          </h2>
+          <ul>
+            {agents.map((agent) => {
+              const selected = agent.id === selectedAgentId;
+              return (
+                <li key={agent.id}>
+                  <Link
+                    to="/messages/$agentId"
+                    params={{ agentId: agent.id }}
+                    aria-current={selected ? "page" : undefined}
+                    onClick={() => setShowMobileAgents(false)}
+                    className={cn(
+                      "flex min-w-0 items-center gap-3 rounded-lg px-2.5 py-2.5 hover:bg-muted",
+                      selected && "bg-muted",
+                    )}
+                  >
+                    <Avatar
+                      people={[{ name: agent.displayName }]}
+                      size="lg"
+                      online={agent.status.value === "active"}
+                      statusLabel={
+                        agent.status.value === "active"
+                          ? m.agent_status_online()
+                          : m.agent_status_offline()
+                      }
+                    />
+                    <span className="flex min-w-0 flex-1 flex-col gap-1">
+                      <span className="truncate text-xs font-medium">{agent.displayName}</span>
+                      <span className="truncate text-xs text-muted-foreground">@{agent.name}</span>
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       </nav>
 
       <section
@@ -102,6 +152,16 @@ export function ConversationLayout({
           </ConversationAgentStatusContext>
         </BackToAgentsContext>
       </section>
+      {onCreateChannel && (
+        <CreateChannelDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          onCreate={async (name) => {
+            await onCreateChannel(name);
+            setShowMobileAgents(false);
+          }}
+        />
+      )}
     </main>
   );
 }
@@ -123,7 +183,7 @@ export function BackToAgents() {
     <button
       type="button"
       onClick={back}
-      aria-label={m.messages_agents_action()}
+      aria-label={m.messages_title()}
       className="-ml-1 flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-muted md:hidden"
     >
       <MessagesSquare aria-hidden="true" className="size-4" />

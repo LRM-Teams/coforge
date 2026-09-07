@@ -18,6 +18,7 @@ export type AttachmentInvocation = {
   output: string;
 };
 export type InboxInvocation = { command: "inbox-check" };
+export type ChannelInvocation = { command: "mute" | "unmute"; target: string };
 
 export type MessageTransport = {
   check(): Promise<{ messages: AgentMessageRecord[] }>;
@@ -32,11 +33,20 @@ export type MessageTransport = {
   ): Promise<unknown>;
   view(attachmentId: string): Promise<{ bytes: Uint8Array; fileName?: string }>;
   inboxCheck?(): Promise<unknown>;
+  setChannelMuted?(target: string, muted: boolean): Promise<unknown>;
 };
 
 export function parseArgs(
   args: readonly string[],
-): MessageInvocation | AttachmentInvocation | InboxInvocation {
+): MessageInvocation | AttachmentInvocation | InboxInvocation | ChannelInvocation {
+  if (
+    args[0] === "channel" &&
+    (args[1] === "mute" || args[1] === "unmute") &&
+    args[2] === "--target" &&
+    args.length === 4 &&
+    /^#[a-z0-9][a-z0-9_-]{0,31}$/.test(args[3] ?? "")
+  )
+    return { command: args[1], target: args[3]! };
   if (args[0] === "inbox" && args[1] === "check" && args.length === 2)
     return { command: "inbox-check" };
   if (args[0] === "attachment" && args[1] === "view") {
@@ -95,12 +105,16 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge inbox check | coforge message check | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] | coforge attachment view <id> --output <path>",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge inbox check | coforge message check | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] | coforge attachment view <id> --output <path>",
   );
 }
 
 export async function run(args: readonly string[], transport: MessageTransport): Promise<unknown> {
   const invocation = parseArgs(args);
+  if (invocation.command === "mute" || invocation.command === "unmute") {
+    if (!transport.setChannelMuted) throw new Error("Channel settings transport is unavailable");
+    return transport.setChannelMuted(invocation.target, invocation.command === "mute");
+  }
   if (invocation.command === "inbox-check") {
     if (!transport.inboxCheck) throw new Error("App Inbox transport is unavailable");
     return formatInboxCheck(await transport.inboxCheck());

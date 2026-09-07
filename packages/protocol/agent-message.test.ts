@@ -16,6 +16,30 @@ import {
   encodeLocalAgentMessageRequest,
 } from "./index";
 
+test.each(["mute", "unmute"] as const)(
+  "round-trips Agent channel %s over existing versioned envelopes",
+  (operation) => {
+    const request = {
+      protocolMajor: 1,
+      requestId: "request-mute",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation,
+      target: "#general",
+    };
+    expect(decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toMatchObject(request);
+    const local = {
+      requestId: "request-mute",
+      context: "context-a",
+      operation,
+      target: "#general",
+    };
+    expect(decodeLocalAgentMessageRequest(encodeLocalAgentMessageRequest(local))).toMatchObject(
+      local,
+    );
+  },
+);
+
 test("round-trips an Agent direct message delivery", () => {
   const delivery = {
     protocolMajor: 1,

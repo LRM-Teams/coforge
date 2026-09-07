@@ -5,7 +5,7 @@ export type PersistedDirectMessage = {
   sequence: number;
   deliveryId?: string;
   workspaceId: string;
-  agentId: string;
+  agentId?: string;
   target?: string;
   latestSender?: string;
 };

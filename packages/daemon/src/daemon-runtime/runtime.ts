@@ -26,6 +26,7 @@ import type {
 } from "../connection/daemon-connection";
 import {
   WORKSPACE_PROTOCOL_MAJOR,
+  isChannelMessageTarget,
   type AgentActivity,
   type AgentMessageRecord,
   type AgentMessageResponse,
@@ -967,7 +968,12 @@ export class DaemonRuntime {
               sequence <= item.latestSequence,
           );
           if (!page.length) break;
-          messages.push(...page.filter(({ sender }) => sender === item.target.split(":")[0]));
+          messages.push(
+            ...page.filter(
+              ({ sender }) =>
+                isChannelMessageTarget(item.target) || sender === item.target.split(":")[0],
+            ),
+          );
           visibleSequence = Math.max(visibleSequence, ...page.map(({ sequence }) => sequence));
           fromSequence = visibleSequence + 1;
           if (!result.hasNewer) break;

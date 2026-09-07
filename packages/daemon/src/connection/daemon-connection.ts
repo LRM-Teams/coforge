@@ -31,6 +31,8 @@ import {
   decodeCloudAgentMessageResponse,
   AGENT_MESSAGE_READ_METHOD,
   AGENT_MESSAGE_SEND_METHOD,
+  AGENT_CHANNEL_MUTE_METHOD,
+  AGENT_CHANNEL_UNMUTE_METHOD,
 } from "@coforge/protocol";
 import { isAgentApiKey } from "../credentials/agent-api-key";
 import type { AgentRuntimeProviderConfig } from "../code-agent/contract";
@@ -159,8 +161,12 @@ export const defaultAgentMessageHttpClient: AgentMessageHttpClient = {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        method:
-          request.operation === "read" ? AGENT_MESSAGE_READ_METHOD : AGENT_MESSAGE_SEND_METHOD,
+        method: {
+          read: AGENT_MESSAGE_READ_METHOD,
+          send: AGENT_MESSAGE_SEND_METHOD,
+          mute: AGENT_CHANNEL_MUTE_METHOD,
+          unmute: AGENT_CHANNEL_UNMUTE_METHOD,
+        }[request.operation],
         b64data: btoa(String.fromCharCode(...encodeAgentMessageRequest(request))),
       }),
     });

@@ -221,7 +221,8 @@ model WorkspaceComputer {
 model Conversation {
   id          String                 @id @default(uuid()) @db.Uuid
   workspaceId String                 @db.Uuid
-  directKey   String
+  directKey   String?
+  channelName String?
   createdAt   DateTime               @default(now())
   workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   members     ConversationMember[]
@@ -230,6 +231,7 @@ model Conversation {
   attachments Attachment[]
 
   @@unique([workspaceId, directKey])
+  @@unique([workspaceId, channelName])
   @@unique([id, workspaceId])
   @@index([workspaceId])
   @@map("conversations")
@@ -242,6 +244,7 @@ model ConversationMember {
   userId         String?      @db.Uuid
   agentId        String?      @db.Uuid
   agentReadThroughSequence Int @default(0)
+  channelMuted Boolean @default(false)
   conversation   Conversation @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user           User?        @relation(fields: [userId], references: [id], onDelete: Cascade)

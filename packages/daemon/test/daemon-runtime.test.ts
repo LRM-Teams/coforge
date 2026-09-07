@@ -214,6 +214,47 @@ const recovery = {
   unreadSummary: { "@ada": 1 },
 };
 
+test("channel check includes different human senders and mute uses the bound Agent without replacing its session", async () => {
+  const calls: AgentMessageRequest[] = [];
+  const harness = await messageHarness(async (request) => {
+    calls.push(request);
+    return {
+      protocolMajor: 1,
+      requestId: request.requestId,
+      accepted: true,
+      attentionCount: 0,
+      messages:
+        request.operation === "read"
+          ? [messageRecord(1, "@alice", "#general"), messageRecord(3, "@bob", "#general")]
+          : [],
+    };
+  });
+  try {
+    await harness.deliver(1, "#general");
+    await harness.deliver(3, "#general");
+    const checked = await harness.runtime.agentMessage(
+      harness.context,
+      { requestId: "channel-check", context: harness.context, operation: "check" },
+      harness.apiKey,
+    );
+    expect(checked.messages.map((m) => m.sender)).toEqual(["@alice", "@bob"]);
+    for (const operation of ["mute", "unmute"] as const)
+      await harness.runtime.agentMessage(
+        harness.context,
+        { requestId: operation, context: harness.context, operation, target: "#general" },
+        harness.apiKey,
+      );
+    expect(
+      calls.slice(-2).map(({ operation, target, agentId }) => [operation, target, agentId]),
+    ).toEqual([
+      ["mute", "#general", "agent-a"],
+      ["unmute", "#general", "agent-a"],
+    ]);
+  } finally {
+    await harness.runtime.stop();
+  }
+});
+
 describe("DaemonRuntime", () => {
   test("orders stop completion before replacement start lifecycle", async () => {
     let releaseDispose!: () => void;

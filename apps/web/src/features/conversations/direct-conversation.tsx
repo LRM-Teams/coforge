@@ -40,6 +40,7 @@ export type DirectConversationView = {
     sequence: number;
     threadRootId?: string;
     senderKind: "user" | "agent";
+    senderMemberId?: string;
     senderName: string;
     body: string;
     createdAt: Date | string;
@@ -62,6 +63,28 @@ type ConversationProps = {
 
 export function DirectConversation(props: ConversationProps) {
   const { conversation, onReadThread } = props;
+  const { agentStatus } = props;
+  const header = (
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-5">
+      <BackToAgents />
+      <Avatar
+        people={[{ name: conversation.agent.displayName }]}
+        size="sm"
+        online={agentStatus ? agentStatus === "active" : undefined}
+        statusLabel={
+          agentStatus
+            ? agentStatus === "active"
+              ? m.agent_status_online()
+              : m.agent_status_offline()
+            : undefined
+        }
+      />
+      <h1 className="truncate text-base font-medium">{conversation.agent.displayName}</h1>
+      <span className="hidden shrink-0 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground sm:block">
+        @{conversation.agent.name}
+      </span>
+    </header>
+  );
   const [selected, setSelected] = useState<string>();
   const [visited, setVisited] = useState<string[]>([]);
   const [readThrough, setReadThrough] = useState<Record<string, number>>({});
@@ -102,6 +125,7 @@ export function DirectConversation(props: ConversationProps) {
       <div className={cn("min-h-0 min-w-0 flex-1 flex-col", selected ? "hidden md:flex" : "flex")}>
         <ConversationPane
           {...props}
+          header={header}
           conversation={{ ...conversation, messages: mainMessages }}
           threadEntry={(message) => {
             const replies = conversation.messages.filter(
@@ -230,16 +254,22 @@ export function DirectConversation(props: ConversationProps) {
   );
 }
 
-function ConversationPane({
+export function ConversationPane({
   conversation,
-  agentStatus,
+  header,
+  readOnlyNotice,
+  emptyDescription,
   onSend,
   onRefresh,
   root,
   onClose,
   threadEntry,
   threadPreview,
-}: ConversationProps & {
+}: Omit<ConversationProps, "conversation" | "agentStatus"> & {
+  conversation: Omit<DirectConversationView, "agent">;
+  header?: React.ReactNode;
+  readOnlyNotice?: React.ReactNode;
+  emptyDescription?: string;
   root?: DirectConversationView["messages"][number];
   onClose?: () => void;
   threadEntry?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
@@ -260,6 +290,10 @@ function ConversationPane({
   const sendingRef = useRef(false);
   const retryRef = useRef<{ body: string; requestId: string } | undefined>(undefined);
   const lastSequence = conversation.messages.at(-1)?.sequence;
+  const isOwn = (message: DirectConversationView["messages"][number]) =>
+    message.senderMemberId !== undefined
+      ? message.senderMemberId === conversation.senderMemberId
+      : message.senderKind === "user";
 
   useLayoutEffect(() => {
     const firstRender = previousConversationIdRef.current === undefined;
@@ -271,7 +305,7 @@ function ConversationPane({
       previousLastSequence === undefined
         ? 0
         : conversation.messages.filter(
-            (message) => message.senderKind === "agent" && message.sequence > previousLastSequence,
+            (message) => !isOwn(message) && message.sequence > previousLastSequence,
           ).length;
     previousConversationIdRef.current = conversation.conversationId;
     previousLastSequenceRef.current = lastSequence;
@@ -331,7 +365,7 @@ function ConversationPane({
   async function submit(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
     const text = body.trim() || file?.name || "";
-    if (!text || sendingRef.current) return;
+    if (!text || sendingRef.current || readOnlyNotice) return;
     sendingRef.current = true;
     setSending(true);
     setError("");
@@ -387,25 +421,7 @@ function ConversationPane({
           <h2 className="text-base font-medium">{m.conversation_thread()}</h2>
         </header>
       ) : (
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-5">
-          <BackToAgents />
-          <Avatar
-            people={[{ name: conversation.agent.displayName }]}
-            size="sm"
-            online={agentStatus ? agentStatus === "active" : undefined}
-            statusLabel={
-              agentStatus
-                ? agentStatus === "active"
-                  ? m.agent_status_online()
-                  : m.agent_status_offline()
-                : undefined
-            }
-          />
-          <h1 className="truncate text-base font-medium">{conversation.agent.displayName}</h1>
-          <span className="hidden shrink-0 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground sm:block">
-            @{conversation.agent.name}
-          </span>
-        </header>
+        header
       )}
 
       <div className="relative min-h-0 flex-1">
@@ -426,7 +442,7 @@ function ConversationPane({
               >
                 <Quote aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className="shrink-0">
-                  {root.senderKind === "user" ? m.conversation_you() : root.senderName}
+                  {isOwn(root) ? m.conversation_you() : root.senderName}
                 </span>
                 <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground group-open:hidden">
                   {root.body}
@@ -453,13 +469,15 @@ function ConversationPane({
             <div className={cn("grid place-content-center text-center", root ? "py-10" : "h-full")}>
               <p className="font-medium">{m.conversation_empty_title()}</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                {root ? m.conversation_thread_empty() : m.conversation_empty_description()}
+                {root
+                  ? m.conversation_thread_empty()
+                  : (emptyDescription ?? m.conversation_empty_description())}
               </p>
             </div>
           ) : (
             <ol className="flex flex-col gap-6 pt-6">
               {conversation.messages.map((message, index) => {
-                const own = message.senderKind === "user";
+                const own = isOwn(message);
                 const day = dayLabel(message.createdAt);
                 const previous = conversation.messages[index - 1];
                 return (
@@ -545,72 +563,74 @@ function ConversationPane({
         )}
       </div>
 
-      <form
-        onSubmit={submit}
-        className="mx-5 mb-5 flex shrink-0 flex-col gap-1 rounded-2xl border bg-card px-3 py-2.5 focus-within:border-ring/40"
-      >
-        <label htmlFor={composerId} className="sr-only">
-          {m.conversation_message_label()}
-        </label>
-        <textarea
-          id={composerId}
-          rows={2}
-          value={body}
-          disabled={sending}
-          onChange={(event) => {
-            setBody(event.target.value);
-            if (retryRef.current && event.target.value.trim() !== retryRef.current.body)
-              retryRef.current = undefined;
-          }}
-          onKeyDown={keyDown}
-          placeholder={m.conversation_message_placeholder()}
-          className="w-full resize-none bg-transparent px-1 py-1 text-sm outline-none placeholder:text-muted-foreground"
-        />
-        {file && (
-          <p className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
-            <FileText aria-hidden="true" className="size-3.5" />
-            <span className="truncate">{file.name}</span>
-            <button
-              type="button"
-              onClick={() => setFile(undefined)}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              {m.controls_close()}
-            </button>
-          </p>
-        )}
-        {error && (
-          <p role="alert" className="px-1 text-sm text-destructive-text">
-            {error}
-          </p>
-        )}
-        <div className="flex items-center">
-          <label
-            className={cn(
-              "flex size-7 cursor-pointer items-center justify-center rounded-lg hover:bg-muted",
-              sending && "pointer-events-none opacity-50",
-            )}
-          >
-            <span className="sr-only">{m.conversation_attachment_label()}</span>
-            <Paperclip aria-hidden="true" className="size-4" />
-            <input
-              type="file"
-              disabled={sending}
-              onChange={(event) => setFile(event.target.files?.[0])}
-              className="sr-only"
-            />
+      {readOnlyNotice ?? (
+        <form
+          onSubmit={submit}
+          className="mx-5 mb-5 flex shrink-0 flex-col gap-1 rounded-2xl border bg-card px-3 py-2.5 focus-within:border-ring/40"
+        >
+          <label htmlFor={composerId} className="sr-only">
+            {m.conversation_message_label()}
           </label>
-          <Button
-            type="submit"
-            size="icon"
-            disabled={sending || (!body.trim() && !file)}
-            aria-label={sending ? m.conversation_sending() : m.conversation_send()}
-            className="ml-auto rounded-full bg-brand text-brand-foreground hover:bg-brand/85"
-          >
-            <ArrowUp aria-hidden="true" />
-          </Button>
-        </div>
-      </form>
+          <textarea
+            id={composerId}
+            rows={2}
+            value={body}
+            disabled={sending}
+            onChange={(event) => {
+              setBody(event.target.value);
+              if (retryRef.current && event.target.value.trim() !== retryRef.current.body)
+                retryRef.current = undefined;
+            }}
+            onKeyDown={keyDown}
+            placeholder={m.conversation_message_placeholder()}
+            className="w-full resize-none bg-transparent px-1 py-1 text-sm outline-none placeholder:text-muted-foreground"
+          />
+          {file && (
+            <p className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+              <FileText aria-hidden="true" className="size-3.5" />
+              <span className="truncate">{file.name}</span>
+              <button
+                type="button"
+                onClick={() => setFile(undefined)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                {m.controls_close()}
+              </button>
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="px-1 text-sm text-destructive-text">
+              {error}
+            </p>
+          )}
+          <div className="flex items-center">
+            <label
+              className={cn(
+                "flex size-7 cursor-pointer items-center justify-center rounded-lg hover:bg-muted",
+                sending && "pointer-events-none opacity-50",
+              )}
+            >
+              <span className="sr-only">{m.conversation_attachment_label()}</span>
+              <Paperclip aria-hidden="true" className="size-4" />
+              <input
+                type="file"
+                disabled={sending}
+                onChange={(event) => setFile(event.target.files?.[0])}
+                className="sr-only"
+              />
+            </label>
+            <Button
+              type="submit"
+              size="icon"
+              disabled={sending || (!body.trim() && !file)}
+              aria-label={sending ? m.conversation_sending() : m.conversation_send()}
+              className="ml-auto rounded-full bg-brand text-brand-foreground hover:bg-brand/85"
+            >
+              <ArrowUp aria-hidden="true" />
+            </Button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }

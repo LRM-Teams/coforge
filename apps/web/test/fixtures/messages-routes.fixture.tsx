@@ -90,6 +90,18 @@ mock.module("@/features/conversations/conversations.functions", () => ({
   markDirectThreadRead: mock(async () => {}),
   sendDirectConversationMessage: mock(async () => {}),
 }));
+mock.module("@/features/conversations/channels.functions", () => ({
+  listPublicChannels: mock(async () => [{ id: "channel-1", name: "general", joined: true }]),
+  loadPublicChannel: mock(async () => ({
+    conversationId: "channel-1",
+    name: "general",
+    senderMemberId: "member-1",
+    messages: [],
+  })),
+  createPublicChannel: mock(async () => ({ id: "channel-1" })),
+  joinPublicChannel: mock(async () => {}),
+  sendPublicChannelMessage: mock(async () => {}),
+}));
 mock.module("@/features/settings/settings.functions", () => ({
   getUserPreferences: mock(async () => ({ timeZone: null })),
   saveUserTimeZone: mock(async () => ({ timeZone: null })),
@@ -158,6 +170,14 @@ test("a direct URL renders the second Agent through the Outlet and highlights it
     "page",
   );
   expect(loadDirectConversation).toHaveBeenCalledWith({ data: { agentId: "agent-2" } });
+});
+
+test("channel URL uses the shared messages layout and selects the channel", async () => {
+  const { page } = await renderRoute("/messages/channels/channel-1");
+  expect(page.getByRole("heading", { name: "#general" })).toBeTruthy();
+  expect(page.getByRole("link", { name: /general/ }).getAttribute("aria-current")).toBe("page");
+  expect(page.getByRole("button", { name: "Create channel" })).toBeTruthy();
+  expect(page.getByRole("textbox", { name: "Message" })).toBeTruthy();
 });
 
 test("reuses parent application data across sidebar destinations", async () => {

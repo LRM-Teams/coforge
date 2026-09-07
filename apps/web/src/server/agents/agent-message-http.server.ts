@@ -1,4 +1,9 @@
-import { AGENT_MESSAGE_READ_METHOD, AGENT_MESSAGE_SEND_METHOD } from "@coforge/protocol";
+import {
+  AGENT_MESSAGE_READ_METHOD,
+  AGENT_MESSAGE_SEND_METHOD,
+  AGENT_CHANNEL_MUTE_METHOD,
+  AGENT_CHANNEL_UNMUTE_METHOD,
+} from "@coforge/protocol";
 
 import {
   authenticateAgentApiKey,
@@ -68,6 +73,18 @@ export function createAgentMessageHttpHandler() {
   const daemonApiKeys = new PrismaDaemonApiKeyRepository(db);
   return new CentrifugoRpcHandler({
     methods: {
+      [AGENT_CHANNEL_MUTE_METHOD]: createAgentMessageMethod(
+        conversations,
+        centrifugo,
+        "mute",
+        authorization,
+      ),
+      [AGENT_CHANNEL_UNMUTE_METHOD]: createAgentMessageMethod(
+        conversations,
+        centrifugo,
+        "unmute",
+        authorization,
+      ),
       [AGENT_MESSAGE_READ_METHOD]: createAgentMessageMethod(
         conversations,
         centrifugo,

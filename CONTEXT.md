@@ -41,14 +41,21 @@ _Avoid_: Agent process, provider runtime
 
 **DirectConversation**:
 A private conversation in one Workspace between exactly one internal User and
-one Agent. Group conversations are not part of the current MVP slice.
+one Agent.
+
+**PublicChannel**:
+A named conversation whose history is visible to every human member of its
+Workspace; joining enables sending. The default `#general` includes all humans
+and Agents automatically. Agent notification preferences do not change membership
+or access to history.
+_Avoid_: Public internet chat, Agent workspace
 
 **ConversationMember**:
 A conversation subject backed by either a User or an Agent, never both. Its
 workspace is the same as the conversation's workspace.
 
 **Message**:
-A durable text record in a DirectConversation, sent by one of its members.
+A durable text record in a DirectConversation or PublicChannel, sent by one of its members.
 
 **Thread**:
 A discussion anchored to one top-level Message in a DirectConversation. Its

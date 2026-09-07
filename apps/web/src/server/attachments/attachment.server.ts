@@ -32,7 +32,11 @@ export async function storeAttachment(
 ) {
   if (input.file.size > ATTACHMENT_MAX_BYTES) throw new AppError("INVALID_INPUT");
   const conversation = await db.conversation.findFirst({
-    where: { id: input.conversationId, members: { some: { userId: input.userId } } },
+    where: {
+      id: input.conversationId,
+      members: { some: { userId: input.userId } },
+      OR: [{ channelName: null }, { workspace: { members: { some: { userId: input.userId } } } }],
+    },
     select: { id: true, workspaceId: true },
   });
   if (!conversation) throw new AppError("ACCESS_DENIED");
@@ -80,8 +84,18 @@ export async function readAuthorizedAttachment(
   if (!attachment || !attachment.messageId) throw new AppError("NOT_FOUND");
   const allowed = input.userId
     ? Boolean(
-        await db.conversationMember.findFirst({
-          where: { conversationId: attachment.conversationId, userId: input.userId },
+        await db.conversation.findFirst({
+          where: {
+            id: attachment.conversationId,
+            OR: [
+              { channelName: null, members: { some: { userId: input.userId } } },
+              {
+                channelName: { not: null },
+                workspace: { members: { some: { userId: input.userId } } },
+              },
+            ],
+          },
+          select: { id: true },
         }),
       )
     : Boolean(

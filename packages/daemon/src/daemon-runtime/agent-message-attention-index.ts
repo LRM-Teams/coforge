@@ -4,6 +4,7 @@ import type {
   AgentRecoveryMessage,
 } from "@coforge/protocol";
 import { getLogger } from "@logtape/logtape";
+import { isChannelMessageTarget } from "@coforge/protocol";
 import type { AgentProcessManager } from "../agent-runtime/agent-process-manager";
 
 const logger = getLogger(["coforge", "daemon", "message-attention"]);
@@ -51,7 +52,8 @@ export class AgentMessageAttentionIndex {
       !message.agentId ||
       !message.messageId ||
       !message.body ||
-      !message.target?.startsWith("@") ||
+      !message.target ||
+      (!message.target.startsWith("@") && !isChannelMessageTarget(message.target)) ||
       message.target.length < 2 ||
       message.sequence < 1
     )
@@ -98,7 +100,7 @@ export class AgentMessageAttentionIndex {
       firstPendingSequence: previous?.firstPendingSequence ?? message.sequence,
       latestSequence: Math.max(previous?.latestSequence ?? 0, message.sequence),
       ...(latestSender ? { latestSender } : {}),
-      flags: [target.includes(":") ? "thread" : "dm"],
+      flags: [isChannelMessageTarget(target) ? "channel" : target.includes(":") ? "thread" : "dm"],
     };
     byTarget.set(target, current);
     this.#attention.set(message.agentId, byTarget);
@@ -130,7 +132,7 @@ export class AgentMessageAttentionIndex {
         !message.deliveryId ||
         !message.conversationId ||
         !message.body ||
-        !message.target.startsWith("@") ||
+        (!message.target.startsWith("@") && !isChannelMessageTarget(message.target)) ||
         message.sequence < 1
       )
         throw new Error("invalid Agent recovery message");
@@ -156,34 +158,51 @@ export class AgentMessageAttentionIndex {
         ),
         latestSequence: Math.max(previous?.latestSequence ?? 0, message.sequence),
         ...(message.latestSender ? { latestSender: message.latestSender } : {}),
-        flags: [message.target.includes(":") ? "thread" : "dm"],
+        flags: [
+          isChannelMessageTarget(message.target)
+            ? "channel"
+            : message.target.includes(":")
+              ? "thread"
+              : "dm",
+        ],
       });
     }
     const summaryOnly = Object.entries(unreadSummary).filter(
-      ([target, count]) => !suppliedTargets.has(target) && target.startsWith("@") && count > 0,
+      ([target, count]) =>
+        !suppliedTargets.has(target) &&
+        (target.startsWith("@") || isChannelMessageTarget(target)) &&
+        count > 0,
     );
     if (!recoveredTargets.size && !summaryOnly.length) return;
-    const lines = recoveredMessages.map(
-      (message) =>
-        `[target=${message.target} msg=${message.messageId.slice(0, 8)} seq=${message.sequence}] ${message.latestSender}: ${message.body}`,
-    );
+    const lines = recoveredMessages
+      .filter((message) => !isChannelMessageTarget(message.target))
+      .map(
+        (message) =>
+          `[target=${message.target} msg=${message.messageId.slice(0, 8)} seq=${message.sequence}] ${message.latestSender}: ${message.body}`,
+      );
     const instructions = Object.entries(unreadSummary)
       .filter(
         ([target, count]) =>
           recoveredTargets.has(target) &&
-          target.startsWith("@") &&
+          (target.startsWith("@") || isChannelMessageTarget(target)) &&
           count > (recoveredCountByTarget.get(target) ?? 0),
       )
       .map(
         ([target]) =>
-          `Run \`coforge message read --target ${target}\` to read additional messages.`,
+          `Run \`coforge message read --target ${isChannelMessageTarget(target) ? `"${target}"` : target}\` to read additional messages.`,
       );
     for (const [target, count] of summaryOnly)
       instructions.push(
-        `${target} has ${count} unread message${count === 1 ? "" : "s"}; run \`coforge message read --target ${target}\` to read them.`,
+        `${target} has ${count} unread message${count === 1 ? "" : "s"}; run \`coforge message read --target ${isChannelMessageTarget(target) ? `"${target}"` : target}\` to read them.`,
       );
-    const concrete = recoveredMessages.length
-      ? `${recoveredMessages.length === 1 ? "New message received:" : "New messages received:"}\n\n${lines.join("\n")}\n\nRespond as appropriate. Complete all your work before stopping.`
+    for (const [target, count] of recoveredCountByTarget) {
+      if (isChannelMessageTarget(target))
+        instructions.push(
+          `${target} has ${count} pending notification${count === 1 ? "" : "s"}. Run \`coforge message check\` to read pending messages. Use \`coforge channel mute --target "${target}"\` to stop future ordinary notifications; human @mentions still notify you.`,
+        );
+    }
+    const concrete = lines.length
+      ? `${lines.length === 1 ? "New message received:" : "New messages received:"}\n\n${lines.join("\n")}\n\nRespond as appropriate. Complete all your work before stopping.`
       : "New messages received:";
     await session.notify(
       `${concrete}${instructions.length ? `\n\n${instructions.join("\n")}` : ""}`,
@@ -194,7 +213,13 @@ export class AgentMessageAttentionIndex {
       generation.seenDeliveryIds.add(message.deliveryId);
       generation.seenMessageIds.add(message.messageId);
       generation.notified.add(message.deliveryId);
-      this.recordModelSeen(agentId, message.target, message.sequence);
+      if (isChannelMessageTarget(message.target)) {
+        const byTarget = this.#pendingSequences.get(agentId) ?? new Map<string, Set<number>>();
+        const pending = byTarget.get(message.target) ?? new Set<number>();
+        pending.add(message.sequence);
+        byTarget.set(message.target, pending);
+        this.#pendingSequences.set(agentId, byTarget);
+      } else this.recordModelSeen(agentId, message.target, message.sequence);
     }
   }
 
