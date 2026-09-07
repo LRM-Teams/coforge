@@ -9,6 +9,7 @@ import { saveUserProfile } from "@/features/profiles/profile.functions";
 import {
   browserNotificationPermission,
   ensureBrowserPushSubscription,
+  shouldShowAddToHomeScreenGuide,
 } from "@/features/notifications/browser-push";
 import {
   saveBrowserNotificationPreference,
@@ -40,6 +41,7 @@ function SettingsPage() {
   const [notificationPermission, setNotificationPermission] = useState<
     NotificationPermission | "unsupported"
   >("unsupported");
+  const [showAddToHomeScreenGuide, setShowAddToHomeScreenGuide] = useState(false);
   const saveTimeZone = useServerFn(saveUserTimeZone);
   const saveNotificationPreference = useServerFn(saveBrowserNotificationPreference);
   const subscribePush = useServerFn(subscribeBrowserPush);
@@ -66,6 +68,7 @@ function SettingsPage() {
   useEffect(() => {
     const refreshPermission = () => setNotificationPermission(browserNotificationPermission());
     refreshPermission();
+    setShowAddToHomeScreenGuide(shouldShowAddToHomeScreenGuide());
     window.addEventListener("focus", refreshPermission);
     return () => window.removeEventListener("focus", refreshPermission);
   }, []);
@@ -189,6 +192,7 @@ function SettingsPage() {
       browserNotificationsEnabled={browserNotificationsEnabled}
       browserNotificationPermission={notificationPermission}
       browserNotificationsConfigured={notifications.publicKey !== null}
+      showAddToHomeScreenGuide={showAddToHomeScreenGuide}
       onProfileSave={changeProfile}
       onAvatarUpload={uploadAvatar}
       onAvatarRemove={removeAvatar}

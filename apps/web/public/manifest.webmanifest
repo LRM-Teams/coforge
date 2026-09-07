@@ -1,0 +1,20 @@
+{
+  "name": "CoForge",
+  "short_name": "CoForge",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101319",
+  "theme_color": "#101319",
+  "icons": [
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
