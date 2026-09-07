@@ -200,6 +200,8 @@ describe("remote-deploy.sh compose invocation shape", () => {
       const secretsDir = join(root, "secrets");
       await mkdir(secretsDir, { mode: 0o700 });
       await writeFile(join(root, "docker-compose.yml"), "name: coforge-staging\n");
+      await mkdir(join(root, "centrifugo"));
+      await writeFile(join(root, "centrifugo/config.yaml"), "client:\n  allowed_origins: []\n");
       const files: Record<string, string> = {
         postgres_password: "pg-pass",
         redis_password: "redis-pass",
@@ -247,6 +249,7 @@ describe("remote-deploy.sh compose invocation shape", () => {
       const envFile = await readFile(join(root, ".env"), "utf8");
       expect(envFile).not.toContain("AUTHING_");
       expect(envFile).not.toContain("COFORGE_SESSION_SECRET");
+      expect(envFile).toContain("COFORGE_CENTRIFUGO_CONFIG_SHA256=");
       expect((await stat(envPath)).mode & 0o777).toBe(0o600);
     } finally {
       await rm(root, { recursive: true, force: true });

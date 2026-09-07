@@ -158,8 +158,9 @@ fi
 
 write_deploy_env() {
 	# Writes .env next to the compose file with chmod 600; never printed.
-	local web_image="$1" env_file env_file_tmp
+	local web_image="$1" env_file env_file_tmp centrifugo_config_sha256
 	env_file="$(cd "$(dirname "$compose_file")" && pwd)/.env"
+	centrifugo_config_sha256="$(sha256sum "$(dirname "$compose_file")/centrifugo/config.yaml" | awk '{print $1}')"
 	umask 077
 	env_file_tmp="$(mktemp "${env_file}.XXXXXX")"
 	{
@@ -169,6 +170,7 @@ write_deploy_env() {
 		printf 'COFORGE_CENTRIFUGO_API_URL=http://centrifugo:8000/api\n'
 		printf 'COFORGE_CENTRIFUGO_API_KEY=%s\n' "$(cat "$secrets_dir/centrifugo_http_api_key")"
 		printf 'COFORGE_CENTRIFUGO_PROXY_SECRET=%s\n' "$(cat "$secrets_dir/centrifugo_proxy_secret")"
+		printf 'COFORGE_CENTRIFUGO_CONFIG_SHA256=%s\n' "$centrifugo_config_sha256"
 		printf 'COFORGE_WORKER_JWT_KEY_ID=%s\n' "$(cat "$secrets_dir/worker_jwt_key_id")"
 		printf 'COFORGE_WORKER_JWT_PRIVATE_JWK=%s\n' "$(cat "$secrets_dir/worker_jwt_private_jwk")"
 	} >"$env_file_tmp"

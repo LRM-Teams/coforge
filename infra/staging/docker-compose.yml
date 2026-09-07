@@ -118,6 +118,11 @@ services:
 
   centrifugo:
     image: centrifugo/centrifugo:v6.9.2@sha256:cf06f711d81cae515a8789cac241595e038653fd7cf99270e0b4e14059183032
+    environment:
+      # Bind-mount contents are not part of Compose's service change detection.
+      # The deploy script refreshes this value from config.yaml so only a
+      # Centrifugo config change recreates this container.
+      COFORGE_CENTRIFUGO_CONFIG_SHA256: ${COFORGE_CENTRIFUGO_CONFIG_SHA256:?deploy script writes .env}
     command:
       - sh
       - -c
