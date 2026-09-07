@@ -49,11 +49,8 @@ export type CompileTargetOptions = {
 export type CompiledArtifacts = { computer: Uint8Array; daemon: Uint8Array };
 
 /** Cross-compiles both release binaries for one target.
- *
- * Compilation is slow (tens of seconds per target), so this is deliberately not exercised by a
- * test that actually invokes it - scripts/release/compile-targets.test.ts covers only the pure
- * target-name mapping above, and scripts/release/build-release.test.ts proves the *shape* real
- * consumers accept using small fake binaries instead of real compiles. */
+ * compile-targets.test.ts executes the host-target Computer to verify its release identity;
+ * build-release.test.ts covers manifest assembly using small fixture binaries. */
 export async function compileTargetArtifacts(
   options: CompileTargetOptions,
 ): Promise<CompiledArtifacts> {
@@ -75,7 +72,10 @@ export async function compileTargetArtifacts(
     // `define` cannot degrade that way: it always inlines the literal given here, so a release
     // build can never accidentally ship a binary that still trusts whatever feed URL happens to
     // be in its environment at update time.
-    define: { "process.env.COFORGE_RELEASE_FEED_URL": JSON.stringify(options.feedUrl) },
+    define: {
+      "process.env.COFORGE_RELEASE_FEED_URL": JSON.stringify(options.feedUrl),
+      "Bun.env.COFORGE_COMPUTER_VERSION": JSON.stringify(options.version),
+    },
   });
   const daemon = await compileOne({
     entrypoint: DAEMON_ENTRYPOINT,

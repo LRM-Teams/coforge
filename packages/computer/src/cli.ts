@@ -40,8 +40,9 @@ import { writeSetupResult } from "./cli/setup-output";
 import { createCommand as createClientCommand } from "./daemon-client";
 import { configureComputerLogger } from "./logging/computer-logger";
 import { followComputerLogs } from "./logging/computer-logs";
+import computerPackage from "../package.json";
 
-const VERSION = "0.1.0";
+const VERSION = Bun.env.COFORGE_COMPUTER_VERSION ?? computerPackage.version;
 const DEFAULT_SERVER_URL = "https://coforge.cn";
 
 export interface LoginCommand {
