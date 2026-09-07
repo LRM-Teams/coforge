@@ -3,9 +3,7 @@ export {};
 const decoder = new TextDecoder();
 let buffer = "";
 let ignoreAbort = false;
-const expectsCommunicationInstructions = process.argv.includes(
-  "expected-communication-instructions",
-);
+const expectsAgentInstructions = process.argv.includes("expected-agent-instructions");
 
 for await (const chunk of Bun.stdin.stream()) {
   buffer += decoder.decode(chunk, { stream: true });
@@ -28,12 +26,12 @@ function handle(command: {
   streamingBehavior?: string;
 }): void {
   if (command.type === "get_state") {
-    const instructions = process.env.COFORGE_AGENT_INSTRUCTIONS;
+    const promptFlag = process.argv.indexOf("--system-prompt");
+    const instructions = promptFlag < 0 ? undefined : process.argv[promptFlag + 1];
     const environmentIsRestricted =
       process.env.COFORGE_DECLARED_TEST_VALUE === "allowed" &&
       process.env.COFORGE_UNDECLARED_TEST_VALUE === undefined &&
-      (!expectsCommunicationInstructions ||
-        instructions?.startsWith("## CoForge communication") === true);
+      (!expectsAgentInstructions || instructions === "Test Agent instructions.");
     write({
       type: "response",
       id: command.id,

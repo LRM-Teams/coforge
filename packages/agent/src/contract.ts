@@ -50,6 +50,7 @@ export type AgentSessionOptions = Readonly<{
   agentId?: string;
   runtimeId?: string;
   agentWorkspaceDirectory: string;
+  instructions: string;
   sessionId?: string;
   runtime?: AgentRuntimeConfig;
   environment?: Readonly<Record<string, string>>;

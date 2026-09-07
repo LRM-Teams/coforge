@@ -1,6 +1,7 @@
 import { AgentStateMachine, type AgentStatus } from "./agent-state-machine";
 import type { AgentDriverFactory, AgentRuntimeConfig, AgentSession } from "@coforge/agent";
 import { AgentProcessCleanupError } from "../code-agent/contract";
+import { buildCoforgeAgentInstructions } from "../code-agent/agent-instructions";
 import { mkdir } from "node:fs/promises";
 
 export type { AgentStatus } from "./agent-state-machine";
@@ -57,6 +58,7 @@ export class AgentProcessManager {
         agentId,
         ...(runtimeId ? { runtimeId } : {}),
         agentWorkspaceDirectory,
+        instructions: buildCoforgeAgentInstructions(agentWorkspaceDirectory),
         sessionId,
         runtime: config,
         environment,
