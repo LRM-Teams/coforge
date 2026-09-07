@@ -69,6 +69,21 @@ const firstMessage: DirectConversationView["messages"][number] = {
   createdAt: "2026-08-29T10:00:00Z",
 };
 
+test("a message anchor scrolls the linked message into view", () => {
+  const scrollIntoView = mock(() => {});
+  const original = HTMLElement.prototype.scrollIntoView;
+  HTMLElement.prototype.scrollIntoView = scrollIntoView;
+  window.location.hash = "#message-one";
+  try {
+    renderConversation({ ...base, messages: [firstMessage] });
+    expect(document.querySelector("#message-one")?.textContent).toContain("Please check");
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" });
+  } finally {
+    window.location.hash = "";
+    HTMLElement.prototype.scrollIntoView = original;
+  }
+});
+
 test("thread replies stay out of main history and preserve separate drafts and main scroll", async () => {
   const user = userEvent.setup();
   const calls: unknown[][] = [];

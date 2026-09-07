@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import { notificationOpenResponse } from "../src/server/notifications/open-notification.server";
 
-const target = "/messages/channels/01991890-89ec-7000-8000-000000000001";
+const target =
+  "/messages/channels/01991890-89ec-7000-8000-000000000001#message-01991890-89ec-7000-8000-000000000002";
 
 describe("notificationOpenResponse", () => {
   test("selects an accessible workspace before opening the message", async () => {

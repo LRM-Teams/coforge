@@ -55,6 +55,8 @@ test("channel identifies the current human, not every human, as You", async () =
   expect(own.textContent).toContain("You");
   expect(other.textContent).toContain("@bob");
   expect(other.textContent).not.toContain("You");
+  expect(document.querySelector("#message-b")).toBe(other);
+  expect(other.className).toContain("target:ring-2");
   expect(page.queryByRole("button", { name: "Reply in thread" })).toBeNull();
   const user = userEvent.setup();
   await user.click(page.getByRole("button", { name: "Mute channel notifications" }));

@@ -141,11 +141,13 @@ test("existing Workspace humans automatically join one general channel; outsider
       (await pushSubscriptions.notificationForMessage(mutedOrdinary.id))?.subscriptions,
     ).toEqual([]);
     const mutedMention = await send(alice.id, `@${bob.username} please review this`);
-    expect(
-      (await pushSubscriptions.notificationForMessage(mutedMention.id))?.subscriptions,
-    ).toEqual([
+    const mentionNotification = await pushSubscriptions.notificationForMessage(mutedMention.id);
+    expect(mentionNotification?.subscriptions).toEqual([
       expect.objectContaining({ endpoint: `https://fcm.googleapis.com/wp/bob-${suffix}` }),
     ]);
+    expect(mentionNotification?.url).toBe(
+      `/notifications/open?workspace=${workspace.slug}&target=${encodeURIComponent(`/messages/channels/${engineering.id}#message-${mutedMention.id}`)}`,
+    );
     await channels.setUserMuted(workspace.id, bob.id, engineering.id, false);
     expect((await pushSubscriptions.notificationForMessage(saved.id))?.subscriptions).toEqual([
       expect.objectContaining({ endpoint: `https://fcm.googleapis.com/wp/bob-${suffix}` }),

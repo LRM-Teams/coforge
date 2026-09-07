@@ -62,7 +62,8 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
     const target = channelName
       ? `/messages/channels/${message.conversationId}`
       : `/messages/${agentId}`;
-    const url = `/notifications/open?workspace=${encodeURIComponent(message.conversation.workspace.slug)}&target=${encodeURIComponent(target)}`;
+    const anchoredTarget = `${target}#message-${message.id}`;
+    const url = `/notifications/open?workspace=${encodeURIComponent(message.conversation.workspace.slug)}&target=${encodeURIComponent(anchoredTarget)}`;
     return {
       title: channelName ? `#${channelName}` : sender,
       body: channelName ? `${sender}: ${preview}` : preview,

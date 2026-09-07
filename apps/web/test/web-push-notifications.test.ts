@@ -49,7 +49,7 @@ describe("WebPushNotifications", () => {
       message: {
         title: "#general",
         body: "@helper: Build finished",
-        url: "/messages/channels/channel-a",
+        url: "/messages/channels/channel-a#message-message-a",
         subscriptions: [first, second],
       },
     });
@@ -70,7 +70,7 @@ describe("WebPushNotifications", () => {
         payload: {
           title: "#general",
           body: "@helper: Build finished",
-          url: "/messages/channels/channel-a",
+          url: "/messages/channels/channel-a#message-message-a",
           tag: "message:message-a",
         },
       },
@@ -79,7 +79,7 @@ describe("WebPushNotifications", () => {
         payload: {
           title: "#general",
           body: "@helper: Build finished",
-          url: "/messages/channels/channel-a",
+          url: "/messages/channels/channel-a#message-message-a",
           tag: "message:message-a",
         },
       },
