@@ -381,14 +381,22 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
     );
     const beforeReply = published.length;
     await channels.setUserMuted(workspace.id, user.id, general.id, true);
-    const reply = await rpc("send", "#general", "@helper this Agent reply must not wake anyone");
+    const reply = await rpc(
+      "send",
+      "#general",
+      `@${user.username} this Agent reply should notify the mentioned human`,
+    );
     expect(reply.accepted).toBe(true);
     expect(published.length).toBe(beforeReply);
     if (!reply.messageId) throw new Error("Agent reply did not return its message identity");
     expect(
       (await new PrismaWebPushSubscriptionStore(db).notificationForMessage(reply.messageId))
         ?.subscriptions,
-    ).toEqual([]);
+    ).toEqual([
+      expect.objectContaining({
+        endpoint: `https://fcm.googleapis.com/wp/agent-mention-${workspace.id}`,
+      }),
+    ]);
     const opened = await channels.open(workspace.id, user.id, general.id);
     expect(opened.messages.at(-1)).toMatchObject({
       senderKind: "agent",
