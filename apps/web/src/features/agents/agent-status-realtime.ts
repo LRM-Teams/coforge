@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Centrifuge } from "centrifuge";
+
+import { useBrowserRealtime } from "../realtime/browser-realtime";
 
 export type AgentStatusEvent = {
   agentId: string;
@@ -23,7 +24,9 @@ export type AgentStatusView = {
     observedAtMs: number;
   } | null;
 };
-type UnknownAgentStatusView = Omit<AgentStatusView, "value"> & { value: "unknown" };
+type UnknownAgentStatusView = Omit<AgentStatusView, "value"> & {
+  value: "unknown";
+};
 
 export const agentStatusChannel = (workspaceId: string) => `status:${workspaceId}`;
 
@@ -56,7 +59,14 @@ export function decodeAgentStatusEvent(data: unknown): AgentStatusEvent {
     observedAtMs < 1
   )
     throw new Error("invalid Agent status event");
-  return { agentId, status, expiresAt, daemonInstanceId, clientSeq, observedAtMs };
+  return {
+    agentId,
+    status,
+    expiresAt,
+    daemonInstanceId,
+    clientSeq,
+    observedAtMs,
+  };
 }
 
 function eventIsNewer(agent: StatusTrackedAgent, event: AgentStatusEvent) {
@@ -122,7 +132,14 @@ export function expireAgentStatuses<T extends StatusTrackedAgent>(agents: T[], n
     agent.status.value === "active" &&
     typeof agent.status.expiresAt === "number" &&
     agent.status.expiresAt <= now
-      ? { ...agent, status: { ...agent.status, value: "inactive" as const, expiresAt: null } }
+      ? {
+          ...agent,
+          status: {
+            ...agent.status,
+            value: "inactive" as const,
+            expiresAt: null,
+          },
+        }
       : agent,
   );
 }
@@ -131,13 +148,12 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
   agents,
   workspaceId,
   refresh,
-  getConnectionToken,
 }: {
   agents: T[];
   workspaceId?: string;
   refresh: () => Promise<T[]>;
-  getConnectionToken: () => Promise<string>;
 }) {
+  const client = useBrowserRealtime();
   const [visibleAgents, setVisibleAgents] = useState(() => expireAgentStatuses(agents, Date.now()));
 
   useEffect(
@@ -162,7 +178,14 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
             agent.status.value === "active" &&
             typeof agent.status.expiresAt === "number" &&
             agent.status.expiresAt <= Date.now()
-              ? { ...agent, status: { ...agent.status, value: "inactive", expiresAt: null } }
+              ? {
+                  ...agent,
+                  status: {
+                    ...agent.status,
+                    value: "inactive",
+                    expiresAt: null,
+                  },
+                }
               : agent,
           ),
         ),
@@ -172,12 +195,8 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
   }, [visibleAgents]);
 
   useEffect(() => {
-    if (!workspaceId) return;
+    if (!workspaceId || !client) return;
     const channel = agentStatusChannel(workspaceId);
-    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    const client = new Centrifuge(`${protocol}//${location.host}/connection/websocket`, {
-      getToken: getConnectionToken,
-    });
     let disposed = false;
     const refreshSnapshot = async () => {
       const refreshed = await refresh();
@@ -186,22 +205,24 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
           expireAgentStatuses(mergeAgentStatusSnapshot(current, refreshed), Date.now()),
         );
     };
-    client.on("connected", () => {
+    const onConnected = () => {
       void refreshSnapshot().catch(() => {});
-    });
-    client.on("publication", (publication) => {
+    };
+    const onPublication = (publication: { channel: string; data: unknown }) => {
       if (publication.channel !== channel) return;
       try {
         const event = decodeAgentStatusEvent(publication.data);
         setVisibleAgents((current) => applyAgentStatusEvent(current, event));
       } catch {}
-    });
-    client.connect();
+    };
+    client.on("connected", onConnected);
+    client.on("publication", onPublication);
     return () => {
       disposed = true;
-      client.disconnect();
+      client.off("connected", onConnected);
+      client.off("publication", onPublication);
     };
-  }, [getConnectionToken, refresh, workspaceId]);
+  }, [client, refresh, workspaceId]);
 
   return visibleAgents;
 }

@@ -14,6 +14,7 @@ import { decodeCloudAgentMessageResponse, encodeAgentMessageRequest } from "@cof
 import { RedisAgentMessageHoldStore } from "../src/server/conversations/agent-message-hold.server";
 import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
 import { PrismaWebPushSubscriptionStore } from "../src/server/notifications/prisma-web-push-subscriptions.server";
+import { ConversationHistory } from "../src/server/conversations/conversation-history.server";
 
 test("existing Workspace humans automatically join one general channel; outsiders cannot discover it", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
@@ -24,7 +25,9 @@ test("existing Workspace humans automatically join one general channel; outsider
   const suffix = crypto.randomUUID();
   const alice = await db.user.create({ data: { username: `alice-${suffix}` } });
   const bob = await db.user.create({ data: { username: `bob-${suffix}` } });
-  const outsider = await db.user.create({ data: { username: `other-${suffix}` } });
+  const outsider = await db.user.create({
+    data: { username: `other-${suffix}` },
+  });
   const workspace = await db.workspace.create({
     data: {
       slug: suffix,
@@ -33,7 +36,6 @@ test("existing Workspace humans automatically join one general channel; outsider
     },
   });
   try {
-    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis));
     await db.user.updateMany({
       where: { id: { in: [alice.id, bob.id] } },
       data: { browserNotificationsEnabled: true },
@@ -55,6 +57,16 @@ test("existing Workspace humans automatically join one general channel; outsider
       ],
     });
     const pushSubscriptions = new PrismaWebPushSubscriptionStore(db);
+    const realtimeEvents: Array<{
+      conversationId: string;
+      messageId: string;
+      sequence: number;
+    }> = [];
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), undefined, {
+      async notifyMessage(messageId) {
+        realtimeEvents.push({ conversationId: "", messageId, sequence: 0 });
+      },
+    });
     const [first, second] = await Promise.all([
       channels.list(workspace.id, alice.id),
       channels.list(workspace.id, bob.id),
@@ -104,7 +116,10 @@ test("existing Workspace humans automatically join one general channel; outsider
       },
     });
     await expect(
-      readAuthorizedAttachment(db, { attachmentId: attachment.id, userId: bob.id }),
+      readAuthorizedAttachment(db, {
+        attachmentId: attachment.id,
+        userId: bob.id,
+      }),
     ).rejects.toThrow("NOT_FOUND");
     const saved = await channels.send({
       workspaceId: workspace.id,
@@ -115,15 +130,27 @@ test("existing Workspace humans automatically join one general channel; outsider
       attachmentId: attachment.id,
     });
     expect((await pushSubscriptions.notificationForMessage(saved.id))?.subscriptions).toEqual([]);
+    expect(realtimeEvents).toContainEqual({
+      conversationId: engineering.id,
+      messageId: saved.id,
+      sequence: saved.sequence,
+    });
     expect((await send(alice.id, "Hello Bob", requestId)).id).toBe(saved.id);
     const unjoined = await channels.open(workspace.id, bob.id, engineering.id);
     expect(unjoined.messages.map((m) => m.body)).toEqual(["Hello Bob"]);
     expect(
-      (await readAuthorizedAttachment(db, { attachmentId: attachment.id, userId: bob.id }))
-        .attachment.id,
+      (
+        await readAuthorizedAttachment(db, {
+          attachmentId: attachment.id,
+          userId: bob.id,
+        })
+      ).attachment.id,
     ).toBe(attachment.id);
     await expect(
-      readAuthorizedAttachment(db, { attachmentId: attachment.id, userId: outsider.id }),
+      readAuthorizedAttachment(db, {
+        attachmentId: attachment.id,
+        userId: outsider.id,
+      }),
     ).rejects.toThrow("ACCESS_DENIED");
     await Promise.all([
       channels.join(workspace.id, bob.id, engineering.id),
@@ -143,14 +170,18 @@ test("existing Workspace humans automatically join one general channel; outsider
     const mutedMention = await send(alice.id, `@${bob.username} please review this`);
     const mentionNotification = await pushSubscriptions.notificationForMessage(mutedMention.id);
     expect(mentionNotification?.subscriptions).toEqual([
-      expect.objectContaining({ endpoint: `https://fcm.googleapis.com/wp/bob-${suffix}` }),
+      expect.objectContaining({
+        endpoint: `https://fcm.googleapis.com/wp/bob-${suffix}`,
+      }),
     ]);
     expect(mentionNotification?.url).toBe(
       `/notifications/open?workspace=${workspace.slug}&target=${encodeURIComponent(`/messages/channels/${engineering.id}#message-${mutedMention.id}`)}`,
     );
     await channels.setUserMuted(workspace.id, bob.id, engineering.id, false);
     expect((await pushSubscriptions.notificationForMessage(saved.id))?.subscriptions).toEqual([
-      expect.objectContaining({ endpoint: `https://fcm.googleapis.com/wp/bob-${suffix}` }),
+      expect.objectContaining({
+        endpoint: `https://fcm.googleapis.com/wp/bob-${suffix}`,
+      }),
     ]);
     await send(bob.id, "Hello Alice");
     const history = await channels.open(workspace.id, alice.id, engineering.id);
@@ -166,20 +197,56 @@ test("existing Workspace humans automatically join one general channel; outsider
     expect(
       (await channels.open(workspace.id, alice.id, engineering.id)).messages.map((m) => m.sequence),
     ).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(history.messages[1]?.senderMemberId).not.toBe(history.senderMemberId);
+    const browserHistory = new ConversationHistory(db);
+    expect(
+      (await browserHistory.listOwnMessages(workspace.id, alice.id, engineering.id)).messages.map(
+        (message) => message.body,
+      ),
+    ).toEqual(["Hello Bob"]);
+    await expect(
+      browserHistory.loadAround(workspace.id, bob.id, engineering.id, saved.id),
+    ).rejects.toThrow("NOT_FOUND");
+    await expect(
+      browserHistory.listOwnMessages(workspace.id, outsider.id, engineering.id),
+    ).rejects.toThrow("ACCESS_DENIED");
+    await Promise.all([send(alice.id, "Concurrent A"), send(bob.id, "Concurrent B")]);
+    expect(
+      (await channels.open(workspace.id, alice.id, engineering.id)).messages.map((m) => m.sequence),
+    ).toEqual([1, 2, 3, 4]);
+    const latestPage = await channels.open(workspace.id, alice.id, engineering.id, { limit: 2 });
+    expect(latestPage.hasOlder).toBe(true);
+    expect(latestPage.messages.map((message) => message.sequence)).toEqual([3, 4]);
+    const olderPage = await channels.open(workspace.id, alice.id, engineering.id, {
+      beforeSequence: 3,
+      limit: 2,
+    });
+    expect(olderPage.hasOlder).toBe(false);
+    expect(olderPage.messages.map((message) => message.sequence)).toEqual([1, 2]);
+    expect(
+      (await channels.updates(workspace.id, alice.id, engineering.id, 2)).map(
+        (message) => message.sequence,
+      ),
+    ).toEqual([3, 4]);
     const direct = await db.conversation.create({
       data: { workspaceId: workspace.id, directKey: `private-${suffix}` },
     });
     await expect(channels.open(workspace.id, bob.id, direct.id)).rejects.toThrow("NOT_FOUND");
     await expect(channels.join(workspace.id, bob.id, direct.id)).rejects.toThrow("NOT_FOUND");
     await db.workspaceMembership.delete({
-      where: { workspaceId_userId: { workspaceId: workspace.id, userId: bob.id } },
+      where: {
+        workspaceId_userId: { workspaceId: workspace.id, userId: bob.id },
+      },
     });
     await expect(channels.open(workspace.id, bob.id, engineering.id)).rejects.toThrow(
       "ACCESS_DENIED",
     );
     await expect(send(bob.id, "membership revoked")).rejects.toThrow("ACCESS_DENIED");
     await expect(
-      readAuthorizedAttachment(db, { attachmentId: attachment.id, userId: bob.id }),
+      readAuthorizedAttachment(db, {
+        attachmentId: attachment.id,
+        userId: bob.id,
+      }),
     ).rejects.toThrow("ACCESS_DENIED");
     for (const store of [
       new PrismaWorkspaceCatalogStore(db),
@@ -204,7 +271,9 @@ test("existing Workspace humans automatically join one general channel; outsider
     }
   } finally {
     await db.workspace.delete({ where: { id: workspace.id } });
-    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id, outsider.id] } } });
+    await db.user.deleteMany({
+      where: { id: { in: [alice.id, bob.id, outsider.id] } },
+    });
     await db.$disconnect();
     redis.close();
   }
@@ -215,7 +284,9 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
   if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
   const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
-  const user = await db.user.create({ data: { username: `u${crypto.randomUUID().slice(0, 8)}` } });
+  const user = await db.user.create({
+    data: { username: `u${crypto.randomUUID().slice(0, 8)}` },
+  });
   const workspace = await db.workspace.create({
     data: {
       slug: crypto.randomUUID(),
@@ -247,6 +318,7 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
         }
         published.push(decodeAgentMessageDelivery(payload));
       },
+      publishJson: async () => {},
     });
     const general = (await channels.list(workspace.id, user.id))[0]!;
     await db.user.update({
@@ -327,6 +399,17 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       body: "New ordinary conversation after unmute.",
     });
     expect(published.map((m) => m.messageId)).toEqual([mentioned.id, ordinary.id]);
+    expect(
+      await repo.searchMessages(workspace.id, agent.id, {
+        query: "ordinary unmute",
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        id: ordinary.id,
+        target: "#general",
+        body: "New ordinary conversation after unmute.",
+      }),
+    ]);
     expect(
       (await repo.readAgentRecoveryContext(workspace.id, agent.id)).resumeMessages.map(
         (m) => m.messageId,
@@ -453,7 +536,9 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
     await expect(repo.readMessages(crypto.randomUUID(), agent.id, "#general")).rejects.toThrow(
       "ACCESS_DENIED",
     );
-    const denied = createAgentMessageMethod(repo, {}, "mute", { canUseAgent: async () => false });
+    const denied = createAgentMessageMethod(repo, {}, "mute", {
+      canUseAgent: async () => false,
+    });
     expect(
       await denied(
         encodeAgentMessageRequest({

@@ -27,7 +27,11 @@ export class UserIdentityRepository {
       });
       if (collision) continue;
       return this.db.user.create({
-        data: { id, username, identities: { create: { provider, providerSubject } } },
+        data: {
+          id,
+          username,
+          identities: { create: { provider, providerSubject } },
+        },
       });
     }
     throw new Error("could not allocate username");

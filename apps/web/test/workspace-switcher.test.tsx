@@ -40,7 +40,10 @@ test("the workspace switcher lists memberships and can create a Workspace", asyn
   expect((page.getByLabelText("Workspace URL") as HTMLInputElement).value).toBe("research");
   await user.click(page.getByRole("button", { name: "Create workspace" }));
   await waitFor(() =>
-    expect(onCreate).toHaveBeenCalledWith({ name: "Research", slug: "research" }),
+    expect(onCreate).toHaveBeenCalledWith({
+      name: "Research",
+      slug: "research",
+    }),
   );
   cleanup();
 });

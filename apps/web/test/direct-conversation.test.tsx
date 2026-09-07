@@ -2,12 +2,13 @@ import "./dom-setup";
 
 import { afterEach, expect, mock, test } from "bun:test";
 import { RouterContextProvider } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import {
   DirectConversation,
   type DirectConversationView,
+  type OwnMessageIndexEntry,
 } from "@/features/conversations/direct-conversation";
 import { AppToastProvider } from "@/components/ui/toast";
 import { ConversationLayout } from "@/features/conversations/conversation-layout";
@@ -18,15 +19,38 @@ afterEach(cleanup);
 const base: DirectConversationView = {
   conversationId: "conversation-1",
   senderMemberId: "member-1",
-  agent: { id: "agent-1", name: "release-helper", displayName: "Release Helper" },
+  agent: {
+    id: "agent-1",
+    name: "release-helper",
+    displayName: "Release Helper",
+  },
   messages: [],
 };
 
+type ConversationSend = (
+  body: string,
+  requestId: string,
+  attachmentId?: string,
+  threadRootId?: string,
+) => Promise<OwnMessageIndexEntry | void>;
+
 function renderConversation(
   conversation = base,
-  onSend = mock(async (_body: string, _requestId: string) => {}),
-  onRefresh = mock(async () => {}),
+  onSend: ConversationSend = mock(async (_body: string, _requestId: string) => {}),
   agentStatus: "active" | "inactive" = "active",
+  onLoadOlder?: () => Promise<void>,
+  onLoadOwnMessages?: (beforeSequence?: number) => Promise<{
+    messages: Array<{
+      id: string;
+      sequence: number;
+      body: string;
+      createdAt: Date | string;
+      attachmentFileName?: string;
+    }>;
+    hasOlder: boolean;
+  }>,
+  onLoadMessageAround?: (messageId: string) => Promise<void>,
+  onShowLatest?: () => Promise<void>,
 ) {
   const view = render(
     <RouterContextProvider router={getRouter()}>
@@ -35,7 +59,10 @@ function renderConversation(
           conversation={conversation}
           agentStatus={agentStatus}
           onSend={onSend}
-          onRefresh={onRefresh}
+          onLoadOlder={onLoadOlder}
+          onLoadOwnMessages={onLoadOwnMessages}
+          onLoadMessageAround={onLoadMessageAround}
+          onShowLatest={onShowLatest}
         />
       </AppToastProvider>
     </RouterContextProvider>,
@@ -43,7 +70,6 @@ function renderConversation(
   return {
     page: within(document.body),
     onSend,
-    onRefresh,
     rerender(nextConversation: DirectConversationView) {
       view.rerender(
         <RouterContextProvider router={getRouter()}>
@@ -52,7 +78,10 @@ function renderConversation(
               conversation={nextConversation}
               agentStatus={agentStatus}
               onSend={onSend}
-              onRefresh={onRefresh}
+              onLoadOlder={onLoadOlder}
+              onLoadOwnMessages={onLoadOwnMessages}
+              onLoadMessageAround={onLoadMessageAround}
+              onShowLatest={onShowLatest}
             />
           </AppToastProvider>
         </RouterContextProvider>,
@@ -135,17 +164,24 @@ test("thread replies stay out of main history and preserve separate drafts and m
     onSend,
   );
   const history = page.getByLabelText("Message history");
+  expect(history.className).toContain("overflow-y-auto");
+  expect(history.className).toContain("[scrollbar-width:none]");
+  expect(history.className).toContain("[&::-webkit-scrollbar]:hidden");
   expect(history.querySelectorAll("[data-message]")).toHaveLength(1);
   history.scrollTop = 123;
   const mainComposer = page.getByLabelText("Message") as HTMLTextAreaElement;
   await user.type(mainComposer, "main draft");
   const threadButton = page.getByRole("button", { name: /1 reply/ });
-  expect(threadButton.textContent).toBe("1");
-  expect(threadButton.parentElement?.textContent).toContain(root.body);
+  expect(threadButton.textContent).toContain("1 reply");
+  expect(threadButton.closest("[data-message]")?.textContent).toContain(root.body);
   expect(threadButton.querySelector("svg")).toBeTruthy();
   await user.click(threadButton);
   expect(calls).toEqual([]);
   const discussion = within(page.getByRole("region", { name: "Thread" }));
+  const threadHistory = discussion.getByLabelText("Thread");
+  expect(threadHistory.className).toContain("overflow-y-auto");
+  expect(threadHistory.className).toContain("[scrollbar-width:none]");
+  expect(threadHistory.className).toContain("[&::-webkit-scrollbar]:hidden");
   expect(discussion.queryByText(/Original message/)).toBeNull();
   expect(discussion.getByText("Only in discussion")).toBeTruthy();
   expect(discussion.queryByRole("button", { name: "Reply in thread" })).toBeNull();
@@ -159,7 +195,7 @@ test("thread replies stay out of main history and preserve separate drafts and m
   expect(calls[0]?.[0]).toBe("thread draft");
 });
 
-test("previews only the latest three thread replies in chronological order", async () => {
+test("summarizes a thread and previews only its latest three replies", async () => {
   const user = userEvent.setup();
   const { page } = renderConversation({
     ...base,
@@ -176,7 +212,8 @@ test("previews only the latest three thread replies in chronological order", asy
     ],
   });
   const preview = page.getByRole("group", { name: "Thread" });
-  const replies = within(preview).getAllByRole("button");
+  const openThread = within(preview).getByRole("button", { name: "4 replies" });
+  const replies = within(preview).getAllByRole("listitem");
   expect(replies.map((reply) => within(reply).getByText(/Reply/).textContent)).toEqual([
     "Reply 3",
     "Reply 4",
@@ -189,7 +226,7 @@ test("previews only the latest three thread replies in chronological order", asy
     ),
   ).toBe(true);
   expect(page.queryByText("Reply 2")).toBeNull();
-  await user.click(replies[0]!);
+  await user.click(openThread);
   const discussion = within(page.getByRole("region", { name: "Thread" }));
   expect(discussion.getByText("Reply 2")).toBeTruthy();
   expect(discussion.getByText("Reply 5")).toBeTruthy();
@@ -199,7 +236,9 @@ test("renders the empty private conversation", () => {
   const { page } = renderConversation();
   expect(page.getByRole("heading", { name: "Release Helper" })).toBeTruthy();
   expect(
-    page.getByRole("button", { name: "Release Helper, Online, Recent activity" }),
+    page.getByRole("button", {
+      name: "Release Helper, Online, Recent activity",
+    }),
   ).toBeTruthy();
   expect(page.getByText("@release-helper")).toBeTruthy();
   expect(page.getByText("No messages yet")).toBeTruthy();
@@ -226,14 +265,13 @@ test("shared chat activity updates header and sidebar, with matching hover dots"
         <ConversationLayout
           agents={[agent]}
           selectedAgentId={agent.id}
-          activityView={{ activity: { [agent.id]: activity }, loading: false, error: false }}
+          activityView={{
+            activity: { [agent.id]: activity },
+            loading: false,
+            error: false,
+          }}
         >
-          <DirectConversation
-            conversation={base}
-            agentStatus="active"
-            onSend={refresh}
-            onRefresh={refresh}
-          />
+          <DirectConversation conversation={base} agentStatus="active" onSend={refresh} />
         </ConversationLayout>
       </AppToastProvider>
     </RouterContextProvider>
@@ -241,7 +279,9 @@ test("shared chat activity updates header and sidebar, with matching hover dots"
   const view = render(tree([entry]));
   const page = within(document.body);
   expect(page.getByRole("status").textContent).toBe("Running command…");
-  const avatars = page.getAllByRole("button", { name: /Release Helper, Online, Running command/ });
+  const avatars = page.getAllByRole("button", {
+    name: /Release Helper, Online, Running command/,
+  });
   expect(avatars).toHaveLength(2);
   expect(avatars.every((avatar) => avatar.querySelector(".bg-amber-500"))).toBe(true);
   expect(document.querySelector("a button")).toBeNull();
@@ -286,6 +326,91 @@ test("renders persisted messages in sequence order with distinct senders", () =>
   expect(messages[0]?.querySelector(":scope > [aria-hidden]")).toBeNull();
   expect(messages[1]?.querySelector(":scope > [aria-hidden]")).toBeTruthy();
   expect(messages[1]?.textContent).toContain("Release Helper");
+  expect(page.getByText("Please check").className).toContain("max-w-[85%]");
+  expect(page.getByText("Checked").className).not.toContain("max-w-[85%]");
+});
+
+test("wraps an unbroken message inside its bubble", () => {
+  const body = "INDEX_REFRESH_1725_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const { page } = renderConversation({
+    ...base,
+    messages: [{ ...firstMessage, body }],
+  });
+
+  const bubble = page.getByText(body);
+  expect(bubble.className).toContain("[overflow-wrap:anywhere]");
+});
+
+test("keeps large histories to a bounded number of mounted message rows", async () => {
+  const clientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+  const getBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    value: 600,
+  });
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    return new DOMRect(
+      0,
+      0,
+      390,
+      this.getAttribute("aria-label") === "Message history" ? 600 : 120,
+    );
+  };
+
+  try {
+    const { page } = renderConversation({
+      ...base,
+      messages: Array.from({ length: 250 }, (_, index) => ({
+        ...firstMessage,
+        id: `message-${index + 1}`,
+        sequence: index + 1,
+        body: `Message ${index + 1}`,
+      })),
+    });
+    const history = page.getByLabelText("Message history");
+
+    await waitFor(() => {
+      const mountedMessages = history.querySelectorAll("[data-message]");
+      expect(mountedMessages.length).toBeGreaterThan(0);
+      expect(mountedMessages.length).toBeLessThan(30);
+      expect(history.querySelector("ol")?.style.height).not.toBe("");
+    });
+  } finally {
+    HTMLElement.prototype.getBoundingClientRect = getBoundingClientRect;
+    if (clientHeight) Object.defineProperty(HTMLElement.prototype, "clientHeight", clientHeight);
+    else Reflect.deleteProperty(HTMLElement.prototype, "clientHeight");
+  }
+});
+
+test("loads an older page once when the reader reaches the top", async () => {
+  const pending = Promise.withResolvers<void>();
+  const onLoadOlder = mock(() => pending.promise);
+  const { page } = renderConversation(
+    { ...base, hasOlder: true, messages: [firstMessage] },
+    undefined,
+    "active",
+    onLoadOlder,
+  );
+  const history = page.getByLabelText("Message history");
+  Object.defineProperty(history, "scrollTop", {
+    configurable: true,
+    writable: true,
+    value: 0,
+  });
+
+  fireEvent.scroll(history);
+  fireEvent.scroll(history);
+
+  expect(onLoadOlder).toHaveBeenCalledTimes(1);
+  expect(
+    page.getByRole("button", { name: "Loading older messages…" }).hasAttribute("disabled"),
+  ).toBe(true);
+  pending.resolve();
+  await waitFor(() =>
+    expect(page.getByRole("button", { name: "Load older messages" }).hasAttribute("disabled")).toBe(
+      false,
+    ),
+  );
 });
 
 test("renders an attachment as a downloadable history link", () => {
@@ -328,6 +453,235 @@ test("mounts an overflowing conversation at the latest message", () => {
   else Reflect.deleteProperty(HTMLElement.prototype, "clientHeight");
   if (scrollHeight) Object.defineProperty(HTMLElement.prototype, "scrollHeight", scrollHeight);
   else Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+});
+
+test("keeps sent-message navigation available while following the latest message", () => {
+  const { page } = renderConversation({ ...base, messages: [firstMessage] });
+
+  expect(page.getByRole("button", { name: "Your messages" })).toBeTruthy();
+  expect(page.queryByRole("button", { name: "Back to bottom" })).toBeNull();
+});
+
+test("returns to the latest message after the reader scrolls up", async () => {
+  const user = userEvent.setup();
+  const { page } = renderConversation({ ...base, messages: [firstMessage] });
+  const history = page.getByLabelText("Message history");
+  Object.defineProperties(history, {
+    clientHeight: { configurable: true, value: 400 },
+    scrollHeight: { configurable: true, value: 1_000 },
+    scrollTop: { configurable: true, writable: true, value: 100 },
+  });
+
+  fireEvent.scroll(history);
+
+  const backToBottom = page.getByRole("button", { name: "Back to bottom" });
+  await user.click(backToBottom);
+
+  expect(history.scrollTop).toBe(1_000);
+  expect(page.queryByRole("button", { name: "Back to bottom" })).toBeNull();
+});
+
+test("navigates loaded own messages from the floating history controls", async () => {
+  const user = userEvent.setup();
+  const { page } = renderConversation({
+    ...base,
+    messages: [
+      { ...firstMessage, id: "three", sequence: 3, body: "Latest prompt" },
+      {
+        ...firstMessage,
+        id: "two",
+        sequence: 2,
+        senderKind: "agent",
+        senderName: "Release Helper",
+        body: "Agent answer",
+      },
+      { ...firstMessage, body: "First prompt" },
+    ],
+  });
+  const history = page.getByLabelText("Message history");
+  Object.defineProperties(history, {
+    clientHeight: { configurable: true, value: 400 },
+    scrollHeight: { configurable: true, value: 1_000 },
+    scrollTop: { configurable: true, writable: true, value: 100 },
+  });
+  fireEvent.scroll(history);
+
+  const controls = page.getByRole("group", { name: "Message navigation" });
+  expect(within(controls).getByRole("button", { name: "Back to bottom" })).toBeTruthy();
+  await user.click(within(controls).getByRole("button", { name: "Your messages" }));
+
+  const menu = within(page.getByRole("menu"));
+  expect(menu.getByText("First prompt")).toBeTruthy();
+  expect(menu.getByText("Latest prompt")).toBeTruthy();
+  expect(menu.queryByText("Agent answer")).toBeNull();
+  expect(menu.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+    expect.stringContaining("First prompt"),
+    expect.stringContaining("Latest prompt"),
+  ]);
+  const scrollTo = mock(() => {});
+  history.scrollTo = scrollTo;
+  await user.click(menu.getByRole("menuitem", { name: /First prompt/ }));
+  expect(scrollTo).toHaveBeenCalled();
+});
+
+test("expands and collapses a compact day separator", async () => {
+  const user = userEvent.setup();
+  const { page } = renderConversation({ ...base, messages: [firstMessage] });
+
+  const compactDate = page.getByRole("button", { name: "Saturday" });
+  expect(compactDate.getAttribute("aria-expanded")).toBe("false");
+  expect(compactDate.className).toContain("cursor-pointer");
+
+  await user.click(compactDate);
+  const fullDate = page.getByRole("button", {
+    name: "Saturday, August 29, 2026",
+  });
+  expect(fullDate.getAttribute("aria-expanded")).toBe("true");
+
+  await user.click(fullDate);
+  expect(page.getByRole("button", { name: "Saturday" }).getAttribute("aria-expanded")).toBe(
+    "false",
+  );
+});
+
+test("keeps older loaded sent messages available in navigation", async () => {
+  const user = userEvent.setup();
+  const { page } = renderConversation({
+    ...base,
+    messages: Array.from({ length: 6 }, (_, index) => ({
+      ...firstMessage,
+      id: `message-${index + 1}`,
+      sequence: index + 1,
+      body: `Prompt ${index + 1}`,
+    })),
+  });
+  const history = page.getByLabelText("Message history");
+  Object.defineProperties(history, {
+    clientHeight: { configurable: true, value: 400 },
+    scrollHeight: { configurable: true, value: 1_000 },
+    scrollTop: { configurable: true, writable: true, value: 100 },
+  });
+  fireEvent.scroll(history);
+
+  await user.click(page.getByRole("button", { name: "Your messages" }));
+
+  const menu = within(page.getByRole("menu"));
+  expect(menu.getByRole("menuitem", { name: /Prompt 1/ })).toBeTruthy();
+  expect(menu.getByRole("menuitem", { name: /Prompt 6/ })).toBeTruthy();
+});
+
+test("prefetches the own-message index on entry and prepends older cursor pages", async () => {
+  const user = userEvent.setup();
+  const onLoadOwnMessages = mock(async (beforeSequence?: number) =>
+    beforeSequence
+      ? {
+          hasOlder: false,
+          messages: [30, 40].map((sequence) => ({
+            id: `indexed-${sequence}`,
+            sequence,
+            body: `Indexed prompt ${sequence}`,
+            createdAt: new Date(sequence * 1_000).toISOString(),
+          })),
+        }
+      : {
+          hasOlder: true,
+          messages: [50, 60].map((sequence) => ({
+            id: `indexed-${sequence}`,
+            sequence,
+            body: `Indexed prompt ${sequence}`,
+            createdAt: new Date(sequence * 1_000).toISOString(),
+          })),
+        },
+  );
+  const { page } = renderConversation(base, undefined, "active", undefined, onLoadOwnMessages);
+
+  await waitFor(() => expect(onLoadOwnMessages).toHaveBeenCalledWith(undefined));
+  await user.click(page.getByRole("button", { name: "Your messages" }));
+  const menu = within(page.getByRole("menu"));
+  await waitFor(() => expect(menu.getAllByRole("menuitem")).toHaveLength(2));
+  expect(onLoadOwnMessages).toHaveBeenCalledTimes(1);
+  expect(menu.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+    expect.stringContaining("Indexed prompt 50"),
+    expect.stringContaining("Indexed prompt 60"),
+  ]);
+
+  fireEvent.scroll(page.getByRole("menu"), { target: { scrollTop: 0 } });
+
+  await waitFor(() => expect(menu.getAllByRole("menuitem")).toHaveLength(4));
+  expect(onLoadOwnMessages).toHaveBeenLastCalledWith(50);
+  expect(menu.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+    expect.stringContaining("Indexed prompt 30"),
+    expect.stringContaining("Indexed prompt 40"),
+    expect.stringContaining("Indexed prompt 50"),
+    expect.stringContaining("Indexed prompt 60"),
+  ]);
+});
+
+test("shows immediate feedback while the own-message index is loading", async () => {
+  let resolvePage: ((page: { messages: []; hasOlder: false }) => void) | undefined;
+  const onLoadOwnMessages = mock(
+    () =>
+      new Promise<{ messages: []; hasOlder: false }>((resolve) => {
+        resolvePage = resolve;
+      }),
+  );
+  const { page } = renderConversation(base, undefined, "active", undefined, onLoadOwnMessages);
+
+  await userEvent.setup().click(page.getByRole("button", { name: "Your messages" }));
+
+  expect(page.getByRole("status", { name: "Loading your messages…" })).toBeTruthy();
+  await act(async () => resolvePage?.({ messages: [], hasOlder: false }));
+  await waitFor(() =>
+    expect(page.queryByRole("status", { name: "Loading your messages…" })).toBeNull(),
+  );
+});
+
+test("loads an around window before navigating to an indexed message outside history", async () => {
+  const user = userEvent.setup();
+  const indexedMessage = {
+    id: "00000000-0000-4000-8000-000000000009",
+    sequence: 9,
+    body: "Indexed old prompt",
+    createdAt: "2026-08-29T09:00:00Z",
+  };
+  const onLoadMessageAround = mock(async (_messageId: string) => {});
+  const onShowLatest = mock(async () => {});
+  const { page, rerender } = renderConversation(
+    { ...base, messages: [{ ...firstMessage, id: "latest", sequence: 100 }] },
+    undefined,
+    "active",
+    undefined,
+    async () => ({ messages: [indexedMessage], hasOlder: false }),
+    onLoadMessageAround,
+    onShowLatest,
+  );
+  const history = page.getByLabelText("Message history");
+  const scrollTo = mock(() => {});
+  history.scrollTo = scrollTo;
+
+  await user.click(page.getByRole("button", { name: "Your messages" }));
+  await user.click(await page.findByRole("menuitem", { name: /Indexed old prompt/ }));
+
+  expect(onLoadMessageAround).toHaveBeenCalledWith(indexedMessage.id);
+  rerender({
+    ...base,
+    hasOlder: true,
+    hasNewer: true,
+    messages: [{ ...firstMessage, ...indexedMessage }],
+  });
+  await waitFor(() => expect(scrollTo).toHaveBeenCalled());
+  expect(page.getByText("Indexed old prompt")).toBeTruthy();
+  await user.click(page.getByRole("button", { name: "Back to bottom" }));
+  expect(onShowLatest).toHaveBeenCalledTimes(1);
+  scrollTo.mockClear();
+  rerender({
+    ...base,
+    hasOlder: true,
+    hasNewer: false,
+    messages: [firstMessage],
+  });
+  await waitFor(() => expect(scrollTo).toHaveBeenCalled());
+  expect(page.queryByRole("button", { name: "Back to bottom" })).toBeNull();
 });
 
 test("announces one new Agent message and clears it when manually scrolled to latest", async () => {
@@ -409,7 +763,9 @@ test("keeps the reading position and announces a new message while viewing histo
   });
 
   expect(history.scrollTop).toBe(100);
-  const newMessages = await page.findByRole("button", { name: "2 new messages" });
+  const newMessages = await page.findByRole("button", {
+    name: "2 new messages",
+  });
   await user.click(newMessages);
   expect(history.scrollTop).toBe(1_000);
   expect(page.queryByRole("button", { name: "2 new messages" })).toBeNull();
@@ -481,6 +837,31 @@ test("sends trimmed text and clears only after success", async () => {
     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
   );
   await waitFor(() => expect(composer.value).toBe(""));
+});
+
+test("adds a sent message to the own-message navigation index immediately", async () => {
+  const user = userEvent.setup();
+  const onLoadOwnMessages = mock(async () => ({
+    messages: [],
+    hasOlder: false,
+  }));
+  const onSend = mock(async (body: string, _requestId: string) => ({
+    id: "sent-message",
+    sequence: 2,
+    body,
+    createdAt: "2026-08-29T10:02:00Z",
+  }));
+  const { page } = renderConversation(base, onSend, "active", undefined, onLoadOwnMessages);
+
+  await waitFor(() => expect(onLoadOwnMessages).toHaveBeenCalledWith(undefined));
+  await user.type(page.getByLabelText("Message"), "hi");
+  await user.click(page.getByRole("button", { name: "Send" }));
+  await waitFor(() =>
+    expect((page.getByLabelText("Message") as HTMLTextAreaElement).value).toBe(""),
+  );
+  await user.click(page.getByRole("button", { name: "Your messages" }));
+
+  expect(within(page.getByRole("menu")).getByRole("menuitem", { name: /hi/ })).toBeTruthy();
 });
 
 test("Enter sends, Shift+Enter keeps the draft, and sending prevents duplicates", async () => {

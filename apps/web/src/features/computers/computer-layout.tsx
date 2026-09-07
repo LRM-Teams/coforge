@@ -123,14 +123,16 @@ export function BackToComputers() {
   }
 
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="icon"
       onClick={back}
       aria-label={m.computer_back_to_list()}
-      className="-ml-1 flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-muted md:hidden"
+      className="-ml-1 md:hidden"
     >
       <Monitor aria-hidden="true" className="size-4" />
-    </button>
+    </Button>
   );
 }
 

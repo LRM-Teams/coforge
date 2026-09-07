@@ -8,7 +8,6 @@ import { useAgentActivity } from "@/features/agents/agent-activity-realtime";
 import {
   deleteAgentRuntimeCredential,
   getAgentDetail,
-  getAgentStatusConnectionToken,
   getAgentActivityConnectionToken,
   saveAgentRuntimeCredential,
   updateAgent,
@@ -48,7 +47,6 @@ function AgentDetailPage() {
   const loadComputers = useServerFn(listComputers);
   const loadCatalog = useServerFn(getComputerRuntimeCatalog);
   const loadDetail = useServerFn(getAgentDetail);
-  const getConnectionToken = useServerFn(getAgentStatusConnectionToken);
   const agents = useMemo(() => [detail], [detail]);
   const refresh = useCallback(
     async () => [await loadDetail({ data: detail.id })],
@@ -58,7 +56,6 @@ function AgentDetailPage() {
     agents,
     workspaceId: detail.workspaceId,
     refresh,
-    getConnectionToken,
   });
   const getActivityToken = useServerFn(getAgentActivityConnectionToken);
   const refreshActivity = useCallback(

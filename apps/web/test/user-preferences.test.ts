@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_TIME_ZONE,
   formatDateForDisplay,
+  formatRelativeTime,
   resolveTimeZone,
   validateTimeZone,
 } from "../src/lib/dates";
@@ -76,5 +77,14 @@ describe("user time zone preferences", () => {
     expect(losAngeles).toContain("5:00 AM");
     expect(tokyo).toContain("Aug 31, 2026");
     expect(tokyo).toContain("9:00 PM");
+  });
+
+  test("formats past and future instants with compact localized relative semantics", () => {
+    const now = new Date("2026-09-07T12:00:00.000Z");
+
+    expect(formatRelativeTime("2026-09-07T11:41:00.000Z", now, "en")).toBe("19m ago");
+    expect(formatRelativeTime("2026-09-07T11:41:00.000Z", now, "zh-CN")).toBe("19分钟前");
+    expect(formatRelativeTime("2026-09-07T11:59:30.000Z", now, "en")).toBe("now");
+    expect(formatRelativeTime("2026-09-07T14:00:00.000Z", now, "en")).toBe("in 2h");
   });
 });

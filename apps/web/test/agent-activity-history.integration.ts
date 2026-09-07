@@ -10,8 +10,12 @@ test("compact activity history preserves launch sequence across clock rollback a
   }
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
   const fixture = crypto.randomUUID();
-  const member = await db.user.create({ data: { username: `activity-member-${fixture}` } });
-  const outsider = await db.user.create({ data: { username: `activity-outsider-${fixture}` } });
+  const member = await db.user.create({
+    data: { username: `activity-member-${fixture}` },
+  });
+  const outsider = await db.user.create({
+    data: { username: `activity-outsider-${fixture}` },
+  });
   const workspace = await db.workspace.create({
     data: {
       slug: `activity-${fixture}`,
@@ -99,9 +103,15 @@ test("compact activity history preserves launch sequence across clock rollback a
     expect(await repository.listForMember(workspace.id, outsider.id)).toEqual([]);
     expect(await repository.listForMember(otherWorkspace.id, member.id)).toEqual([]);
   } finally {
-    await db.workspace.deleteMany({ where: { id: { in: [workspace.id, otherWorkspace.id] } } });
-    await db.computer.deleteMany({ where: { ownerId: { in: [member.id, outsider.id] } } });
-    await db.user.deleteMany({ where: { id: { in: [member.id, outsider.id] } } });
+    await db.workspace.deleteMany({
+      where: { id: { in: [workspace.id, otherWorkspace.id] } },
+    });
+    await db.computer.deleteMany({
+      where: { ownerId: { in: [member.id, outsider.id] } },
+    });
+    await db.user.deleteMany({
+      where: { id: { in: [member.id, outsider.id] } },
+    });
     await db.$disconnect();
   }
 });

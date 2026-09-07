@@ -17,7 +17,9 @@ type CompactActivity = {
 
 type CompactActivityRow =
   | CompactActivity
-  | (Record<Exclude<keyof CompactActivity, "agentId">, null> & { agentId: string });
+  | (Record<Exclude<keyof CompactActivity, "agentId">, null> & {
+      agentId: string;
+    });
 
 export class AgentActivityRepository {
   constructor(private readonly db: PrismaClient) {}
@@ -91,7 +93,10 @@ export class AgentActivityRepository {
     `;
     const agents = new Map<string, { id: string; activity: CompactActivity[] }>();
     for (const row of rows) {
-      const agent = agents.get(row.agentId) ?? { id: row.agentId, activity: [] };
+      const agent = agents.get(row.agentId) ?? {
+        id: row.agentId,
+        activity: [],
+      };
       agents.set(row.agentId, agent);
       if (row.id === null) continue;
       agent.activity.push(row);

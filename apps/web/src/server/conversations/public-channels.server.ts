@@ -14,10 +14,13 @@ import {
 } from "../centrifugo/server-api.server";
 import type { MessageNotifier } from "../notifications/web-push-composition.server";
 import { mentionedNames } from "./mentions";
+import type { ConversationRealtime } from "./conversation-realtime.server";
 
 /** Nested creation keeps default enrollment inside the Workspace creation transaction. */
 export function generalChannelForCreator(userId: string) {
-  return { create: { channelName: "general", members: { create: { userId } } } };
+  return {
+    create: { channelName: "general", members: { create: { userId } } },
+  };
 }
 
 /** Enroll Workspace humans and Agents. Membership alone never creates attention. */
@@ -29,14 +32,27 @@ export async function enrollGeneralChannel(db: Prisma.TransactionClient, workspa
   const general = await db.conversation.findUniqueOrThrow({
     where: { workspaceId_channelName: { workspaceId, channelName: "general" } },
   });
-  const members = await db.workspaceMembership.findMany({ where: { workspaceId } });
+  const members = await db.workspaceMembership.findMany({
+    where: { workspaceId },
+  });
   await db.conversationMember.createMany({
-    data: members.map(({ userId }) => ({ workspaceId, conversationId: general.id, userId })),
+    data: members.map(({ userId }) => ({
+      workspaceId,
+      conversationId: general.id,
+      userId,
+    })),
     skipDuplicates: true,
   });
-  const agents = await db.agent.findMany({ where: { workspaceId }, select: { id: true } });
+  const agents = await db.agent.findMany({
+    where: { workspaceId },
+    select: { id: true },
+  });
   await db.conversationMember.createMany({
-    data: agents.map(({ id: agentId }) => ({ workspaceId, conversationId: general.id, agentId })),
+    data: agents.map(({ id: agentId }) => ({
+      workspaceId,
+      conversationId: general.id,
+      agentId,
+    })),
     skipDuplicates: true,
   });
   return general;
@@ -67,6 +83,7 @@ export class PublicChannels {
     private readonly idempotency?: MessageRequestIdempotency,
     private readonly publisher?: CentrifugoServerApi,
     private readonly notifications?: MessageNotifier,
+    private readonly realtime?: ConversationRealtime,
   ) {}
 
   async setAgentMuted(workspaceId: string, agentId: string, target: string, muted: boolean) {
@@ -75,7 +92,9 @@ export class PublicChannels {
       // The same conversation lock orders preference changes against message creation.
       await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${channel.id}::uuid FOR UPDATE`;
       await tx.conversationMember.update({
-        where: { conversationId_agentId: { conversationId: channel.id, agentId } },
+        where: {
+          conversationId_agentId: { conversationId: channel.id, agentId },
+        },
         data: { channelMuted: muted },
       });
     });
@@ -108,7 +127,11 @@ export class PublicChannels {
     const channels = await this.db.conversation.findMany({
       where: { workspaceId, channelName: { not: null } },
       orderBy: { channelName: "asc" },
-      select: { id: true, channelName: true, members: { where: { userId }, select: { id: true } } },
+      select: {
+        id: true,
+        channelName: true,
+        members: { where: { userId }, select: { id: true } },
+      },
     });
     return channels
       .map((channel) => ({
@@ -126,7 +149,11 @@ export class PublicChannels {
     if (name === "general") throw new AppError("CONFLICT");
     try {
       return await this.db.conversation.create({
-        data: { workspaceId, channelName: name, members: { create: { userId } } },
+        data: {
+          workspaceId,
+          channelName: name,
+          members: { create: { userId } },
+        },
         select: { id: true },
       });
     } catch (error) {
@@ -155,41 +182,95 @@ export class PublicChannels {
     });
   }
 
-  async open(workspaceId: string, userId: string, channelId: string) {
+  async open(
+    workspaceId: string,
+    userId: string,
+    channelId: string,
+    page: { beforeSequence?: number; limit?: number } = {},
+  ) {
     const channel = await this.channel(workspaceId, userId, channelId);
+    const limit = Math.min(page.limit ?? 50, 100);
     const [member, messages] = await Promise.all([
       this.db.conversationMember.findUnique({
         where: { conversationId_userId: { conversationId: channelId, userId } },
       }),
       this.db.message.findMany({
-        where: { conversationId: channelId, threadRootId: null },
-        orderBy: { sequence: "asc" },
-        include: { sender: { include: { user: true, agent: true } }, attachment: true },
+        where: {
+          conversationId: channelId,
+          threadRootId: null,
+          sequence: page.beforeSequence ? { lt: page.beforeSequence } : undefined,
+        },
+        orderBy: { sequence: "desc" },
+        take: limit + 1,
+        include: {
+          sender: { include: { user: true, agent: true } },
+          attachment: true,
+        },
       }),
     ]);
+    const hasOlder = messages.length > limit;
     return {
       conversationId: channel.id,
       name: channel.channelName!,
       senderMemberId: member?.id ?? "",
       muted: member?.channelMuted ?? false,
-      messages: messages.map((message) => ({
-        id: message.id,
-        sequence: message.sequence,
-        senderMemberId: message.senderMemberId,
-        senderKind: message.sender.agentId ? ("agent" as const) : ("user" as const),
-        senderName: `@${message.sender.agent?.name ?? message.sender.user!.username}`,
-        body: message.body,
-        createdAt: message.createdAt,
-        attachment: message.attachment
-          ? {
-              id: message.attachment.id,
-              fileName: message.attachment.fileName,
-              contentType: message.attachment.contentType,
-              sizeBytes: message.attachment.sizeBytes,
-            }
-          : undefined,
-      })),
+      hasOlder,
+      hasNewer: false,
+      messages: messages
+        .slice(0, limit)
+        .reverse()
+        .map((message) => ({
+          id: message.id,
+          sequence: message.sequence,
+          senderMemberId: message.senderMemberId,
+          senderKind: message.sender.agentId ? ("agent" as const) : ("user" as const),
+          senderName: `@${message.sender.agent?.name ?? message.sender.user!.username}`,
+          body: message.body,
+          createdAt: message.createdAt,
+          attachment: message.attachment
+            ? {
+                id: message.attachment.id,
+                fileName: message.attachment.fileName,
+                contentType: message.attachment.contentType,
+                sizeBytes: message.attachment.sizeBytes,
+              }
+            : undefined,
+        })),
     };
+  }
+
+  async updates(workspaceId: string, userId: string, channelId: string, afterSequence: number) {
+    await this.channel(workspaceId, userId, channelId);
+    const messages = await this.db.message.findMany({
+      where: {
+        conversationId: channelId,
+        threadRootId: null,
+        sequence: { gt: afterSequence },
+      },
+      orderBy: { sequence: "asc" },
+      take: 100,
+      include: {
+        sender: { include: { user: true, agent: true } },
+        attachment: true,
+      },
+    });
+    return messages.map((message) => ({
+      id: message.id,
+      sequence: message.sequence,
+      senderMemberId: message.senderMemberId,
+      senderKind: message.sender.agentId ? ("agent" as const) : ("user" as const),
+      senderName: `@${message.sender.agent?.name ?? message.sender.user!.username}`,
+      body: message.body,
+      createdAt: message.createdAt,
+      attachment: message.attachment
+        ? {
+            id: message.attachment.id,
+            fileName: message.attachment.fileName,
+            contentType: message.attachment.contentType,
+            sizeBytes: message.attachment.sizeBytes,
+          }
+        : undefined,
+    }));
   }
 
   async send(input: {
@@ -265,10 +346,29 @@ export class PublicChannels {
     );
     // Reuse persisted delivery identities on retries; never recompute recipients after mute changes.
     const message = await this.db.message.findFirstOrThrow({
-      where: { id: saved.id, conversationId: channelId, senderMemberId: member.id },
-      include: { sender: { include: { user: true } }, deliveries: { include: { agent: true } } },
+      where: {
+        id: saved.id,
+        conversationId: channelId,
+        senderMemberId: member.id,
+      },
+      include: {
+        sender: { include: { user: true } },
+        deliveries: { include: { agent: true } },
+        attachment: true,
+      },
     });
     if (created) await this.notifications?.notifyMessage(message.id);
+    if (this.realtime) {
+      try {
+        await this.realtime.messageAvailable({
+          conversationId: channelId,
+          messageId: message.id,
+          sequence: message.sequence,
+        });
+      } catch {
+        // PostgreSQL remains canonical; browser reconciliation repairs a missed publication.
+      }
+    }
     for (const delivery of message.deliveries) {
       if (!delivery.agent.computerId) continue;
       await (this.publisher ?? createCentrifugoServerApi()).publish(
@@ -289,6 +389,6 @@ export class PublicChannels {
         }),
       );
     }
-    return saved;
+    return message;
   }
 }

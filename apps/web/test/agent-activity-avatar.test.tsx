@@ -62,7 +62,14 @@ test.each([
     <AgentActivityAvatar
       agent={{ name: "dax", displayName: "Dax" }}
       status={status}
-      activity={[{ activity, level, occurredAt: new Date(Date.now() - age), message: "" }]}
+      activity={[
+        {
+          activity,
+          level,
+          occurredAt: new Date(Date.now() - age),
+          message: "",
+        },
+      ]}
     />,
   );
   const trigger = within(document.body).getByRole("button", { name: /Dax/ });

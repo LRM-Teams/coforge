@@ -9,7 +9,9 @@ export type OrderedAgentStatus = Pick<
   AgentStatus,
   "status" | "daemonInstanceId" | "clientSeq" | "observedAtMs"
 >;
-export type AgentStatusSnapshot = OrderedAgentStatus & { expiresAt: number | null };
+export type AgentStatusSnapshot = OrderedAgentStatus & {
+  expiresAt: number | null;
+};
 
 const PUT_AGENT_STATUS = `
 local raw = redis.call("GET", KEYS[1])

@@ -1,11 +1,7 @@
 import { Outlet, createFileRoute, getRouteApi, useParams, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
-import {
-  getAgentStatusConnectionToken,
-  getAgentActivityConnectionToken,
-  listAgents,
-} from "@/features/agents/agents.functions";
+import { getAgentActivityConnectionToken, listAgents } from "@/features/agents/agents.functions";
 import { getWorkspaceActivity } from "@/features/agents/agent-activity.functions";
 import { useWorkspaceActivity } from "@/features/agents/workspace-activity-realtime";
 import { useAgentStatuses } from "@/features/agents/agent-status-realtime";
@@ -38,7 +34,6 @@ function MessagesPage() {
   const createChannel = useServerFn(createPublicChannel);
   const { currentWorkspace } = appRoute.useLoaderData();
   const refreshAgents = useServerFn(listAgents);
-  const getConnectionToken = useServerFn(getAgentStatusConnectionToken);
   const refreshActivity = useServerFn(getWorkspaceActivity);
   const getActivityToken = useServerFn(getAgentActivityConnectionToken);
   const activityView = useWorkspaceActivity({
@@ -50,9 +45,11 @@ function MessagesPage() {
     agents,
     workspaceId: currentWorkspace?.id,
     refresh: refreshAgents,
-    getConnectionToken,
   });
-  const params = useParams({ from: "/_app/messages/$agentId", shouldThrow: false });
+  const params = useParams({
+    from: "/_app/messages/$agentId",
+    shouldThrow: false,
+  });
   const channelParams = useParams({
     from: "/_app/messages/channels/$channelId",
     shouldThrow: false,

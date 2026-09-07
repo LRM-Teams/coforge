@@ -54,7 +54,7 @@
   "computer_usage_session": "Session",
   "computer_usage_weekly": "Weekly",
   "computer_usage_used_percent": "{percent}% used",
-  "computer_usage_resets_at": "Resets {time}",
+  "computer_usage_resets": "Resets",
   "computer_usage_status_unavailable": "Usage is unavailable",
   "computer_usage_status_reauth": "Sign in to this Code Agent again",
   "computer_usage_status_error": "Usage scan failed",

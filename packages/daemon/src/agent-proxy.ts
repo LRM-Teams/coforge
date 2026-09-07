@@ -93,19 +93,41 @@ export function startAgentProxy(input: {
         if (
           typeof payload.requestId !== "string" ||
           payload.requestId.length === 0 ||
-          !["check", "read", "send", "mute", "unmute"].includes(payload.operation as string) ||
+          !["check", "read", "search", "send", "mute", "unmute"].includes(
+            payload.operation as string,
+          ) ||
           (payload.continueAnyway !== undefined && typeof payload.continueAnyway !== "boolean") ||
           (payload.sendDraft !== undefined && typeof payload.sendDraft !== "boolean") ||
           [payload.before, payload.after, payload.around].some(
             (anchor) => anchor !== undefined && (typeof anchor !== "string" || anchor.length === 0),
           ) ||
-          [payload.before, payload.after, payload.around].filter((anchor) => anchor !== undefined)
-            .length > 1 ||
+          (payload.operation === "read" &&
+            [payload.before, payload.after, payload.around].filter((anchor) => anchor !== undefined)
+              .length > 1) ||
+          (payload.operation === "search" && payload.around !== undefined) ||
           (payload.limit !== undefined &&
             (typeof payload.limit !== "number" ||
               !Number.isInteger(payload.limit) ||
               payload.limit < 1 ||
-              payload.limit > 100))
+              payload.limit > 100)) ||
+          (payload.offset !== undefined &&
+            (typeof payload.offset !== "number" ||
+              !Number.isInteger(payload.offset) ||
+              payload.offset < 0)) ||
+          (payload.query !== undefined &&
+            (typeof payload.query !== "string" || payload.query.trim().length === 0)) ||
+          (payload.sender !== undefined &&
+            (typeof payload.sender !== "string" ||
+              !/^@[a-z0-9][a-z0-9_-]{0,31}$/.test(payload.sender))) ||
+          (payload.sort !== undefined &&
+            payload.sort !== "relevance" &&
+            payload.sort !== "recent") ||
+          (payload.operation === "search" &&
+            !payload.query &&
+            !payload.target &&
+            !payload.sender &&
+            !payload.before &&
+            !payload.after)
         )
           return new Response("bad request", { status: 400 });
         const result = await input.runtime.agentMessage(
@@ -121,6 +143,11 @@ export function startAgentProxy(input: {
             after: typeof payload.after === "string" ? payload.after : undefined,
             around: typeof payload.around === "string" ? payload.around : undefined,
             limit: typeof payload.limit === "number" ? payload.limit : undefined,
+            query: typeof payload.query === "string" ? payload.query : undefined,
+            sender: typeof payload.sender === "string" ? payload.sender : undefined,
+            sort:
+              payload.sort === "relevance" || payload.sort === "recent" ? payload.sort : undefined,
+            offset: typeof payload.offset === "number" ? payload.offset : undefined,
             // Identity is exclusively the token binding. Never accept caller
             // supplied agentId/context fields as authorization input.
             context: binding.context,

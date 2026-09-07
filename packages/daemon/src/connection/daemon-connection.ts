@@ -30,6 +30,7 @@ import {
   encodeAgentMessageRequest,
   decodeCloudAgentMessageResponse,
   AGENT_MESSAGE_READ_METHOD,
+  AGENT_MESSAGE_SEARCH_METHOD,
   AGENT_MESSAGE_SEND_METHOD,
   AGENT_CHANNEL_MUTE_METHOD,
   AGENT_CHANNEL_UNMUTE_METHOD,
@@ -44,11 +45,14 @@ export type AgentLaunchConfig = {
 };
 
 const AGENT_STATUS_REFRESH_MS = 30_000;
+const COMPUTER_STATUS_REFRESH_MS = 30_000;
 const RECONNECT_READY_RETRY_MS = 1_000;
 
 export interface DaemonConnectionTiming {
   schedule(callback: () => void, delayMs: number): unknown;
   cancel(timer: unknown): void;
+  scheduleRepeating?(callback: () => void, delayMs: number): unknown;
+  cancelRepeating?(timer: unknown): void;
 }
 
 const defaultDaemonConnectionTiming: DaemonConnectionTiming = {
@@ -163,6 +167,7 @@ export const defaultAgentMessageHttpClient: AgentMessageHttpClient = {
       body: JSON.stringify({
         method: {
           read: AGENT_MESSAGE_READ_METHOD,
+          search: AGENT_MESSAGE_SEARCH_METHOD,
           send: AGENT_MESSAGE_SEND_METHOD,
           mute: AGENT_CHANNEL_MUTE_METHOD,
           unmute: AGENT_CHANNEL_UNMUTE_METHOD,
@@ -207,6 +212,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   readonly #supersededActivityLaunches = new Map<string, Set<string>>();
   readonly #latestStatuses = new Map<string, AgentStatus>();
   #statusRefreshTimer: ReturnType<typeof setInterval> | undefined;
+  #computerStatusRefreshTimer: unknown;
   #statusRpcQueue = Promise.resolve();
 
   constructor(
@@ -269,7 +275,7 @@ export class DaemonConnection implements DaemonConnectionClient {
           .catch(() => {});
         this.#flushPendingActivity(client);
         this.#flushLatestStatuses(client);
-        this.#startStatusRefresh();
+        this.#startStatusRefresh(config);
         if (reconnect && this.#readyRequestFactory) {
           this.#readyPublications ??= [];
           this.#startReadyRecovery(client, this.#readyRequestFactory);
@@ -370,17 +376,36 @@ export class DaemonConnection implements DaemonConnectionClient {
       .catch(() => {});
   }
 
-  #startStatusRefresh(): void {
-    if (this.#statusRefreshTimer) return;
-    this.#statusRefreshTimer = setInterval(() => {
+  #startStatusRefresh(config: DaemonConnectionConfig): void {
+    if (!this.#statusRefreshTimer) {
+      this.#statusRefreshTimer = setInterval(() => {
+        const client = this.#client;
+        if (!this.#connected || !client) return;
+        for (const status of this.#latestStatuses.values()) {
+          if (status.status !== "active") continue;
+          this.#queueAgentStatus(client, { ...status, requestId: crypto.randomUUID() });
+        }
+      }, AGENT_STATUS_REFRESH_MS);
+      this.#statusRefreshTimer.unref();
+    }
+
+    if (this.#computerStatusRefreshTimer) return;
+    const refresh = () => {
       const client = this.#client;
       if (!this.#connected || !client) return;
-      for (const status of this.#latestStatuses.values()) {
-        if (status.status !== "active") continue;
-        this.#queueAgentStatus(client, { ...status, requestId: crypto.randomUUID() });
-      }
-    }, AGENT_STATUS_REFRESH_MS);
-    this.#statusRefreshTimer.unref();
+      void client
+        .rpc(
+          DAEMON_CONNECTION_STATUS_METHOD,
+          new TextEncoder().encode(JSON.stringify({ ...config, online: true })),
+        )
+        .catch(() => {});
+    };
+    this.#computerStatusRefreshTimer = this.timing.scheduleRepeating
+      ? this.timing.scheduleRepeating(refresh, COMPUTER_STATUS_REFRESH_MS)
+      : setInterval(refresh, COMPUTER_STATUS_REFRESH_MS);
+    if (!this.timing.scheduleRepeating) {
+      (this.#computerStatusRefreshTimer as ReturnType<typeof setInterval>).unref();
+    }
   }
 
   async sendAgentDeliveryAck(ack: AgentMessageDeliveryAck): Promise<void> {
@@ -605,6 +630,12 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#cancelReadyRecovery();
     if (this.#statusRefreshTimer) clearInterval(this.#statusRefreshTimer);
     this.#statusRefreshTimer = undefined;
+    if (this.#computerStatusRefreshTimer !== undefined) {
+      if (this.timing.cancelRepeating)
+        this.timing.cancelRepeating(this.#computerStatusRefreshTimer);
+      else clearInterval(this.#computerStatusRefreshTimer as ReturnType<typeof setInterval>);
+      this.#computerStatusRefreshTimer = undefined;
+    }
     await this.#statusRpcQueue;
     this.#daemonSubscription?.unsubscribe();
     this.#daemonSubscription = undefined;

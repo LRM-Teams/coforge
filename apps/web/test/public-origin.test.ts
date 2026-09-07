@@ -5,7 +5,10 @@ import { publicOrigin } from "@/server/http/public-origin.server";
 describe("publicOrigin", () => {
   test("prefers the origin the reverse proxy reports", () => {
     const request = new Request("http://staging.coforge.cn/", {
-      headers: { "x-forwarded-proto": "https", "x-forwarded-host": "staging.coforge.cn" },
+      headers: {
+        "x-forwarded-proto": "https",
+        "x-forwarded-host": "staging.coforge.cn",
+      },
     });
 
     expect(publicOrigin(request)).toBe("https://staging.coforge.cn");
@@ -36,7 +39,10 @@ describe("publicOrigin", () => {
 
   test("keeps an explicit port that the proxy forwards", () => {
     const request = new Request("http://staging.coforge.cn/", {
-      headers: { "x-forwarded-proto": "https", "x-forwarded-host": "coforge.cn:8443" },
+      headers: {
+        "x-forwarded-proto": "https",
+        "x-forwarded-host": "coforge.cn:8443",
+      },
     });
 
     expect(publicOrigin(request)).toBe("https://coforge.cn:8443");
@@ -47,7 +53,10 @@ describe("publicOrigin", () => {
     // install command that becomes `curl -fsSL null/computer/install.sh | sh`.
     for (const scheme of ["file", "ftp", "ws", "data"]) {
       const request = new Request("http://staging.coforge.cn/", {
-        headers: { "x-forwarded-proto": scheme, "x-forwarded-host": "evil.example" },
+        headers: {
+          "x-forwarded-proto": scheme,
+          "x-forwarded-host": "evil.example",
+        },
       });
 
       expect(publicOrigin(request)).toBe("http://staging.coforge.cn");
@@ -56,7 +65,10 @@ describe("publicOrigin", () => {
 
   test("rejects a forwarded host carrying only a password", () => {
     const request = new Request("http://staging.coforge.cn/", {
-      headers: { "x-forwarded-proto": "https", "x-forwarded-host": ":pw@evil.example" },
+      headers: {
+        "x-forwarded-proto": "https",
+        "x-forwarded-host": ":pw@evil.example",
+      },
     });
 
     expect(publicOrigin(request)).toBe("http://staging.coforge.cn");
@@ -64,7 +76,10 @@ describe("publicOrigin", () => {
 
   test("rejects a forwarded host that smuggles a path", () => {
     const request = new Request("http://staging.coforge.cn/", {
-      headers: { "x-forwarded-proto": "https", "x-forwarded-host": "coforge.cn/evil" },
+      headers: {
+        "x-forwarded-proto": "https",
+        "x-forwarded-host": "coforge.cn/evil",
+      },
     });
 
     expect(publicOrigin(request)).toBe("http://staging.coforge.cn");

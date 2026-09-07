@@ -14,7 +14,11 @@ test("thread send and unread ranges stay separate from the main conversation", a
   const username = `t${id.slice(0, 8)}`;
   const user = await db.user.create({ data: { username } });
   const workspace = await db.workspace.create({
-    data: { slug: id, name: "Thread test", members: { create: { userId: user.id } } },
+    data: {
+      slug: id,
+      name: "Thread test",
+      members: { create: { userId: user.id } },
+    },
   });
   try {
     const agent = await db.agent.create({
@@ -109,7 +113,11 @@ test("thread send and unread ranges stay separate from the main conversation", a
       ]),
     ).toEqual([["other thread", otherTarget]]);
     const recovery = await repo.readAgentRecoveryContext(workspace.id, agent.id);
-    expect(recovery.unreadSummary).toEqual({ [`@${username}`]: 1, [target]: 1, [otherTarget]: 1 });
+    expect(recovery.unreadSummary).toEqual({
+      [`@${username}`]: 1,
+      [target]: 1,
+      [otherTarget]: 1,
+    });
     expect(recovery.resumeMessages.find((m) => m.target === target)?.latestSender).toBe(
       `@${username}`,
     );
@@ -120,7 +128,9 @@ test("thread send and unread ranges stay separate from the main conversation", a
     });
     expect(
       (
-        await repo.readMessages(workspace.id, agent.id, target, { after: reply.id.slice(0, 8) })
+        await repo.readMessages(workspace.id, agent.id, target, {
+          after: reply.id.slice(0, 8),
+        })
       ).map((m) => m.body),
     ).toEqual(["new thread message", "thread response"]);
     expect(
@@ -213,7 +223,9 @@ test("thread send and unread ranges stay separate from the main conversation", a
       ),
     });
     await expect(
-      repo.readMessages(workspace.id, agent.id, `@${username}`, { around: "aaaaaaaa" }),
+      repo.readMessages(workspace.id, agent.id, `@${username}`, {
+        around: "aaaaaaaa",
+      }),
     ).rejects.toThrow("ambiguous");
     await expect(
       repo.readMessages(workspace.id, agent.id, `@${username}:aaaaaaaa`),
@@ -227,10 +239,14 @@ test("thread send and unread ranges stay separate from the main conversation", a
       ).map((m) => m.id),
     ).toEqual(["aaaaaaaa-0000-4000-8000-000000000001"]);
     await expect(
-      repo.readMessages(workspace.id, agent.id, otherTarget, { before: reply.id }),
+      repo.readMessages(workspace.id, agent.id, otherTarget, {
+        before: reply.id,
+      }),
     ).rejects.toThrow("outside this target");
     await expect(
-      repo.readMessages(workspace.id, agent.id, `@${username}`, { around: crypto.randomUUID() }),
+      repo.readMessages(workspace.id, agent.id, `@${username}`, {
+        around: crypto.randomUUID(),
+      }),
     ).rejects.toThrow("not found");
     const secondAgent = await db.agent.create({
       data: {
@@ -269,7 +285,9 @@ test("thread send and unread ranges stay separate from the main conversation", a
       collisionRecovery.unreadSummary[`@${username}:aaaaaaaa-0000-4000-8000-000000000002`],
     ).toBe(1);
   } finally {
-    await db.agentMessageDelivery.deleteMany({ where: { workspaceId: workspace.id } });
+    await db.agentMessageDelivery.deleteMany({
+      where: { workspaceId: workspace.id },
+    });
     await db.message.deleteMany({ where: { workspaceId: workspace.id } });
     await db.workspace.delete({ where: { id: workspace.id } });
     await db.user.delete({ where: { id: user.id } });

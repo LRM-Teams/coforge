@@ -80,7 +80,9 @@ export async function readAuthorizedAttachment(
     conversationId?: string;
   },
 ) {
-  const attachment = await db.attachment.findUnique({ where: { id: input.attachmentId } });
+  const attachment = await db.attachment.findUnique({
+    where: { id: input.attachmentId },
+  });
   if (!attachment || !attachment.messageId) throw new AppError("NOT_FOUND");
   const allowed = input.userId
     ? Boolean(
@@ -88,7 +90,10 @@ export async function readAuthorizedAttachment(
           where: {
             id: attachment.conversationId,
             OR: [
-              { channelName: null, members: { some: { userId: input.userId } } },
+              {
+                channelName: null,
+                members: { some: { userId: input.userId } },
+              },
               {
                 channelName: { not: null },
                 workspace: { members: { some: { userId: input.userId } } },
@@ -101,7 +106,10 @@ export async function readAuthorizedAttachment(
     : Boolean(
         input.agentId &&
         (await db.conversationMember.findFirst({
-          where: { conversationId: attachment.conversationId, agentId: input.agentId },
+          where: {
+            conversationId: attachment.conversationId,
+            agentId: input.agentId,
+          },
         })),
       );
   if (!allowed || (input.conversationId && input.conversationId !== attachment.conversationId))

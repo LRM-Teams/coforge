@@ -7,6 +7,7 @@ import {
   activityForAgent,
   type WorkspaceActivityView,
 } from "@/features/agents/workspace-activity-realtime";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import type { AgentStatusView } from "@/features/agents/agent-status-realtime";
@@ -28,7 +29,11 @@ const BackToAgentsContext = createContext<(() => void) | undefined>(undefined);
 const ConversationAgentStatusContext = createContext<"active" | "inactive" | undefined | null>(
   null,
 );
-const defaultActivity: WorkspaceActivityView = { activity: {}, loading: false, error: false };
+const defaultActivity: WorkspaceActivityView = {
+  activity: {},
+  loading: false,
+  error: false,
+};
 const ConversationActivityContext = createContext(defaultActivity);
 const ConversationTimeZoneContext = createContext<string | undefined>(undefined);
 
@@ -85,14 +90,15 @@ export function ConversationLayout({
           <div className="mb-1 flex h-9 items-center justify-between px-2.5">
             <h2 className="text-xs font-medium text-muted-foreground">{m.channels_title()}</h2>
             {onCreateChannel && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-xs"
                 aria-label={m.channel_create()}
                 onClick={() => setCreateOpen(true)}
-                className="rounded-md p-1 hover:bg-muted"
               >
                 <Plus aria-hidden="true" className="size-4" />
-              </button>
+              </Button>
             )}
           </div>
           <ul aria-label={m.channels_title()} className="mb-4">
@@ -199,14 +205,16 @@ export function BackToAgents() {
   }
 
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="icon"
       onClick={back}
       aria-label={m.messages_title()}
-      className="-ml-1 flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-muted md:hidden"
+      className="-ml-1 md:hidden"
     >
       <MessagesSquare aria-hidden="true" className="size-4" />
-    </button>
+    </Button>
   );
 }
 

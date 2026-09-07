@@ -133,7 +133,10 @@ test("passes Authing preferred_username to first-identity resolution and stores 
   });
   expect(completed.user.username).toBe("ada");
   expect(
-    readBrowserSession({ sessionSecret, cookieHeader: cookieHeader(completed.sessionCookie) }),
+    readBrowserSession({
+      sessionSecret,
+      cookieHeader: cookieHeader(completed.sessionCookie),
+    }),
   ).toMatchObject({ username: "ada" });
 });
 
@@ -196,7 +199,11 @@ test("endBrowserLogin sends Authing the id_token hint so it can redirect back", 
     code: "valid-code",
     state,
     cookieHeader: cookieHeader(started.stateCookie),
-    authing: fakeAuthing({ sub: "authing-user-1", email: "ada@example.com", name: "Ada" }),
+    authing: fakeAuthing({
+      sub: "authing-user-1",
+      email: "ada@example.com",
+      name: "Ada",
+    }),
   });
   const ended = endBrowserLogin({
     config,

@@ -46,7 +46,10 @@ export async function handleAttachmentUpload(
     }
     const conversationId = form.get("conversationId");
     const file = form.get("file");
-    const input = attachmentUploadInputSchema.safeParse({ conversationId, file });
+    const input = attachmentUploadInputSchema.safeParse({
+      conversationId,
+      file,
+    });
     if (!input.success) throw new AppError("INVALID_INPUT");
     const db = dependencies.database();
     if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");

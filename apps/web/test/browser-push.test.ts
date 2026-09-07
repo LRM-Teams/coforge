@@ -81,7 +81,10 @@ test("shows installation help only in iPhone and iPad Safari outside standalone 
 
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
-    value: { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X)", maxTouchPoints: 0 },
+    value: {
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X)",
+      maxTouchPoints: 0,
+    },
   });
   expect(shouldShowAddToHomeScreenGuide()).toBeFalse();
 });
@@ -92,7 +95,10 @@ test("fails a browser push registration that never settles instead of hanging th
     configurable: true,
     value: { permission: "granted" },
   });
-  Object.defineProperty(globalThis, "PushManager", { configurable: true, value: class {} });
+  Object.defineProperty(globalThis, "PushManager", {
+    configurable: true,
+    value: class {},
+  });
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: { Notification: class {}, PushManager: class {} },
@@ -133,7 +139,10 @@ describe("unsubscribeCurrentBrowserPush", () => {
       configurable: true,
       value: { permission: "granted" },
     });
-    Object.defineProperty(globalThis, "PushManager", { configurable: true, value: class {} });
+    Object.defineProperty(globalThis, "PushManager", {
+      configurable: true,
+      value: class {},
+    });
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: { Notification: class {}, PushManager: class {} },

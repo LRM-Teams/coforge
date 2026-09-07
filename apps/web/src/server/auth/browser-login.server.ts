@@ -94,7 +94,11 @@ export async function completeBrowserLogin(input: {
   authing: TokenExchanger;
   resolveUser?: InternalUserResolver;
   now?: () => number;
-}): Promise<{ user: BrowserUser; sessionCookie: string; clearStateCookie: string }> {
+}): Promise<{
+  user: BrowserUser;
+  sessionCookie: string;
+  clearStateCookie: string;
+}> {
   const now = input.now ?? Date.now;
   const signedState = readSigned<SignedState>(
     readCookie(input.cookieHeader, STATE_COOKIE),

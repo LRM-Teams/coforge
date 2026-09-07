@@ -4,7 +4,7 @@ import {
   encodeComputerRegisterResponse,
 } from "@coforge/protocol/codec";
 import { ComputerRegistrationError } from "../computers/registration.server";
-import { setComputerStatus } from "./computer-status.server";
+import { getComputerStatusCache, type ComputerStatusCache } from "./computer-status.server";
 import { WorkspaceQueryError, WorkspaceQueryUseCase } from "../workspaces/query.server";
 import { decodeWorkspaceGetRequest, decodeWorkspaceListRequest } from "@coforge/protocol/codec";
 import {
@@ -21,6 +21,7 @@ import { PublishAgentRuntimeControl } from "../agents/agent-runtime-control.serv
 import { decodeAgentMessageDeliveryAck } from "@coforge/protocol";
 import { decodeAgentMessageRequest, encodeCloudAgentMessageResponse } from "@coforge/protocol";
 import { SendDirectMessage } from "../conversations/direct-message.server";
+import { CentrifugoConversationRealtime } from "../conversations/conversation-realtime.server";
 import { getMessageRequestIdempotency } from "../conversations/redis-message-request-idempotency.server";
 import type { MessageRequestIdempotency } from "../conversations/message-request-idempotency.server";
 import type { MessageNotifier } from "../notifications/web-push-composition.server";
@@ -61,10 +62,16 @@ export function createAgentDeliveryAckMethod(repository: {
     )
       return { code: 403, message: "workspace scope is not authorized" };
     try {
-      await repository.receiveDeliveryAck({ ...ack, computerId: metadata.principal.computerId });
+      await repository.receiveDeliveryAck({
+        ...ack,
+        computerId: metadata.principal.computerId,
+      });
       return new Uint8Array();
     } catch {
-      return { code: 403, message: "delivery acknowledgement is not authorized" };
+      return {
+        code: 403,
+        message: "delivery acknowledgement is not authorized",
+      };
     }
   };
 }
@@ -89,7 +96,7 @@ export function createAgentStatusMethod(
     getById(id: string): Promise<{ workspaceId: string; computerId?: string } | undefined>;
   },
   statuses?: AgentStatusCache,
-  events?: CentrifugoServerApi,
+  events?: Pick<CentrifugoServerApi, "publish">,
   now = Date.now,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
@@ -125,13 +132,13 @@ export function createAgentStatusMethod(
 export function createAgentMessageMethod(
   repository: any,
   _centrifugo: any,
-  operation: "read" | "send" | "mute" | "unmute",
+  operation: "read" | "search" | "send" | "mute" | "unmute",
   authorization?: {
     canUseAgent(workspaceId: string, agentId: string, userId: string): Promise<boolean>;
   },
   idempotency?: MessageRequestIdempotency,
   holdStore?: AgentMessageHoldStore,
-  notifications?: MessageNotifier,
+  _notifications?: MessageNotifier,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
     const request = decodeAgentMessageRequest(payload);
@@ -147,8 +154,35 @@ export function createAgentMessageMethod(
       return { code: 403, message: "agent is not authorized" };
     if (request.operation !== operation)
       return { code: 400, message: "operation does not match method" };
-    if (!request.target.startsWith("@") && !isChannelMessageTarget(request.target))
+    if (
+      operation !== "search" &&
+      (!request.target ||
+        (!request.target.startsWith("@") && !isChannelMessageTarget(request.target)))
+    )
       return { code: 400, message: "target must be @username or #channel" };
+    if (operation === "search") {
+      if (!repository.searchMessages) throw new Error("Agent message search is unavailable");
+      const messages = await repository.searchMessages(request.workspaceId, agentId, {
+        query: request.query,
+        target: request.target || undefined,
+        sender: request.sender,
+        sort: request.sort,
+        before: request.before,
+        after: request.after,
+        limit: request.limit,
+        offset: request.offset,
+      });
+      return encodeCloudAgentMessageResponse({
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messages: messages.map((message: any) => ({
+          ...message,
+          createdAt: message.createdAt.toISOString(),
+        })),
+      });
+    }
     if (operation === "mute" || operation === "unmute") {
       if (!isChannelMessageTarget(request.target))
         return { code: 400, message: "mute requires a channel target" };
@@ -198,7 +232,10 @@ export function createAgentMessageMethod(
         requestId: request.requestId,
         accepted: true,
         attentionCount: 0,
-        messages: messages.map((m: any) => ({ ...m, createdAt: m.createdAt.toISOString() })),
+        messages: messages.map((m: any) => ({
+          ...m,
+          createdAt: m.createdAt.toISOString(),
+        })),
         hasOlder: result.hasOlder,
         hasNewer: result.hasNewer,
         olderCursor: messages[0]?.id,
@@ -269,7 +306,10 @@ export function createAgentMessageMethod(
         requestId: request.requestId,
         accepted: false,
         attentionCount: heldMessages.length,
-        messages: heldMessages.map((m: any) => ({ ...m, createdAt: m.createdAt.toISOString() })),
+        messages: heldMessages.map((m: any) => ({
+          ...m,
+          createdAt: m.createdAt.toISOString(),
+        })),
         sideEffectDecision: "hold",
         holdToken: token,
         anywayAllowed: hold.stage === 2,
@@ -293,7 +333,7 @@ export function createAgentMessageMethod(
       repository,
       idempotency ?? getMessageRequestIdempotency(),
       _centrifugo,
-      notifications,
+      new CentrifugoConversationRealtime(_centrifugo),
     ).executeFromAgent({
       requestId: request.requestId,
       workspaceId: request.workspaceId,
@@ -347,7 +387,10 @@ export const createDaemonRuntimeReadyMethod =
       metadata.principal.workspaceId !== request.workspaceId ||
       metadata.principal.computerId !== request.computerId
     )
-      return { code: 403, message: "daemon runtime identity is not authorized" };
+      return {
+        code: 403,
+        message: "daemon runtime identity is not authorized",
+      };
     if (
       !request.workspaceId ||
       !request.computerId ||
@@ -367,8 +410,10 @@ export const createDaemonRuntimeReadyMethod =
     }
   };
 
-export function createDaemonConnectionStatusMethod(): CentrifugoRpcMethod {
-  return (payload, metadata) => {
+export function createDaemonConnectionStatusMethod(
+  statusCache?: ComputerStatusCache,
+): CentrifugoRpcMethod {
+  return async (payload, metadata) => {
     const request = JSON.parse(new TextDecoder().decode(payload)) as {
       workspaceId?: string;
       computerId?: string;
@@ -380,7 +425,10 @@ export function createDaemonConnectionStatusMethod(): CentrifugoRpcMethod {
       typeof request.online !== "boolean"
     )
       return { code: 403, message: "invalid daemon connection status" };
-    setComputerStatus(request.workspaceId, request.computerId, request.online);
+    await (statusCache ?? getComputerStatusCache()).put(
+      { workspaceId: request.workspaceId, computerId: request.computerId },
+      request.online,
+    );
     return new Uint8Array();
   };
 }
@@ -399,7 +447,10 @@ export function createDaemonRuntimeCodeAgentsUpdateMethod(inventory: {
       metadata.principal.workspaceId !== request.workspaceId ||
       metadata.principal.computerId !== request.computerId
     )
-      return { code: 403, message: "daemon runtime identity is not authorized" };
+      return {
+        code: 403,
+        message: "daemon runtime identity is not authorized",
+      };
     if (
       request.protocolMajor !== 1 ||
       !request.requestId ||
@@ -430,7 +481,10 @@ export function createDaemonRuntimeUsageScanResultMethod(
       metadata.principal.workspaceId !== response.workspaceId ||
       metadata.principal.computerId !== response.computerId
     )
-      return { code: 403, message: "daemon runtime identity is not authorized" };
+      return {
+        code: 403,
+        message: "daemon runtime identity is not authorized",
+      };
     if (response.protocolMajor !== 1 || !response.requestId || !response.provider)
       return { code: 400, message: "invalid usage scan result" };
     const snapshot = response.snapshotJson
@@ -710,7 +764,10 @@ export class CentrifugoRpcHandler {
     try {
       await this.#authorizeProxyRequest?.(request);
     } catch {
-      return errorResponse({ code: 403, message: "RPC request is not authorized" });
+      return errorResponse({
+        code: 403,
+        message: "RPC request is not authorized",
+      });
     }
     let envelope: CentrifugoRpcRequest;
     try {

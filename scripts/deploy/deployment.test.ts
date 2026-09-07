@@ -412,6 +412,8 @@ test("authenticates and declares the Computer-directed Daemon channel in Centrif
     const rpcConfig = config.slice(config.indexOf("\nrpc:\n"));
     expect(config).toContain(connectEndpoint);
     expect(channelConfig).toContain("    - name: daemon\n");
+    expect(channelConfig).toContain("    - name: status\n");
+    expect(channelConfig).toContain("    - name: chat\n");
     expect(rpcConfig).toContain("    - name: daemon\n");
   }
 });

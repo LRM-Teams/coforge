@@ -1,4 +1,4 @@
-import { Cloud, Laptop, Monitor, Server, type LucideIcon } from "lucide-react";
+import { Cloud, Monitor, type LucideIcon } from "lucide-react";
 
 import { m } from "@/paraglide/messages";
 
@@ -42,8 +42,5 @@ export function computerLabel(computer: ComputerIdentity): string {
 
 export function computerIcon(computer: ComputerIdentity): LucideIcon {
   if (computerKind(computer.kind) === "cloud") return Cloud;
-  const platform = computerPlatform(computer.machineId);
-  if (platform === "macos") return Laptop;
-  if (platform === "linux") return Server;
   return Monitor;
 }

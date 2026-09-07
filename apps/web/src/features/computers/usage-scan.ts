@@ -13,7 +13,11 @@ export async function scanRuntimeUsage(
   const result = await waitForUsageScanResult(started.scanId, () =>
     readUsage({ data: { computerId, provider } }),
   );
-  return { status: usageStatus(result.status), message: result.message, snapshot: result.snapshot };
+  return {
+    status: usageStatus(result.status),
+    message: result.message,
+    snapshot: result.snapshot,
+  };
 }
 
 function usageStatus(value: string): UsageView["status"] {

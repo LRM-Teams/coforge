@@ -197,7 +197,10 @@ describe("PublishAgentRuntimeControl", () => {
         update: async () => current,
       },
       {
-        readAgentRecoveryContext: async () => ({ resumeMessages: [], unreadSummary: {} }),
+        readAgentRecoveryContext: async () => ({
+          resumeMessages: [],
+          unreadSummary: {},
+        }),
         readPendingAgentDeliveries: async () => [],
       },
       { publish: async (_channel, payload) => void payloads.push(payload) },
@@ -210,7 +213,9 @@ describe("PublishAgentRuntimeControl", () => {
     releaseMutation();
     await Promise.all([mutation, recovering]);
 
-    expect(decodeAgentStartIntent(payloads[0]!)).toMatchObject({ model: "fresh-model" });
+    expect(decodeAgentStartIntent(payloads[0]!)).toMatchObject({
+      model: "fresh-model",
+    });
   });
 
   test("publishes an Agent start when optional model and reasoning are empty", async () => {
@@ -244,7 +249,10 @@ describe("PublishAgentRuntimeControl", () => {
     );
 
     expect(channels).toEqual(["daemon:computer-1"]);
-    expect(decodeAgentStartIntent(payloads[0]!)).toMatchObject({ model: "", reasoning: "" });
+    expect(decodeAgentStartIntent(payloads[0]!)).toMatchObject({
+      model: "",
+      reasoning: "",
+    });
   });
 
   test("derives the start target from the authorized Agent and routes scoped activity", async () => {
@@ -276,7 +284,9 @@ describe("PublishAgentRuntimeControl", () => {
       },
       "u",
     );
-    expect(decodeAgentStartIntent(published[0]!)).toMatchObject({ computerId: "computer-1" });
+    expect(decodeAgentStartIntent(published[0]!)).toMatchObject({
+      computerId: "computer-1",
+    });
     await useCase.receiveActivity(
       encodeAgentActivity({
         protocolMajor: 1,
@@ -352,7 +362,13 @@ describe("PublishAgentRuntimeControl", () => {
     );
     await expect(
       denied.stop(
-        { protocolMajor: 1, requestId: "x", workspaceId: "w", computerId: "c", agentId: "a" },
+        {
+          protocolMajor: 1,
+          requestId: "x",
+          workspaceId: "w",
+          computerId: "c",
+          agentId: "a",
+        },
         "u",
       ),
     ).rejects.toThrow("authorized");

@@ -40,8 +40,17 @@ test("keeps separate launches and bounds the newest-first observation window", (
 });
 
 test("launch sequence wins over skewed timestamps when deciding recovery", () => {
-  const failure = { ...entry(1), activity: "error", level: "error", occurredAt: new Date(9000) };
-  const recovery = { ...entry(2), activity: "working", occurredAt: new Date(8000) };
+  const failure = {
+    ...entry(1),
+    activity: "error",
+    level: "error",
+    occurredAt: new Date(9000),
+  };
+  const recovery = {
+    ...entry(2),
+    activity: "working",
+    occurredAt: new Date(8000),
+  };
   expect(mergeAgentActivity([failure], [recovery]).map((value) => value.clientSeq)).toEqual([2, 1]);
   expect(latestActivityError([failure, recovery])).toBeUndefined();
 });

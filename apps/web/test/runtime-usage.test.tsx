@@ -13,7 +13,11 @@ afterEach(() => {
   overwriteGetLocale(() => baseLocale);
 });
 
-const codex = { provider: "codex" as const, version: "1", displayName: "Custom Codex" };
+const codex = {
+  provider: "codex" as const,
+  version: "1",
+  displayName: "Custom Codex",
+};
 
 test("usage scan is on demand and renders a real snapshot", async () => {
   let scans = 0;
@@ -69,10 +73,19 @@ test("reads as Chinese rather than English word order in the Chinese catalog", (
 test("renders a Claude rate-limit observation without inventing a percentage", () => {
   render(
     <RuntimeUsage
-      runtime={{ provider: "claude-code", version: "1", displayName: "Claude Code" }}
+      runtime={{
+        provider: "claude-code",
+        version: "1",
+        displayName: "Claude Code",
+      }}
       usage={{
         status: "available",
-        snapshot: { primary: { status: "rate-limited", resetsAt: "2026-09-04T03:00:00.000Z" } },
+        snapshot: {
+          primary: {
+            status: "rate-limited",
+            resetsAt: "2026-09-04T03:00:00.000Z",
+          },
+        },
       }}
       onScan={() => undefined}
     />,

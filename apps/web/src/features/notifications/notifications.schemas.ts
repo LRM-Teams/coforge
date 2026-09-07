@@ -21,7 +21,9 @@ function isSafePushEndpoint(value: string) {
   }
 }
 
-export const browserNotificationPreferenceInput = z.object({ enabled: z.boolean() });
+export const browserNotificationPreferenceInput = z.object({
+  enabled: z.boolean(),
+});
 
 export const browserPushSubscriptionInput = z.object({
   endpoint: z.string().max(4_096).refine(isSafePushEndpoint),

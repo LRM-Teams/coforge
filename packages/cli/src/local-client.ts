@@ -8,7 +8,7 @@ export function connectLocal(
   proxyUrl = Bun.env.COFORGE_AGENT_PROXY_URL ?? "",
 ) {
   const call = async (
-    operation: "check" | "read" | "send" | "mute" | "unmute",
+    operation: "check" | "read" | "search" | "send" | "mute" | "unmute",
     target?: string,
     body?: string,
     options?: {
@@ -18,6 +18,10 @@ export function connectLocal(
       after?: string;
       around?: string;
       limit?: number;
+      query?: string;
+      sender?: string;
+      sort?: "relevance" | "recent";
+      offset?: number;
     },
   ) => {
     if (!context) throw new Error("coforge agent context is not configured");
@@ -51,6 +55,8 @@ export function connectLocal(
       target: string,
       options?: { before?: string; after?: string; around?: string; limit?: number },
     ) => call("read", target, undefined, options),
+    search: (options: import("../index").MessageSearchOptions) =>
+      call("search", options.target, undefined, options),
     send: (
       target: string,
       body?: string,

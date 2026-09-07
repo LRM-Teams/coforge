@@ -4,6 +4,80 @@ import { buildUserAgentConversationCreateInput } from "../src/server/db/reposito
 import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
 
 describe("PrismaDirectConversationRepository", () => {
+  test("searches only canonical messages in the Agent's Workspace and readable conversations", async () => {
+    const queries: object[] = [];
+    const db = {
+      $queryRaw: async () => [{ query: "'release' & 'plan'" }],
+      message: {
+        findMany: async (input: object) => {
+          queries.push(input);
+          return [
+            {
+              id: "message-1",
+              sequence: 41,
+              body: "Release plan",
+              createdAt: new Date("2026-09-07T10:00:00Z"),
+              threadRootId: null,
+              sender: { agentId: null, agent: null, user: { username: "ada" } },
+              conversation: {
+                channelName: "general",
+                members: [{ user: { username: "ada" } }],
+              },
+            },
+          ];
+        },
+      },
+    } as unknown as PrismaClient;
+    const result = await new PrismaDirectConversationRepository(db).searchMessages(
+      "workspace-1",
+      "agent-1",
+      {
+        query: "release plan",
+        sender: "@ada",
+        limit: 5,
+      },
+    );
+    expect(queries[0]).toMatchObject({
+      where: {
+        workspaceId: "workspace-1",
+        conversation: { members: { some: { agentId: "agent-1" } } },
+        body: { search: "'release' & 'plan'" },
+        sender: {
+          OR: [{ user: { username: "ada" } }, { agent: { name: "ada" } }],
+        },
+      },
+      orderBy: [
+        {
+          _relevance: {
+            fields: ["body"],
+            search: "'release' & 'plan'",
+            sort: "desc",
+          },
+        },
+        { createdAt: "desc" },
+        { id: "desc" },
+      ],
+      take: 5,
+    });
+    expect(result).toEqual([
+      {
+        id: "message-1",
+        sequence: 41,
+        sender: "@ada",
+        target: "#general",
+        body: "Release plan",
+        createdAt: new Date("2026-09-07T10:00:00Z"),
+      },
+    ]);
+    await new PrismaDirectConversationRepository(db).searchMessages("workspace-1", "agent-1", {
+      query: "release",
+      sort: "recent",
+    });
+    expect(queries[1]).toMatchObject({
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    });
+  });
+
   test("scopes a delivery ACK to the Agent's current Computer assignment", async () => {
     const updates: object[] = [];
     const db = {
@@ -53,6 +127,137 @@ describe("PrismaDirectConversationRepository", () => {
         ],
       },
     });
+  });
+
+  test("pages browser history by thread roots and keeps each loaded thread intact", async () => {
+    const queries: object[] = [];
+    const message = (id: string, sequence: number, replies: object[] = []) => ({
+      id,
+      sequence,
+      threadRootId: null,
+      body: id,
+      createdAt: new Date(sequence),
+      attachment: null,
+      sender: { userId: "user-1", user: { username: "alice" }, agent: null },
+      replies,
+    });
+    const reply = (id: string, sequence: number, threadRootId: string) => ({
+      ...message(id, sequence),
+      threadRootId,
+      replies: undefined,
+    });
+    const db = {
+      conversation: {
+        findUnique: async (input: object) => {
+          queries.push(input);
+          return {
+            members: [
+              {
+                id: "user-member",
+                userId: "user-1",
+                agentId: null,
+                threadReads: [],
+                user: { username: "alice" },
+                agent: null,
+              },
+              {
+                id: "agent-member",
+                userId: null,
+                agentId: "agent-1",
+                threadReads: [],
+                user: null,
+                agent: { id: "agent-1", name: "helper", displayName: "Helper" },
+              },
+            ],
+            messages: [
+              message("root-5", 5),
+              message("root-3", 3, [reply("reply-4", 4, "root-3")]),
+              message("root-1", 1, [reply("reply-2", 2, "root-1")]),
+            ],
+          };
+        },
+      },
+    } as unknown as PrismaClient;
+    class TestConversationRepository extends PrismaDirectConversationRepository {
+      override async getOrCreateUserAgent() {
+        return { id: "conversation-1" };
+      }
+    }
+
+    const page = await new TestConversationRepository(db).openForUser(
+      "workspace-1",
+      "user-1",
+      "agent-1",
+      { beforeSequence: 6, limit: 2 },
+    );
+
+    expect(queries[0]).toMatchObject({
+      select: {
+        messages: {
+          where: { threadRootId: null, sequence: { lt: 6 } },
+          orderBy: { sequence: "desc" },
+          take: 3,
+        },
+      },
+    });
+    expect(page.hasOlder).toBe(true);
+    expect(page.messages.map(({ id, sequence }) => [id, sequence])).toEqual([
+      ["root-3", 3],
+      ["reply-4", 4],
+      ["root-5", 5],
+    ]);
+  });
+
+  test("polls only messages after the browser cursor, including replies to older roots", async () => {
+    const queries: object[] = [];
+    const db = {
+      message: {
+        findMany: async (input: object) => {
+          queries.push(input);
+          return [
+            {
+              id: "reply-12",
+              sequence: 12,
+              threadRootId: "old-root",
+              body: "new reply",
+              createdAt: new Date(12),
+              attachment: null,
+              sender: {
+                userId: null,
+                user: null,
+                agent: { name: "helper", displayName: "Helper" },
+              },
+            },
+          ];
+        },
+      },
+    } as unknown as PrismaClient;
+    class TestConversationRepository extends PrismaDirectConversationRepository {
+      override async getOrCreateUserAgent() {
+        return { id: "conversation-1" };
+      }
+    }
+
+    const updates = await new TestConversationRepository(db).updatesForUser(
+      "workspace-1",
+      "user-1",
+      "agent-1",
+      11,
+    );
+
+    expect(queries[0]).toMatchObject({
+      where: { conversationId: "conversation-1", sequence: { gt: 11 } },
+      orderBy: { sequence: "asc" },
+      take: 100,
+    });
+    expect(updates).toMatchObject([
+      {
+        id: "reply-12",
+        sequence: 12,
+        threadRootId: "old-root",
+        senderKind: "agent",
+      },
+    ]);
   });
 
   test("advances across the Agent's own message when reading the next canonical range", async () => {
@@ -272,7 +477,9 @@ describe("PrismaDirectConversationRepository", () => {
     );
 
     expect(takes).toEqual([100, 40]);
-    expect(memberQueries[0]).toMatchObject({ orderBy: { conversationId: "asc" } });
+    expect(memberQueries[0]).toMatchObject({
+      orderBy: { conversationId: "asc" },
+    });
     expect(messageConversations).toEqual(["conversation-0", "conversation-1"]);
     expect(result.resumeMessages).toHaveLength(100);
     expect(result.resumeMessages.slice(0, 2)).toEqual([
@@ -386,7 +593,11 @@ describe("PrismaDirectConversationRepository", () => {
     );
 
     expect(queries[0]).toMatchObject({
-      where: { workspaceId: "workspace-1", agentId: "agent-1", receivedAt: null },
+      where: {
+        workspaceId: "workspace-1",
+        agentId: "agent-1",
+        receivedAt: null,
+      },
       orderBy: [{ createdAt: "asc" }, { deliveryId: "asc" }],
     });
     expect(queries[0]).not.toHaveProperty("take");
@@ -413,7 +624,10 @@ describe("PrismaDirectConversationRepository", () => {
             conversationId: "conversation-1",
             sequence: 1,
             conversation: { channelName: null },
-            message: { body: "body", sender: { user: { username: "Invalid Name" } } },
+            message: {
+              body: "body",
+              sender: { user: { username: "Invalid Name" } },
+            },
           },
         ],
       },

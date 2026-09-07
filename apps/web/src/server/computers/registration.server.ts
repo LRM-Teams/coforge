@@ -54,7 +54,11 @@ export class ComputerRegistrar {
       principal,
     );
     if (!workspace) throw new ComputerRegistrationError(403, "workspace access denied");
-    const registration = await this.deps.registrations.register({ principal, workspace, request });
+    const registration = await this.deps.registrations.register({
+      principal,
+      workspace,
+      request,
+    });
     return {
       ...registration,
       protocolMajor: COMPUTER_REGISTER_PROTOCOL_MAJOR,

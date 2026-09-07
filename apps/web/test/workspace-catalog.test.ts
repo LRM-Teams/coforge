@@ -14,7 +14,10 @@ test("lists the User's Workspaces in creation order", async () => {
   const catalog = new WorkspaceCatalog(memoryStore());
   await catalog.createForUser(ada, { name: "Ada's Workspace", slug: "ada" });
   await catalog.createForUser(ada, { name: "Research", slug: "research" });
-  await catalog.createForUser(grace, { name: "Grace's Workspace", slug: "grace" });
+  await catalog.createForUser(grace, {
+    name: "Grace's Workspace",
+    slug: "grace",
+  });
   expect(await catalog.listForUser(ada)).toEqual([
     { id: "workspace-ada", slug: "ada", name: "Ada's Workspace" },
     { id: "workspace-research", slug: "research", name: "Research" },
@@ -76,7 +79,10 @@ test("does not expose unexpected persistence errors", async () => {
   };
 
   await expect(
-    new WorkspaceCatalog(store).createForUser(ada, { name: "Research", slug: "research" }),
+    new WorkspaceCatalog(store).createForUser(ada, {
+      name: "Research",
+      slug: "research",
+    }),
   ).rejects.toThrow("workspace creation failed");
 });
 

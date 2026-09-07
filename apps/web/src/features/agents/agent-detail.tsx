@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 
 import { Avatar } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { RelativeTime } from "@/components/ui/relative-time";
 import { useAppToast } from "@/components/ui/toast";
 import {
   Dialog,
@@ -15,7 +16,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { m } from "@/paraglide/messages";
-import { formatDateForDisplay } from "@/lib/dates";
 import { AgentRuntimeFields, type RuntimeOptions } from "./agent-runtime-fields";
 import type { UpdateAgentInput } from "./agent.schemas";
 import { latestActivityError, type ActivityEntry } from "./agent-activity";
@@ -146,12 +146,17 @@ function Profile({
   const canConfigureCredential =
     detail.ownedByCurrentUser && providerKind === "coforge" && Boolean(providerId);
   const fields = [
-    [m.agent_profile_id(), detail.id],
-    [m.agent_profile_name(), detail.name],
-    [m.agent_profile_display_name(), detail.displayName],
-    ...(detail.description ? [[m.agent_profile_description(), detail.description]] : []),
-    [m.agent_profile_owner(), `@${detail.owner.username}`],
-    [m.agent_profile_created(), formatDateForDisplay(detail.createdAt, timeZone)],
+    { label: m.agent_profile_id(), value: detail.id },
+    { label: m.agent_profile_name(), value: detail.name },
+    { label: m.agent_profile_display_name(), value: detail.displayName },
+    ...(detail.description
+      ? [{ label: m.agent_profile_description(), value: detail.description }]
+      : []),
+    { label: m.agent_profile_owner(), value: `@${detail.owner.username}` },
+    {
+      label: m.agent_profile_created(),
+      value: <RelativeTime value={detail.createdAt} timeZone={timeZone} />,
+    },
   ];
   return (
     <div className="mt-6 grid gap-5 lg:grid-cols-2">
@@ -168,7 +173,7 @@ function Profile({
           )}
         </div>
         <dl className="mt-4 grid gap-4">
-          {fields.map(([label, value]) => (
+          {fields.map(({ label, value }) => (
             <div key={label}>
               <dt className="text-xs text-muted-foreground">{label}</dt>
               <dd className="mt-1 text-sm">{value}</dd>
@@ -482,12 +487,11 @@ function Activity({ activity, timeZone }: { activity: ActivityEntry[]; timeZone:
           key={`${entry.launchId}:${entry.clientSeq}`}
           className="grid gap-1 py-2 sm:grid-cols-[max-content_max-content_minmax(0,1fr)] sm:items-start sm:gap-3"
         >
-          <time
+          <RelativeTime
+            value={entry.occurredAt}
+            timeZone={timeZone}
             className="whitespace-nowrap text-xs tabular-nums text-muted-foreground sm:pt-0.5"
-            dateTime={new Date(entry.occurredAt).toISOString()}
-          >
-            {formatDateForDisplay(entry.occurredAt, timeZone)}
-          </time>
+          />
           <span className="flex items-center gap-2 font-medium">
             <span
               aria-hidden="true"

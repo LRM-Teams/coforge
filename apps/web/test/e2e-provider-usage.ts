@@ -9,7 +9,9 @@ import { getUsageCache } from "../src/server/centrifugo/usage-cache.server";
 
 const workspaceSlug = required("COFORGE_E2E_WORKSPACE_SLUG");
 const databaseUrl = required("DATABASE_URL");
-const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
+const db = new PrismaClient({
+  adapter: new PrismaPg({ connectionString: databaseUrl }),
+});
 
 try {
   const connection = await waitForConnection();

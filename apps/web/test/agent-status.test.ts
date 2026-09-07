@@ -148,7 +148,11 @@ test("ignores structurally invalid external Redis records", async () => {
     get: async () => JSON.stringify({ status: "active", clientSeq: "newest" }),
     ttl: async () => 90,
   });
-  const scope = { workspaceId: "workspace", computerId: "computer", agentId: "agent" };
+  const scope = {
+    workspaceId: "workspace",
+    computerId: "computer",
+    agentId: "agent",
+  };
   expect(await cache.get(scope)).toBe("inactive");
   expect(await cache.snapshot(scope)).toBeUndefined();
 });

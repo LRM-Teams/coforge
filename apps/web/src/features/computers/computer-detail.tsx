@@ -4,8 +4,8 @@ import type { RuntimeProvider } from "@coforge/protocol";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
+import { RelativeTime } from "@/components/ui/relative-time";
 import { cn } from "@/lib/utils";
-import { formatDateForDisplay } from "@/lib/dates";
 import { m } from "@/paraglide/messages";
 import { BackToComputers } from "./computer-layout";
 import { computerLabel, type ComputerIdentity } from "./computer-identity";
@@ -81,7 +81,7 @@ export function ComputerDetail({
             <div className="min-w-0">
               <dt className="text-xs text-muted-foreground">{m.computer_connected_at()}</dt>
               <dd className="mt-1 text-sm">
-                {formatDateForDisplay(computer.connectedAt, timeZone)}
+                <RelativeTime value={computer.connectedAt} timeZone={timeZone} />
               </dd>
             </div>
           </dl>
@@ -106,7 +106,9 @@ export function ComputerDetail({
                     <div className="border-b pb-3">
                       <p className="truncate font-medium">{runtime.displayName}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        {m.computer_runtime_version({ version: runtime.version })}
+                        {m.computer_runtime_version({
+                          version: runtime.version,
+                        })}
                       </p>
                     </div>
                   )}
@@ -122,7 +124,9 @@ export function ComputerDetail({
                             ? m.computer_runtime_make_private_label({
                                 runtime: runtime.displayName,
                               })
-                            : m.computer_runtime_publish_label({ runtime: runtime.displayName })
+                            : m.computer_runtime_publish_label({
+                                runtime: runtime.displayName,
+                              })
                         }
                         disabled={updatingRuntimeId === runtime.id}
                         onClick={() => void setRuntimePublic(runtime.id, !runtime.isPublic)}

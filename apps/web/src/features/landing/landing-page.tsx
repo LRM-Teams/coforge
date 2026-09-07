@@ -32,8 +32,18 @@ function GitHubMark({ className = "size-4 shrink-0" }: { className?: string }) {
 // Language endonyms stay untranslated, the way every locale switcher shows them;
 // the accessible names come from the shared control catalog.
 const locales = [
-  { code: "en", label: "EN", href: "/en", name: () => m.controls_switch_to_english() },
-  { code: "zh-CN", label: "中文", href: "/zh-CN", name: () => m.controls_switch_to_chinese() },
+  {
+    code: "en",
+    label: "EN",
+    href: "/en",
+    name: () => m.controls_switch_to_english(),
+  },
+  {
+    code: "zh-CN",
+    label: "中文",
+    href: "/zh-CN",
+    name: () => m.controls_switch_to_chinese(),
+  },
 ] as const;
 
 function LocaleSwitch() {

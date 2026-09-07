@@ -3,7 +3,9 @@ import { PrismaWebPushSubscriptionStore } from "./prisma-web-push-subscriptions.
 import { WebPushNotifications } from "./web-push-notifications.server";
 import { readWebPushConfig, WebPushLibraryTransport } from "./web-push-transport.server";
 
-export type MessageNotifier = { notifyMessage(messageId: string): Promise<unknown> };
+export type MessageNotifier = {
+  notifyMessage(messageId: string): Promise<unknown>;
+};
 
 export async function createWebPushNotifications(db: PrismaClient) {
   const config = await readWebPushConfig();

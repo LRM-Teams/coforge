@@ -1,5 +1,6 @@
 import {
   AGENT_MESSAGE_READ_METHOD,
+  AGENT_MESSAGE_SEARCH_METHOD,
   AGENT_MESSAGE_SEND_METHOD,
   AGENT_CHANNEL_MUTE_METHOD,
   AGENT_CHANNEL_UNMUTE_METHOD,
@@ -27,7 +28,11 @@ import {
 } from "../centrifugo/rpc-handler.server";
 import { bestEffortMessageNotifier } from "../notifications/web-push-composition.server";
 
-type DaemonPrincipal = { userId: string; workspaceId: string; computerId: string };
+type DaemonPrincipal = {
+  userId: string;
+  workspaceId: string;
+  computerId: string;
+};
 
 export async function authenticateAgentMessageRequest(
   request: Request,
@@ -90,6 +95,12 @@ export function createAgentMessageHttpHandler() {
         conversations,
         centrifugo,
         "read",
+        authorization,
+      ),
+      [AGENT_MESSAGE_SEARCH_METHOD]: createAgentMessageMethod(
+        conversations,
+        centrifugo,
+        "search",
         authorization,
       ),
       [AGENT_MESSAGE_SEND_METHOD]: createAgentMessageMethod(

@@ -1101,6 +1101,10 @@ export class DaemonRuntime {
         after: request.after,
         around: request.around,
         limit: request.limit,
+        query: request.query,
+        sender: request.sender,
+        sort: request.sort,
+        offset: request.offset,
       },
       agentApiKey,
     );

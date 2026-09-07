@@ -98,7 +98,9 @@ function SettingsPage() {
 
   async function changeTimeZone(nextTimeZone: string) {
     try {
-      const result = await saveTimeZone({ data: { timeZone: nextTimeZone || null } });
+      const result = await saveTimeZone({
+        data: { timeZone: nextTimeZone || null },
+      });
       setTimeZone(result.timeZone);
       await router.invalidate({ sync: true });
     } catch (cause) {
@@ -163,7 +165,10 @@ function SettingsPage() {
     try {
       const form = new FormData();
       form.set("file", file);
-      const response = await fetch("/api/me/avatar", { method: "POST", body: form });
+      const response = await fetch("/api/me/avatar", {
+        method: "POST",
+        body: form,
+      });
       if (!response.ok) throw new Error("Profile image upload failed");
       await router.invalidate({ sync: true });
     } catch (cause) {

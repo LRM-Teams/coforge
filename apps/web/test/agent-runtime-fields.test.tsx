@@ -126,7 +126,12 @@ test("submits the model provider selected through an external runtime catalog", 
       <AgentRuntimeFields
         open
         computerId="computer-1"
-        initial={{ provider: "pi", modelProvider: "", model: "", reasoning: "" }}
+        initial={{
+          provider: "pi",
+          modelProvider: "",
+          model: "",
+          reasoning: "",
+        }}
         onLoad={load}
       />
       <button type="submit">Save</button>

@@ -192,6 +192,59 @@ test("proxy forwards validated range options with token-bound identity", async (
   });
 });
 
+test("proxy validates and forwards lexical search without accepting caller identity", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      issueAgentContext: () => "trusted-context",
+      agentMessage: async (_context, request) => {
+        calls.push(request);
+        return { messages: [] };
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-1", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(proxy.url, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      requestId: "search-1",
+      operation: "search",
+      query: "release",
+      sender: "@ada",
+      sort: "recent",
+      after: "2026-09-01T00:00:00Z",
+      before: "2026-09-07T00:00:00Z",
+      limit: 10,
+      offset: 2,
+      context: "forged",
+    }),
+  });
+  expect(response.status).toBe(200);
+  expect(calls).toEqual([
+    expect.objectContaining({
+      requestId: "search-1",
+      operation: "search",
+      query: "release",
+      sender: "@ada",
+      sort: "recent",
+      after: "2026-09-01T00:00:00Z",
+      before: "2026-09-07T00:00:00Z",
+      limit: 10,
+      offset: 2,
+      context: "trusted-context",
+    }),
+  ]);
+  const invalid = await fetch(proxy.url, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ requestId: "search-2", operation: "search", sender: "not-a-handle" }),
+  });
+  expect(invalid.status).toBe(400);
+  expect(calls).toHaveLength(1);
+});
+
 test("proxy rejects invalid range options before calling the runtime", async () => {
   let calls = 0;
   const proxy = startAgentProxy({

@@ -23,7 +23,9 @@ export async function storeUserAvatar(db: PrismaClient, input: { userId: string;
   const id = crypto.randomUUID();
   const objectKey = `users/${input.userId}/avatars/${id}/original`;
   const path = fileStoragePath(objectKey);
-  await mkdir(fileStoragePath(`users/${input.userId}/avatars/${id}`), { recursive: true });
+  await mkdir(fileStoragePath(`users/${input.userId}/avatars/${id}`), {
+    recursive: true,
+  });
   await Bun.write(path, input.file);
   try {
     await db.user.update({
@@ -77,5 +79,8 @@ async function validateImage(file: File) {
 }
 
 async function removeObject(objectKey: string) {
-  await rm(fileStoragePath(objectKey).replace(/\/original$/, ""), { recursive: true, force: true });
+  await rm(fileStoragePath(objectKey).replace(/\/original$/, ""), {
+    recursive: true,
+    force: true,
+  });
 }

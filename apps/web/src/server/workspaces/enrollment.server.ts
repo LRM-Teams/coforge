@@ -3,7 +3,11 @@ import { AppError } from "../../lib/app-error";
 import { generalChannelForCreator } from "../conversations/public-channels.server";
 import { WorkspaceCatalog, PrismaWorkspaceCatalogStore } from "./catalog.server";
 
-export type EnrollmentUser = { id: string; username: string; displayName: string };
+export type EnrollmentUser = {
+  id: string;
+  username: string;
+  displayName: string;
+};
 
 export type WorkspaceEnrollmentStore = {
   findMembership(userId: string): Promise<string | null>;
@@ -41,7 +45,11 @@ export class WorkspaceEnrollment {
       if (!isUniqueConflict(error)) throw error;
     }
     const suffix = userId.replaceAll("-", "").slice(0, 8);
-    return this.store.createForUser({ slug: `${username}-${suffix}`, name, userId });
+    return this.store.createForUser({
+      slug: `${username}-${suffix}`,
+      name,
+      userId,
+    });
   }
 }
 

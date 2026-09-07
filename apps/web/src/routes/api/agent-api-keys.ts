@@ -55,13 +55,20 @@ export const Route = createFileRoute("/api/agent-api-keys")({
             id: input.data.agentId,
             workspaceId: input.data.workspaceId,
             computerId: principal.computerId,
-            owner: { memberships: { some: { workspaceId: input.data.workspaceId } } },
+            owner: {
+              memberships: { some: { workspaceId: input.data.workspaceId } },
+            },
             workspace: {
               members: { some: { userId: principal.userId } },
               computers: { some: { computerId: principal.computerId } },
             },
           },
-          select: { id: true, workspaceId: true, ownerId: true, runtimeConfig: true },
+          select: {
+            id: true,
+            workspaceId: true,
+            ownerId: true,
+            runtimeConfig: true,
+          },
         });
         if (principal.workspaceId !== input.data.workspaceId || !agent)
           return Response.json({ error: "forbidden" }, { status: 403 });

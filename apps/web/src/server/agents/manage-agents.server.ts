@@ -30,7 +30,12 @@ type RuntimeAvailability = {
     workspaceId: string,
     userId: string,
     computerId: string,
-    config: { provider: RuntimeProvider; model: string; modelProvider: string; reasoning: string },
+    config: {
+      provider: RuntimeProvider;
+      model: string;
+      modelProvider: string;
+      reasoning: string;
+    },
   ): Promise<boolean>;
 };
 

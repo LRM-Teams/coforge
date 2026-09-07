@@ -494,13 +494,14 @@ export function decodeAgentMessageRequest(bytes: Uint8Array): AgentMessageReques
   if (
     !v.requestId ||
     !v.agentId ||
-    !["read", "send", "mute", "unmute"].includes(v.operation) ||
-    !v.target
+    !["read", "search", "send", "mute", "unmute"].includes(v.operation) ||
+    (v.operation !== "search" && !v.target)
   )
     throw new Error("invalid cloud agent message request");
   return {
     ...v,
     operation: v.operation as AgentMessageRequest["operation"],
+    target: v.target,
     body: v.body || undefined,
     holdToken: v.holdToken || undefined,
     continueAnyway: v.continueAnyway || undefined,
@@ -508,6 +509,10 @@ export function decodeAgentMessageRequest(bytes: Uint8Array): AgentMessageReques
     after: v.after || undefined,
     around: v.around || undefined,
     limit: v.limit || undefined,
+    query: v.query || undefined,
+    sender: v.sender || undefined,
+    sort: (v.sort || undefined) as AgentMessageRequest["sort"],
+    offset: v.offset || undefined,
     fromSequence: v.fromSequence
       ? safeUint64(v.fromSequence, "Agent message from sequence")
       : undefined,

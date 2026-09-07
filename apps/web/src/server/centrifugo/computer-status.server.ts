@@ -1,28 +1,44 @@
-const DEFAULT_WATCHDOG_MS = 90_000;
+import { RedisClient } from "bun";
 
-type Entry = { online: boolean; lastSeen: number };
-const statuses = new Map<string, Entry>();
+const COMPUTER_STATUS_TTL_SECONDS = "90";
+export const COMPUTER_STATUS_LEASE_MS = Number(COMPUTER_STATUS_TTL_SECONDS) * 1_000;
 
-// Centrifugo's proxy does not provide the Web process a connection-local
-// disconnect callback. DaemonConnection reports healthy connects, while this
-// volatile lease expires conservatively when no refresh arrives. It is not a
-// PostgreSQL presence record and must not be treated as one.
+export type ComputerStatusScope = { workspaceId: string; computerId: string };
 
-export function computerWatchdogMs(env = process.env): number {
-  const value = Number(env.COFORGE_COMPUTER_WATCHDOG_SECONDS ?? 90);
-  return Number.isFinite(value) && value > 0 ? value * 1000 : DEFAULT_WATCHDOG_MS;
+export interface ComputerStatusCache {
+  put(scope: ComputerStatusScope, online: boolean): Promise<void>;
+  get(scope: ComputerStatusScope): Promise<boolean>;
 }
 
-export function setComputerStatus(
-  workspaceId: string,
-  computerId: string,
-  online: boolean,
-  now = Date.now(),
-) {
-  statuses.set(`${workspaceId}:${computerId}`, { online, lastSeen: now });
+export class RedisComputerStatusCache implements ComputerStatusCache {
+  constructor(
+    private readonly redis: {
+      set(key: string, value: string, ex: "EX", seconds: string): Promise<unknown>;
+      get(key: string): Promise<string | null>;
+    },
+    private readonly ttlSeconds = COMPUTER_STATUS_TTL_SECONDS,
+  ) {}
+
+  async put(scope: ComputerStatusScope, online: boolean) {
+    await this.redis.set(this.key(scope), online ? "online" : "offline", "EX", this.ttlSeconds);
+  }
+
+  async get(scope: ComputerStatusScope) {
+    return (await this.redis.get(this.key(scope))) === "online";
+  }
+
+  private key(scope: ComputerStatusScope) {
+    return `coforge:computer-status:v1:${encodeURIComponent(scope.workspaceId)}:${encodeURIComponent(scope.computerId)}`;
+  }
 }
 
-export function getComputerStatus(workspaceId: string, computerId: string, now = Date.now()) {
-  const entry = statuses.get(`${workspaceId}:${computerId}`);
-  return { online: Boolean(entry?.online && now - entry.lastSeen < computerWatchdogMs()) };
+let singleton: RedisComputerStatusCache | undefined;
+
+export function getComputerStatusCache() {
+  singleton ??= (() => {
+    const url = Bun.env.REDIS_URL;
+    if (!url) throw new Error("REDIS_URL is required for Computer status");
+    return new RedisComputerStatusCache(new RedisClient(url));
+  })();
+  return singleton;
 }

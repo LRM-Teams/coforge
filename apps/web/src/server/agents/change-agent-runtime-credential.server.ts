@@ -8,7 +8,9 @@ import type {
 } from "./agent-runtime-credentials.server";
 
 type AgentRuntimeCredentialPrincipal = { workspaceId: string; userId: string };
-type AgentLookup = { getById(agentId: string): Promise<AgentRecord | undefined> };
+type AgentLookup = {
+  getById(agentId: string): Promise<AgentRecord | undefined>;
+};
 type CredentialMutation = Pick<AgentRuntimeCredentials, "save" | "delete">;
 type AgentRuntimeControl = {
   start(intent: AgentStartIntent, userId: string): Promise<void>;

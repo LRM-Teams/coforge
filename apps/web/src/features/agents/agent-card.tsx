@@ -4,8 +4,8 @@ import { Link } from "@tanstack/react-router";
 
 import { Avatar } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { RelativeTime } from "@/components/ui/relative-time";
 import { m } from "@/paraglide/messages";
-import { formatDateForDisplay } from "@/lib/dates";
 import type { AgentStatusView } from "./agent-status-realtime";
 
 export type AgentView = {
@@ -137,7 +137,7 @@ export function AgentCard({
       <footer className="mt-auto flex items-center gap-2 border-t pt-3 text-xs text-muted-foreground">
         <CalendarDays aria-hidden="true" className="size-3.5" />
         <span>{m.agent_created()}</span>
-        <time dateTime={createdAt.toISOString()}>{formatDateForDisplay(createdAt, timeZone)}</time>
+        <RelativeTime value={createdAt} timeZone={timeZone} />
       </footer>
     </article>
   );

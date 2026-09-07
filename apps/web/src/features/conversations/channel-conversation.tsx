@@ -2,13 +2,19 @@ import { useState } from "react";
 import { Bell, BellOff, Hash } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BackToAgents } from "./conversation-layout";
-import { ConversationPane, type DirectConversationView } from "./direct-conversation";
+import {
+  ConversationPane,
+  type DirectConversationView,
+  type OwnMessageIndexEntry,
+} from "./direct-conversation";
 import { m } from "@/paraglide/messages";
 
 export type ChannelConversationView = Omit<DirectConversationView, "agent" | "messages"> & {
   name: string;
   muted: boolean;
-  messages: (DirectConversationView["messages"][number] & { senderMemberId: string })[];
+  messages: (DirectConversationView["messages"][number] & {
+    senderMemberId: string;
+  })[];
 };
 
 export function ChannelConversation({
@@ -16,13 +22,32 @@ export function ChannelConversation({
   onSend,
   onJoin,
   onMutedChange,
-  onRefresh,
+  onLoadOlder,
+  onLoadOwnMessages,
+  onLoadMessageAround,
+  onShowLatest,
 }: {
   conversation: ChannelConversationView;
-  onSend: (body: string, requestId: string, attachmentId?: string) => Promise<void>;
+  onSend: (
+    body: string,
+    requestId: string,
+    attachmentId?: string,
+  ) => Promise<OwnMessageIndexEntry | void>;
   onJoin: () => Promise<void>;
   onMutedChange: (muted: boolean) => Promise<void>;
-  onRefresh: () => Promise<void>;
+  onLoadOlder?: () => Promise<void>;
+  onLoadOwnMessages?: (beforeSequence?: number) => Promise<{
+    messages: Array<{
+      id: string;
+      sequence: number;
+      body: string;
+      createdAt: Date | string;
+      attachmentFileName?: string;
+    }>;
+    hasOlder: boolean;
+  }>;
+  onLoadMessageAround?: (messageId: string) => Promise<void>;
+  onShowLatest?: () => Promise<void>;
 }) {
   const [joining, setJoining] = useState(false);
   const [savingMute, setSavingMute] = useState(false);
@@ -42,7 +67,10 @@ export function ChannelConversation({
     <ConversationPane
       conversation={conversation}
       onSend={onSend}
-      onRefresh={onRefresh}
+      onLoadOlder={onLoadOlder}
+      onLoadOwnMessages={onLoadOwnMessages}
+      onLoadMessageAround={onLoadMessageAround}
+      onShowLatest={onShowLatest}
       emptyDescription={m.channel_empty()}
       header={
         <header className="flex h-14 shrink-0 items-center gap-3 border-b px-3 sm:px-5">

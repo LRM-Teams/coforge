@@ -7,8 +7,8 @@ import {
 import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
 import { daemonControlChannel } from "../centrifugo/server-api.server";
 import type { DirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
-import type { MessageNotifier } from "../notifications/web-push-composition.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
+import type { ConversationRealtime } from "./conversation-realtime.server";
 
 export class ReadDirectMessages {
   constructor(private readonly conversations: DirectConversationRepository) {}
@@ -32,8 +32,8 @@ export class SendDirectMessage {
   constructor(
     private readonly conversations: DirectConversationRepository,
     private readonly idempotency: MessageRequestIdempotency,
-    private readonly centrifugo: CentrifugoServerApi,
-    private readonly notifications?: MessageNotifier,
+    private readonly centrifugo: Pick<CentrifugoServerApi, "publish">,
+    private readonly realtime?: ConversationRealtime,
   ) {}
 
   async execute(input: {
@@ -47,7 +47,6 @@ export class SendDirectMessage {
     threadRootId?: string;
   }) {
     if (!input.requestId || !input.body) throw new Error("invalid direct message");
-    let created = false;
     const message = await this.idempotency.execute(
       {
         workspaceId: input.workspaceId,
@@ -55,21 +54,18 @@ export class SendDirectMessage {
         senderId: input.senderUserId,
         requestId: input.requestId,
       },
-      async () => {
-        const saved = await this.conversations.sendMessage(
+      () =>
+        this.conversations.sendMessage(
           input.conversationId,
           input.senderMemberId,
           input.senderUserId,
           input.body,
           input.attachmentId,
           input.threadRootId,
-        );
-        created = true;
-        return saved;
-      },
+        ),
     );
+    await this.publishBrowserEvent(message, input.conversationId);
     if (!message.agentId) throw new Error("message is not an Agent direct message");
-    if (created) await this.notifications?.notifyMessage(message.id);
     await this.publishUserMessageToAgent(input.requestId, input.conversationId, {
       ...message,
       agentId: message.agentId,
@@ -77,11 +73,6 @@ export class SendDirectMessage {
     return message;
   }
 
-  /**
-   * Agent messages are canonical history only for now. There is no formal
-   * user conversation publication channel, so do not fake one with the Agent
-   * delivery channel.
-   */
   async executeFromAgent(input: {
     requestId: string;
     workspaceId: string;
@@ -103,7 +94,6 @@ export class SendDirectMessage {
           return this.conversations.getOrCreateUserAgent(input.workspaceId, userId, input.agentId);
         })();
     if (!conversation) throw new Error("channel access is unavailable");
-    let created = false;
     const message = await this.idempotency.execute(
       {
         workspaceId: input.workspaceId,
@@ -120,12 +110,27 @@ export class SendDirectMessage {
           input.target.split(":")[1],
         );
         if (!persisted) throw new Error("agent message persistence is unavailable");
-        created = true;
         return persisted;
       },
     );
-    if (created) await this.notifications?.notifyMessage(message.id);
+    await this.publishBrowserEvent(message, conversation.id);
     return message;
+  }
+
+  private async publishBrowserEvent(
+    message: { id: string; sequence: number },
+    conversationId: string,
+  ) {
+    if (!this.realtime) return;
+    try {
+      await this.realtime.messageAvailable({
+        conversationId,
+        messageId: message.id,
+        sequence: message.sequence,
+      });
+    } catch {
+      // PostgreSQL remains canonical; browser reconciliation repairs a missed publication.
+    }
   }
 
   private async publishUserMessageToAgent(

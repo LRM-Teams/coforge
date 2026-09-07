@@ -40,6 +40,24 @@ test.each(["mute", "unmute"] as const)(
   },
 );
 
+test("round-trips Agent lexical message search filters over the HTTPS envelope", () => {
+  const request = {
+    protocolMajor: 1,
+    requestId: "request-search",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    operation: "search",
+    target: "#general",
+    query: "release plan",
+    sender: "@ada",
+    sort: "recent",
+    before: "2026-09-07T12:00:00Z",
+    limit: 10,
+    offset: 2,
+  } as const;
+  expect(decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toMatchObject(request);
+});
+
 test("round-trips an Agent direct message delivery", () => {
   const delivery = {
     protocolMajor: 1,

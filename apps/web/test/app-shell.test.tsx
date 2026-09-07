@@ -250,15 +250,21 @@ test("submits a manual CoForge model when catalog loading fails", async () => {
   renderAgents([], onCreate, true, undefined, async () => {
     throw new Error("catalog unavailable");
   });
-  fireEvent.change(await page().findByLabelText("Name"), { target: { value: "manual-agent" } });
+  fireEvent.change(await page().findByLabelText("Name"), {
+    target: { value: "manual-agent" },
+  });
   fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
     target: { value: "Manual catalog fallback" },
   });
   await waitFor(() =>
     expect(page().getByText(/Enter the provider and model ID manually/)).toBeTruthy(),
   );
-  fireEvent.change(page().getByLabelText("Model provider"), { target: { value: "deepseek" } });
-  fireEvent.change(page().getByLabelText("Model"), { target: { value: "deepseek-chat" } });
+  fireEvent.change(page().getByLabelText("Model provider"), {
+    target: { value: "deepseek" },
+  });
+  fireEvent.change(page().getByLabelText("Model"), {
+    target: { value: "deepseek-chat" },
+  });
   fireEvent.click(page().getByRole("button", { name: "Create agent" }));
   await waitFor(() =>
     expect(onCreate).toHaveBeenCalledWith({
@@ -277,7 +283,9 @@ test("submits the public creation form callback", async () => {
   const browserUser = userEvent.setup({ document });
   const onCreate = mock(async () => ({ startPublished: true }));
   renderAgents([], onCreate, true);
-  fireEvent.change(await page().findByLabelText("Name"), { target: { value: "build-helper" } });
+  fireEvent.change(await page().findByLabelText("Name"), {
+    target: { value: "build-helper" },
+  });
   fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
     target: { value: "Build and release helper" },
   });
@@ -304,7 +312,9 @@ test("selects a CoForge model provider before its model", async () => {
   const browserUser = userEvent.setup({ document });
   const onCreate = mock(async () => ({ startPublished: true }));
   renderAgents([], onCreate, true);
-  fireEvent.change(await page().findByLabelText("Name"), { target: { value: "model-helper" } });
+  fireEvent.change(await page().findByLabelText("Name"), {
+    target: { value: "model-helper" },
+  });
   fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
     target: { value: "Uses a selected model provider" },
   });
@@ -326,7 +336,9 @@ test("selects a CoForge model provider before its model", async () => {
 
 test("shows a deferred-start notice after creation", async () => {
   renderAgents([], async () => ({ startPublished: false }), true);
-  fireEvent.change(await page().findByLabelText("Name"), { target: { value: "helper" } });
+  fireEvent.change(await page().findByLabelText("Name"), {
+    target: { value: "helper" },
+  });
   fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
     target: { value: "General purpose helper" },
   });
@@ -389,7 +401,12 @@ test("clears the pending start request when the Agent becomes active", async () 
   view.rerender(
     <RouterContextProvider router={getRouter()}>
       <AgentsContent
-        agents={[{ ...agent, status: { value: "active", expiresAt: Date.now() + 60_000 } }]}
+        agents={[
+          {
+            ...agent,
+            status: { value: "active", expiresAt: Date.now() + 60_000 },
+          },
+        ]}
         computers={computers}
         onCreate={async () => ({ startPublished: true })}
         onRetry={onRetry}

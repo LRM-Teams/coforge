@@ -19,10 +19,17 @@ export class PrismaDaemonApiKeyRepository implements DaemonApiKeyRepository {
   }
 
   async findByHash(hash: string): Promise<DaemonApiKeyRecord | undefined> {
-    return (await this.db.daemonApiKey.findUnique({ where: { apiKeyHash: hash } })) ?? undefined;
+    return (
+      (await this.db.daemonApiKey.findUnique({
+        where: { apiKeyHash: hash },
+      })) ?? undefined
+    );
   }
 
   async markUsed(id: string): Promise<void> {
-    await this.db.daemonApiKey.update({ where: { id }, data: { lastUsedAt: new Date() } });
+    await this.db.daemonApiKey.update({
+      where: { id },
+      data: { lastUsedAt: new Date() },
+    });
   }
 }

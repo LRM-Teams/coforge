@@ -7,9 +7,13 @@ services:
     command: exec ./scripts/e2e/managed-web.sh
     port: 8789
     health: /health
+  e2e-proxy:
+    command: exec bun ./scripts/e2e/same-origin-proxy.ts
+    port: 8790
+    health: /health
     portal:
       title: CoForge E2E Web
-      description: Real PostgreSQL, Redis, Centrifugo, and development test identity.
+      description: Real PostgreSQL, Redis, Centrifugo, WebSocket realtime, and development test identity.
     agent: control
   web:
     command: exec bun run --cwd apps/web dev --host 0.0.0.0 --port "$PORT"

@@ -20,7 +20,9 @@ test("login start returns a safe 503 when Authing config is missing", async () =
     });
     expect(response).toBeInstanceOf(Response);
     expect((response as Response).status).toBe(503);
-    expect(await (response as Response).json()).toEqual({ code: "TEMPORARILY_UNAVAILABLE" });
+    expect(await (response as Response).json()).toEqual({
+      code: "TEMPORARILY_UNAVAILABLE",
+    });
     expect((response as Response).headers.get("cache-control")).toBe("no-store");
   } finally {
     restoreEnv(previous);

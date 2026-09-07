@@ -35,7 +35,12 @@ function fixture(options?: { stopFails?: boolean; mutationFails?: boolean; start
           provider: {
             kind: "coforge",
             providerId: "anthropic",
-            apiKey: { keyId: "v1", ciphertext: "ciphertext", nonce: "nonce", hint: "••••1234" },
+            apiKey: {
+              keyId: "v1",
+              ciphertext: "ciphertext",
+              nonce: "nonce",
+              hint: "••••1234",
+            },
           },
         };
         return { providerId: "anthropic", hint: "••••1234" };
@@ -122,6 +127,9 @@ describe("ChangeAgentRuntimeCredential", () => {
 
     expect(events).toEqual(["stop", "save", "start"]);
     expect(result.restart).toBe("deferred");
-    expect(result.result).toEqual({ providerId: "anthropic", hint: "••••1234" });
+    expect(result.result).toEqual({
+      providerId: "anthropic",
+      hint: "••••1234",
+    });
   });
 });

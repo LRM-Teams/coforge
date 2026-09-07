@@ -53,7 +53,12 @@ describe("AgentRepository seam", () => {
     const agents = repository();
     expect(await agents.getById("a1")).toMatchObject({
       id: "a1",
-      runtimeConfig: { runtime: "pi", provider: { kind: "default" }, model: "", reasoning: "" },
+      runtimeConfig: {
+        runtime: "pi",
+        provider: { kind: "default" },
+        model: "",
+        reasoning: "",
+      },
     });
     expect(await agents.getById("missing")).toBeUndefined();
   });

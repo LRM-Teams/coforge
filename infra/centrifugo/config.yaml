@@ -13,6 +13,10 @@ log:
   level: info
 
 client:
+  allowed_origins:
+    - http://localhost:8788
+    - http://127.0.0.1:8788
+    - https://*.onamp.dev
   token:
     jwks_public_endpoint: http://host.docker.internal:8789/api/jwks
     audience: coforge-centrifugo
@@ -40,6 +44,10 @@ channel:
     - name: workspace
     - name: daemon
     - name: status
+    - name: chat
+      history_size: 200
+      history_ttl: 5m
+      force_recovery: true
     - name: activity
       publish_proxy_enabled: true
       publication_data_format: binary

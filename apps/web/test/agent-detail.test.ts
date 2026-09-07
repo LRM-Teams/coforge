@@ -42,7 +42,11 @@ describe("Agent detail", () => {
 
     expect(result?.displayName).toBe("Builder");
     expect(result?.activity).toEqual(activity);
-    expect(result?.status).toEqual({ value: "unknown", expiresAt: null, ordering: null });
+    expect(result?.status).toEqual({
+      value: "unknown",
+      expiresAt: null,
+      ordering: null,
+    });
   });
 
   test("returns the complete profile and newest-first Activity to a Workspace member", async () => {
@@ -95,7 +99,10 @@ describe("Agent detail", () => {
       model: "gpt-5",
       reasoning: "high",
     });
-    expect(result?.computer).toEqual({ id: "computer-12345678", label: "computer…5678" });
+    expect(result?.computer).toEqual({
+      id: "computer-12345678",
+      label: "computer…5678",
+    });
     expect(result?.latestError).toBeUndefined();
     expect(result?.activity.map((entry) => entry.id)).toEqual(["activity-2", "activity-1"]);
   });

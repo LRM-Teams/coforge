@@ -70,7 +70,10 @@ test("profile image HTTP boundary uploads, serves inline, and removes the curren
     authenticate: () => ({ id: "user-1" }),
     database: () => ({}) as never,
     store: async () => stored,
-    read: async () => ({ body: Bun.file(import.meta.path), contentType: "image/png" }),
+    read: async () => ({
+      body: Bun.file(import.meta.path),
+      contentType: "image/png",
+    }),
     remove: async () => {},
   });
   expect(download.status).toBe(200);
@@ -131,5 +134,8 @@ function avatarUploadRequest() {
       type: "image/png",
     }),
   );
-  return new Request("https://coforge.test/api/me/avatar", { method: "POST", body: form });
+  return new Request("https://coforge.test/api/me/avatar", {
+    method: "POST",
+    body: form,
+  });
 }

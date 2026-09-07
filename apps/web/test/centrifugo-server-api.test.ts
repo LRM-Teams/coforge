@@ -34,6 +34,45 @@ test("publishes binary protocol payloads through the Centrifugo v6 HTTP API", as
   });
 });
 
+test("publishes an idempotent JSON chat event through the Centrifugo v6 HTTP API", async () => {
+  let request: Request | undefined;
+  globalThis.fetch = Object.assign(
+    (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      request = new Request(input, init);
+      return Promise.resolve(Response.json({ result: { offset: 7, epoch: "chat" } }));
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+
+  await createCentrifugoServerApi({
+    COFORGE_CENTRIFUGO_API_URL: "http://centrifugo.test/api",
+    COFORGE_CENTRIFUGO_API_KEY: "test-api-key",
+  }).publishJson(
+    "chat:12345678-0000-4000-8000-000000000001",
+    {
+      type: "message.available.v1",
+      conversationId: "12345678-0000-4000-8000-000000000001",
+      messageId: "12345678-0000-4000-8000-000000000002",
+      sequence: 42,
+    },
+    "12345678-0000-4000-8000-000000000002",
+  );
+
+  expect(await request?.json()).toEqual({
+    method: "publish",
+    params: {
+      channel: "chat:12345678-0000-4000-8000-000000000001",
+      data: {
+        type: "message.available.v1",
+        conversationId: "12345678-0000-4000-8000-000000000001",
+        messageId: "12345678-0000-4000-8000-000000000002",
+        sequence: 42,
+      },
+      idempotency_key: "12345678-0000-4000-8000-000000000002",
+    },
+  });
+});
+
 test("rejects a Centrifugo command error returned with HTTP 200", async () => {
   globalThis.fetch = Object.assign(
     () => Promise.resolve(Response.json({ error: { code: 102, message: "unknown channel" } })),

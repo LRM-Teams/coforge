@@ -43,7 +43,12 @@ test("web-push 3.6.7 creates an encrypted aes128gcm request under Bun", async ()
       p256dh: client.publicKey,
       auth: Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64url"),
     },
-    { title: "CoForge", body: "Encrypted payload", url: "/settings", tag: "test" },
+    {
+      title: "CoForge",
+      body: "Encrypted payload",
+      url: "/settings",
+      tag: "test",
+    },
   );
 
   expect(details.headers["Content-Encoding"]).toBe("aes128gcm");

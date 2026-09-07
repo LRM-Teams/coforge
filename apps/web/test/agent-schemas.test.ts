@@ -34,7 +34,10 @@ describe("createAgentInputSchema", () => {
 
   test("rejects invalid names, descriptions, providers, and computers", () => {
     expect(
-      createAgentInputSchema.safeParse({ ...validInput, name: "Release Helper" }).success,
+      createAgentInputSchema.safeParse({
+        ...validInput,
+        name: "Release Helper",
+      }).success,
     ).toBe(false);
     expect(createAgentInputSchema.safeParse({ ...validInput, description: "" }).success).toBe(
       false,

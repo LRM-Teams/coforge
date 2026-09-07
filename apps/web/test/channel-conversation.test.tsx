@@ -44,12 +44,17 @@ test("channel identifies the current human, not every human, as You", async () =
         onSend={onSend}
         onJoin={async () => {}}
         onMutedChange={onMutedChange}
-        onRefresh={async () => {}}
+      />
+      <ChannelConversation
+        conversation={{ ...history, senderMemberId: "" }}
+        onSend={onSend}
+        onJoin={async () => {}}
+        onMutedChange={onMutedChange}
       />
     </AppToastProvider>,
   );
   const page = within(document.body);
-  expect(page.getByRole("heading", { name: "#engineering" })).toBeTruthy();
+  expect(page.getAllByRole("heading", { name: "#engineering" })).toHaveLength(2);
   const own = document.querySelector('[data-message="own"]')!;
   const other = document.querySelector('[data-message="other"]')!;
   expect(own.textContent).toContain("You");
@@ -75,7 +80,6 @@ test("a non-joined Workspace member can read but must join before composing", as
         onSend={async () => {}}
         onJoin={onJoin}
         onMutedChange={async () => {}}
-        onRefresh={async () => {}}
       />
     </AppToastProvider>,
   );

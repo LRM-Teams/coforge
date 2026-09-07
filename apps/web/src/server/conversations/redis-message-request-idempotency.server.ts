@@ -24,7 +24,9 @@ type StoredValue =
   | { state: "processing"; owner: string }
   | {
       state: "completed";
-      message: Omit<PersistedDirectMessage, "createdAt"> & { createdAt: string };
+      message: Omit<PersistedDirectMessage, "createdAt"> & {
+        createdAt: string;
+      };
     };
 
 interface RedisMessageRequestCommands {
@@ -44,7 +46,10 @@ export class RedisMessageRequestIdempotency implements MessageRequestIdempotency
 
   async execute(scope: MessageRequestScope, persist: () => Promise<PersistedDirectMessage>) {
     const key = this.key(scope);
-    const processing = JSON.stringify({ state: "processing", owner: crypto.randomUUID() });
+    const processing = JSON.stringify({
+      state: "processing",
+      owner: crypto.randomUUID(),
+    });
     const claimed = await this.redis.set(
       key,
       processing,

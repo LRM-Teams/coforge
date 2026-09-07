@@ -95,11 +95,19 @@ describe("CentrifugoRpcHandler", () => {
     });
 
     expect(
-      await method(payload, { principal: { ...principal(), computerId: "computer-2" } }),
-    ).toEqual({ code: 403, message: "delivery acknowledgement is not authorized" });
+      await method(payload, {
+        principal: { ...principal(), computerId: "computer-2" },
+      }),
+    ).toEqual({
+      code: 403,
+      message: "delivery acknowledgement is not authorized",
+    });
     expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
     expect(received).toHaveLength(1);
-    expect(received[0]).toMatchObject({ computerId: "computer-1", deliveryId: "delivery-1" });
+    expect(received[0]).toMatchObject({
+      computerId: "computer-1",
+      deliveryId: "delivery-1",
+    });
   });
 
   test("accepts a scoped Agent status from its assigned Computer", async () => {
@@ -124,7 +132,10 @@ describe("CentrifugoRpcHandler", () => {
       },
       {
         publish: async (channel, data) => {
-          publications.push({ channel, data: JSON.parse(new TextDecoder().decode(data)) });
+          publications.push({
+            channel,
+            data: JSON.parse(new TextDecoder().decode(data)),
+          });
         },
       },
       () => 1_000,
@@ -169,15 +180,26 @@ describe("CentrifugoRpcHandler", () => {
       },
     ]);
     expect(
-      await method(payload, { principal: { ...principal(), computerId: "computer-2" } }),
+      await method(payload, {
+        principal: { ...principal(), computerId: "computer-2" },
+      }),
     ).toEqual({ code: 403, message: "Agent status is not authorized" });
   });
 
   test("does not publish stale handler input", async () => {
     const publications: unknown[] = [];
     const method = createAgentStatusMethod(
-      { getById: async () => ({ workspaceId: "workspace-1", computerId: "computer-1" }) },
-      { put: async () => false, get: async () => "active", snapshot: async () => undefined },
+      {
+        getById: async () => ({
+          workspaceId: "workspace-1",
+          computerId: "computer-1",
+        }),
+      },
+      {
+        put: async () => false,
+        get: async () => "active",
+        snapshot: async () => undefined,
+      },
       {
         publish: async (...args) => {
           publications.push(args);
@@ -224,8 +246,13 @@ describe("CentrifugoRpcHandler", () => {
       },
     ]);
     expect(
-      await method(payload, { principal: { ...principal(), computerId: "computer-2" } }),
-    ).toEqual({ code: 403, message: "daemon runtime identity is not authorized" });
+      await method(payload, {
+        principal: { ...principal(), computerId: "computer-2" },
+      }),
+    ).toEqual({
+      code: 403,
+      message: "daemon runtime identity is not authorized",
+    });
   });
 
   test("starts every existing Workspace Agent after the exact Computer reports ready", async () => {
@@ -251,7 +278,10 @@ describe("CentrifugoRpcHandler", () => {
       await method(payload, {
         principal: { ...principal(), computerId: "another-computer" },
       }),
-    ).toEqual({ code: 403, message: "daemon runtime identity is not authorized" });
+    ).toEqual({
+      code: 403,
+      message: "daemon runtime identity is not authorized",
+    });
     expect(recovered).toEqual([["workspace-1", "computer-1", ["agent-running"]]]);
   });
 
@@ -344,7 +374,9 @@ describe("CentrifugoRpcHandler", () => {
     });
 
     expect(
-      await method(agentMessagePayload("agent-a", "read"), { principal: principal() }),
+      await method(agentMessagePayload("agent-a", "read"), {
+        principal: principal(),
+      }),
     ).toEqual({ code: 403, message: "agent identity is not authorized" });
   });
 
@@ -356,7 +388,9 @@ describe("CentrifugoRpcHandler", () => {
     });
 
     expect(
-      await method(agentMessagePayload("agent-b", "send"), { principal: principal("agent-a") }),
+      await method(agentMessagePayload("agent-b", "send"), {
+        principal: principal("agent-a"),
+      }),
     ).toEqual({ code: 403, message: "agent identity is not authorized" });
   });
 
@@ -465,11 +499,18 @@ describe("CentrifugoRpcHandler", () => {
     const previous = process.env.COFORGE_CENTRIFUGO_PROXY_SECRET;
     process.env.COFORGE_CENTRIFUGO_PROXY_SECRET = "test-secret";
     const result = await handler.handleRequest(
-      authorizedJson({ method: "workspace:list", b64data: "AA==", user: "user-1" }),
+      authorizedJson({
+        method: "workspace:list",
+        b64data: "AA==",
+        user: "user-1",
+      }),
     );
     if (previous === undefined) delete process.env.COFORGE_CENTRIFUGO_PROXY_SECRET;
     expect(await result.json()).toEqual({
-      error: { code: 503, message: "protocol method dependencies are unavailable" },
+      error: {
+        code: 503,
+        message: "protocol method dependencies are unavailable",
+      },
     });
   });
 
@@ -509,9 +550,16 @@ describe("CentrifugoRpcHandler", () => {
     };
     const handler = new CentrifugoRpcHandler({ methods: { echo: method } });
     const result = await handler.handleRequest(
-      json({ method: "echo", user: "user-1", client: "connection-1", b64data: encoded("\0ÿ*") }),
+      json({
+        method: "echo",
+        user: "user-1",
+        client: "connection-1",
+        b64data: encoded("\0ÿ*"),
+      }),
     );
-    expect(await result.json()).toEqual({ result: { b64data: encoded("\0ÿ*") } });
+    expect(await result.json()).toEqual({
+      result: { b64data: encoded("\0ÿ*") },
+    });
   });
 
   test("rejects unknown and malformed requests", async () => {

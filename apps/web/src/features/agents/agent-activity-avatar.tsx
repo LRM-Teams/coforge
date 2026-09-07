@@ -77,7 +77,12 @@ export function AgentActivityAvatar({
   onOpen?: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const workingLabel = useAgentWorkingLabel({ activity, status, loading, error });
+  const workingLabel = useAgentWorkingLabel({
+    activity,
+    status,
+    loading,
+    error,
+  });
   const presence =
     status === "active"
       ? m.agent_status_online()

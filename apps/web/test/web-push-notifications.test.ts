@@ -125,13 +125,19 @@ describe("WebPushNotifications", () => {
       removed: 0,
     });
     expect(payloads).toEqual([
-      expect.objectContaining({ title: "CoForge", forceDisplay: true, url: "/settings" }),
+      expect.objectContaining({
+        title: "CoForge",
+        forceDisplay: true,
+        url: "/settings",
+      }),
     ]);
   });
 
   test("associates and detaches only the authenticated user's browser subscription", async () => {
     const repository = store();
-    const notifications = new WebPushNotifications(repository.value, { send: async () => {} });
+    const notifications = new WebPushNotifications(repository.value, {
+      send: async () => {},
+    });
 
     await notifications.subscribe("user-a", {
       endpoint: first.endpoint,

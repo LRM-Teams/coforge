@@ -104,9 +104,12 @@ describe("ManageAgents", () => {
         reasoning: "high",
       },
     });
-    expect(await agentManagement.list({ userId: "user-1", workspaceId: "workspace-1" })).toEqual([
-      result.agent,
-    ]);
+    expect(
+      await agentManagement.list({
+        userId: "user-1",
+        workspaceId: "workspace-1",
+      }),
+    ).toEqual([result.agent]);
     expect(starts).toHaveLength(1);
   });
 
@@ -243,7 +246,12 @@ describe("ManageAgents", () => {
     const { agentManagement, records, controls, updates } = fixture();
     const created = await agentManagement.create(
       { userId: "user-1", workspaceId: "workspace-1" },
-      { name: "old", description: "Old", provider: RUNTIME_PROVIDER.PI, computerId: "computer-1" },
+      {
+        name: "old",
+        description: "Old",
+        provider: RUNTIME_PROVIDER.PI,
+        computerId: "computer-1",
+      },
     );
     controls.length = 0;
     const result = await agentManagement.update(
@@ -256,13 +264,19 @@ describe("ManageAgents", () => {
       },
     );
     expect(result.restart).toBe("not-required");
-    expect(records[0]).toMatchObject({ name: "new", displayName: "new", computerId: "computer-1" });
+    expect(records[0]).toMatchObject({
+      name: "new",
+      displayName: "new",
+      computerId: "computer-1",
+    });
     expect(controls).toEqual(["persist"]);
     expect(updates[0]).not.toHaveProperty("runtimeConfig");
   });
 
   test("updates metadata when the unchanged runtime is no longer selectable", async () => {
-    const { agentManagement, records, controls } = fixture({ unavailable: true });
+    const { agentManagement, records, controls } = fixture({
+      unavailable: true,
+    });
     records.push({
       id: "agent-1",
       workspaceId: "workspace-1",
@@ -332,7 +346,9 @@ describe("ManageAgents", () => {
       },
     );
     expect(controls).toEqual(["stop", "persist", "start"]);
-    expect(records[0]!.runtimeConfig.provider).toMatchObject({ apiKey: { ciphertext: "c" } });
+    expect(records[0]!.runtimeConfig.provider).toMatchObject({
+      apiKey: { ciphertext: "c" },
+    });
     controls.length = 0;
     await agentManagement.update(
       { userId: "user-1", workspaceId: "workspace-1" },
@@ -351,13 +367,23 @@ describe("ManageAgents", () => {
     const stopped = fixture({ stopFails: true });
     const created = await stopped.agentManagement.create(
       { userId: "user-1", workspaceId: "workspace-1" },
-      { name: "a", description: "", provider: RUNTIME_PROVIDER.PI, computerId: "computer-1" },
+      {
+        name: "a",
+        description: "",
+        provider: RUNTIME_PROVIDER.PI,
+        computerId: "computer-1",
+      },
     );
     stopped.controls.length = 0;
     await expect(
       stopped.agentManagement.update(
         { userId: "user-1", workspaceId: "workspace-1" },
-        { agentId: created.agent.id, name: "a", description: "", provider: RUNTIME_PROVIDER.CODEX },
+        {
+          agentId: created.agent.id,
+          name: "a",
+          description: "",
+          provider: RUNTIME_PROVIDER.CODEX,
+        },
       ),
     ).rejects.toThrow("stop unavailable");
     expect(stopped.controls).toEqual(["stop"]);
@@ -365,14 +391,24 @@ describe("ManageAgents", () => {
     const deferred = fixture({ publishFails: true });
     const other = await deferred.agentManagement.create(
       { userId: "user-1", workspaceId: "workspace-1" },
-      { name: "a", description: "", provider: RUNTIME_PROVIDER.PI, computerId: "computer-1" },
+      {
+        name: "a",
+        description: "",
+        provider: RUNTIME_PROVIDER.PI,
+        computerId: "computer-1",
+      },
     );
     deferred.controls.length = 0;
     expect(
       (
         await deferred.agentManagement.update(
           { userId: "user-1", workspaceId: "workspace-1" },
-          { agentId: other.agent.id, name: "a", description: "", provider: RUNTIME_PROVIDER.CODEX },
+          {
+            agentId: other.agent.id,
+            name: "a",
+            description: "",
+            provider: RUNTIME_PROVIDER.CODEX,
+          },
         )
       ).restart,
     ).toBe("deferred");

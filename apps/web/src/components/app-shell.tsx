@@ -76,10 +76,11 @@ export function AppShell({
   return (
     <div className="flex min-h-svh bg-sidebar">
       {mobileSidebarOpen && (
-        <button
+        <Button
           type="button"
+          variant="ghost"
           aria-label={m.controls_hide_sidebar()}
-          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          className="fixed inset-0 z-30 h-auto rounded-none bg-black/50 p-0 hover:bg-black/50 md:hidden"
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
@@ -295,9 +296,14 @@ function UserMenu({ user, onSignOut }: { user: AppUser; onSignOut?: () => Promis
           className="h-11 gap-2 px-2 md:h-10"
           render={
             onSignOut ? (
-              <button type="button" onClick={() => void onSignOut()}>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-full w-full justify-start px-2"
+                onClick={() => void onSignOut()}
+              >
                 {m.controls_sign_out()}
-              </button>
+              </Button>
             ) : (
               <a href="/auth/logout">{m.controls_sign_out()}</a>
             )

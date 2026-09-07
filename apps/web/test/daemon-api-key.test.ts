@@ -34,7 +34,10 @@ describe("Daemon API key", () => {
       }),
       COFORGE_WORKER_JWT_KEY_ID: "computer-registration",
     });
-    expect(jwks.keys[0]).toMatchObject({ x: "public-key", kid: "computer-registration" });
+    expect(jwks.keys[0]).toMatchObject({
+      x: "public-key",
+      kid: "computer-registration",
+    });
     expect(jwks.keys[0]).not.toHaveProperty("d");
   });
 

@@ -8,7 +8,10 @@ export const Route = createFileRoute("/_app/messages/")({
     if (!loaderData) return;
     const { agents, channels } = loaderData;
     if (agents[0]) {
-      throw redirect({ to: "/messages/$agentId", params: { agentId: agents[0].id } });
+      throw redirect({
+        to: "/messages/$agentId",
+        params: { agentId: agents[0].id },
+      });
     }
     if (channels[0]) {
       throw redirect({
