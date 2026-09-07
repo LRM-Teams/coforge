@@ -249,6 +249,18 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       },
     });
     const general = (await channels.list(workspace.id, user.id))[0]!;
+    await db.user.update({
+      where: { id: user.id },
+      data: { browserNotificationsEnabled: true },
+    });
+    await db.webPushSubscription.create({
+      data: {
+        userId: user.id,
+        endpoint: `https://fcm.googleapis.com/wp/agent-mention-${workspace.id}`,
+        p256dh: "p256dh",
+        auth: "auth",
+      },
+    });
     expect(await channels.setAgentMuted(workspace.id, agent.id, "#general", true)).toEqual({
       muted: true,
     });
@@ -368,9 +380,15 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
       "New ordinary conversation after unmute.",
     );
     const beforeReply = published.length;
+    await channels.setUserMuted(workspace.id, user.id, general.id, true);
     const reply = await rpc("send", "#general", "@helper this Agent reply must not wake anyone");
     expect(reply.accepted).toBe(true);
     expect(published.length).toBe(beforeReply);
+    if (!reply.messageId) throw new Error("Agent reply did not return its message identity");
+    expect(
+      (await new PrismaWebPushSubscriptionStore(db).notificationForMessage(reply.messageId))
+        ?.subscriptions,
+    ).toEqual([]);
     const opened = await channels.open(workspace.id, user.id, general.id);
     expect(opened.messages.at(-1)).toMatchObject({
       senderKind: "agent",

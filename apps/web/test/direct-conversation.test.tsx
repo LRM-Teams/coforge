@@ -84,6 +84,31 @@ test("a message anchor scrolls the linked message into view", () => {
   }
 });
 
+test("a notification anchor opens the thread containing the linked reply", async () => {
+  const root = { ...firstMessage, id: "12345678-0000-4000-8000-000000000001" };
+  const reply = {
+    ...firstMessage,
+    id: "12345678-0000-4000-8000-000000000002",
+    sequence: 2,
+    threadRootId: root.id,
+    senderKind: "agent" as const,
+    body: "Linked thread reply",
+  };
+  window.location.hash = `#message-${reply.id}`;
+  try {
+    const { page } = renderConversation({ ...base, messages: [root, reply] });
+    await waitFor(() =>
+      expect(
+        within(page.getByRole("region", { name: "Thread" }))
+          .getByText("Linked thread reply")
+          .closest("[data-message]")?.id,
+      ).toBe(`message-${reply.id}`),
+    );
+  } finally {
+    window.location.hash = "";
+  }
+});
+
 test("thread replies stay out of main history and preserve separate drafts and main scroll", async () => {
   const user = userEvent.setup();
   const calls: unknown[][] = [];

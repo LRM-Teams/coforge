@@ -29,7 +29,7 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
     });
     if (!message) return null;
     const channelName = message.conversation.channelName;
-    const names = channelName ? mentionedNames(message.body) : [];
+    const names = channelName && message.sender.user ? mentionedNames(message.body) : [];
     const recipients = await this.db.conversationMember.findMany({
       where: {
         conversationId: message.conversationId,

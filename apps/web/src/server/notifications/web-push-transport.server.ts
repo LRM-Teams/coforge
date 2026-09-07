@@ -1,5 +1,6 @@
 import webPush from "web-push";
 
+import { assertVapidKeyPair } from "./vapid-key-pair.server";
 import {
   WebPushDeliveryError,
   type StoredWebPushSubscription,
@@ -20,6 +21,7 @@ export async function readWebPushConfig(
   const privateKeyFile = environment.COFORGE_WEB_PUSH_PRIVATE_KEY_FILE?.trim();
   if (!privateKeyFile) throw new Error("COFORGE_WEB_PUSH_PRIVATE_KEY_FILE is required");
   const privateKey = validKey((await Bun.file(privateKeyFile).text()).trim(), 32, "private");
+  assertVapidKeyPair(publicKey, privateKey);
   const subject = environment.COFORGE_WEB_PUSH_SUBJECT?.trim() || "https://coforge.cn";
   if (!subject.startsWith("https://") && !subject.startsWith("mailto:"))
     throw new Error("COFORGE_WEB_PUSH_SUBJECT must use https or mailto");

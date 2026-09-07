@@ -120,6 +120,19 @@ export function DirectConversation(props: ConversationProps) {
     );
     setSelected(rootMessageId);
   }
+  useLayoutEffect(() => {
+    const openAnchoredThread = () => {
+      const rootMessageId = anchoredThreadRoot(conversation.messages);
+      if (!rootMessageId || rootMessageId === selected) return;
+      setVisited((previous) =>
+        previous.includes(rootMessageId) ? previous : [...previous, rootMessageId],
+      );
+      setSelected(rootMessageId);
+    };
+    window.addEventListener("hashchange", openAnchoredThread);
+    openAnchoredThread();
+    return () => window.removeEventListener("hashchange", openAnchoredThread);
+  }, [conversation.messages, selected]);
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
       <div className={cn("min-h-0 min-w-0 flex-1 flex-col", selected ? "hidden md:flex" : "flex")}>
@@ -252,6 +265,12 @@ export function DirectConversation(props: ConversationProps) {
       })}
     </div>
   );
+}
+
+function anchoredThreadRoot(messages: DirectConversationView["messages"]) {
+  if (typeof window === "undefined" || !window.location.hash.startsWith("#message-")) return;
+  const messageId = window.location.hash.slice("#message-".length);
+  return messages.find((message) => message.id === messageId)?.threadRootId;
 }
 
 export function ConversationPane({

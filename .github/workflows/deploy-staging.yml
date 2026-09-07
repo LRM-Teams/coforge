@@ -123,6 +123,12 @@ jobs:
       - name: Install toolchain
         run: mise install
 
+      - name: Validate Web Push key pair
+        env:
+          COFORGE_WEB_PUSH_PUBLIC_KEY: ${{ vars.COFORGE_WEB_PUSH_PUBLIC_KEY }}
+          COFORGE_WEB_PUSH_PRIVATE_KEY: ${{ secrets.COFORGE_WEB_PUSH_PRIVATE_KEY }}
+        run: bun scripts/deploy/validate-web-push-keys.ts
+
       - name: Mark the start time
         run: echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
