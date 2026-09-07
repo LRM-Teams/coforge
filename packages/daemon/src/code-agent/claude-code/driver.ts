@@ -82,6 +82,17 @@ class ClaudeCodeAgentSession implements AgentSession {
   readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
   #state: "idle" | "running" | "interrupting" | "disposed" = "idle";
   #initialized = false;
+  #sessionId: string | undefined;
+  // A fresh Claude session becomes ready at its first result, as in Raft 1.0.17.
+  #sessionReadyForNotices = false;
+  #compacting = false;
+  #inputFailure: Error | undefined;
+  readonly #outstandingTools = new Set<string>();
+  readonly #waitingNotices: Array<{
+    text: string;
+    resolve(): void;
+    reject(error: Error): void;
+  }> = [];
   #usageSnapshot: UsageSnapshot = { provider: RUNTIME_PROVIDER.CLAUDE_CODE };
   #pendingInterrupt:
     | { promise: Promise<void>; resolve(): void; reject(error: Error): void }
@@ -93,6 +104,7 @@ class ClaudeCodeAgentSession implements AgentSession {
     process.onRecord((record) => this.#accept(record));
     process.onFailure((error) => {
       this.#rejectPendingInterrupt(error);
+      this.#rejectWaitingNotices(error);
       this.#emit({
         type: "activity",
         activity: createAgentActivity("error", "error", error.message),
@@ -100,12 +112,14 @@ class ClaudeCodeAgentSession implements AgentSession {
     });
     process.onClose(() => {
       this.#rejectPendingInterrupt(new Error("code agent process closed during interrupt"));
+      this.#rejectWaitingNotices(new Error("code agent process closed before writing input"));
       void this.#removePrompt();
     });
   }
 
   async ready(): Promise<void> {
     if (this.#initialized) return;
+    const requestId = crypto.randomUUID();
     await new Promise<void>((resolve, reject) => {
       let unsubscribeRecord: () => void = () => undefined;
       let unsubscribeFailure: () => void = () => undefined;
@@ -114,36 +128,64 @@ class ClaudeCodeAgentSession implements AgentSession {
         unsubscribeFailure();
       };
       unsubscribeRecord = this.#process.onRecord((record) => {
-        if (record.type === "system" && record.subtype === "init") {
-          cleanup();
+        const response = asRecord(record.response);
+        if (record.type !== "control_response" || response?.request_id !== requestId) return;
+        cleanup();
+        if (response.subtype === "success") {
+          this.#initialized = true;
           resolve();
+        } else {
+          reject(new Error("Claude Code initialization was rejected"));
         }
       });
       unsubscribeFailure = this.#process.onFailure((error) => {
         cleanup();
         reject(error);
       });
+      void this.#process
+        .send({
+          type: "control_request",
+          request_id: requestId,
+          request: { subtype: "initialize" },
+        })
+        .catch((error: unknown) => {
+          cleanup();
+          reject(error);
+        });
     });
   }
 
   async sendMessage(text: string): Promise<void> {
     if (this.#state !== "idle") throw new Error("code agent is already running");
-    this.#state = "running";
-    try {
-      await this.#process.send({
-        type: "user",
-        message: { role: "user", content: text },
-        parent_tool_use_id: null,
-        session_id: "default",
-      });
-    } catch (error) {
-      if (!this.#isDisposed()) this.#state = "idle";
-      throw error;
-    }
+    await this.#sendInput(text);
+  }
+
+  async #sendInput(text: string): Promise<void> {
+    if (this.#inputFailure) throw this.#inputFailure;
+    // Reserve the turn before writing; a native result can arrive during flush.
+    if (this.#state === "idle") this.#state = "running";
+    await this.#process.send({
+      type: "user",
+      message: { role: "user", content: text },
+      parent_tool_use_id: null,
+      session_id: this.#sessionId,
+    });
   }
 
   async notify(notice: string): Promise<void> {
-    await this.sendMessage(notice);
+    if (this.#inputFailure) throw this.#inputFailure;
+    if (this.#state === "disposed" || this.#state === "interrupting") {
+      throw new Error("code agent cannot accept a notification");
+    }
+    if (this.#state === "idle") {
+      await this.#sendInput(notice);
+      return;
+    }
+    // Do not inject into an arbitrary thinking/tool execution instant. Only a
+    // native tool-batch, compact, or result boundary drains these pending calls.
+    await new Promise<void>((resolve, reject) => {
+      this.#waitingNotices.push({ text: notice, resolve, reject });
+    });
   }
 
   subscribe(listener: (event: AgentRuntimeEvent) => void): () => void {
@@ -179,6 +221,7 @@ class ClaudeCodeAgentSession implements AgentSession {
   async dispose(): Promise<void> {
     if (this.#state === "disposed") return;
     this.#state = "disposed";
+    this.#rejectWaitingNotices(new Error("code agent process closed before writing input"));
     this.#pendingInterrupt?.reject(new Error("code agent process closed"));
     this.#pendingInterrupt = undefined;
     try {
@@ -189,8 +232,18 @@ class ClaudeCodeAgentSession implements AgentSession {
   }
 
   #accept(record: Readonly<Record<string, unknown>>): void {
+    if (record.type === "system" && record.parent_tool_use_id == null) {
+      if (record.subtype === "status" && record.status === "compacting") this.#compacting = true;
+      if (record.subtype === "compact_boundary") {
+        this.#compacting = false;
+        this.#flushNotices();
+      }
+    }
     if (record.type === "system" && record.subtype === "init") {
-      this.#initialized = true;
+      if (typeof record.session_id === "string" && record.session_id !== this.#sessionId) {
+        this.#sessionId = record.session_id;
+        this.#sessionReadyForNotices = false;
+      }
       return;
     }
     if (record.type === "rate_limit_event") {
@@ -206,6 +259,13 @@ class ClaudeCodeAgentSession implements AgentSession {
     }
     if (record.type === "stream_event") {
       const event = asRecord(record.event);
+      if (
+        record.parent_tool_use_id == null &&
+        event?.type === "message_start" &&
+        this.#state === "idle"
+      ) {
+        this.#state = "running";
+      }
       const delta = asRecord(event?.delta);
       if (
         event?.type === "content_block_delta" &&
@@ -217,6 +277,14 @@ class ClaudeCodeAgentSession implements AgentSession {
       return;
     }
     if (record.type === "assistant") {
+      if (record.parent_tool_use_id == null) {
+        if (this.#state === "idle") this.#state = "running";
+        for (const block of messageContent(record)) {
+          if (block?.type === "tool_use" && typeof block.id === "string") {
+            this.#outstandingTools.add(block.id);
+          }
+        }
+      }
       for (const block of messageContent(record)) {
         if (
           block?.type === "tool_use" &&
@@ -250,15 +318,24 @@ class ClaudeCodeAgentSession implements AgentSession {
       return;
     }
     if (record.type === "user") {
+      let toolFinished = false;
       for (const block of messageContent(record)) {
         if (block?.type !== "tool_result" || typeof block.tool_use_id !== "string") continue;
+        if (record.parent_tool_use_id == null && this.#outstandingTools.delete(block.tool_use_id)) {
+          toolFinished = true;
+        }
         const text = textContent(block.content);
         if (text) this.#emit({ type: "tool-output", id: block.tool_use_id, text });
         this.#emit({ type: "tool-end", id: block.tool_use_id, isError: block.is_error === true });
       }
+      if (toolFinished) this.#flushNotices();
       return;
     }
     if (record.type === "result") {
+      if (record.parent_tool_use_id != null) return;
+      this.#sessionReadyForNotices = true;
+      this.#compacting = false;
+      this.#outstandingTools.clear();
       const pending = this.#pendingInterrupt;
       if (pending) {
         this.#pendingInterrupt = undefined;
@@ -271,6 +348,17 @@ class ClaudeCodeAgentSession implements AgentSession {
         type: "completed",
         status: interrupted ? "interrupted" : record.subtype === "success" ? "completed" : "failed",
       });
+      this.#flushNotices();
+    }
+  }
+
+  #flushNotices(): void {
+    if (this.#inputFailure || this.#state === "disposed" || this.#state === "interrupting") return;
+    if (!this.#sessionReadyForNotices || this.#compacting || this.#outstandingTools.size > 0)
+      return;
+    // Raft-compatible written acceptance, not confirmation of model processing.
+    for (const notice of this.#waitingNotices.splice(0)) {
+      void this.#sendInput(notice.text).then(notice.resolve, notice.reject);
     }
   }
 
@@ -280,6 +368,11 @@ class ClaudeCodeAgentSession implements AgentSession {
 
   #isDisposed(): boolean {
     return this.#state === "disposed";
+  }
+
+  #rejectWaitingNotices(error: Error): void {
+    this.#inputFailure = error;
+    for (const notice of this.#waitingNotices.splice(0)) notice.reject(error);
   }
 
   #rejectPendingInterrupt(error: Error): void {

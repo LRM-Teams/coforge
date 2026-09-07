@@ -25,6 +25,7 @@ function handle(command: {
   provider?: string;
   modelId?: string;
   level?: string;
+  streamingBehavior?: string;
 }): void {
   if (command.type === "get_state") {
     const instructions = process.env.COFORGE_AGENT_INSTRUCTIONS;
@@ -101,6 +102,26 @@ function handle(command: {
     return;
   }
   if (command.type === "prompt") {
+    if (command.message === "reject-notice") {
+      write({
+        type: "response",
+        id: command.id,
+        command: "prompt",
+        success: false,
+        error: "input rejected",
+      });
+      return;
+    }
+    if (command.message === "busy notice" && command.streamingBehavior !== "steer") {
+      write({
+        type: "response",
+        id: command.id,
+        command: "prompt",
+        success: false,
+        error: "steering required",
+      });
+      return;
+    }
     if (command.message === "ignore-abort") ignoreAbort = true;
     write({ type: "response", id: command.id, command: "prompt", success: true });
     write({

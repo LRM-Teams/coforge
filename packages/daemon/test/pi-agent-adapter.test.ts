@@ -1,10 +1,72 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { AgentRuntimeEvent } from "../src/code-agent/contract";
 import { CoforgeDriver, PiDriver } from "../src/code-agent/pi/driver";
+
+test("built-in notifications are accepted before completion and steer the existing session", async () => {
+  const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-builtin-notify-"));
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const requests: string[] = [];
+  const server = Bun.serve({
+    port: 0,
+    async fetch(request) {
+      requests.push(await request.text());
+      started.resolve();
+      await release.promise;
+      return new Response(
+        [
+          `data: ${JSON.stringify({ id: "completion", choices: [{ index: 0, delta: { role: "assistant", content: "ok" }, finish_reason: null }] })}\n\n`,
+          `data: ${JSON.stringify({ id: "completion", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`,
+          "data: [DONE]\n\n",
+        ].join(""),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    },
+  });
+  await mkdir(join(agentWorkspaceDirectory, ".builtin-runtime"));
+  await Bun.write(
+    join(agentWorkspaceDirectory, ".builtin-runtime/models.json"),
+    JSON.stringify({ providers: { openrouter: { baseUrl: `${server.url}v1` } } }),
+  );
+  const session = await new CoforgeDriver().createAgentSession({
+    agentWorkspaceDirectory,
+    runtime: {
+      provider: "coforge",
+      modelProvider: "openrouter",
+      model: "deepseek/deepseek-v4-flash-0731",
+      reasoning: "",
+      providerConfig: { kind: "coforge", providerId: "openrouter", apiKey: "fixture-test-key" },
+    },
+  });
+  const events: AgentRuntimeEvent[] = [];
+  const completed = Promise.withResolvers<void>();
+  session.subscribe((event) => {
+    events.push(event);
+    if (event.type === "completed") completed.resolve();
+  });
+  try {
+    const first = session.notify!("initial notice");
+    await started.promise;
+    await first;
+    await expect(session.sendMessage("overlap")).rejects.toThrow("cannot accept a new message");
+    await session.notify!("busy notice");
+    expect(events.filter((event) => event.type === "completed")).toEqual([]);
+    release.resolve();
+    await completed.promise;
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toContain("initial notice");
+    expect(requests[1]).toContain("busy notice");
+  } finally {
+    release.resolve();
+    await session.dispose();
+    server.stop(true);
+    await rm(agentWorkspaceDirectory, { recursive: true, force: true });
+  }
+});
 
 test("Pi loads skills before running in a child process behind the code-agent seam", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-pi-rpc-"));
@@ -131,7 +193,7 @@ test("Pi rejects overlapping prompts and dispose cannot wait on provider interru
   }
 });
 
-test("Pi sends notifications through the prompt protocol and rejects them while busy", async () => {
+test("Pi accepts busy notifications without ending the existing run", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-pi-notify-"));
   const adapter = new PiDriver({
     command: [process.execPath, new URL("./fixtures/pi-rpc.ts", import.meta.url).pathname],
@@ -149,9 +211,11 @@ test("Pi sends notifications through the prompt protocol and rejects them while 
     expect(events.at(-1)).toEqual({ type: "completed", status: "completed" });
 
     await session.sendMessage("wait");
-    await expect(
-      session.notify!("New message available. Run coforge message check."),
-    ).rejects.toThrow("already running");
+    events.length = 0;
+    await expect(session.notify!("reject-notice")).rejects.toThrow("code agent request failed");
+    await session.notify!("busy notice");
+    expect(events.filter((event) => event.type === "completed")).toEqual([]);
+    await expect(session.sendMessage("overlap")).rejects.toThrow("already running");
     await session.dispose();
   } finally {
     await rm(agentWorkspaceDirectory, { recursive: true, force: true });

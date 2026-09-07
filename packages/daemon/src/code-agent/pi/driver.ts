@@ -100,7 +100,6 @@ class AgentSessionImpl implements AgentSession {
   readonly #runtime: Awaited<ReturnType<typeof createSession>>;
   readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
   readonly #exitListeners = new Set<() => void>();
-  #running = false;
   #interrupting = false;
   #failed = false;
   #disposed = false;
@@ -143,7 +142,6 @@ class AgentSessionImpl implements AgentSession {
         });
       }
       if (event.type === "agent_settled") {
-        this.#running = false;
         this.#emit({
           type: "completed",
           status: this.#failed ? "failed" : this.#interrupting ? "interrupted" : "completed",
@@ -154,11 +152,12 @@ class AgentSessionImpl implements AgentSession {
     });
   }
   async sendMessage(message: string) {
-    this.#running = true;
+    if (this.#disposed || this.#interrupting || this.#runtime.session.isStreaming) {
+      throw new Error("code agent cannot accept a new message");
+    }
     try {
       await this.#runtime.session.prompt(message);
     } catch (error) {
-      this.#running = false;
       this.#emit({
         type: "activity",
         activity: createAgentActivity(
@@ -172,14 +171,28 @@ class AgentSessionImpl implements AgentSession {
     }
   }
   async notify(notice: string) {
-    await this.sendMessage(notice);
+    if (this.#disposed || this.#interrupting) {
+      throw new Error("code agent cannot accept a notification");
+    }
+    // SDK prompt completion waits for the whole run; preflight is the public
+    // acceptance boundary used by Pi's RPC implementation as well.
+    await new Promise<void>((resolve, reject) => {
+      void this.#runtime.session
+        .prompt(notice, {
+          streamingBehavior: "steer",
+          preflightResult: (accepted) => {
+            if (accepted) resolve();
+          },
+        })
+        .catch(reject);
+    });
   }
   subscribe(listener: (event: AgentRuntimeEvent) => void) {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
   }
   async interrupt() {
-    if (this.#running) {
+    if (this.#runtime.session.isStreaming) {
       this.#interrupting = true;
       await this.#runtime.session.abort();
     }
@@ -249,7 +262,17 @@ class PiAgentSession implements AgentSession {
   }
 
   async notify(notice: string): Promise<void> {
-    await this.sendMessage(notice);
+    if (this.#state === "disposed" || this.#state === "interrupting") {
+      throw new Error("code agent cannot accept a notification");
+    }
+    const wasIdle = this.#state === "idle";
+    this.#state = "running";
+    try {
+      await this.#process.request({ type: "prompt", message: notice, streamingBehavior: "steer" });
+    } catch (error) {
+      if (wasIdle && !this.#isDisposed()) this.#state = "idle";
+      throw error;
+    }
   }
 
   subscribe(listener: (event: AgentRuntimeEvent) => void): () => void {
