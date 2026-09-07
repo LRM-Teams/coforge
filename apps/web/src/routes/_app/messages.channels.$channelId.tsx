@@ -4,6 +4,7 @@ import { ChannelConversation } from "@/features/conversations/channel-conversati
 import {
   loadPublicChannel,
   joinPublicChannel,
+  setPublicChannelMuted,
   sendPublicChannelMessage,
 } from "@/features/conversations/channels.functions";
 
@@ -18,6 +19,7 @@ function ChannelPage() {
   const router = useRouter();
   const send = useServerFn(sendPublicChannelMessage);
   const join = useServerFn(joinPublicChannel);
+  const setMuted = useServerFn(setPublicChannelMuted);
   return (
     <ChannelConversation
       key={channelId}
@@ -28,6 +30,10 @@ function ChannelPage() {
       }}
       onJoin={async () => {
         await join({ data: { channelId } });
+        await router.invalidate({ sync: true });
+      }}
+      onMutedChange={async (muted) => {
+        await setMuted({ data: { channelId, muted } });
         await router.invalidate({ sync: true });
       }}
       onRefresh={() => router.invalidate({ sync: true })}

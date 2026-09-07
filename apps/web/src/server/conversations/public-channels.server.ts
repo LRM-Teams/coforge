@@ -12,6 +12,8 @@ import {
   daemonControlChannel,
   type CentrifugoServerApi,
 } from "../centrifugo/server-api.server";
+import type { MessageNotifier } from "../notifications/web-push-composition.server";
+import { mentionedNames } from "./mentions";
 
 /** Nested creation keeps default enrollment inside the Workspace creation transaction. */
 export function generalChannelForCreator(userId: string) {
@@ -64,6 +66,7 @@ export class PublicChannels {
     private readonly db: PrismaClient,
     private readonly idempotency?: MessageRequestIdempotency,
     private readonly publisher?: CentrifugoServerApi,
+    private readonly notifications?: MessageNotifier,
   ) {}
 
   async setAgentMuted(workspaceId: string, agentId: string, target: string, muted: boolean) {
@@ -75,6 +78,19 @@ export class PublicChannels {
         where: { conversationId_agentId: { conversationId: channel.id, agentId } },
         data: { channelMuted: muted },
       });
+    });
+    return { muted };
+  }
+
+  async setUserMuted(workspaceId: string, userId: string, channelId: string, muted: boolean) {
+    const channel = await this.channel(workspaceId, userId, channelId);
+    await this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${channel.id}::uuid FOR UPDATE`;
+      const updated = await tx.conversationMember.updateMany({
+        where: { conversationId: channel.id, userId },
+        data: { channelMuted: muted },
+      });
+      if (updated.count !== 1) throw new AppError("ACCESS_DENIED");
     });
     return { muted };
   }
@@ -155,6 +171,7 @@ export class PublicChannels {
       conversationId: channel.id,
       name: channel.channelName!,
       senderMemberId: member?.id ?? "",
+      muted: member?.channelMuted ?? false,
       messages: messages.map((message) => ({
         id: message.id,
         sequence: message.sequence,
@@ -191,6 +208,7 @@ export class PublicChannels {
     if (!member) throw new AppError("ACCESS_DENIED");
     const body = input.body.trim();
     if (!body || body.length > 8_000) throw new AppError("INVALID_INPUT");
+    let created = false;
     const saved = await (this.idempotency ?? getMessageRequestIdempotency()).execute(
       { workspaceId, senderKind: "user", senderId: userId, requestId },
       () =>
@@ -212,9 +230,7 @@ export class PublicChannels {
             });
             if (!attachment) throw new AppError("ACCESS_DENIED");
           }
-          const names = [
-            ...body.matchAll(/(?<![a-zA-Z0-9_@])@([a-z0-9][a-z0-9_-]*)(?![a-zA-Z0-9_-])/g),
-          ].map((match) => match[1]!);
+          const names = mentionedNames(body);
           const recipients = await tx.conversationMember.findMany({
             where: {
               conversationId: channelId,
@@ -243,6 +259,7 @@ export class PublicChannels {
               },
             },
           });
+          created = true;
           return { ...message, target: `#${channel.channelName}` };
         }),
     );
@@ -251,6 +268,7 @@ export class PublicChannels {
       where: { id: saved.id, conversationId: channelId, senderMemberId: member.id },
       include: { sender: { include: { user: true } }, deliveries: { include: { agent: true } } },
     });
+    if (created) await this.notifications?.notifyMessage(message.id);
     for (const delivery of message.deliveries) {
       if (!delivery.agent.computerId) continue;
       await (this.publisher ?? createCentrifugoServerApi()).publish(

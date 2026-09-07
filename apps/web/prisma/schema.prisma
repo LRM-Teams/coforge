@@ -27,23 +27,40 @@ model Workspace {
 }
 
 model User {
-  id                  String                @id @default(uuid()) @db.Uuid
-  username            String                @unique
-  displayName         String?
-  description         String                @default("")
-  avatarObjectKey     String?
-  avatarContentType   String?
-  timeZone            String?
-  createdAt           DateTime              @default(now())
-  identities          UserIdentity[]
-  memberships         WorkspaceMembership[]
-  agents              Agent[]
-  agentApiKeys        AgentApiKey[]
-  daemonApiKeys       DaemonApiKey[]
-  computers           Computer[]
-  conversationMembers ConversationMember[]
-  attachments         Attachment[]
+  id                          String                @id @default(uuid()) @db.Uuid
+  username                    String                @unique
+  displayName                 String?
+  description                 String                @default("")
+  avatarObjectKey             String?
+  avatarContentType           String?
+  timeZone                    String?
+  browserNotificationsEnabled Boolean               @default(false)
+  createdAt                   DateTime              @default(now())
+  identities                  UserIdentity[]
+  memberships                 WorkspaceMembership[]
+  agents                      Agent[]
+  agentApiKeys                AgentApiKey[]
+  daemonApiKeys               DaemonApiKey[]
+  computers                   Computer[]
+  conversationMembers         ConversationMember[]
+  webPushSubscriptions        WebPushSubscription[]
+  attachments                 Attachment[]
   @@map("users")
+}
+
+model WebPushSubscription {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @db.Uuid
+  endpoint       String    @unique
+  p256dh         String
+  auth           String
+  expirationTime DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("web_push_subscriptions")
 }
 
 model UserIdentity {

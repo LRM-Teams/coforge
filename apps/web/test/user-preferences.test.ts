@@ -25,11 +25,17 @@ describe("user time zone preferences", () => {
 
   test("saves and reads the selected time zone", async () => {
     let saved: string | null = null;
+    let browserNotificationsEnabled = false;
     const repository: UserPreferencesRepository = {
       getTimeZone: async () => saved,
       setTimeZone: async (_userId, timeZone) => {
         saved = timeZone;
         return saved;
+      },
+      getBrowserNotificationsEnabled: async () => browserNotificationsEnabled,
+      setBrowserNotificationsEnabled: async (_userId, enabled) => {
+        browserNotificationsEnabled = enabled;
+        return enabled;
       },
     };
     const preferences = new UserPreferences(repository);
@@ -41,6 +47,21 @@ describe("user time zone preferences", () => {
       "Invalid IANA time zone",
     );
     expect(await preferences.set("user-1", null)).toBeNull();
+  });
+
+  test("saves the global browser notification preference", async () => {
+    let enabled = false;
+    const repository: UserPreferencesRepository = {
+      getTimeZone: async () => null,
+      setTimeZone: async () => null,
+      getBrowserNotificationsEnabled: async () => enabled,
+      setBrowserNotificationsEnabled: async (_userId, next) => (enabled = next),
+    };
+    const preferences = new UserPreferences(repository);
+
+    expect(await preferences.getBrowserNotificationsEnabled("user-1")).toBeFalse();
+    expect(await preferences.setBrowserNotificationsEnabled("user-1", true)).toBeTrue();
+    expect(await preferences.getBrowserNotificationsEnabled("user-1")).toBeTrue();
   });
 
   test("formats the same instant in the selected time zone", () => {

@@ -52,6 +52,16 @@ instructions for the TanStack Start Web/backend modular monolith.
 
 ## Route and page organization
 
+- Web Push belongs to `features/notifications/` for authenticated settings,
+  permission/subscription UI, and the Service Worker contract. Server-only
+  preference and per-browser subscription persistence, VAPID key loading,
+  eligibility, encrypted delivery, and invalid-subscription cleanup belong to
+  `server/notifications/`. Conversation send orchestration may invoke that
+  public notification seam only after the canonical Message commits; it must
+  not own Web Push protocol or persistence details. Channel mute eligibility
+  remains owned by PublicChannels. Test push uses the same server delivery
+  seam as committed-message push.
+
 - Public channels belong to `features/conversations/` (discovery, join/create,
   shared message UI and authenticated functions) and
   `server/conversations/public-channels.server.ts` (Workspace authorization,
@@ -99,6 +109,7 @@ instructions for the TanStack Start Web/backend modular monolith.
   │   ├── conversations/
   │   ├── projects/
   │   ├── profiles/
+  │   ├── notifications/
   │   └── attachments/
   ├── components/
   │   ├── layout/

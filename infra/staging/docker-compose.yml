@@ -47,6 +47,9 @@ services:
       COFORGE_CENTRIFUGO_PROXY_SECRET: ${COFORGE_CENTRIFUGO_PROXY_SECRET:?deploy script writes .env}
       COFORGE_WORKER_JWT_KEY_ID: ${COFORGE_WORKER_JWT_KEY_ID:?deploy script writes .env}
       COFORGE_WORKER_JWT_PRIVATE_JWK: ${COFORGE_WORKER_JWT_PRIVATE_JWK:?deploy script writes .env}
+      COFORGE_WEB_PUSH_PUBLIC_KEY: ${COFORGE_WEB_PUSH_PUBLIC_KEY:?deploy script loads staging variable}
+      COFORGE_WEB_PUSH_PRIVATE_KEY_FILE: /run/secrets/coforge_web_push_private_key
+      COFORGE_WEB_PUSH_SUBJECT: https://coforge.cn
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT_FILE: /run/secrets/otel_traces_endpoint
       OTEL_SERVICE_NAME: coforge-web
       OTEL_DEPLOYMENT_ENVIRONMENT: staging
@@ -71,6 +74,10 @@ services:
         gid: "1000"
         mode: 0400
       - source: coforge_agent_credential_encryption_key
+        uid: "1000"
+        gid: "1000"
+        mode: 0400
+      - source: coforge_web_push_private_key
         uid: "1000"
         gid: "1000"
         mode: 0400
@@ -210,6 +217,8 @@ secrets:
     environment: COFORGE_SESSION_SECRET
   coforge_agent_credential_encryption_key:
     environment: COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY
+  coforge_web_push_private_key:
+    environment: COFORGE_WEB_PUSH_PRIVATE_KEY
   otel_traces_endpoint:
     file: ./secrets/otel_traces_endpoint
   redis_password:

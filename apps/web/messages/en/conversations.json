@@ -6,6 +6,8 @@
   "channel_name_hint": "Use lowercase letters, numbers, hyphens or underscores (up to 32 characters).",
   "channel_public": "Workspace public",
   "channel_public_description": "Everyone in this Workspace can read. Join to send messages.",
+  "channel_mute": "Mute channel notifications",
+  "channel_unmute": "Unmute channel notifications",
   "channel_join": "Join channel",
   "channel_joined": "Joined",
   "channel_joining": "Joining…",

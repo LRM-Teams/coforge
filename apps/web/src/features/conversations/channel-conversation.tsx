@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Hash } from "lucide-react";
+import { Bell, BellOff, Hash } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BackToAgents } from "./conversation-layout";
 import { ConversationPane, type DirectConversationView } from "./direct-conversation";
@@ -7,6 +7,7 @@ import { m } from "@/paraglide/messages";
 
 export type ChannelConversationView = Omit<DirectConversationView, "agent" | "messages"> & {
   name: string;
+  muted: boolean;
   messages: (DirectConversationView["messages"][number] & { senderMemberId: string })[];
 };
 
@@ -14,14 +15,17 @@ export function ChannelConversation({
   conversation,
   onSend,
   onJoin,
+  onMutedChange,
   onRefresh,
 }: {
   conversation: ChannelConversationView;
   onSend: (body: string, requestId: string, attachmentId?: string) => Promise<void>;
   onJoin: () => Promise<void>;
+  onMutedChange: (muted: boolean) => Promise<void>;
   onRefresh: () => Promise<void>;
 }) {
   const [joining, setJoining] = useState(false);
+  const [savingMute, setSavingMute] = useState(false);
   const [error, setError] = useState(false);
   async function join() {
     setJoining(true);
@@ -48,6 +52,25 @@ export function ChannelConversation({
           <span className="ml-auto hidden text-xs text-muted-foreground sm:block">
             {m.channel_public()}
           </span>
+          {conversation.senderMemberId && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              disabled={savingMute}
+              aria-label={conversation.muted ? m.channel_unmute() : m.channel_mute()}
+              onClick={async () => {
+                setSavingMute(true);
+                try {
+                  await onMutedChange(!conversation.muted);
+                } finally {
+                  setSavingMute(false);
+                }
+              }}
+            >
+              {conversation.muted ? <BellOff aria-hidden="true" /> : <Bell aria-hidden="true" />}
+            </Button>
+          )}
         </header>
       }
       readOnlyNotice={

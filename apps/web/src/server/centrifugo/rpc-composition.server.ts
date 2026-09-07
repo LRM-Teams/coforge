@@ -65,6 +65,7 @@ import {
 import { PrismaAgentApiKeyRepository } from "../db/repositories/agent-api-key.repositories.server";
 import { PrismaComputerRuntimeRepository } from "../db/repositories/computer-runtime.repositories.server";
 import { PrismaDaemonApiKeyRepository } from "../db/repositories/daemon-api-key.repositories.server";
+import { bestEffortMessageNotifier } from "../notifications/web-push-composition.server";
 
 const unavailable: CentrifugoRpcError = {
   code: 503,
@@ -198,6 +199,9 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
           centrifugo,
           "send",
           agentAuthorization,
+          undefined,
+          undefined,
+          bestEffortMessageNotifier(db),
         ),
       },
       authenticateEnvelope: (request, context) =>

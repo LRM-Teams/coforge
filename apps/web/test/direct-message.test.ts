@@ -243,6 +243,7 @@ describe("SendDirectMessage", () => {
 
   test("does not invoke publication even when the publication adapter fails", async () => {
     let persistedCalled = false;
+    const calls: string[] = [];
     const repository = {
       async sendMessage() {
         throw new Error("not used");
@@ -258,11 +259,20 @@ describe("SendDirectMessage", () => {
         return { ...persisted, deliveryId: undefined, target: "@user" };
       },
     } satisfies DirectConversationRepository;
-    const useCase = new SendDirectMessage(repository, new MemoryMessageRequestIdempotency(), {
-      async publish() {
-        throw new Error("should not be called");
+    const useCase = new SendDirectMessage(
+      repository,
+      new MemoryMessageRequestIdempotency(),
+      {
+        async publish() {
+          throw new Error("should not be called");
+        },
       },
-    });
+      {
+        async notifyMessage(messageId) {
+          calls.push(`notify:${messageId}`);
+        },
+      },
+    );
     await expect(
       useCase.executeFromAgent({
         requestId: "request-a",
@@ -273,10 +283,12 @@ describe("SendDirectMessage", () => {
       }),
     ).resolves.toMatchObject({ id: "message-a", sequence: 1 });
     expect(persistedCalled).toBe(true);
+    expect(calls).toEqual(["notify:message-a"]);
   });
 
   test("same sender scope and requestId persists once and returns the same message", async () => {
     let persistenceCalls = 0;
+    let notificationCalls = 0;
     const repository = {
       async getOrCreateUserAgent() {
         return { id: "conversation-a" };
@@ -286,9 +298,16 @@ describe("SendDirectMessage", () => {
         return persisted;
       },
     } satisfies DirectConversationRepository;
-    const useCase = new SendDirectMessage(repository, new MemoryMessageRequestIdempotency(), {
-      async publish() {},
-    });
+    const useCase = new SendDirectMessage(
+      repository,
+      new MemoryMessageRequestIdempotency(),
+      { async publish() {} },
+      {
+        async notifyMessage() {
+          notificationCalls += 1;
+        },
+      },
+    );
     const input = {
       requestId: "request-a",
       workspaceId: "workspace-a",
@@ -302,6 +321,7 @@ describe("SendDirectMessage", () => {
     const retry = await useCase.execute(input);
 
     expect(persistenceCalls).toBe(1);
+    expect(notificationCalls).toBe(1);
     expect(retry).toEqual(first);
     expect(retry.createdAt).toBeInstanceOf(Date);
   });

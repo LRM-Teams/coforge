@@ -2,7 +2,7 @@
 
 状态：验证阶段架构基线
 
-更新时间：2026-08-27
+更新时间：2026-09-07
 
 适用范围：仓库结构、云端服务、本地进程、消息投递与开发工具链
 
@@ -115,6 +115,14 @@ Caddy 不理解 conversation、message、Agent 或 workspace 业务。
 初始实现使用 Bun 1.4 与 TanStack Start，不使用 Next.js。前期保持模块化单体，只有出现清晰的扩缩容或故障隔离需求时才拆服务。生产构建使用 Nitro 的 Bun preset 生成自包含 server output，并以非 root 用户运行在不可变 Docker image 中；Nitro 3 adapter 当前仍是 beta，进入 production 前必须验证构建、启动、健康检查、优雅停止及 PostgreSQL/Centrifugo 集成路径。
 
 消息发送方生成并在同一消息重试中复用 `request_id`。Web/backend 使用现有 Redis，以 Workspace、`user`/`agent` sender kind、稳定 sender ID 和 `request_id` 组成 key，通过带短 TTL 的原子 processing claim 抑制并发重复持久化；成功结果保留 24 小时。User→Agent 的 canonical Message 持久化在幂等执行内，Centrifugo attention publication 在外；publication 失败不影响 canonical Message，后续由 Message/read boundary 恢复。Redis 缺失或不可用时发送 fail closed，但读取不依赖 Redis。PostgreSQL Message 仍是 canonical 数据，Redis 不承担 durable replay。该短期 MVP 明确保留 PostgreSQL commit 与 Redis 结果写入之间的双写崩溃窗口；claim 过期后可能重复创建 Message，不声称提供永久 exactly-once。
+
+#### Web Push 通知
+
+Web/backend 自托管 standards-based Web Push。浏览器的 Service Worker 使用 Push API 接收由 push service 转发的加密 payload，因此即使 CoForge 页面已关闭也能显示 Notification；点击后先经认证 landing route 校验 Workspace membership、选择消息所属 Workspace，再进入 conversation。PostgreSQL 保存每个 User 的应用级 push 偏好，以及每个浏览器 profile/device 一条独立 subscription（endpoint 与该 subscription 的客户端公钥材料）。公开 VAPID 公钥只通过已认证的 settings seam 返回浏览器；稳定的 VAPID P-256 私钥仅存在于服务端 Secret。部署使用 `COFORGE_WEB_PUSH_PUBLIC_KEY`、`COFORGE_WEB_PUSH_PRIVATE_KEY_FILE` 和固定非 secret subject `COFORGE_WEB_PUSH_SUBJECT=https://coforge.cn`，不得把私钥写入环境文件、日志、客户端 bundle 或仓库。所有 Web 副本共享同一稳定 key pair；轮换必须作为会使既有 subscription 重新订阅的受控操作处理。
+
+Push 是 canonical Message commit 之后的 best-effort side effect，不是消息投递或恢复边界：发送失败、超时或 push service 不可用都不能回滚或重复创建 chat Message；同一个 `request_id` 的短期幂等重放不得重新发送 push。人类消息是否产生 push 由 Web/backend 根据接收用户偏好和 conversation 通知规则决定；channel mute 抑制普通浏览器 push，真人明确 `@username` 时穿透该 User 的 channel mute。Agent-originated message 不改变 Agent 唤醒规则。push payload 按 [RFC 8291](https://www.rfc-editor.org/rfc/rfc8291) 加密，app-server identification 使用 [RFC 8292](https://www.rfc-editor.org/rfc/rfc8292) VAPID；subscription endpoint 按 bearer capability 保护并不得记录。push service 返回 HTTP 404 或 410 时删除对应无效 subscription，其他失败只记录脱敏的可观测结果。Settings 中的 test push 必须只发送到当前 browser subscription，并经过同一个后端发送 use case、加密和失效清理路径，不能有绕过生产路径的测试实现。登出时即使服务端关联清理失败，也必须在跳转前从浏览器注销当前 subscription 并关闭已显示通知，防止共享浏览器上的下一位用户收到旧账户通知。
+
+实现固定为 Bun 1.4 下精确 pin 的 [`web-push` 3.6.7](https://github.com/web-push-libs/web-push)（MPL-2.0 dependency license）。选择依据与 trade-off：直接实现 RFC 被拒绝，因为内容加密、VAPID 和各 push service 互操作的长期安全维护成本过高；managed provider 在当前 MVP 被拒绝，因为会引入外部 domain ownership、供应商数据边界和运行依赖；`web-push` 复用成熟的 standards implementation 且不新增业务服务，但 npm 3.6.7 release 已陈旧，因此每次采纳或运行时升级前必须以精确版本执行 Bun 1.4 的 subscription、RFC 8291 payload encryption、VAPID signing、成功发送及 404/410 compatibility tests，未通过不得进入 production。浏览器行为以 MDN 的 [Notifications API](https://developer.mozilla.org/en-US/docs/Web/API/Notifications_API) 与 [Push API](https://developer.mozilla.org/en-US/docs/Web/API/Push_API) 为实现入口，传输模型遵循 [RFC 8030](https://www.rfc-editor.org/rfc/rfc8030)。
 
 ### Standalone Centrifugo：实时传输面
 

@@ -23,6 +23,7 @@ import { decodeAgentMessageRequest, encodeCloudAgentMessageResponse } from "@cof
 import { SendDirectMessage } from "../conversations/direct-message.server";
 import { getMessageRequestIdempotency } from "../conversations/redis-message-request-idempotency.server";
 import type { MessageRequestIdempotency } from "../conversations/message-request-idempotency.server";
+import type { MessageNotifier } from "../notifications/web-push-composition.server";
 import {
   getAgentMessageHoldStore,
   hashAgentDraft,
@@ -130,6 +131,7 @@ export function createAgentMessageMethod(
   },
   idempotency?: MessageRequestIdempotency,
   holdStore?: AgentMessageHoldStore,
+  notifications?: MessageNotifier,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
     const request = decodeAgentMessageRequest(payload);
@@ -291,6 +293,7 @@ export function createAgentMessageMethod(
       repository,
       idempotency ?? getMessageRequestIdempotency(),
       _centrifugo,
+      notifications,
     ).executeFromAgent({
       requestId: request.requestId,
       workspaceId: request.workspaceId,

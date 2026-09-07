@@ -96,15 +96,24 @@ mock.module("@/features/conversations/channels.functions", () => ({
     conversationId: "channel-1",
     name: "general",
     senderMemberId: "member-1",
+    muted: false,
     messages: [],
   })),
   createPublicChannel: mock(async () => ({ id: "channel-1" })),
   joinPublicChannel: mock(async () => {}),
+  setPublicChannelMuted: mock(async () => ({ muted: true })),
   sendPublicChannelMessage: mock(async () => {}),
 }));
 mock.module("@/features/settings/settings.functions", () => ({
   getUserPreferences: mock(async () => ({ timeZone: null })),
   saveUserTimeZone: mock(async () => ({ timeZone: null })),
+}));
+mock.module("@/features/notifications/notifications.functions", () => ({
+  getBrowserNotificationSettings: mock(async () => ({ enabled: false, publicKey: null })),
+  subscribeBrowserPush: mock(async () => {}),
+  unsubscribeBrowserPush: mock(async () => {}),
+  saveBrowserNotificationPreference: mock(async () => ({ enabled: false })),
+  sendTestBrowserNotification: mock(async () => ({ sent: 1, failed: 0, removed: 0 })),
 }));
 mock.module("@/features/profiles/profile.functions", () => ({
   getUserProfile,

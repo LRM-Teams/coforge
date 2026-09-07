@@ -13,6 +13,7 @@ import { createAgentMessageMethod } from "../src/server/centrifugo/rpc-handler.s
 import { decodeCloudAgentMessageResponse, encodeAgentMessageRequest } from "@coforge/protocol";
 import { RedisAgentMessageHoldStore } from "../src/server/conversations/agent-message-hold.server";
 import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repositories.server";
+import { PrismaWebPushSubscriptionStore } from "../src/server/notifications/prisma-web-push-subscriptions.server";
 
 test("existing Workspace humans automatically join one general channel; outsiders cannot discover it", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
@@ -33,6 +34,27 @@ test("existing Workspace humans automatically join one general channel; outsider
   });
   try {
     const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis));
+    await db.user.updateMany({
+      where: { id: { in: [alice.id, bob.id] } },
+      data: { browserNotificationsEnabled: true },
+    });
+    await db.webPushSubscription.createMany({
+      data: [
+        {
+          userId: alice.id,
+          endpoint: `https://fcm.googleapis.com/wp/alice-${suffix}`,
+          p256dh: "a",
+          auth: "a",
+        },
+        {
+          userId: bob.id,
+          endpoint: `https://fcm.googleapis.com/wp/bob-${suffix}`,
+          p256dh: "b",
+          auth: "b",
+        },
+      ],
+    });
+    const pushSubscriptions = new PrismaWebPushSubscriptionStore(db);
     const [first, second] = await Promise.all([
       channels.list(workspace.id, alice.id),
       channels.list(workspace.id, bob.id),
@@ -92,6 +114,7 @@ test("existing Workspace humans automatically join one general channel; outsider
       body: "Hello Bob",
       attachmentId: attachment.id,
     });
+    expect((await pushSubscriptions.notificationForMessage(saved.id))?.subscriptions).toEqual([]);
     expect((await send(alice.id, "Hello Bob", requestId)).id).toBe(saved.id);
     const unjoined = await channels.open(workspace.id, bob.id, engineering.id);
     expect(unjoined.messages.map((m) => m.body)).toEqual(["Hello Bob"]);
@@ -106,19 +129,41 @@ test("existing Workspace humans automatically join one general channel; outsider
       channels.join(workspace.id, bob.id, engineering.id),
       channels.join(workspace.id, bob.id, engineering.id),
     ]);
-    expect((await channels.open(workspace.id, bob.id, engineering.id)).senderMemberId).not.toBe("");
+    expect(await channels.setUserMuted(workspace.id, bob.id, engineering.id, true)).toEqual({
+      muted: true,
+    });
+    const mutedChannel = await channels.open(workspace.id, bob.id, engineering.id);
+    expect(mutedChannel.senderMemberId).not.toBe("");
+    expect(mutedChannel.muted).toBeTrue();
+    expect((await pushSubscriptions.notificationForMessage(saved.id))?.subscriptions).toEqual([]);
+    const mutedOrdinary = await send(alice.id, "Muted ordinary message");
+    expect(
+      (await pushSubscriptions.notificationForMessage(mutedOrdinary.id))?.subscriptions,
+    ).toEqual([]);
+    const mutedMention = await send(alice.id, `@${bob.username} please review this`);
+    expect(
+      (await pushSubscriptions.notificationForMessage(mutedMention.id))?.subscriptions,
+    ).toEqual([
+      expect.objectContaining({ endpoint: `https://fcm.googleapis.com/wp/bob-${suffix}` }),
+    ]);
+    await channels.setUserMuted(workspace.id, bob.id, engineering.id, false);
+    expect((await pushSubscriptions.notificationForMessage(saved.id))?.subscriptions).toEqual([
+      expect.objectContaining({ endpoint: `https://fcm.googleapis.com/wp/bob-${suffix}` }),
+    ]);
     await send(bob.id, "Hello Alice");
     const history = await channels.open(workspace.id, alice.id, engineering.id);
     expect(history.messages.map((m) => [m.sequence, m.senderName, m.body])).toEqual([
       [1, `@${alice.username}`, "Hello Bob"],
-      [2, `@${bob.username}`, "Hello Alice"],
+      [2, `@${alice.username}`, "Muted ordinary message"],
+      [3, `@${alice.username}`, `@${bob.username} please review this`],
+      [4, `@${bob.username}`, "Hello Alice"],
     ]);
     expect(history.messages[0]?.senderMemberId).toBe(history.senderMemberId);
-    expect(history.messages[1]?.senderMemberId).not.toBe(history.senderMemberId);
+    expect(history.messages[3]?.senderMemberId).not.toBe(history.senderMemberId);
     await Promise.all([send(alice.id, "Concurrent A"), send(bob.id, "Concurrent B")]);
     expect(
       (await channels.open(workspace.id, alice.id, engineering.id)).messages.map((m) => m.sequence),
-    ).toEqual([1, 2, 3, 4]);
+    ).toEqual([1, 2, 3, 4, 5, 6]);
     const direct = await db.conversation.create({
       data: { workspaceId: workspace.id, directKey: `private-${suffix}` },
     });

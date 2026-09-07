@@ -27,6 +27,15 @@ For local UI work without Authing, uncomment `COFORGE_DEV_SKIP_AUTH=1` in
 `apps/web/.env`. This returns a fixed dev user on the server and is ignored when
 `NODE_ENV=production`. Remove or disable it before validating real login flows.
 
+Web Push uses one stable VAPID P-256 key pair. Set the URL-safe base64 public
+key in `COFORGE_WEB_PUSH_PUBLIC_KEY`, put the matching private key in a local
+untracked file with mode `0600`, and set its path in
+`COFORGE_WEB_PUSH_PRIVATE_KEY_FILE`. Keep
+`COFORGE_WEB_PUSH_SUBJECT=https://coforge.cn`. Never put the private key itself
+in `.env`, source, logs, or browser configuration. All backend replicas for an
+environment must use the same pair; changing it requires browsers to
+resubscribe.
+
 Local Web UI and Web/backend are the same TanStack Start package. Use the
 frontend script for daily development and the backend script to run the
 production Nitro server. Neither script uses port 3000.

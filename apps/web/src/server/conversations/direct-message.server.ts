@@ -7,6 +7,7 @@ import {
 import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
 import { daemonControlChannel } from "../centrifugo/server-api.server";
 import type { DirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
+import type { MessageNotifier } from "../notifications/web-push-composition.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 
 export class ReadDirectMessages {
@@ -32,6 +33,7 @@ export class SendDirectMessage {
     private readonly conversations: DirectConversationRepository,
     private readonly idempotency: MessageRequestIdempotency,
     private readonly centrifugo: CentrifugoServerApi,
+    private readonly notifications?: MessageNotifier,
   ) {}
 
   async execute(input: {
@@ -45,6 +47,7 @@ export class SendDirectMessage {
     threadRootId?: string;
   }) {
     if (!input.requestId || !input.body) throw new Error("invalid direct message");
+    let created = false;
     const message = await this.idempotency.execute(
       {
         workspaceId: input.workspaceId,
@@ -52,17 +55,21 @@ export class SendDirectMessage {
         senderId: input.senderUserId,
         requestId: input.requestId,
       },
-      () =>
-        this.conversations.sendMessage(
+      async () => {
+        const saved = await this.conversations.sendMessage(
           input.conversationId,
           input.senderMemberId,
           input.senderUserId,
           input.body,
           input.attachmentId,
           input.threadRootId,
-        ),
+        );
+        created = true;
+        return saved;
+      },
     );
     if (!message.agentId) throw new Error("message is not an Agent direct message");
+    if (created) await this.notifications?.notifyMessage(message.id);
     await this.publishUserMessageToAgent(input.requestId, input.conversationId, {
       ...message,
       agentId: message.agentId,
@@ -96,6 +103,7 @@ export class SendDirectMessage {
           return this.conversations.getOrCreateUserAgent(input.workspaceId, userId, input.agentId);
         })();
     if (!conversation) throw new Error("channel access is unavailable");
+    let created = false;
     const message = await this.idempotency.execute(
       {
         workspaceId: input.workspaceId,
@@ -112,9 +120,11 @@ export class SendDirectMessage {
           input.target.split(":")[1],
         );
         if (!persisted) throw new Error("agent message persistence is unavailable");
+        created = true;
         return persisted;
       },
     );
+    if (created) await this.notifications?.notifyMessage(message.id);
     return message;
   }
 

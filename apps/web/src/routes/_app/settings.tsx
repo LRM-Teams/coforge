@@ -6,6 +6,15 @@ import { SettingsContent } from "@/components/settings-content";
 import { useAppToast } from "@/components/ui/toast";
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { saveUserProfile } from "@/features/profiles/profile.functions";
+import {
+  browserNotificationPermission,
+  ensureBrowserPushSubscription,
+} from "@/features/notifications/browser-push";
+import {
+  saveBrowserNotificationPreference,
+  sendTestBrowserNotification,
+  subscribeBrowserPush,
+} from "@/features/notifications/notifications.functions";
 import { getUserPreferences, saveUserTimeZone } from "@/features/settings/settings.functions";
 import { getLocale, setLocale } from "@/paraglide/runtime";
 import { m } from "@/paraglide/messages";
@@ -23,9 +32,18 @@ export const Route = createFileRoute("/_app/settings")({
 function SettingsPage() {
   const [theme, setTheme] = useState<Theme>("system");
   const { timeZone: savedTimeZone } = Route.useLoaderData();
-  const { user: profile } = appRoute.useLoaderData();
+  const { user: profile, notifications } = appRoute.useLoaderData();
   const [timeZone, setTimeZone] = useState(savedTimeZone);
+  const [browserNotificationsEnabled, setBrowserNotificationsEnabled] = useState(
+    notifications.enabled,
+  );
+  const [notificationPermission, setNotificationPermission] = useState<
+    NotificationPermission | "unsupported"
+  >("unsupported");
   const saveTimeZone = useServerFn(saveUserTimeZone);
+  const saveNotificationPreference = useServerFn(saveBrowserNotificationPreference);
+  const subscribePush = useServerFn(subscribeBrowserPush);
+  const sendTestNotification = useServerFn(sendTestBrowserNotification);
   const saveProfile = useServerFn(saveUserProfile);
   const router = useRouter();
   const toast = useAppToast();
@@ -39,6 +57,17 @@ function SettingsPage() {
         : "system";
     setTheme(initialTheme);
     applyTheme(initialTheme);
+  }, []);
+
+  useEffect(() => {
+    setBrowserNotificationsEnabled(notifications.enabled);
+  }, [notifications.enabled]);
+
+  useEffect(() => {
+    const refreshPermission = () => setNotificationPermission(browserNotificationPermission());
+    refreshPermission();
+    window.addEventListener("focus", refreshPermission);
+    return () => window.removeEventListener("focus", refreshPermission);
   }, []);
 
   useEffect(() => {
@@ -71,6 +100,49 @@ function SettingsPage() {
       await router.invalidate({ sync: true });
     } catch (cause) {
       toast.error(m.settings_save_error(), cause);
+    }
+  }
+
+  async function registerCurrentBrowser(requestPermission: boolean) {
+    if (!notifications.publicKey) throw new Error("Web Push is not configured");
+    let permission = browserNotificationPermission();
+    if (requestPermission && permission === "default")
+      permission = await Notification.requestPermission();
+    setNotificationPermission(permission);
+    if (permission !== "granted") return null;
+    const subscription = await ensureBrowserPushSubscription(notifications.publicKey);
+    await subscribePush({ data: subscription });
+    return subscription;
+  }
+
+  async function changeBrowserNotifications(enabled: boolean) {
+    try {
+      if (enabled && !(await registerCurrentBrowser(true))) return;
+      const saved = await saveNotificationPreference({ data: { enabled } });
+      setBrowserNotificationsEnabled(saved.enabled);
+      await router.invalidate({ sync: true });
+    } catch (cause) {
+      toast.error(m.preferences_browser_notifications_save_error(), cause);
+    }
+  }
+
+  async function enableBrowserNotifications() {
+    try {
+      await registerCurrentBrowser(true);
+    } catch (cause) {
+      toast.error(m.preferences_browser_notifications_save_error(), cause);
+    }
+  }
+
+  async function testBrowserNotification() {
+    try {
+      const subscription = await registerCurrentBrowser(false);
+      if (!subscription) throw new Error("Browser notification permission is not granted");
+      await sendTestNotification({ data: { endpoint: subscription.endpoint } });
+      return true;
+    } catch (cause) {
+      toast.error(m.preferences_browser_notifications_test_error(), cause);
+      return false;
     }
   }
 
@@ -114,12 +186,18 @@ function SettingsPage() {
       locale={locale}
       theme={theme}
       timeZone={timeZone}
+      browserNotificationsEnabled={browserNotificationsEnabled}
+      browserNotificationPermission={notificationPermission}
+      browserNotificationsConfigured={notifications.publicKey !== null}
       onProfileSave={changeProfile}
       onAvatarUpload={uploadAvatar}
       onAvatarRemove={removeAvatar}
       onLocaleChange={setLocale}
       onThemeChange={changeTheme}
       onTimeZoneChange={changeTimeZone}
+      onBrowserNotificationsChange={changeBrowserNotifications}
+      onEnableBrowserNotifications={enableBrowserNotifications}
+      onTestBrowserNotification={testBrowserNotification}
     />
   );
 }
