@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 
 import {
   ensureBrowserPushSubscription,
@@ -12,6 +12,7 @@ const originalPushManager = globalThis.PushManager;
 const originalWindow = globalThis.window;
 
 afterEach(() => {
+  jest.useRealTimers();
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
     value: originalNavigator,
@@ -83,6 +84,28 @@ test("shows installation help only in iPhone and iPad Safari outside standalone 
     value: { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X)", maxTouchPoints: 0 },
   });
   expect(shouldShowAddToHomeScreenGuide()).toBeFalse();
+});
+
+test("fails a browser push registration that never settles instead of hanging the UI", async () => {
+  jest.useFakeTimers();
+  Object.defineProperty(globalThis, "Notification", {
+    configurable: true,
+    value: { permission: "granted" },
+  });
+  Object.defineProperty(globalThis, "PushManager", { configurable: true, value: class {} });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { Notification: class {}, PushManager: class {} },
+  });
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { serviceWorker: { register: () => new Promise(() => {}) } },
+  });
+
+  const registration = ensureBrowserPushSubscription("AQID");
+  jest.advanceTimersByTime(15_000);
+
+  await expect(registration).rejects.toThrow("Browser Push registration timed out");
 });
 
 describe("unsubscribeCurrentBrowserPush", () => {
