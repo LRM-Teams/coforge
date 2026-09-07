@@ -1,19 +1,7 @@
 import type { Prisma } from "../../../generated/client";
+import { latestActivityError, type ActivityEntry } from "../../features/agents/agent-activity";
 
-type DetailActivity = {
-  id: string;
-  computerId: string;
-  launchId: string;
-  clientSeq: number;
-  activity: string;
-  level: string;
-  message: string;
-  diagnosticErrorClass?: string | null;
-  diagnosticReason?: string | null;
-  diagnosticFingerprint?: string | null;
-  occurredAt: Date;
-  createdAt: Date;
-};
+type DetailActivity = ActivityEntry & { computerId: string };
 
 type DetailAgent = {
   id: string;
@@ -54,7 +42,7 @@ export class AgentDetailQuery {
       computer: latest
         ? { id: latest.computerId, label: computerLabel(latest.computerId) }
         : undefined,
-      latestError: activity.find((entry) => entry.level === "error"),
+      latestError: latestActivityError(activity),
       activity,
     };
   }

@@ -72,7 +72,7 @@
   "agent_activity_writing_file": "Writing file",
   "agent_activity_editing_file": "Editing file",
   "agent_activity_using_tool": "Using tool",
-  "agent_activity_completed": "Run completed",
+  "agent_activity_idle": "Idle",
   "agent_activity_stopped": "Stopped",
   "agent_activity_failed": "Failed",
   "agent_activity_other": "Activity",

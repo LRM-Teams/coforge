@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { AlertCircle, Bot, Monitor, Pencil, X } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
+import { Avatar } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useAppToast } from "@/components/ui/toast";
 import {
@@ -17,11 +18,13 @@ import { m } from "@/paraglide/messages";
 import { formatDateForDisplay } from "@/lib/dates";
 import { AgentRuntimeFields, type RuntimeOptions } from "./agent-runtime-fields";
 import type { UpdateAgentInput } from "./agent.schemas";
+import { latestActivityError, type ActivityEntry } from "./agent-activity";
 
 type Detail = Awaited<ReturnType<typeof import("./agents.functions").getAgentDetail>>;
 
 export function AgentDetail({
   detail,
+  activity = detail.activity,
   tab,
   timeZone,
   onSaveRuntimeCredential,
@@ -30,6 +33,7 @@ export function AgentDetail({
   onLoadRuntimeOptions,
 }: {
   detail: Detail;
+  activity?: ActivityEntry[];
   tab: "profile" | "activity";
   timeZone: string | null;
   onSaveRuntimeCredential: (apiKey: string) => Promise<void>;
@@ -37,12 +41,26 @@ export function AgentDetail({
   onUpdate: (input: UpdateAgentInput) => Promise<void>;
   onLoadRuntimeOptions: (computerId: string) => Promise<RuntimeOptions>;
 }) {
+  const online = detail.status.value === "active";
+  const statusLabel = online ? m.agent_status_online() : m.agent_status_offline();
+  const latestError = latestActivityError(activity);
   return (
     <main className="flex-1 p-4 sm:p-5 md:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-sm text-muted-foreground">@{detail.name}</p>
-          <h1 className="text-2xl font-semibold tracking-tight">{detail.displayName}</h1>
+        <div className="flex min-w-0 items-center gap-3">
+          <Avatar
+            people={[{ name: detail.displayName }]}
+            size="lg"
+            online={online}
+            statusLabel={statusLabel}
+          />
+          <div className="min-w-0">
+            <h1 className="break-words text-2xl font-semibold tracking-tight">
+              {detail.displayName}
+            </h1>
+            <p className="text-sm text-muted-foreground">@{detail.name}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{statusLabel}</p>
+          </div>
         </div>
         <Link
           to="/messages/$agentId"
@@ -65,7 +83,7 @@ export function AgentDetail({
           </Link>
         ))}
       </nav>
-      {tab === "profile" && detail.latestError && (
+      {tab === "profile" && latestError && (
         <div
           role="alert"
           className="mt-6 flex items-start gap-3 rounded-xl border border-destructive/50 bg-destructive/5 p-4 text-sm"
@@ -73,7 +91,7 @@ export function AgentDetail({
           <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
           <div>
             <p className="font-medium text-destructive-text">{m.agent_latest_error()}</p>
-            <p className="mt-1 text-muted-foreground">{detail.latestError.message}</p>
+            <p className="mt-1 text-muted-foreground">{latestError.message}</p>
           </div>
         </div>
       )}
@@ -87,7 +105,7 @@ export function AgentDetail({
           onLoadRuntimeOptions={onLoadRuntimeOptions}
         />
       ) : (
-        <Activity detail={detail} timeZone={timeZone} />
+        <Activity activity={activity} timeZone={timeZone} />
       )}
     </main>
   );
@@ -439,8 +457,8 @@ function RuntimeField({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Activity({ detail, timeZone }: { detail: Detail; timeZone: string | null }) {
-  if (!detail.activity.length)
+function Activity({ activity, timeZone }: { activity: ActivityEntry[]; timeZone: string | null }) {
+  if (!activity.length)
     return (
       <div className="mt-6 rounded-xl border border-dashed p-10 text-center">
         <p className="font-medium">{m.agent_activity_empty()}</p>
@@ -449,9 +467,9 @@ function Activity({ detail, timeZone }: { detail: Detail; timeZone: string | nul
     );
   return (
     <ol className="mt-6 list-none divide-y">
-      {detail.activity.map((entry) => (
+      {activity.map((entry) => (
         <li
-          key={entry.id}
+          key={`${entry.launchId}:${entry.clientSeq}`}
           className="grid gap-1 py-2 sm:grid-cols-[max-content_max-content_minmax(0,1fr)] sm:items-start sm:gap-3"
         >
           <time
@@ -471,7 +489,7 @@ function Activity({ detail, timeZone }: { detail: Detail; timeZone: string | nul
           </span>
           {showsActivityMessage(entry.activity) && (
             <p
-              className={`whitespace-pre-wrap break-words text-sm ${entry.level === "error" ? "text-destructive-text" : "text-muted-foreground"}`}
+              className={`whitespace-pre-wrap break-words text-sm ${["running_command", "reading_file", "writing_file", "editing_file"].includes(entry.activity) ? "select-text font-mono" : ""} ${entry.level === "error" ? "text-destructive-text" : "text-muted-foreground"}`}
             >
               {entry.message}
               {entry.diagnosticErrorClass && (
@@ -503,7 +521,7 @@ function activityLabel(activity: string, level: string) {
   if (level === "error") return m.agent_activity_failed();
   if (activity === "starting") return m.agent_activity_starting();
   if (activity === "stopped") return m.agent_activity_stopped();
-  if (activity === "turn_completed") return m.agent_activity_completed();
+  if (activity === "turn_completed" || activity === "idle") return m.agent_activity_idle();
   if (activity === "running_command") return m.agent_activity_running_command();
   if (activity === "reading_file") return m.agent_activity_reading_file();
   if (activity === "writing_file") return m.agent_activity_writing_file();

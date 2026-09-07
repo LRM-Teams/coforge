@@ -72,7 +72,7 @@
   "agent_activity_writing_file": "正在写入文件",
   "agent_activity_editing_file": "正在编辑文件",
   "agent_activity_using_tool": "正在使用工具",
-  "agent_activity_completed": "运行完成",
+  "agent_activity_idle": "空闲",
   "agent_activity_stopped": "已停止",
   "agent_activity_failed": "失败",
   "agent_activity_other": "活动",

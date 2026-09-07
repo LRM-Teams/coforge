@@ -4,7 +4,15 @@ import { afterEach, expect, mock, test } from "bun:test";
 import { Match, RouterContextProvider, createMemoryHistory } from "@tanstack/react-router";
 import { act, cleanup, render, waitFor, within } from "@testing-library/react";
 import { AppToastProvider } from "@/components/ui/toast";
+import { encodeAgentActivity } from "@coforge/protocol";
+import type { ActivityEntry } from "@/features/agents/agent-activity";
 
+let detailOnline = false;
+let publishActivity = (_publication: { channel: string; data: Uint8Array }) => {};
+let connectActivity = () => {};
+let detailReadCount = 0;
+let historyBlock: Promise<void> | undefined;
+let extraHistory: ActivityEntry[] = [];
 const agents = [
   {
     id: "agent-1",
@@ -53,7 +61,10 @@ mock.module("@/features/agents/agents.functions", () => ({
   saveAgentRuntimeCredential: mock(async () => ({ saved: true })),
   retryAgentStart: mock(async () => {}),
   getAgentStatusConnectionToken: mock(async () => "test-agent-status-token"),
+  getAgentActivityConnectionToken: mock(async () => "test-agent-activity-token"),
   getAgentDetail: mock(async () => {
+    detailReadCount++;
+    if (historyBlock) await historyBlock;
     const failure = {
       id: "activity-1",
       computerId: "computer-12345678",
@@ -77,10 +88,11 @@ mock.module("@/features/agents/agents.functions", () => ({
     };
     return {
       ...agents[0],
+      status: detailOnline ? { value: "active", expiresAt: Date.now() + 90_000 } : agents[0].status,
       owner: { id: "user-1", username: "route-tester" },
       computer: { id: failure.computerId, label: "computer…5678" },
       latestError: failure,
-      activity: [failure, starting],
+      activity: [...extraHistory, failure, starting],
     };
   }),
   listAgents,
@@ -136,11 +148,29 @@ mock.module("centrifuge", () => ({
     disconnect() {}
   },
 }));
+mock.module("centrifuge/build/protobuf", () => ({
+  Centrifuge: class {
+    on(event: string, listener: typeof publishActivity) {
+      if (event === "publication") publishActivity = listener;
+      if (event === "connected")
+        connectActivity = () => listener({ channel: "", data: new Uint8Array() });
+      return this;
+    }
+    connect() {}
+    disconnect() {}
+  },
+}));
 
 const { getRouter } = await import("@/router");
 
 afterEach(() => {
   cleanup();
+  detailOnline = false;
+  publishActivity = () => {};
+  connectActivity = () => {};
+  detailReadCount = 0;
+  historyBlock = undefined;
+  extraHistory = [];
   listAgents.mockClear();
   loadDirectConversation.mockClear();
   getUserProfile.mockClear();
@@ -209,6 +239,8 @@ test("reuses parent application data across sidebar destinations", async () => {
 test("an Agent profile shows its Computer, runtime configuration, and latest failure", async () => {
   const { page } = await renderRoute("/agents/agent-1?tab=profile");
   expect(page.getByRole("heading", { name: "First Agent" })).toBeTruthy();
+  expect(page.getByRole("img", { name: "First Agent, Offline" })).toBeTruthy();
+  expect(page.getByText("Offline")).toBeTruthy();
   expect(page.getByText("computer…5678")).toBeTruthy();
   expect(page.getByRole("alert").textContent).toContain("Agent runtime could not be started.");
 });
@@ -223,4 +255,113 @@ test("an Agent Activity tab shows only time, action, and message", async () => {
   expect(page.queryByText("launch_failed")).toBeNull();
   expect(page.queryByText(/launch-1/)).toBeNull();
   expect(page.queryByText("error")).toBeNull();
+});
+
+test("profile shows Online and clears an old failure on live recovery without navigation", async () => {
+  detailOnline = true;
+  const { page } = await renderRoute("/agents/agent-1?tab=profile");
+  expect(page.getByRole("img", { name: "First Agent, Online" })).toBeTruthy();
+  expect(page.getByText("Online")).toBeTruthy();
+  expect(page.getByRole("alert")).toBeTruthy();
+  await act(async () =>
+    publishActivity({
+      channel: "activity:workspace-1",
+      data: encodeAgentActivity({
+        protocolMajor: 1,
+        requestId: "request-1",
+        workspaceId: "workspace-1",
+        agentId: "agent-1",
+        launchId: "launch-2",
+        clientSeq: 1,
+        activity: "starting",
+        level: "info",
+        message: "Starting",
+        occurredAt: "2026-08-29T00:00:03Z",
+      }),
+    }),
+  );
+  expect(page.queryByRole("alert")).toBeNull();
+  expect(page.getByText("Online")).toBeTruthy();
+});
+
+test("Activity appends matching live observations once and renders turn completion as Idle", async () => {
+  const { page } = await renderRoute("/agents/agent-1?tab=activity");
+  const event = {
+    protocolMajor: 1,
+    requestId: "request-1",
+    workspaceId: "workspace-1",
+    agentId: "agent-1",
+    launchId: "launch-2",
+    clientSeq: 1,
+    activity: "turn_completed",
+    level: "info" as const,
+    message: "Agent turn completed.",
+    occurredAt: "2026-08-29T00:00:03Z",
+  };
+  await act(async () => {
+    publishActivity({
+      channel: "activity:workspace-1",
+      data: encodeAgentActivity({ ...event, agentId: "agent-2" }),
+    });
+  });
+  expect(page.queryByText("Idle")).toBeNull();
+  await act(async () => {
+    const publication = { channel: "activity:workspace-1", data: encodeAgentActivity(event) };
+    publishActivity(publication);
+    publishActivity(publication);
+  });
+  expect(page.getAllByText("Idle")).toHaveLength(1);
+  expect(page.queryByText("Run completed")).toBeNull();
+  expect(page.getByText("Agent runtime could not be started.")).toBeTruthy();
+});
+
+test("reconnect hydrates missed history without losing activity arriving during the read", async () => {
+  const { page } = await renderRoute("/agents/agent-1?tab=activity");
+  const beforeConnect = detailReadCount;
+  await act(async () => connectActivity());
+  await waitFor(() => expect(detailReadCount).toBe(beforeConnect + 1));
+  const gate = Promise.withResolvers<void>();
+  historyBlock = gate.promise;
+  try {
+    await act(async () => connectActivity());
+    await waitFor(() => expect(detailReadCount).toBe(beforeConnect + 2));
+    await act(async () =>
+      publishActivity({
+        channel: "activity:workspace-1",
+        data: encodeAgentActivity({
+          protocolMajor: 1,
+          requestId: "live",
+          workspaceId: "workspace-1",
+          agentId: "agent-1",
+          launchId: "launch-2",
+          clientSeq: 2,
+          activity: "using_tool",
+          level: "info",
+          message: "Live during reload",
+          occurredAt: "2026-08-29T00:00:04Z",
+        }),
+      }),
+    );
+    expect(page.getByText("Live during reload")).toBeTruthy();
+    extraHistory = [
+      {
+        id: "persisted-missed",
+        launchId: "launch-2",
+        clientSeq: 1,
+        activity: "using_tool",
+        level: "info",
+        message: "Recovered history",
+        occurredAt: new Date("2026-08-29T00:00:03Z"),
+        createdAt: new Date("2026-08-29T00:00:03Z"),
+      },
+    ];
+    await act(async () => {
+      gate.resolve();
+      await gate.promise;
+    });
+    await waitFor(() => expect(page.getByText("Recovered history")).toBeTruthy());
+    expect(page.getAllByText("Live during reload")).toHaveLength(1);
+  } finally {
+    gate.resolve();
+  }
 });

@@ -146,6 +146,10 @@ instructions for the TanStack Start Web/backend modular monolith.
 - `src/features/agents/agent-status-realtime.ts` owns the browser status event contract and
   state updates. Redis supplies initial/reconnect snapshots; Centrifugo publications update
   the open page without periodic backend polling.
+- `src/features/agents/agent-activity.ts` owns timeline merging and unresolved-error selection;
+  `agent-activity-realtime.ts` hydrates history and consumes the existing binary Activity
+  channel. History and live entries deduplicate by launch ID/client sequence. Reconnect
+  reloads best-effort history; neither a gap nor a completed turn changes online status.
 
 - Keep Agent status and activity separate. `agent:status` contains only
   `active` or `inactive`; the UI presents those values as online or offline and

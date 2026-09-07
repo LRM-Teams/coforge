@@ -166,6 +166,16 @@ export const getAgentStatusConnectionToken = createServerFn({ method: "GET" }).h
   return issueBrowserRealtimeToken({ userId: user.id, workspaceId });
 });
 
+export const getAgentActivityConnectionToken = createServerFn({ method: "GET" }).handler(
+  async () => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Agent persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    return issueBrowserRealtimeToken({ userId: user.id, workspaceId, stream: "activity" });
+  },
+);
+
 export const retryAgentStart = createServerFn({ method: "POST" })
   .validator(agentIdSchema)
   .handler(async ({ data: agentId }) => {
@@ -232,8 +242,26 @@ export const getAgentDetail = createServerFn({ method: "GET" })
     const runtimeCredential = ownedByCurrentUser
       ? await runtimeCredentials(db).summary({ workspaceId, userId: user.id }, agentId)
       : null;
+    const status = result.computerId
+      ? await getAgentStatusCache().snapshot({
+          workspaceId,
+          computerId: result.computerId,
+          agentId,
+        })
+      : undefined;
     return {
       ...result,
+      status: {
+        value: status?.status ?? ("inactive" as const),
+        expiresAt: status?.expiresAt ?? null,
+        ordering: status
+          ? {
+              daemonInstanceId: status.daemonInstanceId,
+              clientSeq: status.clientSeq,
+              observedAtMs: status.observedAtMs,
+            }
+          : null,
+      },
       runtimeConfig: publicAgentRuntimeConfig(parseAgentRuntimeConfig(result.runtimeConfig)),
       ownedByCurrentUser,
       runtimeCredential,
