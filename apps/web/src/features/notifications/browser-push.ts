@@ -7,6 +7,7 @@ export type SerializedBrowserPushSubscription = {
 };
 
 let lifecycleDisabled = false;
+const registrationTimeoutMs = 15_000;
 
 export function disableBrowserPushLifecycle() {
   lifecycleDisabled = true;
@@ -41,6 +42,10 @@ export async function ensureBrowserPushSubscription(
 ): Promise<SerializedBrowserPushSubscription> {
   if (browserNotificationPermission() !== "granted")
     throw new Error("Browser notification permission is not granted");
+  return withRegistrationTimeout(registerBrowserPush(publicKey));
+}
+
+async function registerBrowserPush(publicKey: string): Promise<SerializedBrowserPushSubscription> {
   const registration = await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
   await navigator.serviceWorker.ready;
   const applicationServerKey = decodeBase64Url(publicKey);
@@ -65,6 +70,23 @@ export async function ensureBrowserPushSubscription(
     expirationTime: value.expirationTime ?? null,
     keys: { p256dh: value.keys.p256dh, auth: value.keys.auth },
   };
+}
+
+async function withRegistrationTimeout<T>(registration: Promise<T>) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      registration,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error("Browser Push registration timed out")),
+          registrationTimeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 export async function currentBrowserPushEndpoint() {
