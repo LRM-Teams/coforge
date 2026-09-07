@@ -41,7 +41,11 @@ describe("Agent message HTTP authentication", () => {
       agentApiKeys: keys,
       verifyDaemonApiKey: async (token) => {
         if (token !== "daemon-token") throw new Error("invalid");
-        return { userId: "owner-a", workspaceId: "workspace-a", computerId: "computer-a" };
+        return {
+          userId: "owner-a",
+          workspaceId: "workspace-a",
+          computerId: "computer-a",
+        };
       },
       computerBelongsToWorkspace: async () => true,
     });
@@ -89,7 +93,11 @@ describe("Agent message HTTP authentication", () => {
       agentApiKeys: keys,
       verifyDaemonApiKey: async (token: string) => {
         if (token !== "daemon-token") throw new Error("invalid");
-        return { userId: "owner-a", workspaceId: "workspace-a", computerId: "computer-a" };
+        return {
+          userId: "owner-a",
+          workspaceId: "workspace-a",
+          computerId: "computer-a",
+        };
       },
       computerBelongsToWorkspace: async () => true,
     };
@@ -112,8 +120,16 @@ describe("Agent message HTTP authentication", () => {
       repository: keys,
     });
     for (const daemon of [
-      { userId: "owner-a", workspaceId: "workspace-b", computerId: "computer-a" },
-      { userId: "owner-a", workspaceId: "workspace-a", computerId: "computer-b" },
+      {
+        userId: "owner-a",
+        workspaceId: "workspace-b",
+        computerId: "computer-a",
+      },
+      {
+        userId: "owner-a",
+        workspaceId: "workspace-a",
+        computerId: "computer-b",
+      },
     ])
       await expect(
         authenticateAgentMessageRequest(request(apiKey, "daemon-token"), {

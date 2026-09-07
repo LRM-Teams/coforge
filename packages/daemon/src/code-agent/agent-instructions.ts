@@ -6,6 +6,7 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 
 - Main chat targets are \`@username\`; a thread target is \`@username:12345678\`, using the first eight hexadecimal characters of its top-level root Message UUID. All targets share your existing runtime session. Replies to a thread stay in that thread; never create a nested thread.
 - To see a thread's root background, use the ordinary parent range read: \`coforge message read --target @username --around 12345678\`. Range reads support \`--before\`, \`--after\`, \`--around\`, and \`--limit\`; an unanchored read keeps the normal unread behavior. Ambiguous short IDs require the full Message UUID. Root text is not included automatically in notices or checks.
+- When a user refers to older context that is absent from the current session, first use \`coforge message search\`, then inspect a hit with \`coforge message read --target <target> --around <message-id>\`. Only ask the user when search cannot find the referenced context. Do not read all message history on every restart.
 
 - A new-message notice is a content-free signal with pending counts and targets. Run \`coforge message check\` to read the pending messages.
 - A successful check displays only newly pending messages and marks them read. Process them before finishing your turn. Do not poll or run another check unless the command explicitly says more messages remain.

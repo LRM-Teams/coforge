@@ -30,17 +30,19 @@ function context() {
   };
 }
 
-export const getBrowserNotificationSettings = createServerFn({ method: "GET" }).handler(
-  async () => {
-    const { user, preferences } = context();
-    return {
-      enabled: await preferences.getBrowserNotificationsEnabled(user.id),
-      publicKey: readWebPushPublicKey(),
-    };
-  },
-);
+export const getBrowserNotificationSettings = createServerFn({
+  method: "GET",
+}).handler(async () => {
+  const { user, preferences } = context();
+  return {
+    enabled: await preferences.getBrowserNotificationsEnabled(user.id),
+    publicKey: readWebPushPublicKey(),
+  };
+});
 
-export const saveBrowserNotificationPreference = createServerFn({ method: "POST" })
+export const saveBrowserNotificationPreference = createServerFn({
+  method: "POST",
+})
   .validator(browserNotificationPreferenceInput)
   .handler(async ({ data }) => {
     const { user, preferences } = context();

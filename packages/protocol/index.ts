@@ -24,6 +24,7 @@ export const AGENT_MESSAGE_METHOD = "agent:deliver" as const;
 export const AGENT_MESSAGE_ACK_METHOD = "agent:deliver:ack" as const;
 export const AGENT_MESSAGE_CHECK_METHOD = "agent:message:check" as const;
 export const AGENT_MESSAGE_READ_METHOD = "agent:message:read" as const;
+export const AGENT_MESSAGE_SEARCH_METHOD = "agent:message:search" as const;
 export const AGENT_MESSAGE_SEND_METHOD = "agent:message:send" as const;
 export const AGENT_CHANNEL_MUTE_METHOD = "agent:channel:mute" as const;
 export const AGENT_CHANNEL_UNMUTE_METHOD = "agent:channel:unmute" as const;
@@ -213,7 +214,7 @@ export type AgentMessageRequest = {
   workspaceId: string;
   fromSequence?: number;
   throughSequence?: number;
-  operation: "read" | "send" | "mute" | "unmute";
+  operation: "read" | "search" | "send" | "mute" | "unmute";
   target: string;
   body?: string;
   holdToken?: string;
@@ -222,6 +223,10 @@ export type AgentMessageRequest = {
   after?: string;
   around?: string;
   limit?: number;
+  query?: string;
+  sender?: string;
+  sort?: "relevance" | "recent";
+  offset?: number;
   seenUpToSequence?: number;
 };
 export type CloudAgentMessageResponse = {

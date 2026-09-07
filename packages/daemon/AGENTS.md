@@ -100,6 +100,10 @@ not mutate the installation or supply missing files for older installers.
   `agent:stop` intents; there is no `agent:replace`. A stop emits no
   `stopping` activity. If a start follows a stop for the same Agent, control
   handling waits for confirmed stop completion before launching the replacement.
+  When an Agent session lacks older user-referenced context, the standing
+  instructions direct it to lexical `coforge message search` and then a
+  target-scoped `message read --around`; restart recovery must not eagerly load
+  all canonical history.
 - `agent-app-inbox/` owns typed App-item identity, validation, retention, and
   acknowledgement. It is separate from canonical chat Message attention.
 - `persistence/` owns durable local state and atomic App Inbox storage. A

@@ -9,7 +9,11 @@ import {
   type AgentStatusView,
 } from "../src/features/agents/agent-status-realtime";
 
-const ordering = { daemonInstanceId: "daemon-1", clientSeq: 2, observedAtMs: 2_000 };
+const ordering = {
+  daemonInstanceId: "daemon-1",
+  clientSeq: 2,
+  observedAtMs: 2_000,
+};
 const agents: Array<{ id: string; name: string; status: AgentStatusView }> = [
   {
     id: "agent-1",
@@ -64,12 +68,24 @@ test("uses ordering metadata for publications and idempotent lease refreshes", (
 test("snapshot merges membership and fields without letting unordered status replace ordered status", () => {
   expect(
     mergeAgentStatusSnapshot(agents, [
-      { id: "agent-1", name: "Renamed", status: { value: "inactive" as const, expiresAt: null } },
-      { id: "agent-2", name: "Added", status: { value: "inactive" as const, expiresAt: null } },
+      {
+        id: "agent-1",
+        name: "Renamed",
+        status: { value: "inactive" as const, expiresAt: null },
+      },
+      {
+        id: "agent-2",
+        name: "Added",
+        status: { value: "inactive" as const, expiresAt: null },
+      },
     ]),
   ).toEqual([
     { ...agents[0], name: "Renamed" },
-    { id: "agent-2", name: "Added", status: { value: "inactive", expiresAt: null } },
+    {
+      id: "agent-2",
+      name: "Added",
+      status: { value: "inactive", expiresAt: null },
+    },
   ]);
 });
 

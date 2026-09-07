@@ -20,7 +20,9 @@ type AgentActivityPublicationDependencies = {
 };
 
 const unauthorized = () =>
-  Response.json({ error: { code: 403, message: "activity publication is not authorized" } });
+  Response.json({
+    error: { code: 403, message: "activity publication is not authorized" },
+  });
 
 /** Validate one client-originated Centrifugo publication before it reaches the Activity channel. */
 export async function handleAgentActivityPublication(

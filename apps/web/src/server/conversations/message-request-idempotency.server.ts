@@ -3,6 +3,12 @@ export type PersistedDirectMessage = {
   body: string;
   createdAt: Date;
   sequence: number;
+  attachment?: {
+    id: string;
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+  };
   deliveryId?: string;
   workspaceId: string;
   agentId?: string;

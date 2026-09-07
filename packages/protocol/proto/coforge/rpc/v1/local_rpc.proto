@@ -24,6 +24,10 @@ message LocalAgentMessageRequest {
   string after = 9;
   string around = 10;
   uint32 limit = 11;
+  string query = 12;
+  string sender = 13;
+  string sort = 14;
+  uint32 offset = 15;
 }
 
 message AgentMessageRecord {

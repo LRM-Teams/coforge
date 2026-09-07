@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { computerIcon, type ComputerIdentity } from "./computer-identity";
 
-/** The Computer's own face: cloud or local, and which platform when local. */
+/** The Computer's own face: cloud-hosted or a machine the User controls. */
 export function ComputerTile({
   computer,
   online,

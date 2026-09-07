@@ -10,7 +10,12 @@ import { getRouter } from "@/router";
 
 afterEach(cleanup);
 
-const computer = { id: "computer-1", machineId: "macos:9f2c", kind: "local", online: true };
+const computer = {
+  id: "computer-1",
+  machineId: "macos:9f2c",
+  kind: "local",
+  online: true,
+};
 
 function renderLayout(computers = [computer], selectedComputerId?: string) {
   render(
@@ -29,7 +34,15 @@ function renderLayout(computers = [computer], selectedComputerId?: string) {
 
 test("lists each Computer as a typed detail link and marks the selected one", () => {
   const page = renderLayout(
-    [computer, { id: "computer-2", machineId: "linux:41ab", kind: "local", online: false }],
+    [
+      computer,
+      {
+        id: "computer-2",
+        machineId: "linux:41ab",
+        kind: "local",
+        online: false,
+      },
+    ],
     computer.id,
   );
 
@@ -55,7 +68,9 @@ test("says a computer is not in this workspace instead of a bare Not Found", () 
   const page = within(document.body);
 
   expect(
-    page.getByRole("heading", { name: "This computer is not in this workspace" }),
+    page.getByRole("heading", {
+      name: "This computer is not in this workspace",
+    }),
   ).toBeTruthy();
   expect(document.body.textContent).toContain("It may have been removed");
   expect(document.body.textContent).not.toContain("Not Found");

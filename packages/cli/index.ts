@@ -1,6 +1,16 @@
 import type { AgentMessageRecord } from "@coforge/protocol";
 
-export type MessageCommand = "check" | "read" | "send";
+export type MessageCommand = "check" | "read" | "search" | "send";
+export type MessageSearchOptions = {
+  query?: string;
+  target?: string;
+  sender?: string;
+  sort?: "relevance" | "recent";
+  before?: string;
+  after?: string;
+  limit?: number;
+  offset?: number;
+};
 export type MessageInvocation =
   | { command: "check" }
   | {
@@ -11,6 +21,7 @@ export type MessageInvocation =
       around?: string;
       limit?: number;
     }
+  | ({ command: "search" } & MessageSearchOptions)
   | { command: "send"; target: string; sendDraft?: boolean; continueAnyway?: boolean };
 export type AttachmentInvocation = {
   command: "attachment-view";
@@ -26,6 +37,7 @@ export type MessageTransport = {
     target: string,
     options?: { before?: string; after?: string; around?: string; limit?: number },
   ): Promise<unknown>;
+  search?(options: MessageSearchOptions): Promise<unknown>;
   send(
     target: string,
     body?: string,
@@ -57,6 +69,51 @@ export function parseArgs(
   }
   if (args[0] === "message" && isMessageCommand(args[1])) {
     if (args[1] === "check" && args.length === 2) return { command: "check" };
+    if (args[1] === "search") {
+      const options: MessageSearchOptions = {};
+      for (let i = 2; i < args.length; i += 2) {
+        const name = args[i];
+        const value = args[i + 1];
+        if (
+          !name ||
+          ![
+            "--query",
+            "--target",
+            "--channel",
+            "--sender",
+            "--sort",
+            "--before",
+            "--after",
+            "--limit",
+            "--offset",
+          ].includes(name) ||
+          !value
+        )
+          throw new Error("Usage:");
+        if (name === "--limit" || name === "--offset") {
+          const number = Number(value);
+          if (!Number.isInteger(number) || number < (name === "--limit" ? 1 : 0))
+            throw new Error("Usage:");
+          if (name === "--limit") options.limit = number;
+          else options.offset = number;
+        } else if (name === "--sort") {
+          if (value !== "relevance" && value !== "recent") throw new Error("Usage:");
+          options.sort = value;
+        } else if (name === "--query") options.query = value.trim() || undefined;
+        else if (name === "--target" || name === "--channel") {
+          if (options.target && options.target !== value) throw new Error("Usage:");
+          options.target = value;
+        } else if (name === "--sender")
+          options.sender = value.startsWith("@") ? value : `@${value}`;
+        else if (name === "--before") options.before = value;
+        else options.after = value;
+      }
+      if (!options.query && !options.target && !options.sender && !options.before && !options.after)
+        throw new Error("Usage:");
+      if (!options.query && options.sort === "relevance") throw new Error("Usage:");
+      if (options.limit !== undefined && options.limit > 100) throw new Error("Usage:");
+      return { command: "search", ...options };
+    }
     if (args[1] === "read") {
       const target = args[2] === "--target" ? args[3] : undefined;
       const options: {
@@ -105,7 +162,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge inbox check | coforge message check | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] | coforge attachment view <id> --output <path>",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] | coforge attachment view <id> --output <path>",
   );
 }
 
@@ -136,6 +193,11 @@ export async function run(args: readonly string[], transport: MessageTransport):
     );
     if (isHeldSend(result)) throw heldSendError(invocation.target);
     return formatMessageRead(result);
+  }
+  if (command === "search") {
+    if (!transport.search) throw new Error("Message search transport is unavailable");
+    const { command: _command, ...options } = invocation;
+    return formatMessageRead(await transport.search(options));
   }
   if (command === "check") return formatMessageCheck(await transport.check());
   return formatMessageRead(
@@ -204,5 +266,5 @@ function formatInboxCheck(result: unknown): string {
 }
 
 function isMessageCommand(value: string | undefined): value is MessageCommand {
-  return value === "check" || value === "read" || value === "send";
+  return value === "check" || value === "read" || value === "search" || value === "send";
 }

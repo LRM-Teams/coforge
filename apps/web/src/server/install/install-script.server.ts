@@ -107,7 +107,10 @@ function unconfiguredResponse(): Response {
       "# feed to install from. This is a server misconfiguration - see infra/staging/README.md.\n",
     {
       status: 503,
-      headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+      headers: {
+        "content-type": "text/plain; charset=utf-8",
+        "cache-control": "no-store",
+      },
     },
   );
 }

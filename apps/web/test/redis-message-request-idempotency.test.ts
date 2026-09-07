@@ -7,7 +7,10 @@ type Entry = { value: string; ttlSeconds: number };
 class FakeRedisCommands {
   readonly entries = new Map<string, Entry>();
   readonly setCalls: Array<{ key: string; ttlSeconds: number }> = [];
-  readonly evalCalls: Array<{ operation: "complete" | "release"; key: string }> = [];
+  readonly evalCalls: Array<{
+    operation: "complete" | "release";
+    key: string;
+  }> = [];
 
   async set(key: string, value: string, ex: "EX", seconds: string, nx: "NX") {
     expect(ex).toBe("EX");
@@ -101,14 +104,20 @@ describe("RedisMessageRequestIdempotency", () => {
         throw failure;
       }),
     ).rejects.toBe(failure);
-    expect(redis.evalCalls).toContainEqual({ operation: "release", key: redis.setCalls[0]?.key });
+    expect(redis.evalCalls).toContainEqual({
+      operation: "release",
+      key: redis.setCalls[0]?.key,
+    });
     expect(await idempotency.execute(scope, async () => message)).toBe(message);
   });
 
   test("fails completion when claim ownership was lost and preserves the newer value", async () => {
     const redis = new FakeRedisCommands();
     const idempotency = new RedisMessageRequestIdempotency(redis);
-    const replacement = JSON.stringify({ state: "processing", owner: "new-owner" });
+    const replacement = JSON.stringify({
+      state: "processing",
+      owner: "new-owner",
+    });
 
     await expect(
       idempotency.execute(scope, async () => {

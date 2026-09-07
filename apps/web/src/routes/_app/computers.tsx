@@ -26,7 +26,10 @@ export const Route = createFileRoute("/_app/computers")({
 function ComputersPage() {
   const { computers, installOrigin } = Route.useLoaderData();
   const { currentWorkspace } = appRoute.useLoaderData();
-  const params = useParams({ from: "/_app/computers/$computerId", shouldThrow: false });
+  const params = useParams({
+    from: "/_app/computers/$computerId",
+    shouldThrow: false,
+  });
   const [addComputerOpen, setAddComputerOpen] = useState(false);
 
   return (

@@ -71,14 +71,20 @@ export class AgentRuntimeCredentials {
       ...runtimeConfig,
       provider: { ...runtimeConfig.provider, apiKey: encryptedApiKey },
     });
-    return { providerId: runtimeConfig.provider.providerId, hint: encryptedApiKey.hint };
+    return {
+      providerId: runtimeConfig.provider.providerId,
+      hint: encryptedApiKey.hint,
+    };
   }
 
   async delete(principal: AgentRuntimeCredentialPrincipal, agentId: string): Promise<void> {
     const runtimeConfig = await this.#ownedConfig(principal, agentId);
     if (runtimeConfig.provider.kind !== "coforge") return;
     const { apiKey: _apiKey, ...provider } = runtimeConfig.provider;
-    await this.repository.updateRuntimeConfig(agentId, { ...runtimeConfig, provider });
+    await this.repository.updateRuntimeConfig(agentId, {
+      ...runtimeConfig,
+      provider,
+    });
   }
 
   async launchProviderConfig(agentId: string, runtimeConfig: AgentRuntimeConfig) {

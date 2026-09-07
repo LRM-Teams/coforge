@@ -23,7 +23,11 @@ test("usage cache stores a non-empty normalized snapshot with a scoped TTL key",
     snapshot: {
       provider: "codex",
       planType: "pro",
-      primary: { usedPercent: 12, windowDurationMinutes: 300, resetsAt: "2026-01-01" },
+      primary: {
+        usedPercent: 12,
+        windowDurationMinutes: 300,
+        resetsAt: "2026-01-01",
+      },
     },
   });
   await expect(

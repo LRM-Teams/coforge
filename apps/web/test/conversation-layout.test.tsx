@@ -45,7 +45,9 @@ test("shows real Agents as typed conversation links and highlights the selection
   expect(link.getAttribute("aria-current")).toBe("page");
   expect(page.queryByText("Codex / gpt-5")).toBeNull();
   expect(
-    page.getByRole("button", { name: "Release Helper, Online, Recent activity" }),
+    page.getByRole("button", {
+      name: "Release Helper, Online, Recent activity",
+    }),
   ).toBeTruthy();
   expect(page.queryByText(/unread/i)).toBeNull();
 });

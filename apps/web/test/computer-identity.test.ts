@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Cloud, Laptop, Monitor, Server } from "lucide-react";
+import { Cloud, Monitor } from "lucide-react";
 
 import { computerIcon, computerLabel } from "@/features/computers/computer-identity";
 
@@ -10,9 +10,9 @@ test("a cloud Computer never reads as a machine the User controls", () => {
   expect(computerLabel(cloud)).toBe("Cloud computer");
 });
 
-test("a local Computer is pictured by the platform its machine id reports", () => {
-  expect(computerIcon({ kind: "local", machineId: "macos:9f2c" })).toBe(Laptop);
-  expect(computerIcon({ kind: "local", machineId: "linux:41ab" })).toBe(Server);
+test("a local Computer keeps one local-computer icon across platforms", () => {
+  expect(computerIcon({ kind: "local", machineId: "macos:9f2c" })).toBe(Monitor);
+  expect(computerIcon({ kind: "local", machineId: "linux:41ab" })).toBe(Monitor);
   expect(computerIcon({ kind: "local", machineId: "win32:7c1d" })).toBe(Monitor);
   expect(computerLabel({ kind: "local", machineId: "macos:9f2c" })).toBe("macOS");
   expect(computerLabel({ kind: "local", machineId: "win32:7c1d" })).toBe("Windows");

@@ -2,7 +2,8 @@ import { RefreshCw } from "lucide-react";
 import { useState } from "react";
 
 import type { RuntimeProvider } from "@coforge/protocol";
-import { formatDateForDisplay } from "@/lib/dates";
+import { Button } from "@/components/ui/button";
+import { RelativeTime } from "@/components/ui/relative-time";
 import { m } from "@/paraglide/messages";
 
 export type UsageView = {
@@ -23,7 +24,11 @@ export type UsageView = {
   message?: string;
 };
 
-export type Runtime = { provider: RuntimeProvider; version: string; displayName: string };
+export type Runtime = {
+  provider: RuntimeProvider;
+  version: string;
+  displayName: string;
+};
 
 /** One Code Agent on a Computer, and the usage snapshot a scan brings back. */
 export function RuntimeUsage({
@@ -59,9 +64,10 @@ export function RuntimeUsage({
           </p>
         </div>
         {!unsupported && (
-          <button
+          <Button
             type="button"
-            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border bg-background px-2.5 text-xs font-medium transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+            variant="outline"
+            size="sm"
             onClick={() => void scan()}
             disabled={scanning}
           >
@@ -71,7 +77,7 @@ export function RuntimeUsage({
               : usage?.snapshot
                 ? m.computer_usage_refresh()
                 : m.computer_usage_scan()}
-          </button>
+          </Button>
         )}
       </div>
       {unsupported ? null : !usage ? (
@@ -92,7 +98,9 @@ export function RuntimeUsage({
         <div className="mt-3">
           {usage.snapshot?.planType && (
             <span className="inline-flex rounded-md bg-muted px-2 py-1 text-xs font-medium">
-              {m.computer_usage_plan_name({ plan: formatPlan(usage.snapshot.planType) })}
+              {m.computer_usage_plan_name({
+                plan: formatPlan(usage.snapshot.planType),
+              })}
             </span>
           )}
           <div className={usage.snapshot?.planType ? "mt-3 grid gap-2" : "grid gap-2"}>
@@ -155,12 +163,14 @@ function UsageWindow({
         >
           <div
             className="h-full rounded-full bg-primary"
-            style={{ width: `${Math.min(100, Math.max(0, window.usedPercent))}%` }}
+            style={{
+              width: `${Math.min(100, Math.max(0, window.usedPercent))}%`,
+            }}
           />
         </div>
       )}
       <p className="mt-2 text-xs text-muted-foreground">
-        {m.computer_usage_resets_at({ time: formatDateForDisplay(window.resetsAt, timeZone) })}
+        {m.computer_usage_resets()} <RelativeTime value={window.resetsAt} timeZone={timeZone} />
       </p>
     </div>
   );

@@ -138,7 +138,11 @@ export const listAgents = createServerFn({ method: "GET" }).handler(async () => 
   return Promise.all(
     agents.map(async (agent) => {
       const status = agent.computerId
-        ? await statuses.snapshot({ workspaceId, computerId: agent.computerId, agentId: agent.id })
+        ? await statuses.snapshot({
+            workspaceId,
+            computerId: agent.computerId,
+            agentId: agent.id,
+          })
         : undefined;
       return {
         ...agent,
@@ -158,7 +162,9 @@ export const listAgents = createServerFn({ method: "GET" }).handler(async () => 
   );
 });
 
-export const getAgentStatusConnectionToken = createServerFn({ method: "GET" }).handler(async () => {
+export const getAgentStatusConnectionToken = createServerFn({
+  method: "GET",
+}).handler(async () => {
   const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
   const db = getDatabaseClient();
   if (!db) throw new Error("Agent persistence is unavailable");
@@ -166,15 +172,19 @@ export const getAgentStatusConnectionToken = createServerFn({ method: "GET" }).h
   return issueBrowserRealtimeToken({ userId: user.id, workspaceId });
 });
 
-export const getAgentActivityConnectionToken = createServerFn({ method: "GET" }).handler(
-  async () => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Agent persistence is unavailable");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-    return issueBrowserRealtimeToken({ userId: user.id, workspaceId, stream: "activity" });
-  },
-);
+export const getAgentActivityConnectionToken = createServerFn({
+  method: "GET",
+}).handler(async () => {
+  const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  const db = getDatabaseClient();
+  if (!db) throw new Error("Agent persistence is unavailable");
+  const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+  return issueBrowserRealtimeToken({
+    userId: user.id,
+    workspaceId,
+    stream: "activity",
+  });
+});
 
 export const retryAgentStart = createServerFn({ method: "POST" })
   .validator(agentIdSchema)
@@ -220,7 +230,11 @@ export const getAgentDetail = createServerFn({ method: "GET" })
         findAuthorized: (workspaceId, id, userId) =>
           db.agent
             .findFirst({
-              where: { id, workspaceId, workspace: { members: { some: { userId } } } },
+              where: {
+                id,
+                workspaceId,
+                workspace: { members: { some: { userId } } },
+              },
               select: {
                 id: true,
                 workspaceId: true,

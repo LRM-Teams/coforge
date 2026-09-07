@@ -14,7 +14,7 @@ import {
   createUsageScan,
 } from "../../server/centrifugo/server-api.server";
 import { getUsageCache } from "../../server/centrifugo/usage-cache.server";
-import { getComputerStatus } from "../../server/centrifugo/computer-status.server";
+import { getComputerStatusCache } from "../../server/centrifugo/computer-status.server";
 import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 import { ComputerRuntimeVisibility } from "../../server/computers/computer-runtime-visibility.server";
 import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/computer-runtime.repositories.server";
@@ -22,7 +22,10 @@ import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/co
 function runtimeVisibility() {
   const db = getDatabaseClient();
   if (!db) throw new Error("Computer persistence is unavailable");
-  return { db, visibility: new ComputerRuntimeVisibility(new PrismaComputerRuntimeRepository(db)) };
+  return {
+    db,
+    visibility: new ComputerRuntimeVisibility(new PrismaComputerRuntimeRepository(db)),
+  };
 }
 
 export const scanUsage = createServerFn({ method: "POST" })
@@ -65,6 +68,7 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
   const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
   const { db, visibility } = runtimeVisibility();
   const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+  const computerStatus = getComputerStatusCache();
   const [connections, runtimes] = await Promise.all([
     db.workspaceComputer.findMany({
       where: { workspaceId },
@@ -83,18 +87,23 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
     }),
     visibility.list({ workspaceId, userId: user.id }),
   ]);
-  return connections.map(({ computer, createdAt }) => {
-    const computerRuntimes = runtimes.filter((runtime) => runtime.computerId === computer.id);
-    return {
-      id: computer.id,
-      machineId: computer.machineId,
-      kind: computer.kind,
-      connectedAt: createdAt,
-      ownedByCurrentUser: computer.ownerId === user.id,
-      online: getComputerStatus(workspaceId, computer.id).online,
-      runtimes: computerRuntimes.map(({ ownerId: _ownerId, ...runtime }) => runtime),
-    };
-  });
+  return Promise.all(
+    connections.map(async ({ computer, createdAt }) => {
+      const computerRuntimes = runtimes.filter((runtime) => runtime.computerId === computer.id);
+      return {
+        id: computer.id,
+        machineId: computer.machineId,
+        kind: computer.kind,
+        connectedAt: createdAt,
+        ownedByCurrentUser: computer.ownerId === user.id,
+        online: await computerStatus.get({
+          workspaceId,
+          computerId: computer.id,
+        }),
+        runtimes: computerRuntimes.map(({ ownerId: _ownerId, ...runtime }) => runtime),
+      };
+    }),
+  );
 });
 
 export const getComputerRuntimeCatalog = createServerFn({ method: "GET" })

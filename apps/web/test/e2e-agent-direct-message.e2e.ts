@@ -54,7 +54,9 @@ const attachmentDirectory = join(
 );
 
 test("Agent runtime, status, Message Inbox, and App Inbox cross the real system", async () => {
-  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: databaseUrl }) });
+  const db = new PrismaClient({
+    adapter: new PrismaPg({ connectionString: databaseUrl }),
+  });
   const redis = new Bun.RedisClient(requireEnvironment("REDIS_URL"));
   const statuses = new RedisAgentStatusCache(redis);
   await db.$executeRawUnsafe(
@@ -74,7 +76,10 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       members: {
         create: {
           user: {
-            create: { id: DEV_BROWSER_USER.id, username: DEV_BROWSER_USER.username },
+            create: {
+              id: DEV_BROWSER_USER.id,
+              username: DEV_BROWSER_USER.username,
+            },
           },
         },
       },
@@ -192,7 +197,10 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
   );
   const statusEvents: AgentStatusEvent[] = [];
   const statusClient = new Centrifuge("ws://127.0.0.1:8000/connection/websocket", {
-    token: await issueBrowserRealtimeToken({ userId: DEV_BROWSER_USER.id, workspaceId }),
+    token: await issueBrowserRealtimeToken({
+      userId: DEV_BROWSER_USER.id,
+      workspaceId,
+    }),
   });
   statusClient.on("publication", (publication) => {
     if (publication.channel === agentStatusChannel(workspaceId))
@@ -271,7 +279,10 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       await Bun.file(
         join(daemonStateDirectory, "app-inbox", workspaceId, created.agent.id, "items.json"),
       ).json(),
-    ).toMatchObject({ version: 1, items: [{ itemId: `reminder:${reminderId}:1` }] });
+    ).toMatchObject({
+      version: 1,
+      items: [{ itemId: `reminder:${reminderId}:1` }],
+    });
 
     const conversations = new PrismaDirectConversationRepository(db);
     const opened = await conversations.openForUser(
@@ -283,7 +294,9 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     upload.set("conversationId", opened.conversationId);
     upload.set(
       "file",
-      new File(["E2E attachment content"], "e2e-attachment.txt", { type: "text/plain" }),
+      new File(["E2E attachment content"], "e2e-attachment.txt", {
+        type: "text/plain",
+      }),
     );
     const uploaded = await fetch("http://127.0.0.1:8789/api/attachments", {
       method: "POST",
@@ -330,13 +343,18 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       holdAccepted: false,
       heldBody: "E2E User message",
     });
-    const messages = await db.message.findMany({ orderBy: { sequence: "asc" } });
+    const messages = await db.message.findMany({
+      orderBy: { sequence: "asc" },
+    });
     expect(messages.map(({ body }) => body)).toEqual(["E2E User message", "E2E Agent reply"]);
     expect(await db.agentMessageDelivery.count()).toBe(1);
     expect((await db.agentMessageDelivery.findFirst())?.receivedAt).toBeInstanceOf(Date);
 
     await waitFor(
-      async () => (await db.agentActivity.count({ where: { agentId: created.agent.id } })) >= 9,
+      async () =>
+        (await db.agentActivity.count({
+          where: { agentId: created.agent.id },
+        })) >= 9,
     );
     const firstLaunchActivity = await db.agentActivity.findMany({
       where: { agentId: created.agent.id },
@@ -475,7 +493,10 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     await waitFor(
       async () =>
         (await db.agentActivity.count({
-          where: { agentId: created.agent.id, launchId: { not: firstLaunchId } },
+          where: {
+            agentId: created.agent.id,
+            launchId: { not: firstLaunchId },
+          },
         })) >= 1,
     );
     const replacementActivity = await db.agentActivity.findFirstOrThrow({
@@ -512,7 +533,10 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
           user: registration.computerId,
           channel: `activity:${workspaceId}`,
           b64data: bytesToBase64(errorActivity),
-          meta: { workspace_id: workspaceId, computer_id: registration.computerId },
+          meta: {
+            workspace_id: workspaceId,
+            computer_id: registration.computerId,
+          },
         }),
       },
     );
@@ -591,7 +615,10 @@ async function waitFor(check: () => boolean | Promise<boolean>) {
 
 async function readProcesses(path: string) {
   await waitFor(async () => Bun.file(path).exists());
-  return (await Bun.file(path).json()) as { directPid: number; descendantPid: number };
+  return (await Bun.file(path).json()) as {
+    directPid: number;
+    descendantPid: number;
+  };
 }
 
 function pidExists(pid: number) {

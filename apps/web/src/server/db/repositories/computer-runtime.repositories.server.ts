@@ -43,7 +43,11 @@ function mapRuntime(runtime: {
   computer: { ownerId: string };
 }): ComputerRuntimeRecord {
   const { computer, ...record } = runtime;
-  return { ...record, ownerId: computer.ownerId, provider: runtimeProvider(record.provider) };
+  return {
+    ...record,
+    ownerId: computer.ownerId,
+    provider: runtimeProvider(record.provider),
+  };
 }
 
 export class PrismaComputerRuntimeRepository implements ComputerRuntimeVisibilityRepository {
@@ -60,7 +64,11 @@ export class PrismaComputerRuntimeRepository implements ComputerRuntimeVisibilit
 
   async findInWorkspace(workspaceId: string, computerId: string, provider: RuntimeProvider) {
     const runtime = await this.db.computerRuntime.findFirst({
-      where: { computerId, provider, computer: { workspaces: { some: { workspaceId } } } },
+      where: {
+        computerId,
+        provider,
+        computer: { workspaces: { some: { workspaceId } } },
+      },
       select: runtimeShape,
     });
     return runtime ? mapRuntime(runtime) : undefined;
@@ -68,14 +76,20 @@ export class PrismaComputerRuntimeRepository implements ComputerRuntimeVisibilit
 
   async findByIdInWorkspace(workspaceId: string, runtimeId: string) {
     const runtime = await this.db.computerRuntime.findFirst({
-      where: { id: runtimeId, computer: { workspaces: { some: { workspaceId } } } },
+      where: {
+        id: runtimeId,
+        computer: { workspaces: { some: { workspaceId } } },
+      },
       select: runtimeShape,
     });
     return runtime ? mapRuntime(runtime) : undefined;
   }
 
   setPublic(runtimeId: string, isPublic: boolean) {
-    return this.db.computerRuntime.update({ where: { id: runtimeId }, data: { isPublic } });
+    return this.db.computerRuntime.update({
+      where: { id: runtimeId },
+      data: { isPublic },
+    });
   }
 
   async replace(

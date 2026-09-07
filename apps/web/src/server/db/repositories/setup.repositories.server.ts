@@ -51,7 +51,10 @@ export class PrismaComputerRegistrationRepository implements ComputerRegistratio
     return this.db.$transaction(async (tx) => {
       const computer = await tx.computer.upsert({
         where: {
-          ownerId_machineId: { ownerId: principal.userId, machineId: request.machineId },
+          ownerId_machineId: {
+            ownerId: principal.userId,
+            machineId: request.machineId,
+          },
         },
         create: { ownerId: principal.userId, machineId: request.machineId },
         update: {},
@@ -68,7 +71,10 @@ export class PrismaComputerRegistrationRepository implements ComputerRegistratio
       if (connection && connection.workspaceId !== workspace.id) {
         await Promise.all([
           tx.agent.updateMany({
-            where: { computerId: computer.id, workspaceId: { not: workspace.id } },
+            where: {
+              computerId: computer.id,
+              workspaceId: { not: workspace.id },
+            },
             data: { computerId: null },
           }),
           tx.computerRuntime.updateMany({

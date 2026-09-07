@@ -5,7 +5,11 @@ import {
   type WorkspaceEnrollmentStore,
 } from "../src/server/workspaces/enrollment.server";
 
-const ada = { id: "11111111-1111-4111-8111-111111111111", username: "ada", displayName: "Ada" };
+const ada = {
+  id: "11111111-1111-4111-8111-111111111111",
+  username: "ada",
+  displayName: "Ada",
+};
 const grace = {
   id: "22222222-2222-4222-8222-222222222222",
   username: "grace",
@@ -66,7 +70,10 @@ test("a taken username slug still creates a Workspace for that User", async () =
   const enrollment = new WorkspaceEnrollment(store);
   const result = await enrollment.ensureForUser(ada, "en");
   expect(result.workspaceId).toBe("workspace-ada-11111111");
-  expect(store.created.at(-1)).toEqual({ slug: "ada-11111111", name: "Ada's Workspace" });
+  expect(store.created.at(-1)).toEqual({
+    slug: "ada-11111111",
+    name: "Ada's Workspace",
+  });
 });
 
 test("a membership failure does not leave a Workspace", async () => {

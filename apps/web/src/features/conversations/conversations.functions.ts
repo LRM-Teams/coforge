@@ -1,19 +1,23 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import {
-  agentConversationInputSchema,
+  agentConversationPageInputSchema,
+  agentConversationUpdatesInputSchema,
+  conversationAroundInputSchema,
+  ownMessageIndexInputSchema,
   readConversationThreadInputSchema,
   sendConversationMessageInputSchema,
 } from "./conversation.schemas";
 import { requireBrowserUser } from "../../server/auth/require-user.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 import { SendDirectMessage } from "../../server/conversations/direct-message.server";
+import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
+import { ConversationHistory } from "../../server/conversations/conversation-history.server";
 import { getMessageRequestIdempotency } from "../../server/conversations/redis-message-request-idempotency.server";
 import { getDatabaseClient } from "../../server/db/client.server";
 import { PrismaDirectConversationRepository } from "../../server/db/repositories/direct-conversation.repositories.server";
 import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 import { withMessageSendTrace } from "../../server/observability/tracing.server";
-import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
 
 async function context(user: { id: string; username: string; name: string }, agentId: string) {
   const db = getDatabaseClient();
@@ -25,21 +29,50 @@ async function context(user: { id: string; username: string; name: string }, age
   });
   if (!agent) throw new Error("conversation scope is not authorized");
   const conversations = new PrismaDirectConversationRepository(db);
-  const opened = await conversations.openForUser(workspaceId, user.id, agentId);
-  return {
-    conversations,
-    opened,
-    userId: user.id,
-    workspaceId,
-    notifications: bestEffortMessageNotifier(db),
-  };
+  return { conversations, userId: user.id, workspaceId };
+}
+
+async function historyContext(userId: string) {
+  const db = getDatabaseClient();
+  if (!db) throw new Error("Conversation persistence is unavailable");
+  const workspaceId = await requireWorkspaceIdForRequest(db, userId);
+  return { history: new ConversationHistory(db), workspaceId };
 }
 
 export const loadDirectConversation = createServerFn({ method: "GET" })
-  .validator(agentConversationInputSchema)
+  .validator(agentConversationPageInputSchema)
   .handler(async ({ data }) => {
     const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    return (await context(user, data.agentId)).opened;
+    const { conversations, workspaceId } = await context(user, data.agentId);
+    return conversations.openForUser(workspaceId, user.id, data.agentId, {
+      beforeSequence: data.beforeSequence,
+    });
+  });
+
+export const loadDirectConversationUpdates = createServerFn({ method: "GET" })
+  .validator(agentConversationUpdatesInputSchema)
+  .handler(async ({ data }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const { conversations, workspaceId } = await context(user, data.agentId);
+    return conversations.updatesForUser(workspaceId, user.id, data.agentId, data.afterSequence);
+  });
+
+export const loadOwnConversationMessages = createServerFn({ method: "GET" })
+  .validator(ownMessageIndexInputSchema)
+  .handler(async ({ data }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const { history, workspaceId } = await historyContext(user.id);
+    return history.listOwnMessages(workspaceId, user.id, data.conversationId, {
+      beforeSequence: data.beforeSequence,
+    });
+  });
+
+export const loadConversationAround = createServerFn({ method: "GET" })
+  .validator(conversationAroundInputSchema)
+  .handler(async ({ data }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const { history, workspaceId } = await historyContext(user.id);
+    return history.loadAround(workspaceId, user.id, data.conversationId, data.messageId);
   });
 
 export const markDirectThreadRead = createServerFn({ method: "POST" })
@@ -64,16 +97,17 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
       data.requestId,
       { "coforge.agent_id": data.agentId },
       async (sendTrace) => {
-        const { conversations, opened, workspaceId, notifications } = await sendTrace.measure(
-          "message.context",
-          () => context(user, data.agentId),
+        const { conversations, workspaceId } = await sendTrace.measure("message.context", () =>
+          context(user, data.agentId),
         );
-        return sendTrace.measure("message.persist_and_publish", () =>
-          new SendDirectMessage(
+        const opened = await conversations.openForUser(workspaceId, user.id, data.agentId);
+        const message = await sendTrace.measure("message.persist_and_publish", () => {
+          const centrifugo = createCentrifugoServerApi();
+          return new SendDirectMessage(
             conversations,
             getMessageRequestIdempotency(),
-            createCentrifugoServerApi(),
-            notifications,
+            centrifugo,
+            new CentrifugoConversationRealtime(centrifugo),
           ).execute({
             requestId: data.requestId,
             workspaceId,
@@ -83,8 +117,19 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
             body: data.body,
             attachmentId: data.attachmentId,
             threadRootId: data.threadRootId,
-          }),
-        );
+          });
+        });
+        return {
+          id: message.id,
+          sequence: message.sequence,
+          threadRootId: data.threadRootId,
+          senderKind: "user" as const,
+          senderMemberId: opened.senderMemberId,
+          senderName: `@${user.username}`,
+          body: message.body,
+          createdAt: message.createdAt,
+          attachment: message.attachment,
+        };
       },
     );
   });

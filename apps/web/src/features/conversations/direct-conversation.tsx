@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -7,12 +8,16 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import { measureElement, observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowDown,
   ArrowUp,
   ArrowLeft,
   ChevronDown,
+  ChevronRight,
   FileText,
+  List,
+  LoaderCircle,
   MessageSquare,
   Paperclip,
   Quote,
@@ -24,7 +29,15 @@ import {
 } from "@/features/conversations/conversation-layout";
 import { AgentActivityAvatar, useAgentWorkingLabel } from "@/features/agents/agent-activity-avatar";
 import { Avatar } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { RelativeTime } from "@/components/ui/relative-time";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useAppToast } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -32,12 +45,21 @@ import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
 
 const messageBubbleClassName =
-  "relative w-fit max-w-full rounded-lg bg-muted px-4 py-2.5 text-sm leading-5 font-medium whitespace-pre-wrap";
+  "relative w-fit max-w-full rounded-lg bg-muted px-4 py-2.5 text-sm leading-5 font-medium whitespace-pre-wrap [overflow-wrap:anywhere]";
+
+const observeConversationRect: typeof observeElementRect = (instance, callback) =>
+  observeElementRect(instance, (rect) =>
+    callback(rect.height === 0 ? { ...rect, height: 800 } : rect),
+  );
+const measureConversationElement: typeof measureElement = (element, entry, instance) =>
+  measureElement(element, entry, instance) || instance.options.estimateSize(0);
 
 export type DirectConversationView = {
   conversationId: string;
   senderMemberId: string;
   threadReadThrough?: Record<string, number>;
+  hasOlder?: boolean;
+  hasNewer?: boolean;
   agent: { id: string; name: string; displayName: string };
   messages: Array<{
     id: string;
@@ -48,8 +70,21 @@ export type DirectConversationView = {
     senderName: string;
     body: string;
     createdAt: Date | string;
-    attachment?: { id: string; fileName: string; contentType: string; sizeBytes: number };
+    attachment?: {
+      id: string;
+      fileName: string;
+      contentType: string;
+      sizeBytes: number;
+    };
   }>;
+};
+
+export type OwnMessageIndexEntry = {
+  id: string;
+  sequence: number;
+  body: string;
+  createdAt: Date | string;
+  attachmentFileName?: string;
 };
 
 type ConversationProps = {
@@ -60,8 +95,14 @@ type ConversationProps = {
     requestId: string,
     attachmentId?: string,
     threadRootId?: string,
-  ) => Promise<void>;
-  onRefresh: () => Promise<void>;
+  ) => Promise<OwnMessageIndexEntry | void>;
+  onLoadOlder?: () => Promise<void>;
+  onLoadOwnMessages?: (beforeSequence?: number) => Promise<{
+    messages: OwnMessageIndexEntry[];
+    hasOlder: boolean;
+  }>;
+  onLoadMessageAround?: (messageId: string) => Promise<void>;
+  onShowLatest?: () => Promise<void>;
   onReadThread?: (rootMessageId: string, throughSequence: number) => Promise<void>;
 };
 
@@ -69,7 +110,10 @@ export function DirectConversation(props: ConversationProps) {
   const { conversation, onReadThread } = props;
   const { agentStatus } = props;
   const activity = useConversationActivity(conversation.agent.id);
-  const workingLabel = useAgentWorkingLabel({ ...activity, status: agentStatus });
+  const workingLabel = useAgentWorkingLabel({
+    ...activity,
+    status: agentStatus,
+  });
   const header = (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-5">
       <BackToAgents />
@@ -111,7 +155,10 @@ export function DirectConversation(props: ConversationProps) {
     reading.current = true;
     void (onReadThread?.(selected, selectedSequence) ?? Promise.resolve())
       .then(() => {
-        setReadThrough((previous) => ({ ...previous, [selected]: selectedSequence }));
+        setReadThrough((previous) => ({
+          ...previous,
+          [selected]: selectedSequence,
+        }));
       })
       .catch(() => {
         // Leave unread intact; the next poll can retry the read acknowledgement.
@@ -166,6 +213,7 @@ export function DirectConversation(props: ConversationProps) {
             const accessibleLabel = unread
               ? `${label} · ${m.conversation_thread_unread({ count: unread })}`
               : label;
+            if (replies.length) return null;
             return (
               <Tooltip>
                 <TooltipTrigger
@@ -188,53 +236,59 @@ export function DirectConversation(props: ConversationProps) {
             );
           }}
           threadPreview={(message) => {
-            const replies = conversation.messages
-              .filter((reply) => reply.threadRootId === message.id)
-              .slice(-3);
+            const threadReplies = conversation.messages.filter(
+              (reply) => reply.threadRootId === message.id,
+            );
+            const replies = threadReplies.slice(-3);
             if (!replies.length) return null;
+            const label =
+              threadReplies.length === 1
+                ? m.conversation_thread_one_reply()
+                : m.conversation_thread_replies({
+                    count: threadReplies.length,
+                  });
             return (
               <div
                 role="group"
                 aria-label={m.conversation_thread()}
-                className="flex min-w-0 max-w-full flex-col gap-6 self-stretch pl-4 sm:pl-8"
+                className="min-w-0 self-stretch rounded-lg bg-muted/60 p-3"
               >
-                {replies.map((reply) => {
-                  const own = reply.senderKind === "user";
-                  return (
-                    <button
-                      key={reply.id}
-                      type="button"
-                      onClick={() => openThread(message.id)}
-                      className={cn(
-                        "flex min-w-0 max-w-full gap-3 rounded-lg text-left focus-visible:outline-2 focus-visible:outline-brand",
-                        own ? "flex-col items-end" : "items-start",
-                      )}
-                    >
-                      {!own && <Avatar people={[{ name: reply.senderName }]} size="md" />}
-                      <span
-                        className={cn(
-                          "flex min-w-0 max-w-full flex-col gap-2",
-                          own ? "items-end" : "flex-1 items-start",
-                        )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => openThread(message.id)}
+                  className="h-auto w-full justify-start px-0 py-0 text-left font-semibold whitespace-normal text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:outline-2 focus-visible:outline-brand"
+                >
+                  {label}
+                  <ChevronRight aria-hidden="true" className="size-4" />
+                </Button>
+                <ol className="mt-2 flex flex-col gap-1">
+                  {replies.map((reply) => (
+                    <li key={reply.id}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => openThread(message.id)}
+                        className="grid h-auto w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-1 py-1 text-left whitespace-normal hover:bg-background/60 focus-visible:outline-2 focus-visible:outline-brand"
                       >
-                        <span className="flex items-baseline gap-2">
-                          <span className="text-sm font-medium">
-                            {own ? m.conversation_you() : reply.senderName}
+                        <Avatar people={[{ name: reply.senderName }]} size="sm" />
+                        <span className="flex min-w-0 items-baseline gap-2 text-sm">
+                          <span className="max-w-[40%] shrink-0 truncate font-medium">
+                            {reply.senderKind === "user" ? m.conversation_you() : reply.senderName}
                           </span>
-                          <time
-                            dateTime={new Date(reply.createdAt).toISOString()}
-                            className="text-xs text-muted-foreground"
-                          >
-                            {timeLabel(reply.createdAt)}
-                          </time>
+                          <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                            {reply.body || reply.attachment?.fileName}
+                          </span>
                         </span>
-                        <span className={messageBubbleClassName}>
-                          {reply.body || reply.attachment?.fileName}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
+                        <RelativeTime
+                          value={reply.createdAt}
+                          className="text-xs whitespace-nowrap text-muted-foreground"
+                        />
+                      </Button>
+                    </li>
+                  ))}
+                </ol>
               </div>
             );
           }}
@@ -286,11 +340,14 @@ export function ConversationPane({
   readOnlyNotice,
   emptyDescription,
   onSend,
-  onRefresh,
   root,
   onClose,
   threadEntry,
   threadPreview,
+  onLoadOlder,
+  onLoadOwnMessages,
+  onLoadMessageAround,
+  onShowLatest,
 }: Omit<ConversationProps, "conversation" | "agentStatus"> & {
   conversation: Omit<DirectConversationView, "agent">;
   header?: React.ReactNode;
@@ -308,18 +365,62 @@ export function ConversationPane({
   const [file, setFile] = useState<File>();
   const toast = useAppToast();
   const [newMessageCount, setNewMessageCount] = useState(0);
+  const [followingLatest, setFollowingLatest] = useState(true);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [ownMessageIndex, setOwnMessageIndex] = useState<OwnMessageIndexEntry[]>([]);
+  const [hasOlderOwnMessages, setHasOlderOwnMessages] = useState(false);
+  const [loadingOwnMessages, setLoadingOwnMessages] = useState(false);
   const historyRef = useRef<HTMLDivElement>(null);
+  const ownMessagesMenuRef = useRef<HTMLDivElement>(null);
   const followingLatestRef = useRef(true);
   const previousConversationIdRef = useRef<string | undefined>(undefined);
   const previousLastSequenceRef = useRef<number | undefined>(undefined);
-  const pollingRef = useRef(false);
   const sendingRef = useRef(false);
   const retryRef = useRef<{ body: string; requestId: string } | undefined>(undefined);
+  const loadingOlderRef = useRef(false);
+  const loadingOwnMessagesRef = useRef(false);
+  const olderScrollAnchorRef = useRef<{ height: number; top: number } | undefined>(undefined);
+  const ownMenuScrollAnchorRef = useRef<{ height: number; top: number } | undefined>(undefined);
+  const scrollOwnMenuToLatestRef = useRef(false);
+  const pendingMessageIdRef = useRef<string | undefined>(undefined);
+  const pendingLatestRef = useRef(false);
   const lastSequence = conversation.messages.at(-1)?.sequence;
+  const firstSequence = conversation.messages[0]?.sequence;
   const isOwn = (message: DirectConversationView["messages"][number]) =>
     message.senderMemberId !== undefined
       ? message.senderMemberId === conversation.senderMemberId
       : message.senderKind === "user";
+  const loadedOwnMessages = conversation.messages
+    .filter(isOwn)
+    .sort((left, right) => left.sequence - right.sequence)
+    .map((message) => ({
+      id: message.id,
+      sequence: message.sequence,
+      body: message.body,
+      createdAt: message.createdAt,
+      attachmentFileName: message.attachment?.fileName,
+    }));
+  const ownMessages = onLoadOwnMessages ? ownMessageIndex : loadedOwnMessages;
+  const virtualized = !root;
+  const getMessageKey = useCallback(
+    (index: number) => conversation.messages[index]?.id ?? index,
+    [conversation.messages],
+  );
+  const messageVirtualizer = useVirtualizer({
+    count: conversation.messages.length,
+    getScrollElement: () => historyRef.current,
+    observeElementRect: observeConversationRect,
+    getItemKey: getMessageKey,
+    estimateSize: () => 160,
+    measureElement: measureConversationElement,
+    overscan: 6,
+    initialRect: { width: 0, height: 800 },
+    anchorTo: "end",
+    followOnAppend: true,
+    scrollEndThreshold: 48,
+    useFlushSync: false,
+    enabled: virtualized,
+  });
 
   useLayoutEffect(() => {
     const firstRender = previousConversationIdRef.current === undefined;
@@ -339,6 +440,7 @@ export function ConversationPane({
     if (firstRender || changedConversation || followingLatestRef.current) {
       scrollToLatest("instant");
       setNewMessageCount(0);
+      setFollowingLatest(true);
       followingLatestRef.current = true;
     } else if (receivedMessageCount > 0) {
       setNewMessageCount((count) => count + receivedMessageCount);
@@ -355,6 +457,48 @@ export function ConversationPane({
     scrollToMessageAnchor();
     window.addEventListener("hashchange", scrollToMessageAnchor);
     return () => window.removeEventListener("hashchange", scrollToMessageAnchor);
+  }, [firstSequence]);
+
+  useLayoutEffect(() => {
+    const messageId = pendingMessageIdRef.current;
+    if (!messageId) return;
+    const index = conversation.messages.findIndex((message) => message.id === messageId);
+    if (index < 0) return;
+    messageVirtualizer.scrollToIndex(index, {
+      align: "center",
+      behavior: "smooth",
+    });
+    pendingMessageIdRef.current = undefined;
+  }, [conversation.messages, messageVirtualizer]);
+
+  useLayoutEffect(() => {
+    if (!pendingLatestRef.current || conversation.hasNewer) return;
+    const lastIndex = conversation.messages.length - 1;
+    if (lastIndex >= 0) messageVirtualizer.scrollToIndex(lastIndex, { align: "end" });
+    requestAnimationFrame(() => scrollToLatest("instant"));
+    pendingLatestRef.current = false;
+  }, [conversation.hasNewer, conversation.messages, messageVirtualizer]);
+
+  useLayoutEffect(() => {
+    const menu = ownMessagesMenuRef.current;
+    if (!menu) return;
+    const anchor = ownMenuScrollAnchorRef.current;
+    if (anchor) {
+      menu.scrollTop = anchor.top + menu.scrollHeight - anchor.height;
+      ownMenuScrollAnchorRef.current = undefined;
+    } else if (scrollOwnMenuToLatestRef.current) {
+      menu.scrollTop = menu.scrollHeight;
+      scrollOwnMenuToLatestRef.current = false;
+    }
+  }, [ownMessages[0]?.sequence, ownMessages.at(-1)?.sequence]);
+
+  useEffect(() => {
+    setOwnMessageIndex([]);
+    setHasOlderOwnMessages(false);
+    setLoadingOwnMessages(false);
+    loadingOwnMessagesRef.current = false;
+    ownMenuScrollAnchorRef.current = undefined;
+    if (!root && onLoadOwnMessages) void loadOwnMessages(undefined, false);
   }, [conversation.conversationId]);
 
   function scrollToLatest(behavior: ScrollBehavior) {
@@ -367,37 +511,110 @@ export function ConversationPane({
   function trackReadingPosition() {
     const history = historyRef.current;
     if (!history) return;
+    if (history.scrollTop <= 80) void loadOlder();
     const followingLatest = history.scrollHeight - history.scrollTop - history.clientHeight <= 48;
     followingLatestRef.current = followingLatest;
+    setFollowingLatest(followingLatest);
     if (followingLatest) setNewMessageCount(0);
   }
 
-  function showLatestMessages() {
+  async function loadOlder() {
+    const history = historyRef.current;
+    if (root || !history || !conversation.hasOlder || !onLoadOlder || loadingOlderRef.current)
+      return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    olderScrollAnchorRef.current = {
+      height: history.scrollHeight,
+      top: history.scrollTop,
+    };
+    try {
+      await onLoadOlder();
+    } catch {
+      olderScrollAnchorRef.current = undefined;
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }
+
+  async function showLatestMessages() {
     followingLatestRef.current = true;
+    setFollowingLatest(true);
     setNewMessageCount(0);
+    if (conversation.hasNewer && onShowLatest) {
+      pendingLatestRef.current = true;
+      try {
+        await onShowLatest();
+      } catch (cause) {
+        pendingLatestRef.current = false;
+        followingLatestRef.current = false;
+        setFollowingLatest(false);
+        toast.error(m.conversation_history_load_error(), cause);
+        return;
+      }
+    }
     scrollToLatest("smooth");
   }
 
-  useEffect(() => {
-    if (root) return;
-    async function refresh() {
-      if (document.visibilityState !== "visible" || pollingRef.current) return;
-      pollingRef.current = true;
+  async function showMessage(messageId: string) {
+    const index = conversation.messages.findIndex((message) => message.id === messageId);
+    if (index < 0) {
+      if (!onLoadMessageAround) return;
+      pendingMessageIdRef.current = messageId;
+      followingLatestRef.current = false;
+      setFollowingLatest(false);
       try {
-        await onRefresh();
-      } catch {
-        // Keep the last loader data when a background refresh fails.
-      } finally {
-        pollingRef.current = false;
+        await onLoadMessageAround(messageId);
+      } catch (cause) {
+        pendingMessageIdRef.current = undefined;
+        toast.error(m.conversation_history_load_error(), cause);
       }
+      return;
     }
-    const timer = window.setInterval(refresh, 2_000);
-    document.addEventListener("visibilitychange", refresh);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", refresh);
-    };
-  }, [onRefresh, root]);
+    if (virtualized) {
+      messageVirtualizer.scrollToIndex(index, {
+        align: "center",
+        behavior: "smooth",
+      });
+      return;
+    }
+    historyRef.current
+      ?.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  async function loadOwnMessages(beforeSequence?: number, reportError = true) {
+    if (!onLoadOwnMessages || loadingOwnMessagesRef.current) return;
+    if (beforeSequence !== undefined && !hasOlderOwnMessages) return;
+    const menu = ownMessagesMenuRef.current;
+    if (beforeSequence !== undefined && menu) {
+      ownMenuScrollAnchorRef.current = {
+        height: menu.scrollHeight,
+        top: menu.scrollTop,
+      };
+    } else {
+      scrollOwnMenuToLatestRef.current = true;
+    }
+    loadingOwnMessagesRef.current = true;
+    setLoadingOwnMessages(true);
+    try {
+      const page = await onLoadOwnMessages(beforeSequence);
+      setHasOlderOwnMessages(page.hasOlder);
+      setOwnMessageIndex((current) => {
+        const messages = new Map(current.map((message) => [message.id, message]));
+        for (const message of page.messages) messages.set(message.id, message);
+        return [...messages.values()].sort((left, right) => left.sequence - right.sequence);
+      });
+    } catch (cause) {
+      ownMenuScrollAnchorRef.current = undefined;
+      scrollOwnMenuToLatestRef.current = false;
+      if (reportError) toast.error(m.conversation_history_load_error(), cause);
+    } finally {
+      loadingOwnMessagesRef.current = false;
+      setLoadingOwnMessages(false);
+    }
+  }
 
   async function submit(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
@@ -417,11 +634,22 @@ export function ConversationPane({
         const form = new FormData();
         form.set("conversationId", conversation.conversationId);
         form.set("file", file);
-        const response = await fetch("/api/attachments", { method: "POST", body: form });
+        const response = await fetch("/api/attachments", {
+          method: "POST",
+          body: form,
+        });
         if (!response.ok) throw new Error(await response.text());
         attachmentId = ((await response.json()) as { id: string }).id;
       }
-      await onSend(text, request.requestId, attachmentId);
+      const sentMessage = await onSend(text, request.requestId, attachmentId);
+      if (sentMessage && onLoadOwnMessages) {
+        setOwnMessageIndex((current) => {
+          const messages = new Map(current.map((message) => [message.id, message]));
+          messages.set(sentMessage.id, sentMessage);
+          return [...messages.values()].sort((left, right) => left.sequence - right.sequence);
+        });
+        scrollOwnMenuToLatestRef.current = true;
+      }
       retryRef.current = undefined;
       setBody("");
       setFile(undefined);
@@ -461,12 +689,12 @@ export function ConversationPane({
         header
       )}
 
-      <div className="relative min-h-0 flex-1">
+      <div className="group/history relative min-h-0 flex-1">
         <div
           ref={historyRef}
           aria-label={root ? m.conversation_thread() : m.conversation_history()}
           onScroll={trackReadingPosition}
-          className="h-full overflow-y-auto px-5 pb-6"
+          className="h-full overflow-y-auto px-5 pb-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {root && (
             <details
@@ -489,7 +717,7 @@ export function ConversationPane({
                   className="ml-auto size-4 shrink-0 text-muted-foreground group-open:rotate-180"
                 />
               </summary>
-              <p className="mt-3 whitespace-pre-wrap break-words">{root.body}</p>
+              <p className="mt-3 whitespace-pre-wrap [overflow-wrap:anywhere]">{root.body}</p>
               {root.attachment && (
                 <a
                   className="mt-2 block text-brand underline"
@@ -502,6 +730,19 @@ export function ConversationPane({
               )}
             </details>
           )}
+          {!root && conversation.hasOlder && onLoadOlder && (
+            <div className="flex justify-center pt-4">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={loadingOlder}
+                onClick={() => void loadOlder()}
+              >
+                {loadingOlder ? m.conversation_loading_older() : m.conversation_load_older()}
+              </Button>
+            </div>
+          )}
           {conversation.messages.length === 0 ? (
             <div className={cn("grid place-content-center text-center", root ? "py-10" : "h-full")}>
               <p className="font-medium">{m.conversation_empty_title()}</p>
@@ -512,19 +753,47 @@ export function ConversationPane({
               </p>
             </div>
           ) : (
-            <ol className="flex flex-col gap-6 pt-6">
-              {conversation.messages.map((message, index) => {
+            <ol
+              className={cn(virtualized ? "relative pt-6" : "flex flex-col gap-6 pt-6")}
+              style={
+                virtualized ? { height: `${messageVirtualizer.getTotalSize() + 24}px` } : undefined
+              }
+            >
+              {(virtualized
+                ? messageVirtualizer.getVirtualItems().map((item) => ({
+                    index: item.index,
+                    key: item.key,
+                    start: item.start,
+                  }))
+                : conversation.messages.map((message, index) => ({
+                    index,
+                    key: message.id,
+                    start: undefined,
+                  }))
+              ).map(({ index, key, start }) => {
+                const message = conversation.messages[index];
+                if (!message) return null;
                 const own = isOwn(message);
                 const day = dayLabel(message.createdAt);
                 const previous = conversation.messages[index - 1];
                 return (
-                  <li key={message.id} className="flex flex-col gap-6">
+                  <li
+                    key={key}
+                    data-message-id={message.id}
+                    data-index={virtualized ? index : undefined}
+                    ref={virtualized ? messageVirtualizer.measureElement : undefined}
+                    className={cn(
+                      "flex flex-col gap-6",
+                      virtualized && "absolute left-0 top-0 w-full pb-6",
+                    )}
+                    style={
+                      start === undefined ? undefined : { transform: `translateY(${start + 24}px)` }
+                    }
+                  >
                     {(!previous || dayLabel(previous.createdAt) !== day) && (
                       <div className="flex items-center gap-3">
                         <span aria-hidden="true" className="h-px flex-1 bg-border" />
-                        <span className="shrink-0 whitespace-nowrap rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
-                          {day}
-                        </span>
+                        <DaySeparator value={message.createdAt} />
                         <span aria-hidden="true" className="h-px flex-1 bg-border" />
                       </div>
                     )}
@@ -548,14 +817,18 @@ export function ConversationPane({
                           <span className="text-sm font-medium">
                             {own ? m.conversation_you() : message.senderName}
                           </span>
-                          <time
-                            dateTime={new Date(message.createdAt).toISOString()}
+                          <RelativeTime
+                            value={message.createdAt}
                             className="text-xs text-muted-foreground"
-                          >
-                            {timeLabel(message.createdAt)}
-                          </time>
+                          />
                         </p>
-                        <div className={cn("group/message", messageBubbleClassName)}>
+                        <div
+                          className={cn(
+                            "group/message",
+                            messageBubbleClassName,
+                            own && "max-w-[85%] sm:max-w-[75%]",
+                          )}
+                        >
                           {message.body}
                           {threadEntry?.(message)}
                           {message.attachment && (
@@ -589,18 +862,117 @@ export function ConversationPane({
             </ol>
           )}
         </div>
-        {newMessageCount > 0 && (
-          <Button
-            type="button"
-            size="sm"
-            onClick={showLatestMessages}
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full shadow-md"
+        {(onLoadOwnMessages || ownMessages.length > 0 || !followingLatest) && (
+          <div
+            role="group"
+            aria-label={m.conversation_message_navigation()}
+            className={cn(
+              "absolute right-5 bottom-2 z-10 flex items-center rounded-full border bg-card p-0.5 shadow-md transition-opacity",
+              followingLatest &&
+                "pointer-events-none opacity-0 group-hover/history:pointer-events-auto group-hover/history:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
+            )}
           >
-            <ArrowDown aria-hidden="true" />
-            {newMessageCount === 1
-              ? m.conversation_one_new_message()
-              : m.conversation_new_messages({ count: newMessageCount })}
-          </Button>
+            {(onLoadOwnMessages || ownMessages.length > 0) && (
+              <DropdownMenu
+                modal={false}
+                onOpenChange={(open) => {
+                  if (!open) return;
+                  if (onLoadOwnMessages && ownMessages.length === 0) {
+                    void loadOwnMessages();
+                    return;
+                  }
+                  requestAnimationFrame(() => {
+                    const menu = ownMessagesMenuRef.current;
+                    if (menu) menu.scrollTop = menu.scrollHeight;
+                  });
+                }}
+              >
+                <DropdownMenuTrigger
+                  aria-label={m.conversation_your_messages()}
+                  className={buttonVariants({
+                    variant: "ghost",
+                    size: "icon-xs",
+                    className: "rounded-full",
+                  })}
+                >
+                  <List aria-hidden="true" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  ref={ownMessagesMenuRef}
+                  side="top"
+                  align="start"
+                  alignOffset={-4}
+                  sideOffset={8}
+                  className="max-h-[228px] w-[min(24rem,calc(100vw-2.5rem))] rounded-xl bg-popover/35 px-1.5 pt-1.5 pb-3 shadow-lg backdrop-blur-sm [scrollbar-width:none] supports-[backdrop-filter]:ring-foreground/15 [&::-webkit-scrollbar]:hidden"
+                  onScroll={(event) => {
+                    if (event.currentTarget.scrollTop <= 16) {
+                      void loadOwnMessages(ownMessages[0]?.sequence);
+                    }
+                  }}
+                >
+                  {loadingOwnMessages && (
+                    <div
+                      role="status"
+                      aria-label={m.conversation_loading_your_messages()}
+                      className={cn(
+                        "flex items-center justify-center text-muted-foreground",
+                        ownMessages.length
+                          ? "sticky top-0 z-10 h-7 rounded-md bg-popover/60 backdrop-blur-md"
+                          : "h-14",
+                      )}
+                    >
+                      <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
+                      <span className="sr-only">{m.conversation_loading_your_messages()}</span>
+                    </div>
+                  )}
+                  <DropdownMenuGroup>
+                    {ownMessages.map((message) => (
+                      <DropdownMenuItem
+                        key={message.id}
+                        className="grid min-h-9 cursor-pointer grid-cols-[minmax(0,1fr)_auto] gap-3 px-2.5 py-1.5"
+                        onClick={() => void showMessage(message.id)}
+                      >
+                        <span className="truncate font-medium">
+                          {message.body || message.attachmentFileName}
+                        </span>
+                        <RelativeTime
+                          value={message.createdAt}
+                          className="text-xs whitespace-nowrap text-muted-foreground"
+                        />
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            {(onLoadOwnMessages || ownMessages.length > 0) && !followingLatest && (
+              <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-border" />
+            )}
+            {!followingLatest && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => void showLatestMessages()}
+                aria-label={
+                  newMessageCount === 1
+                    ? m.conversation_one_new_message()
+                    : newMessageCount > 1
+                      ? m.conversation_new_messages({ count: newMessageCount })
+                      : m.conversation_back_to_bottom()
+                }
+                className="relative rounded-full"
+              >
+                <ArrowDown aria-hidden="true" />
+                {newMessageCount > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute -top-0.5 -right-0.5 size-2 rounded-full border border-card bg-brand"
+                  />
+                )}
+              </Button>
+            )}
+          </div>
         )}
       </div>
 
@@ -630,13 +1002,15 @@ export function ConversationPane({
             <p className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
               <FileText aria-hidden="true" className="size-3.5" />
               <span className="truncate">{file.name}</span>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="xs"
                 onClick={() => setFile(undefined)}
-                className="text-muted-foreground hover:text-foreground"
+                className="h-auto px-0 py-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
               >
                 {m.controls_close()}
-              </button>
+              </Button>
             </p>
           )}
           {error && (
@@ -680,6 +1054,26 @@ function dayLabel(value: Date | string): string {
   return new Intl.DateTimeFormat(getLocale(), { dateStyle: "full" }).format(new Date(value));
 }
 
-function timeLabel(value: Date | string): string {
-  return new Intl.DateTimeFormat(getLocale(), { timeStyle: "short" }).format(new Date(value));
+function DaySeparator({ value }: { value: Date | string }) {
+  const [expanded, setExpanded] = useState(false);
+  const date = new Date(value);
+  const label = expanded
+    ? dayLabel(date)
+    : new Intl.DateTimeFormat(getLocale(), { weekday: "long" }).format(date);
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      aria-expanded={expanded}
+      onClick={() => setExpanded((current) => !current)}
+      className="h-auto shrink-0 cursor-pointer rounded bg-muted px-2 py-1 text-xs font-normal text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+    >
+      {label}
+      <ChevronDown
+        aria-hidden="true"
+        className={cn("size-3 transition-transform", expanded && "rotate-180")}
+      />
+    </Button>
+  );
 }

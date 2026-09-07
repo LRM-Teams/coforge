@@ -11,8 +11,14 @@ import {
 } from "@/components/ui/select";
 import { m } from "@/paraglide/messages";
 
-export type RuntimeCatalog = { provider: string; models: CodeAgentModelMetadata[] };
-export type RuntimeOptions = { providers: string[]; catalogs: RuntimeCatalog[] };
+export type RuntimeCatalog = {
+  provider: string;
+  models: CodeAgentModelMetadata[];
+};
+export type RuntimeOptions = {
+  providers: string[];
+  catalogs: RuntimeCatalog[];
+};
 
 type RuntimeSelection = {
   provider: RuntimeProvider;
@@ -53,7 +59,10 @@ export function AgentRuntimeFields({
     loading.current.add(computerId);
     void onLoad(computerId)
       .then((value) => {
-        setOptionsByComputer((current) => ({ ...current, [computerId]: value }));
+        setOptionsByComputer((current) => ({
+          ...current,
+          [computerId]: value,
+        }));
         setFailedComputerId((current) => (current === computerId ? undefined : current));
         if (initial?.model) {
           const catalog = value.catalogs.find((item) => item.provider === initial.provider);
@@ -236,7 +245,10 @@ export function AgentRuntimeFields({
             className="justify-self-start"
             onClick={() => {
               setFailedComputerId(undefined);
-              setOptionsByComputer((current) => ({ ...current, [computerId]: undefined }));
+              setOptionsByComputer((current) => ({
+                ...current,
+                [computerId]: undefined,
+              }));
               setRetry((value) => value + 1);
             }}
           >

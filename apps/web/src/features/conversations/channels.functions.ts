@@ -5,19 +5,28 @@ import { requireBrowserUser } from "../../server/auth/require-user.server";
 import { getDatabaseClient } from "../../server/db/client.server";
 import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 import { PublicChannels } from "../../server/conversations/public-channels.server";
+import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
+import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 import { AppError } from "../../lib/app-error";
-import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
 
 const channelInput = z.object({ channelId: z.uuid() });
+const channelPageInput = channelInput.extend({
+  beforeSequence: z.number().int().positive().optional(),
+});
+const channelUpdatesInput = channelInput.extend({
+  afterSequence: z.number().int().nonnegative(),
+});
 async function context() {
   const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
   const db = getDatabaseClient();
   if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
   const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
   return {
-    channels: new PublicChannels(db, undefined, undefined, bestEffortMessageNotifier(db)),
+    channels: new PublicChannels(db),
+    db,
     workspaceId,
     userId: user.id,
+    username: user.username,
   };
 }
 
@@ -41,10 +50,19 @@ export const createPublicChannel = createServerFn({ method: "POST" })
   });
 
 export const loadPublicChannel = createServerFn({ method: "GET" })
-  .validator(channelInput)
+  .validator(channelPageInput)
   .handler(async ({ data }) => {
     const { channels, workspaceId, userId } = await context();
-    return channels.open(workspaceId, userId, data.channelId);
+    return channels.open(workspaceId, userId, data.channelId, {
+      beforeSequence: data.beforeSequence,
+    });
+  });
+
+export const loadPublicChannelUpdates = createServerFn({ method: "GET" })
+  .validator(channelUpdatesInput)
+  .handler(async ({ data }) => {
+    const { channels, workspaceId, userId } = await context();
+    return channels.updates(workspaceId, userId, data.channelId, data.afterSequence);
   });
 
 export const joinPublicChannel = createServerFn({ method: "POST" })
@@ -70,6 +88,24 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
     }),
   )
   .handler(async ({ data }) => {
-    const { channels, workspaceId, userId } = await context();
-    return channels.send({ ...data, workspaceId, userId });
+    const { db, workspaceId, userId, username } = await context();
+    const centrifugo = createCentrifugoServerApi();
+    const channels = new PublicChannels(
+      db,
+      undefined,
+      centrifugo,
+      undefined,
+      new CentrifugoConversationRealtime(centrifugo),
+    );
+    const message = await channels.send({ ...data, workspaceId, userId });
+    return {
+      id: message.id,
+      sequence: message.sequence,
+      senderMemberId: message.senderMemberId,
+      senderKind: "user" as const,
+      senderName: `@${username}`,
+      body: message.body,
+      createdAt: message.createdAt,
+      attachment: message.attachment ?? undefined,
+    };
   });

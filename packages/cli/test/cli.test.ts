@@ -40,6 +40,74 @@ test("message check has no target arguments", () => {
   expect(() => parseArgs(["message", "check", "--target", "@ada"])).toThrow("Usage:");
 });
 
+test("message search aligns with Raft lexical search options and dispatches them", async () => {
+  expect(
+    parseArgs([
+      "message",
+      "search",
+      "--query",
+      "release plan",
+      "--target",
+      "#general",
+      "--sender",
+      "@ada",
+      "--sort",
+      "recent",
+      "--before",
+      "2026-09-07T12:00:00Z",
+      "--limit",
+      "10",
+      "--offset",
+      "2",
+    ]),
+  ).toEqual({
+    command: "search",
+    query: "release plan",
+    target: "#general",
+    sender: "@ada",
+    sort: "recent",
+    before: "2026-09-07T12:00:00Z",
+    limit: 10,
+    offset: 2,
+  });
+  const calls: unknown[] = [];
+  const output = await run(["message", "search", "--query", "release", "--limit", "5"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    search: async (options) => {
+      calls.push(options);
+      return {
+        messages: [
+          {
+            id: "aaaaaaaa-0000-4000-8000-000000000001",
+            sequence: 99,
+            sender: "@ada",
+            target: "#general",
+            body: "release plan",
+            createdAt: "2026-09-07T10:00:00Z",
+          },
+        ],
+      };
+    },
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+  });
+  expect(calls).toEqual([{ query: "release", limit: 5 }]);
+  expect(output).toContain('"id":"aaaaaaaa-0000-4000-8000-000000000001"');
+  expect(output).toContain('"target":"#general"');
+  expect(output).not.toContain("sequence");
+});
+
+test("message search rejects empty searches and invalid Raft options", () => {
+  expect(() => parseArgs(["message", "search"])).toThrow("Usage:");
+  expect(() => parseArgs(["message", "search", "--query", "x", "--sort", "oldest"])).toThrow(
+    "Usage:",
+  );
+  expect(() => parseArgs(["message", "search", "--query", "x", "--offset", "-1"])).toThrow(
+    "Usage:",
+  );
+});
+
 test.each(["read", "send"] as const)("requires an explicit target for message %s", (command) => {
   expect(() => parseArgs(["message", command])).toThrow("Usage:");
   expect(parseArgs(["message", command, "--target", "@ada"])).toEqual({

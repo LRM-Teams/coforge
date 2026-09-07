@@ -22,6 +22,9 @@ export class PrismaAgentRuntimeCredentialRepository implements AgentRuntimeCrede
     agentId: string,
     runtimeConfig: Parameters<AgentRuntimeCredentialRepository["updateRuntimeConfig"]>[1],
   ) {
-    await this.db.agent.update({ where: { id: agentId }, data: { runtimeConfig } });
+    await this.db.agent.update({
+      where: { id: agentId },
+      data: { runtimeConfig },
+    });
   }
 }

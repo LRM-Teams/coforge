@@ -139,6 +139,10 @@
     @apply border-border outline-ring/50;
   }
 
+  button:not(:disabled) {
+    @apply cursor-pointer;
+  }
+
   body {
     @apply bg-background text-foreground;
     position: relative;

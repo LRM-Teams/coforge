@@ -128,12 +128,30 @@ Push 是 canonical Message commit 之后的 best-effort side effect，不是消�
 
 - 使用 standalone Centrifugo OSS 持有长期 WSS 连接并提供双向 RPC/订阅传输；
 - 通过官方 HTTP/gRPC proxy 机制，经 Web/backend 内部的 `Centrifugo RPC Handler` 把需要业务判断的请求交给 backend，并执行 backend 已作出的发布与断开决策；Handler 只负责接收、校验和分派，不拥有业务逻辑；
-- 使用 Redis engine 提供跨副本 fan-out、presence 与 bounded hot history；
+- 使用 Redis engine 提供跨副本 fan-out、presence 与 bounded hot history；Web/backend 的
+  Computer 在线状态也使用独立的 Redis 90 秒租约，由 Daemon 每 30 秒通过已鉴权的
+  `daemon:connection_status` 续租；租约不是 PostgreSQL 业务事实。
 - 处理连接/session lifecycle、背压、心跳、重连与 framing。
 
 Centrifugo 不拥有业务规则，不直接读写 PostgreSQL，不适配具体 Agent，也不把 hot history 或传输 ACK 解释为 durable truth。详细边界见 [ADR 0001](adr/0001-standalone-centrifugo-and-compose-data-services.md)。
 
-Daemon 到 Web/backend 的 Agent message read/send 使用独立的 HTTPS RPC
+浏览器在已登录的应用布局内按当前 Workspace 只建立一条 Centrifuge WSS 连接，
+Agent status 与聊天订阅复用该连接。每个打开的会话使用受保护的
+`chat:<conversation_id>` client-side subscription；Web/backend 仅在确认真人是私聊成员，
+或是公开频道所属 Workspace 的成员后，签发 5 分钟、精确绑定该 channel 的 subscription JWT。
+Message mutation 仍通过已认证 HTTPS 完成；PostgreSQL 提交 canonical Message 后，backend
+通过 Centrifugo server API 发布不含正文的 versioned `message.available.v1` 信号，其中仅有
+conversation ID、message ID 和 canonical sequence。`chat` namespace 使用 Redis-backed
+5 分钟 bounded history 和强制 recovery，作为短断线 hot replay，不是消息真相。
+
+浏览器收到信号后以自身最后一次 canonical HTTP cursor 调用 `afterSequence`，按 message ID
+去重并按 conversation sequence 排序；100 条一页时持续读取至 drain 完成。首次订阅、
+无法恢复的重连、重新可见、恢复联网以及前台每 30 秒 safety interval 都执行同一 HTTP
+reconciliation。这样 publication 102 先于 101 到达时也不会跳过 101。MVP 明确保留 PostgreSQL
+commit 后、Centrifugo publication 前 backend 崩溃的窗口，不引入 transactional outbox；
+该窗口由前台 safety reconciliation 修复，因此不声称每个已提交消息都在 2 秒内被 push。
+
+Daemon 到 Web/backend 的 Agent message read/search/send 使用独立的 HTTPS RPC
 边界，并携带 Daemon API key；该边界的 URL 是 daemon connection
 config 的 `serverHttpUrl`（启动时可由 `COFORGE_SERVER_HTTP_URL` 注入）。未配置
 时请求 fail closed，绝不回退到 WSS。Server→Daemon 的 delivery、ready、ACK
@@ -160,6 +178,14 @@ Web/backend 校验 hash、撤销状态和 Workspace/Computer 绑定后返回连�
 Computer-directed Daemon control subscription。普通 Daemon HTTPS 请求使用 `Authorization: Bearer
 <daemon-api-key>`。用户授权的 Computer 注册仍可使用独立的用户 JWT；它不是
 Daemon API key，也不会持久化到 Daemon。本地不引入 durable outbox。
+
+Agent 的 `message search` 在 PostgreSQL canonical Message 上执行不区分大小写的
+lexical/关键词匹配，不使用 embedding 或向量索引。查询同时约束当前 Workspace 和
+Agent 实际加入的 Conversation；因此私聊只可搜索该 Agent 参与的私聊，频道只可搜索
+该 Agent 已加入且可读的频道。可选 target、sender、时间范围和分页过滤沿用同一授权
+边界；有 query 时默认使用 PostgreSQL 全文相关性排序，`--sort recent` 可显式改为时间
+倒序。结果只返回 Message ID、公开 target、公开 sender、body 和创建时间，不返回内部
+sequence。Agent 可用返回的 Message ID 执行 target-scoped `message read --around`。
 
 ### PostgreSQL：云端持久状态
 
@@ -408,7 +434,7 @@ Thread 范围可有间隔，不能用 sequence 差计算待读条数。read、�
 
 Daemon 的易失 Inbox 按完整 target 聚合，notice 仅携带目标、数量与 sender；
 check 返回该目标新消息。恢复批次同样按目标的独立阅读位置取消息，不改变已有
-runtime 生命周期和单条 WSS。Web 沿用 2 秒轮询；顶层消息提供回复数量和未读入口，
+runtime 生命周期和单条 WSS。Web 使用会话实时信号与 canonical HTTP reconciliation；顶层消息提供回复数量和未读入口，
 桌面右侧讨论面板、移动端完整讨论视图及返回保留主聊天滚动位置；各目标草稿独立。
 
 交互目标格式参考已批准的 [Raft 1.0.17 官方发行包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)，
@@ -436,7 +462,7 @@ conversation 行锁分配单调 sequence，沿用 Redis 请求幂等机制；sen
 标识发送者，不能因同为真人就将他人的消息显示成自己的消息。
 
 Web 复用聊天气泡、输入框和附件，增加频道列表、创建与加入入口；未加入时只读。
-沿用轮询和 canonical Message 历史恢复，当前返回完整历史，不新增真人持久化未读游标。
+沿用会话实时信号和 canonical Message 历史恢复，不新增真人持久化未读游标。
 Agent 通过已有独立 HTTPS RPC 使用 CLI `#channel` target 读写已加入的频道，
 仍复用单 Agent runtime session，不创建频道 session。当前不新增非默认频道的 Agent 加入入口。
 频道暂不提供 Thread、follow/unfollow；已有私聊 Thread 路由不变。

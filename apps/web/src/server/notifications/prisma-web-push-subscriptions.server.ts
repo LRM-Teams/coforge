@@ -88,7 +88,9 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
   }
 
   async removeSubscription(userId: string, endpoint: string) {
-    await this.db.webPushSubscription.deleteMany({ where: { userId, endpoint } });
+    await this.db.webPushSubscription.deleteMany({
+      where: { userId, endpoint },
+    });
   }
 
   async removeSubscriptionById(id: string) {

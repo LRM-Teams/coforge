@@ -5,18 +5,36 @@ import { optionalBrowserUser, requireBrowserUser } from "../../src/server/auth/r
 
 test("isDevSkipAuthEnabled is off by default", () => {
   expect(isDevSkipAuthEnabled({ NODE_ENV: "development" })).toBe(false);
-  expect(isDevSkipAuthEnabled({ NODE_ENV: "development", COFORGE_DEV_SKIP_AUTH: "" })).toBe(false);
+  expect(
+    isDevSkipAuthEnabled({
+      NODE_ENV: "development",
+      COFORGE_DEV_SKIP_AUTH: "",
+    }),
+  ).toBe(false);
 });
 
 test("isDevSkipAuthEnabled accepts common truthy values in non-production", () => {
-  expect(isDevSkipAuthEnabled({ NODE_ENV: "development", COFORGE_DEV_SKIP_AUTH: "1" })).toBe(true);
-  expect(isDevSkipAuthEnabled({ NODE_ENV: "development", COFORGE_DEV_SKIP_AUTH: "true" })).toBe(
-    true,
-  );
+  expect(
+    isDevSkipAuthEnabled({
+      NODE_ENV: "development",
+      COFORGE_DEV_SKIP_AUTH: "1",
+    }),
+  ).toBe(true);
+  expect(
+    isDevSkipAuthEnabled({
+      NODE_ENV: "development",
+      COFORGE_DEV_SKIP_AUTH: "true",
+    }),
+  ).toBe(true);
 });
 
 test("isDevSkipAuthEnabled is always off in production", () => {
-  expect(isDevSkipAuthEnabled({ NODE_ENV: "production", COFORGE_DEV_SKIP_AUTH: "1" })).toBe(false);
+  expect(
+    isDevSkipAuthEnabled({
+      NODE_ENV: "production",
+      COFORGE_DEV_SKIP_AUTH: "1",
+    }),
+  ).toBe(false);
 });
 
 test("requireBrowserUser returns the fixed dev user without a session cookie", () => {

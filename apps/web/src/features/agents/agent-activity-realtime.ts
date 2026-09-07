@@ -3,6 +3,8 @@ import { Centrifuge } from "centrifuge/build/protobuf";
 import { decodeAgentActivity, WORKSPACE_PROTOCOL_MAJOR } from "@coforge/protocol";
 import { mergeAgentActivity, type ActivityEntry } from "./agent-activity";
 
+export const agentActivityChannel = (workspaceId: string) => `activity:${workspaceId}`;
+
 export function useAgentActivity({
   agentId,
   workspaceId,

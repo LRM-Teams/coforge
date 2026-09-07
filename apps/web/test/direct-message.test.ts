@@ -112,6 +112,46 @@ describe("SendDirectMessage", () => {
     expect(JSON.stringify(decodeAgentMessageDelivery(publication!.data))).not.toContain("user-a");
   });
 
+  test("signals browsers after a human message persists and tolerates signal failure", async () => {
+    const calls: string[] = [];
+    const repository = {
+      async getOrCreateUserAgent() {
+        return { id: "conversation-a" };
+      },
+      async sendMessage() {
+        calls.push("persist");
+        return persisted;
+      },
+    } satisfies DirectConversationRepository;
+    const useCase = new SendDirectMessage(
+      repository,
+      new MemoryMessageRequestIdempotency(),
+      {
+        async publish() {
+          calls.push("daemon");
+        },
+      },
+      {
+        async messageAvailable(input) {
+          calls.push(`browser:${input.conversationId}:${input.messageId}:${input.sequence}`);
+          throw new Error("controlled browser publication outage");
+        },
+      },
+    );
+
+    await expect(
+      useCase.execute({
+        requestId: "request-a",
+        workspaceId: "workspace-a",
+        conversationId: "conversation-a",
+        senderMemberId: "member-a",
+        senderUserId: "user-a",
+        body: "Hello Agent",
+      }),
+    ).resolves.toEqual(persisted);
+    expect(calls).toEqual(["persist", "browser:conversation-a:message-a:1", "daemon"]);
+  });
+
   test.each([undefined, "2c9d2c18-2a0b-4a95-9e5a-111111111111"])(
     "does not publish without a valid public sender target: %s",
     async (latestSender) => {
@@ -175,8 +215,9 @@ describe("SendDirectMessage", () => {
     },
   );
 
-  test("persists an Agent message without publishing to the Agent channel", async () => {
+  test("publishes an Agent reply to the browser conversation after persistence", async () => {
     const calls: string[] = [];
+    let publication: { channel: string; data: unknown; idempotencyKey?: string } | undefined;
     const repository = {
       async sendMessage() {
         throw new Error("not used");
@@ -192,11 +233,30 @@ describe("SendDirectMessage", () => {
         return { ...persisted, deliveryId: undefined, target: "@user" };
       },
     } satisfies DirectConversationRepository;
-    const useCase = new SendDirectMessage(repository, new MemoryMessageRequestIdempotency(), {
-      async publish() {
-        calls.push("publish");
+    const useCase = new SendDirectMessage(
+      repository,
+      new MemoryMessageRequestIdempotency(),
+      {
+        async publish() {
+          throw new Error("must not publish an Agent reply to a Daemon channel");
+        },
       },
-    });
+      {
+        async messageAvailable({ conversationId, messageId, sequence }) {
+          calls.push("publish");
+          publication = {
+            channel: `chat:${conversationId}`,
+            data: {
+              type: "message.available.v1",
+              conversationId,
+              messageId,
+              sequence,
+            },
+            idempotencyKey: messageId,
+          };
+        },
+      },
+    );
 
     await useCase.executeFromAgent({
       requestId: "request-a",
@@ -205,7 +265,17 @@ describe("SendDirectMessage", () => {
       target: "@user",
       body: "Hi",
     });
-    expect(calls).toEqual(["persist"]);
+    expect(calls).toEqual(["persist", "publish"]);
+    expect(publication).toEqual({
+      channel: "chat:conversation-a",
+      data: {
+        type: "message.available.v1",
+        conversationId: "conversation-a",
+        messageId: "message-a",
+        sequence: 1,
+      },
+      idempotencyKey: "message-a",
+    });
   });
 
   test("does not publish when Agent persistence fails", async () => {
@@ -268,7 +338,7 @@ describe("SendDirectMessage", () => {
         },
       },
       {
-        async notifyMessage(messageId) {
+        async messageAvailable({ messageId }) {
           calls.push(`notify:${messageId}`);
         },
       },
@@ -303,7 +373,7 @@ describe("SendDirectMessage", () => {
       new MemoryMessageRequestIdempotency(),
       { async publish() {} },
       {
-        async notifyMessage() {
+        async messageAvailable() {
           notificationCalls += 1;
         },
       },
@@ -321,7 +391,7 @@ describe("SendDirectMessage", () => {
     const retry = await useCase.execute(input);
 
     expect(persistenceCalls).toBe(1);
-    expect(notificationCalls).toBe(1);
+    expect(notificationCalls).toBe(2);
     expect(retry).toEqual(first);
     expect(retry.createdAt).toBeInstanceOf(Date);
   });
@@ -356,7 +426,9 @@ describe("SendDirectMessage", () => {
     };
 
     await expect(useCase.execute(input)).rejects.toThrow("publication failed");
-    await expect(useCase.execute(input)).resolves.toMatchObject({ id: "message-a" });
+    await expect(useCase.execute(input)).resolves.toMatchObject({
+      id: "message-a",
+    });
 
     expect(persistenceCalls).toBe(1);
     expect(deliveries).toEqual(["delivery-a", "delivery-a"]);
@@ -407,7 +479,12 @@ describe("SendDirectMessage", () => {
       },
       async sendAgentMessage() {
         agentPersistenceCalls += 1;
-        return { ...persisted, id: "agent-message", deliveryId: undefined, target: "@user" };
+        return {
+          ...persisted,
+          id: "agent-message",
+          deliveryId: undefined,
+          target: "@user",
+        };
       },
     } satisfies DirectConversationRepository;
     const useCase = new SendDirectMessage(repository, new MemoryMessageRequestIdempotency(), {

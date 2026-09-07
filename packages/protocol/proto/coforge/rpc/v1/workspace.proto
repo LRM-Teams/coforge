@@ -161,6 +161,10 @@ message AgentMessageRequest {
   uint64 from_sequence = 14;
   uint64 through_sequence = 15;
   uint64 seen_up_to_sequence = 16;
+  string query = 17;
+  string sender = 18;
+  string sort = 19;
+  uint32 offset = 20;
 }
 message CloudAgentMessageRecord {
   string id = 1;

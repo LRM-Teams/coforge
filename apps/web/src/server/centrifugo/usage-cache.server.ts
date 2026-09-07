@@ -1,7 +1,11 @@
 import { RedisClient } from "bun";
 import type { RuntimeProvider } from "@coforge/protocol";
 
-export type UsageCacheKey = { workspaceId: string; computerId: string; provider: RuntimeProvider };
+export type UsageCacheKey = {
+  workspaceId: string;
+  computerId: string;
+  provider: RuntimeProvider;
+};
 export type UsageSnapshot = {
   provider: RuntimeProvider;
   planType?: string;

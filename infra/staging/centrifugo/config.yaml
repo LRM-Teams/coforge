@@ -45,6 +45,11 @@ channel:
   namespaces:
     - name: workspace
     - name: daemon
+    - name: status
+    - name: chat
+      history_size: 200
+      history_ttl: 5m
+      force_recovery: true
     - name: activity
       publish_proxy_enabled: true
       publication_data_format: binary

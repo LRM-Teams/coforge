@@ -79,6 +79,18 @@ instructions for the TanStack Start Web/backend modular monolith.
   target-scoped ranges, read positions and recovery). A thread uses its root
   Message identity, never a separate conversation or Agent runtime.
 
+- Browser message index and around-window reads belong to the shared
+  `features/conversations/` Server Function seam and
+  `server/conversations/conversation-history.server.ts`. They are scoped by
+  `conversationId` for both direct conversations and public channels; the
+  server-side module owns Conversation-type visibility checks and bounded
+  history mapping.
+
+- Browser realtime connection ownership belongs to `features/realtime/`. The
+  `_app` layout owns one Centrifuge connection for the selected Workspace;
+  feature modules may subscribe to authorized channels but must not create
+  additional browser WebSocket connections.
+
 - `src/routes/__root.tsx` owns the document shell: HTML, global head, global
   providers, styles, `HeadContent`, and `Scripts`.
 - Use pathless layout routes for shared application chrome. The current app

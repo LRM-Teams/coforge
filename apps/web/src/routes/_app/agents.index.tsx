@@ -3,12 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { AgentsContent } from "@/features/agents/agents-content";
-import {
-  createAgent,
-  getAgentStatusConnectionToken,
-  listAgents,
-  retryAgentStart,
-} from "@/features/agents/agents.functions";
+import { createAgent, listAgents, retryAgentStart } from "@/features/agents/agents.functions";
 import { useAgentStatuses } from "@/features/agents/agent-status-realtime";
 import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
 import { getUserPreferences } from "@/features/settings/settings.functions";
@@ -36,12 +31,10 @@ function AgentsPage() {
   const retry = useServerFn(retryAgentStart);
   const loadRuntimeCatalog = useServerFn(getComputerRuntimeCatalog);
   const refreshAgents = useServerFn(listAgents);
-  const getConnectionToken = useServerFn(getAgentStatusConnectionToken);
   const visibleAgents = useAgentStatuses({
     agents,
     workspaceId: currentWorkspace?.id,
     refresh: refreshAgents,
-    getConnectionToken,
   });
   return (
     <AgentsContent

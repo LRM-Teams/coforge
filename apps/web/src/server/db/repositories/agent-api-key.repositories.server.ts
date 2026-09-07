@@ -25,6 +25,9 @@ export class PrismaAgentApiKeyRepository implements AgentApiKeyRepository {
   }
 
   async revoke(id: string): Promise<void> {
-    await this.db.agentApiKey.updateMany({ where: { id }, data: { revokedAt: new Date() } });
+    await this.db.agentApiKey.updateMany({
+      where: { id },
+      data: { revokedAt: new Date() },
+    });
   }
 }

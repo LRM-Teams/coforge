@@ -42,7 +42,10 @@ test("one workspace connection fans out Agents and preserves live events across 
   let resolve!: (value: { workspaceId: string; agents: { id: string; activity: [] }[] }) => void;
   const refresh = mock(
     () =>
-      new Promise<{ workspaceId: string; agents: { id: string; activity: [] }[] }>((done) => {
+      new Promise<{
+        workspaceId: string;
+        agents: { id: string; activity: [] }[];
+      }>((done) => {
         resolve = done;
       }),
   );

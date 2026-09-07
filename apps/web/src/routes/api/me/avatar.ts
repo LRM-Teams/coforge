@@ -90,7 +90,10 @@ export async function handleAvatarDelete(
   try {
     const { user, db } = authenticate(request, dependencies);
     await dependencies.remove(db, user.id);
-    return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
+    return new Response(null, {
+      status: 204,
+      headers: { "Cache-Control": "no-store" },
+    });
   } catch (error) {
     return avatarError(error);
   }

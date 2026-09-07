@@ -162,7 +162,11 @@ test("allows the Computer owner to publish a private runtime", async () => {
     />,
   );
 
-  fireEvent.click(within(document.body).getByRole("button", { name: "Publish Codex Runtime" }));
+  fireEvent.click(
+    within(document.body).getByRole("button", {
+      name: "Publish Codex Runtime",
+    }),
+  );
   await waitFor(() => expect(setPublic).toHaveBeenCalledWith("runtime-1", true));
 });
 

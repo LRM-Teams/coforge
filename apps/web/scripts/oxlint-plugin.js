@@ -28,11 +28,26 @@ const noNativeSelect = {
   },
 };
 
+const noNativeButton = {
+  create(context) {
+    return {
+      JSXOpeningElement(node) {
+        if (node.name.type !== "JSXIdentifier" || node.name.name !== "button") return;
+        context.report({
+          node,
+          message: "Do not use native <button> elements; use the shared Button component.",
+        });
+      },
+    };
+  },
+};
+
 export default {
   meta: {
     name: "coforge",
   },
   rules: {
+    "no-native-button": noNativeButton,
     "no-native-select": noNativeSelect,
     "no-native-title": noNativeTitle,
   },

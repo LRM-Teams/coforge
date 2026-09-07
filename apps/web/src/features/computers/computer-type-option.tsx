@@ -1,5 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
+
 /**
  * One of the kinds of Computer a Workspace can add. Both kinds read the same,
  * so the choice is one component rather than one component per kind.
@@ -18,10 +20,11 @@ export function ComputerTypeOption({
   onSelect: () => void;
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
       aria-pressed={selected}
-      className={`rounded-2xl border p-5 text-left transition-colors ${selected ? "border-brand bg-brand/5 ring-1 ring-brand" : "hover:bg-muted"}`}
+      className={`h-auto flex-col items-stretch justify-start whitespace-normal rounded-2xl p-5 text-left ${selected ? "border-brand bg-brand/5 ring-1 ring-brand" : "hover:bg-muted"}`}
       onClick={onSelect}
     >
       <span className="mb-5 flex size-14 items-center justify-center rounded-xl bg-muted">
@@ -29,6 +32,6 @@ export function ComputerTypeOption({
       </span>
       <span className="block text-lg font-medium">{label}</span>
       <span className="mt-2 block text-sm leading-6 text-muted-foreground">{description}</span>
-    </button>
+    </Button>
   );
 }

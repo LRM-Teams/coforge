@@ -122,18 +122,20 @@ function SettingsNavigationButton({
   onClick: () => void;
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
       aria-current={active ? "page" : undefined}
       onClick={onClick}
       className={cn(
         "flex h-10 w-full items-center gap-1.5 rounded-lg px-2 text-left text-xs hover:bg-muted sm:gap-2.5 sm:px-3 sm:text-sm",
+        "h-10 w-full justify-start gap-2.5 px-3 text-left",
         active && "bg-muted font-medium text-accent-foreground",
       )}
     >
       <span className="hidden sm:inline-flex [&_svg]:size-4">{icon}</span>
       <span className="truncate">{label}</span>
-    </button>
+    </Button>
   );
 }
 
@@ -212,7 +214,12 @@ function AccountSettings({
             <div className="border-t p-5 sm:p-6">
               <div className="flex flex-wrap items-center gap-4">
                 <Avatar
-                  people={[{ name: profile.name, src: removeAvatar ? null : profile.avatarUrl }]}
+                  people={[
+                    {
+                      name: profile.name,
+                      src: removeAvatar ? null : profile.avatarUrl,
+                    },
+                  ]}
                   size="xl"
                   className="size-20 rounded-full text-xl"
                 />
@@ -447,8 +454,10 @@ function NotificationSettings({
               {m.notifications_push_description()}
             </p>
           </div>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="sm"
             role="switch"
             aria-label={m.preferences_browser_notifications()}
             aria-checked={browserNotificationsEnabled}
@@ -477,7 +486,7 @@ function NotificationSettings({
                 browserNotificationsEnabled ? "translate-x-5" : "translate-x-0.5",
               )}
             />
-          </button>
+          </Button>
         </div>
         <div className="flex flex-wrap items-center gap-2 border-t px-5 py-4 sm:px-6">
           <span className="mr-auto text-sm text-muted-foreground">{status}</span>
@@ -638,17 +647,18 @@ function PreferenceButton({
   onClick: () => void;
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
       aria-pressed={selected}
       onClick={onClick}
       className={cn(
-        "flex h-10 w-full items-center rounded-lg border bg-card px-3 text-left text-sm hover:bg-muted",
+        "h-10 w-full justify-start bg-card px-3 text-left",
         selected && "border-brand bg-accent text-accent-foreground",
       )}
     >
       {label}
       {selected && <Check aria-hidden="true" className="ml-auto size-4" />}
-    </button>
+    </Button>
   );
 }

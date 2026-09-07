@@ -32,7 +32,7 @@ export type AgentActivitySink = (activity: AgentActivity) => Promise<void>;
 export class PublishAgentRuntimeControl {
   constructor(
     private readonly authorization: AgentRuntimeControlAuthorization,
-    private readonly api: CentrifugoServerApi,
+    private readonly api: Pick<CentrifugoServerApi, "publish">,
     private readonly activities: AgentActivitySink,
   ) {}
 
@@ -89,7 +89,7 @@ export class WorkspaceAgentRecovery {
         agentId: string,
       ): Promise<PendingAgentDelivery[]>;
     },
-    private readonly api: CentrifugoServerApi,
+    private readonly api: Pick<CentrifugoServerApi, "publish">,
     private readonly runtimeLock: AgentRuntimeLock,
   ) {}
 

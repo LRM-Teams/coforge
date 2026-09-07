@@ -190,6 +190,36 @@ test("sends Agent status transitions through the status RPC", async () => {
   });
 });
 
+test("refreshes Computer online status while the connection remains active", async () => {
+  const fake = fakeClient();
+  const calls: { method: string; data: Uint8Array }[] = [];
+  fake.client.rpc = async (method, data) => {
+    calls.push({ method, data });
+    return new Uint8Array();
+  };
+  let refresh!: () => void;
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client, undefined, {
+    schedule: () => 1,
+    cancel: () => {},
+    scheduleRepeating: (callback) => {
+      refresh = callback;
+      return 2;
+    },
+    cancelRepeating: () => {},
+  });
+
+  await transport.start("secret", config);
+  refresh();
+  await Promise.resolve();
+
+  expect(calls.filter(({ method }) => method === "daemon:connection_status")).toHaveLength(2);
+  expect(JSON.parse(new TextDecoder().decode(calls[1]!.data))).toEqual({
+    ...config,
+    online: true,
+  });
+  await transport.stop();
+});
+
 test("serializes Agent status reports so inactive cannot be overtaken", async () => {
   const fake = fakeClient();
   const statuses: string[] = [];

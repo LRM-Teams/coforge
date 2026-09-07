@@ -153,7 +153,9 @@ test("shows the global browser notification state and runs a test notification",
   );
 
   await user.click(view.getByRole("button", { name: "Notifications" }));
-  const notificationSwitch = view.getByRole("switch", { name: "Browser notifications" });
+  const notificationSwitch = view.getByRole("switch", {
+    name: "Browser notifications",
+  });
   expect(notificationSwitch.getAttribute("aria-checked")).toBe("true");
   await user.click(view.getByRole("button", { name: "Send test notification" }));
   expect(tested).toBeTrue();

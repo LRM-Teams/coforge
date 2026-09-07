@@ -5,7 +5,10 @@ export const Route = createFileRoute("/_app/computers/")({
     const { loaderData } = await parentMatchPromise;
     const first = loaderData?.computers[0];
     if (first) {
-      throw redirect({ to: "/computers/$computerId", params: { computerId: first.id } });
+      throw redirect({
+        to: "/computers/$computerId",
+        params: { computerId: first.id },
+      });
     }
   },
   // With no Computers the layout carries the empty state; there is nothing to

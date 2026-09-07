@@ -9,7 +9,9 @@ import {
   withDeploymentFeedUrl,
 } from "../src/server/install/install-script.server";
 
-const STAGING = { COFORGE_RELEASE_FEED_URL: "https://releases-staging.coforge.cn" };
+const STAGING = {
+  COFORGE_RELEASE_FEED_URL: "https://releases-staging.coforge.cn",
+};
 const PRODUCTION_FEED_URL = "https://releases.coforge.cn";
 
 async function sourceOf(name: string): Promise<string> {

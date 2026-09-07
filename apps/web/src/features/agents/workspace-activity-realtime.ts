@@ -12,7 +12,11 @@ export type WorkspaceActivityView = {
   loading: boolean;
   error: boolean;
 };
-const empty: WorkspaceActivityView = { activity: {}, loading: true, error: false };
+const empty: WorkspaceActivityView = {
+  activity: {},
+  loading: true,
+  error: false,
+};
 const emptyActivity: ActivityEntry[] = [];
 
 export function activityForAgent(view: WorkspaceActivityView, agentId: string) {
