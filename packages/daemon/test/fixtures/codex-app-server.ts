@@ -6,9 +6,7 @@ const expectedSkill = process.argv
   ?.slice(15);
 const expectsCoforgeEnvironment = process.argv.includes("expected-coforge-environment");
 const expectsRuntimeConfig = process.argv.includes("expected-runtime-config");
-const expectsCommunicationInstructions = process.argv.includes(
-  "expected-communication-instructions",
-);
+const expectsAgentInstructions = process.argv.includes("expected-agent-instructions");
 const usageUnavailable = process.argv.includes("usage-unavailable");
 const usageUnsupported = process.argv.includes("usage-unsupported");
 const usageTimeout = process.argv.includes("usage-timeout");
@@ -141,11 +139,8 @@ function handle(request: Request): void {
       write({ id: request.id, error: { message: "missing selected runtime config" } });
       return;
     }
-    if (
-      expectsCommunicationInstructions &&
-      !hasCommunicationInstructions(request.params?.developerInstructions)
-    ) {
-      write({ id: request.id, error: { message: "missing communication instructions" } });
+    if (expectsAgentInstructions && !hasAgentInstructions(request.params?.developerInstructions)) {
+      write({ id: request.id, error: { message: "missing Agent instructions" } });
       return;
     }
     write({ id: request.id, result: { thread: { id: "thread-1" } } });
@@ -270,8 +265,8 @@ function textInput(params: Record<string, unknown> | undefined): string | undefi
   return (first as { text?: string }).text;
 }
 
-function hasCommunicationInstructions(value: unknown): boolean {
-  return typeof value === "string" && value.startsWith("## CoForge communication");
+function hasAgentInstructions(value: unknown): boolean {
+  return value === "Test Agent instructions.";
 }
 
 function hasCoforgeEnvironmentPolicy(params: Record<string, unknown> | undefined): boolean {

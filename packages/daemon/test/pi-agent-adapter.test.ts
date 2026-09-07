@@ -6,6 +6,8 @@ import { join } from "node:path";
 import type { AgentRuntimeEvent } from "../src/code-agent/contract";
 import { CoforgeDriver, PiDriver } from "../src/code-agent/pi/driver";
 
+const TEST_AGENT_INSTRUCTIONS = "Test Agent instructions.";
+
 test("built-in notifications are accepted before completion and steer the existing session", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-builtin-notify-"));
   const started = Promise.withResolvers<void>();
@@ -34,6 +36,7 @@ test("built-in notifications are accepted before completion and steer the existi
   );
   const session = await new CoforgeDriver().createAgentSession({
     agentWorkspaceDirectory,
+    instructions: TEST_AGENT_INSTRUCTIONS,
     runtime: {
       provider: "coforge",
       modelProvider: "openrouter",
@@ -58,6 +61,19 @@ test("built-in notifications are accepted before completion and steer the existi
     release.resolve();
     await completed.promise;
     expect(requests).toHaveLength(2);
+    const providerRequest = JSON.parse(requests[0]!) as {
+      messages?: Array<{ role?: unknown; content?: unknown }>;
+    };
+    const instructionMessages = providerRequest.messages?.filter(
+      (message) =>
+        (message.role === "system" || message.role === "developer") &&
+        typeof message.content === "string" &&
+        message.content.includes(TEST_AGENT_INSTRUCTIONS),
+    );
+    expect(instructionMessages).toHaveLength(1);
+    const instructionContent = instructionMessages?.[0]?.content;
+    if (typeof instructionContent !== "string") throw new Error("missing native instructions");
+    expect(instructionContent.split(TEST_AGENT_INSTRUCTIONS)).toHaveLength(2);
     expect(requests[1]).toContain("initial notice");
     expect(requests[1]).toContain("busy notice");
   } finally {
@@ -75,13 +91,14 @@ test("Pi loads skills before running in a child process behind the code-agent se
     command: [
       process.execPath,
       new URL("./fixtures/pi-rpc.ts", import.meta.url).pathname,
-      "expected-communication-instructions",
+      "expected-agent-instructions",
     ],
   });
 
   try {
     const session = await adapter.createAgentSession({
       agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
       environment: { COFORGE_DECLARED_TEST_VALUE: "allowed" },
       runtime: {
         provider: "pi",
@@ -131,7 +148,7 @@ test("an external Pi-compatible process completes the driver handshake", async (
   try {
     const session = await new PiDriver({
       command: [process.execPath, new URL("../../agent/src/runner.ts", import.meta.url).pathname],
-    }).createAgentSession({ agentWorkspaceDirectory });
+    }).createAgentSession({ agentWorkspaceDirectory, instructions: TEST_AGENT_INSTRUCTIONS });
     await session.dispose();
   } finally {
     await rm(agentWorkspaceDirectory, { recursive: true, force: true });
@@ -153,12 +170,17 @@ test("CoForge Agent requires a matching API key for a configured built-in provid
   };
 
   try {
-    await expect(adapter.createAgentSession({ agentWorkspaceDirectory, runtime })).rejects.toThrow(
-      "CoForge runtime provider API key is required",
-    );
     await expect(
       adapter.createAgentSession({
         agentWorkspaceDirectory,
+        instructions: TEST_AGENT_INSTRUCTIONS,
+        runtime,
+      }),
+    ).rejects.toThrow("CoForge runtime provider API key is required");
+    await expect(
+      adapter.createAgentSession({
+        agentWorkspaceDirectory,
+        instructions: TEST_AGENT_INSTRUCTIONS,
         runtime: {
           ...runtime,
           providerConfig: {
@@ -183,6 +205,7 @@ test("Pi rejects overlapping prompts and dispose cannot wait on provider interru
   try {
     const session = await adapter.createAgentSession({
       agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
       environment: { COFORGE_DECLARED_TEST_VALUE: "allowed" },
     });
     await session.sendMessage("ignore-abort");
@@ -202,6 +225,7 @@ test("Pi accepts busy notifications without ending the existing run", async () =
   try {
     const session = await adapter.createAgentSession({
       agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
       environment: { COFORGE_DECLARED_TEST_VALUE: "allowed" },
     });
     const events: AgentRuntimeEvent[] = [];
@@ -231,6 +255,7 @@ test("Pi rejects prompts after its resident Agent runtime process exits", async 
   try {
     const session = await adapter.createAgentSession({
       agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
       environment: {
         COFORGE_DECLARED_TEST_VALUE: "allowed",
         COFORGE_EXIT_AFTER_READY: "1",

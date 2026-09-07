@@ -11,7 +11,6 @@ import { JsonlProcess, JsonlRequestError } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { COFORGE_DAEMON_VERSION } from "../../version";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
-import { COFORGE_AGENT_INSTRUCTIONS } from "../communication-instructions";
 import { getLogger } from "@logtape/logtape";
 
 const logger = getLogger(["coforge", "daemon", "code-agent", "codex"]);
@@ -62,7 +61,7 @@ export class CodexDriver implements AgentDriver {
         method: "thread/start",
         params: {
           cwd: options.agentWorkspaceDirectory,
-          developerInstructions: COFORGE_AGENT_INSTRUCTIONS,
+          developerInstructions: options.instructions,
           ...(options.runtime?.model ? { model: options.runtime.model } : {}),
           approvalPolicy: "never",
           sandbox: "workspace-write",
@@ -102,7 +101,7 @@ export class CodexDriver implements AgentDriver {
         event: "codex.instructions.injected",
         agent_id: options.agentId,
         runtime_id: options.runtimeId,
-        instruction_bytes: new TextEncoder().encode(COFORGE_AGENT_INSTRUCTIONS).byteLength,
+        instruction_bytes: new TextEncoder().encode(options.instructions).byteLength,
         outcome: "ok",
       });
       return new CodexAgentSession(process, thread.id, options.agentId, options.runtimeId);

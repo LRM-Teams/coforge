@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { ClaudeCodeDriver } from "../src/code-agent/claude-code/driver";
 import { AGENT_RUNTIME_EVENT_TYPE, type AgentRuntimeEvent } from "../src/code-agent/contract";
 
+const TEST_AGENT_INSTRUCTIONS = "Test Agent instructions.";
+
 test("Claude Code initializes before the first prompt without waiting for turn metadata", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-code-"));
   const adapter = new ClaudeCodeDriver({
@@ -16,7 +18,10 @@ test("Claude Code initializes before the first prompt without waiting for turn m
   });
 
   try {
-    const session = await adapter.createAgentSession({ agentWorkspaceDirectory });
+    const session = await adapter.createAgentSession({
+      agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
+    });
     expect(session).toBeDefined();
     await session.dispose();
   } finally {
@@ -27,6 +32,7 @@ test("Claude Code initializes before the first prompt without waiting for turn m
 test("Claude Code resolves a written notification without any input replay or run completion", async () => {
   const session = await fixtureAdapter().createAgentSession({
     agentWorkspaceDirectory: tmpdir(),
+    instructions: TEST_AGENT_INSTRUCTIONS,
   });
   const events: AgentRuntimeEvent[] = [];
   session.subscribe((event) => events.push(event));
@@ -53,6 +59,7 @@ test("Claude Code retains concurrent notices while initial session metadata is p
   });
   const session = await fixtureAdapter().createAgentSession({
     agentWorkspaceDirectory,
+    instructions: TEST_AGENT_INSTRUCTIONS,
     environment: { COFORGE_CLAUDE_INIT_GATE: gate.url.href },
   });
   const metadataObserved = Promise.withResolvers<void>();
@@ -90,7 +97,7 @@ test("Claude Code rejects concurrent first notifications after process exit", as
       new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,
       "exit-after-init",
     ],
-  }).createAgentSession({ agentWorkspaceDirectory });
+  }).createAgentSession({ agentWorkspaceDirectory, instructions: TEST_AGENT_INSTRUCTIONS });
   try {
     await new Promise<void>((resolve) => session.onExit(resolve));
     const results = await Promise.allSettled([session.notify!("first"), session.notify!("second")]);
@@ -111,7 +118,7 @@ test("Claude Code rejects a failed initialization handshake", async () => {
           new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,
           "reject-initialize",
         ],
-      }).createAgentSession({ agentWorkspaceDirectory }),
+      }).createAgentSession({ agentWorkspaceDirectory, instructions: TEST_AGENT_INSTRUCTIONS }),
     ).rejects.toThrow("initialization was rejected");
   } finally {
     await rm(agentWorkspaceDirectory, { recursive: true, force: true });
@@ -135,6 +142,7 @@ test("Claude Code starts the user's installed CLI from PATH in streaming mode", 
   try {
     const session = await new ClaudeCodeDriver().createAgentSession({
       agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
       runtime: {
         provider: "claude-code",
         model: "claude-sonnet-5",
@@ -167,7 +175,10 @@ test("Claude Code maps stream-json turns behind the code-agent seam", async () =
   const adapter = fixtureAdapter();
 
   try {
-    const session = await adapter.createAgentSession({ agentWorkspaceDirectory });
+    const session = await adapter.createAgentSession({
+      agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
+    });
     const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
 
@@ -200,7 +211,10 @@ test("Claude Code exposes account rate-limit events as partial usage snapshots",
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-usage-event-"));
 
   try {
-    const session = await fixtureAdapter().createAgentSession({ agentWorkspaceDirectory });
+    const session = await fixtureAdapter().createAgentSession({
+      agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
+    });
     const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
 
@@ -229,7 +243,10 @@ test("Claude Code rejects overlapping turns and interrupts without replacing its
   const adapter = fixtureAdapter();
 
   try {
-    const session = await adapter.createAgentSession({ agentWorkspaceDirectory });
+    const session = await adapter.createAgentSession({
+      agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
+    });
     const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
 
@@ -253,7 +270,10 @@ test("Claude Code accepts busy notifications in the existing session", async () 
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-notify-"));
 
   try {
-    const session = await fixtureAdapter().createAgentSession({ agentWorkspaceDirectory });
+    const session = await fixtureAdapter().createAgentSession({
+      agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
+    });
     const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
     await session.notify!("New message available. Run coforge message check.");
@@ -312,7 +332,10 @@ test("Claude Code rejects interrupt when the CLI exits after SIGINT", async () =
     ],
   });
 
-  const session = await adapter.createAgentSession({ agentWorkspaceDirectory: tmpdir() });
+  const session = await adapter.createAgentSession({
+    agentWorkspaceDirectory: tmpdir(),
+    instructions: TEST_AGENT_INSTRUCTIONS,
+  });
   try {
     await session.sendMessage("wait");
     await expect(session.interrupt()).rejects.toThrow("exited unexpectedly");
@@ -328,7 +351,10 @@ test("Claude Code startup fails when its CLI does not complete initialization", 
 
   await expect(
     Promise.race([
-      adapter.createAgentSession({ agentWorkspaceDirectory: tmpdir() }),
+      adapter.createAgentSession({
+        agentWorkspaceDirectory: tmpdir(),
+        instructions: TEST_AGENT_INSTRUCTIONS,
+      }),
       Bun.sleep(200).then(() => {
         throw new Error("startup timed out");
       }),
@@ -533,6 +559,7 @@ for (const terminal of ["dispose", "exit"] as const) {
   test(`Claude Code rejects retained notices on ${terminal} without completing the active turn`, async () => {
     const session = await fixtureAdapter("exit-on-interrupt").createAgentSession({
       agentWorkspaceDirectory: tmpdir(),
+      instructions: TEST_AGENT_INSTRUCTIONS,
     });
     const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
@@ -582,6 +609,7 @@ async function controlledClaude() {
   });
   const session = await fixtureAdapter().createAgentSession({
     agentWorkspaceDirectory: tmpdir(),
+    instructions: TEST_AGENT_INSTRUCTIONS,
     environment: { COFORGE_CLAUDE_EVENT_FEED: server.url.href },
   });
   let serial = 0;

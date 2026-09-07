@@ -10,7 +10,6 @@ import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
 import { readClaudeCodeUsage } from "./usage";
-import { COFORGE_AGENT_INSTRUCTIONS } from "../communication-instructions";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,7 +49,7 @@ export class ClaudeCodeDriver implements AgentDriver {
     let process: JsonlProcess | undefined;
     try {
       const promptPath = join(promptDirectory, "system-prompt.md");
-      await writeFile(promptPath, COFORGE_AGENT_INSTRUCTIONS, { mode: 0o600 });
+      await writeFile(promptPath, options.instructions, { mode: 0o600 });
       const command = [
         ...this.#command,
         "--append-system-prompt-file",

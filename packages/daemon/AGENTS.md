@@ -82,8 +82,10 @@ not mutate the installation or supply missing files for older installers.
   into each provider's native startup configuration. Claude Code model
   inventory must not launch the CLI to infer a dynamic catalog because its
   machine-readable initialization does not provide a dependable list.
-- Keep the standing CoForge communication instructions in one provider-neutral
-  source. Every code-agent driver must inject those same instructions through
+- Keep the standing CoForge Agent instructions in one provider-neutral source.
+  `AgentProcessManager` builds them once per session and supplies them through
+  the required `AgentSessionOptions.instructions` field. Every code-agent driver
+  must inject the supplied instructions through
   the provider's native system/developer-instruction mechanism: Codex uses
   app-server `developerInstructions`, Claude Code uses its system-prompt-file
   option, and CoForge Agent uses its resource-loader system-prompt override. Do

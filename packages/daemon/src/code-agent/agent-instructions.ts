@@ -1,4 +1,4 @@
-export const COFORGE_AGENT_INSTRUCTIONS = `## CoForge communication
+const COFORGE_COMMUNICATION_INSTRUCTIONS = `## CoForge communication
 
 Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only output channel: text outside an executed \`coforge message send\` command is not delivered to anyone.
 
@@ -36,4 +36,13 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 
 Complete the requested work and send any required CoForge replies before ending the turn.`;
 
-export const COFORGE_AGENT_INSTRUCTIONS_ENV = "COFORGE_AGENT_INSTRUCTIONS";
+/** Builds the complete standing instructions injected into a CoForge Agent session. */
+export function buildCoforgeAgentInstructions(agentWorkspaceDirectory: string): string {
+  return `## Current Runtime Context
+
+This is authoritative context injected by CoForge.
+
+- Agent workspace: ${agentWorkspaceDirectory}
+
+${COFORGE_COMMUNICATION_INSTRUCTIONS}`;
+}

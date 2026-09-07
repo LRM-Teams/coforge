@@ -3,7 +3,12 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentProcessManager } from "../src/agent-runtime/agent-process-manager";
-import type { AgentDriver, AgentSession, AgentRuntimeConfig } from "@coforge/agent";
+import type {
+  AgentDriver,
+  AgentSession,
+  AgentRuntimeConfig,
+  AgentSessionOptions,
+} from "@coforge/agent";
 import { AgentProcessCleanupError } from "../src/code-agent/contract";
 
 function sessionSpy() {
@@ -41,7 +46,7 @@ afterAll(() => rm(testWorkspaceRoot, { recursive: true, force: true }));
 describe("AgentProcessManager", () => {
   test("starts one runtime with its configuration and stops it", async () => {
     const session = sessionSpy();
-    let startedOptions: unknown;
+    let startedOptions: AgentSessionOptions | undefined;
     const adapter: AgentDriver = {
       provider: "pi",
       async createAgentSession(options) {
@@ -59,9 +64,17 @@ describe("AgentProcessManager", () => {
     expect(startedOptions).toEqual({
       agentId: "agent-1",
       agentWorkspaceDirectory: workspace,
+      environment: undefined,
+      instructions: expect.stringContaining(`- Agent workspace: ${workspace}`),
       sessionId: undefined,
       runtime: config,
     });
+    if (!startedOptions) throw new Error("driver was not started");
+    expect(startedOptions.instructions.match(/^## Current Runtime Context$/gm)).toHaveLength(1);
+    expect(startedOptions.instructions.match(/^- Agent workspace: /gm)).toHaveLength(1);
+    expect(startedOptions.instructions.split(workspace)).toHaveLength(2);
+    expect(startedOptions.instructions).toContain("## CoForge communication");
+    expect(startedOptions.instructions).toContain("reply with `coforge message send`");
     expect(manager.size).toBe(1);
     expect(manager.status("agent-1")).toBe("active");
     expect(manager.status("agent-2")).toBe("inactive");

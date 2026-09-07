@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { CodexDriver } from "../src/code-agent/codex/driver";
 import type { AgentRuntimeEvent } from "../src/code-agent/contract";
 
+const TEST_AGENT_INSTRUCTIONS = "Test Agent instructions.";
+
 test("Codex loads skills before running app-server behind the code-agent seam", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-codex-"));
   const skillDirectory = join(agentWorkspaceDirectory, ".agents", "skills", "fixture-skill");
@@ -21,13 +23,14 @@ test("Codex loads skills before running app-server behind the code-agent seam", 
       "expected-skill=fixture-skill",
       "expected-coforge-environment",
       "expected-runtime-config",
-      "expected-communication-instructions",
+      "expected-agent-instructions",
     ],
   });
 
   try {
     const session = await adapter.createAgentSession({
       agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
       runtime: {
         provider: "codex",
         model: "gpt-5.6-sol",
@@ -112,6 +115,7 @@ test("Codex starts the user's installed CLI from PATH", async () => {
   try {
     const session = await new CodexDriver().createAgentSession({
       agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
       environment: {
         PATH: binDirectory,
         COFORGE_BUN_EXEC: process.execPath,
@@ -131,7 +135,10 @@ test("Codex returns to idle when turn creation is invalid", async () => {
   const adapter = fixtureAdapter();
 
   try {
-    const session = await adapter.createAgentSession({ agentWorkspaceDirectory });
+    const session = await adapter.createAgentSession({
+      agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
+    });
     await expect(session.sendMessage("invalid-turn")).rejects.toThrow("did not create a turn");
     await session.sendMessage("finish");
     await session.dispose();
@@ -145,7 +152,10 @@ test("Codex rejects overlapping prompts and dispose does not wait on interrupt",
   const adapter = fixtureAdapter();
 
   try {
-    const session = await adapter.createAgentSession({ agentWorkspaceDirectory });
+    const session = await adapter.createAgentSession({
+      agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
+    });
     await session.sendMessage("wait");
     await expect(session.sendMessage("overlap")).rejects.toThrow("already running");
     await session.dispose();
@@ -158,7 +168,10 @@ test("Codex starts idle notifications and steers busy notifications in the same 
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-codex-notify-"));
 
   try {
-    const session = await fixtureAdapter().createAgentSession({ agentWorkspaceDirectory });
+    const session = await fixtureAdapter().createAgentSession({
+      agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
+    });
     const events: AgentRuntimeEvent[] = [];
     session.subscribe((event) => events.push(event));
     await session.notify!("New message available. Run coforge message check.");
@@ -176,7 +189,10 @@ test("Codex starts idle notifications and steers busy notifications in the same 
 
 test("Codex waits for the starting turn ID before steering", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-codex-starting-"));
-  const session = await fixtureAdapter().createAgentSession({ agentWorkspaceDirectory });
+  const session = await fixtureAdapter().createAgentSession({
+    agentWorkspaceDirectory,
+    instructions: TEST_AGENT_INSTRUCTIONS,
+  });
   try {
     const start = session.sendMessage("wait");
     const notification = session.notify!("starting notice");
@@ -191,7 +207,10 @@ test("Codex waits for the starting turn ID before steering", async () => {
 for (const notice of ["race-before", "race-after"]) {
   test(`Codex starts a notification rejected at turn end (${notice})`, async () => {
     const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-codex-race-"));
-    const session = await fixtureAdapter().createAgentSession({ agentWorkspaceDirectory });
+    const session = await fixtureAdapter().createAgentSession({
+      agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
+    });
     try {
       await session.sendMessage("wait");
       const startedInput = new Promise<string>((resolve) => {
@@ -215,7 +234,10 @@ for (const notice of ["race-before", "race-after"]) {
 
 test("Codex propagates steering rejection without starting another turn", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-codex-rejection-"));
-  const session = await fixtureAdapter().createAgentSession({ agentWorkspaceDirectory });
+  const session = await fixtureAdapter().createAgentSession({
+    agentWorkspaceDirectory,
+    instructions: TEST_AGENT_INSTRUCTIONS,
+  });
   try {
     await session.sendMessage("wait");
     await expect(session.notify!("reject-notice")).rejects.toThrow("code agent request failed");

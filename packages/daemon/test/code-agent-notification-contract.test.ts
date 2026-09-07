@@ -22,6 +22,7 @@ for (const driver of drivers) {
     const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-notification-contract-"));
     const session = await driver.createAgentSession({
       agentWorkspaceDirectory,
+      instructions: "Test Agent instructions.",
       environment: { COFORGE_DECLARED_TEST_VALUE: "allowed" },
     });
     const events: AgentRuntimeEvent[] = [];

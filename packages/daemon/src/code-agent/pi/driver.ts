@@ -11,10 +11,6 @@ import { createAgentActivity, type AgentActivityType } from "../../agent-runtime
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
 import { createSession, getCoforgeAgentDir, getCoforgeSessionDir } from "@coforge/agent";
 import { join } from "node:path";
-import {
-  COFORGE_AGENT_INSTRUCTIONS,
-  COFORGE_AGENT_INSTRUCTIONS_ENV,
-} from "../communication-instructions";
 
 export function externalPiCommand(sessionDir?: string): readonly string[] {
   return ["pi", "--mode", "rpc", ...(sessionDir ? ["--session-dir", sessionDir] : [])];
@@ -32,14 +28,16 @@ export class PiDriver implements AgentDriver {
     const runtime = options.runtime;
     if (runtime?.providerConfig?.kind === "coforge")
       throw new Error("CoForge provider config requires the coforge runtime");
-    const process = new JsonlProcess(
+    const command =
       this.#command.length > 0
         ? this.#command
-        : externalPiCommand(join(options.agentWorkspaceDirectory, ".pi-sessions")),
+        : externalPiCommand(join(options.agentWorkspaceDirectory, ".pi-sessions"));
+    const process = new JsonlProcess(
+      [...command, "--system-prompt", options.instructions],
       options.agentWorkspaceDirectory,
       agentEnvironment({
         ...options.environment,
-        [COFORGE_AGENT_INSTRUCTIONS_ENV]: COFORGE_AGENT_INSTRUCTIONS,
+        COFORGE_AGENT_INSTRUCTIONS: options.instructions,
       }),
     );
     const session = new PiAgentSession(process);
@@ -89,7 +87,7 @@ export class CoforgeDriver extends PiDriver {
       model: runtime.model,
       reasoning: runtime.reasoning,
       apiKey: runtime.providerConfig.apiKey,
-      instructions: COFORGE_AGENT_INSTRUCTIONS,
+      instructions: options.instructions,
       environment: agentEnvironment(options.environment),
     });
     return new AgentSessionImpl(session);
