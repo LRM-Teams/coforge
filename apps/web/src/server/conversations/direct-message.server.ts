@@ -41,6 +41,7 @@ export class SendDirectMessage {
     senderUserId: string;
     body: string;
     attachmentId?: string;
+    threadRootId?: string;
   }) {
     if (!input.requestId || !input.body) throw new Error("invalid direct message");
     const message = await this.idempotency.execute(
@@ -57,6 +58,7 @@ export class SendDirectMessage {
           input.senderUserId,
           input.body,
           input.attachmentId,
+          input.threadRootId,
         ),
     );
     await this.publishUserMessageToAgent(input.requestId, input.conversationId, message);
@@ -96,6 +98,8 @@ export class SendDirectMessage {
           conversation.id,
           input.agentId,
           input.body,
+          undefined,
+          input.target.split(":")[1],
         );
         if (!persisted) throw new Error("agent message persistence is unavailable");
         return persisted;
@@ -130,7 +134,7 @@ export class SendDirectMessage {
         agentId: message.agentId,
         body: message.body,
         method: AGENT_MESSAGE_METHOD,
-        target: message.latestSender,
+        target: message.deliveryTarget ?? message.latestSender,
         latestSender: message.latestSender,
       }),
     );

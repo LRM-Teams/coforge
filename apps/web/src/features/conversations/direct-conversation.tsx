@@ -1,28 +1,44 @@
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { ArrowDown, ArrowUp, FileText, Paperclip } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowLeft,
+  ChevronDown,
+  FileText,
+  MessageSquare,
+  Paperclip,
+  Quote,
+} from "lucide-react";
 
 import { BackToAgents } from "@/features/conversations/conversation-layout";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useAppToast } from "@/components/ui/toast";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
 
+const messageBubbleClassName =
+  "relative w-fit max-w-full rounded-lg bg-muted px-4 py-2.5 text-sm leading-5 font-medium whitespace-pre-wrap";
+
 export type DirectConversationView = {
   conversationId: string;
   senderMemberId: string;
+  threadReadThrough?: Record<string, number>;
   agent: { id: string; name: string; displayName: string };
   messages: Array<{
     id: string;
     sequence: number;
+    threadRootId?: string;
     senderKind: "user" | "agent";
     senderName: string;
     body: string;
@@ -31,17 +47,205 @@ export type DirectConversationView = {
   }>;
 };
 
-export function DirectConversation({
+type ConversationProps = {
+  conversation: DirectConversationView;
+  agentStatus?: "active" | "inactive";
+  onSend: (
+    body: string,
+    requestId: string,
+    attachmentId?: string,
+    threadRootId?: string,
+  ) => Promise<void>;
+  onRefresh: () => Promise<void>;
+  onReadThread?: (rootMessageId: string, throughSequence: number) => Promise<void>;
+};
+
+export function DirectConversation(props: ConversationProps) {
+  const { conversation, onReadThread } = props;
+  const [selected, setSelected] = useState<string>();
+  const [visited, setVisited] = useState<string[]>([]);
+  const [readThrough, setReadThrough] = useState<Record<string, number>>({});
+  const reading = useRef(false);
+  const mainMessages = conversation.messages.filter((message) => !message.threadRootId);
+  const selectedSequence =
+    conversation.messages.filter((message) => message.threadRootId === selected).at(-1)?.sequence ??
+    0;
+  useEffect(() => {
+    if (!selected || !selectedSequence || reading.current || document.visibilityState === "hidden")
+      return;
+    const boundary = Math.max(
+      readThrough[selected] ?? 0,
+      conversation.threadReadThrough?.[selected] ?? 0,
+    );
+    if (selectedSequence <= boundary) return;
+    reading.current = true;
+    void (onReadThread?.(selected, selectedSequence) ?? Promise.resolve())
+      .then(() => {
+        setReadThrough((previous) => ({ ...previous, [selected]: selectedSequence }));
+      })
+      .catch(() => {
+        // Leave unread intact; the next poll can retry the read acknowledgement.
+      })
+      .finally(() => {
+        reading.current = false;
+      });
+  }, [selected, selectedSequence, conversation, onReadThread, readThrough]);
+
+  function openThread(rootMessageId: string) {
+    setVisited((previous) =>
+      previous.includes(rootMessageId) ? previous : [...previous, rootMessageId],
+    );
+    setSelected(rootMessageId);
+  }
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1">
+      <div className={cn("min-h-0 min-w-0 flex-1 flex-col", selected ? "hidden md:flex" : "flex")}>
+        <ConversationPane
+          {...props}
+          conversation={{ ...conversation, messages: mainMessages }}
+          threadEntry={(message) => {
+            const replies = conversation.messages.filter(
+              (reply) => reply.threadRootId === message.id,
+            );
+            const boundary = Math.max(
+              readThrough[message.id] ?? 0,
+              conversation.threadReadThrough?.[message.id] ?? 0,
+            );
+            const unread = replies.filter(
+              (reply) => reply.senderKind === "agent" && reply.sequence > boundary,
+            ).length;
+            const label = replies.length
+              ? replies.length === 1
+                ? m.conversation_thread_one_reply()
+                : m.conversation_thread_replies({ count: replies.length })
+              : m.conversation_thread_reply();
+            const accessibleLabel = unread
+              ? `${label} · ${m.conversation_thread_unread({ count: unread })}`
+              : label;
+            return (
+              <Tooltip>
+                <TooltipTrigger
+                  type="button"
+                  onClick={() => openThread(message.id)}
+                  aria-label={accessibleLabel}
+                  className="absolute -top-4 right-1 flex h-6 min-w-6 items-center justify-center gap-1 rounded-md border bg-card px-1.5 text-xs text-muted-foreground opacity-0 shadow-sm transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 hover:text-brand focus-visible:outline-2 focus-visible:outline-brand [@media(hover:none)]:opacity-100"
+                >
+                  <MessageSquare aria-hidden="true" className="size-3.5" />
+                  {replies.length > 0 && <span aria-hidden="true">{replies.length}</span>}
+                  {unread > 0 && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute top-1 right-1 size-1.5 rounded-full bg-brand"
+                    />
+                  )}
+                </TooltipTrigger>
+                <TooltipContent>{accessibleLabel}</TooltipContent>
+              </Tooltip>
+            );
+          }}
+          threadPreview={(message) => {
+            const replies = conversation.messages
+              .filter((reply) => reply.threadRootId === message.id)
+              .slice(-3);
+            if (!replies.length) return null;
+            return (
+              <div
+                role="group"
+                aria-label={m.conversation_thread()}
+                className="flex min-w-0 max-w-full flex-col gap-6 self-stretch pl-4 sm:pl-8"
+              >
+                {replies.map((reply) => {
+                  const own = reply.senderKind === "user";
+                  return (
+                    <button
+                      key={reply.id}
+                      type="button"
+                      onClick={() => openThread(message.id)}
+                      className={cn(
+                        "flex min-w-0 max-w-full gap-3 rounded-lg text-left focus-visible:outline-2 focus-visible:outline-brand",
+                        own ? "flex-col items-end" : "items-start",
+                      )}
+                    >
+                      {!own && <Avatar people={[{ name: reply.senderName }]} size="md" />}
+                      <span
+                        className={cn(
+                          "flex min-w-0 max-w-full flex-col gap-2",
+                          own ? "items-end" : "flex-1 items-start",
+                        )}
+                      >
+                        <span className="flex items-baseline gap-2">
+                          <span className="text-sm font-medium">
+                            {own ? m.conversation_you() : reply.senderName}
+                          </span>
+                          <time
+                            dateTime={new Date(reply.createdAt).toISOString()}
+                            className="text-xs text-muted-foreground"
+                          >
+                            {timeLabel(reply.createdAt)}
+                          </time>
+                        </span>
+                        <span className={messageBubbleClassName}>
+                          {reply.body || reply.attachment?.fileName}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          }}
+        />
+      </div>
+      {visited.map((rootId) => {
+        const root = mainMessages.find((message) => message.id === rootId);
+        if (!root) return null;
+        return (
+          <section
+            key={rootId}
+            aria-label={m.conversation_thread()}
+            hidden={selected !== rootId}
+            className={cn(
+              "min-h-0 min-w-0 flex-1 flex-col md:max-w-[480px] md:border-l",
+              selected === rootId ? "flex" : "hidden",
+            )}
+          >
+            <ConversationPane
+              {...props}
+              root={root}
+              onClose={() => setSelected(undefined)}
+              conversation={{
+                ...conversation,
+                messages: conversation.messages.filter(
+                  (message) => message.threadRootId === rootId,
+                ),
+              }}
+              onSend={(body, requestId, attachmentId) =>
+                props.onSend(body, requestId, attachmentId, rootId)
+              }
+            />
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function ConversationPane({
   conversation,
   agentStatus,
   onSend,
   onRefresh,
-}: {
-  conversation: DirectConversationView;
-  agentStatus?: "active" | "inactive";
-  onSend: (body: string, requestId: string, attachmentId?: string) => Promise<void>;
-  onRefresh: () => Promise<void>;
+  root,
+  onClose,
+  threadEntry,
+  threadPreview,
+}: ConversationProps & {
+  root?: DirectConversationView["messages"][number];
+  onClose?: () => void;
+  threadEntry?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
+  threadPreview?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
 }) {
+  const composerId = useId();
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -104,6 +308,7 @@ export function DirectConversation({
   }
 
   useEffect(() => {
+    if (root) return;
     async function refresh() {
       if (document.visibilityState !== "visible" || pollingRef.current) return;
       pollingRef.current = true;
@@ -121,7 +326,7 @@ export function DirectConversation({
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [onRefresh]);
+  }, [onRefresh, root]);
 
   async function submit(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
@@ -168,38 +373,87 @@ export function DirectConversation({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-5">
-        <BackToAgents />
-        <Avatar
-          people={[{ name: conversation.agent.displayName }]}
-          size="sm"
-          online={agentStatus ? agentStatus === "active" : undefined}
-          statusLabel={
-            agentStatus
-              ? agentStatus === "active"
-                ? m.agent_status_online()
-                : m.agent_status_offline()
-              : undefined
-          }
-        />
-        <h1 className="truncate text-base font-medium">{conversation.agent.displayName}</h1>
-        <span className="hidden shrink-0 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground sm:block">
-          @{conversation.agent.name}
-        </span>
-      </header>
+      {root ? (
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            aria-label={m.conversation_thread_back()}
+          >
+            <ArrowLeft aria-hidden="true" />
+          </Button>
+          <h2 className="text-base font-medium">{m.conversation_thread()}</h2>
+        </header>
+      ) : (
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-5">
+          <BackToAgents />
+          <Avatar
+            people={[{ name: conversation.agent.displayName }]}
+            size="sm"
+            online={agentStatus ? agentStatus === "active" : undefined}
+            statusLabel={
+              agentStatus
+                ? agentStatus === "active"
+                  ? m.agent_status_online()
+                  : m.agent_status_offline()
+                : undefined
+            }
+          />
+          <h1 className="truncate text-base font-medium">{conversation.agent.displayName}</h1>
+          <span className="hidden shrink-0 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground sm:block">
+            @{conversation.agent.name}
+          </span>
+        </header>
+      )}
 
       <div className="relative min-h-0 flex-1">
         <div
           ref={historyRef}
-          aria-label={m.conversation_history()}
+          aria-label={root ? m.conversation_thread() : m.conversation_history()}
           onScroll={trackReadingPosition}
           className="h-full overflow-y-auto px-5 pb-6"
         >
+          {root && (
+            <details
+              open={root.body.length < 400}
+              className="group mt-5 rounded-lg border bg-muted/40 p-3 text-sm"
+            >
+              <summary
+                aria-label={m.conversation_thread_root()}
+                className="flex cursor-pointer list-none items-center gap-2 font-medium [&::-webkit-details-marker]:hidden"
+              >
+                <Quote aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="shrink-0">
+                  {root.senderKind === "user" ? m.conversation_you() : root.senderName}
+                </span>
+                <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground group-open:hidden">
+                  {root.body}
+                </span>
+                <ChevronDown
+                  aria-hidden="true"
+                  className="ml-auto size-4 shrink-0 text-muted-foreground group-open:rotate-180"
+                />
+              </summary>
+              <p className="mt-3 whitespace-pre-wrap break-words">{root.body}</p>
+              {root.attachment && (
+                <a
+                  className="mt-2 block text-brand underline"
+                  href={`/api/attachments/${root.attachment.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {root.attachment.fileName}
+                </a>
+              )}
+            </details>
+          )}
           {conversation.messages.length === 0 ? (
-            <div className="grid h-full place-content-center text-center">
+            <div className={cn("grid place-content-center text-center", root ? "py-10" : "h-full")}>
               <p className="font-medium">{m.conversation_empty_title()}</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                {m.conversation_empty_description()}
+                {root ? m.conversation_thread_empty() : m.conversation_empty_description()}
               </p>
             </div>
           ) : (
@@ -213,7 +467,7 @@ export function DirectConversation({
                     {(!previous || dayLabel(previous.createdAt) !== day) && (
                       <div className="flex items-center gap-3">
                         <span aria-hidden="true" className="h-px flex-1 bg-border" />
-                        <span className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
+                        <span className="shrink-0 whitespace-nowrap rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
                           {day}
                         </span>
                         <span aria-hidden="true" className="h-px flex-1 bg-border" />
@@ -226,7 +480,8 @@ export function DirectConversation({
                       {!own && <Avatar people={[{ name: message.senderName }]} size="md" />}
                       <div
                         className={cn(
-                          "flex min-w-0 flex-col gap-2",
+                          "flex min-w-0 max-w-full flex-col gap-2",
+                          threadEntry && "gap-5",
                           own ? "items-end" : "flex-1 items-start",
                         )}
                       >
@@ -241,8 +496,9 @@ export function DirectConversation({
                             {timeLabel(message.createdAt)}
                           </time>
                         </p>
-                        <div className="w-fit max-w-full rounded-lg bg-muted px-4 py-2.5 text-sm leading-5 font-medium whitespace-pre-wrap">
+                        <div className={cn("group/message", messageBubbleClassName)}>
                           {message.body}
+                          {threadEntry?.(message)}
                           {message.attachment && (
                             <a
                               href={`/api/attachments/${message.attachment.id}`}
@@ -265,6 +521,7 @@ export function DirectConversation({
                             </a>
                           )}
                         </div>
+                        {threadPreview?.(message)}
                       </div>
                     </div>
                   </li>
@@ -292,11 +549,11 @@ export function DirectConversation({
         onSubmit={submit}
         className="mx-5 mb-5 flex shrink-0 flex-col gap-1 rounded-2xl border bg-card px-3 py-2.5 focus-within:border-ring/40"
       >
-        <label htmlFor="message-body" className="sr-only">
+        <label htmlFor={composerId} className="sr-only">
           {m.conversation_message_label()}
         </label>
         <textarea
-          id="message-body"
+          id={composerId}
           rows={2}
           value={body}
           disabled={sending}

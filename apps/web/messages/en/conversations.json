@@ -16,5 +16,13 @@
   "conversation_one_new_message": "1 new message",
   "conversation_new_messages": "{count} new messages",
   "conversation_attachment_label": "Add attachment",
+  "conversation_thread": "Thread",
+  "conversation_thread_reply": "Reply in thread",
+  "conversation_thread_one_reply": "1 reply",
+  "conversation_thread_replies": "{count} replies",
+  "conversation_thread_unread": "{count} unread",
+  "conversation_thread_back": "Back to chat",
+  "conversation_thread_root": "Original message",
+  "conversation_thread_empty": "Send the first reply to start this thread.",
   "conversation_you": "You"
 }

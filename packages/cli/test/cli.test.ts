@@ -106,8 +106,32 @@ test("message check hides server ordering fields", async () => {
   });
 
   expect(output).toBe(
-    "[target=@ada time=2026-09-03T10:00:00Z] @ada: Can you investigate?\n\nNo more new inbox messages.",
+    "[target=@ada msg=message- time=2026-09-03T10:00:00Z] @ada: Can you investigate?\n\nNo more new inbox messages.",
   );
+});
+
+test("thread target and short parent range anchor pass through without a separate root option", async () => {
+  const calls: unknown[] = [];
+  const transport = {
+    check: async () => ({ messages: [] }),
+    read: async (target: string, options: unknown) => {
+      calls.push({ target, options });
+      return {};
+    },
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+  };
+  await run(
+    ["message", "read", "--target", "@alice:12345678", "--before", "87654321", "--limit", "10"],
+    transport,
+  );
+  expect(calls[0]).toMatchObject({
+    target: "@alice:12345678",
+    options: { before: "87654321", limit: 10 },
+  });
+  expect(() =>
+    parseArgs(["message", "read", "--target", "@alice", "--root", "12345678"]),
+  ).toThrow();
 });
 
 test("message check says plainly when there are no pending messages", async () => {

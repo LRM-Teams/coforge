@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   DaemonConnection,
+  defaultAgentMessageHttpClient,
   type CentrifugeWorkspaceClient,
 } from "../src/connection/daemon-connection";
 import {
@@ -42,6 +43,36 @@ function fakeClient() {
     publish: (channel: string, data: Uint8Array) => publication({ channel, data }),
   };
 }
+
+test("Agent message HTTP client rejects an HTTP 200 RPC error envelope", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = Object.assign(
+    async () =>
+      Response.json({
+        error: { code: 400, message: "ambiguous message prefix; use the full UUID" },
+      }),
+    originalFetch,
+  );
+  try {
+    await expect(
+      defaultAgentMessageHttpClient.request({
+        url: "https://server.example/api/agent-messages",
+        agentApiKey: `sk_agent_${"a".repeat(43)}`,
+        daemonApiKey: "daemon-token",
+        request: {
+          protocolMajor: 1,
+          requestId: "request-1",
+          workspaceId: "workspace-1",
+          agentId: "agent-1",
+          operation: "read",
+          target: "@ada:aaaaaaaa",
+        },
+      }),
+    ).rejects.toThrow("ambiguous message prefix; use the full UUID");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("sends delivery ACK through the RPC method, not a publication", async () => {
   const fake = fakeClient();

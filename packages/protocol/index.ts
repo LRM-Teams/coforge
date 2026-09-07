@@ -25,6 +25,14 @@ export const AGENT_MESSAGE_ACK_METHOD = "agent:deliver:ack" as const;
 export const AGENT_MESSAGE_CHECK_METHOD = "agent:message:check" as const;
 export const AGENT_MESSAGE_READ_METHOD = "agent:message:read" as const;
 export const AGENT_MESSAGE_SEND_METHOD = "agent:message:send" as const;
+export const AGENT_MESSAGE_VALIDATION_MESSAGES = [
+  "message anchor must be eight hexadecimal characters or a full UUID",
+  "ambiguous message prefix; use the full UUID",
+  "message anchor not found in this conversation",
+  "thread root must be a top-level message",
+  "message anchor is outside this target",
+] as const;
+export type AgentMessageValidationMessage = (typeof AGENT_MESSAGE_VALIDATION_MESSAGES)[number];
 export const AGENT_STATUS_METHOD = "agent:status" as const;
 export const AGENT_ACTIVITY_METHOD = "agent:activity" as const;
 export const WORKSPACE_PROTOCOL_MAJOR = COMPUTER_REGISTER_PROTOCOL_MAJOR;

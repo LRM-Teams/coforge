@@ -15,6 +15,26 @@ test("accepts sfp_ daemon-local Proxy tokens", async () => {
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
+test("shows actionable validation errors returned by the Agent proxy", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response("ambiguous message prefix; use the full UUID", { status: 400 }),
+  );
+
+  await expect(
+    connectLocal("", `sfp_${"a".repeat(43)}`, "http://proxy.test/agent/message").read("deadbeef"),
+  ).rejects.toThrow("ambiguous message prefix; use the full UUID");
+});
+
+test("sanitizes unknown Agent proxy error bodies", async () => {
+  spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response("upstream failure included a secret", { status: 400 }),
+  );
+
+  await expect(
+    connectLocal("", `sfp_${"a".repeat(43)}`, "http://proxy.test/agent/message").check(),
+  ).rejects.toThrow(/^agent proxy request failed \(400\)$/);
+});
+
 test("downloads attachments through the daemon-local proxy", async () => {
   const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
     new Response("attachment bytes", {

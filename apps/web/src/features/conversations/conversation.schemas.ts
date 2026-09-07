@@ -7,4 +7,10 @@ export const sendConversationMessageInputSchema = agentConversationInputSchema.e
   requestId: uuid,
   body: z.string().trim().min(1).max(8_000),
   attachmentId: uuid.optional(),
+  threadRootId: uuid.optional(),
+});
+
+export const readConversationThreadInputSchema = agentConversationInputSchema.extend({
+  threadRootId: uuid,
+  throughSequence: z.number().int().positive(),
 });

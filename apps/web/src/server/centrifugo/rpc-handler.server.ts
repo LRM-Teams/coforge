@@ -38,6 +38,7 @@ import {
   encodeAgentStatusEvent,
 } from "../../features/agents/agent-status-realtime";
 import type { CentrifugoServerApi } from "./server-api.server";
+import { AgentMessageValidationError } from "../conversations/agent-message-validation-error.server";
 
 export function createAgentDeliveryAckMethod(repository: {
   receiveDeliveryAck(input: {
@@ -724,6 +725,9 @@ export class CentrifugoRpcHandler {
     } catch (error) {
       if (error instanceof CentrifugoRpcAuthenticationError) {
         return errorResponse({ code: 401, message: "authentication required" });
+      }
+      if (error instanceof AgentMessageValidationError) {
+        return errorResponse({ code: 400, message: error.message });
       }
       return errorResponse(errors.failed);
     }

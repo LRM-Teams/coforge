@@ -11,6 +11,7 @@ import {
   type CentrifugoRpcMethod,
 } from "../src/server/centrifugo/rpc-handler.server";
 import { createCentrifugoRpcHandler } from "../src/server/centrifugo/rpc-composition.server";
+import { AgentMessageValidationError } from "../src/server/conversations/agent-message-validation-error.server";
 import {
   decodeCloudAgentMessageResponse,
   encodeAgentMessageDeliveryAck,
@@ -53,6 +54,27 @@ const principal = (agentId?: string) => ({
 });
 
 describe("CentrifugoRpcHandler", () => {
+  test("exposes only typed Agent message validation failures", async () => {
+    for (const [failure, expected] of [
+      [
+        new AgentMessageValidationError("ambiguous message prefix; use the full UUID"),
+        { code: 400, message: "ambiguous message prefix; use the full UUID" },
+      ],
+      [new Error("database password leaked"), { code: 500, message: "RPC method failed" }],
+    ] as const) {
+      const handler = new CentrifugoRpcHandler({
+        methods: {
+          read: async () => {
+            throw failure;
+          },
+        },
+      });
+
+      const response = await handler.handleRequest(json({ method: "read", b64data: "AA==" }));
+      expect(await response.json()).toEqual({ error: expected });
+    }
+  });
+
   test("authorizes delivery ACKs against the authenticated Computer", async () => {
     const received: unknown[] = [];
     const method = createAgentDeliveryAckMethod({

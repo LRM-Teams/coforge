@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import {
   agentConversationInputSchema,
+  readConversationThreadInputSchema,
   sendConversationMessageInputSchema,
 } from "./conversation.schemas";
 import { requireBrowserUser } from "../../server/auth/require-user.server";
@@ -34,6 +35,20 @@ export const loadDirectConversation = createServerFn({ method: "GET" })
     return (await context(user, data.agentId)).opened;
   });
 
+export const markDirectThreadRead = createServerFn({ method: "POST" })
+  .validator(readConversationThreadInputSchema)
+  .handler(async ({ data }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const { conversations, workspaceId } = await context(user, data.agentId);
+    await conversations.markThreadReadForUser(
+      workspaceId,
+      user.id,
+      data.agentId,
+      data.threadRootId,
+      data.throughSequence,
+    );
+  });
+
 export const sendDirectConversationMessage = createServerFn({ method: "POST" })
   .validator(sendConversationMessageInputSchema)
   .handler(async ({ data }) => {
@@ -59,6 +74,7 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
             senderUserId: user.id,
             body: data.body,
             attachmentId: data.attachmentId,
+            threadRootId: data.threadRootId,
           }),
         );
       },

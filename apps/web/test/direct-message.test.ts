@@ -37,6 +37,34 @@ class MemoryMessageRequestIdempotency implements MessageRequestIdempotency {
 }
 
 describe("SendDirectMessage", () => {
+  test("publishes the full thread target while keeping the sender unchanged", async () => {
+    let publication: Uint8Array | undefined;
+    const repository = {
+      getOrCreateUserAgent: async () => ({ id: "conversation-a" }),
+      sendMessage: async (...args: Parameters<DirectConversationRepository["sendMessage"]>) => {
+        expect(args[5]).toBe("12345678-0000-4000-8000-000000000001");
+        return { ...persisted, deliveryTarget: "@ada:12345678" };
+      },
+    } satisfies DirectConversationRepository;
+    await new SendDirectMessage(repository, new MemoryMessageRequestIdempotency(), {
+      publish: async (_channel, data) => {
+        publication = data;
+      },
+    }).execute({
+      requestId: "thread-request",
+      workspaceId: "workspace-a",
+      conversationId: "conversation-a",
+      senderMemberId: "member-a",
+      senderUserId: "user-a",
+      body: "reply",
+      threadRootId: "12345678-0000-4000-8000-000000000001",
+    });
+    expect(decodeAgentMessageDelivery(publication!)).toMatchObject({
+      target: "@ada:12345678",
+      latestSender: "@ada",
+    });
+  });
+
   test("persists before publishing the canonical message to its Workspace", async () => {
     const calls: string[] = [];
     let publication: { channel: string; data: Uint8Array } | undefined;

@@ -26,6 +26,7 @@ let buffer = "";
 let initialized = false;
 let skillsLoaded = false;
 let turn = 0;
+let active = false;
 
 for await (const chunk of Bun.stdin.stream()) {
   buffer += decoder.decode(chunk, { stream: true });
@@ -151,13 +152,22 @@ function handle(request: Request): void {
     return;
   }
   if (request.method === "turn/start" && request.id) {
+    if (request.params?.threadId !== "thread-1") throw new Error("wrong session");
+    if (active) throw new Error("turn/start while active");
     if (textInput(request.params) === "invalid-turn") {
       write({ id: request.id, result: { turn: {} } });
       return;
     }
     turn += 1;
+    active = true;
     const turnId = `turn-${turn}`;
     write({ id: request.id, result: { turn: { id: turnId, status: "inProgress" } } });
+    if (textInput(request.params)?.startsWith("race-")) {
+      write({
+        method: "item/agentMessage/delta",
+        params: { delta: `Started: ${textInput(request.params)}` },
+      });
+    }
     write({
       method: "item/agentMessage/delta",
       params: { turnId, itemId: "message-1", delta: "Codex response" },
@@ -209,6 +219,40 @@ function handle(request: Request): void {
     }
     return;
   }
+  if (request.method === "turn/steer" && request.id) {
+    if (
+      request.params?.threadId !== "thread-1" ||
+      request.params?.expectedTurnId !== `turn-${turn}`
+    ) {
+      throw new Error("wrong steering session or turn");
+    }
+    const text = textInput(request.params);
+    if (text === "wrong-turn-response") {
+      write({ id: request.id, result: { turnId: "wrong-turn" } });
+      return;
+    }
+    if (text === "reject-notice") {
+      write({ id: request.id, error: { code: -32600, message: "notification rejected" } });
+      return;
+    }
+    if (text === "race-before" || text === "race-after") {
+      active = false;
+      const completion = {
+        method: "turn/completed",
+        params: { turn: { id: `turn-${turn}`, status: "completed" } },
+      };
+      if (text === "race-before") write(completion);
+      write({ id: request.id, error: { code: -32600, message: "no active turn to steer" } });
+      if (text === "race-after") write(completion);
+      return;
+    }
+    write({ id: request.id, result: { turnId: `turn-${turn}` } });
+    write({
+      method: "item/agentMessage/delta",
+      params: { delta: `Steered: ${textInput(request.params)}` },
+    });
+    return;
+  }
   if (request.method === "turn/interrupt" && request.id) {
     write({ id: request.id, result: {} });
     write({
@@ -257,5 +301,6 @@ function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 function write(value: unknown): void {
+  if (record(value)?.method === "turn/completed") active = false;
   console.log(JSON.stringify(value));
 }

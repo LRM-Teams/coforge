@@ -69,6 +69,91 @@ const firstMessage: DirectConversationView["messages"][number] = {
   createdAt: "2026-08-29T10:00:00Z",
 };
 
+test("thread replies stay out of main history and preserve separate drafts and main scroll", async () => {
+  const user = userEvent.setup();
+  const calls: unknown[][] = [];
+  const onSend = mock(async (...args: [string, string, string?, string?]) => {
+    calls.push(args);
+  });
+  const root = { ...firstMessage, id: "12345678-0000-4000-8000-000000000001" };
+  const { page } = renderConversation(
+    {
+      ...base,
+      messages: [
+        root,
+        {
+          ...firstMessage,
+          id: "reply",
+          sequence: 2,
+          threadRootId: root.id,
+          senderKind: "agent",
+          body: "Only in discussion",
+        },
+      ],
+    },
+    onSend,
+  );
+  const history = page.getByLabelText("Message history");
+  expect(history.querySelectorAll("[data-message]")).toHaveLength(1);
+  history.scrollTop = 123;
+  const mainComposer = page.getByLabelText("Message") as HTMLTextAreaElement;
+  await user.type(mainComposer, "main draft");
+  const threadButton = page.getByRole("button", { name: /1 reply/ });
+  expect(threadButton.textContent).toBe("1");
+  expect(threadButton.parentElement?.textContent).toContain(root.body);
+  expect(threadButton.querySelector("svg")).toBeTruthy();
+  await user.click(threadButton);
+  expect(calls).toEqual([]);
+  const discussion = within(page.getByRole("region", { name: "Thread" }));
+  expect(discussion.queryByText(/Original message/)).toBeNull();
+  expect(discussion.getByText("Only in discussion")).toBeTruthy();
+  expect(discussion.queryByRole("button", { name: "Reply in thread" })).toBeNull();
+  await user.type(discussion.getByLabelText("Message"), "thread draft");
+  await user.click(discussion.getByRole("button", { name: "Back to chat" }));
+  expect(mainComposer.value).toBe("main draft");
+  expect(history.scrollTop).toBe(123);
+  await user.click(page.getByRole("button", { name: /1 reply/ }));
+  await user.click(discussion.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(calls[0]?.[3]).toBe(root.id));
+  expect(calls[0]?.[0]).toBe("thread draft");
+});
+
+test("previews only the latest three thread replies in chronological order", async () => {
+  const user = userEvent.setup();
+  const { page } = renderConversation({
+    ...base,
+    messages: [
+      firstMessage,
+      ...[2, 3, 4, 5].map((sequence) => ({
+        ...firstMessage,
+        id: `reply-${sequence}`,
+        sequence,
+        threadRootId: firstMessage.id,
+        body: `Reply ${sequence}`,
+      })),
+      { ...firstMessage, id: "empty-root", sequence: 6, body: "No replies" },
+    ],
+  });
+  const preview = page.getByRole("group", { name: "Thread" });
+  const replies = within(preview).getAllByRole("button");
+  expect(replies.map((reply) => within(reply).getByText(/Reply/).textContent)).toEqual([
+    "Reply 3",
+    "Reply 4",
+    "Reply 5",
+  ]);
+  expect(
+    replies.every(
+      (reply) =>
+        reply.querySelector("time")?.dateTime === new Date(firstMessage.createdAt).toISOString(),
+    ),
+  ).toBe(true);
+  expect(page.queryByText("Reply 2")).toBeNull();
+  await user.click(replies[0]!);
+  const discussion = within(page.getByRole("region", { name: "Thread" }));
+  expect(discussion.getByText("Reply 2")).toBeTruthy();
+  expect(discussion.getByText("Reply 5")).toBeTruthy();
+});
+
 test("renders the empty private conversation", () => {
   const { page } = renderConversation();
   expect(page.getByRole("heading", { name: "Release Helper" })).toBeTruthy();
@@ -108,7 +193,8 @@ test("renders persisted messages in sequence order with distinct senders", () =>
   expect(messages[0]?.getAttribute("data-message")).toBe("own");
   expect(messages[1]?.getAttribute("data-message")).toBe("other");
   expect(messages[0]?.textContent).toContain("You");
-  expect(messages[0]?.querySelector("[aria-hidden]")).toBeNull();
+  expect(messages[0]?.querySelector(":scope > [aria-hidden]")).toBeNull();
+  expect(messages[1]?.querySelector(":scope > [aria-hidden]")).toBeTruthy();
   expect(messages[1]?.textContent).toContain("Release Helper");
 });
 

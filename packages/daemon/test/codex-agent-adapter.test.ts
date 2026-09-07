@@ -154,7 +154,7 @@ test("Codex rejects overlapping prompts and dispose does not wait on interrupt",
   }
 });
 
-test("Codex sends notifications through turn/start and rejects them while busy", async () => {
+test("Codex starts idle notifications and steers busy notifications in the same session", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-codex-notify-"));
 
   try {
@@ -166,11 +166,66 @@ test("Codex sends notifications through turn/start and rejects them while busy",
     expect(events.at(-1)).toEqual({ type: "completed", status: "completed" });
 
     await session.sendMessage("wait");
-    await expect(
-      session.notify!("New message available. Run coforge message check."),
-    ).rejects.toThrow("already running");
+    await session.notify!("New message available. Run coforge message check.");
+    await expect(session.sendMessage("reentrant")).rejects.toThrow("already running");
     await session.dispose();
   } finally {
+    await rm(agentWorkspaceDirectory, { recursive: true, force: true });
+  }
+});
+
+test("Codex waits for the starting turn ID before steering", async () => {
+  const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-codex-starting-"));
+  const session = await fixtureAdapter().createAgentSession({ agentWorkspaceDirectory });
+  try {
+    const start = session.sendMessage("wait");
+    const notification = session.notify!("starting notice");
+    await Promise.all([start, notification]);
+    await expect(session.sendMessage("overlap")).rejects.toThrow("already running");
+  } finally {
+    await session.dispose();
+    await rm(agentWorkspaceDirectory, { recursive: true, force: true });
+  }
+});
+
+for (const notice of ["race-before", "race-after"]) {
+  test(`Codex starts a notification rejected at turn end (${notice})`, async () => {
+    const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-codex-race-"));
+    const session = await fixtureAdapter().createAgentSession({ agentWorkspaceDirectory });
+    try {
+      await session.sendMessage("wait");
+      const startedInput = new Promise<string>((resolve) => {
+        session.subscribe((event) => {
+          if (event.type === "text-delta" && event.text.startsWith("Started: "))
+            resolve(event.text);
+        });
+      });
+      await session.notify!(notice);
+      expect(await startedInput).toBe(`Started: ${notice}`);
+      // The retry created turn 2, still in the original thread; a subsequent
+      // steer validates that ID at the app-server boundary.
+      await session.notify!("after race");
+      await expect(session.sendMessage("overlap")).rejects.toThrow("already running");
+    } finally {
+      await session.dispose();
+      await rm(agentWorkspaceDirectory, { recursive: true, force: true });
+    }
+  });
+}
+
+test("Codex propagates steering rejection without starting another turn", async () => {
+  const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-codex-rejection-"));
+  const session = await fixtureAdapter().createAgentSession({ agentWorkspaceDirectory });
+  try {
+    await session.sendMessage("wait");
+    await expect(session.notify!("reject-notice")).rejects.toThrow("code agent request failed");
+    await expect(session.notify!("wrong-turn-response")).rejects.toThrow(
+      "Codex did not accept the notification",
+    );
+    await expect(session.sendMessage("overlap")).rejects.toThrow("already running");
+    await session.notify!("retry accepted");
+  } finally {
+    await session.dispose();
     await rm(agentWorkspaceDirectory, { recursive: true, force: true });
   }
 });

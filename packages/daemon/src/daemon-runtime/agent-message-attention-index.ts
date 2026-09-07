@@ -30,6 +30,7 @@ export class AgentMessageAttentionIndex {
   >();
   readonly #attention = new Map<string, Map<string, MessageAttention>>();
   readonly #modelSeen = new Map<string, Map<string, number>>();
+  readonly #pendingSequences = new Map<string, Map<string, Set<number>>>();
   readonly #workspaceId: string;
   readonly #runtimes: Pick<AgentProcessManager, "session">;
 
@@ -85,13 +86,19 @@ export class AgentMessageAttentionIndex {
         : undefined;
     const byTarget = this.#attention.get(message.agentId) ?? new Map<string, MessageAttention>();
     const previous = byTarget.get(target);
+    const pendingByTarget =
+      this.#pendingSequences.get(message.agentId) ?? new Map<string, Set<number>>();
+    const pending = pendingByTarget.get(target) ?? new Set<number>();
+    pending.add(message.sequence);
+    pendingByTarget.set(target, pending);
+    this.#pendingSequences.set(message.agentId, pendingByTarget);
     const current = {
       target,
       pendingCount: (previous?.pendingCount ?? 0) + 1,
       firstPendingSequence: previous?.firstPendingSequence ?? message.sequence,
       latestSequence: Math.max(previous?.latestSequence ?? 0, message.sequence),
       ...(latestSender ? { latestSender } : {}),
-      flags: ["dm"],
+      flags: [target.includes(":") ? "thread" : "dm"],
     };
     byTarget.set(target, current);
     this.#attention.set(message.agentId, byTarget);
@@ -149,7 +156,7 @@ export class AgentMessageAttentionIndex {
         ),
         latestSequence: Math.max(previous?.latestSequence ?? 0, message.sequence),
         ...(message.latestSender ? { latestSender: message.latestSender } : {}),
-        flags: ["dm"],
+        flags: [message.target.includes(":") ? "thread" : "dm"],
       });
     }
     const summaryOnly = Object.entries(unreadSummary).filter(
@@ -280,10 +287,13 @@ Run \`coforge message check\` to read pending messages.]`;
       this.clear(agentId, target);
       return;
     }
+    const pending = this.#pendingSequences.get(agentId)?.get(target);
+    if (!pending) return;
+    for (const value of pending) if (value <= sequence) pending.delete(value);
     this.#attention.get(agentId)?.set(target, {
       ...attention,
-      pendingCount: attention.latestSequence - sequence,
-      firstPendingSequence: sequence + 1,
+      pendingCount: pending.size,
+      firstPendingSequence: Math.min(...pending),
     });
   }
 
@@ -291,9 +301,11 @@ Run \`coforge message check\` to read pending messages.]`;
     this.#generations.delete(agentId);
     this.#attention.delete(agentId);
     this.#modelSeen.delete(agentId);
+    this.#pendingSequences.delete(agentId);
   }
 
   clear(agentId: string, target: string): void {
+    this.#pendingSequences.get(agentId)?.delete(target);
     const byTarget = this.#attention.get(agentId);
     byTarget?.delete(target);
     if (byTarget?.size === 0) this.#attention.delete(agentId);

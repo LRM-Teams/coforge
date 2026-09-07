@@ -34,6 +34,7 @@ import {
 } from "@coforge/protocol";
 import { isAgentApiKey } from "../credentials/agent-api-key";
 import type { AgentRuntimeProviderConfig } from "../code-agent/contract";
+import { AgentMessageRequestError } from "./agent-message-request-error";
 
 export type AgentLaunchConfig = {
   agentApiKey: string;
@@ -164,7 +165,12 @@ export const defaultAgentMessageHttpClient: AgentMessageHttpClient = {
       }),
     });
     if (!response.ok) throw new Error(`server agent request failed (${response.status})`);
-    const envelope = (await response.json()) as { result?: { b64data?: string } };
+    const envelope = (await response.json()) as {
+      result?: { b64data?: string };
+      error?: { code?: unknown; message?: unknown };
+    };
+    if (typeof envelope.error?.code === "number" && typeof envelope.error.message === "string")
+      throw AgentMessageRequestError.fromRpc(envelope.error.code, envelope.error.message);
     const bytes = Uint8Array.from(atob(envelope.result?.b64data ?? ""), (c) => c.charCodeAt(0));
     return decodeCloudAgentMessageResponse(bytes);
   },
