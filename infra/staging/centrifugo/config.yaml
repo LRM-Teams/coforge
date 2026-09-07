@@ -17,6 +17,8 @@ log:
   level: info
 
 client:
+  allowed_origins:
+    - https://staging.coforge.cn
   token:
     jwks_public_endpoint: http://web:3000/api/jwks
     audience: coforge-centrifugo
