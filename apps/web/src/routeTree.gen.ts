@@ -41,6 +41,7 @@ import { Route as ApiInternalCentrifugoRouteImport } from './routes/api/internal
 import { Route as ApiInternalCentrifugoAgentActivityRouteImport } from './routes/api/internal/centrifugo-agent-activity'
 import { Route as ApiInternalCentrifugoConnectRouteImport } from './routes/api/internal/centrifugo-connect'
 import { Route as ApiMeAvatarRouteImport } from './routes/api/me/avatar'
+import { Route as AppMessagesChannelsChannelIdRouteImport } from './routes/_app/messages.channels.$channelId'
 import { Route as ApiAgentAttachmentsAttachmentIdRouteImport } from './routes/api/agent/attachments.$attachmentId'
 import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/workspaces.$slug'
 
@@ -208,6 +209,12 @@ const ApiMeAvatarRoute = ApiMeAvatarRouteImport.update({
   path: '/avatar',
   getParentRoute: () => ApiMeRoute,
 } as any)
+const AppMessagesChannelsChannelIdRoute =
+  AppMessagesChannelsChannelIdRouteImport.update({
+    id: '/channels/$channelId',
+    path: '/channels/$channelId',
+    getParentRoute: () => AppMessagesRoute,
+  } as any)
 const ApiAgentAttachmentsAttachmentIdRoute =
   ApiAgentAttachmentsAttachmentIdRouteImport.update({
     id: '/api/agent/attachments/$attachmentId',
@@ -252,6 +259,7 @@ export interface FileRoutesByFullPath {
   '/agents/': typeof AppAgentsIndexRoute
   '/computers/': typeof AppComputersIndexRoute
   '/messages/': typeof AppMessagesIndexRoute
+  '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
 }
@@ -285,6 +293,7 @@ export interface FileRoutesByTo {
   '/agents': typeof AppAgentsIndexRoute
   '/computers': typeof AppComputersIndexRoute
   '/messages': typeof AppMessagesIndexRoute
+  '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
 }
@@ -322,6 +331,7 @@ export interface FileRoutesById {
   '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/computers/': typeof AppComputersIndexRoute
   '/_app/messages/': typeof AppMessagesIndexRoute
+  '/_app/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
 }
@@ -359,6 +369,7 @@ export interface FileRouteTypes {
     | '/agents/'
     | '/computers/'
     | '/messages/'
+    | '/messages/channels/$channelId'
     | '/api/agent/attachments/$attachmentId'
     | '/api/e2e/workspaces/$slug'
   fileRoutesByTo: FileRoutesByTo
@@ -392,6 +403,7 @@ export interface FileRouteTypes {
     | '/agents'
     | '/computers'
     | '/messages'
+    | '/messages/channels/$channelId'
     | '/api/agent/attachments/$attachmentId'
     | '/api/e2e/workspaces/$slug'
   id:
@@ -428,6 +440,7 @@ export interface FileRouteTypes {
     | '/_app/agents/'
     | '/_app/computers/'
     | '/_app/messages/'
+    | '/_app/messages/channels/$channelId'
     | '/api/agent/attachments/$attachmentId'
     | '/api/e2e/workspaces/$slug'
   fileRoutesById: FileRoutesById
@@ -684,6 +697,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiMeAvatarRouteImport
       parentRoute: typeof ApiMeRoute
     }
+    '/_app/messages/channels/$channelId': {
+      id: '/_app/messages/channels/$channelId'
+      path: '/channels/$channelId'
+      fullPath: '/messages/channels/$channelId'
+      preLoaderRoute: typeof AppMessagesChannelsChannelIdRouteImport
+      parentRoute: typeof AppMessagesRoute
+    }
     '/api/agent/attachments/$attachmentId': {
       id: '/api/agent/attachments/$attachmentId'
       path: '/api/agent/attachments/$attachmentId'
@@ -718,11 +738,13 @@ const AppComputersRouteWithChildren = AppComputersRoute._addFileChildren(
 interface AppMessagesRouteChildren {
   AppMessagesAgentIdRoute: typeof AppMessagesAgentIdRoute
   AppMessagesIndexRoute: typeof AppMessagesIndexRoute
+  AppMessagesChannelsChannelIdRoute: typeof AppMessagesChannelsChannelIdRoute
 }
 
 const AppMessagesRouteChildren: AppMessagesRouteChildren = {
   AppMessagesAgentIdRoute: AppMessagesAgentIdRoute,
   AppMessagesIndexRoute: AppMessagesIndexRoute,
+  AppMessagesChannelsChannelIdRoute: AppMessagesChannelsChannelIdRoute,
 }
 
 const AppMessagesRouteWithChildren = AppMessagesRoute._addFileChildren(

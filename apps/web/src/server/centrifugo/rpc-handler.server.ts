@@ -39,6 +39,7 @@ import {
 } from "../../features/agents/agent-status-realtime";
 import type { CentrifugoServerApi } from "./server-api.server";
 import { AgentMessageValidationError } from "../conversations/agent-message-validation-error.server";
+import { isChannelMessageTarget } from "@coforge/protocol";
 
 export function createAgentDeliveryAckMethod(repository: {
   receiveDeliveryAck(input: {
@@ -123,7 +124,7 @@ export function createAgentStatusMethod(
 export function createAgentMessageMethod(
   repository: any,
   _centrifugo: any,
-  operation: "read" | "send",
+  operation: "read" | "send" | "mute" | "unmute",
   authorization?: {
     canUseAgent(workspaceId: string, agentId: string, userId: string): Promise<boolean>;
   },
@@ -142,7 +143,27 @@ export function createAgentMessageMethod(
       !(await authorization.canUseAgent(request.workspaceId, agentId, metadata.principal.userId))
     )
       return { code: 403, message: "agent is not authorized" };
-    if (!request.target.startsWith("@")) return { code: 400, message: "target must be @username" };
+    if (request.operation !== operation)
+      return { code: 400, message: "operation does not match method" };
+    if (!request.target.startsWith("@") && !isChannelMessageTarget(request.target))
+      return { code: 400, message: "target must be @username or #channel" };
+    if (operation === "mute" || operation === "unmute") {
+      if (!isChannelMessageTarget(request.target))
+        return { code: 400, message: "mute requires a channel target" };
+      await repository.setAgentChannelMuted(
+        request.workspaceId,
+        agentId,
+        request.target,
+        operation === "mute",
+      );
+      return encodeCloudAgentMessageResponse({
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messages: [],
+      });
+    }
     if (operation === "read") {
       const page = {
         before: request.before,

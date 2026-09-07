@@ -5,6 +5,7 @@ import {
 } from "./gen/coforge/rpc/v1/computer_pb";
 import {
   RUNTIME_PROVIDER,
+  isChannelMessageTarget,
   type ComputerRegisterRequest,
   type ComputerRegisterResponse,
   type CodeAgentModelCatalog,
@@ -288,13 +289,16 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
         !message.deliveryId ||
         !message.conversationId ||
         !message.body ||
-        !message.target.startsWith("@") ||
+        (!message.target.startsWith("@") && !isChannelMessageTarget(message.target)) ||
         message.sequence < 1n ||
         message.sequence > BigInt(Number.MAX_SAFE_INTEGER),
     ) ||
     messageIds.size !== recoveryMessages.length ||
     deliveryIds.size !== recoveryMessages.length ||
-    v.unreadSummary.some((entry) => !entry.target.startsWith("@") || entry.count < 1) ||
+    v.unreadSummary.some(
+      (entry) =>
+        (!entry.target.startsWith("@") && !isChannelMessageTarget(entry.target)) || entry.count < 1,
+    ) ||
     summaryTargets.size !== v.unreadSummary.length
   )
     throw new Error("invalid agent recovery context");
@@ -487,7 +491,12 @@ export function decodeAgentMessageRequest(bytes: Uint8Array): AgentMessageReques
   const v = fromBinary(AgentMessageRequestSchema, bytes);
   if (v.seenUpToSequence && v.operation !== "send")
     throw new Error("Agent message seen-up-to sequence is only valid for send");
-  if (!v.requestId || !v.agentId || !["read", "send"].includes(v.operation) || !v.target)
+  if (
+    !v.requestId ||
+    !v.agentId ||
+    !["read", "send", "mute", "unmute"].includes(v.operation) ||
+    !v.target
+  )
     throw new Error("invalid cloud agent message request");
   return {
     ...v,

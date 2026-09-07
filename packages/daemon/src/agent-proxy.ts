@@ -93,7 +93,7 @@ export function startAgentProxy(input: {
         if (
           typeof payload.requestId !== "string" ||
           payload.requestId.length === 0 ||
-          !["check", "read", "send"].includes(payload.operation as string) ||
+          !["check", "read", "send", "mute", "unmute"].includes(payload.operation as string) ||
           (payload.continueAnyway !== undefined && typeof payload.continueAnyway !== "boolean") ||
           (payload.sendDraft !== undefined && typeof payload.sendDraft !== "boolean") ||
           [payload.before, payload.after, payload.around].some(
@@ -112,7 +112,7 @@ export function startAgentProxy(input: {
           binding.context,
           {
             requestId: payload.requestId,
-            operation: payload.operation as "check" | "read" | "send",
+            operation: payload.operation as LocalAgentMessageRequest["operation"],
             target: typeof payload.target === "string" ? payload.target : undefined,
             body: typeof payload.body === "string" ? payload.body : undefined,
             continueAnyway: payload.continueAnyway === true || undefined,

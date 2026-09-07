@@ -66,7 +66,7 @@ describe("PrismaDirectConversationRepository", () => {
       sender:
         sequence === 2
           ? { agentId: "agent-1", agent: { name: "helper" } }
-          : { agentId: null, agent: null },
+          : { agentId: null, agent: null, user: { username: "alice" } },
       attachment: null,
     }));
     const db = {
@@ -369,6 +369,7 @@ describe("PrismaDirectConversationRepository", () => {
               messageId: "message-1",
               conversationId: "conversation-1",
               sequence: 4,
+              conversation: { channelName: null },
               message: {
                 body: "pending body",
                 sender: { user: { username: "alice" } },
@@ -411,6 +412,7 @@ describe("PrismaDirectConversationRepository", () => {
             messageId: "message-1",
             conversationId: "conversation-1",
             sequence: 1,
+            conversation: { channelName: null },
             message: { body: "body", sender: { user: { username: "Invalid Name" } } },
           },
         ],

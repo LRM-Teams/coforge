@@ -1,6 +1,40 @@
 import { expect, test } from "bun:test";
 import { parseArgs, run } from "../index";
 
+test("Agent channel mute and unmute change its own setting without sending a message", async () => {
+  const calls: unknown[] = [];
+  for (const command of ["mute", "unmute"] as const) {
+    expect(parseArgs(["channel", command, "--target", "#general"])).toEqual({
+      command,
+      target: "#general",
+    });
+    await run(["channel", command, "--target", "#general"], {
+      check: async () => {
+        throw new Error("unexpected check");
+      },
+      read: async () => {
+        throw new Error("unexpected read");
+      },
+      send: async () => {
+        throw new Error("unexpected send");
+      },
+      view: async () => {
+        throw new Error("unexpected view");
+      },
+      setChannelMuted: async (target, muted) => {
+        calls.push([target, muted]);
+        return { accepted: true };
+      },
+    });
+  }
+  expect(calls).toEqual([
+    ["#general", true],
+    ["#general", false],
+  ]);
+  expect(() => parseArgs(["channel", "mute", "--target", "@alice"])).toThrow("Usage:");
+  expect(() => parseArgs(["channel", "mute", "--target", "#general:12345678"])).toThrow("Usage:");
+});
+
 test("message check has no target arguments", () => {
   expect(parseArgs(["message", "check"])).toEqual({ command: "check" });
   expect(() => parseArgs(["message", "check", "--target", "@ada"])).toThrow("Usage:");

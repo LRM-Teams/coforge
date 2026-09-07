@@ -29,6 +29,31 @@ const session = (notify: (notice: string) => void = () => {}) => ({
 });
 const runtime = { session: () => session() };
 
+test("channel delivery and restart recovery notify the same session without injecting history", async () => {
+  const notices: string[] = [];
+  const shared = session((notice) => {
+    notices.push(notice);
+  });
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    { session: () => shared },
+    async () => {},
+  );
+  const message = { ...delivery("channel", "@alice"), target: "#general", latestSender: "@alice" };
+  await index.receive(message);
+  expect(index.check("agent-1")).toEqual([
+    expect.objectContaining({ target: "#general", flags: ["channel"] }),
+  ]);
+  expect(notices.join("\n")).not.toContain("private body");
+  index.clearAgent("agent-1");
+  await index.recover("agent-1", [message], { "#general": 1 });
+  expect(notices.join("\n")).not.toContain("private body");
+  expect(index.modelSeenSequence("agent-1", "#general")).toBe(0);
+  expect(index.check("agent-1")[0]?.pendingCount).toBe(1);
+  index.recordModelSeen("agent-1", "#general", 1);
+  expect(index.check("agent-1")).toEqual([]);
+});
+
 test("thread attention counts sparse pending messages and preserves other targets", async () => {
   const notices: string[] = [];
   const sharedSession = session((notice) => {

@@ -4,10 +4,17 @@ import { EmptyConversation } from "@/features/conversations/conversation-layout"
 
 export const Route = createFileRoute("/_app/messages/")({
   loader: async ({ parentMatchPromise }) => {
-    const { loaderData: agents } = await parentMatchPromise;
-    if (!agents) return;
+    const { loaderData } = await parentMatchPromise;
+    if (!loaderData) return;
+    const { agents, channels } = loaderData;
     if (agents[0]) {
       throw redirect({ to: "/messages/$agentId", params: { agentId: agents[0].id } });
+    }
+    if (channels[0]) {
+      throw redirect({
+        to: "/messages/channels/$channelId",
+        params: { channelId: channels[0].id },
+      });
     }
   },
   component: MessagesIndexPage,

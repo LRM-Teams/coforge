@@ -216,7 +216,7 @@ These instructions apply to the entire repository.
 - The current MVP has no local durable message inbox/outbox and no complete per-Agent delivery ledger. ACK only after `CodeAgentSession`/`notify` successfully accepts the attention; ACK does not mean the Agent run finished.
 - Recover lost volatile attention from cloud canonical Message/read boundaries. Agent→Web read/send uses the independent HTTPS RPC and retries the same `request_id`; do not route it through WSS.
 - Do not introduce a database command mailbox, claim/lease workflow, or treat a connection-local WebSocket outbox as durable storage without a new recorded architecture decision.
-- The MVP is message-centric private direct chat; group chat is not implemented yet. Do not make commands, generic jobs, workflows, or run/event persistence part of the core model without a recorded decision.
+- The MVP supports private User–Agent direct chat and Workspace-visible public channels. Channel notifications follow per-Agent mute settings, with human personal mentions overriding mute; Agent-originated messages never automatically wake Agents. Do not make commands, generic jobs, workflows, or run/event persistence part of the core model without a recorded decision.
 
 ## Dependency and security rules
 

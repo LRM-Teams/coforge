@@ -2,6 +2,7 @@ import {
   AGENT_MESSAGE_METHOD,
   WORKSPACE_PROTOCOL_MAJOR,
   encodeAgentMessageDelivery,
+  isChannelMessageTarget,
 } from "@coforge/protocol";
 import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
 import { daemonControlChannel } from "../centrifugo/server-api.server";
@@ -61,7 +62,11 @@ export class SendDirectMessage {
           input.threadRootId,
         ),
     );
-    await this.publishUserMessageToAgent(input.requestId, input.conversationId, message);
+    if (!message.agentId) throw new Error("message is not an Agent direct message");
+    await this.publishUserMessageToAgent(input.requestId, input.conversationId, {
+      ...message,
+      agentId: message.agentId,
+    });
     return message;
   }
 
@@ -77,15 +82,20 @@ export class SendDirectMessage {
     target: string;
     body: string;
   }) {
-    if (!input.requestId || !input.body || !input.target.startsWith("@"))
+    if (
+      !input.requestId ||
+      !input.body ||
+      (!input.target.startsWith("@") && !isChannelMessageTarget(input.target))
+    )
       throw new Error("invalid agent direct message");
-    const userId = await this.conversations.userIdForUsername?.(input.target);
-    if (!userId) throw new Error("target user not found");
-    const conversation = await this.conversations.getOrCreateUserAgent(
-      input.workspaceId,
-      userId,
-      input.agentId,
-    );
+    const conversation = isChannelMessageTarget(input.target)
+      ? await this.conversations.getAgentChannel?.(input.workspaceId, input.agentId, input.target)
+      : await (async () => {
+          const userId = await this.conversations.userIdForUsername?.(input.target);
+          if (!userId) throw new Error("target user not found");
+          return this.conversations.getOrCreateUserAgent(input.workspaceId, userId, input.agentId);
+        })();
+    if (!conversation) throw new Error("channel access is unavailable");
     const message = await this.idempotency.execute(
       {
         workspaceId: input.workspaceId,

@@ -52,6 +52,17 @@ instructions for the TanStack Start Web/backend modular monolith.
 
 ## Route and page organization
 
+- Public channels belong to `features/conversations/` (discovery, join/create,
+  shared message UI and authenticated functions) and
+  `server/conversations/public-channels.server.ts` (Workspace authorization,
+  default-channel enrollment, membership, canonical read/write and ordering).
+  Workspace creation enrolls its human creator in `#general` atomically.
+  Agent creation and default-channel repair enroll Workspace Agents in `#general`.
+  PublicChannels owns mute/mention delivery eligibility; the existing conversation
+  repository owns Agent target-scoped reads and eligible-notification recovery,
+  and the Agent HTTPS functions enforce its authenticated identity. No additional
+  Agent enrollment entrypoint, invitations or roles are introduced.
+
 - Direct-message threads belong to `features/conversations/` (selection, drafts,
   discussion UI and authenticated functions), `server/conversations/` (send
   routing), and `direct-conversation.repositories.server.ts` (root validation,

@@ -8,7 +8,7 @@ export function connectLocal(
   proxyUrl = Bun.env.COFORGE_AGENT_PROXY_URL ?? "",
 ) {
   const call = async (
-    operation: "check" | "read" | "send",
+    operation: "check" | "read" | "send" | "mute" | "unmute",
     target?: string,
     body?: string,
     options?: {
@@ -45,6 +45,7 @@ export function connectLocal(
   };
   return {
     inboxCheck: () => callInbox(),
+    setChannelMuted: (target: string, muted: boolean) => call(muted ? "mute" : "unmute", target),
     check: () => call("check"),
     read: (
       target: string,
