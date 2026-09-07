@@ -1,10 +1,51 @@
 import { expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { isReleaseTarget, resolveBunCompileTarget } from "./compile-targets";
 
-// Compiling is slow, so this file only covers the pure target-name mapping - never calls
-// compileTargetArtifacts() or Bun.build(). See build-release.test.ts for the real end-to-end
-// coverage, using small fake binaries in place of a compiled one.
+test("published Computer reports its compiled release version, not a runtime override", async () => {
+  const target = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
+  if (!isReleaseTarget(target)) throw new Error(`unsupported test host: ${target}`);
+  const directory = await mkdtemp(join(tmpdir(), "coforge-release-version-"));
+  try {
+    const options = {
+      target,
+      version: "9.8.7-rc.6",
+      feedUrl: "https://releases-staging.coforge.cn",
+      outputDirectory: directory,
+    };
+    // Build outside bun:test so its module resolver and mocks cannot affect release compilation.
+    const build = Bun.spawnSync(
+      [
+        process.execPath,
+        "--eval",
+        `import { compileTargetArtifacts } from ${JSON.stringify(join(import.meta.dir, "compile-targets.ts"))}; await compileTargetArtifacts(${JSON.stringify(options)});`,
+      ],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(build.stderr.toString()).toBe("");
+    expect(build.exitCode).toBe(0);
+    const executable = join(
+      directory,
+      `${target}-coforge-computer${process.platform === "win32" ? ".exe" : ""}`,
+    );
+    const result = Bun.spawnSync([executable, "--cli-version"], {
+      env: { ...Bun.env, COFORGE_COMPUTER_VERSION: "0.0.0-wrong" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).toBe("9.8.7-rc.6\n");
+    expect(result.stderr.toString()).toBe("");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
 
 test("every release target used by updater.ts, install.sh and install.ps1 maps to a bun-<os>-<arch> compile target", () => {
   const targets = [
