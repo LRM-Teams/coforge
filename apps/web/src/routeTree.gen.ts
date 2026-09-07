@@ -27,6 +27,7 @@ import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AuthLogoutRouteImport } from './routes/auth/logout'
 import { Route as ComputerInstallDotps1RouteImport } from './routes/computer.install[.]ps1'
 import { Route as ComputerInstallDotshRouteImport } from './routes/computer.install[.]sh'
+import { Route as NotificationsOpenRouteImport } from './routes/notifications.open'
 import { Route as OauthDeviceRouteImport } from './routes/oauth/device'
 import { Route as OauthTokenRouteImport } from './routes/oauth/token'
 import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
@@ -133,6 +134,11 @@ const ComputerInstallDotps1Route = ComputerInstallDotps1RouteImport.update({
 const ComputerInstallDotshRoute = ComputerInstallDotshRouteImport.update({
   id: '/computer/install.sh',
   path: '/computer/install.sh',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NotificationsOpenRoute = NotificationsOpenRouteImport.update({
+  id: '/notifications/open',
+  path: '/notifications/open',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OauthDeviceRoute = OauthDeviceRouteImport.update({
@@ -245,6 +251,7 @@ export interface FileRoutesByFullPath {
   '/auth/logout': typeof AuthLogoutRoute
   '/computer/install.ps1': typeof ComputerInstallDotps1Route
   '/computer/install.sh': typeof ComputerInstallDotshRoute
+  '/notifications/open': typeof NotificationsOpenRoute
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
@@ -279,6 +286,7 @@ export interface FileRoutesByTo {
   '/auth/logout': typeof AuthLogoutRoute
   '/computer/install.ps1': typeof ComputerInstallDotps1Route
   '/computer/install.sh': typeof ComputerInstallDotshRoute
+  '/notifications/open': typeof NotificationsOpenRoute
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
@@ -317,6 +325,7 @@ export interface FileRoutesById {
   '/auth/logout': typeof AuthLogoutRoute
   '/computer/install.ps1': typeof ComputerInstallDotps1Route
   '/computer/install.sh': typeof ComputerInstallDotshRoute
+  '/notifications/open': typeof NotificationsOpenRoute
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
@@ -355,6 +364,7 @@ export interface FileRouteTypes {
     | '/auth/logout'
     | '/computer/install.ps1'
     | '/computer/install.sh'
+    | '/notifications/open'
     | '/oauth/device'
     | '/oauth/token'
     | '/agents/$agentId'
@@ -389,6 +399,7 @@ export interface FileRouteTypes {
     | '/auth/logout'
     | '/computer/install.ps1'
     | '/computer/install.sh'
+    | '/notifications/open'
     | '/oauth/device'
     | '/oauth/token'
     | '/agents/$agentId'
@@ -426,6 +437,7 @@ export interface FileRouteTypes {
     | '/auth/logout'
     | '/computer/install.ps1'
     | '/computer/install.sh'
+    | '/notifications/open'
     | '/oauth/device'
     | '/oauth/token'
     | '/_app/agents/$agentId'
@@ -461,6 +473,7 @@ export interface RootRouteChildren {
   AuthLogoutRoute: typeof AuthLogoutRoute
   ComputerInstallDotps1Route: typeof ComputerInstallDotps1Route
   ComputerInstallDotshRoute: typeof ComputerInstallDotshRoute
+  NotificationsOpenRoute: typeof NotificationsOpenRoute
   OauthDeviceRoute: typeof OauthDeviceRoute
   OauthTokenRoute: typeof OauthTokenRoute
   ApiAgentAttachmentUploadCapabilitiesRoute: typeof ApiAgentAttachmentUploadCapabilitiesRoute
@@ -597,6 +610,13 @@ declare module '@tanstack/react-router' {
       path: '/computer/install.sh'
       fullPath: '/computer/install.sh'
       preLoaderRoute: typeof ComputerInstallDotshRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/notifications/open': {
+      id: '/notifications/open'
+      path: '/notifications/open'
+      fullPath: '/notifications/open'
+      preLoaderRoute: typeof NotificationsOpenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/oauth/device': {
@@ -808,6 +828,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthLogoutRoute: AuthLogoutRoute,
   ComputerInstallDotps1Route: ComputerInstallDotps1Route,
   ComputerInstallDotshRoute: ComputerInstallDotshRoute,
+  NotificationsOpenRoute: NotificationsOpenRoute,
   OauthDeviceRoute: OauthDeviceRoute,
   OauthTokenRoute: OauthTokenRoute,
   ApiAgentAttachmentUploadCapabilitiesRoute:

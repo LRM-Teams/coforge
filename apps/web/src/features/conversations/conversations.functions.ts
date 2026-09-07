@@ -13,6 +13,7 @@ import { getDatabaseClient } from "../../server/db/client.server";
 import { PrismaDirectConversationRepository } from "../../server/db/repositories/direct-conversation.repositories.server";
 import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 import { withMessageSendTrace } from "../../server/observability/tracing.server";
+import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
 
 async function context(user: { id: string; username: string; name: string }, agentId: string) {
   const db = getDatabaseClient();
@@ -25,7 +26,13 @@ async function context(user: { id: string; username: string; name: string }, age
   if (!agent) throw new Error("conversation scope is not authorized");
   const conversations = new PrismaDirectConversationRepository(db);
   const opened = await conversations.openForUser(workspaceId, user.id, agentId);
-  return { conversations, opened, userId: user.id, workspaceId };
+  return {
+    conversations,
+    opened,
+    userId: user.id,
+    workspaceId,
+    notifications: bestEffortMessageNotifier(db),
+  };
 }
 
 export const loadDirectConversation = createServerFn({ method: "GET" })
@@ -57,7 +64,7 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
       data.requestId,
       { "coforge.agent_id": data.agentId },
       async (sendTrace) => {
-        const { conversations, opened, workspaceId } = await sendTrace.measure(
+        const { conversations, opened, workspaceId, notifications } = await sendTrace.measure(
           "message.context",
           () => context(user, data.agentId),
         );
@@ -66,6 +73,7 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
             conversations,
             getMessageRequestIdempotency(),
             createCentrifugoServerApi(),
+            notifications,
           ).execute({
             requestId: data.requestId,
             workspaceId,

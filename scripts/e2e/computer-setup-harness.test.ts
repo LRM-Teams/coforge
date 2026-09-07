@@ -36,3 +36,8 @@ test("managed Web seeds the fixed development user after database migration", ()
   expect(migration).toBeGreaterThan(-1);
   expect(seed).toBeGreaterThan(migration);
 });
+
+test("managed Web loads the stable local Web Push key pair", () => {
+  expect(managedWeb).toContain("COFORGE_WEB_PUSH_PUBLIC_KEY");
+  expect(managedWeb).toContain("COFORGE_WEB_PUSH_PRIVATE_KEY_FILE");
+});

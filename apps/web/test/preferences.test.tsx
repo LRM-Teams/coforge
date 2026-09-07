@@ -20,6 +20,14 @@ const profile = {
   description: "Building CoForge.",
   avatarUrl: null,
 };
+const notificationProps = {
+  browserNotificationsEnabled: false,
+  browserNotificationPermission: "default" as const,
+  browserNotificationsConfigured: true,
+  onBrowserNotificationsChange: async (_enabled: boolean) => {},
+  onEnableBrowserNotifications: async () => {},
+  onTestBrowserNotification: async () => true,
+};
 
 overwriteGetLocale(() => "en");
 
@@ -54,6 +62,7 @@ function renderSettings() {
 
     return (
       <SettingsContent
+        {...notificationProps}
         profile={profile}
         locale="en"
         theme={theme}
@@ -76,6 +85,7 @@ test("searches time zones by city and sends the IANA identifier to persistence",
   let selected = "";
   const view = render(
     <SettingsContent
+      {...notificationProps}
       profile={profile}
       locale="en"
       theme="system"
@@ -112,6 +122,45 @@ test("switches to dark mode and remembers the preference", async () => {
   expect(localStorage.getItem("coforge-theme")).toBe("dark");
 });
 
+test("shows the global browser notification state and runs a test notification", async () => {
+  const user = userEvent.setup({ document });
+  let enabled = true;
+  let tested = false;
+  const view = render(
+    <SettingsContent
+      {...notificationProps}
+      profile={profile}
+      locale="en"
+      theme="system"
+      timeZone={null}
+      browserNotificationsEnabled={true}
+      browserNotificationPermission="granted"
+      onBrowserNotificationsChange={async (next) => {
+        enabled = next;
+      }}
+      onTestBrowserNotification={async () => {
+        tested = true;
+        return true;
+      }}
+      onProfileSave={async () => {}}
+      onAvatarUpload={async () => {}}
+      onAvatarRemove={async () => {}}
+      onLocaleChange={() => {}}
+      onThemeChange={() => {}}
+      onTimeZoneChange={() => {}}
+    />,
+  );
+
+  await user.click(view.getByRole("button", { name: "Notifications" }));
+  const notificationSwitch = view.getByRole("switch", { name: "Browser notifications" });
+  expect(notificationSwitch.getAttribute("aria-checked")).toBe("true");
+  await user.click(view.getByRole("button", { name: "Send test notification" }));
+  expect(tested).toBeTrue();
+  expect(view.getByRole("status").textContent).toBe("Test notification sent.");
+  await user.click(notificationSwitch);
+  expect(enabled).toBeFalse();
+});
+
 test("uses the system color scheme by default", () => {
   const view = renderSettings();
 
@@ -125,6 +174,7 @@ test("edits the profile name and description and uploads a profile image on save
   let uploadedFile: File | undefined;
   const view = render(
     <SettingsContent
+      {...notificationProps}
       profile={profile}
       locale="en"
       theme="system"

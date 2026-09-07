@@ -1,4 +1,5 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createECDH } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -250,6 +251,52 @@ describe("remote-deploy.sh compose invocation shape", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("staging Web Push key validation", () => {
+  const keyPair = () => {
+    const ecdh = createECDH("prime256v1");
+    const publicKey = ecdh.generateKeys().toString("base64url");
+    return { publicKey, privateKey: ecdh.getPrivateKey().toString("base64url") };
+  };
+
+  test("rejects a mismatched pair before any remote deployment step", async () => {
+    const first = keyPair();
+    const second = keyPair();
+    const validator = Bun.spawn(["bun", "scripts/deploy/validate-web-push-keys.ts"], {
+      cwd: new URL("../..", import.meta.url).pathname,
+      env: {
+        ...Bun.env,
+        COFORGE_WEB_PUSH_PUBLIC_KEY: second.publicKey,
+        COFORGE_WEB_PUSH_PRIVATE_KEY: first.privateKey,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(await validator.exited).not.toBe(0);
+
+    const workflow = await Bun.file(
+      new URL("../../.github/workflows/deploy-staging.yml", import.meta.url),
+    ).text();
+    expect(workflow.indexOf("Validate Web Push key pair")).toBeLessThan(
+      workflow.indexOf("Prepare the SSH identity"),
+    );
+  });
+
+  test("accepts a matching pair", async () => {
+    const pair = keyPair();
+    const validator = Bun.spawn(["bun", "scripts/deploy/validate-web-push-keys.ts"], {
+      cwd: new URL("../..", import.meta.url).pathname,
+      env: {
+        ...Bun.env,
+        COFORGE_WEB_PUSH_PUBLIC_KEY: pair.publicKey,
+        COFORGE_WEB_PUSH_PRIVATE_KEY: pair.privateKey,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(await validator.exited).toBe(0);
   });
 });
 

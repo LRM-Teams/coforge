@@ -1,5 +1,6 @@
 import { useEffect, useState, type ChangeEvent } from "react";
 import {
+  BellRing,
   Check,
   Clock3,
   Languages,
@@ -26,7 +27,7 @@ import { m } from "@/paraglide/messages";
 
 type Locale = "en" | "zh-CN";
 type Theme = "system" | "light" | "dark";
-type SettingsSection = "account" | "preferences";
+type SettingsSection = "account" | "preferences" | "notifications";
 
 interface SettingsContentProps {
   profile: {
@@ -39,12 +40,18 @@ interface SettingsContentProps {
   locale: Locale;
   theme: Theme;
   timeZone: string | null;
+  browserNotificationsEnabled: boolean;
+  browserNotificationPermission: NotificationPermission | "unsupported";
+  browserNotificationsConfigured: boolean;
   onProfileSave: (profile: { name: string; description: string }) => Promise<void>;
   onAvatarUpload: (file: File) => Promise<void>;
   onAvatarRemove: () => Promise<void>;
   onLocaleChange: (locale: Locale) => void;
   onThemeChange: (theme: Theme) => void;
   onTimeZoneChange: (timeZone: string) => void;
+  onBrowserNotificationsChange: (enabled: boolean) => Promise<void>;
+  onEnableBrowserNotifications: () => Promise<void>;
+  onTestBrowserNotification: () => Promise<boolean>;
 }
 
 export function SettingsContent(props: SettingsContentProps) {
@@ -56,7 +63,7 @@ export function SettingsContent(props: SettingsContentProps) {
         <div className="hidden md:block">
           <PageHeader heading={m.settings_title()} />
         </div>
-        <div className="grid grid-cols-2 gap-1 p-2 md:block md:space-y-1">
+        <div className="grid grid-cols-3 gap-1 p-2 md:block md:space-y-1">
           <SettingsNavigationButton
             active={section === "account"}
             icon={<UserRound aria-hidden="true" />}
@@ -69,15 +76,33 @@ export function SettingsContent(props: SettingsContentProps) {
             label={m.settings_preferences()}
             onClick={() => setSection("preferences")}
           />
+          <SettingsNavigationButton
+            active={section === "notifications"}
+            icon={<BellRing aria-hidden="true" />}
+            label={m.settings_notifications()}
+            onClick={() => setSection("notifications")}
+          />
         </div>
       </nav>
 
       <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card">
         <PageHeader
-          heading={section === "account" ? m.settings_account() : m.settings_preferences()}
+          heading={
+            section === "account"
+              ? m.settings_account()
+              : section === "preferences"
+                ? m.settings_preferences()
+                : m.settings_notifications()
+          }
         />
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {section === "account" ? <AccountSettings {...props} /> : <Preferences {...props} />}
+          {section === "account" ? (
+            <AccountSettings {...props} />
+          ) : section === "preferences" ? (
+            <Preferences {...props} />
+          ) : (
+            <NotificationSettings {...props} />
+          )}
         </div>
       </section>
     </main>
@@ -101,11 +126,11 @@ function SettingsNavigationButton({
       aria-current={active ? "page" : undefined}
       onClick={onClick}
       className={cn(
-        "flex h-10 w-full items-center gap-2.5 rounded-lg px-3 text-left text-sm hover:bg-muted",
+        "flex h-10 w-full items-center gap-1.5 rounded-lg px-2 text-left text-xs hover:bg-muted sm:gap-2.5 sm:px-3 sm:text-sm",
         active && "bg-muted font-medium text-accent-foreground",
       )}
     >
-      <span className="[&_svg]:size-4">{icon}</span>
+      <span className="hidden sm:inline-flex [&_svg]:size-4">{icon}</span>
       <span className="truncate">{label}</span>
     </button>
   );
@@ -385,6 +410,123 @@ function Preferences({
           </div>
         </PreferenceSection>
       </div>
+    </div>
+  );
+}
+
+function NotificationSettings({
+  browserNotificationsEnabled,
+  browserNotificationPermission,
+  browserNotificationsConfigured,
+  onBrowserNotificationsChange,
+  onEnableBrowserNotifications,
+  onTestBrowserNotification,
+}: SettingsContentProps) {
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testSent, setTestSent] = useState(false);
+  const status = !browserNotificationsConfigured
+    ? m.preferences_browser_notifications_unavailable()
+    : browserNotificationPermission === "unsupported"
+      ? m.preferences_browser_notifications_unsupported()
+      : browserNotificationPermission === "denied"
+        ? m.preferences_browser_notifications_blocked()
+        : browserNotificationsEnabled
+          ? m.preferences_browser_notifications_on()
+          : m.preferences_browser_notifications_off();
+
+  return (
+    <div className="mx-auto w-full max-w-4xl p-4 sm:p-6 lg:p-8">
+      <section className="overflow-hidden rounded-xl border bg-background">
+        <div className="flex items-start justify-between gap-5 p-5 sm:p-6">
+          <div className="min-w-0">
+            <h2 className="font-semibold">{m.notifications_push_title()}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {m.notifications_push_description()}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-label={m.preferences_browser_notifications()}
+            aria-checked={browserNotificationsEnabled}
+            disabled={
+              saving ||
+              !browserNotificationsConfigured ||
+              browserNotificationPermission === "unsupported"
+            }
+            onClick={async () => {
+              setSaving(true);
+              setTestSent(false);
+              try {
+                await onBrowserNotificationsChange(!browserNotificationsEnabled);
+              } finally {
+                setSaving(false);
+              }
+            }}
+            className={cn(
+              "relative mt-0.5 h-6 w-11 shrink-0 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+              browserNotificationsEnabled ? "border-brand bg-brand" : "bg-muted",
+            )}
+          >
+            <span
+              className={cn(
+                "absolute top-0.5 left-0 size-4.5 rounded-full bg-background shadow-sm transition-transform",
+                browserNotificationsEnabled ? "translate-x-5" : "translate-x-0.5",
+              )}
+            />
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 border-t px-5 py-4 sm:px-6">
+          <span className="mr-auto text-sm text-muted-foreground">{status}</span>
+          {browserNotificationsEnabled &&
+            browserNotificationsConfigured &&
+            browserNotificationPermission === "default" && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={saving}
+                onClick={async () => {
+                  setSaving(true);
+                  try {
+                    await onEnableBrowserNotifications();
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+              >
+                {m.preferences_browser_notifications_allow_browser()}
+              </Button>
+            )}
+          {browserNotificationsEnabled && browserNotificationsConfigured && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={browserNotificationPermission !== "granted" || testing}
+              onClick={async () => {
+                setTesting(true);
+                setTestSent(false);
+                try {
+                  setTestSent(await onTestBrowserNotification());
+                } finally {
+                  setTesting(false);
+                }
+              }}
+            >
+              {testing
+                ? m.preferences_browser_notifications_testing()
+                : m.preferences_browser_notifications_test()}
+            </Button>
+          )}
+          {testSent && (
+            <span role="status" className="text-xs text-muted-foreground">
+              {m.preferences_browser_notifications_test_sent()}
+            </span>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

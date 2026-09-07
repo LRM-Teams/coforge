@@ -33,6 +33,11 @@ intentionally unreachable — no plaintext, not even redirects.
    printf 'coforge-staging\n' > secrets/worker_jwt_key_id
    chmod 600 secrets/*
    ```
+   Do not generate a VAPID key during each host bootstrap. Generate one P-256
+   VAPID pair once in a controlled operator environment, retain it in the
+   staging GitHub Environment values described below, and back it up in the
+   approved secret store. A deploy synchronizes the public and private halves;
+   the repository and this README intentionally contain no real key.
    Compose file-type secrets keep their source permissions, so the rootless
    daemon user must be able to read them inside the container; keep them
    owner-readable (600) at minimum and never group/world writable.
@@ -73,6 +78,7 @@ Secret 和 Variable 的区别不是「重不重要」，而是**能不能读回�
 | `AUTHING_APP_SECRET`                      | Web 登录换 token                              |
 | `COFORGE_SESSION_SECRET`                  | 云端 `coforge_session` 签名密钥，须与本机不同 |
 | `COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY` | 64 位十六进制 Agent 凭据加密主密钥            |
+| `COFORGE_WEB_PUSH_PRIVATE_KEY`            | 稳定的 VAPID P-256 private key；只挂载到 Web 的只读 secret file |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`      | 阿里云北京 OTLP Traces 接入地址，**含 Token**，所以是 secret 而不是 variable |
 | `ALIYUN_OSS_ACCESS_KEY_ID`                | 发布产物上传用的 RAM 用户                     |
 | `ALIYUN_OSS_ACCESS_KEY_SECRET`            | 同上                                          |
@@ -82,6 +88,7 @@ Secret 和 Variable 的区别不是「重不重要」，而是**能不能读回�
 | `DEPLOY_SSH_HOST`           | 部署目标主机名                      |
 | `DEPLOY_SSH_USER`           | 部署登录用户名                      |
 | `AUTHING_APP_ID`            | Authing 应用 ID                     |
+| `COFORGE_WEB_PUSH_PUBLIC_KEY` | 与 private key 匹配的 URL-safe base64 VAPID public key |
 | `STAGING_PUBLIC_HEALTH_URL` | `https://staging.coforge.cn/health` |
 
 ### 触发 Computer 本地分发发布
@@ -123,12 +130,18 @@ cat > /tmp/coforge-staging.secrets <<'EOF'
 DEPLOY_SSH_KEY=...
 AUTHING_APP_SECRET=...
 COFORGE_SESSION_SECRET=...
+COFORGE_WEB_PUSH_PRIVATE_KEY=...
 EOF
 gh secret set -f /tmp/coforge-staging.secrets --env staging --repo LRM-Teams/coforge
 rm -f /tmp/coforge-staging.secrets
 
 gh variable set -f /tmp/coforge-staging.vars --env staging --repo LRM-Teams/coforge
 ```
+
+The variable import file must include
+`COFORGE_WEB_PUSH_PUBLIC_KEY=<matching-public-key>`. Keep the VAPID private key
+out of command arguments and shell history; the temporary files above must be
+mode `0600` and removed immediately after import.
 
 开生产环境时同样两条命令，把 `--env` 换成 `production`。核对配全了没有：
 
@@ -165,14 +178,22 @@ Web 这一侧是在返回安装脚本时把脚本里写死的生产 feed 换成�
 而不是生产版本（`docs/release.md` 的 "Local Computer distribution model"）。
 **没配这个变量时这两个端点返回 503，不会返回一个指向错误 feed 的 200。**
 
-部署时 workflow 把 Authing 应用 ID、应用密钥、session 密钥、Agent Runtime 凭据主密钥和 OTLP Traces
-接入地址写入主机
-`infra/staging/secrets/`。`remote-deploy.sh` 通过 Compose secrets 只把它们挂载给 Web；
+部署时 workflow 把 Authing 应用 ID、应用密钥、session 密钥、Agent Runtime 凭据主密钥、
+VAPID public/private key 和 OTLP Traces 接入地址写入主机
+`infra/staging/secrets/`。`remote-deploy.sh` 校验 key pair，并只在调用 Compose 时从受限文件
+读取 private key 作为 Compose secret source；Compose 再以
+`/run/secrets/coforge_web_push_private_key` 只读挂载给非 root Web 进程，并设置容器内
+`COFORGE_WEB_PUSH_PUBLIC_KEY`、`COFORGE_WEB_PUSH_PRIVATE_KEY_FILE` 和非 secret
+`COFORGE_WEB_PUSH_SUBJECT=https://coforge.cn`；
 这些值不会写入 Compose `.env`；OTLP 接入地址通过文件路径变量提供给 Web。Issuer 固定为
 `https://coforge.authing.cn/oidc`，callback 固定为
 `https://staging.coforge.cn/auth/callback`，变更必须走代码评审。改 GitHub Environment 后须
 重新部署才会进容器。不要把这些值提交进 git，也不要在主机 bootstrap 循环里用
 `openssl` 生成它们。
+
+VAPID pair 必须跨发布、重启和 Web 副本保持稳定。轮换会使已有浏览器 subscription
+需要重新订阅，因此必须作为受控维护操作执行；更新 GitHub Environment 中匹配的两个
+值并重新部署，不能只更新一半。
 
 Production stays disabled: it needs its own environment, an enforceable human
 approval gate, and promotion of the exact digest that passed staging.

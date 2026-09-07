@@ -11,6 +11,7 @@ const history = {
   conversationId: "channel-1",
   name: "engineering",
   senderMemberId: "alice-member",
+  muted: false,
   messages: [
     {
       id: "a",
@@ -35,12 +36,14 @@ const history = {
 
 test("channel identifies the current human, not every human, as You", async () => {
   const onSend = mock(async () => {});
+  const onMutedChange = mock(async () => {});
   render(
     <AppToastProvider>
       <ChannelConversation
         conversation={history}
         onSend={onSend}
         onJoin={async () => {}}
+        onMutedChange={onMutedChange}
         onRefresh={async () => {}}
       />
     </AppToastProvider>,
@@ -52,8 +55,12 @@ test("channel identifies the current human, not every human, as You", async () =
   expect(own.textContent).toContain("You");
   expect(other.textContent).toContain("@bob");
   expect(other.textContent).not.toContain("You");
+  expect(document.querySelector("#message-b")).toBe(other);
+  expect(other.className).toContain("target:ring-2");
   expect(page.queryByRole("button", { name: "Reply in thread" })).toBeNull();
   const user = userEvent.setup();
+  await user.click(page.getByRole("button", { name: "Mute channel notifications" }));
+  expect(onMutedChange).toHaveBeenCalledWith(true);
   await user.type(page.getByLabelText("Message"), "A shared conversation");
   await user.click(page.getByRole("button", { name: "Send" }));
   expect(onSend).toHaveBeenCalledWith("A shared conversation", expect.any(String), undefined);
@@ -67,6 +74,7 @@ test("a non-joined Workspace member can read but must join before composing", as
         conversation={{ ...history, senderMemberId: "" }}
         onSend={async () => {}}
         onJoin={onJoin}
+        onMutedChange={async () => {}}
         onRefresh={async () => {}}
       />
     </AppToastProvider>,

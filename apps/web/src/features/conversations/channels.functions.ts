@@ -6,6 +6,7 @@ import { getDatabaseClient } from "../../server/db/client.server";
 import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 import { PublicChannels } from "../../server/conversations/public-channels.server";
 import { AppError } from "../../lib/app-error";
+import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
 
 const channelInput = z.object({ channelId: z.uuid() });
 async function context() {
@@ -13,7 +14,11 @@ async function context() {
   const db = getDatabaseClient();
   if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
   const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-  return { channels: new PublicChannels(db), workspaceId, userId: user.id };
+  return {
+    channels: new PublicChannels(db, undefined, undefined, bestEffortMessageNotifier(db)),
+    workspaceId,
+    userId: user.id,
+  };
 }
 
 export const listPublicChannels = createServerFn({ method: "GET" }).handler(async () => {
@@ -47,6 +52,13 @@ export const joinPublicChannel = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { channels, workspaceId, userId } = await context();
     await channels.join(workspaceId, userId, data.channelId);
+  });
+
+export const setPublicChannelMuted = createServerFn({ method: "POST" })
+  .validator(channelInput.extend({ muted: z.boolean() }))
+  .handler(async ({ data }) => {
+    const { channels, workspaceId, userId } = await context();
+    return channels.setUserMuted(workspaceId, userId, data.channelId, data.muted);
   });
 
 export const sendPublicChannelMessage = createServerFn({ method: "POST" })

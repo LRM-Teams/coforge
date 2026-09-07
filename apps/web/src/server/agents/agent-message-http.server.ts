@@ -25,6 +25,7 @@ import {
   CentrifugoRpcHandler,
   createAgentMessageMethod,
 } from "../centrifugo/rpc-handler.server";
+import { bestEffortMessageNotifier } from "../notifications/web-push-composition.server";
 
 type DaemonPrincipal = { userId: string; workspaceId: string; computerId: string };
 
@@ -96,6 +97,9 @@ export function createAgentMessageHttpHandler() {
         centrifugo,
         "send",
         authorization,
+        undefined,
+        undefined,
+        bestEffortMessageNotifier(db),
       ),
     },
     authenticateEnvelope: (_envelope, request) =>

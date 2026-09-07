@@ -49,6 +49,7 @@ export function AppShell({
   currentWorkspace = null,
   onSelectWorkspace,
   onCreateWorkspace,
+  onSignOut,
   children,
 }: {
   user: AppUser;
@@ -56,6 +57,7 @@ export function AppShell({
   currentWorkspace?: WorkspaceOption | null;
   onSelectWorkspace?: (slug: string) => Promise<void> | void;
   onCreateWorkspace?: (input: { name: string; slug: string }) => Promise<void>;
+  onSignOut?: () => Promise<void> | void;
   children: React.ReactNode;
 }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -145,7 +147,7 @@ export function AppShell({
           </nav>
 
           <div className="mt-auto">
-            <UserMenu user={user} />
+            <UserMenu user={user} onSignOut={onSignOut} />
           </div>
         </aside>
       )}
@@ -254,7 +256,7 @@ export function AppShell({
   );
 }
 
-function UserMenu({ user }: { user: AppUser }) {
+function UserMenu({ user, onSignOut }: { user: AppUser; onSignOut?: () => Promise<void> | void }) {
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger
@@ -291,7 +293,15 @@ function UserMenu({ user }: { user: AppUser }) {
         />
         <DropdownMenuItem
           className="h-11 gap-2 px-2 md:h-10"
-          render={<a href="/auth/logout">{m.controls_sign_out()}</a>}
+          render={
+            onSignOut ? (
+              <button type="button" onClick={() => void onSignOut()}>
+                {m.controls_sign_out()}
+              </button>
+            ) : (
+              <a href="/auth/logout">{m.controls_sign_out()}</a>
+            )
+          }
         />
       </DropdownMenuContent>
     </DropdownMenu>

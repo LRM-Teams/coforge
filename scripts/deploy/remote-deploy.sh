@@ -86,7 +86,9 @@ load_compose_secrets() {
 	AUTHING_APP_SECRET="$(cat "$secrets_dir/authing_app_secret")"
 	COFORGE_SESSION_SECRET="$(cat "$secrets_dir/coforge_session_secret")"
 	COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY="$(cat "$secrets_dir/coforge_agent_credential_encryption_key")"
-	for name in AUTHING_APP_ID AUTHING_APP_SECRET COFORGE_SESSION_SECRET COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY; do
+	COFORGE_WEB_PUSH_PUBLIC_KEY="$(cat "$secrets_dir/coforge_web_push_public_key")"
+	COFORGE_WEB_PUSH_PRIVATE_KEY="$(cat "$secrets_dir/coforge_web_push_private_key")"
+	for name in AUTHING_APP_ID AUTHING_APP_SECRET COFORGE_SESSION_SECRET COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY COFORGE_WEB_PUSH_PUBLIC_KEY COFORGE_WEB_PUSH_PRIVATE_KEY; do
 		[ -n "${!name}" ] || {
 			printf '%s secret file is empty\n' "$name" >&2
 			exit 1
@@ -99,6 +101,8 @@ compose() {
 		AUTHING_APP_SECRET="$AUTHING_APP_SECRET" \
 		COFORGE_SESSION_SECRET="$COFORGE_SESSION_SECRET" \
 		COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY="$COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY" \
+		COFORGE_WEB_PUSH_PUBLIC_KEY="$COFORGE_WEB_PUSH_PUBLIC_KEY" \
+		COFORGE_WEB_PUSH_PRIVATE_KEY="$COFORGE_WEB_PUSH_PRIVATE_KEY" \
 		docker compose "${COMPOSE_ARGS[@]}" "$@"
 }
 

@@ -120,6 +120,19 @@ export function DirectConversation(props: ConversationProps) {
     );
     setSelected(rootMessageId);
   }
+  useLayoutEffect(() => {
+    const openAnchoredThread = () => {
+      const rootMessageId = anchoredThreadRoot(conversation.messages);
+      if (!rootMessageId || rootMessageId === selected) return;
+      setVisited((previous) =>
+        previous.includes(rootMessageId) ? previous : [...previous, rootMessageId],
+      );
+      setSelected(rootMessageId);
+    };
+    window.addEventListener("hashchange", openAnchoredThread);
+    openAnchoredThread();
+    return () => window.removeEventListener("hashchange", openAnchoredThread);
+  }, [conversation.messages, selected]);
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
       <div className={cn("min-h-0 min-w-0 flex-1 flex-col", selected ? "hidden md:flex" : "flex")}>
@@ -254,6 +267,12 @@ export function DirectConversation(props: ConversationProps) {
   );
 }
 
+function anchoredThreadRoot(messages: DirectConversationView["messages"]) {
+  if (typeof window === "undefined" || !window.location.hash.startsWith("#message-")) return;
+  const messageId = window.location.hash.slice("#message-".length);
+  return messages.find((message) => message.id === messageId)?.threadRootId;
+}
+
 export function ConversationPane({
   conversation,
   header,
@@ -319,6 +338,17 @@ export function ConversationPane({
     }
     return undefined;
   }, [conversation.conversationId, lastSequence]);
+
+  useLayoutEffect(() => {
+    function scrollToMessageAnchor() {
+      const anchor = window.location.hash.slice(1);
+      if (!anchor.startsWith("message-")) return;
+      document.getElementById(anchor)?.scrollIntoView({ block: "center" });
+    }
+    scrollToMessageAnchor();
+    window.addEventListener("hashchange", scrollToMessageAnchor);
+    return () => window.removeEventListener("hashchange", scrollToMessageAnchor);
+  }, [conversation.conversationId]);
 
   function scrollToLatest(behavior: ScrollBehavior) {
     const history = historyRef.current;
@@ -492,8 +522,12 @@ export function ConversationPane({
                       </div>
                     )}
                     <div
+                      id={`message-${message.id}`}
                       data-message={own ? "own" : "other"}
-                      className={cn("flex gap-3", own ? "flex-col items-end" : "items-start")}
+                      className={cn(
+                        "flex scroll-m-6 gap-3 rounded-xl transition-[background-color,box-shadow] duration-500 target:bg-brand/10 target:ring-2 target:ring-brand/50 target:ring-offset-4 target:ring-offset-background",
+                        own ? "flex-col items-end" : "items-start",
+                      )}
                     >
                       {!own && <Avatar people={[{ name: message.senderName }]} size="md" />}
                       <div
