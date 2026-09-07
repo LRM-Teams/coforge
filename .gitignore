@@ -7,6 +7,9 @@ apps/web/src/paraglide/
 apps/web/generated/
 .amp/portals/*
 .amp/e2e/
+.amp/transfer/
+.amp/in/artifacts/
+apps/web/preview/
 infra/secrets/
 .env
 .mise.local.toml

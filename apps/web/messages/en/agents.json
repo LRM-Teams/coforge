@@ -1,5 +1,9 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
+  "agent_avatar_recent": "Recent activity",
+  "agent_avatar_working": "Working",
+  "agent_avatar_loading": "Loading activity…",
+  "agent_avatar_error": "Activity unavailable",
   "agent_private_chat": "Private chat",
   "agent_chat_unavailable": "Private chat is coming in the next update",
   "agent_created": "Created",
@@ -9,6 +13,7 @@
   "agent_deferred_start_notice": "Agent created. It will start when Daemon reconnects.",
   "agent_status_online": "Online",
   "agent_status_offline": "Offline",
+  "agent_status_unknown": "Status unavailable",
   "agent_retry_start": "Retry start",
   "agent_retrying": "Retrying…",
   "agent_start_requested": "Start requested.",

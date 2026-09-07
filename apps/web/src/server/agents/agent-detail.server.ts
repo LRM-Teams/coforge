@@ -1,5 +1,6 @@
 import type { Prisma } from "../../../generated/client";
 import { latestActivityError, type ActivityEntry } from "../../features/agents/agent-activity";
+import type { AgentStatusCache } from "./agent-status.server";
 
 type DetailActivity = ActivityEntry & { computerId: string };
 
@@ -30,15 +31,42 @@ function computerLabel(id: string) {
 }
 
 export class AgentDetailQuery {
-  constructor(private readonly source: AgentDetailSource) {}
+  constructor(
+    private readonly source: AgentDetailSource,
+    private readonly status?: Pick<AgentStatusCache, "snapshot">,
+  ) {}
 
   async get(workspaceId: string, agentId: string, userId: string) {
     const agent = await this.source.findAuthorized(workspaceId, agentId, userId);
     if (!agent) return undefined;
     const activity = await this.source.listActivity(workspaceId, agentId);
+    let status;
+    let statusReadFailed = false;
+    if (agent.computerId && this.status) {
+      try {
+        status = await this.status.snapshot({
+          workspaceId,
+          computerId: agent.computerId,
+          agentId,
+        });
+      } catch {
+        statusReadFailed = true;
+      }
+    }
     const latest = activity[0];
     return {
       ...agent,
+      status: {
+        value: statusReadFailed ? ("unknown" as const) : (status?.status ?? ("inactive" as const)),
+        expiresAt: status?.expiresAt ?? null,
+        ordering: status
+          ? {
+              daemonInstanceId: status.daemonInstanceId,
+              clientSeq: status.clientSeq,
+              observedAtMs: status.observedAtMs,
+            }
+          : null,
+      },
       computer: latest
         ? { id: latest.computerId, label: computerLabel(latest.computerId) }
         : undefined,

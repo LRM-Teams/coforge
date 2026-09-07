@@ -3,6 +3,48 @@ import { describe, expect, test } from "bun:test";
 import { AgentDetailQuery } from "../src/server/agents/agent-detail.server";
 
 describe("Agent detail", () => {
+  test("keeps authorized profile and Activity available when status cannot be read", async () => {
+    const activity = [
+      {
+        id: "activity-1",
+        computerId: "computer-1",
+        launchId: "launch-1",
+        clientSeq: 1,
+        activity: "working",
+        level: "info",
+        message: "Working",
+        occurredAt: new Date("2026-08-29T02:00:00Z"),
+        createdAt: new Date("2026-08-29T02:00:01Z"),
+      },
+    ];
+    const query = new AgentDetailQuery(
+      {
+        findAuthorized: async () => ({
+          id: "agent-1",
+          workspaceId: "workspace-1",
+          name: "builder",
+          displayName: "Builder",
+          createdAt: new Date("2026-08-29T00:00:00Z"),
+          computerId: "computer-1",
+          owner: { id: "owner-1", username: "alice" },
+          runtimeConfig: {},
+        }),
+        listActivity: async () => activity,
+      },
+      {
+        snapshot: async () => {
+          throw new Error("Redis unavailable");
+        },
+      },
+    );
+
+    const result = await query.get("workspace-1", "agent-1", "viewer-1");
+
+    expect(result?.displayName).toBe("Builder");
+    expect(result?.activity).toEqual(activity);
+    expect(result?.status).toEqual({ value: "unknown", expiresAt: null, ordering: null });
+  });
+
   test("returns the complete profile and newest-first Activity to a Workspace member", async () => {
     const query = new AgentDetailQuery({
       findAuthorized: async () => ({

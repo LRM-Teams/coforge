@@ -140,6 +140,15 @@ instructions for the TanStack Start Web/backend modular monolith.
 
 ## Agent status and activity UI
 
+- `src/features/agents/workspace-activity-realtime.ts` owns one messages-page Activity
+  subscription and reconnect history merge for the selected Workspace. Avatars consume
+  its shared result, never open sockets or fetch full Agent details individually.
+- `AgentActivityRepository.listForMember` provides the authorized, compact per-Agent
+  history snapshot; `agent-activity.functions.ts` is its authenticated browser seam.
+- `src/features/agents/agent-activity-avatar.tsx` owns the working activity label
+  and accessible recent-activity popover. It consumes newest-first activity from
+  the Activity module; it does not interpret provider message text or own transport.
+  Online presence remains independent. Stale observations clear the working label.
 - `src/features/agents/agents.functions.ts` owns the authenticated Agent list/create seam;
   server-side Agent persistence, start publication, and ready recovery remain under
   `src/server/agents/` and `src/server/db/repositories/`.

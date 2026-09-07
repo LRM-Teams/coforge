@@ -2,7 +2,11 @@ import { createContext, useContext, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { Hash, MessagesSquare, Plus } from "lucide-react";
 
-import { Avatar } from "@/components/ui/avatar";
+import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
+import {
+  activityForAgent,
+  type WorkspaceActivityView,
+} from "@/features/agents/workspace-activity-realtime";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import type { AgentStatusView } from "@/features/agents/agent-status-realtime";
@@ -24,6 +28,17 @@ const BackToAgentsContext = createContext<(() => void) | undefined>(undefined);
 const ConversationAgentStatusContext = createContext<"active" | "inactive" | undefined | null>(
   null,
 );
+const defaultActivity: WorkspaceActivityView = { activity: {}, loading: false, error: false };
+const ConversationActivityContext = createContext(defaultActivity);
+const ConversationTimeZoneContext = createContext<string | undefined>(undefined);
+
+export function useConversationActivity(agentId: string) {
+  const view = useContext(ConversationActivityContext);
+  return {
+    ...activityForAgent(view, agentId),
+    timeZone: useContext(ConversationTimeZoneContext),
+  };
+}
 
 /**
  * Two panels on the app's ground: the agent list and the conversation. Below
@@ -35,6 +50,8 @@ export function ConversationLayout({
   channels = [],
   selectedChannelId,
   onCreateChannel,
+  activityView = defaultActivity,
+  timeZone,
   children,
 }: {
   agents: ConversationAgent[];
@@ -42,6 +59,8 @@ export function ConversationLayout({
   channels?: { id: string; name: string; joined: boolean }[];
   selectedChannelId?: string;
   onCreateChannel?: (name: string) => Promise<void>;
+  activityView?: WorkspaceActivityView;
+  timeZone?: string;
   children: ReactNode;
 }) {
   const [showMobileAgents, setShowMobileAgents] = useState(!selectedAgentId && !selectedChannelId);
@@ -107,31 +126,29 @@ export function ConversationLayout({
             {agents.map((agent) => {
               const selected = agent.id === selectedAgentId;
               return (
-                <li key={agent.id}>
+                <li
+                  key={agent.id}
+                  className={cn(
+                    "flex min-w-0 items-center gap-3 rounded-lg px-2.5 py-2.5 hover:bg-muted",
+                    selected && "bg-muted",
+                  )}
+                >
+                  <AgentActivityAvatar
+                    agent={agent}
+                    size="lg"
+                    status={agent.status.value}
+                    {...activityForAgent(activityView, agent.id)}
+                    timeZone={timeZone}
+                  />
                   <Link
                     to="/messages/$agentId"
                     params={{ agentId: agent.id }}
                     aria-current={selected ? "page" : undefined}
                     onClick={() => setShowMobileAgents(false)}
-                    className={cn(
-                      "flex min-w-0 items-center gap-3 rounded-lg px-2.5 py-2.5 hover:bg-muted",
-                      selected && "bg-muted",
-                    )}
+                    className="flex min-w-0 flex-1 flex-col gap-1 py-1"
                   >
-                    <Avatar
-                      people={[{ name: agent.displayName }]}
-                      size="lg"
-                      online={agent.status.value === "active"}
-                      statusLabel={
-                        agent.status.value === "active"
-                          ? m.agent_status_online()
-                          : m.agent_status_offline()
-                      }
-                    />
-                    <span className="flex min-w-0 flex-1 flex-col gap-1">
-                      <span className="truncate text-xs font-medium">{agent.displayName}</span>
-                      <span className="truncate text-xs text-muted-foreground">@{agent.name}</span>
-                    </span>
+                    <span className="truncate text-xs font-medium">{agent.displayName}</span>
+                    <span className="truncate text-xs text-muted-foreground">@{agent.name}</span>
                   </Link>
                 </li>
               );
@@ -148,7 +165,9 @@ export function ConversationLayout({
       >
         <BackToAgentsContext value={() => setShowMobileAgents(true)}>
           <ConversationAgentStatusContext value={selectedAgentStatus}>
-            {children}
+            <ConversationActivityContext value={activityView}>
+              <ConversationTimeZoneContext value={timeZone}>{children}</ConversationTimeZoneContext>
+            </ConversationActivityContext>
           </ConversationAgentStatusContext>
         </BackToAgentsContext>
       </section>

@@ -215,26 +215,31 @@ export const getAgentDetail = createServerFn({ method: "GET" })
     if (!db) throw new Error("Agent persistence is unavailable");
     const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
     const activity = new AgentActivityRepository(db);
-    const query = new AgentDetailQuery({
-      findAuthorized: (workspaceId, id, userId) =>
-        db.agent
-          .findFirst({
-            where: { id, workspaceId, workspace: { members: { some: { userId } } } },
-            select: {
-              id: true,
-              workspaceId: true,
-              name: true,
-              displayName: true,
-              description: true,
-              createdAt: true,
-              computerId: true,
-              runtimeConfig: true,
-              owner: { select: { id: true, username: true } },
-            },
-          })
-          .then((agent) => agent ?? undefined),
-      listActivity: (workspaceId, id) => activity.list(workspaceId, id),
-    });
+    const query = new AgentDetailQuery(
+      {
+        findAuthorized: (workspaceId, id, userId) =>
+          db.agent
+            .findFirst({
+              where: { id, workspaceId, workspace: { members: { some: { userId } } } },
+              select: {
+                id: true,
+                workspaceId: true,
+                name: true,
+                displayName: true,
+                description: true,
+                createdAt: true,
+                computerId: true,
+                runtimeConfig: true,
+                owner: { select: { id: true, username: true } },
+              },
+            })
+            .then((agent) => agent ?? undefined),
+        listActivity: (workspaceId, id) => activity.list(workspaceId, id),
+      },
+      {
+        snapshot: (scope) => getAgentStatusCache().snapshot(scope),
+      },
+    );
     const result = await query.get(workspaceId, agentId, user.id);
     if (!result) throw new Error("Agent not found");
     setResponseHeader("cache-control", "no-store");
@@ -242,26 +247,8 @@ export const getAgentDetail = createServerFn({ method: "GET" })
     const runtimeCredential = ownedByCurrentUser
       ? await runtimeCredentials(db).summary({ workspaceId, userId: user.id }, agentId)
       : null;
-    const status = result.computerId
-      ? await getAgentStatusCache().snapshot({
-          workspaceId,
-          computerId: result.computerId,
-          agentId,
-        })
-      : undefined;
     return {
       ...result,
-      status: {
-        value: status?.status ?? ("inactive" as const),
-        expiresAt: status?.expiresAt ?? null,
-        ordering: status
-          ? {
-              daemonInstanceId: status.daemonInstanceId,
-              clientSeq: status.clientSeq,
-              observedAtMs: status.observedAtMs,
-            }
-          : null,
-      },
       runtimeConfig: publicAgentRuntimeConfig(parseAgentRuntimeConfig(result.runtimeConfig)),
       ownedByCurrentUser,
       runtimeCredential,

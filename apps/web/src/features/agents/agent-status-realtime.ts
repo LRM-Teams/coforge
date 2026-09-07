@@ -12,7 +12,7 @@ export type AgentStatusEvent = {
 
 type StatusTrackedAgent = {
   id: string;
-  status: AgentStatusView;
+  status: AgentStatusView | UnknownAgentStatusView;
 };
 export type AgentStatusView = {
   value: "active" | "inactive";
@@ -23,6 +23,7 @@ export type AgentStatusView = {
     observedAtMs: number;
   } | null;
 };
+type UnknownAgentStatusView = Omit<AgentStatusView, "value"> & { value: "unknown" };
 
 export const agentStatusChannel = (workspaceId: string) => `status:${workspaceId}`;
 
@@ -106,6 +107,7 @@ export function mergeAgentStatusSnapshot<T extends StatusTrackedAgent>(
     if (!existing) return agent;
     const ordering = agent.status.ordering;
     if (!ordering) return { ...agent, status: existing.status };
+    if (agent.status.value === "unknown") return { ...agent, status: existing.status };
     return applyAgentStatusEvent([{ ...agent, status: existing.status }], {
       agentId: agent.id,
       status: agent.status.value,

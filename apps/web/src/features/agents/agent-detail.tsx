@@ -19,6 +19,11 @@ import { formatDateForDisplay } from "@/lib/dates";
 import { AgentRuntimeFields, type RuntimeOptions } from "./agent-runtime-fields";
 import type { UpdateAgentInput } from "./agent.schemas";
 import { latestActivityError, type ActivityEntry } from "./agent-activity";
+import {
+  activityLabel,
+  activityDotClass,
+  showsActivityMessage,
+} from "./agent-activity-presentation";
 
 type Detail = Awaited<ReturnType<typeof import("./agents.functions").getAgentDetail>>;
 
@@ -41,8 +46,13 @@ export function AgentDetail({
   onUpdate: (input: UpdateAgentInput) => Promise<void>;
   onLoadRuntimeOptions: (computerId: string) => Promise<RuntimeOptions>;
 }) {
-  const online = detail.status.value === "active";
-  const statusLabel = online ? m.agent_status_online() : m.agent_status_offline();
+  const online = detail.status.value === "unknown" ? undefined : detail.status.value === "active";
+  const statusLabel =
+    detail.status.value === "unknown"
+      ? m.agent_status_unknown()
+      : online
+        ? m.agent_status_online()
+        : m.agent_status_offline();
   const latestError = latestActivityError(activity);
   return (
     <main className="flex-1 p-4 sm:p-5 md:p-6">
@@ -503,29 +513,4 @@ function Activity({ activity, timeZone }: { activity: ActivityEntry[]; timeZone:
       ))}
     </ol>
   );
-}
-
-function showsActivityMessage(activity: string) {
-  return activity !== "starting" && activity !== "stopped" && activity !== "turn_completed";
-}
-
-function activityDotClass(activity: string, level: string) {
-  if (level === "error") return "bg-destructive";
-  if (activity === "starting") return "bg-amber-500";
-  if (activity === "stopped") return "bg-muted-foreground";
-  if (activity === "turn_completed") return "bg-emerald-500";
-  return "bg-blue-500";
-}
-
-function activityLabel(activity: string, level: string) {
-  if (level === "error") return m.agent_activity_failed();
-  if (activity === "starting") return m.agent_activity_starting();
-  if (activity === "stopped") return m.agent_activity_stopped();
-  if (activity === "turn_completed" || activity === "idle") return m.agent_activity_idle();
-  if (activity === "running_command") return m.agent_activity_running_command();
-  if (activity === "reading_file") return m.agent_activity_reading_file();
-  if (activity === "writing_file") return m.agent_activity_writing_file();
-  if (activity === "editing_file") return m.agent_activity_editing_file();
-  if (activity === "using_tool") return m.agent_activity_using_tool();
-  return `${m.agent_activity_other()}: ${activity}`;
 }
