@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   ensureBrowserPushSubscription,
+  shouldShowAddToHomeScreenGuide,
   unsubscribeCurrentBrowserPush,
 } from "../src/features/notifications/browser-push";
 
@@ -27,6 +28,33 @@ afterEach(() => {
     configurable: true,
     value: originalWindow,
   });
+});
+
+test("shows installation help only on iPhone and iPad outside standalone mode", () => {
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
+      maxTouchPoints: 5,
+    },
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { matchMedia: () => ({ matches: false }) },
+  });
+  expect(shouldShowAddToHomeScreenGuide()).toBeTrue();
+
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { matchMedia: () => ({ matches: true }) },
+  });
+  expect(shouldShowAddToHomeScreenGuide()).toBeFalse();
+
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X)", maxTouchPoints: 0 },
+  });
+  expect(shouldShowAddToHomeScreenGuide()).toBeFalse();
 });
 
 describe("unsubscribeCurrentBrowserPush", () => {

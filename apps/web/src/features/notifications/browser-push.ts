@@ -27,6 +27,13 @@ export function browserNotificationPermission(): BrowserNotificationPermission {
   return Notification.permission;
 }
 
+export function shouldShowAddToHomeScreenGuide() {
+  const appleMobile =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.userAgent.includes("Macintosh") && navigator.maxTouchPoints > 1);
+  return appleMobile && !window.matchMedia("(display-mode: standalone)").matches;
+}
+
 export async function ensureBrowserPushSubscription(
   publicKey: string,
 ): Promise<SerializedBrowserPushSubscription> {

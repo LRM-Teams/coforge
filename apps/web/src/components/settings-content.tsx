@@ -43,6 +43,7 @@ interface SettingsContentProps {
   browserNotificationsEnabled: boolean;
   browserNotificationPermission: NotificationPermission | "unsupported";
   browserNotificationsConfigured: boolean;
+  showAddToHomeScreenGuide: boolean;
   onProfileSave: (profile: { name: string; description: string }) => Promise<void>;
   onAvatarUpload: (file: File) => Promise<void>;
   onAvatarRemove: () => Promise<void>;
@@ -418,6 +419,7 @@ function NotificationSettings({
   browserNotificationsEnabled,
   browserNotificationPermission,
   browserNotificationsConfigured,
+  showAddToHomeScreenGuide,
   onBrowserNotificationsChange,
   onEnableBrowserNotifications,
   onTestBrowserNotification,
@@ -436,7 +438,7 @@ function NotificationSettings({
           : m.preferences_browser_notifications_off();
 
   return (
-    <div className="mx-auto w-full max-w-4xl p-4 sm:p-6 lg:p-8">
+    <div className="mx-auto w-full max-w-4xl space-y-4 p-4 sm:p-6 lg:p-8">
       <section className="overflow-hidden rounded-xl border bg-background">
         <div className="flex items-start justify-between gap-5 p-5 sm:p-6">
           <div className="min-w-0">
@@ -527,6 +529,19 @@ function NotificationSettings({
           )}
         </div>
       </section>
+      {showAddToHomeScreenGuide && (
+        <section className="rounded-xl border bg-background p-5 sm:p-6">
+          <h2 className="font-semibold">{m.notifications_home_screen_title()}</h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            {m.notifications_home_screen_description()}
+          </p>
+          <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm">
+            <li>{m.notifications_home_screen_share()}</li>
+            <li>{m.notifications_home_screen_add()}</li>
+            <li>{m.notifications_home_screen_open()}</li>
+          </ol>
+        </section>
+      )}
     </div>
   );
 }

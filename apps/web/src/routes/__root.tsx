@@ -19,6 +19,10 @@ export const Route = createRootRoute({
         content: "width=device-width, initial-scale=1",
       },
       {
+        name: "theme-color",
+        content: "#101319",
+      },
+      {
         title: "CoForge",
       },
     ],
@@ -27,6 +31,14 @@ export const Route = createRootRoute({
         rel: "icon",
         href: "/logo.svg",
         type: "image/svg+xml",
+      },
+      {
+        rel: "apple-touch-icon",
+        href: "/apple-touch-icon.png",
+      },
+      {
+        rel: "manifest",
+        href: "/manifest.webmanifest",
       },
       {
         rel: "stylesheet",

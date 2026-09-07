@@ -6,19 +6,15 @@ const base64Url = (bytes: number) =>
     .regex(/^[A-Za-z0-9_-]+$/)
     .length(Math.ceil((bytes * 8) / 6));
 
-function isSupportedPushEndpoint(value: string) {
+function isSafePushEndpoint(value: string) {
   try {
     const url = new URL(value);
-    const hostname = url.hostname.toLowerCase();
     return (
+      value.startsWith("https://") &&
       url.protocol === "https:" &&
       !url.username &&
       !url.password &&
-      !url.hash &&
-      (hostname === "fcm.googleapis.com" ||
-        hostname === "updates.push.services.mozilla.com" ||
-        hostname === "web.push.apple.com" ||
-        hostname.endsWith(".notify.windows.com"))
+      !url.hash
     );
   } catch {
     return false;
@@ -28,13 +24,13 @@ function isSupportedPushEndpoint(value: string) {
 export const browserNotificationPreferenceInput = z.object({ enabled: z.boolean() });
 
 export const browserPushSubscriptionInput = z.object({
-  endpoint: z.string().max(4_096).refine(isSupportedPushEndpoint),
+  endpoint: z.string().max(4_096).refine(isSafePushEndpoint),
   expirationTime: z.number().int().positive().nullable(),
   keys: z.object({ p256dh: base64Url(65), auth: base64Url(16) }),
 });
 
 export const browserPushUnsubscribeInput = z.object({
-  endpoint: z.string().max(4_096).refine(isSupportedPushEndpoint),
+  endpoint: z.string().max(4_096).refine(isSafePushEndpoint),
 });
 
 export const browserPushTestInput = browserPushUnsubscribeInput;

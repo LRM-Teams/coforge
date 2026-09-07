@@ -24,6 +24,7 @@ const notificationProps = {
   browserNotificationsEnabled: false,
   browserNotificationPermission: "default" as const,
   browserNotificationsConfigured: true,
+  showAddToHomeScreenGuide: false,
   onBrowserNotificationsChange: async (_enabled: boolean) => {},
   onEnableBrowserNotifications: async () => {},
   onTestBrowserNotification: async () => true,
@@ -159,6 +160,31 @@ test("shows the global browser notification state and runs a test notification",
   expect(view.getByRole("status").textContent).toBe("Test notification sent.");
   await user.click(notificationSwitch);
   expect(enabled).toBeFalse();
+});
+
+test("explains how to install the app before enabling notifications on iPhone and iPad", async () => {
+  const user = userEvent.setup({ document });
+  const view = render(
+    <SettingsContent
+      {...notificationProps}
+      profile={profile}
+      locale="en"
+      theme="system"
+      timeZone={null}
+      showAddToHomeScreenGuide
+      onProfileSave={async () => {}}
+      onAvatarUpload={async () => {}}
+      onAvatarRemove={async () => {}}
+      onLocaleChange={() => {}}
+      onThemeChange={() => {}}
+      onTimeZoneChange={() => {}}
+    />,
+  );
+
+  await user.click(view.getByRole("button", { name: "Notifications" }));
+  expect(view.getByRole("heading", { name: "Add CoForge to your Home Screen" })).toBeTruthy();
+  expect(view.getByText("Tap Share in your browser toolbar.")).toBeTruthy();
+  expect(view.getByText("Choose Add to Home Screen.")).toBeTruthy();
 });
 
 test("uses the system color scheme by default", () => {

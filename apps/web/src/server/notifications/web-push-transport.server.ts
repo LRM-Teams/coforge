@@ -1,6 +1,7 @@
 import webPush from "web-push";
 
 import { assertVapidKeyPair } from "./vapid-key-pair.server";
+import { createWebPushEgressAgent } from "./web-push-egress.server";
 import {
   WebPushDeliveryError,
   type StoredWebPushSubscription,
@@ -71,6 +72,7 @@ export class WebPushLibraryTransport implements WebPushTransport {
 
   async send(subscription: StoredWebPushSubscription, payload: WebPushPayload) {
     try {
+      const agent = await createWebPushEgressAgent(subscription.endpoint);
       await webPush.sendNotification(
         {
           endpoint: subscription.endpoint,
@@ -83,6 +85,7 @@ export class WebPushLibraryTransport implements WebPushTransport {
           contentEncoding: "aes128gcm",
           vapidDetails: this.config,
           timeout: 10_000,
+          agent,
         },
       );
     } catch (error) {
