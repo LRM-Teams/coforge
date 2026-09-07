@@ -1,10 +1,15 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { useCallback, useMemo } from "react";
 
 import { AgentDetail } from "@/features/agents/agent-detail";
+import { useAgentStatuses } from "@/features/agents/agent-status-realtime";
+import { useAgentActivity } from "@/features/agents/agent-activity-realtime";
 import {
   deleteAgentRuntimeCredential,
   getAgentDetail,
+  getAgentStatusConnectionToken,
+  getAgentActivityConnectionToken,
   saveAgentRuntimeCredential,
   updateAgent,
 } from "@/features/agents/agents.functions";
@@ -42,9 +47,35 @@ function AgentDetailPage() {
   const update = useServerFn(updateAgent);
   const loadComputers = useServerFn(listComputers);
   const loadCatalog = useServerFn(getComputerRuntimeCatalog);
+  const loadDetail = useServerFn(getAgentDetail);
+  const getConnectionToken = useServerFn(getAgentStatusConnectionToken);
+  const agents = useMemo(() => [detail], [detail]);
+  const refresh = useCallback(
+    async () => [await loadDetail({ data: detail.id })],
+    [loadDetail, detail.id],
+  );
+  const visibleAgents = useAgentStatuses({
+    agents,
+    workspaceId: detail.workspaceId,
+    refresh,
+    getConnectionToken,
+  });
+  const getActivityToken = useServerFn(getAgentActivityConnectionToken);
+  const refreshActivity = useCallback(
+    async () => (await loadDetail({ data: detail.id })).activity,
+    [loadDetail, detail.id],
+  );
+  const activity = useAgentActivity({
+    agentId: detail.id,
+    workspaceId: detail.workspaceId,
+    activity: detail.activity,
+    refresh: refreshActivity,
+    getConnectionToken: getActivityToken,
+  });
   return (
     <AgentDetail
-      detail={detail}
+      activity={activity}
+      detail={visibleAgents.find((agent) => agent.id === detail.id) ?? detail}
       timeZone={timeZone}
       tab={Route.useSearch().tab}
       onLoadRuntimeOptions={async (computerId) => {

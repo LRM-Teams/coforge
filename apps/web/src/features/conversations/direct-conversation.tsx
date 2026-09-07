@@ -18,7 +18,11 @@ import {
   Quote,
 } from "lucide-react";
 
-import { BackToAgents } from "@/features/conversations/conversation-layout";
+import {
+  BackToAgents,
+  useConversationActivity,
+} from "@/features/conversations/conversation-layout";
+import { AgentActivityAvatar, useAgentWorkingLabel } from "@/features/agents/agent-activity-avatar";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useAppToast } from "@/components/ui/toast";
@@ -64,22 +68,25 @@ type ConversationProps = {
 export function DirectConversation(props: ConversationProps) {
   const { conversation, onReadThread } = props;
   const { agentStatus } = props;
+  const activity = useConversationActivity(conversation.agent.id);
+  const workingLabel = useAgentWorkingLabel({ ...activity, status: agentStatus });
   const header = (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-5">
       <BackToAgents />
-      <Avatar
-        people={[{ name: conversation.agent.displayName }]}
+      <AgentActivityAvatar
+        agent={conversation.agent}
         size="sm"
-        online={agentStatus ? agentStatus === "active" : undefined}
-        statusLabel={
-          agentStatus
-            ? agentStatus === "active"
-              ? m.agent_status_online()
-              : m.agent_status_offline()
-            : undefined
-        }
+        status={agentStatus}
+        {...activity}
       />
-      <h1 className="truncate text-base font-medium">{conversation.agent.displayName}</h1>
+      <div className="min-w-0">
+        <h1 className="truncate text-base font-medium">{conversation.agent.displayName}</h1>
+        {workingLabel && (
+          <p role="status" className="truncate text-xs text-muted-foreground">
+            {workingLabel}…
+          </p>
+        )}
+      </div>
       <span className="hidden shrink-0 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground sm:block">
         @{conversation.agent.name}
       </span>

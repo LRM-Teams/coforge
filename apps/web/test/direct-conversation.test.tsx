@@ -10,6 +10,7 @@ import {
   type DirectConversationView,
 } from "@/features/conversations/direct-conversation";
 import { AppToastProvider } from "@/components/ui/toast";
+import { ConversationLayout } from "@/features/conversations/conversation-layout";
 import { getRouter } from "@/router";
 
 afterEach(cleanup);
@@ -197,10 +198,59 @@ test("previews only the latest three thread replies in chronological order", asy
 test("renders the empty private conversation", () => {
   const { page } = renderConversation();
   expect(page.getByRole("heading", { name: "Release Helper" })).toBeTruthy();
-  expect(page.getByLabelText("Release Helper, Online")).toBeTruthy();
+  expect(
+    page.getByRole("button", { name: "Release Helper, Online, Recent activity" }),
+  ).toBeTruthy();
   expect(page.getByText("@release-helper")).toBeTruthy();
   expect(page.getByText("No messages yet")).toBeTruthy();
   expect(page.queryByRole("link", { name: /Back to messages/i })).toBeNull();
+});
+
+test("shared chat activity updates header and sidebar, with matching hover dots", async () => {
+  const entry = {
+    launchId: "launch",
+    clientSeq: 1,
+    activity: "running_command",
+    level: "info",
+    message: "",
+    occurredAt: new Date(),
+  };
+  const agent = {
+    ...base.agent,
+    status: { value: "active" as const, expiresAt: Date.now() + 60_000 },
+  };
+  const refresh = async () => {};
+  const tree = (activity: (typeof entry)[]) => (
+    <RouterContextProvider router={getRouter()}>
+      <AppToastProvider>
+        <ConversationLayout
+          agents={[agent]}
+          selectedAgentId={agent.id}
+          activityView={{ activity: { [agent.id]: activity }, loading: false, error: false }}
+        >
+          <DirectConversation
+            conversation={base}
+            agentStatus="active"
+            onSend={refresh}
+            onRefresh={refresh}
+          />
+        </ConversationLayout>
+      </AppToastProvider>
+    </RouterContextProvider>
+  );
+  const view = render(tree([entry]));
+  const page = within(document.body);
+  expect(page.getByRole("status").textContent).toBe("Running command…");
+  const avatars = page.getAllByRole("button", { name: /Release Helper, Online, Running command/ });
+  expect(avatars).toHaveLength(2);
+  expect(avatars.every((avatar) => avatar.querySelector(".bg-amber-500"))).toBe(true);
+  expect(document.querySelector("a button")).toBeNull();
+  fireEvent.click(avatars[0]!);
+  const popup = await page.findByRole("dialog");
+  expect(popup.querySelector("li .bg-amber-500")).not.toBeNull();
+  view.rerender(tree([{ ...entry, clientSeq: 2, activity: "idle" }]));
+  expect(document.querySelector("header [role=status]")).toBeNull();
+  expect(document.querySelector("button[data-working=true]")).toBeNull();
 });
 
 test("renders persisted messages in sequence order with distinct senders", () => {

@@ -2,11 +2,12 @@ import "./dom-setup";
 
 import { afterEach, expect, test } from "bun:test";
 import { RouterContextProvider } from "@tanstack/react-router";
-import { cleanup, render, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, within } from "@testing-library/react";
 
 import {
   ConversationLayout,
   EmptyConversation,
+  useConversationActivity,
   useConversationAgentStatus,
 } from "@/features/conversations/conversation-layout";
 import { getRouter } from "@/router";
@@ -43,7 +44,9 @@ test("shows real Agents as typed conversation links and highlights the selection
   expect(link.getAttribute("href")).toBe("/en/messages/agent-1");
   expect(link.getAttribute("aria-current")).toBe("page");
   expect(page.queryByText("Codex / gpt-5")).toBeNull();
-  expect(page.getByLabelText("Release Helper, Online")).toBeTruthy();
+  expect(
+    page.getByRole("button", { name: "Release Helper, Online, Recent activity" }),
+  ).toBeTruthy();
   expect(page.queryByText(/unread/i)).toBeNull();
 });
 
@@ -73,4 +76,43 @@ test("keeps an authorized conversation when its Agent status is temporarily abse
     </RouterContextProvider>,
   );
   expect(within(document.body).getByText("presence unknown")).toBeTruthy();
+});
+
+test("saved timezone and usable activity reach both sidebar and conversation despite history failure", async () => {
+  function SelectedConversation() {
+    const view = useConversationActivity(agent.id);
+    return <p>{`${view.timeZone}/${view.loading}/${view.error}/${view.activity.length}`}</p>;
+  }
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <ConversationLayout
+        agents={[agent]}
+        selectedAgentId={agent.id}
+        timeZone="Asia/Shanghai"
+        activityView={{
+          loading: false,
+          error: true,
+          activity: {
+            [agent.id]: [
+              {
+                launchId: "launch",
+                clientSeq: 1,
+                activity: "running_command",
+                level: "info",
+                message: "",
+                occurredAt: new Date("2026-09-07T07:18:30Z"),
+              },
+            ],
+          },
+        }}
+      >
+        <SelectedConversation />
+      </ConversationLayout>
+    </RouterContextProvider>,
+  );
+  const page = within(document.body);
+  expect(page.getByText("Asia/Shanghai/false/false/1")).toBeTruthy();
+  fireEvent.click(page.getByRole("button", { name: /Release Helper/ }));
+  const popup = await page.findByRole("dialog");
+  expect(popup.querySelector("time")?.textContent).toBe("15:18:30");
 });

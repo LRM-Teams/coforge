@@ -1,10 +1,17 @@
 import { Outlet, createFileRoute, getRouteApi, useParams, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
-import { getAgentStatusConnectionToken, listAgents } from "@/features/agents/agents.functions";
+import {
+  getAgentStatusConnectionToken,
+  getAgentActivityConnectionToken,
+  listAgents,
+} from "@/features/agents/agents.functions";
+import { getWorkspaceActivity } from "@/features/agents/agent-activity.functions";
+import { useWorkspaceActivity } from "@/features/agents/workspace-activity-realtime";
 import { useAgentStatuses } from "@/features/agents/agent-status-realtime";
 import { ConversationLayout } from "@/features/conversations/conversation-layout";
 import { PageLoadError } from "@/features/errors/page-load-error";
+import { getUserPreferences } from "@/features/settings/settings.functions";
 import {
   listPublicChannels,
   createPublicChannel,
@@ -14,20 +21,31 @@ const appRoute = getRouteApi("/_app");
 
 export const Route = createFileRoute("/_app/messages")({
   loader: async () => {
-    const [agents, channels] = await Promise.all([listAgents(), listPublicChannels()]);
-    return { agents, channels };
+    const [agents, channels, preferences] = await Promise.all([
+      listAgents(),
+      listPublicChannels(),
+      getUserPreferences(),
+    ]);
+    return { agents, channels, timeZone: preferences.timeZone };
   },
   errorComponent: PageLoadError,
   component: MessagesPage,
 });
 
 function MessagesPage() {
-  const { agents, channels } = Route.useLoaderData();
+  const { agents, channels, timeZone } = Route.useLoaderData();
   const router = useRouter();
   const createChannel = useServerFn(createPublicChannel);
   const { currentWorkspace } = appRoute.useLoaderData();
   const refreshAgents = useServerFn(listAgents);
   const getConnectionToken = useServerFn(getAgentStatusConnectionToken);
+  const refreshActivity = useServerFn(getWorkspaceActivity);
+  const getActivityToken = useServerFn(getAgentActivityConnectionToken);
+  const activityView = useWorkspaceActivity({
+    workspaceId: currentWorkspace?.id,
+    refresh: refreshActivity,
+    getConnectionToken: getActivityToken,
+  });
   const visibleAgents = useAgentStatuses({
     agents,
     workspaceId: currentWorkspace?.id,
@@ -43,6 +61,8 @@ function MessagesPage() {
     <ConversationLayout
       key={currentWorkspace?.id}
       agents={visibleAgents}
+      activityView={activityView}
+      timeZone={timeZone ?? undefined}
       selectedAgentId={params?.agentId}
       channels={channels}
       selectedChannelId={channelParams?.channelId}
