@@ -183,7 +183,7 @@ test("explains how to install the app before enabling notifications on iPhone an
 
   await user.click(view.getByRole("button", { name: "Notifications" }));
   expect(view.getByRole("heading", { name: "Add CoForge to your Home Screen" })).toBeTruthy();
-  expect(view.getByText("Tap Share in your browser toolbar.")).toBeTruthy();
+  expect(view.getByText("Tap Share in the Safari toolbar.")).toBeTruthy();
   expect(view.getByText("Choose Add to Home Screen.")).toBeTruthy();
 });
 

@@ -30,11 +30,12 @@ afterEach(() => {
   });
 });
 
-test("shows installation help only on iPhone and iPad outside standalone mode", () => {
+test("shows installation help only in iPhone and iPad Safari outside standalone mode", () => {
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
     value: {
-      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
+      userAgent:
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
       maxTouchPoints: 5,
     },
   });
@@ -44,11 +45,38 @@ test("shows installation help only on iPhone and iPad outside standalone mode", 
   });
   expect(shouldShowAddToHomeScreenGuide()).toBeTrue();
 
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
+      maxTouchPoints: 5,
+    },
+  });
+  expect(shouldShowAddToHomeScreenGuide()).toBeTrue();
+
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: { matchMedia: () => ({ matches: true }) },
   });
   expect(shouldShowAddToHomeScreenGuide()).toBeFalse();
+
+  for (const userAgent of [
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 CriOS/140.0 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 FxiOS/142.0 Mobile/15E148 Safari/605.1.15",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 EdgiOS/140.0 Mobile/15E148 Safari/605.1.15",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+  ]) {
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: { userAgent, maxTouchPoints: 5 },
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { matchMedia: () => ({ matches: false }) },
+    });
+    expect(shouldShowAddToHomeScreenGuide()).toBeFalse();
+  }
 
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,

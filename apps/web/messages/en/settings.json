@@ -45,7 +45,7 @@
   "preferences_browser_notifications_test_error": "The test notification could not be sent. Check this browser's permission and try again.",
   "notifications_home_screen_title": "Add CoForge to your Home Screen",
   "notifications_home_screen_description": "On iPhone and iPad, CoForge can receive notifications after it is installed as a Home Screen app.",
-  "notifications_home_screen_share": "Tap Share in your browser toolbar.",
+  "notifications_home_screen_share": "Tap Share in the Safari toolbar.",
   "notifications_home_screen_add": "Choose Add to Home Screen.",
   "notifications_home_screen_open": "Open CoForge from its new Home Screen icon, then return here to turn on notifications.",
   "settings_save_error": "The preference could not be saved. Try again."
