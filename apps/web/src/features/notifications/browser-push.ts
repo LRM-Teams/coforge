@@ -28,10 +28,12 @@ export function browserNotificationPermission(): BrowserNotificationPermission {
 }
 
 export function shouldShowAddToHomeScreenGuide() {
+  const userAgent = navigator.userAgent;
   const appleMobile =
-    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.userAgent.includes("Macintosh") && navigator.maxTouchPoints > 1);
-  return appleMobile && !window.matchMedia("(display-mode: standalone)").matches;
+    /iPad|iPhone|iPod/.test(userAgent) ||
+    (userAgent.includes("Macintosh") && navigator.maxTouchPoints > 1);
+  const safari = /Version\/[^ ]+.*Safari\//.test(userAgent);
+  return appleMobile && safari && !window.matchMedia("(display-mode: standalone)").matches;
 }
 
 export async function ensureBrowserPushSubscription(

@@ -45,7 +45,7 @@
   "preferences_browser_notifications_test_error": "测试通知发送失败，请检查此浏览器的通知权限后重试。",
   "notifications_home_screen_title": "将 CoForge 添加到主屏幕",
   "notifications_home_screen_description": "在 iPhone 和 iPad 上，需要先将 CoForge 安装为主屏幕 App，才能接收通知。",
-  "notifications_home_screen_share": "轻点浏览器工具栏中的“分享”。",
+  "notifications_home_screen_share": "轻点 Safari 工具栏中的“分享”。",
   "notifications_home_screen_add": "选择“添加到主屏幕”。",
   "notifications_home_screen_open": "从主屏幕上的新图标打开 CoForge，然后返回此处开启通知。",
   "settings_save_error": "偏好设置保存失败，请重试。"
