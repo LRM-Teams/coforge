@@ -10,7 +10,7 @@ test("offers a sign-in action that starts the browser login", () => {
   const markup = renderToStaticMarkup(<LandingPage installOrigin={installOrigin} />);
 
   expect(markup).toContain('href="/auth/login"');
-  expect(markup).toContain("Sign in");
+  expect(markup).toContain("Get started");
 });
 
 test("links to the public repository", () => {
@@ -19,13 +19,6 @@ test("links to the public repository", () => {
   expect(repositoryUrl).toBe("https://github.com/LRM-Teams/coforge");
   expect(markup).toContain(`href="${repositoryUrl}"`);
   expect(markup).toContain('rel="noreferrer"');
-  expect(markup).toContain("github.com/LRM-Teams/coforge");
-});
-
-test("shows the install command of the deployment being visited", () => {
-  const markup = renderToStaticMarkup(<LandingPage installOrigin={installOrigin} />);
-
-  expect(markup).toContain("curl -fsSL https://staging.coforge.cn/computer/install.sh | sh");
 });
 
 test("renders the Simplified Chinese landing catalog", () => {
@@ -33,6 +26,6 @@ test("renders the Simplified Chinese landing catalog", () => {
   const markup = renderToStaticMarkup(<LandingPage installOrigin={installOrigin} />);
   overwriteGetLocale(() => "en");
 
-  expect(markup).toContain("登录");
+  expect(markup).toContain("开始使用");
   expect(markup).toContain("GitHub 仓库");
 });

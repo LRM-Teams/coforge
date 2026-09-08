@@ -19,5 +19,7 @@
     "lib": "@/lib",
     "hooks": "@/hooks"
   },
-  "registries": {}
+  "registries": {
+    "@spell": "https://spell.sh/r/{name}.json"
+  }
 }
