@@ -2,9 +2,14 @@ import { useState } from "react";
 import { Check, Laptop, ShieldAlert, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSeparator,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
 import { m } from "@/paraglide/messages";
-import { DeviceCodeInput } from "./device-code-input";
-import { formatUserCode } from "./device-code-format";
+import { formatUserCode, USER_CODE_LENGTH } from "./device-code-format";
 import {
   approveDeviceCode,
   checkDeviceCode,
@@ -17,6 +22,12 @@ type Stage =
   | { name: "confirm"; code: string }
   | { name: "approved" }
   | { name: "denied" };
+
+/** The generated alphabet plus the lowercase a user may type - the field uppercases as it goes,
+ * but `pattern` is applied to the raw keystroke, so it has to admit both cases. Digits 0/1 and
+ * letters I/L/O/U are absent from the alphabet on purpose (see device-auth.server.ts) and are
+ * refused here too, rather than accepted and then reported back as an unknown code. */
+const CODE_PATTERN = "[BCDFGHJKMNPQRSTVWXYZbcdfghjkmnpqrstvwxyz23456789]*";
 
 function problemMessage(state: DeviceCodeState): string | null {
   if (state === "unknown") return m.device_verify_unknown();
@@ -31,14 +42,15 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
   const [stage, setStage] = useState<Stage>({ name: "entry" });
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const complete = code.length === USER_CODE_LENGTH;
 
-  async function submitCode() {
-    if (busy || code.replace(/[^A-Za-z0-9]/g, "").length !== 8) return;
+  async function submitCode(value: string = code) {
+    if (busy || value.length !== USER_CODE_LENGTH) return;
     setBusy(true);
     setProblem(null);
     try {
-      const result = await checkDeviceCode({ data: { userCode: code } });
-      if (result.state === "ok") setStage({ name: "confirm", code });
+      const result = await checkDeviceCode({ data: { userCode: value } });
+      if (result.state === "ok") setStage({ name: "confirm", code: value });
       else setProblem(problemMessage(result.state));
     } finally {
       setBusy(false);
@@ -89,25 +101,47 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
             </h1>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
               {stage.name === "confirm"
-                ? m.device_verify_confirm_description({
-                    code: formatUserCode(stage.code),
-                  })
+                ? m.device_verify_confirm_description({ code: formatUserCode(stage.code) })
                 : m.device_verify_description()}
             </p>
 
             {stage.name === "entry" ? (
               <div className="mt-7">
-                <DeviceCodeInput
-                  value={code}
-                  onChange={(next) => {
-                    setCode(next);
-                    setProblem(null);
-                  }}
-                  onSubmit={submitCode}
-                  disabled={busy}
-                  invalid={problem !== null}
-                  label={m.device_verify_code_label()}
-                />
+                <div className="flex justify-center">
+                  <InputOTP
+                    maxLength={USER_CODE_LENGTH}
+                    value={code}
+                    pattern={CODE_PATTERN}
+                    // The code is displayed uppercase everywhere, so both entry paths normalize:
+                    // typing through onChange, and a pasted `xxxx-xxxx` through pasteTransformer,
+                    // which also drops the dash the code is displayed with.
+                    pasteTransformer={(pasted: string) =>
+                      pasted.replace(/[\s-]/g, "").toUpperCase()
+                    }
+                    onChange={(next: string) => {
+                      setCode(next.toUpperCase());
+                      setProblem(null);
+                    }}
+                    // Firing on completion is what makes a pasted code need no second action.
+                    onComplete={submitCode}
+                    disabled={busy}
+                    aria-label={m.device_verify_code_label()}
+                    aria-invalid={problem !== null || undefined}
+                    autoFocus
+                  >
+                    <InputOTPGroup>
+                      {[0, 1, 2, 3].map((index) => (
+                        <InputOTPSlot key={index} index={index} className="size-11 text-base" />
+                      ))}
+                    </InputOTPGroup>
+                    <InputOTPSeparator />
+                    <InputOTPGroup>
+                      {[4, 5, 6, 7].map((index) => (
+                        <InputOTPSlot key={index} index={index} className="size-11 text-base" />
+                      ))}
+                    </InputOTPGroup>
+                  </InputOTP>
+                </div>
                 {problem ? (
                   <p role="alert" className="mt-4 text-center text-sm text-destructive-text">
                     {problem}
@@ -116,8 +150,8 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
                 <Button
                   type="button"
                   className="mt-6 h-10 w-full"
-                  disabled={busy || code.replace(/[^A-Za-z0-9]/g, "").length !== 8}
-                  onClick={submitCode}
+                  disabled={busy || !complete}
+                  onClick={() => submitCode()}
                 >
                   {busy ? m.device_verify_checking() : m.device_verify_continue()}
                 </Button>
