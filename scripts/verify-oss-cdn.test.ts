@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { runAcceptance, type AcceptanceInput } from "./verify-oss-cdn";
+import {
+  runAcceptance,
+  verifyReleaseObject,
+  type AcceptanceInput,
+  type ContentProbe,
+} from "./verify-oss-cdn";
 
 function sha256(value: string): string {
   const hasher = new Bun.CryptoHasher("sha256");
@@ -174,5 +179,93 @@ describe("OSS/CDN acceptance", () => {
     });
     expect(stdout).not.toContain("auth_key");
     expect(stdout).not.toContain("aliyuncs.com");
+  });
+});
+
+describe("release object verification", () => {
+  const probe: ContentProbe = {
+    origin_url: "http://origin.fixture.test/releases/app.tar.gz?secret=origin-signature",
+    cdn_url: "http://cdn.fixture.test/releases/app.tar.gz?token=cdn-credential",
+    expected_sha256: sha256("release bytes"),
+  };
+
+  test("accepts an origin-private, byte-identical CDN object without forwarding credentials", async () => {
+    const requests: Array<{ url: string; init: RequestInit | undefined }> = [];
+    const report = await verifyReleaseObject(probe, async (input, init) => {
+      const url = String(input);
+      requests.push({ url, init });
+      return url === probe.origin_url
+        ? new Response("denied", { status: 403 })
+        : new Response("release bytes", { status: 200 });
+    });
+
+    expect(report.passed).toBe(true);
+    expect(requests.map(({ url }) => url)).toEqual([probe.origin_url, probe.cdn_url]);
+    for (const { init } of requests) {
+      const headers = new Headers(init?.headers);
+      expect(init?.method).toBe("GET");
+      expect(init?.redirect).toBe("manual");
+      expect(init?.credentials).toBe("omit");
+      expect(headers.has("cookie")).toBe(false);
+      expect(headers.has("authorization")).toBe(false);
+    }
+  });
+
+  test.each([
+    ["readable", new Response("release bytes", { status: 200 })],
+    ["missing", new Response("missing", { status: 404 })],
+    ["redirecting", new Response(null, { status: 302, headers: { Location: "/login" } })],
+  ])("rejects a %s origin", async (_name, originResponse) => {
+    const report = await verifyReleaseObject(probe, async (input) =>
+      String(input) === probe.origin_url
+        ? originResponse.clone()
+        : new Response("release bytes", { status: 200 }),
+    );
+
+    expect(report.passed).toBe(false);
+    expect(
+      report.checks.find(({ id }) => id === "release_origin_rejects_unsigned_get")?.passed,
+    ).toBe(false);
+  });
+
+  test.each([
+    ["stale", new Response("old release", { status: 200 })],
+    ["missing", new Response("missing", { status: 404 })],
+    ["redirecting", new Response(null, { status: 302, headers: { Location: "/other" } })],
+    ["setting a cookie", new Response("release bytes", { headers: { "Set-Cookie": "sid=x" } })],
+    [
+      "leaking the origin host",
+      new Response("release bytes", {
+        headers: { Via: "origin.fixture.test" },
+      }),
+    ],
+  ])("rejects a CDN response that is %s", async (_name, cdnResponse) => {
+    const report = await verifyReleaseObject(probe, async (input) =>
+      String(input) === probe.origin_url
+        ? new Response("denied", { status: 403 })
+        : cdnResponse.clone(),
+    );
+
+    expect(report.passed).toBe(false);
+    expect(report.checks.find(({ id }) => id === "release_cdn_object_matches")?.passed).toBe(false);
+  });
+
+  test("turns network errors into a sanitized failure report", async () => {
+    const report = await verifyReleaseObject(probe, async (input) => {
+      if (String(input) === probe.origin_url) return new Response("denied", { status: 403 });
+      throw new Error(`failed with Authorization: bearer secret at ${String(input)}`);
+    });
+
+    expect(report.passed).toBe(false);
+    expect(report.checks.at(-1)).toEqual({
+      id: "release_object_probe_execution",
+      passed: false,
+      detail: "the release object probe could not complete; inspect operator-side diagnostics",
+    });
+    const serialized = JSON.stringify(report);
+    expect(serialized).not.toContain("cdn.fixture.test");
+    expect(serialized).not.toContain("cdn-credential");
+    expect(serialized).not.toContain("release bytes");
+    expect(serialized).not.toContain("bearer secret");
   });
 });
