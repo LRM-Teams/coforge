@@ -105,7 +105,7 @@ function LocaleSwitch() {
           aria-label={locale.name()}
           aria-current={locale.code === active ? "true" : undefined}
           className={cn(
-            "flex h-full items-center rounded-full px-2.5 text-white/60 hover:text-white",
+            "flex h-full items-center rounded-full px-2.5 whitespace-nowrap text-white/60 hover:text-white",
             locale.code === active && "bg-white/15 text-white",
           )}
         >
@@ -162,13 +162,13 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
               CoForge<span className="text-[#a993ff]">.</span>
             </span>
           </a>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <a
               href={repositoryUrl}
               target="_blank"
               rel="noreferrer"
               aria-label={m.landing_action_repository()}
-              className="flex size-8 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+              className="hidden size-8 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white sm:flex"
             >
               <GitHubMark className="size-[18px]" />
             </a>
@@ -176,7 +176,7 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
             <span className="relative inline-flex overflow-hidden rounded-full">
               <a
                 href="/auth/login"
-                className="group relative flex h-9 items-center overflow-hidden rounded-full border border-white/15 bg-white/10 pr-6 pl-5 text-sm font-medium text-white"
+                className="group relative flex h-9 items-center overflow-hidden rounded-full border border-white/15 bg-white/10 pr-5 pl-4 text-sm font-medium whitespace-nowrap text-white sm:pr-6 sm:pl-5"
               >
                 {/* The fill grows out of the left edge; the arrow fades into the right padding, so nothing moves. */}
                 <span
@@ -211,14 +211,14 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
               <h1 className="sr-only">{headline}</h1>
               <div
                 aria-hidden="true"
-                className="mt-5 text-[clamp(2.5rem,5vw,4.25rem)] leading-[1.04] font-semibold tracking-[-0.03em]"
+                className="mt-5 text-[clamp(2.25rem,5vw,4.25rem)] leading-[1.04] font-semibold tracking-[-0.03em] text-balance"
               >
                 <BlurReveal as="span" className="block" speedReveal={1.2}>
                   {m.landing_headline_line_1()}
                 </BlurReveal>
                 <BlurReveal
                   as="span"
-                  className="block whitespace-nowrap"
+                  className="block lg:whitespace-nowrap"
                   speedReveal={1.2}
                   delay={0.35}
                 >
@@ -366,7 +366,7 @@ function InstallTerminal({ installOrigin }: { installOrigin: string }) {
       transition={{ duration: 0.7, delay: 0.6, ease: "easeOut" }}
       className="w-full"
     >
-      <Terminal className="max-h-none max-w-none border-white/10 bg-[#0d0b17]/85 shadow-2xl shadow-black/40 backdrop-blur-md [&_code]:font-display-mono [&_pre]:text-[13px] [&_pre]:leading-6">
+      <Terminal className="max-h-none max-w-none border-white/10 bg-[#0d0b17]/85 shadow-2xl shadow-black/40 backdrop-blur-md [&_code]:font-display-mono [&_pre]:text-[13px] [&_pre]:leading-6 [&_pre]:whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere]">
         <TypingAnimation className="text-white/90" duration={28} delay={300}>
           {`$ ${installCommands(installOrigin).posix}`}
         </TypingAnimation>
