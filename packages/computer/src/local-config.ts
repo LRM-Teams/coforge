@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { CliError, loginError, setupError } from "./errors";
 
@@ -13,7 +13,7 @@ export interface ComputerConfig {
   loadCurrentProfile(): Promise<CurrentProfile | null>;
   saveWorkspace(workspace: WorkspaceSelection): Promise<string>;
   saveRegistration?(registration: RegisteredWorkspaceConnection): Promise<string>;
-  loadRegistration?(): Promise<RegisteredWorkspaceConnection | null>;
+  loadRegistration?(selector?: string): Promise<RegisteredWorkspaceConnection | null>;
   discardRegistration(registration: RegisteredWorkspaceConnection): Promise<void>;
 }
 
@@ -65,25 +65,45 @@ export class FileComputerConfig implements ComputerConfig {
   }
 
   async saveRegistration(registration: RegisteredWorkspaceConnection): Promise<string> {
-    const configPath = join(this.directory, "workspace", "config.json");
+    const directoryName = Buffer.from(registration.id, "utf8").toString("base64url");
+    const configPath = join(this.directory, "workspaces", directoryName, "registration.json");
     await writeJson(configPath, {
       workspace_id: registration.id,
+      workspace_slug: registration.slug,
       computer_id: registration.computerId,
     });
     return configPath;
   }
 
-  async loadRegistration(): Promise<RegisteredWorkspaceConnection | null> {
+  async loadRegistration(selector?: string): Promise<RegisteredWorkspaceConnection | null> {
+    let directories: string[];
     try {
-      const value = JSON.parse(
-        await readFile(join(this.directory, "workspace", "config.json"), "utf8"),
-      ) as Record<string, unknown>;
-      if (typeof value.workspace_id !== "string" || typeof value.computer_id !== "string")
-        return null;
-      return { id: value.workspace_id, slug: value.workspace_id, computerId: value.computer_id };
-    } catch {
-      return null;
+      directories = await readdir(join(this.directory, "workspaces"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
     }
+    const matches: RegisteredWorkspaceConnection[] = [];
+    for (const directory of directories) {
+      const path = join(this.directory, "workspaces", directory, "registration.json");
+      if (!(await Bun.file(path).exists())) continue;
+      const value = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+      if (
+        typeof value.workspace_id !== "string" ||
+        typeof value.workspace_slug !== "string" ||
+        typeof value.computer_id !== "string"
+      )
+        throw new Error("invalid Workspace registration");
+      if (!selector || value.workspace_id === selector || value.workspace_slug === selector)
+        matches.push({
+          id: value.workspace_id,
+          slug: value.workspace_slug,
+          computerId: value.computer_id,
+        });
+    }
+    if (matches.length > 1)
+      throw new Error("multiple Workspace registrations match; specify an exact Workspace id");
+    return matches[0] ?? null;
   }
 
   async discardRegistration(registration: RegisteredWorkspaceConnection): Promise<void> {

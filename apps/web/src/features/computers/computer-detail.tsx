@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, RotateCw } from "lucide-react";
 import type { RuntimeProvider } from "@coforge/protocol";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -11,6 +11,10 @@ import { BackToComputers } from "./computer-layout";
 import { computerLabel, type ComputerIdentity } from "./computer-identity";
 import { ComputerTile } from "./computer-tile";
 import { RuntimeUsage, type UsageView } from "./runtime-usage";
+import type { ComputerRestartStatus } from "./computer.schemas";
+
+export const RESTART_POLL_INTERVAL_MS = 2_000;
+export const RESTART_MAX_POLLS = 31;
 
 export type ComputerDetailView = ComputerIdentity & {
   id: string;
@@ -36,13 +40,25 @@ export function ComputerDetail({
   timeZone = null,
   onScanUsage,
   onSetRuntimePublic,
+  onRestart,
+  onReadRestartStatus,
+  restartPollIntervalMs = RESTART_POLL_INTERVAL_MS,
+  restartMaxPolls = RESTART_MAX_POLLS,
 }: {
   computer: ComputerDetailView;
   timeZone?: string | null;
   onScanUsage: (provider: RuntimeProvider) => Promise<void>;
   onSetRuntimePublic: (runtimeId: string, isPublic: boolean) => Promise<void>;
+  onRestart?: (requestId: string) => Promise<ComputerRestartStatus>;
+  onReadRestartStatus?: (requestId: string) => Promise<ComputerRestartStatus>;
+  restartPollIntervalMs?: number;
+  restartMaxPolls?: number;
 }) {
   const [updatingRuntimeId, setUpdatingRuntimeId] = useState<string>();
+  const [restartState, setRestartState] = useState<
+    "idle" | "pending" | "accepted" | "completed" | "error"
+  >("idle");
+  const [restartResult, setRestartResult] = useState<ComputerRestartStatus>();
   const setRuntimePublic = async (runtimeId: string, isPublic: boolean) => {
     setUpdatingRuntimeId(runtimeId);
     try {
@@ -63,9 +79,71 @@ export function ComputerDetail({
         }
         heading={computerLabel(computer)}
         meta={<StatusPill online={computer.online} />}
+        actions={
+          onRestart ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={restartState === "pending" || restartState === "accepted"}
+              onClick={() => {
+                setRestartState("pending");
+                const requestId = crypto.randomUUID();
+                void onRestart(requestId)
+                  .then(async (initial) => {
+                    setRestartResult(initial);
+                    if (initial.status !== "accepted" || !onReadRestartStatus) return initial;
+                    setRestartState("accepted");
+                    for (let poll = 0; poll < restartMaxPolls; poll += 1) {
+                      await new Promise((resolve) =>
+                        window.setTimeout(resolve, restartPollIntervalMs),
+                      );
+                      const result = await onReadRestartStatus(requestId);
+                      setRestartResult(result);
+                      if (result.status !== "accepted") return result;
+                    }
+                    return { requestId, status: "failed" as const, reason: "timeout" as const };
+                  })
+                  .then(
+                    (result) =>
+                      setRestartState(
+                        result.status === "completed"
+                          ? "completed"
+                          : result.status === "accepted"
+                            ? "accepted"
+                            : "error",
+                      ),
+                    () => setRestartState("error"),
+                  );
+              }}
+            >
+              <RotateCw aria-hidden="true" />
+              {restartState === "pending"
+                ? m.computer_restart_requesting()
+                : m.computer_restart_action()}
+            </Button>
+          ) : undefined
+        }
       />
 
       <div className="flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
+        {restartState === "accepted" && (
+          <p role="status" className="rounded-lg border border-success/40 p-3 text-sm">
+            {m.computer_restart_accepted()}
+          </p>
+        )}
+        {restartState === "completed" && restartResult?.status === "completed" && (
+          <p role="status" className="rounded-lg border border-success/40 p-3 text-sm">
+            {m.computer_restart_completed({
+              version: restartResult.daemonVersion,
+              process: restartResult.workerInstanceId,
+            })}
+          </p>
+        )}
+        {restartState === "error" && (
+          <p role="alert" className="rounded-lg border border-destructive/40 p-3 text-sm">
+            {m.computer_restart_error()}
+          </p>
+        )}
         <section aria-labelledby="computer-overview">
           <h2 id="computer-overview" className="text-sm font-semibold">
             {m.computer_overview()}

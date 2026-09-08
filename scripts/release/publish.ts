@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Publishes one Computer/Daemon release version to the local-distribution feed on Alibaba Cloud
+ * Publishes one unified Computer release version to the local-distribution feed on Alibaba Cloud
  * OSS: compile every target, assemble the version tree (build-release.ts), upload every object
  * it lists, read each one back and compare bytes, and only then write the feed's mutable
  * `latest` pointer - in that fixed order. docs/release.md ("Local Computer distribution model"):
@@ -491,11 +491,8 @@ export async function runPublish(
 
   const workDirectory = await mkdtemp(join(tmpdir(), "coforge-release-publish-"));
   try {
-    const artifacts: Record<string, { computer: Uint8Array; daemon: Uint8Array }> = {};
-    // Sequential rather than Promise.all: see compile-targets.ts's own doc comment on why two
-    // concurrent cold cross-compile toolchain downloads for the same bun-<os>-<arch> target is a
-    // failure mode worth avoiding, which applies equally across targets on a runner with no warm
-    // cache for any of them.
+    const artifacts: Record<string, { computer: Uint8Array }> = {};
+    // Compile sequentially to bound memory use across targets.
     for (const target of options.targets) {
       log(`compiling ${target}...`);
       artifacts[target] = await compile({

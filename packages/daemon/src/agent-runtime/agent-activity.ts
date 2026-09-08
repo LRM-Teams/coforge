@@ -2,11 +2,17 @@ export type { AgentActivity, AgentActivityLevel, AgentActivityType } from "@cofo
 import type { AgentActivity, AgentActivityLevel, AgentActivityType } from "@coforge/agent";
 
 export function createAgentActivity(
-  activity: AgentActivityType,
+  detailKind: AgentActivityType,
   level: AgentActivityLevel,
-  message: string,
+  detail: string,
   occurredAt = new Date().toISOString(),
-  diagnostic?: AgentActivity["diagnostic"],
+  runtimeError?: AgentActivity["runtimeError"],
 ): AgentActivity {
-  return { activity, level, message, occurredAt, ...(diagnostic ? { diagnostic } : {}) };
+  return {
+    detailKind,
+    level,
+    detail,
+    observedAtMs: Date.parse(occurredAt),
+    ...(runtimeError ? { runtimeError } : {}),
+  };
 }

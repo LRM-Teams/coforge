@@ -11,8 +11,8 @@ message ComputerRegisterRequest {
   string platform = 5;
   string os_version = 6;
   string computer_version = 7;
-  repeated RuntimeMetadata runtimes = 8;
   string registration_idempotency_key = 9;
+  reserved 8;
 }
 
 message RuntimeMetadata {

@@ -3,6 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  decodeDaemonCommandRequest,
+  encodeDaemonCommandResponse,
   decodeDaemonHandshakeRequest,
   encodeDaemonHandshakeResponse,
   decodeDaemonRuntimeConfigureRequest,
@@ -16,6 +18,7 @@ import { LocalDaemonLauncher, resolveDaemonExecutablePath } from "@coforge/daemo
 
 test("reuses a running daemon after a successful local handshake", async () => {
   let spawned = false;
+  let stopped = false;
   const launcher = new LocalDaemonLauncher({
     stateDirectory: "/state",
     serverUrl: "https://coforge.example",
@@ -24,6 +27,18 @@ test("reuses a running daemon after a successful local handshake", async () => {
     connect: async () => ({
       request: async (frame) => {
         const envelope = decodeLocalRpcRequest(readLocalRpcFrame(frame)!);
+        if (envelope.method === LOCAL_RPC_METHODS.STOP) {
+          stopped = true;
+          const request = decodeDaemonCommandRequest(envelope.payload);
+          return encodeLocalRpcResponse({
+            method: LOCAL_RPC_METHODS.STOP,
+            payload: encodeDaemonCommandResponse({
+              protocolMajor: 1,
+              requestId: request.requestId,
+              accepted: true,
+            }),
+          });
+        }
         if (envelope.method === LOCAL_RPC_METHODS.CONFIGURE) {
           const request = decodeDaemonRuntimeConfigureRequest(envelope.payload);
           return encodeLocalRpcResponse({
@@ -61,62 +76,29 @@ test("reuses a running daemon after a successful local handshake", async () => {
     daemonApiKey: "daemon-credential",
   });
   expect(spawned).toBe(false);
+  await launcher.stop();
+  expect(stopped).toBe(true);
+  expect(spawned).toBe(false);
 });
 
-test("starts the daemon and waits for its handshake", async () => {
-  let attempts = 0;
+test("does not implicitly detach a daemon when no process manager started one", async () => {
   let spawned = false;
   const launcher = new LocalDaemonLauncher({
     stateDirectory: "/state",
     serverUrl: "https://coforge.example",
-    executablePath: "/install/active/coforge-daemon",
+    executablePath: "/install/active/coforge-computer",
     socketPath: "/state/daemon.sock",
-    connect: async () => {
-      attempts += 1;
-      if (attempts < 2) throw Object.assign(new Error("not listening"), { code: "ENOENT" });
-      return {
-        request: async (frame: Uint8Array) => {
-          const envelope = decodeLocalRpcRequest(readLocalRpcFrame(frame)!);
-          if (envelope.method === LOCAL_RPC_METHODS.CONFIGURE) {
-            const request = decodeDaemonRuntimeConfigureRequest(envelope.payload);
-            return encodeLocalRpcResponse({
-              method: LOCAL_RPC_METHODS.CONFIGURE,
-              payload: encodeDaemonRuntimeConfigureResponse({
-                protocolMajor: 1,
-                requestId: request.requestId,
-                accepted: true,
-              }),
-            });
-          }
-          const request = decodeDaemonHandshakeRequest(envelope.payload);
-          return encodeLocalRpcResponse({
-            method: LOCAL_RPC_METHODS.HANDSHAKE,
-            payload: encodeDaemonHandshakeResponse({
-              protocolMajor: 1,
-              requestId: request.requestId,
-              daemonId: "daemon-1",
-              accepted: true,
-              serverUrl: "https://coforge.example",
-            }),
-          });
-        },
-        close() {},
-      };
-    },
-    spawn: (path, socket) => {
-      spawned = path === "/install/active/coforge-daemon" && socket === "/state/daemon.sock";
+    connect: async () =>
+      Promise.reject(Object.assign(new Error("not listening"), { code: "ENOENT" })),
+    spawn: () => {
+      spawned = true;
     },
     sleep: async () => {},
+    timeoutMilliseconds: 0,
   });
 
-  await launcher.ensureStarted({
-    workspaceId: "w",
-    computerId: "computer",
-    workspaceRoot: "/w",
-    daemonApiKey: "daemon-credential",
-  });
-  expect(spawned).toBe(true);
-  expect(attempts).toBe(2);
+  await expect(launcher.ensureRunning()).rejects.toThrow("coforge-computer foreground");
+  expect(spawned).toBe(false);
 });
 
 test("does not spawn when opening the daemon socket is forbidden", async () => {
@@ -256,17 +238,17 @@ test("refuses a legacy daemon identity before sending configuration credentials"
   expect(methods).toEqual([LOCAL_RPC_METHODS.HANDSHAKE]);
 });
 
-test("resolves the daemon from the active verified release", () => {
+test("resolves the unified executable from the active verified release", () => {
   expect(
     resolveDaemonExecutablePath({ installRoot: "/data/Coforge/Computer", platform: "linux" }),
-  ).toBe("/data/Coforge/Computer/active/coforge-daemon");
+  ).toBe("/data/Coforge/Computer/active/coforge-computer");
 });
 
-test("resolves the Windows daemon from the active verified release", () => {
+test("resolves the Windows unified executable from the active verified release", () => {
   expect(
     resolveDaemonExecutablePath({
       installRoot: "C:\\Users\\Alice\\.coforge\\computer\\install",
       platform: "win32",
     }),
-  ).toBe("C:\\Users\\Alice\\.coforge\\computer\\install\\active\\coforge-daemon.exe");
+  ).toBe("C:\\Users\\Alice\\.coforge\\computer\\install\\active\\coforge-computer.exe");
 });

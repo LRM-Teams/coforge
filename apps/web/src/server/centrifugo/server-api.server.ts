@@ -49,8 +49,9 @@ export function createCentrifugoServerApi(env = process.env): CentrifugoServerAp
   };
 }
 
-/** A private control channel for the Daemon authenticated for one Computer. */
-export const daemonControlChannel = (computerId: string) => `daemon:${computerId}`;
+/** A private control channel for one authenticated Workspace–Computer connection. */
+export const daemonControlChannel = (workspaceId: string, computerId: string) =>
+  `daemon:${workspaceId}:${computerId}`;
 export { AGENT_START_METHOD };
 export function createUsageScan(
   api: Pick<CentrifugoServerApi, "publish">,
@@ -61,12 +62,8 @@ export function createUsageScan(
   return (async () => {
     await cache.put({ ...input, scanId: requestId, status: "pending" });
     await api.publish(
-      daemonControlChannel(input.computerId),
-      encodeDaemonRuntimeUsageScanRequest({
-        protocolMajor: 1,
-        requestId,
-        ...input,
-      }),
+      daemonControlChannel(input.workspaceId, input.computerId),
+      encodeDaemonRuntimeUsageScanRequest({ protocolMajor: 1, requestId, ...input }),
     );
     return requestId;
   })();

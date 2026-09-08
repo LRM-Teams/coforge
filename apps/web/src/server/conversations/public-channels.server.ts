@@ -372,7 +372,7 @@ export class PublicChannels {
     for (const delivery of message.deliveries) {
       if (!delivery.agent.computerId) continue;
       await (this.publisher ?? createCentrifugoServerApi()).publish(
-        daemonControlChannel(delivery.agent.computerId),
+        daemonControlChannel(input.workspaceId, delivery.agent.computerId),
         encodeAgentMessageDelivery({
           protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
           method: AGENT_MESSAGE_METHOD,

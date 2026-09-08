@@ -40,7 +40,7 @@ export type ReleaseInputs = {
   version: string;
   commit: string;
   buildDate: string; // ISO 8601
-  artifacts: Record<string, { computer: Uint8Array; daemon: Uint8Array }>;
+  artifacts: Record<string, { computer: Uint8Array }>;
 };
 
 export type ReleaseTree = {
@@ -72,7 +72,7 @@ export async function buildReleaseTree(
   const versionDirectory = join(outputDirectory, inputs.version);
   await mkdir(versionDirectory, { recursive: true });
 
-  const platforms: Record<string, { computer: PlatformArtifact; daemon: PlatformArtifact }> = {};
+  const platforms: Record<string, { computer: PlatformArtifact }> = {};
   const files: string[] = [];
 
   for (const target of targets.sort()) {
@@ -83,19 +83,12 @@ export async function buildReleaseTree(
     // the exact same value, computed exactly once, right here - not two separate sha256() calls
     // that happen to agree today. docs/release.md: "the two must never be allowed to diverge".
     const computerIdentity = artifactIdentity(artifact.computer);
-    const daemonIdentity = artifactIdentity(artifact.daemon);
     const compressedComputer = Bun.gzipSync(Buffer.from(artifact.computer), { level: 9 });
-    const compressedDaemon = Bun.gzipSync(Buffer.from(artifact.daemon), { level: 9 });
     platforms[target] = {
       computer: {
         binary: "coforge-computer",
         ...computerIdentity,
         gzip: { binary: "coforge-computer.gz", ...artifactIdentity(compressedComputer) },
-      },
-      daemon: {
-        binary: "coforge-daemon",
-        ...daemonIdentity,
-        gzip: { binary: "coforge-daemon.gz", ...artifactIdentity(compressedDaemon) },
       },
     };
 
@@ -106,19 +99,16 @@ export async function buildReleaseTree(
       join(targetDirectory, "coforge-computer.sha256"),
       `${computerIdentity.checksum}\n`,
     );
-    await writeFile(join(targetDirectory, "coforge-daemon.gz"), compressedDaemon);
-
     files.push(
       `${inputs.version}/${target}/coforge-computer.gz`,
       `${inputs.version}/${target}/coforge-computer.sha256`,
-      `${inputs.version}/${target}/coforge-daemon.gz`,
     );
   }
 
   // schema_version, version, commit, buildDate, platforms - the shape packages/computer/src/
   // updater.ts's ReleaseManifest type and #assertManifest actually check, not a hand-guessed one.
   const manifest = {
-    schema_version: 1 as const,
+    schema_version: 2 as const,
     version: inputs.version,
     commit: inputs.commit,
     buildDate: inputs.buildDate,

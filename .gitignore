@@ -15,3 +15,9 @@ infra/secrets/
 .mise.local.toml
 .DS_Store
 *.log
+
+# Local cross-thread transfer archives (not product source).
+/coforge-coherent-snapshot*.tar.gz
+/coforge-lifecycle-*-delta.tar.gz
+/parent-v*-fixes.tar.gz
+/race-proof-evidence.tar.gz

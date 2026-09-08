@@ -15,7 +15,6 @@ export interface ComputerMetadataProvider {
     osVersion: string;
     computerVersion: string;
     machineId: string;
-    runtimes: ComputerRegisterRequest["runtimes"];
   }>;
 }
 
@@ -120,7 +119,6 @@ export class ComputerSetup {
     }
 
     let configPath: string;
-    const previousRegistration = (await this.options.config.loadRegistration?.()) ?? null;
     let registeredRegistration:
       | Parameters<NonNullable<ComputerConfig["discardRegistration"]>>[0]
       | undefined;
@@ -139,7 +137,9 @@ export class ComputerSetup {
           platform: metadata.platform,
           osVersion: metadata.osVersion,
           computerVersion: metadata.computerVersion,
-          runtimes: metadata.runtimes,
+          // Runtime inventory is discovered and published by the Daemon after
+          // it owns the Workspace connection. Computer registration contains
+          // machine identity only; it must not snapshot provider installs.
           registrationIdempotencyKey: this.options.idempotencyKeyProvider.create(
             serverUrl,
             `${input.workspaceSlug ?? workspace.slug}:${metadata.machineId}`,
@@ -160,23 +160,13 @@ export class ComputerSetup {
       };
       // Start first: the Daemon must accept its credential before local
       // configuration advertises this registration as usable.
-      // Replacement is deliberately ordered: stop the old daemon before the
-      // new binding is advertised. The old local binding remains on disk until
-      // the new one is durably saved, so failures are visible and recoverable.
-      if (
-        previousRegistration &&
-        previousRegistration.id !== response.workspaceId &&
-        "stopAll" in launcher &&
-        typeof launcher.stopAll === "function"
-      ) {
-        await launcher.stopAll();
-      }
       try {
         await launcher.ensureStarted({
           workspaceId: response.workspaceId,
           computerId: response.computerId,
           workspaceRoot: this.options.workspaceRoot,
           daemonApiKey: response.daemonApiKey,
+          serverHttpUrl: serverUrl,
         });
       } catch (error) {
         if (error instanceof CliError) throw error;

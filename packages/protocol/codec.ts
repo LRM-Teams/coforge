@@ -1,4 +1,5 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import { parseActivityEntries, type ActivityTrajectoryEntry } from "./activity-entries";
 import {
   ComputerRegisterRequestSchema,
   ComputerRegisterResponseSchema,
@@ -22,8 +23,10 @@ import {
   DaemonRuntimeReadyRequestSchema,
   DaemonRuntimeUsageScanRequestSchema,
   DaemonRuntimeUsageScanResponseSchema,
+  ComputerRestartIntentSchema,
 } from "./gen/coforge/rpc/v1/daemon_runtime_pb";
 import {
+  AgentSessionReportSchema,
   AgentStartIntentSchema,
   AgentStopIntentSchema,
   AgentMessageDeliverySchema,
@@ -34,6 +37,7 @@ import {
   CloudAgentMessageResponseSchema,
 } from "./gen/coforge/rpc/v1/workspace_pb";
 import type {
+  AgentSessionReport,
   AgentStartIntent,
   AgentStopIntent,
   AgentRuntimeProviderConfig,
@@ -56,7 +60,9 @@ import type {
   RuntimeMetadata,
   DaemonRuntimeCodeAgentsUpdateRequest,
   DaemonRuntimeReadyRequest,
+  ComputerRestartIntent,
 } from "./index";
+import { COMPUTER_RESTART_MESSAGE_TYPE } from "./index";
 
 const runtimeMetadata = (runtime: RuntimeMetadata) => ({
   ...runtime,
@@ -131,8 +137,32 @@ export function decodeDaemonRuntimeReadyRequest(bytes: Uint8Array): DaemonRuntim
     workspaceId: value.workspaceId,
     computerId: value.computerId,
     workerInstanceId: value.workerInstanceId,
+    daemonVersion: value.daemonVersion,
     startedAt: Number(value.startedAt),
     runningAgentIds: [...value.runningAgentIds],
+    recoveredRestartRequestIds: [...value.recoveredRestartRequestIds],
+  };
+}
+
+export function encodeComputerRestartIntent(value: ComputerRestartIntent): Uint8Array {
+  return toBinary(
+    ComputerRestartIntentSchema,
+    create(ComputerRestartIntentSchema, { ...value, messageType: COMPUTER_RESTART_MESSAGE_TYPE }),
+  );
+}
+
+export function decodeComputerRestartIntent(bytes: Uint8Array): ComputerRestartIntent {
+  const value = fromBinary(ComputerRestartIntentSchema, bytes);
+  if (value.messageType !== COMPUTER_RESTART_MESSAGE_TYPE)
+    throw new Error("invalid Computer restart message type");
+  if (!value.requestId || !value.workspaceId || !value.computerId)
+    throw new Error("invalid Computer restart intent");
+  return {
+    protocolMajor: value.protocolMajor,
+    requestId: value.requestId,
+    workspaceId: value.workspaceId,
+    computerId: value.computerId,
+    messageType: COMPUTER_RESTART_MESSAGE_TYPE,
   };
 }
 
@@ -213,6 +243,47 @@ export function decodeDaemonRuntimeUsageScanResponse(bytes: Uint8Array) {
     snapshotJson: v.snapshotJson.length ? v.snapshotJson : undefined,
     messageType: v.messageType,
   };
+}
+
+export function encodeAgentSessionReport(value: AgentSessionReport): Uint8Array {
+  validateAgentSessionReport(value);
+  return toBinary(AgentSessionReportSchema, create(AgentSessionReportSchema, value));
+}
+
+export function decodeAgentSessionReport(bytes: Uint8Array): AgentSessionReport {
+  const { $typeName: _, ...value } = fromBinary(AgentSessionReportSchema, bytes);
+  validateAgentSessionReport(value);
+  return value;
+}
+
+function validateAgentSessionReport(value: {
+  protocolMajor: number;
+  provider: string;
+  [key: string]: unknown;
+}): asserts value is AgentSessionReport {
+  if (
+    value.protocolMajor !== 1 ||
+    !Object.values(RUNTIME_PROVIDER).includes(value.provider as RuntimeProvider)
+  )
+    throw new Error("invalid session report protocol/provider");
+  for (const field of [
+    "requestId",
+    "workspaceId",
+    "computerId",
+    "agentId",
+    "sessionId",
+    "startRequestId",
+    "daemonInstanceId",
+    "launchId",
+    ...(value.previousLaunchId === undefined ? [] : ["previousLaunchId"]),
+    ...(value.replacedSessionId === undefined ? [] : ["replacedSessionId"]),
+  ])
+    if (
+      typeof value[field] !== "string" ||
+      !(value[field] as string).trim() ||
+      (value[field] as string).length > 512
+    )
+      throw new Error(`invalid session report ${field}`);
 }
 
 export function encodeAgentStartIntent(value: AgentStartIntent): Uint8Array {
@@ -302,6 +373,10 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     summaryTargets.size !== v.unreadSummary.length
   )
     throw new Error("invalid agent recovery context");
+  if (v.sessionMode !== undefined && v.sessionMode !== "create" && v.sessionMode !== "resume")
+    throw new Error("invalid Agent session mode");
+  if (v.sessionMode === "resume" && !v.sessionId)
+    throw new Error("Agent resume requires a session ID");
   const recoveryMessage = (message: (typeof recoveryMessages)[number]) => ({
     messageId: message.messageId,
     deliveryId: message.deliveryId,
@@ -321,6 +396,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     model: v.model,
     modelProvider: v.modelProvider,
     reasoning: v.reasoning,
+    ...(v.previousLaunchId ? { previousLaunchId: v.previousLaunchId } : {}),
     providerConfig: v.providerConfig
       ? parseAgentRuntimeProviderConfig(
           v.providerConfig.kind,
@@ -328,6 +404,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
         )
       : undefined,
     ...(v.sessionId ? { sessionId: v.sessionId } : {}),
+    ...(v.sessionMode ? { sessionMode: v.sessionMode } : {}),
     ...(v.wakeMessage ? { wakeMessage: recoveryMessage(v.wakeMessage) } : {}),
     ...(v.resumeMessages.length ? { resumeMessages: v.resumeMessages.map(recoveryMessage) } : {}),
     ...(v.unreadSummary.length
@@ -455,9 +532,19 @@ export function encodeAgentActivity(value: AgentActivity): Uint8Array {
     create(AgentActivitySchema, {
       ...value,
       clientSeq: BigInt(value.clientSeq),
-      diagnosticErrorClass: value.diagnostic?.errorClass ?? "",
-      diagnosticReason: value.diagnostic?.reason ?? "",
-      diagnosticFingerprint: value.diagnostic?.fingerprint ?? "",
+      observedAtMs: BigInt(value.observedAtMs),
+      runtimeErrorClass: value.runtimeError?.errorClass ?? "",
+      runtimeErrorReason: value.runtimeError?.errorReason ?? "",
+      runtimeErrorFingerprint: value.runtimeError?.fingerprint ?? "",
+      entries: value.entries?.map((entry) => ({
+        content:
+          entry.kind === "tool_start"
+            ? { case: "toolName" as const, value: entry.toolName }
+            : entry.kind === "thinking"
+              ? { case: "thinking" as const, value: entry.text }
+              : { case: "text" as const, value: entry.text },
+        parentToolUseId: entry.subagent?.parentToolUseId ?? "",
+      })),
     }),
   );
 }
@@ -568,25 +655,36 @@ export function decodeCloudAgentMessageResponse(bytes: Uint8Array): CloudAgentMe
 }
 export function decodeAgentActivity(bytes: Uint8Array): AgentActivity {
   const v = fromBinary(AgentActivitySchema, bytes);
+  const entries = v.entries.map((entry): ActivityTrajectoryEntry => {
+    const scope = entry.parentToolUseId
+      ? { subagent: { parentToolUseId: entry.parentToolUseId } }
+      : {};
+    if (entry.content.case === "toolName")
+      return { kind: "tool_start", toolName: entry.content.value, ...scope };
+    if (entry.content.case === "thinking" || entry.content.case === "text")
+      return { kind: entry.content.case, text: entry.content.value, ...scope };
+    throw new Error("missing activity entry content");
+  });
   const value = {
     protocolMajor: v.protocolMajor,
     requestId: v.requestId,
     workspaceId: v.workspaceId,
     agentId: v.agentId,
-    activity: v.activity,
+    detailKind: v.detailKind,
     clientSeq: Number(v.clientSeq),
     level: v.level as AgentActivity["level"],
-    message: v.message,
-    occurredAt: v.occurredAt,
+    detail: v.detail,
+    observedAtMs: Number(v.observedAtMs),
     launchId: v.launchId,
+    ...(entries.length ? { entries } : {}),
     ...(v.messageId ? { messageId: v.messageId } : {}),
     ...(v.conversationId ? { conversationId: v.conversationId } : {}),
-    ...(v.diagnosticErrorClass
+    ...(v.runtimeErrorClass
       ? {
-          diagnostic: {
-            errorClass: v.diagnosticErrorClass,
-            reason: v.diagnosticReason,
-            fingerprint: v.diagnosticFingerprint,
+          runtimeError: {
+            errorClass: v.runtimeErrorClass,
+            errorReason: v.runtimeErrorReason,
+            fingerprint: v.runtimeErrorFingerprint,
           },
         }
       : {}),
@@ -652,6 +750,7 @@ function validateAgentStatus(value: {
 }
 
 function validateAgentActivity(value: AgentActivity): void {
+  if (value.entries !== undefined) parseActivityEntries(value.entries);
   if (
     value.protocolMajor !== 1 ||
     !value.requestId ||
@@ -660,10 +759,10 @@ function validateAgentActivity(value: AgentActivity): void {
     !value.launchId ||
     !Number.isSafeInteger(value.clientSeq) ||
     value.clientSeq < 1 ||
-    !value.activity ||
+    !value.detailKind ||
     !["info", "warning", "error"].includes(value.level) ||
-    !value.occurredAt ||
-    Number.isNaN(Date.parse(value.occurredAt))
+    !Number.isSafeInteger(value.observedAtMs) ||
+    value.observedAtMs < 1
   )
     throw new Error("invalid agent activity");
 }
@@ -739,7 +838,6 @@ export function encodeComputerRegisterRequest(value: ComputerRegisterRequest): U
     ComputerRegisterRequestSchema,
     create(ComputerRegisterRequestSchema, {
       ...value,
-      runtimes: value.runtimes.map(runtimeMetadata),
     }),
   );
 }
@@ -755,7 +853,6 @@ export function decodeComputerRegisterRequest(bytes: Uint8Array): ComputerRegist
     osVersion: value.osVersion,
     computerVersion: value.computerVersion,
     registrationIdempotencyKey: value.registrationIdempotencyKey,
-    runtimes: value.runtimes.map(decodedRuntimeMetadata),
   };
 }
 

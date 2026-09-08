@@ -1,13 +1,14 @@
 import "./dom-setup";
 
-import { afterEach, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { afterEach, expect, jest, mock, test } from "bun:test";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 
 import { ComputerDetail, CopyMachineId } from "@/features/computers/computer-detail";
 
 const nativeClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
 
 afterEach(() => {
+  jest.useRealTimers();
   cleanup();
   // The stub is installed on the shared navigator, so it would otherwise
   // outlive this file and reach every test that runs after it.
@@ -72,6 +73,84 @@ test("shows the machine, its Code Agents, and an explicit no-snapshot usage stat
   expect(page.getByText("No snapshot yet")).toBeTruthy();
 });
 
+test("labels publication acceptance as waiting for actual restart recovery", async () => {
+  const restart = mock(async (requestId: string) => ({
+    requestId,
+    status: "accepted" as const,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  }));
+  render(
+    <ComputerDetail
+      computer={computer}
+      onScanUsage={async () => undefined}
+      onSetRuntimePublic={async () => undefined}
+      onRestart={restart}
+    />,
+  );
+
+  fireEvent.click(within(document.body).getByRole("button", { name: "Restart" }));
+  await waitFor(() => expect(restart).toHaveBeenCalledTimes(1));
+  expect((await within(document.body).findByRole("status")).textContent).toContain(
+    "this is not completion yet",
+  );
+});
+
+test("shows the recovered daemon version and process identity after restart", async () => {
+  render(
+    <ComputerDetail
+      computer={computer}
+      onScanUsage={async () => undefined}
+      onSetRuntimePublic={async () => undefined}
+      onRestart={async (requestId) => ({
+        requestId,
+        status: "accepted",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      })}
+      onReadRestartStatus={async (requestId) => ({
+        requestId,
+        status: "completed",
+        completedAt: new Date().toISOString(),
+        workerInstanceId: "worker-new",
+        daemonVersion: "2.3.4",
+        startedAt: 2,
+      })}
+      restartPollIntervalMs={1}
+    />,
+  );
+  fireEvent.click(within(document.body).getByRole("button", { name: "Restart" }));
+  await waitFor(() =>
+    expect(within(document.body).getByRole("status").textContent).toContain(
+      "Daemon 2.3.4, process worker-new",
+    ),
+  );
+});
+
+test("shows a bounded restart timeout as an error", async () => {
+  render(
+    <ComputerDetail
+      computer={computer}
+      onScanUsage={async () => undefined}
+      onSetRuntimePublic={async () => undefined}
+      onRestart={async (requestId) => ({
+        requestId,
+        status: "accepted",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      })}
+      onReadRestartStatus={async (requestId) => ({
+        requestId,
+        status: "accepted",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      })}
+      restartPollIntervalMs={1}
+      restartMaxPolls={1}
+    />,
+  );
+  fireEvent.click(within(document.body).getByRole("button", { name: "Restart" }));
+  expect((await within(document.body).findByRole("alert")).textContent).toContain(
+    "did not complete before the deadline",
+  );
+});
+
 test("confirms a copy for a moment instead of staying copied", async () => {
   const written = stubClipboard();
   render(<CopyMachineId machineId="macos:9f2c" feedbackMs={30} />);
@@ -85,24 +164,31 @@ test("confirms a copy for a moment instead of staying copied", async () => {
 });
 
 test("gives a second press its own full confirmation", async () => {
-  stubClipboard();
+  const written = stubClipboard();
+  jest.useFakeTimers();
   render(<CopyMachineId machineId="macos:9f2c" feedbackMs={80} />);
   const page = within(document.body);
-  const pressAndConfirm = async () => {
+
+  const press = async () => {
     fireEvent.click(page.getByRole("button", { name: /machine ID/i }));
-    await waitFor(() =>
-      expect(page.getByRole("button", { name: "Machine ID copied" })).toBeTruthy(),
-    );
+    await act(async () => {});
   };
 
-  await pressAndConfirm();
-  await new Promise((resolve) => setTimeout(resolve, 60));
+  await press();
+  expect(written).toEqual(["macos:9f2c"]);
+  expect(page.getByRole("button", { name: "Machine ID copied" })).toBeTruthy();
+
+  act(() => jest.advanceTimersByTime(60));
   // The first press's window is nearly spent; the second must start a new one
   // rather than inherit what is left of it.
-  await pressAndConfirm();
-  await new Promise((resolve) => setTimeout(resolve, 40));
+  await press();
+  expect(written).toEqual(["macos:9f2c", "macos:9f2c"]);
 
+  act(() => jest.advanceTimersByTime(79));
   expect(page.getByRole("button", { name: "Machine ID copied" })).toBeTruthy();
+
+  act(() => jest.advanceTimersByTime(1));
+  expect(page.getByRole("button", { name: "Copy machine ID" })).toBeTruthy();
 });
 
 test("leaves the machine id readable when the clipboard refuses", async () => {

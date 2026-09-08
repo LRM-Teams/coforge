@@ -64,16 +64,6 @@ instructions for the TanStack Start Web/backend modular monolith.
 
 ## Route and page organization
 
-- Web Push belongs to `features/notifications/` for authenticated settings,
-  permission/subscription UI, and the Service Worker contract. Server-only
-  preference and per-browser subscription persistence, VAPID key loading,
-  eligibility, encrypted delivery, and invalid-subscription cleanup belong to
-  `server/notifications/`. Conversation send orchestration may invoke that
-  public notification seam only after the canonical Message commits; it must
-  not own Web Push protocol or persistence details. Channel mute eligibility
-  remains owned by PublicChannels. Test push uses the same server delivery
-  seam as committed-message push.
-
 - Public channels belong to `features/conversations/` (discovery, join/create,
   shared message UI and authenticated functions) and
   `server/conversations/public-channels.server.ts` (Workspace authorization,
@@ -133,7 +123,6 @@ instructions for the TanStack Start Web/backend modular monolith.
   │   ├── conversations/
   │   ├── projects/
   │   ├── profiles/
-  │   ├── notifications/
   │   └── attachments/
   ├── components/
   │   ├── layout/
@@ -164,15 +153,22 @@ instructions for the TanStack Start Web/backend modular monolith.
 
 ## Agent status and activity UI
 
-- `src/features/agents/workspace-activity-realtime.ts` owns one messages-page Activity
-  subscription and reconnect history merge for the selected Workspace. Avatars consume
-  its shared result, never open sockets or fetch full Agent details individually.
-- `AgentActivityRepository.listForMember` provides the authorized, compact per-Agent
-  history snapshot; `agent-activity.functions.ts` is its authenticated browser seam.
+- `server/agents/agent-sessions.server.ts` owns cloud-selected provider session
+  references and start/daemon/launch fencing. The repository adapter persists
+  nullable `Agent.runtimeSession` separately from user runtime configuration;
+  acknowledged `agent:session` WSS RPC reports never travel as Activity. Ready
+  recovery selects Agents in the cloud; no local transcript scan starts Agents.
 - `src/features/agents/agent-activity-avatar.tsx` owns the working activity label
   and accessible recent-activity popover. It consumes newest-first activity from
   the Activity module; it does not interpret provider message text or own transport.
   Online presence remains independent. Stale observations clear the working label.
+- `workspace-activity-realtime.ts` owns one messages-page Workspace Activity
+  subscription and compact initial/reconnect history; avatars never open connections.
+- Workspace-scoped Code Agent installation inventory belongs to
+  `server/db/repositories/computer-runtime.repositories.server.ts`. Runtime visibility and
+  model catalogs are keyed and queried by the trusted `(workspaceId, computerId)` connection;
+  a Computer shared with another Workspace must not share publication state or catalog rows.
+
 - `src/features/agents/agents.functions.ts` owns the authenticated Agent list/create seam;
   server-side Agent persistence, start publication, and ready recovery remain under
   `src/server/agents/` and `src/server/db/repositories/`.
@@ -187,15 +183,24 @@ instructions for the TanStack Start Web/backend modular monolith.
 - Keep Agent status and activity separate. `agent:status` contains only
   `active` or `inactive`; the UI presents those values as online or offline and
   must not infer more statuses from activity text.
-- Render the fixed `agent:activity` fields `activity`, `level`, `message`, and
-  `occurred_at` in an Agent-owned timeline under `src/features/agents/`.
-- Localize the label and icon selected by `activity`, but preserve provider
-  error and warning `message` text in its original language and wording.
-- Render unknown activity values with a generic activity presentation and the
-  original message instead of dropping the record.
+- Render `agent:activity` fields `detail`, `detailKind`, `entries`, `observedAtMs`,
+  and the CoForge `level` extension in an Agent-owned timeline under
+  `src/features/agents/`.
+- Activity content and labels are **not internationalized**. Use Raft-style
+  English activity labels consistently in the timeline, avatar hover and chat
+  header. Preserve provider text, thinking, errors and warnings in their original
+  language and wording, subject to required secret redaction. Do not add Activity
+  label translation keys. Navigation, tabs and general UI remain localized.
+- Render unknown detail kinds with a generic activity presentation and the
+  original detail instead of dropping the record.
 - Show command and workspace-relative file path messages as copyable monospace
   text. Never expect or render file contents, diffs, prompts, secrets, or raw
   provider stderr in an activity record.
+- The user-approved display-content exception is structured `entries` containing
+  provider-exposed assistant text and thinking intended for display. Never
+  extract hidden reasoning or copy raw tool arguments, outputs or patches.
+  Render that text as plain text, not HTML; redaction is best effort, not a
+  guarantee that every sensitive statement can be recognized.
 
 ## Type safety and code splitting
 

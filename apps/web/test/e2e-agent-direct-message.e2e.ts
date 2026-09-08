@@ -98,7 +98,6 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       platform: "linux",
       osVersion: "e2e",
       computerVersion: "0.1.0",
-      runtimes: [{ provider: "pi", version: "0.1.0", displayName: "Pi" }],
       registrationIdempotencyKey: "e2e-registration",
     },
     { userId: DEV_BROWSER_USER.id },
@@ -375,7 +374,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     expect(firstLaunchActivity.map(({ clientSeq }) => clientSeq)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9,
     ]);
-    expect(firstLaunchActivity.map(({ activity }) => activity)).toEqual([
+    expect(firstLaunchActivity.map(({ detailKind }) => detailKind)).toEqual([
       "starting",
       "turn_completed",
       "freshness_hold",
@@ -386,8 +385,8 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       "using_tool",
       "turn_completed",
     ]);
-    expect(firstLaunchActivity[3]!.message).toBe("printf e2e-activity");
-    expect(firstLaunchActivity.slice(4, 8).map(({ message }) => message)).toEqual([
+    expect(firstLaunchActivity[3]!.detail).toBe("printf e2e-activity");
+    expect(firstLaunchActivity.slice(4, 8).map(({ detail }) => detail)).toEqual([
       "/workspace/e2e-read.ts",
       "/workspace/e2e-write.ts",
       "/workspace/e2e-edit.ts",
@@ -504,7 +503,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       orderBy: { createdAt: "desc" },
     });
     expect(replacementActivity.clientSeq).toBe(1);
-    expect(replacementActivity.activity).toBe("starting");
+    expect(replacementActivity.detailKind).toBe("starting");
 
     const errorMessage = "E2E provider failure shown without hiding runtime configuration.";
     const errorActivity = encodeAgentActivity({
@@ -512,10 +511,10 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       requestId: crypto.randomUUID(),
       workspaceId,
       agentId: created.agent.id,
-      activity: "error",
+      detailKind: "error",
       level: "error",
-      message: errorMessage,
-      occurredAt: new Date().toISOString(),
+      detail: errorMessage,
+      observedAtMs: Date.now(),
       launchId: replacementActivity.launchId,
       clientSeq: 50,
     });
@@ -544,7 +543,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     await waitFor(
       async () =>
         (await db.agentActivity.count({
-          where: { agentId: created.agent.id, message: errorMessage },
+          where: { agentId: created.agent.id, detail: errorMessage },
         })) === 1,
     );
 

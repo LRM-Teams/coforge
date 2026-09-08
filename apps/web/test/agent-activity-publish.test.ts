@@ -8,10 +8,10 @@ const activity = {
   requestId: "activity-1",
   workspaceId: "workspace-1",
   agentId: "agent-1",
-  activity: "using_tool",
+  detailKind: "tool_started",
   level: "info",
-  message: "Running a tool",
-  occurredAt: "2026-08-29T00:00:00.000Z",
+  detail: "Running a tool",
+  observedAtMs: Date.parse("2026-08-29T00:00:00.000Z"),
   launchId: "launch-1",
   clientSeq: 1,
 } as const;

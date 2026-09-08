@@ -104,15 +104,16 @@ export function useWorkspaceActivity({
           event.clientSeq < 1
         )
           return;
-        const occurredAt = new Date(event.occurredAt);
-        if (!Number.isFinite(occurredAt.getTime()) || disposed) return;
+        if (!Number.isSafeInteger(event.observedAtMs) || event.observedAtMs < 1 || disposed) return;
         const entry: ActivityEntry = {
           launchId: event.launchId,
           clientSeq: event.clientSeq,
-          activity: event.activity,
+          detailKind: event.detailKind,
           level: event.level,
-          message: "",
-          occurredAt,
+          detail: event.detail,
+          observedAtMs: event.observedAtMs,
+          entries: event.entries,
+          runtimeError: event.runtimeError,
         };
         setView((current) => ({
           ...current,

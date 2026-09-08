@@ -6,15 +6,23 @@ import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import { AppToastProvider } from "@/components/ui/toast";
 import { encodeAgentActivity } from "@coforge/protocol";
-import type { ActivityEntry } from "@/features/agents/agent-activity";
 import type { DirectConversationView } from "@/features/conversations/direct-conversation";
+type HistoryActivity = {
+  id: string;
+  launchId: string;
+  clientSeq: number;
+  detailKind: string;
+  level: "info" | "warning" | "error";
+  detail: string;
+  observedAtMs: number;
+};
 
 let detailOnline = false;
 let publishActivity = (_publication: { channel: string; data: Uint8Array }) => {};
 let connectActivity = () => {};
 let detailReadCount = 0;
 let historyBlock: Promise<void> | undefined;
-let extraHistory: ActivityEntry[] = [];
+let extraHistory: HistoryActivity[] = [];
 const agents = [
   {
     id: "agent-1",
@@ -151,21 +159,19 @@ mock.module("@/features/agents/agents.functions", () => ({
       computerId: "computer-12345678",
       launchId: "launch-1",
       clientSeq: 2,
-      activity: "launch_failed",
+      detailKind: "launch_failed",
       level: "error",
-      message: "Agent runtime could not be started.",
-      occurredAt: new Date("2026-08-29T00:00:01Z"),
-      createdAt: new Date("2026-08-29T00:00:02Z"),
+      detail: "Agent runtime could not be started.",
+      observedAtMs: Date.parse("2026-08-29T00:00:01Z"),
     };
     const starting = {
       ...failure,
       id: "activity-2",
       clientSeq: 1,
-      activity: "starting",
+      detailKind: "starting",
       level: "info",
-      message: "Agent runtime is starting.",
-      occurredAt: new Date("2026-08-29T00:00:00Z"),
-      createdAt: new Date("2026-08-29T00:00:01Z"),
+      detail: "Agent runtime is starting.",
+      observedAtMs: Date.parse("2026-08-29T00:00:00Z"),
     };
     return {
       ...agents[0],
@@ -465,12 +471,39 @@ test("reuses parent application data across sidebar destinations", async () => {
 });
 
 test("an Agent profile shows its Computer, runtime configuration, and latest failure", async () => {
-  const { page } = await renderRoute("/agents/agent-1?tab=profile");
+  const { page, router } = await renderRoute("/agents/agent-1?tab=profile");
   expect(page.getByRole("heading", { name: "First Agent" })).toBeTruthy();
   expect(page.getByRole("img", { name: "First Agent, Offline" })).toBeTruthy();
   expect(page.getByText("Offline")).toBeTruthy();
   expect(page.getByText("computer…5678")).toBeTruthy();
   expect(page.getByRole("alert").textContent).toContain("Agent runtime could not be started.");
+  const reason =
+    "Original session history was not found. A new session was started; previous context was not restored.";
+  await act(() =>
+    router.navigate({
+      to: "/agents/$agentId",
+      params: { agentId: "agent-1" },
+      search: { tab: "activity" },
+    }),
+  );
+  await act(async () =>
+    publishActivity({
+      channel: "activity:workspace-1",
+      data: encodeAgentActivity({
+        protocolMajor: 1,
+        requestId: "new-session-after-missing",
+        workspaceId: "workspace-1",
+        agentId: "agent-1",
+        launchId: "launch-recovery",
+        clientSeq: 1,
+        detailKind: "other",
+        level: "info",
+        detail: reason,
+        observedAtMs: Date.now(),
+      }),
+    }),
+  );
+  expect(page.getByText(reason)).toBeTruthy();
 });
 
 test("an Agent Activity tab shows only time, action, and message", async () => {
@@ -483,6 +516,30 @@ test("an Agent Activity tab shows only time, action, and message", async () => {
   expect(page.queryByText("launch_failed")).toBeNull();
   expect(page.queryByText(/launch-1/)).toBeNull();
   expect(page.queryByText("error")).toBeNull();
+});
+
+test("live thinking displays its label and the unchanged provider text", async () => {
+  const { page } = await renderRoute("/agents/agent-1?tab=activity");
+  await act(async () =>
+    publishActivity({
+      channel: "activity:workspace-1",
+      data: encodeAgentActivity({
+        protocolMajor: 1,
+        requestId: "thinking",
+        workspaceId: "workspace-1",
+        agentId: "agent-1",
+        launchId: "launch-2",
+        clientSeq: 1,
+        detailKind: "thinking_started",
+        level: "info",
+        detail: "Checking the saved conversation before replying.",
+        observedAtMs: Date.now(),
+      }),
+    }),
+  );
+  expect(page.getByText("Thinking")).toBeTruthy();
+  expect(page.getByText("Checking the saved conversation before replying.")).toBeTruthy();
+  expect(page.queryByText("Other: thinking_started")).toBeNull();
 });
 
 test("profile shows Online and clears an old failure on live recovery without navigation", async () => {
@@ -501,10 +558,10 @@ test("profile shows Online and clears an old failure on live recovery without na
         agentId: "agent-1",
         launchId: "launch-2",
         clientSeq: 1,
-        activity: "starting",
+        detailKind: "starting",
         level: "info",
-        message: "Starting",
-        occurredAt: "2026-08-29T00:00:03Z",
+        detail: "Starting",
+        observedAtMs: Date.parse("2026-08-29T00:00:03Z"),
       }),
     }),
   );
@@ -521,10 +578,10 @@ test("Activity appends matching live observations once and renders turn completi
     agentId: "agent-1",
     launchId: "launch-2",
     clientSeq: 1,
-    activity: "turn_completed",
+    detailKind: "turn_completed",
     level: "info" as const,
-    message: "Agent turn completed.",
-    occurredAt: "2026-08-29T00:00:03Z",
+    detail: "Agent turn completed.",
+    observedAtMs: Date.parse("2026-08-29T00:00:03Z"),
   };
   await act(async () => {
     publishActivity({
@@ -566,10 +623,10 @@ test("reconnect hydrates missed history without losing activity arriving during 
           agentId: "agent-1",
           launchId: "launch-2",
           clientSeq: 2,
-          activity: "using_tool",
+          detailKind: "using_tool",
           level: "info",
-          message: "Live during reload",
-          occurredAt: "2026-08-29T00:00:04Z",
+          detail: "Live during reload",
+          observedAtMs: Date.parse("2026-08-29T00:00:04Z"),
         }),
       }),
     );
@@ -579,11 +636,10 @@ test("reconnect hydrates missed history without losing activity arriving during 
         id: "persisted-missed",
         launchId: "launch-2",
         clientSeq: 1,
-        activity: "using_tool",
+        detailKind: "using_tool",
         level: "info",
-        message: "Recovered history",
-        occurredAt: new Date("2026-08-29T00:00:03Z"),
-        createdAt: new Date("2026-08-29T00:00:03Z"),
+        detail: "Recovered history",
+        observedAtMs: Date.parse("2026-08-29T00:00:03Z"),
       },
     ];
     await act(async () => {

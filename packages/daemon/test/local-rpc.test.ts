@@ -136,6 +136,7 @@ test("daemon stores configured connection metadata without its token", async () 
       computerId: "computer-a",
       workspaceId: "workspace-a",
       workspaceRoot: "/workspaces/workspace-a",
+      serverHttpUrl: launcherEnvironment.serverUrl,
     },
   ]);
   expect(JSON.stringify(saved)).not.toContain("daemon-secret");

@@ -9,6 +9,7 @@ function fixture() {
   const records: ComputerRuntimeRecord[] = [
     {
       id: "owned-private",
+      workspaceId: "workspace-1",
       computerId: "computer-1",
       ownerId: "user-1",
       provider: "codex",
@@ -19,6 +20,7 @@ function fixture() {
     },
     {
       id: "shared-public",
+      workspaceId: "workspace-1",
       computerId: "computer-2",
       ownerId: "user-2",
       provider: "claude-code",
@@ -29,6 +31,7 @@ function fixture() {
     },
     {
       id: "other-private",
+      workspaceId: "workspace-1",
       computerId: "computer-2",
       ownerId: "user-2",
       provider: "codex",
@@ -37,13 +40,30 @@ function fixture() {
       observedAt: new Date("2026-09-03T00:00:00Z"),
       isPublic: false,
     },
+    {
+      id: "other-workspace-public",
+      workspaceId: "workspace-2",
+      computerId: "computer-1",
+      ownerId: "user-1",
+      provider: "codex",
+      version: "2",
+      displayName: "Codex from another Workspace",
+      observedAt: new Date("2026-09-04T00:00:00Z"),
+      isPublic: true,
+    },
   ];
   const repository: ComputerRuntimeVisibilityRepository = {
-    listInWorkspace: async () => records,
-    findInWorkspace: async (_workspaceId, computerId, provider) =>
-      records.find((record) => record.computerId === computerId && record.provider === provider),
-    findByIdInWorkspace: async (_workspaceId, runtimeId) =>
-      records.find((record) => record.id === runtimeId),
+    listInWorkspace: async (workspaceId) =>
+      records.filter((record) => record.workspaceId === workspaceId),
+    findInWorkspace: async (workspaceId, computerId, provider) =>
+      records.find(
+        (record) =>
+          record.workspaceId === workspaceId &&
+          record.computerId === computerId &&
+          record.provider === provider,
+      ),
+    findByIdInWorkspace: async (workspaceId, runtimeId) =>
+      records.find((record) => record.workspaceId === workspaceId && record.id === runtimeId),
     setPublic: async (runtimeId, isPublic) => {
       const record = records.find((candidate) => candidate.id === runtimeId);
       if (!record) throw new Error("runtime is not available");
@@ -101,5 +121,15 @@ describe("ComputerRuntimeVisibility", () => {
     await expect(
       visibility.setPublic({ userId: "user-3", workspaceId: "workspace-1" }, "other-private", true),
     ).rejects.toThrow("runtime is not owned by the current user");
+  });
+
+  test("publication remains isolated to its Workspace on a shared Computer", async () => {
+    const { visibility } = fixture();
+    const member = { userId: "user-3", workspaceId: "workspace-1" };
+
+    expect(await visibility.canSelect(member, "computer-1", "codex")).toBe(false);
+    expect((await visibility.list(member)).some(({ id }) => id === "other-workspace-public")).toBe(
+      false,
+    );
   });
 });

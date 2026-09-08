@@ -7,9 +7,15 @@ import type {
 import type { CodeAgentProvider } from "../contract";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
-import { createAgentActivity, type AgentActivityType } from "../../agent-runtime/agent-activity";
+import { createAgentActivity } from "../../agent-runtime/agent-activity";
+import { toolActivity } from "../tool-activity";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
-import { createSession, getCoforgeAgentDir, getCoforgeSessionDir } from "@coforge/agent";
+import {
+  createSession,
+  getCoforgeAgentDir,
+  getCoforgeSessionDir,
+  findSessionFile,
+} from "@coforge/agent";
 import { join } from "node:path";
 
 export function externalPiCommand(sessionDir?: string): readonly string[] {
@@ -28,12 +34,30 @@ export class PiDriver implements AgentDriver {
     const runtime = options.runtime;
     if (runtime?.providerConfig?.kind === "coforge")
       throw new Error("CoForge provider config requires the coforge runtime");
+    const replacedSessionId =
+      options.sessionId &&
+      !(await findSessionFile(
+        join(options.agentWorkspaceDirectory, ".pi-sessions"),
+        options.sessionId,
+      ))
+        ? options.sessionId
+        : undefined;
+    const freshSessionId = replacedSessionId ? crypto.randomUUID() : undefined;
     const command =
       this.#command.length > 0
         ? this.#command
         : externalPiCommand(join(options.agentWorkspaceDirectory, ".pi-sessions"));
     const process = new JsonlProcess(
-      [...command, "--system-prompt", options.instructions],
+      [
+        ...command,
+        ...(freshSessionId
+          ? ["--session-id", freshSessionId]
+          : options.sessionId
+            ? ["--session", options.sessionId]
+            : []),
+        "--system-prompt",
+        options.instructions,
+      ],
       options.agentWorkspaceDirectory,
       agentEnvironment({
         ...options.environment,
@@ -42,7 +66,12 @@ export class PiDriver implements AgentDriver {
     );
     const session = new PiAgentSession(process);
     try {
-      await process.request({ type: "get_state" });
+      const state = await process.request({ type: "get_state" });
+      if (
+        options.sessionId &&
+        asRecord(state.data)?.sessionId !== (freshSessionId ?? options.sessionId)
+      )
+        throw new Error("Pi did not resume the requested session");
       await process.request({ type: "get_commands" });
       if (runtime?.model) {
         if (!runtime.modelProvider)
@@ -55,6 +84,12 @@ export class PiDriver implements AgentDriver {
       }
       if (runtime?.reasoning) {
         await process.request({ type: "set_thinking_level", level: runtime.reasoning });
+      }
+      if (options.onSessionId) {
+        const sessionId = asRecord(state.data)?.sessionId;
+        if (typeof sessionId !== "string" || !sessionId)
+          throw new Error("Pi session identity is unavailable");
+        await options.onSessionId(sessionId, replacedSessionId);
       }
       return session;
     } catch (error) {
@@ -83,6 +118,7 @@ export class CoforgeDriver extends PiDriver {
       agentDir: getCoforgeAgentDir(options.agentWorkspaceDirectory),
       sessionDir: getCoforgeSessionDir(options.agentWorkspaceDirectory),
       sessionId: options.sessionId,
+      sessionMode: options.sessionMode,
       modelProvider: runtime.modelProvider,
       model: runtime.model,
       reasoning: runtime.reasoning,
@@ -90,6 +126,15 @@ export class CoforgeDriver extends PiDriver {
       instructions: options.instructions,
       environment: agentEnvironment(options.environment),
     });
+    try {
+      await options.onSessionId?.(
+        session.session.sessionManager.getSessionId(),
+        session.replacedSessionId,
+      );
+    } catch (error) {
+      await session.dispose();
+      throw error;
+    }
     return new AgentSessionImpl(session);
   }
 }
@@ -107,15 +152,13 @@ class AgentSessionImpl implements AgentSession {
     runtime.session.subscribe((event) => {
       if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta")
         this.#emit({ type: "text-delta", text: event.assistantMessageEvent.delta });
+      if (event.type === "message_update" && event.assistantMessageEvent.type === "thinking_delta")
+        this.#emit({ type: "thinking-delta", text: event.assistantMessageEvent.delta });
       if (event.type === "tool_execution_start") {
         this.#emit({ type: "tool-start", id: event.toolCallId, name: event.toolName });
         this.#emit({
           type: "activity",
-          activity: createAgentActivity(
-            toolActivity(event.toolName),
-            "info",
-            toolDetails(event.args, event.toolName),
-          ),
+          activity: toolActivity(event.toolName, event.args),
         });
       }
       if (event.type === "tool_execution_update") {
@@ -133,7 +176,7 @@ class AgentSessionImpl implements AgentSession {
         this.#emit({
           type: "activity",
           activity: createAgentActivity(
-            "error",
+            "runtime_error",
             "error",
             event.message.errorMessage ?? "Agent failed",
           ),
@@ -159,7 +202,7 @@ class AgentSessionImpl implements AgentSession {
       this.#emit({
         type: "activity",
         activity: createAgentActivity(
-          "error",
+          "runtime_error",
           "error",
           error instanceof Error ? error.message : "Agent failed",
         ),
@@ -211,27 +254,6 @@ class AgentSessionImpl implements AgentSession {
   }
 }
 
-function toolActivity(toolName: string): AgentActivityType {
-  return toolName === "bash"
-    ? "running_command"
-    : toolName === "read"
-      ? "reading_file"
-      : toolName === "write"
-        ? "writing_file"
-        : toolName === "edit"
-          ? "editing_file"
-          : "using_tool";
-}
-
-function toolDetails(args: unknown, toolName: string): string {
-  const input = asRecord(args);
-  return typeof input?.command === "string"
-    ? input.command
-    : typeof input?.path === "string"
-      ? input.path
-      : toolName;
-}
-
 class PiAgentSession implements AgentSession {
   readonly #process: JsonlProcess;
   readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
@@ -243,7 +265,7 @@ class PiAgentSession implements AgentSession {
     process.onFailure((error) =>
       this.#emit({
         type: "activity",
-        activity: createAgentActivity("error", "error", error.message),
+        activity: createAgentActivity("runtime_error", "error", error.message),
       }),
     );
   }
@@ -307,31 +329,18 @@ class PiAgentSession implements AgentSession {
       if (update?.type === "text_delta" && typeof update.delta === "string") {
         this.#emit({ type: "text-delta", text: update.delta });
       }
+      if (update?.type === "thinking_delta" && typeof update.delta === "string") {
+        this.#emit({ type: "thinking-delta", text: update.delta });
+      }
       return;
     }
     if (record.type === "tool_execution_start") {
       if (typeof record.toolCallId === "string" && typeof record.toolName === "string") {
         this.#emit({ type: "tool-start", id: record.toolCallId, name: record.toolName });
         const input = asRecord(record.args) ?? asRecord(record.input) ?? asRecord(record.arguments);
-        const details =
-          typeof input?.command === "string"
-            ? input.command
-            : typeof input?.path === "string"
-              ? input.path
-              : record.toolName;
-        const activity =
-          record.toolName === "bash"
-            ? "running_command"
-            : record.toolName === "read"
-              ? "reading_file"
-              : record.toolName === "write"
-                ? "writing_file"
-                : record.toolName === "edit"
-                  ? "editing_file"
-                  : "using_tool";
         this.#emit({
           type: "activity",
-          activity: createAgentActivity(activity, "info", details, eventTime(record)),
+          activity: toolActivity(record.toolName, input, eventTime(record)),
         });
       }
       return;

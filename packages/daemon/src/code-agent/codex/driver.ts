@@ -57,46 +57,64 @@ export class CodexDriver implements AgentDriver {
         params: { cwds: [options.agentWorkspaceDirectory], forceReload: true },
       });
       assertSkillsLoaded(skillsResponse, options.agentWorkspaceDirectory);
-      const response = await process.request({
-        method: "thread/start",
-        params: {
-          cwd: options.agentWorkspaceDirectory,
-          developerInstructions: options.instructions,
-          ...(options.runtime?.model ? { model: options.runtime.model } : {}),
-          approvalPolicy: "never",
-          sandbox: "workspace-write",
-          config: {
-            ...(options.runtime?.reasoning
-              ? { model_reasoning_effort: options.runtime.reasoning }
-              : {}),
-            // CoForge chat is exposed by a loopback HTTP proxy. Codex keeps
-            // workspace-write filesystem isolation while allowing that client call.
-            "sandbox_workspace_write.network_access": true,
-            allow_login_shell: false,
-            shell_environment_policy: {
-              inherit: "all",
-              ignore_default_excludes: false,
-              filters: {
-                "COFORGE_*": "include",
-                HOME: "include",
-                PATH: "include",
-                XDG_CONFIG_HOME: "include",
-                XDG_DATA_HOME: "include",
-                XDG_CACHE_HOME: "include",
-                TMPDIR: "include",
-                TEMP: "include",
-                TMP: "include",
-                LANG: "include",
-                LC_ALL: "include",
+      const openThread = (sessionId?: string) =>
+        process.request({
+          method: sessionId ? "thread/resume" : "thread/start",
+          params: {
+            ...(sessionId ? { threadId: sessionId } : { ephemeral: false }),
+            cwd: options.agentWorkspaceDirectory,
+            developerInstructions: options.instructions,
+            ...(options.runtime?.model ? { model: options.runtime.model } : {}),
+            approvalPolicy: "never",
+            sandbox: "danger-full-access",
+            config: {
+              ...(options.runtime?.reasoning
+                ? { model_reasoning_effort: options.runtime.reasoning }
+                : {}),
+              // Retain the existing global-config override surface; the approved
+              // danger-full-access policy does not use workspace-write restrictions.
+              "sandbox_workspace_write.network_access": true,
+              allow_login_shell: false,
+              shell_environment_policy: {
+                inherit: "all",
+                ignore_default_excludes: false,
+                filters: {
+                  "COFORGE_*": "include",
+                  HOME: "include",
+                  PATH: "include",
+                  XDG_CONFIG_HOME: "include",
+                  XDG_DATA_HOME: "include",
+                  XDG_CACHE_HOME: "include",
+                  TMPDIR: "include",
+                  TEMP: "include",
+                  TMP: "include",
+                  LANG: "include",
+                  LC_ALL: "include",
+                },
               },
             },
+            ...(!sessionId ? { serviceName: "coforge_daemon" } : {}),
           },
-          ephemeral: true,
-          serviceName: "coforge_daemon",
-        },
+        });
+      let replacedSessionId: string | undefined;
+      const response = await openThread(options.sessionId).catch(async (error: unknown) => {
+        const native =
+          error instanceof JsonlRequestError ? asRecord(error.responseError) : undefined;
+        if (
+          !options.sessionId ||
+          native?.code !== -32600 ||
+          native.message !== `no rollout found for thread id ${options.sessionId}`
+        )
+          throw error;
+        // Exact official ThreadNotFound response only, never auth/I/O or generic errors.
+        replacedSessionId = options.sessionId;
+        return openThread();
       });
       const thread = asRecord(asRecord(response.result)?.thread);
       if (typeof thread?.id !== "string") throw new Error("Codex did not create a thread");
+      if (options.sessionId && !replacedSessionId && thread.id !== options.sessionId)
+        throw new Error("Codex did not resume the requested thread");
+      await options.onSessionId?.(thread.id, replacedSessionId);
       logger.info("Codex thread received standing instructions", {
         event: "codex.instructions.injected",
         agent_id: options.agentId,
@@ -131,7 +149,7 @@ class CodexAgentSession implements AgentSession {
     process.onFailure((error) =>
       this.#emit({
         type: "activity",
-        activity: createAgentActivity("error", "error", error.message),
+        activity: createAgentActivity("runtime_error", "error", error.message),
       }),
     );
   }
@@ -256,6 +274,11 @@ class CodexAgentSession implements AgentSession {
       this.#emit({ type: "text-delta", text: params.delta });
       return;
     }
+    // Readable summaries only. Deliberately ignore item/reasoning/textDelta (raw reasoning).
+    if (record.method === "item/reasoning/summaryTextDelta" && typeof params?.delta === "string") {
+      this.#emit({ type: "thinking-delta", text: params.delta });
+      return;
+    }
     if (record.method === "item/started") {
       const item = asRecord(params?.item);
       if (item?.type === "commandExecution" && typeof item.id === "string") {
@@ -264,14 +287,25 @@ class CodexAgentSession implements AgentSession {
         const command = typeof item.command === "string" ? item.command : "command";
         this.#emit({
           type: "activity",
-          activity: createAgentActivity("running_command", "info", command, eventTime(record)),
+          activity: {
+            ...createAgentActivity("running_command", "info", command, eventTime(record)),
+            entries: [{ kind: "tool_start", toolName: "bash" }],
+          },
         });
       } else if (item?.type === "fileChange") {
         for (const change of fileChanges(item)) {
           const activity = change.kind === "add" ? "writing_file" : "editing_file";
           this.#emit({
             type: "activity",
-            activity: createAgentActivity(activity, "info", change.path, eventTime(record)),
+            activity: {
+              ...createAgentActivity("tool_started", "info", change.path, eventTime(record)),
+              entries: [
+                {
+                  kind: "tool_start",
+                  toolName: activity === "writing_file" ? "write_file" : "edit_file",
+                },
+              ],
+            },
           });
         }
       }
@@ -339,9 +373,9 @@ class CodexAgentSession implements AgentSession {
         });
         this.#emit({
           type: "activity",
-          activity: createAgentActivity("error", "error", errorMessage, eventTime(record), {
+          activity: createAgentActivity("runtime_error", "error", errorMessage, eventTime(record), {
             errorClass: typeof error?.code === "string" ? error.code : "CodexTurnError",
-            reason: "turn_failed",
+            errorReason: "turn_failed",
             fingerprint: fingerprint(errorMessage),
           }),
         });

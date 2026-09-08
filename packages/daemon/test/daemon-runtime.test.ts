@@ -50,6 +50,215 @@ const config: AgentRuntimeConfig = {
   reasoning: "balanced",
 };
 
+test("a recreated daemon waits for cloud start and forwards the cloud-selected session", async () => {
+  const credentials = new InMemoryDaemonCredentialStore();
+  await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+  const sessions: Array<string | undefined> = [];
+  const modes: Array<string | undefined> = [];
+  const make = () =>
+    new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession(options) {
+          sessions.push(options.sessionId);
+          modes.push(options.sessionMode);
+          return sessionSpy();
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+        }),
+      },
+    );
+  const original = make();
+  await original.start(connection);
+  expect(sessions).toEqual([]);
+  await original.handleAgentStart({
+    protocolMajor: 1,
+    requestId: "first",
+    workspaceId: connection.workspaceId,
+    computerId: connection.computerId,
+    agentId: "cloud-agent",
+    ...config,
+    sessionId: "cloud-first",
+    sessionMode: "create",
+  });
+  await original.stop();
+  const recreated = make();
+  try {
+    await recreated.start(connection);
+    expect(sessions).toEqual(["cloud-first"]);
+    await recreated.handleAgentStart({
+      protocolMajor: 1,
+      requestId: "second",
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "cloud-agent",
+      ...config,
+      sessionId: "cloud-selected",
+      sessionMode: "resume",
+    });
+    expect(sessions).toEqual(["cloud-first", "cloud-selected"]);
+    expect(modes).toEqual(["create", "resume"]);
+  } finally {
+    await original.stop();
+    await recreated.stop();
+  }
+});
+
+test("returned identity is acknowledged before Agent readiness and retired callbacks are rejected", async () => {
+  const credentials = new InMemoryDaemonCredentialStore();
+  await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+  const reported = Promise.withResolvers<void>();
+  const acknowledged = Promise.withResolvers<void>();
+  let callback: ((id: string) => Promise<void>) | undefined;
+  const reports: import("@coforge/protocol").AgentSessionReport[] = [];
+  const runtime = new DaemonRuntime(
+    connection,
+    () => ({
+      provider: "pi",
+      async createAgentSession(options) {
+        callback = options.onSessionId;
+        await callback!("returned-session");
+        return sessionSpy();
+      },
+    }),
+    credentials,
+    {
+      create: () => ({
+        async start() {},
+        async ready() {},
+        async stop() {},
+        async requestAgentApiKey() {
+          return `sk_agent_${"a".repeat(43)}`;
+        },
+        async reportAgentSession(report) {
+          reports.push(report);
+          reported.resolve();
+          await acknowledged.promise;
+        },
+      }),
+    },
+  );
+  try {
+    await runtime.start(connection);
+    let ready = false;
+    const launch = runtime
+      .handleAgentStart({
+        protocolMajor: 1,
+        requestId: "cloud-start",
+        workspaceId: connection.workspaceId,
+        computerId: connection.computerId,
+        agentId: "reported-agent",
+        ...config,
+      })
+      .then(() => {
+        ready = true;
+      });
+    await reported.promise;
+    expect(ready).toBe(false);
+    expect(reports[0]).toMatchObject({
+      startRequestId: "cloud-start",
+      sessionId: "returned-session",
+      agentId: "reported-agent",
+    });
+    acknowledged.resolve();
+    await launch;
+    await runtime.stop();
+    await expect(callback!("late-session")).rejects.toThrow("superseded");
+    expect(reports).toHaveLength(1);
+  } finally {
+    acknowledged.resolve();
+    await runtime.stop();
+  }
+});
+
+test("cloud-authorized wake restores the acknowledged identity with a successor launch fence", async () => {
+  const credentials = new InMemoryDaemonCredentialStore();
+  await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+  const exits: Array<() => void> = [];
+  const selected: Array<string | undefined> = [];
+  const callbacks: Array<(id: string) => Promise<void>> = [];
+  const reports: import("@coforge/protocol").AgentSessionReport[] = [];
+  const runtime = new DaemonRuntime(
+    connection,
+    () => ({
+      provider: "pi",
+      async createAgentSession(options) {
+        selected.push(options.sessionId);
+        callbacks.push(options.onSessionId!);
+        await options.onSessionId!("returned-session");
+        return {
+          ...sessionSpy(),
+          onExit(listener: () => void) {
+            exits.push(listener);
+            return () => {};
+          },
+        };
+      },
+    }),
+    credentials,
+    {
+      create: () => ({
+        async start() {},
+        async ready() {},
+        async stop() {},
+        async requestAgentApiKey() {
+          return `sk_agent_${"a".repeat(43)}`;
+        },
+        async reportAgentSession(report) {
+          reports.push(report);
+          if (reports.length === 3) throw new Error("session ACK lost");
+        },
+      }),
+    },
+  );
+  try {
+    await runtime.start(connection);
+    await runtime.handleAgentStart({
+      protocolMajor: 1,
+      requestId: "cloud-start",
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "wake-agent",
+      ...config,
+    });
+    for (const exit of exits.splice(0)) exit();
+    await runtime.startAgent("wake-agent", config);
+    expect(selected).toEqual([undefined, "returned-session"]);
+    expect(reports[1]).toMatchObject({
+      startRequestId: "cloud-start",
+      previousLaunchId: reports[0]!.launchId,
+    });
+    expect(reports[1]!.launchId).not.toBe(reports[0]!.launchId);
+    await expect(callbacks[0]!("late-old-session")).rejects.toThrow("superseded");
+    expect(reports).toHaveLength(2);
+    for (const exit of exits.splice(0)) exit();
+    await expect(runtime.startAgent("wake-agent", config)).rejects.toThrow("session ACK lost");
+    await runtime.handleAgentStart({
+      protocolMajor: 1,
+      requestId: "cloud-start",
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "wake-agent",
+      ...config,
+      sessionId: "returned-session",
+      previousLaunchId: reports[2]!.launchId,
+    });
+    expect(reports[3]!.previousLaunchId).toBe(reports[2]!.launchId);
+  } finally {
+    await runtime.stop();
+  }
+});
+
 function messageRecord(
   sequence: number,
   sender: string,
@@ -127,7 +336,7 @@ async function queueHarness(
           options.lifecycle?.(`status:${status.status}`);
         },
         sendAgentActivity(activity) {
-          options.lifecycle?.(`activity:${activity.activity}`);
+          options.lifecycle?.(`activity:${activity.detailKind}`);
         },
         async sendAgentDeliveryAck(ack) {
           acknowledgements.push(ack.deliveryId);
@@ -2276,92 +2485,96 @@ describe("DaemonRuntime", () => {
     sessions[0]!.event({
       type: "activity",
       activity: {
-        activity: "running_command",
+        detailKind: "running_command",
         level: "info",
-        message:
+        detail:
           "printf 012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789",
-        occurredAt: "2026-08-29T00:00:00.000Z",
+        observedAtMs: Date.parse("2026-08-29T00:00:00.000Z"),
       },
     });
     sessions[0]!.event({
       type: "activity",
       activity: {
-        activity: "reading_file",
+        detailKind: "tool_started",
         level: "info",
-        message: "/workspace/src/input.ts",
-        occurredAt: "2026-08-29T00:00:00.100Z",
+        detail: "/workspace/src/input.ts",
+        observedAtMs: Date.parse("2026-08-29T00:00:00.100Z"),
+        entries: [{ kind: "tool_start", toolName: "read_file" }],
       },
     });
     sessions[0]!.event({
       type: "activity",
       activity: {
-        activity: "writing_file",
+        detailKind: "tool_started",
         level: "info",
-        message: "/workspace/src/output.ts",
-        occurredAt: "2026-08-29T00:00:00.200Z",
+        detail: "/workspace/src/output.ts",
+        observedAtMs: Date.parse("2026-08-29T00:00:00.200Z"),
+        entries: [{ kind: "tool_start", toolName: "write_file" }],
       },
     });
     sessions[0]!.event({
       type: "activity",
       activity: {
-        activity: "editing_file",
+        detailKind: "tool_started",
         level: "info",
-        message: "/workspace/src/existing.ts",
-        occurredAt: "2026-08-29T00:00:00.300Z",
+        detail: "/workspace/src/existing.ts",
+        observedAtMs: Date.parse("2026-08-29T00:00:00.300Z"),
+        entries: [{ kind: "tool_start", toolName: "edit_file" }],
       },
     });
     sessions[0]!.event({
       type: "activity",
       activity: {
-        activity: "using_tool",
+        detailKind: "tool_started",
         level: "info",
-        message: "WebSearch query=CoForge",
-        occurredAt: "2026-08-29T00:00:00.400Z",
+        detail: "WebSearch query=CoForge",
+        observedAtMs: Date.parse("2026-08-29T00:00:00.400Z"),
+        entries: [{ kind: "tool_start", toolName: "WebSearch" }],
       },
     });
     sessions[0]!.event({
       type: "activity",
       activity: {
-        activity: "error",
+        detailKind: "runtime_error",
         level: "error",
-        message: "Provider request failed safely.",
-        occurredAt: "2026-08-29T00:00:00.500Z",
+        detail: "Provider request failed safely.",
+        observedAtMs: Date.parse("2026-08-29T00:00:00.500Z"),
       },
     });
     const firstLaunch = activities[0]!.launchId;
     expect(firstLaunch).not.toBe("");
     expect(activities.every((activity) => activity.launchId === firstLaunch)).toBe(true);
     expect(activities.map(({ clientSeq }) => clientSeq)).toEqual([1, 2, 3, 4, 5, 6, 7]);
-    expect(activities[1]!.message).toBe(
+    expect(activities[1]!.detail).toBe(
       "printf 012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012",
     );
-    expect(activities.slice(2, 6).map(({ message }) => message)).toEqual([
+    expect(activities.slice(2, 6).map(({ detail }) => detail)).toEqual([
       "/workspace/src/input.ts",
       "/workspace/src/output.ts",
       "/workspace/src/existing.ts",
       "WebSearch query=CoForge",
     ]);
-    expect(activities[6]!.message).toBe("Provider request failed safely.");
+    expect(activities[6]!.detail).toBe("Provider request failed safely.");
 
     const stopping = runtime.stopAgent("agent-a");
     sessions[0]!.event({
       type: "activity",
       activity: {
-        activity: "running_command",
+        detailKind: "running_command",
         level: "info",
-        message: "late command",
-        occurredAt: "2026-08-29T00:00:01.000Z",
+        detail: "late command",
+        observedAtMs: Date.parse("2026-08-29T00:00:01.000Z"),
       },
     });
     await stopping;
-    expect(activities.map(({ activity }) => activity)).toEqual([
+    expect(activities.map(({ detailKind }) => detailKind)).toEqual([
       "starting",
       "running_command",
-      "reading_file",
-      "writing_file",
-      "editing_file",
-      "using_tool",
-      "error",
+      "tool_started",
+      "tool_started",
+      "tool_started",
+      "tool_started",
+      "runtime_error",
       "stopped",
     ]);
 
@@ -2370,10 +2583,10 @@ describe("DaemonRuntime", () => {
     sessions[0]!.event({
       type: "activity",
       activity: {
-        activity: "running_command",
+        detailKind: "running_command",
         level: "info",
-        message: "stale command",
-        occurredAt: "2026-08-29T00:00:02.000Z",
+        detail: "stale command",
+        observedAtMs: Date.parse("2026-08-29T00:00:02.000Z"),
       },
     });
     sessions[0]!.delayedExit();
@@ -2381,6 +2594,65 @@ describe("DaemonRuntime", () => {
     expect(activities.at(-1)!.launchId).not.toBe(firstLaunch);
     expect(activities.at(-1)!.clientSeq).toBe(1);
     await runtime.stop();
+  });
+
+  test("reports a fenced fresh session and an honest notice without exposing unrelated provider errors", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const activities: import("@coforge/protocol").AgentActivity[] = [];
+    let fail = false;
+    const reports: import("@coforge/protocol").AgentSessionReport[] = [];
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession(options) {
+          if (fail) throw new Error("private-provider-token");
+          await options.onSessionId?.("new-session", "old-session");
+          return sessionSpy();
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          sendAgentActivity(activity) {
+            activities.push(activity);
+          },
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+          async reportAgentSession(report) {
+            reports.push(report);
+          },
+        }),
+      },
+    );
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config, "old-session", "cloud-start");
+      expect(reports[0]).toMatchObject({
+        sessionId: "new-session",
+        replacedSessionId: "old-session",
+        startRequestId: "cloud-start",
+      });
+      expect(
+        activities.some(
+          (activity) =>
+            activity.detail ===
+            "Original session history was not found. A new session was started; previous context was not restored.",
+        ),
+      ).toBe(true);
+      fail = true;
+      await expect(runtime.startAgent("agent-b", config)).rejects.toThrow("private-provider-token");
+      expect(activities.at(-1)?.detail).toBe("Agent runtime could not be started.");
+      expect(JSON.stringify(activities)).not.toContain("private-provider-token");
+    } finally {
+      await runtime.stop();
+    }
   });
 
   test("reports a safe launch failure and blocks retry when startup cleanup is unresolved", async () => {
@@ -2408,7 +2680,7 @@ describe("DaemonRuntime", () => {
           },
           sendAgentActivity(activity) {
             activities.push(activity);
-            lifecycle.push(`activity:${activity.activity}`);
+            lifecycle.push(`activity:${activity.detailKind}`);
           },
           async requestAgentLaunchConfig() {
             credentialRequests++;
@@ -2423,14 +2695,14 @@ describe("DaemonRuntime", () => {
     await expect(runtime.startAgent("agent-a", config)).rejects.toThrow(
       "process tree did not exit",
     );
-    expect(lifecycle).toEqual(["status:inactive", "activity:launch_failed"]);
-    expect(activities.map(({ activity }) => activity)).toEqual(["launch_failed"]);
+    expect(lifecycle).toEqual(["status:inactive", "activity:runtime_error"]);
+    expect(activities.map(({ detailKind }) => detailKind)).toEqual(["runtime_error"]);
     expect(activities[0]).toMatchObject({
       agentId: "agent-a",
-      activity: "launch_failed",
+      detailKind: "runtime_error",
       level: "error",
       clientSeq: 1,
-      message: "Agent process cleanup could not be confirmed. Replacement launch is blocked.",
+      detail: "Agent process cleanup could not be confirmed. Replacement launch is blocked.",
     });
     await expect(runtime.startAgent("agent-a", config)).rejects.toThrow("stopping");
     expect(credentialRequests).toBe(1);
@@ -2483,11 +2755,11 @@ describe("DaemonRuntime", () => {
     });
 
     await expect(runtime.stopAgent("agent-a")).rejects.toThrow("process tree did not exit");
-    expect(activities.map(({ activity }) => activity)).toEqual(["starting", "stop_failed"]);
+    expect(activities.map(({ detailKind }) => detailKind)).toEqual(["starting", "runtime_error"]);
     expect(activities[1]).toMatchObject({
       level: "error",
       clientSeq: 2,
-      message: "Agent process cleanup could not be confirmed. Replacement launch is blocked.",
+      detail: "Agent process cleanup could not be confirmed. Replacement launch is blocked.",
     });
     await runtime.stop().catch(() => undefined);
   });
@@ -2725,10 +2997,10 @@ describe("DaemonRuntime", () => {
       listener?.({
         type: "activity",
         activity: {
-          activity: "idle",
+          detailKind: "idle",
           level: "info",
-          message: "idle",
-          occurredAt: new Date().toISOString(),
+          detail: "idle",
+          observedAtMs: Date.now(),
         },
       });
       await Bun.sleep(10);

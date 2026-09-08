@@ -1,4 +1,5 @@
 import {
+  AGENT_SESSION_METHOD,
   COMPUTER_REGISTER_METHOD,
   WORKSPACE_GET_METHOD,
   WORKSPACE_LIST_METHOD,
@@ -17,6 +18,7 @@ import {
   PrismaWorkspaceAccess,
 } from "../db/repositories/setup.repositories.server";
 import {
+  createAgentSessionMethod,
   createComputerRegistrationMethod,
   createDaemonRuntimeCodeAgentsUpdateMethod,
   createWorkspaceGetMethod,
@@ -35,6 +37,7 @@ import {
 } from "@coforge/protocol";
 import { WorkspaceQueryUseCase } from "../workspaces/query.server";
 import { ComputerRegistrar } from "../computers/registration.server";
+import { getComputerRestartStore } from "../computers/computer-restart-store.server";
 import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
@@ -66,6 +69,7 @@ import { PrismaAgentApiKeyRepository } from "../db/repositories/agent-api-key.re
 import { PrismaComputerRuntimeRepository } from "../db/repositories/computer-runtime.repositories.server";
 import { PrismaDaemonApiKeyRepository } from "../db/repositories/daemon-api-key.repositories.server";
 import { bestEffortMessageNotifier } from "../notifications/web-push-composition.server";
+import { createAgentSessions } from "../db/repositories/agent-session.repositories.server";
 
 const unavailable: CentrifugoRpcError = {
   code: 503,
@@ -163,8 +167,10 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
     const agentRepository = new PrismaAgentRepository(db);
     const agentAuthorization = new RepositoryAgentAuthorization(agentRepository);
     const centrifugo = createCentrifugoServerApi();
+    const sessions = createAgentSessions(db);
     return new CentrifugoRpcHandler({
       methods: {
+        [AGENT_SESSION_METHOD]: createAgentSessionMethod(sessions),
         [COMPUTER_REGISTER_METHOD]: createComputerRegistrationMethod(registration),
         [WORKSPACE_LIST_METHOD]: createWorkspaceListMethod(query),
         [WORKSPACE_GET_METHOD]: createWorkspaceGetMethod(query),
@@ -174,7 +180,9 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
             new PrismaDirectConversationRepository(db),
             centrifugo,
             getAgentRuntimeLock(),
+            sessions,
           ),
+          getComputerRestartStore(),
         ),
         [DAEMON_CONNECTION_STATUS_METHOD]: createDaemonConnectionStatusMethod(),
         [DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD]: createDaemonRuntimeCodeAgentsUpdateMethod(
@@ -182,7 +190,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
         ),
         [DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD]: createDaemonRuntimeUsageScanResultMethod(),
         [AGENT_START_METHOD]: createAgentStartMethod(
-          new PublishAgentRuntimeControl(agentAuthorization, centrifugo, async () => {}),
+          new PublishAgentRuntimeControl(agentAuthorization, centrifugo, async () => {}, sessions),
         ),
         [AGENT_STATUS_METHOD]: createAgentStatusMethod(agentRepository, undefined, centrifugo),
         [AGENT_MESSAGE_ACK_METHOD]: createAgentDeliveryAckMethod(
@@ -219,6 +227,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       [DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD]: unavailableMethod,
       [DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD]: createDaemonRuntimeUsageScanResultMethod(),
       [AGENT_START_METHOD]: unavailableMethod,
+      [AGENT_SESSION_METHOD]: unavailableMethod,
       [AGENT_STATUS_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_ACK_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_READ_METHOD]: unavailableMethod,

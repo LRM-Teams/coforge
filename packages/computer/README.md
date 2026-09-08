@@ -5,7 +5,7 @@ supervises `coforge-daemon`. The current vertical slice implements interactive
 login with the OAuth 2.0 device authorization grant:
 
 ```bash
-mise exec -- bun run packages/computer/src/cli.ts login
+mise exec -- bun run packages/computer/src/main.ts login
 ```
 
 The command discovers `device_authorization_endpoint`, `token_endpoint`, and
@@ -40,32 +40,32 @@ link or installer parameter). Computer never lists or asks the user to choose a
 Workspace. If no login credential exists, setup performs the OAuth device flow
 inline, then registers the Computer through the CoForge RPC transport.
 
-Computer stores one active registration only. Switching Workspace first stops
-the daemon and its Agent runtimes/WSS, then durably replaces the local binding;
-failures retain the old binding. The config contains only the stable
-`workspace_id`. `setup --json`
+Computer stores independent Workspace registrations. Adding a Workspace does
+not stop or replace existing bindings. Each Workspace has its own daemon
+instance and Agent runtimes. `setup --json`
 keeps stdout to one stable result object and sends interactive prompts to
 stderr. Setup registers the Computer and creates the server-side Workspace–Computer
 registration through the approved CoForge RPC flow, then automatically starts (or reuses)
-the local Daemon after a Unix Socket handshake. The current Daemon slice accepts
-the handshake; Daemon runtime supervision and the cloud RPC handler are still
-separate implementation slices. The user does not run `coforge-daemon` separately.
+the local Daemon after a Unix Socket handshake. The user does not run
+`coforge-daemon` separately.
 Computer does not maintain a cloud WebSocket; each Daemon runtime owns its own
 cloud WSS connection.
 
-Use `coforge-computer start` to start or reuse the user-managed Daemon and
-start its configured Workspace runtime. Use `coforge-computer stop` to stop
-the Workspace runtime and its Agents through verified local RPC, leaving the
-Daemon process and OS service installed and running. Use `coforge-computer restart`
-to stop and start the runtime within the same Daemon process. On macOS, repeated
-setup reuses the registered launchd service without rewriting or force-restarting it.
+Use `coforge-computer start|stop|restart --workspace <slug-or-id>` to control
+one binding through the resident Coordinator. Without a scope the command
+targets all local bindings; global restart preserves stopped bindings.
+Workspace restart replaces that daemon and its Agents, recovering sessions
+selected by the cloud, without replacing other Workspaces or the Coordinator.
+Normal installed operation uses the platform's user service manager and never
+falls back to an unmanaged child process.
 
 Use `coforge-computer logs` to print existing Computer log files and follow
 new log records in real time. Press `Ctrl-C` to exit.
 
-`coforge-computer install` and `upgrade` select `production.current` (`latest`),
-`test.current`, or one exact `sha256:` release set. `rollback` reactivates the
-retained previous bundle offline after checking both process payloads. All
+`coforge-computer install` and `upgrade` select `latest` or one exact version
+from the build's own release feed. `rollback` reactivates the retained previous
+version offline after checking the unified executable and Agent launcher. Upgrade
+and rollback coordinate replacement of the running executable. All
 versions and the sole Computer shim are installed for the current user; Daemon
 is never exposed as a separate installed command.
 

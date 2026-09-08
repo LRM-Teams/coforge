@@ -16,17 +16,17 @@ test("opens recent activity from the avatar without exposing command details", a
       activity={[
         {
           id: "new",
-          activity: "running_command",
+          detailKind: "running_command",
           level: "info",
-          message: "private command",
-          occurredAt: new Date(),
+          detail: "private command",
+          observedAtMs: Date.now(),
         },
         {
           id: "old",
-          activity: "reading_file",
+          detailKind: "reading_file",
           level: "info",
-          message: "private path",
-          occurredAt: new Date(Date.now() - 10_000),
+          detail: "private path",
+          observedAtMs: new Date(Date.now() - 10_000).getTime(),
         },
       ]}
     />,
@@ -62,14 +62,7 @@ test.each([
     <AgentActivityAvatar
       agent={{ name: "dax", displayName: "Dax" }}
       status={status}
-      activity={[
-        {
-          activity,
-          level,
-          occurredAt: new Date(Date.now() - age),
-          message: "",
-        },
-      ]}
+      activity={[{ detailKind: activity, level, observedAtMs: Date.now() - age, detail: "" }]}
     />,
   );
   const trigger = within(document.body).getByRole("button", { name: /Dax/ });
@@ -86,10 +79,10 @@ test("expires the working observation while the page stays open", async () => {
       status="active"
       activity={[
         {
-          activity: "working",
+          detailKind: "working",
           level: "info",
-          occurredAt: new Date(Date.now() - 59_000),
-          message: "",
+          observedAtMs: new Date(Date.now() - 59_000).getTime(),
+          detail: "",
         },
       ]}
     />,
@@ -115,10 +108,10 @@ test("keyboard opens a compact time-and-activity list without icons or footer ac
       timeZone="Asia/Shanghai"
       activity={Array.from({ length: 8 }, (_, i) => ({
         id: String(i),
-        activity: "reading_file",
+        detailKind: "reading_file",
         level: "info",
-        message: "",
-        occurredAt: new Date(`2026-09-07T07:18:${30 - i}Z`),
+        detail: "",
+        observedAtMs: new Date(`2026-09-07T07:18:${30 - i}Z`).getTime(),
       }))}
     />,
   );

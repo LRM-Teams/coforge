@@ -4,10 +4,12 @@ These rules extend the repository root `AGENTS.md` for this package component.
 
 ## Product boundary
 
-`coforge-daemon` is the per-user machine process supervised by CoForge
-Computer. It owns local IPC, the single Workspace configuration, Agent process
-lifecycle, provider adapters, and the daemon cloud WSS/RPC connection. It is not a public CLI and it must not
-become a second user-installed product.
+`coforge-daemon` owns the long-lived local supervisor and the isolated
+per-Workspace Daemon processes it starts. Each child owns one Workspace configuration,
+Agent process lifecycle, provider adapters, and one cloud WSS/RPC connection. It is not a public CLI and it must not
+become a second user-installed product. Release builds embed this package role
+in the sole `coforge-computer` executable and start it through the internal
+`__daemon` dispatch; it remains an independent OS process.
 
 ## Source layout and ownership
 
@@ -17,9 +19,10 @@ Keep the daemon split by stable responsibility. The intended module map is:
 src/
 ├── main.ts                         # process entrypoint only
 ├── daemon-host/                    # user-session startup and host lifecycle
+├── supervisor/                     # binding registry and per-Workspace process lifecycle
 ├── daemon-application/             # daemon use cases and orchestration
 ├── local-rpc/                      # Computer↔Daemon IPC server and handlers
-├── daemon-runtime/                 # daemon-owned single Workspace runtime
+├── daemon-runtime/                 # child-owned one-Workspace runtime
 ├── logging/                        # LogTape process diagnostics and redaction
 ├── agent-app-inbox/                # typed Agent-scoped App items and registry
 ├── connection/                    # Daemon WSS connection and reconnect loop
@@ -29,9 +32,10 @@ src/
 │   ├── codex/
 │   ├── claude-code/
 │   ├── pi/
+│   ├── tool-activity.ts            # recognized tool aliases → existing semantic activities; safe input summaries
 │   └── runtime-inventory.ts        # external provider discovery
 ├── persistence/                    # durable spool and local daemon state
-└── platform/                       # OS-specific process-tree and socket primitives
+└── platform/                       # OS primitives, including process-tree, socket, and native process locks
 ```
 
 Some of these boundaries are represented by existing files and may be
@@ -39,11 +43,12 @@ introduced incrementally. Do not create a new directory or rename an existing
 module solely for aesthetics; first state the responsibility that requires the
 boundary, then update this map if the ownership changes.
 
-`index.ts` also dispatches the internal `__agent-cli` entry to
-`@coforge/cli/runner` before starting logging, sockets or Workspace recovery.
-Agent command parsing and transport remain in `packages/cli`, compiled into
-Daemon. This is not a user-facing Daemon management CLI.
-Computer's updater installs the version-local launcher. Daemon startup does
+The `coforge-computer` entrypoint dispatches internal `__daemon` here before
+normal Computer CLI startup, and dispatches `__agent-cli` directly to
+`@coforge/cli/runner` before starting Daemon logging, sockets, or Workspace
+recovery. Agent command parsing and transport remain in `packages/cli` and are
+compiled into the unified executable. This is not a user-facing Daemon
+management CLI. Computer's updater installs the version-local launcher. Daemon startup does
 not mutate the installation or supply missing files for older installers.
 
 `src/connection/built-server.ts` supplies the build-inlined server and WSS
@@ -58,23 +63,47 @@ configuration and recovery; the entrypoint assembles these policies, not their r
 
 - `main.ts` only assembles dependencies and starts the daemon. It does not
   contain Workspace, Agent, or protocol business logic.
+- `supervisor/machine-supervisor.ts` owns the approved per-Workspace restart
+  state machine: durable stopping/starting progress, completed or cancelled
+  request receipts, and explicit stop precedence. It knows OS instance identities,
+  not provider sessions. `supervisor/binding-store.ts` is the sole Coordinator
+  adapter for validating and atomically persisting `bindings.json`; Workspace
+  Daemons never write that registry. `run-supervisor.ts` composes this seam with
+  systemd and local RPC, retaining application handshake identity separately from
+  the OS invocation identity used for crash recovery.
+  Workspace systemd units restart on failure after cgroup cleanup; recovery adopts
+  an already-replaced invocation through the same readiness validation. Explicit
+  disabled state still wins. Session create/resume selection belongs to cloud and
+  the Workspace runtime, never to the machine registry.
 - `daemon-host/` owns login-session startup behavior (launchd, systemd user,
-  and Windows task integration). It does not own Computer commands.
+  and Windows task integration). It never falls back to a detached process when
+  the manager is unavailable; Computer exposes foreground supervision explicitly.
+  It does not own Computer commands.
 - `local-rpc/` owns the local Unix socket/named-pipe server, framing, request
   validation, and RPC dispatch. It must not contain Daemon cloud connection logic.
-- `daemon-runtime/` owns the single Workspace's cloud connection and Agent
+- `daemon-runtime/` owns one Workspace child's cloud connection and Agent
   runtime operations. For held Message sends it retains only draft text and an
   opaque Web/backend token; it never decides freshness, counts hold stages, or
   authorizes `--anyway`. It does not model runtime busy/idle turns, and
-  there is no Daemon or runtime pool abstraction.
+  The machine Coordinator owns no Agent runtime pool; each Workspace has an
+  independent OS-managed child instance.
 - `connection/` owns the daemon's long-lived WSS connection, ordered
   replay, reconnect, and protocol transport mechanics. Every initial ready,
   reconnect ready, and ready retry obtains a fresh request and current running
   Agent ID snapshot from the runtime. Domain decisions remain above it.
-- `agent-runtime/` owns Agent lifecycle and the finite state machine whose only
-  status values are `active` and `inactive`. `starting`, `stopping`, tool use,
+- `agent-runtime/` owns Agent lifecycle and its finite state machine.
+  `daemon-runtime/` coordinates the acknowledged cloud `agent:session` report
+  from the current Workspace daemon/Agent launch and retains only volatile
+  acknowledged identity/launch references for already-authorized wakes. Adapters report only
+  official provider identities; late Claude initialization does not block the
+  first cloud prompt. Neither runtime nor machine Coordinator scans transcripts
+  to autonomously start Agents.
+  Agent lifecycle status values are `active` and `inactive`. `starting`, `stopping`, tool use,
   turns, commands, file operations, warnings, and provider errors are activity
   records, not additional statuses.
+  `activity-trajectory.ts` owns launch-local 350ms display-delta coalescing,
+  boundary flushing, bounded retention and assembled-text redaction; adapters
+  supply only official display events and explicit lineage, never raw reasoning.
 - `code-agent/` adapts installed provider processes into the provider-neutral
   contract. Higher layers must consume normalized status and activity messages and
   must not parse Claude, Codex, or Pi output. This module inventories external
@@ -113,7 +142,12 @@ configuration and recovery; the entrypoint assembles these policies, not their r
 - `persistence/` owns durable local state and atomic App Inbox storage. A
   connection outbox is not durable storage.
 - `platform/` contains OS-specific details only. Do not leak platform APIs
-  into domain or application modules.
+  into domain or application modules. `platform/process-lock.ts` owns the
+  reusable SQLite-backed process lock primitive. The Supervisor lifetime lock
+  uses it only for foreground exclusion and safe recovery of owned children;
+  Computer separately uses the primitive for a full-operation machine mutation
+  lock. Lock files are permanent local-filesystem inodes with no tables or
+  business data and must never be replaced or unlinked.
 
 ## Naming and abstraction
 

@@ -15,6 +15,8 @@ import {
 import { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "./src/connection/built-server";
 import { configureDaemonLogger } from "./src/logging/daemon-logger";
 import { COFORGE_DAEMON_VERSION } from "./src/version";
+import { LocalDaemonLauncher } from "./src/daemon-host/launcher";
+export { runMachineSupervisor } from "./src/supervisor/run-supervisor";
 
 export type {
   AgentRuntimeConfig,
@@ -41,6 +43,8 @@ export {
   WindowsUserDaemonHost,
 } from "./src/daemon-host";
 export { LocalDaemonLauncher, resolveDaemonExecutablePath } from "./src/daemon-host/launcher";
+export { acquireProcessLock } from "./src/platform/process-lock";
+export type { ProcessLock } from "./src/platform/process-lock";
 export type {
   DaemonLauncher,
   DaemonCommandRunner,
@@ -63,6 +67,10 @@ export type {
   AgentStatus as AgentStateStatus,
 } from "./src/agent-runtime/agent-state-machine";
 export { DaemonRuntime } from "./src/daemon-runtime/runtime";
+export {
+  SystemdWorkspaceInstance,
+  workspaceUnit,
+} from "./src/supervisor/systemd-workspace-instance";
 export { AgentMessageAttentionIndex } from "./src/daemon-runtime/agent-message-attention-index";
 export { AgentAppInbox } from "./src/agent-app-inbox/agent-app-inbox";
 export type { AgentAppItem, MintAppItem } from "./src/agent-app-inbox/agent-app-inbox";
@@ -84,14 +92,11 @@ export {
 } from "./src/connection/daemon-connection";
 export { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "./src/connection/built-server";
 
-if (import.meta.main && Bun.argv[2] === "__agent-cli") {
-  const { runAgentCli } = await import("@coforge/cli/runner");
-  await runAgentCli(Bun.argv.slice(3));
-} else if (import.meta.main) {
-  const socketIndex = Bun.argv.indexOf("--socket");
-  const socketPath = socketIndex >= 0 ? Bun.argv[socketIndex + 1] : undefined;
-  const stateIndex = Bun.argv.indexOf("--state-directory");
-  const stateDirectory = stateIndex >= 0 ? Bun.argv[stateIndex + 1] : undefined;
+export async function runDaemon(args: string[]): Promise<void> {
+  const socketIndex = args.indexOf("--socket");
+  const socketPath = socketIndex >= 0 ? args[socketIndex + 1] : undefined;
+  const stateIndex = args.indexOf("--state-directory");
+  const stateDirectory = stateIndex >= 0 ? args[stateIndex + 1] : undefined;
   if (!socketPath) {
     console.error("coforge-daemon requires --socket");
     process.exit(2);
@@ -123,6 +128,23 @@ if (import.meta.main && Bun.argv[2] === "__agent-cli") {
   });
   process.env.COFORGE_AGENT_PROXY_URL = agentProxy.url;
   let config = await configStore.load();
+  const endpoint = () => {
+    return daemonConnectionEndpoint(COFORGE_DAEMON_SERVER_URL);
+  };
+  const lifecycle = () => ({
+    recoveredRestartRequestIds:
+      (config as { restartRequestIds?: string[] } | null)?.restartRequestIds ?? [],
+    requestRestart: Bun.env.COFORGE_SUPERVISOR_SOCKET
+      ? async (requestId: string) => {
+          if (!config) throw new Error("Workspace is not configured");
+          await new LocalDaemonLauncher({
+            executablePath: process.execPath,
+            socketPath: Bun.env.COFORGE_SUPERVISOR_SOCKET!,
+            spawn: () => {},
+          }).control("restart", config.workspaceId, requestId);
+        }
+      : undefined,
+  });
   const daemon = {
     async configure(connection: Parameters<DaemonRuntime["start"]>[0]) {
       const nextConfig = configStore.bindToServer(connection);
@@ -135,15 +157,12 @@ if (import.meta.main && Bun.argv[2] === "__agent-cli") {
         createAgentDriver,
         credentials,
         {
-          create: () =>
-            new DaemonConnection(
-              daemonConnectionEndpoint(COFORGE_DAEMON_SERVER_URL),
-              defaultCentrifugeWorkspaceClientFactory,
-            ),
+          create: () => new DaemonConnection(endpoint(), defaultCentrifugeWorkspaceClientFactory),
         },
         agentProxy,
         discoverCodeAgentInventory,
         stateDirectory ?? join(homedir(), ".coforge", "daemon"),
+        lifecycle(),
       );
       await runtime.start(config);
     },
@@ -154,15 +173,12 @@ if (import.meta.main && Bun.argv[2] === "__agent-cli") {
           createAgentDriver,
           credentials,
           {
-            create: () =>
-              new DaemonConnection(
-                daemonConnectionEndpoint(COFORGE_DAEMON_SERVER_URL),
-                defaultCentrifugeWorkspaceClientFactory,
-              ),
+            create: () => new DaemonConnection(endpoint(), defaultCentrifugeWorkspaceClientFactory),
           },
           agentProxy,
           discoverCodeAgentInventory,
           stateDirectory ?? join(homedir(), ".coforge", "daemon"),
+          lifecycle(),
         );
         await runtime.start(config);
       }
@@ -182,9 +198,10 @@ if (import.meta.main && Bun.argv[2] === "__agent-cli") {
       );
     },
   };
+  if (Bun.env.COFORGE_SUPERVISOR_SOCKET) await daemon.start();
   const localRpc = await startDaemonLocalRpcServer({
     socketPath,
-    serverUrl: COFORGE_DAEMON_SERVER_URL,
+    version: COFORGE_DAEMON_VERSION,
     validateCredential: (credential) => credential.length > 0,
     runtime: daemon,
     credentials,
@@ -214,3 +231,6 @@ if (import.meta.main && Bun.argv[2] === "__agent-cli") {
   process.once("SIGTERM", () => void shutdown());
   await shutdownRequested;
 }
+
+// Standalone source/development harness; releases enter through Computer.
+if (import.meta.main) await runDaemon(Bun.argv.slice(2));

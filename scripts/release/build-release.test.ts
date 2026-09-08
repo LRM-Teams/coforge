@@ -63,22 +63,19 @@ const ALL_TARGETS = [
   "windows-arm64",
 ];
 
-/** Every target gets its own, distinct computer and daemon bytes (the target name is embedded in
- * both). Identical bytes across targets would let a "wrote target A's checksum into target B's
+/** Every target gets its own distinct computer bytes. Identical bytes across targets would let a
+ * "wrote target A's checksum into target B's
  * sidecar" bug pass the consistency test further down - only distinct bytes make that a real
  * check. Each computer "binary" is a runnable POSIX shell script, since the install.sh test below
  * executes whichever one matches the current host platform. `argumentLog` is where it records the
  * arguments it was invoked with; tests that never execute a binary can pass "/dev/null". */
-function fixtureArtifacts(
-  argumentLog: string,
-): Record<string, { computer: Uint8Array; daemon: Uint8Array }> {
-  const artifacts: Record<string, { computer: Uint8Array; daemon: Uint8Array }> = {};
+function fixtureArtifacts(argumentLog: string): Record<string, { computer: Uint8Array }> {
+  const artifacts: Record<string, { computer: Uint8Array }> = {};
   for (const target of ALL_TARGETS) {
     artifacts[target] = {
       computer: Buffer.from(
         `#!/bin/sh\n# release target: ${target}\nprintf '%s\\n' "$@" > "${argumentLog}"\n`,
       ),
-      daemon: Buffer.from(`daemon-payload-${target}\n`),
     };
   }
   return artifacts;
@@ -192,7 +189,6 @@ test("buildReleaseTree writes the full <version>/ tree and never a latest pointe
       ...ALL_TARGETS.flatMap((target) => [
         `${inputs.version}/${target}/coforge-computer.gz`,
         `${inputs.version}/${target}/coforge-computer.sha256`,
-        `${inputs.version}/${target}/coforge-daemon.gz`,
       ]),
     ].sort(),
   );
@@ -221,25 +217,19 @@ test("every target's sidecar checksum matches the manifest's checksum, and both 
     expect(manifest.platforms[target].computer.checksum).toBe(independentChecksum);
     expect(manifest.platforms[target].computer.size).toBe(computerBytes.byteLength);
     expect(manifest.platforms[target].computer.binary).toBe("coforge-computer");
-    expect(manifest.platforms[target].daemon.binary).toBe("coforge-daemon");
-
-    for (const name of ["computer", "daemon"] as const) {
-      const compressed = await readFile(
-        join(outputDirectory, version, target, `coforge-${name}.gz`),
-      );
-      const decompressed = Buffer.from(Bun.gunzipSync(compressed));
-      expect(decompressed.equals(Buffer.from(inputs.artifacts[target]![name]))).toBe(true);
-      expect(manifest.platforms[target][name].size).toBe(decompressed.byteLength);
-      expect(manifest.platforms[target][name].checksum).toBe(sha256hex(decompressed));
-      expect(manifest.platforms[target][name].gzip).toEqual({
-        binary: `coforge-${name}.gz`,
-        size: compressed.byteLength,
-        checksum: sha256hex(compressed),
-      });
-      await expect(
-        stat(join(outputDirectory, version, target, `coforge-${name}`)),
-      ).rejects.toThrow();
-    }
+    expect(manifest.schema_version).toBe(2);
+    expect(Object.keys(manifest.platforms[target])).toEqual(["computer"]);
+    expect(manifest.platforms[target].computer.gzip).toEqual({
+      binary: "coforge-computer.gz",
+      size: compressedComputer.byteLength,
+      checksum: sha256hex(compressedComputer),
+    });
+    await expect(
+      stat(join(outputDirectory, version, target, "coforge-computer")),
+    ).rejects.toThrow();
+    await expect(
+      stat(join(outputDirectory, version, target, "coforge-daemon.gz")),
+    ).rejects.toThrow();
   }
 });
 
@@ -251,13 +241,11 @@ test("buildReleaseTree produces deterministic gzip bytes", async () => {
   await buildReleaseTree(inputs, second);
 
   for (const target of ALL_TARGETS) {
-    for (const name of ["computer", "daemon"]) {
-      expect(
-        (await readFile(join(first, inputs.version, target, `coforge-${name}.gz`))).equals(
-          await readFile(join(second, inputs.version, target, `coforge-${name}.gz`)),
-        ),
-      ).toBe(true);
-    }
+    expect(
+      (await readFile(join(first, inputs.version, target, "coforge-computer.gz"))).equals(
+        await readFile(join(second, inputs.version, target, "coforge-computer.gz")),
+      ),
+    ).toBe(true);
   }
 });
 
@@ -279,11 +267,10 @@ test("ComputerUpdater installs successfully from the produced tree, for every re
     const installedComputer = await readFile(
       join(installRoot, "versions", version, `coforge-computer${suffix}`),
     );
-    const installedDaemon = await readFile(
-      join(installRoot, "versions", version, `coforge-daemon${suffix}`),
-    );
     expect(installedComputer.equals(Buffer.from(inputs.artifacts[target]!.computer))).toBe(true);
-    expect(installedDaemon.equals(Buffer.from(inputs.artifacts[target]!.daemon))).toBe(true);
+    expect(
+      await Bun.file(join(installRoot, "versions", version, `coforge-daemon${suffix}`)).exists(),
+    ).toBe(false);
   }
 });
 
@@ -308,7 +295,6 @@ test("the real install.sh installs successfully from the produced tree", async (
         `printf '#!/bin/sh\\nexit 0\\n' > "$bin_directory/coforge-computer"\n` +
         `chmod 755 "$bin_directory/coforge-computer"\n`,
     ),
-    daemon: artifacts[host]!.daemon,
   };
   const { version } = await buildReleaseTree(releaseInputs({ artifacts }), outputDirectory);
   await writeFile(join(outputDirectory, "latest"), `${version}\n`);

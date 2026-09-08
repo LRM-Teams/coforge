@@ -15,6 +15,7 @@ import {
   resolveDaemonSocketPath,
 } from "./paths";
 import { ComputerUpdater, UpdateError } from "./updater";
+import { launchUpgradeCoordinator } from "./release/upgrade-coordinator";
 import { COFORGE_RELEASE_FEED_URL, COFORGE_SERVER_URL } from "./release-channel";
 import { FileComputerConfig, loadBuildProfile } from "./local-config";
 import { resolveComputerConfigDirectory } from "./paths";
@@ -30,8 +31,8 @@ import {
 import { ComputerRegistrationClient } from "@coforge/protocol";
 import {
   createDaemonHost,
-  LocalDaemonLauncher,
   resolveDaemonExecutablePath,
+  runMachineSupervisor,
 } from "@coforge/daemon";
 import { createWorkspaceLookup } from "./workspace/lookup";
 import { isValidComputerWorkspaceSlug } from "./workspace/workspace-slug";
@@ -59,13 +60,17 @@ export interface UpdateCommand {
 }
 
 export interface DaemonCommand {
-  start(): Promise<void>;
-  stop(): Promise<void>;
-  restart(): Promise<void>;
+  start(workspace?: string): Promise<void>;
+  stop(workspace?: string): Promise<void>;
+  restart(workspace?: string): Promise<void>;
 }
 
 export interface LogsCommand {
   follow(): Promise<void>;
+}
+
+export interface ForegroundCommand {
+  run(): Promise<void>;
 }
 
 interface CliDependencies {
@@ -74,6 +79,7 @@ interface CliDependencies {
   updater?: UpdateCommand;
   daemon?: DaemonCommand;
   logs?: LogsCommand;
+  foreground?: ForegroundCommand;
 }
 
 export async function runCli(
@@ -105,7 +111,7 @@ export async function runCli(
     });
   program
     .command("setup")
-    .description("Register this Computer with one Workspace and start its Daemon.")
+    .description("Register this Computer with the selected Workspace and start its Daemon.")
     .option(
       "--workspace <slug>",
       "Workspace slug to join (falls back to COFORGE_SETUP_INTENT when omitted)",
@@ -145,15 +151,28 @@ export async function runCli(
   program
     .command("start")
     .description("Start the Daemon and all configured Daemon Runtimes.")
-    .action(() => requireDaemon(dependencies).start());
+    .option("--workspace <slug-or-id>", "Affect only this local Workspace binding")
+    .action((options: { workspace?: string }) =>
+      requireDaemon(dependencies).start(options.workspace),
+    );
   program
     .command("stop")
     .description("Stop the Daemon and all Daemon Runtimes.")
-    .action(() => requireDaemon(dependencies).stop());
+    .option("--workspace <slug-or-id>", "Affect only this local Workspace binding")
+    .action((options: { workspace?: string }) =>
+      requireDaemon(dependencies).stop(options.workspace),
+    );
   program
     .command("restart")
     .description("Restart the Daemon and all configured Daemon Runtimes.")
-    .action(() => requireDaemon(dependencies).restart());
+    .option("--workspace <slug-or-id>", "Affect only this local Workspace binding")
+    .action((options: { workspace?: string }) =>
+      requireDaemon(dependencies).restart(options.workspace),
+    );
+  program
+    .command("foreground")
+    .description("Run the Daemon supervisor in the foreground for external supervision.")
+    .action(() => requireForeground(dependencies).run());
   program
     .command("logs")
     .description("Follow the Computer log, including rotated log files.")
@@ -244,6 +263,12 @@ function requireLogs(dependencies: CliDependencies): LogsCommand {
   return dependencies.logs;
 }
 
+function requireForeground(dependencies: CliDependencies): ForegroundCommand {
+  if (!dependencies.foreground)
+    throw new Error("Foreground supervisor is unavailable in this build");
+  return dependencies.foreground;
+}
+
 function createLoginCommand(
   io: {
     stdout: (line: string) => void;
@@ -328,7 +353,6 @@ export function createSetupCommand(
             platform: platform.os,
             fallback: new FileMachineIdFallback(join(stateDirectory, "machine-id")),
           }),
-          runtimes: [],
         };
       },
     },
@@ -387,16 +411,6 @@ function createDaemonLauncher(
   stateDirectory: string,
   serverUrl: string,
 ) {
-  if (process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1") {
-    return new LocalDaemonLauncher({
-      executablePath:
-        process.env.COFORGE_E2E_DAEMON_EXECUTABLE ??
-        resolveDaemonExecutablePath({ installRoot: installDirectory, platform }),
-      socketPath: resolveDaemonSocketPath({ platform, stateDirectory }),
-      stateDirectory,
-      serverUrl,
-    });
-  }
   return createDaemonHost({
     platform,
     executablePath:
@@ -428,18 +442,30 @@ function createCommand(
   const command = createClientCommand({
     daemon: launcher,
     logger,
+    resolveWorkspace: async (selector) => {
+      const config = new FileComputerConfig(
+        resolveComputerConfigDirectory({
+          platform,
+          homeDirectory: homedir(),
+          environment: Bun.env,
+        }),
+      );
+      const binding = await config.loadRegistration(selector);
+      if (!binding) throw new Error(`Workspace '${selector}' is not registered locally`);
+      return binding.id;
+    },
   });
   return {
-    async start() {
+    async start(workspace) {
       await launcher.preflight?.();
       await loadBuildProfile(config, serverUrl, "daemon");
-      await command.start();
+      await command.start(workspace);
     },
-    stop: () => command.stop(),
-    async restart() {
+    stop: (workspace) => command.stop(workspace),
+    async restart(workspace) {
       await launcher.preflight?.();
       await loadBuildProfile(config, serverUrl, "daemon");
-      await command.restart();
+      await command.restart(workspace);
     },
   };
 }
@@ -471,23 +497,44 @@ function createUpdateCommand(io: { stdout: (line: string) => void }): UpdateComm
     installRoot,
     binaryDirectory,
   });
+  const supervisorStatePath = resolveComputerStateDirectory({
+    platform: process.platform,
+    homeDirectory: homedir(),
+    environment: Bun.env,
+  });
+  const coordinate = (operation: "upgrade" | "rollback", selection: string) =>
+    launchUpgradeCoordinator({
+      operation,
+      selection,
+      installRoot,
+      binaryDirectory,
+      target,
+      baseUrl: COFORGE_RELEASE_FEED_URL,
+      supervisorStatePath,
+      supervisorSocketPath: resolveDaemonSocketPath({
+        platform: process.platform,
+        stateDirectory: supervisorStatePath,
+      }),
+    });
   return {
     async install(version) {
-      const result = await updater.install(version);
+      const result = (await Bun.file(join(installRoot, "active.json")).exists())
+        ? await coordinate("upgrade", version)
+        : await updater.install(version);
       io.stdout(`Installed ${result.version}`);
     },
     async upgrade(version) {
-      const result = await updater.install(version);
+      const result = await coordinate("upgrade", version);
       io.stdout(`Activated ${result.version}`);
     },
     async rollback() {
-      const result = await updater.rollback();
+      const result = await coordinate("rollback", "latest");
       io.stdout(`Rolled back to ${result.version}`);
     },
   };
 }
 
-if (import.meta.main) {
+export async function runComputer(): Promise<void> {
   const io = {
     stdout: (line: string) => console.log(line),
     stderr: (line: string) => console.error(line),
@@ -529,6 +576,15 @@ if (import.meta.main) {
           logging.logger,
         ),
         logs: createLogsCommand(computerDirectory, io),
+        foreground: {
+          run: () =>
+            runMachineSupervisor([
+              "--socket",
+              resolveDaemonSocketPath({ platform: platform.os, stateDirectory }),
+              "--state-directory",
+              stateDirectory,
+            ]),
+        },
       },
       io,
     );

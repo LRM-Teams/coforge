@@ -109,8 +109,54 @@ test("each Workspace configuration persists its stable id without its slug", asy
   expect(await readFile(configPath, "utf8")).not.toContain("human-readable-slug");
 });
 
+test("adding a Workspace registration preserves existing Workspace registrations", async () => {
+  const directory = await temporaryDirectory();
+  const config = new FileComputerConfig(directory);
+
+  const first = await config.saveRegistration({
+    id: "workspace-a",
+    slug: "alpha",
+    computerId: "computer-1",
+  });
+  const second = await config.saveRegistration({
+    id: "workspace-b",
+    slug: "bravo",
+    computerId: "computer-1",
+  });
+
+  expect(first).not.toBe(second);
+  expect(JSON.parse(await readFile(first, "utf8"))).toEqual({
+    workspace_id: "workspace-a",
+    workspace_slug: "alpha",
+    computer_id: "computer-1",
+  });
+  expect(JSON.parse(await readFile(second, "utf8"))).toEqual({
+    workspace_id: "workspace-b",
+    workspace_slug: "bravo",
+    computer_id: "computer-1",
+  });
+});
+
 async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "coforge-computer-config-"));
   directories.push(directory);
   return directory;
 }
+
+test("registration lookup resolves either Workspace id or slug without singleton fallback", async () => {
+  const config = new FileComputerConfig(await temporaryDirectory());
+  await config.saveRegistration({ id: "workspace-a", slug: "alpha", computerId: "c" });
+  await config.saveRegistration({ id: "workspace-b", slug: "bravo", computerId: "c" });
+  expect(await config.loadRegistration("alpha")).toEqual({
+    id: "workspace-a",
+    slug: "alpha",
+    computerId: "c",
+  });
+  expect(await config.loadRegistration("workspace-b")).toEqual({
+    id: "workspace-b",
+    slug: "bravo",
+    computerId: "c",
+  });
+  expect(await config.loadRegistration("missing")).toBeNull();
+  await expect(config.loadRegistration()).rejects.toThrow("multiple");
+});

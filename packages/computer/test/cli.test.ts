@@ -373,3 +373,19 @@ test("install and upgrade preserve the three release-set selection modes", async
     { operation: "rollback" },
   ]);
 });
+
+test("foreground runs the supervisor in the current process for external supervision", async () => {
+  let calls = 0;
+  const exitCode = await runCli(["foreground"], {
+    login: { async run() {} },
+    setup: { async run() {} },
+    foreground: {
+      async run() {
+        calls += 1;
+      },
+    },
+  });
+
+  expect(exitCode).toBe(0);
+  expect(calls).toBe(1);
+});

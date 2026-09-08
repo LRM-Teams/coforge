@@ -48,12 +48,11 @@ const BUCKET = "coforge-releases-test";
 // costs nothing.
 const TEST_TARGETS = ["linux-x64", "darwin-arm64", "windows-x64"];
 
-function fixtureArtifacts(): Record<string, { computer: Uint8Array; daemon: Uint8Array }> {
-  const artifacts: Record<string, { computer: Uint8Array; daemon: Uint8Array }> = {};
+function fixtureArtifacts(): Record<string, { computer: Uint8Array }> {
+  const artifacts: Record<string, { computer: Uint8Array }> = {};
   for (const target of TEST_TARGETS) {
     artifacts[target] = {
-      computer: Buffer.from(`#!/bin/sh\n# computer for ${target}\n`),
-      daemon: Buffer.from(`#!/bin/sh\n# daemon for ${target}\n`),
+      computer: Buffer.from(`#!/bin/sh\n# unified computer for ${target}\n`),
     };
   }
   return artifacts;
@@ -584,7 +583,9 @@ test("--dry-run makes no network calls and reports the objects it would publish"
   expect(outcome.version).toBe("9.9.9-dry-run");
   expect(outcome.files).toContain("9.9.9-dry-run/manifest.json");
   expect(outcome.files).toContain("9.9.9-dry-run/linux-x64/coforge-computer.gz");
+  expect(outcome.files).toContain("9.9.9-dry-run/linux-x64/coforge-computer.sha256");
   expect(outcome.files).not.toContain("9.9.9-dry-run/linux-x64/coforge-computer");
+  expect(outcome.files.some((file) => file.includes("coforge-daemon"))).toBe(false);
   expect(outcome.latestKey).toBe(LATEST_OBJECT_KEY);
 });
 

@@ -38,7 +38,6 @@ test("computer registration sends the stable method and rejects incompatible maj
     platform: "linux",
     osVersion: "1",
     computerVersion: "1",
-    runtimes: [],
     registrationIdempotencyKey: "i",
   };
   await expect(client.register(request)).resolves.toMatchObject({
@@ -49,7 +48,7 @@ test("computer registration sends the stable method and rejects incompatible maj
   expect(() => client.register({ ...request, protocolMajor: 2 })).toThrow("unsupported");
 });
 
-test("registration codec preserves runtime provider metadata", () => {
+test("registration codec preserves machine registration fields", () => {
   const request = {
     protocolMajor: 1,
     requestId: "r",
@@ -59,17 +58,8 @@ test("registration codec preserves runtime provider metadata", () => {
     osVersion: "1",
     computerVersion: "1",
     registrationIdempotencyKey: "i",
-    runtimes: [{ provider: RUNTIME_PROVIDER.PI, version: "1", displayName: "Pi" }],
   } satisfies Parameters<ComputerRegistrationClient["register"]>[0];
-  expect(decodeComputerRegisterRequest(encodeComputerRegisterRequest(request)).runtimes).toEqual(
-    request.runtimes,
-  );
-  const external = request.runtimes[0];
-  const externalPayload = encodeComputerRegisterRequest({
-    ...request,
-    runtimes: [external],
-  });
-  expect(decodeComputerRegisterRequest(externalPayload).runtimes).toEqual([external]);
+  expect(decodeComputerRegisterRequest(encodeComputerRegisterRequest(request))).toEqual(request);
 });
 
 test("daemon runtime code-agent inventory round trips as a complete external snapshot", () => {

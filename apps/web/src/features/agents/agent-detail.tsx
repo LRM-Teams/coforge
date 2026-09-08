@@ -55,8 +55,8 @@ export function AgentDetail({
         : m.agent_status_offline();
   const latestError = latestActivityError(activity);
   return (
-    <main className="flex-1 p-4 sm:p-5 md:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <main className="flex h-svh max-h-svh min-h-0 flex-1 flex-col overflow-hidden p-4 sm:p-5 md:p-6">
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-center gap-3">
           <Avatar
             people={[{ name: detail.displayName }]}
@@ -80,7 +80,7 @@ export function AgentDetail({
           {m.agent_private_chat()}
         </Link>
       </div>
-      <nav className="mt-6 flex gap-1 border-b" aria-label={m.agent_detail_tabs()}>
+      <nav className="mt-6 flex shrink-0 gap-1 border-b" aria-label={m.agent_detail_tabs()}>
         {(["profile", "activity"] as const).map((value) => (
           <Link
             key={value}
@@ -93,30 +93,35 @@ export function AgentDetail({
           </Link>
         ))}
       </nav>
-      {tab === "profile" && latestError && (
-        <div
-          role="alert"
-          className="mt-6 flex items-start gap-3 rounded-xl border border-destructive/50 bg-destructive/5 p-4 text-sm"
-        >
-          <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
-          <div>
-            <p className="font-medium text-destructive-text">{m.agent_latest_error()}</p>
-            <p className="mt-1 text-muted-foreground">{latestError.message}</p>
+      <section
+        aria-label={tab === "profile" ? m.agent_profile_tab() : m.agent_activity_tab()}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+      >
+        {tab === "profile" && latestError && (
+          <div
+            role="alert"
+            className="mt-6 flex items-start gap-3 rounded-xl border border-destructive/50 bg-destructive/5 p-4 text-sm"
+          >
+            <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
+            <div>
+              <p className="font-medium text-destructive-text">{m.agent_latest_error()}</p>
+              <p className="mt-1 text-muted-foreground">{latestError.detail}</p>
+            </div>
           </div>
-        </div>
-      )}
-      {tab === "profile" ? (
-        <Profile
-          detail={detail}
-          timeZone={timeZone}
-          onSaveRuntimeCredential={onSaveRuntimeCredential}
-          onDeleteRuntimeCredential={onDeleteRuntimeCredential}
-          onUpdate={onUpdate}
-          onLoadRuntimeOptions={onLoadRuntimeOptions}
-        />
-      ) : (
-        <Activity activity={activity} timeZone={timeZone} />
-      )}
+        )}
+        {tab === "profile" ? (
+          <Profile
+            detail={detail}
+            timeZone={timeZone}
+            onSaveRuntimeCredential={onSaveRuntimeCredential}
+            onDeleteRuntimeCredential={onDeleteRuntimeCredential}
+            onUpdate={onUpdate}
+            onLoadRuntimeOptions={onLoadRuntimeOptions}
+          />
+        ) : (
+          <Activity activity={activity} timeZone={timeZone} />
+        )}
+      </section>
     </main>
   );
 }
@@ -488,27 +493,34 @@ function Activity({ activity, timeZone }: { activity: ActivityEntry[]; timeZone:
           className="grid gap-1 py-2 sm:grid-cols-[max-content_max-content_minmax(0,1fr)] sm:items-start sm:gap-3"
         >
           <RelativeTime
-            value={entry.occurredAt}
+            value={new Date(entry.observedAtMs)}
             timeZone={timeZone}
             className="whitespace-nowrap text-xs tabular-nums text-muted-foreground sm:pt-0.5"
           />
           <span className="flex items-center gap-2 font-medium">
             <span
               aria-hidden="true"
-              className={`size-1.5 shrink-0 rounded-full ${activityDotClass(entry.activity, entry.level)}`}
+              className={`size-1.5 shrink-0 rounded-full ${activityDotClass(entry.detailKind, entry.level)}`}
             />
             <span className={entry.level === "error" ? "text-destructive-text" : undefined}>
-              {activityLabel(entry.activity, entry.level)}
+              {activityLabel(entry.detailKind, entry.level)}
             </span>
           </span>
-          {showsActivityMessage(entry.activity) && (
+          {showsActivityMessage(entry.detailKind) && (
             <p
-              className={`whitespace-pre-wrap break-words text-sm ${["running_command", "reading_file", "writing_file", "editing_file"].includes(entry.activity) ? "select-text font-mono" : ""} ${entry.level === "error" ? "text-destructive-text" : "text-muted-foreground"}`}
+              className={`whitespace-pre-wrap break-words text-sm ${["running_command", "tool_started"].includes(entry.detailKind) ? "select-text font-mono" : ""} ${entry.level === "error" ? "text-destructive-text" : "text-muted-foreground"}`}
             >
-              {entry.message}
-              {entry.diagnosticErrorClass && (
+              {entry.detail}
+              {entry.entries?.map((item, index) =>
+                item.kind !== "tool_start" ? (
+                  <span key={index} className="block">
+                    {item.text}
+                  </span>
+                ) : null,
+              )}
+              {entry.runtimeError && (
                 <span className="mt-1 block text-xs opacity-75">
-                  {entry.diagnosticErrorClass} · {entry.diagnosticReason ?? "unknown"}
+                  {entry.runtimeError.errorClass} · {entry.runtimeError.errorReason}
                 </span>
               )}
             </p>

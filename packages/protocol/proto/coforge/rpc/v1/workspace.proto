@@ -32,6 +32,22 @@ message Workspace {
   string name = 3;
 }
 
+// Acknowledged daemon-to-cloud identity report; never delivered as Activity.
+message AgentSessionReport {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  string provider = 6;
+  string session_id = 7;
+  string start_request_id = 8;
+  string daemon_instance_id = 9;
+  string launch_id = 10;
+  optional string previous_launch_id = 11;
+  optional string replaced_session_id = 12;
+}
+
 // Versioned server-to-daemon intent.
 message AgentStartIntent {
   uint32 protocol_major = 1;
@@ -50,6 +66,8 @@ message AgentStartIntent {
   AgentRecoveryMessage wake_message = 13;
   repeated AgentRecoveryMessage resume_messages = 14;
   repeated AgentUnreadSummaryEntry unread_summary = 15;
+  optional string previous_launch_id = 16;
+  optional string session_mode = 17;
 }
 
 // Versioned server-to-daemon stop intent. A replacement is expressed as a
@@ -118,17 +136,28 @@ message AgentActivity {
   string request_id = 2;
   string workspace_id = 3;
   string agent_id = 4;
-  string activity = 5;
+  string detail_kind = 5;
   string level = 6;
-  string message = 7;
-  string occurred_at = 8;
+  string detail = 7;
+  uint64 observed_at_ms = 8;
   string message_id = 9;
   string conversation_id = 10;
   string launch_id = 11;
   uint64 client_seq = 12;
-  string diagnostic_error_class = 13;
-  string diagnostic_reason = 14;
-  string diagnostic_fingerprint = 15;
+  string runtime_error_class = 13;
+  string runtime_error_reason = 14;
+  string runtime_error_fingerprint = 15;
+  repeated ActivityTrajectoryEntry entries = 16;
+}
+
+// Display-only trajectory. The oneof makes kind/payload mismatches impossible.
+message ActivityTrajectoryEntry {
+  oneof content {
+    string text = 1;
+    string thinking = 2;
+    string tool_name = 3;
+  }
+  string parent_tool_use_id = 4;
 }
 
 // Versioned daemon-to-server Agent availability transition.

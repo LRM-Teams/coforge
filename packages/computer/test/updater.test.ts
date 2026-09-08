@@ -28,13 +28,14 @@ async function fixture(
     version?: string;
     target?: string;
     tamperComputer?: boolean;
-    tamperDaemon?: boolean;
-    oversizeDaemon?: boolean;
+    oversizeComputer?: boolean;
     malformedManifest?: boolean;
     omitLatest?: boolean;
     omitPlatform?: boolean;
     manifestVersion?: string;
-    swapComputerBinary?: boolean;
+    wrongComputerBinary?: boolean;
+    schemaVersion?: number;
+    includeDaemon?: boolean;
     redirectLatest?: boolean;
   } = {},
 ) {
@@ -43,22 +44,14 @@ async function fixture(
   const target = options.target ?? (process.platform === "darwin" ? "darwin-x64" : "linux-x64");
   const version = options.version ?? "2.0.0";
   const computer = Buffer.from("computer-payload-v2");
-  const daemon = Buffer.from("daemon-payload-v2");
   const compressedComputer = Bun.gzipSync(computer);
-  const compressedDaemon = Bun.gzipSync(daemon);
   const computerGzip = {
     binary: "coforge-computer.gz",
     size: compressedComputer.length,
     checksum: sha256hex(compressedComputer),
   };
-  const daemonGzip = {
-    binary: "coforge-daemon.gz",
-    size: compressedDaemon.length,
-    checksum: sha256hex(compressedDaemon),
-  };
-
   const manifest = {
-    schema_version: 1,
+    schema_version: options.schemaVersion ?? 2,
     version: options.manifestVersion ?? version,
     commit: "a".repeat(40),
     buildDate: "2026-09-04T12:00:00Z",
@@ -66,46 +59,28 @@ async function fixture(
       ? {}
       : {
           [target]: {
-            // swapComputerBinary makes the "computer" entry point at the daemon's own name and
-            // identity, so the payload it describes is self-consistent (its checksum matches
-            // what the feed actually serves at that path) and only the binary-name pin can catch
-            // it - see the B3-3 test below.
-            computer: options.swapComputerBinary
-              ? {
-                  binary: "coforge-daemon",
-                  checksum: sha256hex(daemon),
-                  size: daemon.length,
-                  gzip: daemonGzip,
-                }
-              : {
-                  binary: "coforge-computer",
-                  checksum: sha256hex(computer),
-                  size: computer.length,
-                  gzip: computerGzip,
-                },
-            daemon: {
-              binary: "coforge-daemon",
-              checksum: sha256hex(daemon),
-              size: daemon.length,
-              gzip: daemonGzip,
+            computer: {
+              binary: options.wrongComputerBinary ? "other-computer" : "coforge-computer",
+              checksum: sha256hex(computer),
+              size: computer.length,
+              gzip: computerGzip,
             },
+            ...(options.includeDaemon ? { daemon: { binary: "coforge-daemon" } } : {}),
           },
         },
   };
   const manifestBytes = Buffer.from(
-    JSON.stringify(options.malformedManifest ? { schema_version: 1, oops: true } : manifest),
+    JSON.stringify(options.malformedManifest ? { schema_version: 2, oops: true } : manifest),
   );
-  const servedComputer = options.tamperComputer ? flipByte(computer) : computer;
-  const servedDaemon = options.oversizeDaemon
-    ? Buffer.concat([daemon, Buffer.alloc(daemon.length * 4, 0x41)])
-    : options.tamperDaemon
-      ? flipByte(daemon)
-      : daemon;
+  const servedComputer = options.oversizeComputer
+    ? Buffer.concat([computer, Buffer.alloc(computer.length * 4, 0x41)])
+    : options.tamperComputer
+      ? flipByte(computer)
+      : computer;
 
   const files = new Map<string, Uint8Array>([
     [`/${version}/manifest.json`, manifestBytes],
     [`/${version}/${target}/coforge-computer.gz`, Bun.gzipSync(new Uint8Array(servedComputer))],
-    [`/${version}/${target}/coforge-daemon.gz`, Bun.gzipSync(new Uint8Array(servedDaemon))],
   ]);
   // redirectLatest points "/latest" at a 302 whose destination serves the very same, otherwise
   // completely valid, version content - so a full install would succeed if the redirect refusal
@@ -228,8 +203,24 @@ test("latest and an exact version selector resolve to the same install", async (
       await readFile(join(input.directory, "versions", input.version, "coforge-computer"), "utf8"),
     ).toBe("computer-payload-v2");
     expect(
-      await readFile(join(input.directory, "versions", input.version, "coforge-daemon"), "utf8"),
-    ).toBe("daemon-payload-v2");
+      await Bun.file(join(input.directory, "versions", input.version, "coforge-daemon")).exists(),
+    ).toBe(false);
+    expect(
+      JSON.parse(
+        await readFile(
+          join(input.directory, "versions", input.version, "installation.json"),
+          "utf8",
+        ),
+      ),
+    ).toEqual({
+      schema_version: 2,
+      version: input.version,
+      computer: {
+        size: Buffer.byteLength("computer-payload-v2"),
+        checksum: sha256hex(Buffer.from("computer-payload-v2")),
+      },
+      agentCli: expect.any(Object),
+    });
   }
 });
 
@@ -291,16 +282,22 @@ test("a manifest whose version field does not match the requested version is rej
   });
 });
 
-test("a manifest that pins the computer artifact to the daemon's binary name is rejected", async () => {
-  const input = await fixture({ swapComputerBinary: true });
+test("a manifest that does not pin the computer artifact name is rejected", async () => {
+  const input = await fixture({ wrongComputerBinary: true });
 
   await expect(updater(input).install("latest")).rejects.toMatchObject({
     code: "UPDATE_FEED_INVALID",
   });
-  // Caught during manifest validation, before either artifact is downloaded - the swapped entry
-  // is otherwise self-consistent (its checksum matches the daemon bytes the feed actually serves
-  // at that path), so only the binary-name pin catches it.
   expect(input.requested).not.toContain(`/${input.version}/${input.target}/coforge-computer`);
+});
+
+test("schema 1 and a daemon member are rejected without legacy compatibility", async () => {
+  for (const options of [{ schemaVersion: 1 }, { includeDaemon: true }]) {
+    const input = await fixture(options);
+    await expect(updater(input).install("latest")).rejects.toMatchObject({
+      code: "UPDATE_FEED_INVALID",
+    });
+  }
 });
 
 test("a version of '.' or one that starts with '-' is rejected", async () => {
@@ -336,6 +333,17 @@ test("a manifest with an invalid schema is rejected", async () => {
   });
 });
 
+test("a null platform entry is rejected as an invalid feed", async () => {
+  const input = await fixture();
+  const key = `/${input.version}/manifest.json`;
+  const manifest = JSON.parse(new TextDecoder().decode(input.files.get(key)));
+  manifest.platforms[input.target] = null;
+  input.files.set(key, Buffer.from(JSON.stringify(manifest)));
+  await expect(updater(input).install("latest")).rejects.toMatchObject({
+    code: "UPDATE_FEED_INVALID",
+  });
+});
+
 test("a manifest missing the current platform is rejected", async () => {
   const input = await fixture({ omitPlatform: true });
 
@@ -345,7 +353,7 @@ test("a manifest missing the current platform is rejected", async () => {
 });
 
 test("a served payload that does not match its manifest checksum is rejected", async () => {
-  const input = await fixture({ tamperDaemon: true });
+  const input = await fixture({ tamperComputer: true });
 
   // The manifest and the served bytes disagree only in content, not length, which is what a
   // compromised feed object looks like. Pin the message so this cannot start passing for some
@@ -358,7 +366,7 @@ test("a served payload that does not match its manifest checksum is rejected", a
 });
 
 test("a payload larger than its recorded size is rejected before it is buffered", async () => {
-  const input = await fixture({ oversizeDaemon: true });
+  const input = await fixture({ oversizeComputer: true });
 
   await expect(updater(input).install("latest")).rejects.toMatchObject({
     code: "UPDATE_INTEGRITY_FAILED",
@@ -390,6 +398,66 @@ test("activation preserves a complete previous version and rollback works offlin
   });
 });
 
+test("prepare verifies old bytes and downloads the candidate without activating it", async () => {
+  const first = await fixture({ version: "2.0.0" });
+  await updater(first).install("latest");
+  const second = await fixture({ version: "2.1.0", target: first.target });
+  const manager = new ComputerUpdater({
+    baseUrl: second.baseUrl,
+    target: second.target,
+    installRoot: first.directory,
+  });
+
+  expect(await manager.prepare(second.version)).toEqual({
+    version: second.version,
+    previous: first.version,
+    rollbackVersion: null,
+  });
+  expect(JSON.parse(await readFile(join(first.directory, "active.json"), "utf8")).current).toBe(
+    first.version,
+  );
+  expect(
+    await Bun.file(join(first.directory, "versions", second.version, "coforge-computer")).exists(),
+  ).toBe(true);
+});
+
+test("prepare refuses to quiesce when the active rollback bytes are corrupted", async () => {
+  const first = await fixture({ version: "2.0.0" });
+  await updater(first).install("latest");
+  await writeFile(join(first.directory, "versions", first.version, "coforge-computer"), "bad");
+  const second = await fixture({ version: "2.1.0", target: first.target });
+  const manager = new ComputerUpdater({
+    baseUrl: second.baseUrl,
+    target: second.target,
+    installRoot: first.directory,
+  });
+
+  await expect(manager.prepare(second.version)).rejects.toMatchObject({
+    code: "UPDATE_INTEGRITY_FAILED",
+  });
+});
+
+test("failed candidate restoration preserves the prior healthy rollback selection", async () => {
+  const first = await fixture({ version: "1.0.0" });
+  await updater(first).install(first.version);
+  const second = await fixture({ version: "2.0.0", target: first.target });
+  await new ComputerUpdater({
+    baseUrl: second.baseUrl,
+    target: first.target,
+    installRoot: first.directory,
+  }).install(second.version);
+  const candidate = await fixture({ version: "3.0.0", target: first.target });
+  const manager = new ComputerUpdater({
+    baseUrl: candidate.baseUrl,
+    target: first.target,
+    installRoot: first.directory,
+  });
+  const prepared = await manager.prepare(candidate.version);
+  await manager.activatePrepared(prepared);
+  await manager.restoreVerified(prepared.previous!, prepared.rollbackVersion ?? null);
+  expect((await manager.rollback()).version).toBe(first.version);
+});
+
 test("rollback refuses a locally corrupted previous payload", async () => {
   const first = await fixture({ version: "2.0.0" });
   const manager = updater(first);
@@ -401,7 +469,10 @@ test("rollback refuses a locally corrupted previous payload", async () => {
     installRoot: first.directory,
   });
   await secondManager.install(second.version);
-  await writeFile(join(first.directory, "versions", first.version, "coforge-daemon"), "corrupted");
+  await writeFile(
+    join(first.directory, "versions", first.version, "coforge-computer"),
+    "corrupted",
+  );
 
   await expect(secondManager.rollback()).rejects.toMatchObject({ code: "UPDATE_INTEGRITY_FAILED" });
 });
@@ -411,6 +482,38 @@ test("rollback without a previous version fails closed", async () => {
   await updater(input).install("latest");
 
   await expect(updater(input).rollback()).rejects.toMatchObject({ code: "UPDATE_NO_ROLLBACK" });
+});
+
+test("concurrent callers on one updater instance cannot inherit lock ownership", async () => {
+  const input = await fixture();
+  const manager = updater(input);
+  await manager.withExclusiveOperation(async () => {
+    await expect(manager.install(input.version)).rejects.toMatchObject({ code: "UPDATE_BUSY" });
+  });
+});
+
+test("SIGKILL releases the permanent machine mutation lock without replacing it", async () => {
+  const input = await fixture();
+  const child = Bun.spawn(
+    [
+      process.execPath,
+      new URL("fixtures/update-lock-child.ts", import.meta.url).pathname,
+      input.directory,
+    ],
+    { stdin: "pipe", stdout: "pipe", stderr: "inherit" },
+  );
+  const output = child.stdout instanceof ReadableStream ? child.stdout.getReader() : null;
+  expect(output).not.toBeNull();
+  expect(new TextDecoder().decode((await output!.read()).value).trim()).toBe("acquired");
+  const lockPath = join(input.directory, "machine-mutation-lock.sqlite");
+  const inode = (await stat(lockPath)).ino;
+  child.kill("SIGKILL");
+  await child.exited;
+
+  await expect(
+    updater(input).withExclusiveOperation(async () => undefined),
+  ).resolves.toBeUndefined();
+  expect((await stat(lockPath)).ino).toBe(inode);
 });
 
 test("the supported platform matrix selects one complete target set", async () => {
@@ -429,9 +532,13 @@ test("the supported platform matrix selects one complete target set", async () =
     expect(await readFile(join(version, `coforge-computer${suffix}`), "utf8")).toBe(
       "computer-payload-v2",
     );
-    expect(await readFile(join(version, `coforge-daemon${suffix}`), "utf8")).toBe(
-      "daemon-payload-v2",
+    expect(await Bun.file(join(version, `coforge-daemon${suffix}`)).exists()).toBe(false);
+    const agentCli = await readFile(
+      join(version, target.startsWith("windows-") ? "coforge.cmd" : "coforge"),
+      "utf8",
     );
+    expect(agentCli).toContain(`coforge-computer${suffix}`);
+    expect(agentCli).toContain("__agent-cli");
     const shim = target.startsWith("windows-")
       ? join(input.directory, "bin", "coforge-computer.cmd")
       : join(input.directory, "bin", "coforge-computer");

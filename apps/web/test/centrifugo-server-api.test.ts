@@ -99,7 +99,7 @@ test("directs a runtime usage scan to the selected Computer's Daemon", async () 
     { async put() {}, async get() {} },
   );
 
-  expect(publication?.channel).toBe("daemon:computer-1");
+  expect(publication?.channel).toBe("daemon:workspace-1:computer-1");
   expect(decodeDaemonRuntimeUsageScanRequest(publication!.data)).toMatchObject({
     workspaceId: "workspace-1",
     computerId: "computer-1",

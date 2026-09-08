@@ -7,12 +7,34 @@ const ready = {
   workspaceId: "workspace-1",
   computerId: "computer-1",
   workerInstanceId: "worker-1",
+  daemonVersion: "1.2.3",
   startedAt: 123,
   runningAgentIds: ["agent-1", "agent-2"],
+  recoveredRestartRequestIds: ["restart-1"],
 };
 
 test("round-trips running Agent IDs in daemon ready", () => {
   expect(decodeDaemonRuntimeReadyRequest(encodeDaemonRuntimeReadyRequest(ready))).toEqual(ready);
+});
+
+test("round-trips fresh process identity, version, and restart recovery evidence", () => {
+  expect(decodeDaemonRuntimeReadyRequest(encodeDaemonRuntimeReadyRequest(ready))).toMatchObject({
+    workerInstanceId: "worker-1",
+    daemonVersion: "1.2.3",
+    recoveredRestartRequestIds: ["restart-1"],
+  });
+});
+
+test("round-trips a Workspace-scoped Computer restart intent", async () => {
+  const { decodeComputerRestartIntent, encodeComputerRestartIntent } = await import("./codec");
+  const intent = {
+    protocolMajor: 1,
+    requestId: "restart-1",
+    workspaceId: "workspace-1",
+    computerId: "computer-1",
+    messageType: "coforge.rpc.v1.ComputerRestartIntent" as const,
+  };
+  expect(decodeComputerRestartIntent(encodeComputerRestartIntent(intent))).toEqual(intent);
 });
 
 test("rejects empty and duplicate running Agent IDs", () => {

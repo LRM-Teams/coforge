@@ -4,11 +4,21 @@ These rules extend the repository root `AGENTS.md` for this package component.
 
 ## Product boundary
 
-`coforge-computer` is the installed Bun binary and user-facing CLI. It is not
+`coforge-computer` is the sole installed native executable and user-facing CLI. It is not
 a desktop UI, a cloud WebSocket client, or the owner of Daemon business logic.
 The Computer starts or reuses the Daemon and talks to it through the local
 versioned RPC boundary. It may perform the one-time user-authorized setup
 registration, but the Daemon owns ongoing Workspace and Agent operation.
+The executable dispatches `__daemon` to the Daemon runtime, `__agent-cli` to
+the existing `@coforge/cli/runner`, and all normal invocations to the Computer
+management CLI. These internal modes do not make Daemon or Agent CLI public
+management commands.
+Normal lifecycle commands request startup through the platform user process
+manager. `foreground` is the explicit public mode for containers and other
+external supervisors; no command implicitly detaches an unmanaged fallback.
+Upgrade/rollback hands off to a short-lived coordinator outside the managed
+service kill scope; foreground upgrades require the external supervisor to stop
+the process first.
 
 ## Source layout and ownership
 
@@ -23,14 +33,14 @@ src/
 │   ├── login/
 │   ├── setup/
 │   ├── install/
-│   ├── upgrade/
+│   ├── upgrade/                    # handoff to independent coordinator
 │   └── rollback/
 ├── setup/                          # Computer setup business flow
 ├── auth/                           # device-code authorization and credentials
 ├── workspace/                      # Direct Workspace lookup for setup intent
 ├── registration/                   # Computer registration request/use case
 ├── machine/                        # machine identity and platform metadata
-├── daemon/                         # Daemon lifecycle and local RPC client
+├── daemon/                         # scoped supervisor lifecycle and local RPC client
 ├── release/                        # install/update/release metadata
 └── shared/                         # small app-wide primitives only
 ```
@@ -40,10 +50,13 @@ existing file in place when it still has one clear responsibility; move code
 only when a real boundary is needed.
 
 `src/updater.ts` owns verified gzip installation and the version-local
-`coforge` launcher targeting the installed Daemon's internal Agent CLI entry.
+`coforge` launcher targeting the adjacent `coforge-computer __agent-cli` entry.
 Computer owns writing it into staging, recording its identity and verifying
 it on rollback. There is no legacy installer compatibility path.
 Computer's user command tree does not own Agent message commands.
+The full install/upgrade/rollback transaction is serialized by the machine
+mutation lock; do not narrow it to activation or reuse the Supervisor lifetime
+mutex as the upgrade lock.
 
 `src/release-channel.ts` owns the compiled official feed/server mapping.
 `src/local-config.ts` owns reading and validating the persisted profile against
@@ -84,7 +97,7 @@ client, or command-specific copy of an existing domain operation.
 - `login` remains available for explicit re-authentication, but the normal
   user-facing flow is `setup`. When needed, setup performs OAuth login inside
   the same flow, uses a Workspace-page setup intent, registers the Computer,
-  binds one Workspace, and starts (or reuses) the Daemon automatically. The
+  adds one Workspace binding, and starts (or reuses) its Daemon automatically. The
   user must never be asked to run `coforge-daemon` separately.
 - Setup takes the target Workspace from `--workspace <slug>`, which the Add
   Computer dialog renders with the current Workspace already filled in, so the

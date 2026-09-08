@@ -3,7 +3,9 @@ import { getRequest } from "@tanstack/react-start/server";
 import type { CodeAgentModelMetadata, RuntimeProvider } from "@coforge/protocol";
 import {
   computerIdInputSchema,
+  readRestartStatusInputSchema,
   readUsageInputSchema,
+  restartComputerInputSchema,
   scanUsageInputSchema,
   setRuntimeVisibilityInputSchema,
 } from "./computer.schemas";
@@ -18,6 +20,58 @@ import { getComputerStatusCache } from "../../server/centrifugo/computer-status.
 import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 import { ComputerRuntimeVisibility } from "../../server/computers/computer-runtime-visibility.server";
 import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/computer-runtime.repositories.server";
+import { RestartComputer } from "../../server/computers/restart-computer.server";
+import { getComputerRestartStore } from "../../server/computers/computer-restart-store.server";
+
+export const restartComputer = createServerFn({ method: "POST" })
+  .validator(restartComputerInputSchema)
+  .handler(async ({ data }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Computer persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    return new RestartComputer(
+      {
+        canRestart: async (scope) =>
+          Boolean(
+            await db.workspaceComputer.findFirst({
+              where: {
+                workspaceId: scope.workspaceId,
+                computerId: scope.computerId,
+                workspace: { memberships: { some: { userId: scope.userId } } },
+              },
+              select: { id: true },
+            }),
+          ),
+      },
+      createCentrifugoServerApi(),
+      getComputerRestartStore(),
+    ).execute({ userId: user.id, workspaceId }, data);
+  });
+
+export const readComputerRestartStatus = createServerFn({ method: "GET" })
+  .validator(readRestartStatusInputSchema)
+  .handler(async ({ data }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Computer persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const connection = await db.workspaceComputer.findFirst({
+      where: {
+        workspaceId,
+        computerId: data.computerId,
+        workspace: { memberships: { some: { userId: user.id } } },
+      },
+      select: { id: true },
+    });
+    if (!connection) throw new Error("Computer is not available");
+    const status = await getComputerRestartStore().status(
+      { workspaceId, computerId: data.computerId },
+      data.requestId,
+    );
+    if (!status) throw new Error("Restart request is not available");
+    return status;
+  });
 
 function runtimeVisibility() {
   const db = getDatabaseClient();
@@ -121,6 +175,7 @@ export const getComputerRuntimeCatalog = createServerFn({ method: "GET" })
           computer: {
             select: {
               modelCatalogs: {
+                where: { workspaceId },
                 select: { provider: true, models: true, observedAt: true },
                 orderBy: { provider: "asc" },
               },

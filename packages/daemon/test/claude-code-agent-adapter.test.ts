@@ -8,6 +8,239 @@ import { AGENT_RUNTIME_EVENT_TYPE, type AgentRuntimeEvent } from "../src/code-ag
 
 const TEST_AGENT_INSTRUCTIONS = "Test Agent instructions.";
 
+test.each(["missing-resume", "missing-before-initialize"])(
+  "Claude %s closes before fresh launch and reports replacement without losing first input",
+  async (mode) => {
+    const reports: Array<[string, string | undefined]> = [];
+    const confirmed = Promise.withResolvers<void>();
+    const session = await fixtureAdapter(mode).createAgentSession({
+      agentWorkspaceDirectory: tmpdir(),
+      instructions: TEST_AGENT_INSTRUCTIONS,
+      sessionId: "missing-session",
+      async onSessionId(id, replaced) {
+        reports.push([id, replaced]);
+        if (reports.length === 2) confirmed.resolve();
+      },
+    });
+    const completed = Promise.withResolvers<void>();
+    let exits = 0;
+    session.onExit(() => {
+      exits++;
+      completed.reject(new Error("unexpected terminal exit"));
+    });
+    session.subscribe((event) => {
+      if (event.type === "completed") completed.resolve();
+    });
+    try {
+      await session.sendMessage("finish");
+      await completed.promise;
+      await confirmed.promise;
+      expect(reports).toEqual([
+        ["fixture-session", "missing-session"],
+        ["fixture-session", "missing-session"],
+      ]);
+      expect(exits).toBe(0);
+    } finally {
+      await session.dispose();
+    }
+  },
+);
+
+test.each([
+  ["auth", ["resume-error", "Authentication failed"]],
+  ["I/O", ["resume-error", "EACCES: permission denied"]],
+  ["corruption", ["resume-error", "Invalid session transcript JSON"]],
+  ["wrong ID", ["resume-error", "No conversation found with session ID: another-session"]],
+  ["model progress", ["missing-resume", "progress-before-missing"]],
+  ["validated identity", ["missing-resume", "init-before-missing"]],
+  ["mixed errors", ["missing-resume", "mixed-error"]],
+  ["invalid output", ["missing-resume", "invalid-output"]],
+  ["failed fresh launch", ["missing-resume", "fresh-fails"]],
+] as const)("Claude does not retry %s as missing history", async (name, args) => {
+  const directory = await mkdtemp(join(tmpdir(), "claude-no-replay-"));
+  const log = join(directory, "launches");
+  const session = await fixtureAdapter(...args, "--launch-log", log).createAgentSession({
+    agentWorkspaceDirectory: directory,
+    instructions: TEST_AGENT_INSTRUCTIONS,
+    sessionId: "missing-session",
+  });
+  const exited = Promise.withResolvers<void>();
+  const events: AgentRuntimeEvent[] = [];
+  session.onExit(() => exited.resolve());
+  session.subscribe((event) => events.push(event));
+  try {
+    await session.sendMessage("finish");
+    await exited.promise;
+    expect(await readFile(log, "utf8")).toBe(
+      name === "failed fresh launch" ? "resume\nfresh\n" : "resume\n",
+    );
+    expect(events.filter((event) => event.type === "completed")).toEqual([]);
+    await expect(session.notify!("do not replay")).rejects.toThrow();
+  } finally {
+    await session.dispose();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Claude forwards cloud-selected persistent resume while retaining approved permissions", async () => {
+  const driver = new ClaudeCodeDriver({
+    command: [
+      process.execPath,
+      new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,
+      "expect-resume",
+    ],
+  });
+  const session = await driver.createAgentSession({
+    agentWorkspaceDirectory: tmpdir(),
+    instructions: TEST_AGENT_INSTRUCTIONS,
+    sessionId: "selected-session",
+  });
+  try {
+    expect(session).toBeDefined();
+  } finally {
+    await session.dispose();
+  }
+});
+
+test("Claude missing-session replacement retains notices until fresh turn boundary and dispose cancels them", async () => {
+  const fixture = await controlledClaude("missing-session", undefined, "missing-resume");
+  let accepted = 0;
+  try {
+    await fixture.session.sendMessage("wait");
+    const notice = fixture.session.notify!("wait").then(() => {
+      accepted++;
+    });
+    await toolBoundary(fixture.emit);
+    expect(accepted).toBe(0);
+    await fixture.emit({ type: "result", subtype: "success" });
+    await notice;
+    expect(accepted).toBe(1);
+    const retained = Promise.allSettled([fixture.session.notify!("wait")]);
+    await fixture.session.dispose();
+    expect((await retained)[0]?.status).toBe("rejected");
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("Claude first input and turn boundary flow while late identity ACK is pending", async () => {
+  const observed = Promise.withResolvers<void>();
+  const ack = Promise.withResolvers<void>();
+  const confirmed = Promise.withResolvers<void>();
+  let reports = 0;
+  const session = await fixtureAdapter().createAgentSession({
+    agentWorkspaceDirectory: tmpdir(),
+    instructions: TEST_AGENT_INSTRUCTIONS,
+    async onSessionId(id) {
+      expect(id).toBe("fixture-session");
+      reports++;
+      observed.resolve();
+      if (reports === 2) confirmed.resolve();
+      await ack.promise;
+    },
+  });
+  const complete = Promise.withResolvers<void>();
+  session.subscribe((event) => {
+    if (event.type === "completed") complete.resolve();
+  });
+  try {
+    expect(reports).toBe(0);
+    await session.sendMessage("finish");
+    await observed.promise;
+    await complete.promise;
+    expect(reports).toBe(1);
+    await session.notify!("wait");
+    await session.interrupt();
+    expect(reports).toBe(1);
+    ack.resolve();
+    await confirmed.promise;
+    expect(reports).toBeGreaterThanOrEqual(2);
+  } finally {
+    ack.resolve();
+    await session.dispose();
+  }
+});
+
+test("Claude serializes duplicate init and turn-end identity observations without suppressing confirmation", async () => {
+  const ack = Promise.withResolvers<void>();
+  const confirmed = Promise.withResolvers<void>();
+  const ids: string[] = [];
+  const fixture = await controlledClaude(undefined, async (id) => {
+    ids.push(id);
+    if (ids.length === 3) confirmed.resolve();
+    await ack.promise;
+  });
+  try {
+    await fixture.session.sendMessage("wait");
+    await fixture.emit(
+      { type: "system", subtype: "init", session_id: "fixture-session" },
+      { type: "result", subtype: "success" },
+    );
+    expect(ids).toEqual(["fixture-session"]);
+    ack.resolve();
+    await confirmed.promise;
+    expect(ids).toEqual(["fixture-session", "fixture-session", "fixture-session"]);
+  } finally {
+    ack.resolve();
+    await fixture.dispose();
+  }
+});
+
+test("Claude surfaces failed identity ACK and retries the observation at turn end", async () => {
+  const failed = Promise.withResolvers<string>();
+  const reported = Promise.withResolvers<void>();
+  let attempts = 0;
+  const fixture = await controlledClaude(undefined, async () => {
+    if (++attempts === 1) throw new Error("identity ACK unavailable");
+    reported.resolve();
+  });
+  fixture.session.subscribe((event) => {
+    if (event.type === "activity" && event.activity.detailKind === "runtime_error")
+      failed.resolve(event.activity.detail);
+  });
+  try {
+    await fixture.session.sendMessage("wait");
+    expect(await failed.promise).toBe("identity ACK unavailable");
+    await fixture.emit({ type: "result", subtype: "success" });
+    await reported.promise;
+    expect(attempts).toBe(2);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+for (const [mode, sessionId] of [
+  ["mismatched-init", "selected-session"],
+  ["missing-init", "selected-session"],
+  ["missing-init", undefined],
+  ["invalid-init", undefined],
+] as const) {
+  test(`Claude terminates ${sessionId ? "resume" : "fresh session"} on ${mode} without accepting later success`, async () => {
+    const reports: string[] = [];
+    const session = await fixtureAdapter(mode).createAgentSession({
+      agentWorkspaceDirectory: tmpdir(),
+      instructions: TEST_AGENT_INSTRUCTIONS,
+      sessionId,
+      async onSessionId(id) {
+        reports.push(id);
+      },
+    });
+    const events: AgentRuntimeEvent[] = [];
+    const exited = Promise.withResolvers<void>();
+    session.onExit(() => exited.resolve());
+    session.subscribe((event) => events.push(event));
+    try {
+      await session.sendMessage("finish");
+      await exited.promise;
+      expect(reports).toEqual([]);
+      expect(events.filter((event) => event.type === "completed")).toEqual([]);
+      await expect(session.notify!("not accepted")).rejects.toThrow("session");
+    } finally {
+      await session.dispose();
+    }
+  });
+}
+
 test("Claude Code initializes before the first prompt without waiting for turn metadata", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-code-"));
   const adapter = new ClaudeCodeDriver({
@@ -190,10 +423,11 @@ test("Claude Code maps stream-json turns behind the code-agent seam", async () =
       {
         type: "activity",
         activity: {
-          activity: "running_command",
+          detailKind: "running_command",
           level: "info",
-          message: "printf safe",
-          occurredAt: "2026-01-02T03:04:05.000Z",
+          detail: "printf safe",
+          observedAtMs: Date.parse("2026-01-02T03:04:05.000Z"),
+          entries: [{ kind: "tool_start", toolName: "bash" }],
         },
       },
       { type: "tool-output", id: "tool-1", text: "tests passed" },
@@ -384,6 +618,23 @@ test("Claude Code holds first-turn notifications until result, not text or tool 
     await notification;
     expect(accepted).toBe(true);
     await expect(session.sendMessage("overlap")).rejects.toThrow("already running");
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test("Claude resumed identity accepts a tool boundary without a new first-turn result", async () => {
+  const fixture = await controlledClaude("fixture-session");
+  try {
+    await fixture.session.sendMessage("wait");
+    let written = false;
+    const accepted = fixture.session.notify!("busy notice").then(() => {
+      written = true;
+    });
+    void accepted.catch(() => {});
+    await toolBoundary(fixture.emit);
+    await accepted;
+    expect(written).toBe(true);
   } finally {
     await fixture.dispose();
   }
@@ -592,7 +843,70 @@ async function toolBoundary(emit: (...records: Record<string, unknown>[]) => Pro
   );
 }
 
-async function controlledClaude() {
+test("Claude tool events retain file semantics for aliases without exposing patch bodies", async () => {
+  const fixture = await controlledClaude();
+  const activities: AgentRuntimeEvent[] = [];
+  fixture.session.subscribe((event) => {
+    if (event.type === "activity") activities.push(event);
+  });
+  try {
+    await fixture.session.sendMessage("wait");
+    await fixture.emit({
+      type: "assistant",
+      message: {
+        content: [
+          { type: "tool_use", id: "alias-read", name: "ReadFile", input: { path: "src/read.ts" } },
+          {
+            type: "tool_use",
+            id: "alias-edit",
+            name: "apply_patch",
+            input: { path: "src/edit.ts", patch: "private patch contents" },
+          },
+          {
+            type: "tool_use",
+            id: "alias-other",
+            name: "CustomTool",
+            input: { prompt: "private prompt" },
+          },
+        ],
+      },
+    });
+    expect(activities).toMatchObject([
+      {
+        type: "activity",
+        activity: {
+          detailKind: "tool_started",
+          detail: "src/read.ts",
+          entries: [{ kind: "tool_start", toolName: "read_file" }],
+        },
+      },
+      {
+        type: "activity",
+        activity: {
+          detailKind: "tool_started",
+          detail: "src/edit.ts",
+          entries: [{ kind: "tool_start", toolName: "edit_file" }],
+        },
+      },
+      {
+        type: "activity",
+        activity: {
+          detailKind: "tool_started",
+          detail: "CustomTool",
+          entries: [{ kind: "tool_start", toolName: "CustomTool" }],
+        },
+      },
+    ]);
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+async function controlledClaude(
+  sessionId?: string,
+  onSessionId?: (id: string) => Promise<void>,
+  ...args: string[]
+) {
   const responses: Response[] = [];
   let waiting: ((response: Response) => void) | undefined;
   const server = Bun.serve({
@@ -607,9 +921,11 @@ async function controlledClaude() {
       );
     },
   });
-  const session = await fixtureAdapter().createAgentSession({
+  const session = await fixtureAdapter(...args).createAgentSession({
     agentWorkspaceDirectory: tmpdir(),
     instructions: TEST_AGENT_INSTRUCTIONS,
+    sessionId,
+    onSessionId,
     environment: { COFORGE_CLAUDE_EVENT_FEED: server.url.href },
   });
   let serial = 0;

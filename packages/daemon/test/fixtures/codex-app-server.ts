@@ -130,7 +130,37 @@ function handle(request: Request): void {
     });
     return;
   }
-  if (request.method === "thread/start" && request.id && initialized && skillsLoaded) {
+  if (
+    ["thread/start", "thread/resume"].includes(request.method) &&
+    request.id &&
+    initialized &&
+    skillsLoaded
+  ) {
+    if (
+      request.params?.sandbox !== "danger-full-access" ||
+      request.params?.approvalPolicy !== "never"
+    ) {
+      write({ id: request.id, error: { message: "wrong approved permission policy" } });
+      return;
+    }
+    if (request.method === "thread/resume" && request.params?.threadId !== "thread-1") {
+      if (request.params?.threadId === "missing-thread") {
+        write({
+          id: request.id,
+          error: { code: -32600, message: "no rollout found for thread id missing-thread" },
+        });
+        return;
+      }
+      if (request.params?.threadId === "unreadable-thread") {
+        write({
+          id: request.id,
+          error: { code: -32603, message: "failed to read thread: permission denied" },
+        });
+        return;
+      }
+      write({ id: request.id, error: { message: "unknown saved thread" } });
+      return;
+    }
     if (expectsCoforgeEnvironment && !hasCoforgeEnvironmentPolicy(request.params)) {
       write({ id: request.id, error: { message: "missing CoForge shell environment policy" } });
       return;

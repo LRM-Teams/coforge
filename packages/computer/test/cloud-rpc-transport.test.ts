@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { COMPUTER_REGISTER_METHOD, RUNTIME_PROVIDER } from "@coforge/protocol";
+import { COMPUTER_REGISTER_METHOD } from "@coforge/protocol";
 import { encodeComputerRegisterRequest } from "@coforge/protocol/codec";
 import {
   CentrifugoComputerRegisterTransport,
@@ -19,13 +19,6 @@ const request = {
   platform: "linux",
   osVersion: "1",
   computerVersion: "1",
-  runtimes: [
-    {
-      provider: RUNTIME_PROVIDER.PI,
-      version: "1.0.0",
-      displayName: "Pi",
-    },
-  ],
   registrationIdempotencyKey: "registration-1",
 };
 

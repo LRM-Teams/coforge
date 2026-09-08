@@ -33,6 +33,8 @@ export class JsonlProcess {
   readonly #tree: OwnedProcessTree;
   readonly #pending = new Map<string, PendingRequest>();
   readonly #listeners = new Set<(record: JsonRecord) => void>();
+  readonly #stderrListeners = new Set<(line: string) => void>();
+  readonly #outputFinished: Promise<void>;
   readonly #failureListeners = new Set<(error: Error) => void>();
   readonly #closeListeners = new Set<() => void>();
   #nextRequestId = 1;
@@ -53,9 +55,15 @@ export class JsonlProcess {
       argument_count: Math.max(command.length - 1, 0),
       outcome: "ok",
     });
-    void this.#readStdout();
-    void this.#discardStderr();
+    this.#outputFinished = Promise.all([this.#readStdout(), this.#discardStderr()]).then(
+      () => undefined,
+    );
     void this.#observeExit();
+  }
+
+  onStderr(listener: (line: string) => void): () => void {
+    this.#stderrListeners.add(listener);
+    return () => this.#stderrListeners.delete(listener);
   }
 
   onRecord(listener: (record: JsonRecord) => void): () => void {
@@ -158,7 +166,9 @@ export class JsonlProcess {
       buffer += decoder.decode();
       if (buffer.trim()) throw new Error("truncated JSONL record");
     } catch {
-      this.#fail("code agent process produced invalid output");
+      if (this.#state.type === "failed")
+        this.#recordFailure("code agent process produced invalid output");
+      else this.#fail("code agent process produced invalid output");
     }
   }
 
@@ -187,11 +197,29 @@ export class JsonlProcess {
   async #discardStderr(): Promise<void> {
     let bytes = 0;
     let lines = 0;
+    const decoder = new TextDecoder();
+    let line = "";
+    let oversized = false;
     try {
       for await (const chunk of this.#child.stderr) {
         bytes += chunk.byteLength;
-        lines += new TextDecoder().decode(chunk).split("\n").length - 1;
+        for (const part of decoder.decode(chunk, { stream: true })) {
+          if (part === "\n") {
+            lines++;
+            for (const listener of this.#stderrListeners)
+              listener(oversized ? "[oversized stderr diagnostic]" : line.replace(/\r$/, ""));
+            line = "";
+            oversized = false;
+          } else if (line.length < 4096) {
+            line += part;
+          } else {
+            oversized = true;
+          }
+        }
       }
+      if (line)
+        for (const listener of this.#stderrListeners)
+          listener(oversized ? "[oversized stderr diagnostic]" : line);
       if (bytes > 0)
         logger.warning("Code agent process wrote diagnostics to stderr", {
           event: "code_agent.process.stderr",
@@ -239,7 +267,6 @@ export class JsonlProcess {
     this.#state = { type: "failed", message };
     this.#rejectPending(message);
     for (const listener of this.#failureListeners) listener(new Error(message));
-    this.#failureListeners.clear();
   }
 
   #cleanup(): Promise<void> {
@@ -278,11 +305,16 @@ export class JsonlProcess {
       // An exited child may have already closed stdin.
     }
     await this.#child.exited;
+    // Close means tree cleanup AND drained diagnostics, so adapters can decide
+    // whether a failed native resume is eligible for a fresh launch.
+    await this.#outputFinished;
   }
 
   #notifyClosed(): void {
     for (const listener of this.#closeListeners) listener();
     this.#closeListeners.clear();
+    this.#failureListeners.clear();
+    this.#stderrListeners.clear();
   }
 
   #rejectPending(message: string): void {

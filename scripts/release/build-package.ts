@@ -16,7 +16,7 @@ const feedUrl = resolveReleaseFeedUrl(Bun.env.COFORGE_RELEASE_FEED_URL);
 const serverUrl = resolveServerUrl(feedUrl);
 const packageDirectory = join(REPO_ROOT, "packages", packageName);
 const manifest = await Bun.file(join(packageDirectory, "package.json")).json();
-const entrypoint = join(packageDirectory, packageName === "computer" ? "src/cli.ts" : "index.ts");
+const entrypoint = join(packageDirectory, packageName === "computer" ? "src/main.ts" : "index.ts");
 const outfile = join(packageDirectory, "dist", `coforge-${packageName}`);
 
 const define =
@@ -25,6 +25,8 @@ const define =
         "process.env.COFORGE_RELEASE_FEED_URL": JSON.stringify(feedUrl),
         "process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH": JSON.stringify("0"),
         "Bun.env.COFORGE_COMPUTER_VERSION": JSON.stringify(manifest.version),
+        "process.env.COFORGE_DAEMON_VERSION": JSON.stringify(manifest.version),
+        "process.env.COFORGE_DAEMON_SERVER_URL": JSON.stringify(serverUrl),
       }
     : {
         "process.env.COFORGE_DAEMON_VERSION": JSON.stringify(manifest.version),
@@ -33,7 +35,9 @@ const define =
 
 const result = await Bun.build({
   entrypoints: [entrypoint],
-  compile: { outfile },
+  ...(packageName === "computer"
+    ? { compile: { outfile } }
+    : { target: "bun" as const, outdir: join(packageDirectory, "dist") }),
   define,
 });
 

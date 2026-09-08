@@ -23,10 +23,13 @@ import {
   type InboxResponse,
   type LocalAgentMessageRequest,
   type LocalInboxRequest,
+  type DaemonCommandRequest,
+  type ManagedRuntimeIdentity,
 } from "@coforge/protocol";
 import type { DaemonConfig } from "./daemon-runtime/runtime";
 import type { DaemonCredentialStore } from "./credentials/credential-store";
 import type { DaemonConfigStore } from "./persistence/daemon-config";
+import { COFORGE_DAEMON_SERVER_URL } from "./connection/built-server";
 
 export type DaemonLocalRpcServer = {
   close(): Promise<void>;
@@ -40,14 +43,16 @@ type DaemonRuntimePort = Partial<{
   agentMessage(context: string, request: LocalAgentMessageRequest): Promise<unknown>;
   inbox(context: string, request: LocalInboxRequest): Promise<InboxResponse>;
   scanUsage(provider: string): Promise<UsageScanResponse>;
+  command(method: string, request: DaemonCommandRequest): Promise<ManagedRuntimeIdentity[]>;
 }>;
 
 export async function startDaemonLocalRpcServer(input: {
   socketPath: string;
-  serverUrl: string;
+  serverUrl?: string;
   validateCredential: (credential: string) => boolean | Promise<boolean>;
   runtime: DaemonRuntimePort;
   credentials: DaemonCredentialStore;
+  version?: string;
   configStore?: Pick<DaemonConfigStore, "load" | "save" | "clear"> &
     Partial<Pick<DaemonConfigStore, "assertExpectedServer">>;
 }): Promise<DaemonLocalRpcServer> {
@@ -67,11 +72,12 @@ export async function startDaemonLocalRpcServer(input: {
               socket,
               chunk,
               daemonId,
-              input.serverUrl,
+              input.serverUrl ?? COFORGE_DAEMON_SERVER_URL,
               input.validateCredential,
               input.runtime,
               input.credentials,
               input.configStore,
+              input.version,
             ),
           )
           .catch(() => {
@@ -103,6 +109,7 @@ async function handleConnection(
     | (Pick<DaemonConfigStore, "load" | "save" | "clear"> &
         Partial<Pick<DaemonConfigStore, "assertExpectedServer">>)
     | undefined,
+  version?: string,
 ): Promise<void> {
   const next = new Uint8Array(socket.data.buffer.byteLength + chunk.byteLength);
   next.set(socket.data.buffer);
@@ -126,6 +133,8 @@ async function handleConnection(
                 daemonId,
                 accepted: valid,
                 serverUrl,
+                version,
+                processId: process.pid,
               }),
             }),
           ),
@@ -177,15 +186,22 @@ async function handleConnection(
       } else if (
         envelope.method === LOCAL_RPC_METHODS.START ||
         envelope.method === LOCAL_RPC_METHODS.STOP ||
-        envelope.method === LOCAL_RPC_METHODS.RESTART
+        envelope.method === LOCAL_RPC_METHODS.RESTART ||
+        envelope.method === LOCAL_RPC_METHODS.SNAPSHOT ||
+        envelope.method === LOCAL_RPC_METHODS.PAUSE ||
+        envelope.method === LOCAL_RPC_METHODS.RESUME
       ) {
         const request = decodeDaemonCommandRequest(envelope.payload);
         configStore?.assertExpectedServer?.(request.expectedServerUrl);
         if (new URL(request.expectedServerUrl).origin !== new URL(serverUrl).origin)
           throw new Error("Daemon request server does not match this daemon build");
         const valid = request.protocolMajor === 1 && request.requestId.length > 0;
+        let runtimes: ManagedRuntimeIdentity[] | undefined;
         if (valid) {
-          if (envelope.method === LOCAL_RPC_METHODS.START && runtime.start) await runtime.start();
+          if (runtime.command) runtimes = await runtime.command(envelope.method, request);
+          else if (request.workspaceId) throw new Error("scoped lifecycle requires supervisor");
+          else if (envelope.method === LOCAL_RPC_METHODS.START && runtime.start)
+            await runtime.start();
           else if (envelope.method === LOCAL_RPC_METHODS.STOP && runtime.stopAll)
             await runtime.stopAll();
           else if (envelope.method === LOCAL_RPC_METHODS.RESTART && runtime.restart)
@@ -200,6 +216,7 @@ async function handleConnection(
                 protocolMajor: 1,
                 requestId: request.requestId,
                 accepted: valid,
+                runtimes,
               }),
             }),
           ),
@@ -210,6 +227,11 @@ async function handleConnection(
         if (new URL(request.expectedServerUrl).origin !== new URL(serverUrl).origin) {
           throw new Error("Daemon request server does not match this daemon build");
         }
+        if (
+          request.serverHttpUrl &&
+          new URL(request.serverHttpUrl).origin !== new URL(serverUrl).origin
+        )
+          throw new Error("Daemon configuration server does not match this daemon build");
         const valid =
           request.protocolMajor === 1 &&
           [
@@ -230,6 +252,7 @@ async function handleConnection(
             workspaceId: request.workspaceId,
             computerId: request.computerId,
             workspaceRoot: request.workspaceRoot,
+            serverHttpUrl: serverUrl,
           };
           try {
             if (runtime.configure) await runtime.configure(connection);

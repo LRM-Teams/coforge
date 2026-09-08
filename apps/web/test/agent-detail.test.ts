@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
 import { AgentDetailQuery } from "../src/server/agents/agent-detail.server";
+import {
+  activityLabel,
+  showsActivityMessage,
+} from "../src/features/agents/agent-activity-presentation";
+
+test("official thinking observation has a Thinking label and preserves its detail", () => {
+  expect(activityLabel("thinking_started", "info")).toBe("Thinking");
+  expect(showsActivityMessage("thinking_started")).toBe(true);
+});
 
 describe("Agent detail", () => {
   test("keeps authorized profile and Activity available when status cannot be read", async () => {
@@ -10,10 +19,10 @@ describe("Agent detail", () => {
         computerId: "computer-1",
         launchId: "launch-1",
         clientSeq: 1,
-        activity: "working",
+        detailKind: "model_response_started",
         level: "info",
-        message: "Working",
-        occurredAt: new Date("2026-08-29T02:00:00Z"),
+        detail: "Working",
+        observedAtMs: Date.parse("2026-08-29T02:00:00Z"),
         createdAt: new Date("2026-08-29T02:00:01Z"),
       },
     ];
@@ -71,10 +80,10 @@ describe("Agent detail", () => {
           computerId: "computer-12345678",
           launchId: "launch-2",
           clientSeq: 2,
-          activity: "working",
+          detailKind: "model_response_started",
           level: "info",
-          message: "Working",
-          occurredAt: new Date("2026-08-29T02:00:00Z"),
+          detail: "Working",
+          observedAtMs: Date.parse("2026-08-29T02:00:00Z"),
           createdAt: new Date("2026-08-29T02:00:01Z"),
         },
         {
@@ -82,10 +91,10 @@ describe("Agent detail", () => {
           computerId: "computer-old",
           launchId: "launch-1",
           clientSeq: 1,
-          activity: "launch_failed",
+          detailKind: "runtime_error",
           level: "error",
-          message: "Agent runtime could not be started.",
-          occurredAt: new Date("2026-08-29T01:00:00Z"),
+          detail: "Agent runtime could not be started.",
+          observedAtMs: Date.parse("2026-08-29T01:00:00Z"),
           createdAt: new Date("2026-08-29T01:00:01Z"),
         },
       ],
@@ -109,26 +118,26 @@ describe("Agent detail", () => {
 
   test.each([
     ["starting", "info", false],
-    ["working", "info", false],
-    ["turn_completed", "info", false],
+    ["model_response_started", "info", false],
+    ["thinking_started", "info", false],
     ["idle", "info", false],
     ["stopped", "info", true],
     ["warning", "warning", true],
     ["unknown", "info", true],
     ["running", "info", true],
     ["error", "error", true],
-  ])("only recovery supersedes failures: %s", async (activity, level, showError) => {
+  ])("only recovery supersedes failures: %s", async (detailKind, level, showError) => {
     const entries = [
-      { id: "new", activity, level },
-      { id: "failure", activity: "launch_failed", level: "error" },
-      { id: "old-start", activity: "starting", level: "info" },
+      { id: "new", detailKind, level },
+      { id: "failure", detailKind: "runtime_error", level: "error" },
+      { id: "old-start", detailKind: "starting", level: "info" },
     ].map((entry, index) => ({
       ...entry,
       computerId: "computer-1",
       launchId: "launch-1",
       clientSeq: 3 - index,
-      message: entry.activity,
-      occurredAt: new Date(3000 - index * 1000),
+      detail: entry.detailKind,
+      observedAtMs: 3000 - index * 1000,
       createdAt: new Date(3000 - index * 1000),
     }));
     const query = new AgentDetailQuery({

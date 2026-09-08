@@ -268,12 +268,27 @@ describe("CentrifugoRpcHandler", () => {
       workspaceId: "workspace-1",
       computerId: "computer-1",
       workerInstanceId: "worker-1",
+      daemonVersion: "1.2.3",
       startedAt: 1,
       runningAgentIds: ["agent-running"],
+      recoveredRestartRequestIds: ["restart-1"],
     });
 
     expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
     expect(recovered).toEqual([["workspace-1", "computer-1", ["agent-running"]]]);
+    const missingRecoveryEvidence = encodeDaemonRuntimeReadyRequest({
+      protocolMajor: 1,
+      requestId: "ready-legacy",
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      workerInstanceId: "worker-legacy",
+      startedAt: 1,
+      runningAgentIds: [],
+    });
+    expect(await method(missingRecoveryEvidence, { principal: principal() })).toEqual({
+      code: 400,
+      message: "invalid daemon runtime ready request",
+    });
     expect(
       await method(payload, {
         principal: { ...principal(), computerId: "another-computer" },

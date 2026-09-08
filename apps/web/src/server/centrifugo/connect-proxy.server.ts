@@ -41,7 +41,7 @@ export async function authenticateCentrifugoConnect(
           computer_id: principal.computerId,
         },
         subs: {
-          [`daemon:${principal.computerId}`]: {},
+          [`daemon:${principal.workspaceId}:${principal.computerId}`]: {},
         },
       },
     });
