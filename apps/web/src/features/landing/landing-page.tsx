@@ -8,9 +8,11 @@ import { MotionConfig, motion, useReducedMotion, useScroll, useTransform } from 
 import { useEffect, useState } from "react";
 
 import { BorderBeam } from "@/components/magicui/border-beam";
+import { AnimatedSpan, Terminal, TypingAnimation } from "@/components/magicui/terminal";
 import AnimatedGradient from "@/components/spell/animated-gradient";
 import { BlurReveal } from "@/components/spell/blur-reveal";
 import { ShimmerText } from "@/components/spell/shimmer-text";
+import { installCommands, setupCommand } from "@/features/install/install-commands";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
@@ -122,7 +124,7 @@ function useWebGl2() {
   return ready;
 }
 
-export function LandingPage() {
+export function LandingPage({ installOrigin }: { installOrigin: string }) {
   const gradientReady = useWebGl2();
   const reducedMotion = useReducedMotion() ?? false;
   const headline = `${m.landing_headline_line_1()} ${m.landing_headline_line_2()}`;
@@ -141,7 +143,7 @@ export function LandingPage() {
     <MotionConfig reducedMotion="user">
       {/* The document itself goes dark too, so overscroll and rounded window corners never show white. */}
       <style>{`html,body{background:#0a0912;color-scheme:dark}html{scroll-snap-type:y proximity}`}</style>
-      <div className="relative isolate flex min-h-svh flex-col overflow-x-clip bg-[#0a0912] font-display text-white antialiased">
+      <div className="relative isolate flex min-h-dvh flex-col overflow-x-clip bg-[#0a0912] font-display text-white antialiased">
         {/* The animated gradient is the whole picture; the type sits on it like a poster. */}
         {gradientReady && (
           <AnimatedGradient config={heroGradient} theme="dark" paused={reducedMotion} />
@@ -151,7 +153,7 @@ export function LandingPage() {
           className="pointer-events-none absolute inset-0 -z-[1] bg-[linear-gradient(180deg,rgba(10,9,18,0.35)_0%,rgba(10,9,18,0.05)_35%,rgba(10,9,18,0.55)_75%,rgba(10,9,18,0.85)_100%)]"
         />
 
-        <header className="flex h-19 w-full snap-start items-center justify-between px-5 sm:px-8">
+        <header className="flex h-19 w-full shrink-0 snap-start items-center justify-between px-5 sm:px-8">
           <a href="/" className="flex items-center gap-2.5" aria-label="CoForge">
             <img src="/logo.svg" alt="" className="size-8 rounded-lg" />
             {/* The wordmark ends on the same dot the icon carries. */}
@@ -194,7 +196,7 @@ export function LandingPage() {
           </div>
         </header>
 
-        <main className="relative mx-auto flex min-h-[calc(100svh-4.75rem)] w-full max-w-[1400px] flex-col justify-center px-6 pt-8 pb-16">
+        <main className="relative mx-auto flex min-h-[calc(100dvh-4.75rem)] w-full max-w-[1400px] shrink-0 flex-col justify-center px-6 pt-8 pb-16">
           <motion.div style={heroStyle} className="flex flex-col items-center">
             <div className="relative w-full py-16 sm:py-20">
               <div className="mx-auto w-full min-w-0 max-w-2xl px-12 text-center sm:px-24 lg:w-[64%] lg:px-0">
@@ -245,7 +247,7 @@ export function LandingPage() {
 
         <section
           id="computer"
-          className="mx-auto flex w-full max-w-6xl snap-start flex-col items-center justify-center px-6 py-20 text-center"
+          className="mx-auto flex min-h-dvh w-full max-w-6xl shrink-0 snap-start flex-col items-center justify-center px-6 py-20 text-center"
         >
           <BlurReveal
             as="h2"
@@ -264,6 +266,13 @@ export function LandingPage() {
           >
             {m.landing_computer_body()}
           </motion.p>
+          <div
+            role="region"
+            aria-label={m.landing_terminal_label()}
+            className="mt-10 w-full max-w-2xl text-left"
+          >
+            <InstallTerminal installOrigin={installOrigin} />
+          </div>
         </section>
       </div>
     </MotionConfig>
@@ -296,5 +305,36 @@ function ScatteredAgents() {
         </li>
       ))}
     </ul>
+  );
+}
+
+// The second-screen walkthrough is a demonstration, not the first-screen install action.
+function InstallTerminal({ installOrigin }: { installOrigin: string }) {
+  return (
+    <Terminal className="min-h-88 max-h-none max-w-none border-white/10 bg-terminal/85 shadow-2xl shadow-black/40 backdrop-blur-md [&_code]:grid-cols-1 [&_code]:font-display-mono [&_code]:[overflow-wrap:anywhere] [&_pre]:text-[13px] [&_pre]:leading-6 [&_pre]:whitespace-pre-wrap">
+      <TypingAnimation className="text-white/90" duration={28} delay={300}>
+        {`$ ${installCommands(installOrigin).posix}`}
+      </TypingAnimation>
+      <AnimatedSpan className="text-emerald-400">✔ {m.landing_terminal_installed()}</AnimatedSpan>
+      <TypingAnimation className="text-white/90" duration={28}>
+        {`$ ${setupCommand("acme")}`}
+      </TypingAnimation>
+      <AnimatedSpan className="text-emerald-400">✔ {m.landing_terminal_connected()}</AnimatedSpan>
+      <AnimatedSpan className="text-white/60">
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          ℹ {m.landing_terminal_runtimes()}
+          {supportedAgents.map((agent) => (
+            <span key={agent.name} className="inline-flex items-center gap-1.5 text-white/85">
+              <AgentMark mark={agent.mark} monochrome={agent.monochrome} />
+              {agent.name}
+            </span>
+          ))}
+        </span>
+      </AnimatedSpan>
+      <AnimatedSpan className="text-emerald-400">
+        ✔ {m.landing_terminal_agent_online()}
+      </AnimatedSpan>
+      <AnimatedSpan className="text-white/50">{m.landing_terminal_hint()}</AnimatedSpan>
+    </Terminal>
   );
 }
