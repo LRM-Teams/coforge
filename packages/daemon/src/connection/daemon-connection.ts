@@ -1,10 +1,20 @@
 import { Centrifuge } from "centrifuge/build/protobuf";
 import {
-  AGENT_SESSION_METHOD,
+  decodeAgentWorkspaceResetRequest,
+  encodeAgentControlResult,
   encodeAgentSessionReport,
+  AGENT_CONTROL_RESULT_METHOD,
+  AGENT_SESSION_METHOD,
+  type AgentWorkspaceResetRequest,
+  type AgentControlResult,
   type AgentSessionReport,
   decodeAgentStartIntent,
   decodeAgentStopIntent,
+  decodeAgentSkillsListRequest,
+  encodeAgentSkillsListResult,
+  AGENT_SKILLS_LIST_RESULT_METHOD,
+  type AgentSkillsListRequest,
+  type AgentSkillsListResult,
   decodeDaemonRuntimeUsageScanRequest,
   encodeDaemonRuntimeUsageScanResponse,
   decodeAgentMessageDelivery,
@@ -91,9 +101,13 @@ export interface AgentMessageHttpClient {
 
 /** Provider-neutral client contract for the daemon's Workspace connection. */
 export interface DaemonConnectionClient {
+  onAgentWorkspaceReset?(callback: (request: AgentWorkspaceResetRequest) => void): () => void;
+  sendAgentControlResult?(result: AgentControlResult): Promise<void>;
   start(token: string, config: DaemonConnectionConfig): Promise<void>;
   ready(createRequest: () => DaemonRuntimeReadyRequest): Promise<void>;
   updateCodeAgents?(request: DaemonRuntimeCodeAgentsUpdateRequest): Promise<void>;
+  onSkillsList?(callback: (request: AgentSkillsListRequest) => Promise<void>): () => void;
+  sendSkillsListResult?(result: AgentSkillsListResult): Promise<void>;
   onUsageScan?(callback: (request: DaemonRuntimeUsageScanRequest) => Promise<void>): () => void;
   sendUsageScanResult?(
     response: import("@coforge/protocol").DaemonRuntimeUsageScanResponse,
@@ -116,6 +130,9 @@ export interface DaemonConnectionClient {
   requestAgentLaunchConfig?(input: {
     agentId: string;
     workspaceId: string;
+    controlEpoch?: number;
+    requestId?: string;
+    launchId?: string;
   }): Promise<AgentLaunchConfig>;
   revokeAgentApiKey?(agentApiKey: string): Promise<void>;
 }
@@ -202,11 +219,13 @@ export class DaemonConnection implements DaemonConnectionClient {
   #hasConnected = false;
   #agentStartListener: ((intent: AgentStartIntent) => void) | undefined;
   #agentStopListener: ((intent: AgentStopIntent) => void) | undefined;
+  #agentWorkspaceResetListener: ((intent: AgentWorkspaceResetRequest) => void) | undefined;
   #agentMessageListener: ((message: AgentMessageDelivery) => void) | undefined;
   #readyPublications:
     | Array<
         | { kind: "start"; value: AgentStartIntent }
         | { kind: "stop"; value: AgentStopIntent }
+        | { kind: "workspace-reset"; value: AgentWorkspaceResetRequest }
         | { kind: "message"; value: AgentMessageDelivery }
       >
     | undefined;
@@ -465,6 +484,9 @@ export class DaemonConnection implements DaemonConnectionClient {
   async requestAgentLaunchConfig(input: {
     agentId: string;
     workspaceId: string;
+    controlEpoch?: number;
+    requestId?: string;
+    launchId?: string;
   }): Promise<AgentLaunchConfig> {
     if (!this.#serverHttpUrl) throw new Error("Agent launch config endpoint is not configured");
     const response = await fetch(`${new URL(this.#serverHttpUrl).origin}/api/agent-api-keys`, {
@@ -529,6 +551,21 @@ export class DaemonConnection implements DaemonConnectionClient {
       }
     } catch {}
     try {
+      const request = decodeAgentWorkspaceResetRequest(data);
+      if (request.workspaceId === workspaceId) {
+        if (this.#readyPublications)
+          this.#readyPublications.push({ kind: "workspace-reset", value: request });
+        else this.#agentWorkspaceResetListener?.(request);
+      }
+      return;
+    } catch {}
+    try {
+      const request = decodeAgentSkillsListRequest(data);
+      if (request.workspaceId === workspaceId)
+        void this.#skillsListListener?.(request).catch(() => {});
+      return;
+    } catch {}
+    try {
       const usage = decodeDaemonRuntimeUsageScanRequest(data);
       if (usage.protocolMajor === 1 && usage.workspaceId === workspaceId && usage.computerId) {
         void this.#usageScanListener?.(usage);
@@ -563,6 +600,29 @@ export class DaemonConnection implements DaemonConnectionClient {
     } catch {
       // Invalid publications are rejected at the protocol boundary and never reach the runtime.
     }
+  }
+
+  onAgentWorkspaceReset(callback: (request: AgentWorkspaceResetRequest) => void): () => void {
+    this.#agentWorkspaceResetListener = callback;
+    return () => {
+      if (this.#agentWorkspaceResetListener === callback)
+        this.#agentWorkspaceResetListener = undefined;
+    };
+  }
+  async sendAgentControlResult(result: AgentControlResult) {
+    if (!this.#connected || !this.#client) throw new Error("daemon connection is not connected");
+    await this.#client.rpc(AGENT_CONTROL_RESULT_METHOD, encodeAgentControlResult(result));
+  }
+  #skillsListListener: ((request: AgentSkillsListRequest) => Promise<void>) | undefined;
+  onSkillsList(callback: (request: AgentSkillsListRequest) => Promise<void>): () => void {
+    this.#skillsListListener = callback;
+    return () => {
+      if (this.#skillsListListener === callback) this.#skillsListListener = undefined;
+    };
+  }
+  async sendSkillsListResult(result: AgentSkillsListResult): Promise<void> {
+    if (!this.#connected || !this.#client) throw new Error("daemon connection is not connected");
+    await this.#client.rpc(AGENT_SKILLS_LIST_RESULT_METHOD, encodeAgentSkillsListResult(result));
   }
 
   #usageScanListener: ((request: DaemonRuntimeUsageScanRequest) => Promise<void>) | undefined;
@@ -658,6 +718,8 @@ export class DaemonConnection implements DaemonConnectionClient {
     for (const publication of publications) {
       if (publication.kind === "start") this.#agentStartListener?.(publication.value);
       else if (publication.kind === "stop") this.#agentStopListener?.(publication.value);
+      else if (publication.kind === "workspace-reset")
+        this.#agentWorkspaceResetListener?.(publication.value);
       else this.#agentMessageListener?.(publication.value);
     }
   }
@@ -681,6 +743,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#hasConnected = false;
     this.#agentStartListener = undefined;
     this.#agentStopListener = undefined;
+    this.#agentWorkspaceResetListener = undefined;
     this.#agentMessageListener = undefined;
     this.#readyPublications = undefined;
     this.#readyRequestFactory = undefined;

@@ -39,7 +39,10 @@ test("Codex resumes or starts fresh only for the native missing-thread error", a
       sessionId: "unreadable-thread",
     }),
   ).rejects.toMatchObject({
-    responseError: { code: -32603, message: "failed to read thread: permission denied" },
+    responseError: {
+      code: -32603,
+      message: "failed to read thread: permission denied",
+    },
   });
 });
 
@@ -78,7 +81,7 @@ test("Codex loads skills before running app-server behind the code-agent seam", 
 
     await session.sendMessage("finish");
     await waitForEvent(events, "completed");
-    expect(events).toEqual([
+    expect(events.filter((event) => event.type !== "session")).toEqual([
       { type: "text-delta", text: "Codex response" },
       { type: "tool-start", id: "item-1", name: "command" },
       {
@@ -96,6 +99,10 @@ test("Codex loads skills before running app-server behind the code-agent seam", 
       { type: "completed", status: "completed" },
     ]);
 
+    expect(events.filter((event) => event.type === "session")).toEqual([
+      { type: "session", identity: { sessionId: "thread-1", state: "unknown" } },
+      { type: "session", identity: { sessionId: "thread-1", state: "resumable" } },
+    ]);
     events.length = 0;
     await session.sendMessage("wait");
     await session.interrupt();
@@ -105,7 +112,7 @@ test("Codex loads skills before running app-server behind the code-agent seam", 
     events.length = 0;
     await session.sendMessage("files");
     await waitForEvent(events, "completed");
-    expect(events).toEqual([
+    expect(events.filter((event) => event.type !== "session")).toEqual([
       { type: "text-delta", text: "Codex response" },
       {
         type: "activity",
@@ -214,7 +221,10 @@ test("Codex starts idle notifications and steers busy notifications in the same 
     session.subscribe((event) => events.push(event));
     await session.notify!("New message available. Run coforge message check.");
     await waitForEvent(events, "completed");
-    expect(events.at(-1)).toEqual({ type: "completed", status: "completed" });
+    expect(events.filter((event) => event.type === "completed").at(-1)).toEqual({
+      type: "completed",
+      status: "completed",
+    });
 
     await session.sendMessage("wait");
     await session.notify!("New message available. Run coforge message check.");

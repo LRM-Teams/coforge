@@ -15,10 +15,24 @@ import {
   readOptionalAgentRuntimeCredentialEncryptionKey,
 } from "#/server/agents/agent-runtime-credentials.server";
 import { PrismaAgentRuntimeCredentialRepository } from "#/server/db/repositories/agent-runtime-credential.repositories.server";
+import { AgentControl } from "#/server/agents/agent-control.server";
+import { PrismaAgentControlStore } from "#/server/db/repositories/agent-control.repositories.server";
+import { getAgentRuntimeLock } from "#/server/agents/agent-runtime-lock.server";
+import { createCentrifugoServerApi } from "#/server/centrifugo/server-api.server";
+import { ComputerRuntimeVisibility } from "#/server/computers/computer-runtime-visibility.server";
+import { PrismaComputerRuntimeRepository } from "#/server/db/repositories/computer-runtime.repositories.server";
 
 const createAgentApiKeyInputSchema = z.object({
   agentId: z.string().min(1),
   workspaceId: z.string().min(1),
+  controlEpoch: z.number().int().positive().optional(),
+  requestId: z.string().uuid().optional(),
+  launchId: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/)
+    .optional(),
 });
 const revokeAgentApiKeyInputSchema = z.object({ apiKey: z.string().min(1) });
 
@@ -72,6 +86,24 @@ export const Route = createFileRoute("/api/agent-api-keys")({
         });
         if (principal.workspaceId !== input.data.workspaceId || !agent)
           return Response.json({ error: "forbidden" }, { status: 403 });
+        try {
+          const visibility = new ComputerRuntimeVisibility(new PrismaComputerRuntimeRepository(db));
+          if (
+            !(await visibility.canSelect(
+              { userId: agent.ownerId, workspaceId: agent.workspaceId },
+              principal.computerId,
+              parseAgentRuntimeConfig(agent.runtimeConfig).runtime,
+            ))
+          )
+            throw new Error("Runtime is not available");
+          await new AgentControl(
+            new PrismaAgentControlStore(db),
+            createCentrifugoServerApi(),
+            getAgentRuntimeLock(),
+          ).authorizeLaunch({ ...input.data, computerId: principal.computerId });
+        } catch {
+          return Response.json({ error: "forbidden" }, { status: 403 });
+        }
         const providerConfig = await new AgentRuntimeCredentials(
           new PrismaAgentRuntimeCredentialRepository(db),
           readOptionalAgentRuntimeCredentialEncryptionKey(process.env),

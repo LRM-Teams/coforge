@@ -7,6 +7,10 @@ const expectedSkill = process.argv
 const expectsCoforgeEnvironment = process.argv.includes("expected-coforge-environment");
 const expectsRuntimeConfig = process.argv.includes("expected-runtime-config");
 const expectsAgentInstructions = process.argv.includes("expected-agent-instructions");
+const expectedSession = process.argv
+  .find((argument) => argument.startsWith("expected-session="))
+  ?.slice("expected-session=".length);
+const threadId = expectedSession && expectedSession !== "new" ? expectedSession : "thread-1";
 const usageUnavailable = process.argv.includes("usage-unavailable");
 const usageUnsupported = process.argv.includes("usage-unsupported");
 const usageTimeout = process.argv.includes("usage-timeout");
@@ -56,7 +60,10 @@ function handle(request: Request): void {
       typeof clientInfo.version !== "string" ||
       capabilities?.experimentalApi !== false
     ) {
-      write({ id: request.id, error: { code: "invalid_params", message: "invalid initialize" } });
+      write({
+        id: request.id,
+        error: { code: "invalid_params", message: "invalid initialize" },
+      });
       return;
     }
     write({ id: request.id, result: { userAgent: "fixture" } });
@@ -69,7 +76,10 @@ function handle(request: Request): void {
   if (request.method === "account/rateLimits/read" && request.id) {
     if (usageTimeout) return;
     if (usageUnavailable || usageUnsupported) {
-      write({ id: request.id, error: { code: "not_logged_in", message: "not logged in" } });
+      write({
+        id: request.id,
+        error: { code: "not_logged_in", message: "not logged in" },
+      });
       return;
     }
     write({
@@ -77,7 +87,11 @@ function handle(request: Request): void {
       result: {
         planType: "plus",
         rateLimits: {
-          primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: 1_735_780_800 },
+          primary: {
+            usedPercent: 25,
+            windowDurationMins: 300,
+            resetsAt: 1_735_780_800,
+          },
           secondary: {
             usedPercent: 75,
             windowDurationMins: 10_080,
@@ -140,44 +154,105 @@ function handle(request: Request): void {
       request.params?.sandbox !== "danger-full-access" ||
       request.params?.approvalPolicy !== "never"
     ) {
-      write({ id: request.id, error: { message: "wrong approved permission policy" } });
+      write({
+        id: request.id,
+        error: { message: "wrong approved permission policy" },
+      });
       return;
     }
     if (request.method === "thread/resume" && request.params?.threadId !== "thread-1") {
       if (request.params?.threadId === "missing-thread") {
         write({
           id: request.id,
-          error: { code: -32600, message: "no rollout found for thread id missing-thread" },
+          error: {
+            code: -32600,
+            message: "no rollout found for thread id missing-thread",
+          },
         });
         return;
       }
       if (request.params?.threadId === "unreadable-thread") {
         write({
           id: request.id,
-          error: { code: -32603, message: "failed to read thread: permission denied" },
+          error: {
+            code: -32603,
+            message: "failed to read thread: permission denied",
+          },
         });
         return;
       }
       write({ id: request.id, error: { message: "unknown saved thread" } });
       return;
     }
+    if (expectedSession) {
+      const resume = expectedSession !== "new";
+      if (
+        !request.params ||
+        request.method !== (resume ? "thread/resume" : "thread/start") ||
+        request.params?.threadId !== (resume ? expectedSession : undefined) ||
+        request.params?.ephemeral === true ||
+        (resume && ("ephemeral" in request.params || "serviceName" in request.params)) ||
+        request.params?.cwd !== process.cwd() ||
+        Bun.env.HOME !== Bun.env.COFORGE_EXPECTED_HOME ||
+        Bun.env.CODEX_HOME !== Bun.env.COFORGE_EXPECTED_CODEX_HOME
+      ) {
+        write({
+          id: request.id,
+          error: { message: "invalid native session configuration" },
+        });
+        return;
+      }
+    }
     if (expectsCoforgeEnvironment && !hasCoforgeEnvironmentPolicy(request.params)) {
-      write({ id: request.id, error: { message: "missing CoForge shell environment policy" } });
+      write({
+        id: request.id,
+        error: { message: "missing CoForge shell environment policy" },
+      });
       return;
     }
     if (expectsRuntimeConfig && !hasRuntimeConfig(request.params)) {
-      write({ id: request.id, error: { message: "missing selected runtime config" } });
+      write({
+        id: request.id,
+        error: { message: "missing selected runtime config" },
+      });
       return;
     }
     if (expectsAgentInstructions && !hasAgentInstructions(request.params?.developerInstructions)) {
-      write({ id: request.id, error: { message: "missing Agent instructions" } });
+      write({
+        id: request.id,
+        error: { message: "missing Agent instructions" },
+      });
       return;
     }
-    write({ id: request.id, result: { thread: { id: "thread-1" } } });
+    if (request.method === "thread/resume" && process.argv.includes("reject-resume")) {
+      write({
+        id: request.id,
+        error: { code: -32600, message: "session unavailable" },
+      });
+      return;
+    }
+    const recoveryError = process.argv
+      .find((argument) => argument.startsWith("resume-error="))
+      ?.slice("resume-error=".length);
+    if (request.method === "thread/resume" && recoveryError) {
+      write({
+        id: request.id,
+        error: { code: -32600, message: recoveryError },
+      });
+      return;
+    }
+    write({
+      id: request.id,
+      result: {
+        thread: {
+          id: process.argv.includes("wrong-resume-id") ? "wrong-thread" : threadId,
+        },
+      },
+    });
     return;
   }
   if (request.method === "turn/start" && request.id) {
-    if (request.params?.threadId !== "thread-1") throw new Error("wrong session");
+    if (request.params?.threadId !== threadId) throw new Error("wrong session");
     if (active) throw new Error("turn/start while active");
     if (textInput(request.params) === "invalid-turn") {
       write({ id: request.id, result: { turn: {} } });
@@ -186,7 +261,10 @@ function handle(request: Request): void {
     turn += 1;
     active = true;
     const turnId = `turn-${turn}`;
-    write({ id: request.id, result: { turn: { id: turnId, status: "inProgress" } } });
+    write({
+      id: request.id,
+      result: { turn: { id: turnId, status: "inProgress" } },
+    });
     if (textInput(request.params)?.startsWith("race-")) {
       write({
         method: "item/agentMessage/delta",
@@ -206,7 +284,11 @@ function handle(request: Request): void {
         timestamp: "2026-01-02T03:04:05.000Z",
         params: {
           turnId,
-          item: { id: "item-1", type: "commandExecution", command: "printf safe" },
+          item: {
+            id: "item-1",
+            type: "commandExecution",
+            command: "printf safe",
+          },
         },
       });
       write({
@@ -215,7 +297,10 @@ function handle(request: Request): void {
       });
       write({
         method: "item/completed",
-        params: { turnId, item: { id: "item-1", type: "commandExecution", exitCode: 0 } },
+        params: {
+          turnId,
+          item: { id: "item-1", type: "commandExecution", exitCode: 0 },
+        },
       });
       write({
         method: "turn/completed",
@@ -246,7 +331,7 @@ function handle(request: Request): void {
   }
   if (request.method === "turn/steer" && request.id) {
     if (
-      request.params?.threadId !== "thread-1" ||
+      request.params?.threadId !== threadId ||
       request.params?.expectedTurnId !== `turn-${turn}`
     ) {
       throw new Error("wrong steering session or turn");
@@ -257,7 +342,10 @@ function handle(request: Request): void {
       return;
     }
     if (text === "reject-notice") {
-      write({ id: request.id, error: { code: -32600, message: "notification rejected" } });
+      write({
+        id: request.id,
+        error: { code: -32600, message: "notification rejected" },
+      });
       return;
     }
     if (text === "race-before" || text === "race-after") {
@@ -267,7 +355,10 @@ function handle(request: Request): void {
         params: { turn: { id: `turn-${turn}`, status: "completed" } },
       };
       if (text === "race-before") write(completion);
-      write({ id: request.id, error: { code: -32600, message: "no active turn to steer" } });
+      write({
+        id: request.id,
+        error: { code: -32600, message: "no active turn to steer" },
+      });
       if (text === "race-after") write(completion);
       return;
     }

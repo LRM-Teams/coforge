@@ -43,27 +43,7 @@ import type { CentrifugoServerApi } from "./server-api.server";
 import { AgentMessageValidationError } from "../conversations/agent-message-validation-error.server";
 import { isChannelMessageTarget } from "@coforge/protocol";
 import type { ComputerRestartStore } from "../computers/computer-restart-store.server";
-import { decodeAgentSessionReport } from "@coforge/protocol";
-import type { AgentSessions } from "../agents/agent-sessions.server";
-
-export function createAgentSessionMethod(sessions: AgentSessions): CentrifugoRpcMethod {
-  return async (payload, metadata) => {
-    try {
-      const report = decodeAgentSessionReport(payload);
-      if (
-        !metadata.principal.userId ||
-        metadata.principal.agentId ||
-        metadata.principal.workspaceId !== report.workspaceId ||
-        metadata.principal.computerId !== report.computerId
-      )
-        return { code: 403, message: "Agent session scope is not authorized" };
-      await sessions.accept(report);
-      return new Uint8Array();
-    } catch {
-      return { code: 409, message: "Agent session report rejected" };
-    }
-  };
-}
+export { createAgentSessionMethod } from "./agent-session-receiver.server";
 
 export function createAgentDeliveryAckMethod(repository: {
   receiveDeliveryAck(input: {

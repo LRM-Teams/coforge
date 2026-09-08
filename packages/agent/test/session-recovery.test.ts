@@ -54,12 +54,12 @@ test("CoForge reopens the same Agent transcript and isolates explicit and other 
     const other = await open("agent-b");
     expect(other.session.agent.state.messages).toEqual([]);
     const explicit = await open("agent-a", "explicit-fresh", "create");
-    expect(explicit.session.sessionManager.getSessionId()).toBe("explicit-fresh");
+    expect(explicit.sessionId).toBe("explicit-fresh");
     expect(explicit.session.agent.state.messages).toEqual([]);
     await restored.dispose();
     await rm(path!);
     const fresh = await open("agent-a", "agent-a", "resume");
-    expect(fresh.session.sessionManager.getSessionId()).not.toBe("agent-a");
+    expect(fresh.sessionId).not.toBe("agent-a");
     expect(fresh.session.agent.state.messages).toEqual([]);
     expect(fresh.replacedSessionId).toBe("agent-a");
     await writeFile(path!, "not a valid session\n");

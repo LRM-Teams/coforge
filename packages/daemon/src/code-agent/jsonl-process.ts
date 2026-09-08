@@ -11,6 +11,9 @@ const logger = getLogger(["coforge", "daemon", "code-agent", "jsonl"]);
 
 type JsonRecord = Readonly<Record<string, unknown>>;
 
+/** Adapter-authored diagnostics only; never pass raw provider output here. */
+export class JsonlProtocolError extends Error {}
+
 export class JsonlRequestError extends Error {
   constructor(readonly responseError: unknown) {
     super("code agent request failed");
@@ -40,12 +43,14 @@ export class JsonlProcess {
   #nextRequestId = 1;
   #state: ProcessState = { type: "open" };
   #cleanupPromise: Promise<void> | undefined;
+  readonly #stderrPromise: Promise<void>;
 
   constructor(
     command: readonly string[],
     cwd: string,
     environment: Readonly<Record<string, string>>,
     processTreeOwner: ProcessTreeSpawner = new ProcessTreeOwner(),
+    onStderrDiagnostic?: (diagnostic: string) => void,
   ) {
     this.#tree = processTreeOwner.spawn(command, cwd, environment);
     this.#child = this.#tree.child;
@@ -55,7 +60,8 @@ export class JsonlProcess {
       argument_count: Math.max(command.length - 1, 0),
       outcome: "ok",
     });
-    this.#outputFinished = Promise.all([this.#readStdout(), this.#discardStderr()]).then(
+    this.#stderrPromise = this.#discardStderr(onStderrDiagnostic);
+    this.#outputFinished = Promise.all([this.#readStdout(), this.#stderrPromise]).then(
       () => undefined,
     );
     void this.#observeExit();
@@ -141,6 +147,7 @@ export class JsonlProcess {
     }
     try {
       await this.#cleanup();
+      await this.#stderrPromise;
     } catch (error) {
       this.#recordFailure(error instanceof Error ? error.message : "code agent cleanup failed");
       throw error;
@@ -165,10 +172,12 @@ export class JsonlProcess {
       }
       buffer += decoder.decode();
       if (buffer.trim()) throw new Error("truncated JSONL record");
-    } catch {
-      if (this.#state.type === "failed")
-        this.#recordFailure("code agent process produced invalid output");
-      else this.#fail("code agent process produced invalid output");
+    } catch (error) {
+      this.#fail(
+        error instanceof JsonlProtocolError
+          ? error.message
+          : "code agent process produced invalid output",
+      );
     }
   }
 
@@ -194,16 +203,22 @@ export class JsonlProcess {
     for (const listener of this.#listeners) listener(record);
   }
 
-  async #discardStderr(): Promise<void> {
+  async #discardStderr(onDiagnostic?: (diagnostic: string) => void): Promise<void> {
     let bytes = 0;
     let lines = 0;
     const decoder = new TextDecoder();
     let line = "";
     let oversized = false;
+    let diagnostic = "";
     try {
       for await (const chunk of this.#child.stderr) {
         bytes += chunk.byteLength;
-        for (const part of decoder.decode(chunk, { stream: true })) {
+        const text = decoder.decode(chunk, { stream: true });
+        if (onDiagnostic) {
+          diagnostic = (diagnostic + text).slice(-16_384);
+          onDiagnostic(diagnostic);
+        }
+        for (const part of text) {
           if (part === "\n") {
             lines++;
             for (const listener of this.#stderrListeners)
@@ -217,6 +232,8 @@ export class JsonlProcess {
           }
         }
       }
+      const tail = decoder.decode();
+      if (tail && onDiagnostic) onDiagnostic((diagnostic + tail).slice(-16_384));
       if (line)
         for (const listener of this.#stderrListeners)
           listener(oversized ? "[oversized stderr diagnostic]" : line);

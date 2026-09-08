@@ -158,6 +158,24 @@ test("Agent start preserves its runtime provider config", () => {
   expect(decodeAgentStartIntent(encodeAgentStartIntent(intent))).toEqual(intent);
 });
 
+test("Agent start round-trips lifecycle fence fields", () => {
+  const intent = {
+    protocolMajor: 1,
+    requestId: "start-1",
+    workspaceId: "workspace-1",
+    computerId: "computer-1",
+    agentId: "agent-1",
+    provider: RUNTIME_PROVIDER.CODEX,
+    model: "default",
+    modelProvider: "openai",
+    reasoning: "high",
+    providerConfig: { kind: "default" as const },
+    controlEpoch: 7,
+  } satisfies AgentStartIntent;
+
+  expect(decodeAgentStartIntent(encodeAgentStartIntent(intent))).toEqual(intent);
+});
+
 test("Agent recovery codec rejects unsafe sequences and unread counts", () => {
   const base = {
     protocolMajor: 1,

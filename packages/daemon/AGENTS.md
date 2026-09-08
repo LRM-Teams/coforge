@@ -104,6 +104,17 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   `activity-trajectory.ts` owns launch-local 350ms display-delta coalescing,
   boundary flushing, bounded retention and assembled-text redaction; adapters
   supply only official display events and explicit lineage, never raw reasoning.
+- `agent-runtime/agent-control.ts` owns request/epoch-fenced stop/reset-workspace/start
+  and control completion, not Session delivery. `agent-runtime/agent-session.ts`
+  owns current native Session snapshots, launch-scoped updates and cloud snapshot
+  replay. Unified RPC callbacks send Session reports through the Session acceptance
+  path; sequenced snapshots validate their upstream launch fence before the independent
+  snapshot receiver. `agent-runtime/agent-runtime-state.ts` serializes their shared atomic
+  record updates so delayed Session events cannot overwrite Reset progress.
+  The persisted record stays outside the Agent workspace; Full Reset never
+  replays deletion after that request has completed clearing. `persistence/`
+  owns atomic records and guarded workspace clearing. This is not a jobs queue,
+  Message outbox, or provider parser.
 - `code-agent/` adapts installed provider processes into the provider-neutral
   contract. Higher layers must consume normalized status and activity messages and
   must not parse Claude, Codex, or Pi output. This module inventories external
@@ -115,6 +126,11 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   into each provider's native startup configuration. Claude Code model
   inventory must not launch the CLI to infer a dynamic catalog because its
   machine-readable initialization does not provide a dependable list.
+- `code-agent/agent-skills.ts` owns bounded, read-only Global/Workspace Skills
+  metadata discovery at provider-native roots. `daemon-runtime/` resolves the
+  stable Agent directory and routes query/results; it does not parse skill files.
+  A metadata query never launches a provider, reloads a session, copies global
+  skills, or expands the runtime environment allowlist.
 - Keep the standing CoForge Agent instructions in one provider-neutral source.
   `AgentProcessManager` builds them once per session and supplies them through
   the required `AgentSessionOptions.instructions` field. Every code-agent driver

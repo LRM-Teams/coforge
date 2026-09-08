@@ -201,6 +201,52 @@ test("stop never relabels another Computer's provider session as locally resumab
   expect(selected.sessionId).toBeUndefined();
 });
 
+test.each(["coforge", "pi", "codex", "claude-code"] as const)(
+  "a delayed duplicate %s Start preserves an acknowledged empty launch",
+  async (provider) => {
+    let reference: RuntimeSessionReference | null = null;
+    const sessions = new AgentSessions(
+      {
+        read: async () => ({ workspaceId: "w", computerId: "c", provider, reference }),
+        replace: async (_id, before, next) => {
+          if (reference !== before) return false;
+          reference = next;
+          return true;
+        },
+      },
+      async () => "daemon",
+    );
+    const intent = {
+      protocolMajor: 1,
+      requestId: "start",
+      workspaceId: "w",
+      computerId: "c",
+      agentId: "a",
+      provider,
+      model: "",
+      reasoning: "",
+      controlEpoch: 1,
+    };
+    const selected = await sessions.prepare(intent);
+    const sessionId = selected.sessionId ?? "provider-selected";
+    await sessions.accept({
+      ...intent,
+      requestId: "report",
+      startRequestId: "start",
+      daemonInstanceId: "daemon",
+      launchId: "launch",
+      sessionId,
+      sessionState: "empty",
+    });
+    expect(await sessions.prepare(intent)).toMatchObject({
+      requestId: "start",
+      previousLaunchId: "launch",
+      sessionId,
+      sessionMode: "resume",
+    });
+  },
+);
+
 test.each(["prepare", "retire"] as const)(
   "a delayed old report cannot overwrite newer %s",
   async (operation) => {

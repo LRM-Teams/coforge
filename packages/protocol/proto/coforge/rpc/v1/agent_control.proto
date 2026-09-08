@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package coforge.rpc.v1;
+
+message SessionIdentity {
+  string session_id = 1;
+  string state = 2;
+}
+
+message AgentWorkspaceResetRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  string provider = 6;
+  uint32 epoch = 7;
+  reserved 8;
+  string message_type = 9;
+}
+
+message AgentControlResult {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  string provider = 6;
+  uint32 epoch = 7;
+  string phase = 8;
+  optional string launch_id = 9;
+  uint32 sequence = 10;
+  SessionIdentity identity = 11;
+  optional string error_code = 12;
+  string message_type = 13;
+}

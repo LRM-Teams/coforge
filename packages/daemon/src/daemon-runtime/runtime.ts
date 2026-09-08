@@ -33,6 +33,7 @@ import {
   type AgentMessageResponse,
   type AgentStartIntent,
   type AgentStopIntent,
+  type AgentWorkspaceResetRequest,
   type AgentMessageDelivery,
   type InboxResponse,
   type LocalAgentMessageRequest,
@@ -41,6 +42,11 @@ import {
   type UsageScanResponse,
 } from "@coforge/protocol";
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
+import { AgentControl } from "../agent-runtime/agent-control";
+import { AgentSessions } from "../agent-runtime/agent-session";
+import { AgentRuntimeState } from "../agent-runtime/agent-runtime-state";
+import { FileAgentRuntimeStateStore } from "../persistence/agent-runtime-state-store";
+import { listAgentSkills } from "../code-agent/agent-skills";
 import { AgentMessageAttentionIndex } from "./agent-message-attention-index";
 import { AgentInboxStateMachine } from "./agent-inbox-state-machine";
 import { AgentMessageDraftStore } from "../persistence/agent-message-draft-store";
@@ -100,9 +106,14 @@ export class DaemonRuntime {
   #activityEnabled = false;
   #unsubscribeAgentStart: (() => void) | undefined;
   #unsubscribeAgentStop: (() => void) | undefined;
+  #unsubscribeAgentWorkspaceReset: (() => void) | undefined;
+  readonly #agentControl: AgentControl;
+  readonly #agentSessions: AgentSessions;
   #unsubscribeAgentMessage: (() => void) | undefined;
   #unsubscribeReconnect: (() => void) | undefined;
   #unsubscribeUsageScan: (() => void) | undefined;
+  #unsubscribeSkillsList: (() => void) | undefined;
+  #skillsScanning = false;
   readonly #messageAttention: AgentMessageAttentionIndex;
   readonly #agentInboxes = new Map<string, AgentInboxStateMachine>();
   readonly #appInboxes = new Map<string, Promise<AgentAppInbox>>();
@@ -168,6 +179,81 @@ export class DaemonRuntime {
       this.#agentProcessManager,
       (ack) => this.#transport.sendAgentDeliveryAck?.(ack) ?? Promise.resolve(),
     );
+    const state = new AgentRuntimeState(
+      new FileAgentRuntimeStateStore(
+        stateDirectory,
+        connection.workspaceRoot,
+        connection.workspaceId,
+      ),
+    );
+    this.#agentSessions = new AgentSessions(state, async (snapshot) => {
+      await this.#transport.reportAgentSession?.({
+        protocolMajor: snapshot.protocolMajor,
+        requestId: crypto.randomUUID(),
+        workspaceId: snapshot.workspaceId,
+        computerId: snapshot.computerId,
+        agentId: snapshot.agentId,
+        provider: snapshot.provider,
+        startRequestId: snapshot.requestId,
+        daemonInstanceId: snapshot.daemonInstanceId ?? this.#runtimeInstanceId,
+        launchId: snapshot.launchId,
+        sessionId: snapshot.identity.sessionId,
+        sessionState: snapshot.identity.state,
+        controlEpoch: snapshot.epoch,
+        sequence: snapshot.sequence,
+      });
+    });
+    this.#agentControl = new AgentControl(this.#runtimeInstanceId, state, this.#agentSessions, {
+      running: (agentId) => Boolean(this.#agentProcessManager.session(agentId)),
+      stop: async (agentId) => {
+        const session = this.#agentProcessManager.session(agentId);
+        await this.stopAgent(agentId);
+        return session?.readSessionIdentity?.();
+      },
+      launch: async (intent, launchId, replacedSessionId) => {
+        if (replacedSessionId) this.#sessionReferences.delete(intent.agentId);
+        const runtime = await this.startAgent(
+          intent.agentId,
+          {
+            provider: intent.provider,
+            model: intent.model,
+            modelProvider: intent.modelProvider,
+            reasoning: intent.reasoning,
+            providerConfig: intent.providerConfig,
+          },
+          intent.sessionId,
+          intent.requestId,
+          {
+            wakeMessage: intent.wakeMessage,
+            resumeMessages: intent.resumeMessages,
+            unreadSummary: intent.unreadSummary,
+          },
+          intent.previousLaunchId,
+          intent.sessionMode,
+          { controlEpoch: intent.controlEpoch, launchId },
+          replacedSessionId,
+        );
+        return runtime.session.readSessionIdentity?.();
+      },
+      wake: async (intent) => {
+        await this.startAgent(
+          intent.agentId,
+          {
+            provider: intent.provider,
+            model: intent.model,
+            modelProvider: intent.modelProvider,
+            reasoning: intent.reasoning,
+            providerConfig: intent.providerConfig,
+          },
+          undefined,
+          intent.requestId,
+          { wakeMessage: intent.wakeMessage },
+        );
+      },
+      result: async (result) => {
+        await this.#transport.sendAgentControlResult?.(result);
+      },
+    });
   }
 
   get agentProcessManager(): AgentProcessManager {
@@ -248,11 +334,13 @@ export class DaemonRuntime {
 
   async #start(connection: DaemonConfig): Promise<void> {
     mkdirSync(connection.workspaceRoot, { recursive: true });
+    await this.#agentControl.initialize();
     const token = await this.#credentials.load(connection.workspaceId, connection.computerId);
     if (!token) throw new Error("Workspace credential is missing");
     const pending: Array<
       | { kind: "start"; value: AgentStartIntent }
       | { kind: "stop"; value: AgentStopIntent }
+      | { kind: "workspace-reset"; value: AgentWorkspaceResetRequest }
       | { kind: "message"; value: AgentMessageDelivery }
     > = [];
     let buffering = true;
@@ -277,9 +365,59 @@ export class DaemonRuntime {
       }
       void this.handleAgentMessage(message).catch(() => {});
     };
+    const receiveAgentWorkspaceReset = (request: AgentWorkspaceResetRequest) => {
+      if (buffering) {
+        pending.push({ kind: "workspace-reset", value: request });
+        return;
+      }
+      void this.handleAgentWorkspaceReset(request).catch(() => {});
+    };
     try {
       this.#unsubscribeReconnect = this.#transport.onReconnect?.(() => {
         void this.#reportCodeAgents(connection).catch(() => {});
+        void this.#agentControl
+          .replay()
+          .then(() => this.#agentSessions.replay())
+          .catch(() => {});
+      });
+      const transport = this.#transport;
+      this.#unsubscribeSkillsList = transport.onSkillsList?.(async (request) => {
+        if (
+          this.#stopping ||
+          request.workspaceId !== connection.workspaceId ||
+          request.computerId !== connection.computerId
+        )
+          return;
+        const config = this.#agentProcessManager.runtime(request.agentId)?.config;
+        const unavailable = { status: "error" as const, entries: [], directories: [] };
+        let result = { global: unavailable, workspace: unavailable } as Awaited<
+          ReturnType<typeof listAgentSkills>
+        >;
+        if (!this.#skillsScanning && (!config || config.provider === request.provider)) {
+          this.#skillsScanning = true;
+          try {
+            // Launch only adds COFORGE_* capabilities to agentEnvironment;
+            // it does not override HOME or provider-native config roots.
+            result = await listAgentSkills({
+              provider: request.provider,
+              agentWorkspaceDirectory: agentWorkspaceDirectory(
+                connection.workspaceRoot,
+                connection.workspaceId,
+                request.agentId,
+              ),
+            });
+          } catch {
+            // Return safe diagnostics, never file contents or raw filesystem errors.
+          } finally {
+            this.#skillsScanning = false;
+          }
+        }
+        if (!this.#stopping && this.#transport === transport)
+          await transport.sendSkillsListResult?.({
+            ...request,
+            ...result,
+            scannedAtMs: Date.now(),
+          });
       });
       this.#unsubscribeUsageScan = this.#transport.onUsageScan?.(async (request) => {
         if (request.computerId !== connection.computerId) return;
@@ -296,6 +434,9 @@ export class DaemonRuntime {
       // recover persisted Agents immediately as part of that RPC.
       this.#unsubscribeAgentStart = this.#transport.onAgentStart?.(receiveAgentStart);
       this.#unsubscribeAgentStop = this.#transport.onAgentStop?.(receiveAgentStop);
+      this.#unsubscribeAgentWorkspaceReset = this.#transport.onAgentWorkspaceReset?.(
+        receiveAgentWorkspaceReset,
+      );
       this.#unsubscribeAgentMessage = this.#transport.onAgentMessage?.(receiveAgentMessage);
       await this.#transport.start(token, {
         workspaceId: connection.workspaceId,
@@ -303,6 +444,8 @@ export class DaemonRuntime {
         serverHttpUrl: connection.serverHttpUrl,
         requestRestart: this.lifecycle.requestRestart,
       });
+      await this.#agentControl.replay();
+      await this.#agentSessions.replay();
       await this.#transport.ready(() => ({
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
         requestId: crypto.randomUUID(),
@@ -331,6 +474,8 @@ export class DaemonRuntime {
           flushes.push(this.handleAgentStart(publication.value).catch(() => {}));
         else if (publication.kind === "stop")
           flushes.push(this.handleAgentStop(publication.value).catch(() => {}));
+        else if (publication.kind === "workspace-reset")
+          flushes.push(this.handleAgentWorkspaceReset(publication.value).catch(() => {}));
       }
       for (const publication of buffered)
         if (publication.kind === "message")
@@ -341,10 +486,14 @@ export class DaemonRuntime {
       this.#unsubscribeAgentStart = undefined;
       this.#unsubscribeAgentStop?.();
       this.#unsubscribeAgentStop = undefined;
+      this.#unsubscribeAgentWorkspaceReset?.();
+      this.#unsubscribeAgentWorkspaceReset = undefined;
       this.#unsubscribeAgentMessage?.();
       this.#unsubscribeAgentMessage = undefined;
       this.#unsubscribeUsageScan?.();
       this.#unsubscribeUsageScan = undefined;
+      this.#unsubscribeSkillsList?.();
+      this.#unsubscribeSkillsList = undefined;
       this.#unsubscribeReconnect?.();
       this.#unsubscribeReconnect = undefined;
       pending.length = 0;
@@ -374,6 +523,8 @@ export class DaemonRuntime {
     recovery?: Pick<AgentStartIntent, "wakeMessage" | "resumeMessages" | "unreadSummary">,
     previousLaunchId?: string,
     sessionMode?: "create" | "resume",
+    control?: { controlEpoch?: number; launchId: string },
+    replacedSessionId?: string,
   ): Promise<AgentRuntime> {
     if (this.#stopping || !this.#started)
       return Promise.reject(new Error("daemon runtime is not running"));
@@ -433,6 +584,8 @@ export class DaemonRuntime {
       requestId,
       previousLaunchId,
       sessionMode,
+      control,
+      replacedSessionId,
     )
       .then(
         async (runtime) => {
@@ -547,6 +700,8 @@ export class DaemonRuntime {
     requestedId?: string,
     cloudPreviousLaunchId?: string,
     sessionMode?: "create" | "resume",
+    control?: { controlEpoch?: number; launchId: string },
+    recoveryReplacedSessionId?: string,
   ): Promise<AgentRuntime> {
     const previous = this.#sessionReferences.get(agentId);
     const continuing =
@@ -562,7 +717,11 @@ export class DaemonRuntime {
     };
     const previousLaunchId = reference.launchId;
     this.#sessionReferences.set(agentId, reference);
-    const launch = { launchId: crypto.randomUUID(), clientSeq: 0, stopping: false };
+    const launch = {
+      launchId: control?.launchId ?? crypto.randomUUID(),
+      clientSeq: 0,
+      stopping: false,
+    };
     this.#currentActivityLaunches.set(agentId, launch);
     let agentApiKey: string | undefined;
     let stage: "credential" | "runtime" = "credential";
@@ -571,6 +730,9 @@ export class DaemonRuntime {
         ? await this.#transport.requestAgentLaunchConfig({
             agentId,
             workspaceId: this.#connection.workspaceId,
+            ...(control
+              ? { controlEpoch: control.controlEpoch, requestId, launchId: launch.launchId }
+              : {}),
           })
         : this.#transport.requestAgentApiKey
           ? {
@@ -625,17 +787,20 @@ export class DaemonRuntime {
                 agentId,
                 provider: config.provider,
                 sessionId: reportedSessionId,
-                ...(replacedSessionId ? { replacedSessionId } : {}),
+                ...((replacedSessionId ?? recoveryReplacedSessionId)
+                  ? { replacedSessionId: replacedSessionId ?? recoveryReplacedSessionId }
+                  : {}),
                 startRequestId: requestId,
                 daemonInstanceId: this.#runtimeInstanceId,
                 launchId: launch.launchId,
+                ...(control?.controlEpoch ? { controlEpoch: control.controlEpoch } : {}),
                 ...(previousLaunchId ? { previousLaunchId } : {}),
               });
               if (this.#currentActivityLaunches.get(agentId) === launch && !launch.stopping) {
                 reference.sessionId = reportedSessionId;
                 reference.sessionMode = "resume";
                 reference.launchId = launch.launchId;
-                if (replacedSessionId)
+                if (replacedSessionId ?? recoveryReplacedSessionId)
                   this.#emitAgentActivity(agentId, launch, {
                     protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
                     requestId: crypto.randomUUID(),
@@ -659,6 +824,13 @@ export class DaemonRuntime {
         this.#emitAgentActivity(agentId, launch, activity);
       };
       const trajectory = new ActivityTrajectory((runtimeEvent) => {
+        if (runtimeEvent.type === "session") {
+          if (control)
+            void this.#agentSessions
+              .update(agentId, launch.launchId, runtimeEvent.identity)
+              .catch(() => {});
+          return;
+        }
         if (runtimeEvent.type === AGENT_RUNTIME_EVENT_TYPE.USAGE) {
           if (runtimeEvent.snapshot.provider === config.provider)
             this.#rememberUsage(runtimeEvent.snapshot);
@@ -691,6 +863,13 @@ export class DaemonRuntime {
           return;
         }
         if (runtimeEvent.type !== "completed") return;
+        if (control)
+          void runtime.session
+            .readSessionIdentity?.()
+            .then(async (identity) => {
+              if (identity) await this.#agentSessions.update(agentId, launch.launchId, identity);
+            })
+            .catch(() => {});
         emit(
           runtimeEvent.status === "failed"
             ? {
@@ -727,6 +906,12 @@ export class DaemonRuntime {
         });
         unsubscribe();
         if (launch.stopping) return;
+        if (control)
+          void runtime.session
+            .readSessionIdentity?.()
+            .then((identity) => this.#agentControl.stopped(agentId, launch.launchId, identity))
+            .then(() => this.#agentSessions.replay(agentId))
+            .catch(() => {});
         emit({
           protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
           requestId: crypto.randomUUID(),
@@ -812,6 +997,15 @@ export class DaemonRuntime {
       throw new Error("agent intent targets another Workspace");
     if (intent.computerId && intent.computerId !== this.#connection.computerId)
       throw new Error("agent intent targets another Computer");
+    if (intent.controlEpoch) {
+      await this.#agentControl.start(intent);
+      await this.#agentSessions.replay(intent.agentId);
+      const runtime = this.#agentProcessManager.runtime(intent.agentId);
+      if (!runtime) throw new Error("Agent managed launch did not complete");
+      return runtime;
+    }
+    if (this.#agentControl.managed(intent.agentId))
+      throw new Error("Agent requires a fenced Start");
     const stopping = this.#agentStops.get(intent.agentId);
     if (stopping) await stopping;
     return this.startAgent(
@@ -835,6 +1029,17 @@ export class DaemonRuntime {
     );
   }
 
+  async handleAgentWorkspaceReset(request: AgentWorkspaceResetRequest): Promise<void> {
+    if (
+      !this.#started ||
+      this.#stopping ||
+      request.workspaceId !== this.#connection.workspaceId ||
+      request.computerId !== this.#connection.computerId
+    )
+      throw new Error("Agent control scope unavailable");
+    await this.#agentControl.resetWorkspace(request);
+  }
+
   async handleAgentStop(intent: AgentStopIntent): Promise<void> {
     if (intent.protocolMajor !== WORKSPACE_PROTOCOL_MAJOR)
       throw new Error("unsupported agent protocol major");
@@ -842,6 +1047,19 @@ export class DaemonRuntime {
       throw new Error("agent intent targets another Workspace");
     if (intent.computerId !== this.#connection.computerId)
       throw new Error("agent intent targets another Computer");
+    if (intent.provider !== undefined && intent.controlEpoch !== undefined) {
+      await this.#agentControl.stop({
+        protocolMajor: intent.protocolMajor,
+        requestId: intent.requestId,
+        workspaceId: intent.workspaceId,
+        computerId: intent.computerId,
+        agentId: intent.agentId,
+        provider: intent.provider,
+        epoch: intent.controlEpoch,
+      });
+      return;
+    }
+    if (this.#agentControl.managed(intent.agentId)) throw new Error("Agent requires a fenced Stop");
     await this.stopAgent(intent.agentId);
   }
 
@@ -1380,10 +1598,14 @@ export class DaemonRuntime {
     this.#unsubscribeAgentStart = undefined;
     this.#unsubscribeAgentStop?.();
     this.#unsubscribeAgentStop = undefined;
+    this.#unsubscribeAgentWorkspaceReset?.();
+    this.#unsubscribeAgentWorkspaceReset = undefined;
     this.#unsubscribeAgentMessage?.();
     this.#unsubscribeAgentMessage = undefined;
     this.#unsubscribeUsageScan?.();
     this.#unsubscribeUsageScan = undefined;
+    this.#unsubscribeSkillsList?.();
+    this.#unsubscribeSkillsList = undefined;
     this.#unsubscribeReconnect?.();
     this.#unsubscribeReconnect = undefined;
     for (const token of this.#agentProxyTokens.values()) this.#agentProxy?.revoke(token);
@@ -1406,9 +1628,19 @@ export class DaemonRuntime {
     }
     await Promise.allSettled(this.#agentLaunches.values());
     const activeAgentIds = this.#agentProcessManager.activeAgentIds();
+    const sessions = activeAgentIds.map((id) => ({
+      id,
+      session: this.#agentProcessManager.session(id),
+      launchId: this.#currentActivityLaunches.get(id)?.launchId,
+    }));
     let shutdownError: unknown;
     try {
       await this.#agentProcessManager.shutdown();
+      for (const { id, session, launchId } of sessions) {
+        if (launchId)
+          await this.#agentControl.stopped(id, launchId, await session?.readSessionIdentity?.());
+        await this.#agentSessions.replay(id);
+      }
     } catch (error) {
       shutdownError = error;
     }

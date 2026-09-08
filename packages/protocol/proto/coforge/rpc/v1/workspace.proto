@@ -46,6 +46,9 @@ message AgentSessionReport {
   string launch_id = 10;
   optional string previous_launch_id = 11;
   optional string replaced_session_id = 12;
+  optional uint32 control_epoch = 13;
+  optional uint32 sequence = 14;
+  optional string session_state = 15;
 }
 
 // Versioned server-to-daemon intent.
@@ -68,6 +71,7 @@ message AgentStartIntent {
   repeated AgentUnreadSummaryEntry unread_summary = 15;
   optional string previous_launch_id = 16;
   optional string session_mode = 17;
+  optional uint32 control_epoch = 18;
 }
 
 // Versioned server-to-daemon stop intent. A replacement is expressed as a
@@ -79,6 +83,8 @@ message AgentStopIntent {
   string agent_id = 4;
   string computer_id = 5;
   string message_type = 6;
+  optional string provider = 7;
+  optional uint32 control_epoch = 8;
 }
 
 message AgentRecoveryMessage {

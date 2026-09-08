@@ -79,6 +79,30 @@ _Avoid_: Agent status, runtime state machine
 The durable filesystem working area for one Agent within one Workspace on one Computer. It survives Agent runtime replacement and provider changes, and is not itself a logical Workspace.
 _Avoid_: Workspace, repository, provider home, runtime directory
 
+**Agent session**:
+The native conversational context used by one Agent, distinct from its runtime
+process and from a Workspace session. Replacing the runtime does not by itself
+discard this context. A recoverable association is scoped to that Agent, Workspace,
+Computer, and provider. It is not a CoForge Message history or a transcript view.
+
+**Restart Agent**:
+Stop the Agent runtime and start it again, preferring the same Agent session and
+preserving the Agent workspace. An empty session starts fresh silently; a known
+missing or safely non-replayable session may start a new session with a new identity
+to restore availability. Authentication, network, ambiguous, permission, corruption,
+and other I/O failures do not become fresh sessions.
+
+**Reset Session**:
+Stop the Agent runtime, discard its current session association, and start a new
+Agent session in one user operation. Preserve the Agent workspace and old native
+session files.
+
+**Full Reset**:
+Stop the Agent runtime, delete all contents of only its Agent workspace, discard
+its current session association, and start a new Agent session in one confirmed
+user operation. It does not delete cloud Messages, provider home directories,
+Global Skills, or another Agent's files.
+
 **Agent runtime**:
 A short-lived execution and audit identity for one Agent in one Workspace runtime session. Its configuration selects a provider, model, and reasoning behavior; provider-specific adapters translate that configuration into the native runtime settings. It never inherits User or Computer authority.
 _Avoid_: Agent token, code-agent installation

@@ -117,6 +117,8 @@ const decodedModelCatalog = (catalog: {
   })),
 });
 
+const MAX_AGENT_SESSION_REPORT_BYTES = 32_768;
+
 export function encodeDaemonRuntimeReadyRequest(value: DaemonRuntimeReadyRequest): Uint8Array {
   assertRunningAgentIds(value.runningAgentIds);
   return toBinary(
@@ -247,10 +249,15 @@ export function decodeDaemonRuntimeUsageScanResponse(bytes: Uint8Array) {
 
 export function encodeAgentSessionReport(value: AgentSessionReport): Uint8Array {
   validateAgentSessionReport(value);
-  return toBinary(AgentSessionReportSchema, create(AgentSessionReportSchema, value));
+  const bytes = toBinary(AgentSessionReportSchema, create(AgentSessionReportSchema, value));
+  if (bytes.length > MAX_AGENT_SESSION_REPORT_BYTES)
+    throw new Error("Agent Session report payload too large");
+  return bytes;
 }
 
 export function decodeAgentSessionReport(bytes: Uint8Array): AgentSessionReport {
+  if (bytes.length > MAX_AGENT_SESSION_REPORT_BYTES)
+    throw new Error("Agent Session report payload too large");
   const { $typeName: _, ...value } = fromBinary(AgentSessionReportSchema, bytes);
   validateAgentSessionReport(value);
   return value;
@@ -266,12 +273,26 @@ function validateAgentSessionReport(value: {
     !Object.values(RUNTIME_PROVIDER).includes(value.provider as RuntimeProvider)
   )
     throw new Error("invalid session report protocol/provider");
+  if (value.controlEpoch !== undefined) {
+    assertPositiveControlCounter(value.controlEpoch as number, "Agent control epoch");
+  }
+  if (value.sequence !== undefined) {
+    assertPositiveControlCounter(value.sequence as number, "Agent Session sequence");
+    if (value.controlEpoch === undefined || value.sessionState === undefined)
+      throw new Error("Session snapshot requires control epoch and state");
+  }
+  if (value.sessionState !== undefined && value.sequence === undefined)
+    throw new Error("Session state requires a sequence");
+  if (
+    value.sessionState !== undefined &&
+    !["empty", "resumable", "unknown"].includes(value.sessionState as string)
+  )
+    throw new Error("invalid Session state");
   for (const field of [
     "requestId",
     "workspaceId",
     "computerId",
     "agentId",
-    "sessionId",
     "startRequestId",
     "daemonInstanceId",
     "launchId",
@@ -284,9 +305,18 @@ function validateAgentSessionReport(value: {
       (value[field] as string).length > 512
     )
       throw new Error(`invalid session report ${field}`);
+  if (
+    typeof value.sessionId !== "string" ||
+    value.sessionId.length > 512 ||
+    (value.sessionId.length === 0 && value.sessionState !== "empty") ||
+    (value.sessionId.length > 0 && !value.sessionId.trim())
+  )
+    throw new Error("invalid session report sessionId");
 }
 
 export function encodeAgentStartIntent(value: AgentStartIntent): Uint8Array {
+  if (value.controlEpoch !== undefined)
+    assertPositiveControlCounter(value.controlEpoch, "Agent control epoch");
   if ((value.resumeMessages?.length ?? 0) > 100)
     throw new Error("Agent recovery resumeMessages exceeds 100");
   const recoveryMessages = [
@@ -348,6 +378,8 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     throw new Error("invalid agent start intent");
   if (!["coforge", "pi", "codex", "claude-code"].includes(v.provider))
     throw new Error(`unsupported runtime provider: ${v.provider}`);
+  if (v.controlEpoch !== undefined)
+    assertPositiveControlCounter(v.controlEpoch, "Agent control epoch");
   const recoveryMessages = [...(v.wakeMessage ? [v.wakeMessage] : []), ...v.resumeMessages];
   const summaryTargets = new Set(v.unreadSummary.map(({ target }) => target));
   const messageIds = new Set(recoveryMessages.map(({ messageId }) => messageId));
@@ -405,6 +437,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
       : undefined,
     ...(v.sessionId ? { sessionId: v.sessionId } : {}),
     ...(v.sessionMode ? { sessionMode: v.sessionMode } : {}),
+    ...(v.controlEpoch !== undefined ? { controlEpoch: v.controlEpoch } : {}),
     ...(v.wakeMessage ? { wakeMessage: recoveryMessage(v.wakeMessage) } : {}),
     ...(v.resumeMessages.length ? { resumeMessages: v.resumeMessages.map(recoveryMessage) } : {}),
     ...(v.unreadSummary.length
@@ -417,7 +450,16 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
   };
 }
 
+function assertPositiveControlCounter(value: number, field: string): void {
+  if (!Number.isSafeInteger(value) || value < 1 || value > 2 ** 31 - 1)
+    throw new Error(`invalid ${field}`);
+}
+
 export function encodeAgentStopIntent(value: AgentStopIntent): Uint8Array {
+  if ((value.provider === undefined) !== (value.controlEpoch === undefined))
+    throw new Error("agent stop provider and control epoch must be paired");
+  if (value.controlEpoch !== undefined)
+    assertPositiveControlCounter(value.controlEpoch, "control epoch");
   return toBinary(
     AgentStopIntentSchema,
     create(AgentStopIntentSchema, { ...value, messageType: AGENT_STOP_MESSAGE_TYPE }),
@@ -431,7 +473,9 @@ export function decodeAgentStopIntent(bytes: Uint8Array): AgentStopIntent {
     !value.requestId ||
     !value.workspaceId ||
     !value.computerId ||
-    !value.agentId
+    !value.agentId ||
+    (value.provider === "" && value.controlEpoch !== undefined) ||
+    (value.provider === undefined) !== (value.controlEpoch === undefined)
   )
     throw new Error("invalid agent stop intent");
   return {
@@ -440,6 +484,8 @@ export function decodeAgentStopIntent(bytes: Uint8Array): AgentStopIntent {
     workspaceId: value.workspaceId,
     computerId: value.computerId,
     agentId: value.agentId,
+    ...(value.provider !== undefined ? { provider: parseRuntimeProvider(value.provider) } : {}),
+    ...(value.controlEpoch !== undefined ? { controlEpoch: value.controlEpoch } : {}),
     messageType: value.messageType,
   };
 }

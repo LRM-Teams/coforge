@@ -24,6 +24,8 @@ import {
   activityDotClass,
   showsActivityMessage,
 } from "./agent-activity-presentation";
+import { AgentSkills, type AgentSkillsLoadResult } from "./agent-skills";
+import { AgentControl } from "./agent-control";
 
 type Detail = Awaited<ReturnType<typeof import("./agents.functions").getAgentDetail>>;
 
@@ -36,6 +38,8 @@ export function AgentDetail({
   onDeleteRuntimeCredential,
   onUpdate,
   onLoadRuntimeOptions,
+  onLoadSkills,
+  onExecuteControl,
 }: {
   detail: Detail;
   activity?: ActivityEntry[];
@@ -45,6 +49,8 @@ export function AgentDetail({
   onDeleteRuntimeCredential: () => Promise<void>;
   onUpdate: (input: UpdateAgentInput) => Promise<void>;
   onLoadRuntimeOptions: (computerId: string) => Promise<RuntimeOptions>;
+  onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
+  onExecuteControl?: Parameters<typeof AgentControl>[0]["onExecute"];
 }) {
   const online = detail.status.value === "unknown" ? undefined : detail.status.value === "active";
   const statusLabel =
@@ -117,6 +123,8 @@ export function AgentDetail({
             onDeleteRuntimeCredential={onDeleteRuntimeCredential}
             onUpdate={onUpdate}
             onLoadRuntimeOptions={onLoadRuntimeOptions}
+            onLoadSkills={onLoadSkills}
+            onExecuteControl={onExecuteControl}
           />
         ) : (
           <Activity activity={activity} timeZone={timeZone} />
@@ -133,6 +141,8 @@ function Profile({
   onDeleteRuntimeCredential,
   onUpdate,
   onLoadRuntimeOptions,
+  onLoadSkills,
+  onExecuteControl,
 }: {
   detail: Detail;
   timeZone: string | null;
@@ -140,6 +150,8 @@ function Profile({
   onDeleteRuntimeCredential: () => Promise<void>;
   onUpdate: (input: UpdateAgentInput) => Promise<void>;
   onLoadRuntimeOptions: (computerId: string) => Promise<RuntimeOptions>;
+  onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
+  onExecuteControl?: Parameters<typeof AgentControl>[0]["onExecute"];
 }) {
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -164,7 +176,7 @@ function Profile({
     },
   ];
   return (
-    <div className="mt-6 grid gap-5 lg:grid-cols-2">
+    <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-2">
       <section className="rounded-xl border bg-card p-5">
         <div className="flex items-center justify-between">
           <h2 className="flex items-center gap-2 font-semibold">
@@ -181,7 +193,7 @@ function Profile({
           {fields.map(({ label, value }) => (
             <div key={label}>
               <dt className="text-xs text-muted-foreground">{label}</dt>
-              <dd className="mt-1 text-sm">{value}</dd>
+              <dd className="mt-1 break-words text-sm">{value}</dd>
             </div>
           ))}
         </dl>
@@ -322,6 +334,21 @@ function Profile({
           />
         </div>
       </section>
+      {detail.ownedByCurrentUser && onLoadSkills && (
+        <AgentSkills
+          key={`${detail.id}:${detail.computerId ?? ""}:${JSON.stringify(detail.runtimeConfig)}`}
+          resetKey={`${detail.id}:${detail.computerId ?? ""}:${JSON.stringify(detail.runtimeConfig)}`}
+          onLoad={onLoadSkills}
+        />
+      )}
+      {detail.ownedByCurrentUser && onExecuteControl && (
+        <AgentControl
+          key={detail.id}
+          agentId={detail.id}
+          agentName={detail.displayName}
+          onExecute={onExecuteControl}
+        />
+      )}
 
       <Dialog open={runtimeDialogOpen} onOpenChange={setRuntimeDialogOpen}>
         <DialogPortal keepMounted>
@@ -466,12 +493,12 @@ function nestedConfigValue(config: unknown, field: string, nestedField: string) 
 
 function RuntimeField({ label, value }: { label: string; value: string }) {
   return (
-    <label className="grid gap-1.5 text-sm">
+    <label className="grid min-w-0 gap-1.5 text-sm">
       {label}
       <input
         value={value}
         readOnly
-        className="h-9 rounded-md border bg-muted px-3 text-muted-foreground outline-none"
+        className="h-9 min-w-0 rounded-md border bg-muted px-3 text-muted-foreground outline-none"
       />
     </label>
   );

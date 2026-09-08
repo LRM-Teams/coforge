@@ -82,23 +82,29 @@ model UserIdentity {
 }
 
 model Agent {
-  id             String                 @id @default(uuid()) @db.Uuid
-  workspaceId    String                 @db.Uuid
-  name           String
-  displayName    String
-  description    String                 @default("")
-  createdAt      DateTime               @default(now())
-  ownerId        String                 @db.Uuid
-  computerId     String?                @db.Uuid
-  runtimeConfig  Json
-  runtimeSession Json?
-  workspace      Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  owner          User                   @relation(fields: [ownerId], references: [id])
-  computer       Computer?              @relation(fields: [computerId], references: [id], onDelete: SetNull)
-  conversations  ConversationMember[]
-  deliveries     AgentMessageDelivery[]
-  apiKeys        AgentApiKey[]
-  activity       AgentActivity[]
+  id               String                 @id @default(uuid()) @db.Uuid
+  workspaceId      String                 @db.Uuid
+  name             String
+  displayName      String
+  description      String                 @default("")
+  createdAt        DateTime               @default(now())
+  ownerId          String                 @db.Uuid
+  computerId       String?                @db.Uuid
+  runtimeConfig    Json
+  /// Runtime launch fencing only; provider-native identity lives in AgentSession.
+  runtimeSession   Json?
+  /// Current control request and fencing only, not Session history or a job queue.
+  controlState     Json?
+  currentSessionId String?                @db.Uuid
+  currentSession   AgentSession?          @relation("CurrentAgentSession", fields: [currentSessionId], references: [id], onDelete: SetNull)
+  sessions         AgentSession[]         @relation("AgentSessions")
+  workspace        Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner            User                   @relation(fields: [ownerId], references: [id])
+  computer         Computer?              @relation(fields: [computerId], references: [id], onDelete: SetNull)
+  conversations    ConversationMember[]
+  deliveries       AgentMessageDelivery[]
+  apiKeys          AgentApiKey[]
+  activity         AgentActivity[]
 
   @@unique([workspaceId, name])
   @@unique([id, workspaceId])
@@ -106,6 +112,24 @@ model Agent {
   @@index([workspaceId, createdAt])
   @@index([computerId])
   @@map("agents")
+}
+
+/// A provider-native Session belongs to the Agent and the Computer/runtime that created it.
+/// Switching runtime creates another record; it never relabels or converts the old transcript.
+model AgentSession {
+  id              String   @id @default(uuid()) @db.Uuid
+  agentId         String   @db.Uuid
+  workspaceId     String   @db.Uuid
+  computerId      String   @db.Uuid
+  provider        String
+  nativeSessionId String?
+  state           String   @default("unknown")
+  createdAt       DateTime @default(now())
+  agent           Agent    @relation("AgentSessions", fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  currentFor      Agent[]  @relation("CurrentAgentSession")
+
+  @@index([agentId, createdAt])
+  @@map("agent_sessions")
 }
 
 model AgentActivity {
@@ -185,7 +209,7 @@ model DeviceAuthorization {
   deviceCodeHash String    @unique @map("device_code_hash")
   userCodeHash   String    @unique @map("user_code_hash")
   /// Null until a signed-in browser approves this grant; the token is minted for this user.
-  userId         String?   @db.Uuid @map("user_id")
+  userId         String?   @map("user_id") @db.Uuid
   status         String    @default("pending")
   expiresAt      DateTime  @map("expires_at")
   approvedAt     DateTime? @map("approved_at")
