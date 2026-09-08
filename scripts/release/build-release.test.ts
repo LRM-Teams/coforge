@@ -296,7 +296,18 @@ test("the real install.sh installs successfully from the produced tree", async (
   // every other target keeps the /dev/null default from fixtureArtifacts.
   const artifacts = fixtureArtifacts("/dev/null");
   artifacts[host] = {
-    computer: Buffer.from(`#!/bin/sh\nprintf '%s\\n' "$@" > "${log}"\n`),
+    // Besides logging its arguments, the stub must leave a shim where install.sh looks for one
+    // afterwards - the real binary's `install` does, and the script refuses to report success
+    // without it.
+    computer: Buffer.from(
+      `#!/bin/sh\n` +
+        `printf '%s\\n' "$@" > "${log}"\n` +
+        `bin_directory=\${XDG_BIN_HOME:-}\n` +
+        `case "$bin_directory" in\n  /*) ;;\n  *) bin_directory="$HOME/.local/bin" ;;\nesac\n` +
+        `mkdir -p "$bin_directory"\n` +
+        `printf '#!/bin/sh\\nexit 0\\n' > "$bin_directory/coforge-computer"\n` +
+        `chmod 755 "$bin_directory/coforge-computer"\n`,
+    ),
     daemon: artifacts[host]!.daemon,
   };
   const { version } = await buildReleaseTree(releaseInputs({ artifacts }), outputDirectory);

@@ -83,12 +83,27 @@ async function serveFixture(
     gzipStatus?: number;
     corruptGzip?: boolean;
     latestContent?: string;
+    omitShim?: boolean;
   } = {},
 ) {
   const version = options.version ?? "3.2.1";
   const target = options.target ?? currentTarget();
   const log = options.argumentLog ?? "/dev/null";
-  const computer = Buffer.from(`#!/bin/sh\nprintf '%s\\n' "$@" > "${log}"\n`);
+  // The stub stands in for the real binary's `install` subcommand, so it must also do the one
+  // thing install.sh checks for afterwards: leave an executable shim in the directory
+  // packages/computer/src/paths.ts resolves. Without this the script's version-skew guard fires
+  // and every test here fails - which is exactly the behavior that guard exists to produce.
+  const computer = Buffer.from(
+    `#!/bin/sh\n` +
+      `printf '%s\\n' "$@" > "${log}"\n` +
+      (options.omitShim
+        ? ""
+        : `bin_directory=\${XDG_BIN_HOME:-}\n` +
+          `case "$bin_directory" in\n  /*) ;;\n  *) bin_directory="$HOME/.local/bin" ;;\nesac\n` +
+          `mkdir -p "$bin_directory"\n` +
+          `printf '#!/bin/sh\\nexit 0\\n' > "$bin_directory/coforge-computer"\n` +
+          `chmod 755 "$bin_directory/coforge-computer"\n`),
+  );
   const checksum = options.tamperChecksum ? "0".repeat(64) : sha256hex(computer);
 
   const files = new Map<string, Uint8Array>([
@@ -437,7 +452,7 @@ for (const shell of ["bash", "zsh", "fish"] as const) {
         : 'export PATH="$HOME/.local/bin:$PATH"';
     expect(content).toContain(original);
     expect(content.split(pathLine)).toHaveLength(2);
-    expect(first.stderr).toContain("This installer cannot change the current shell");
+    expect(first.stderr).toContain("To use it in this one, run:");
     expect(first.stderr).toContain(`"${join(first.home, ".local/bin/coforge-computer")}" setup`);
     if (shell === "bash") {
       const loginProfile = await readFile(join(first.home, ".bash_profile"), "utf8");
@@ -507,7 +522,10 @@ for (const shell of ["bash", "zsh", "fish"] as const) {
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain(`CoForge Computer ${fixture.version} installed`);
     expect(result.stderr).toContain("coforge-computer setup --workspace <slug>");
-    expect(result.stderr).not.toContain("This installer cannot change the current shell");
+    // The bare command the installer just told the user to run has to resolve on the PATH the
+    // installer itself saw - that is the whole claim being made here.
+    expect(await Bun.file(join(home, ".local/bin/coforge-computer")).exists()).toBe(true);
+    expect(result.stderr).not.toContain("To use it in this one, run:");
     expect(result.stderr).not.toContain("fish_add_path");
     expect(result.stderr).not.toContain("export PATH=");
     for (const configuration of [
@@ -521,6 +539,24 @@ for (const shell of ["bash", "zsh", "fish"] as const) {
     }
   });
 }
+
+// install.sh is served by the web app while binaries come from the release feed, so a user can
+// reach a version published before the shim moved. The script must not report success or print
+// advice naming a command that was never installed.
+test("install.sh fails when the installed version leaves no shim where it expects one", async () => {
+  const fixture = await serveFixture({ omitShim: true });
+  const result = await run(["--version", fixture.version], {
+    ...process.env,
+    SHELL: "/usr/bin/zsh",
+    COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+    COFORGE_INSTALLER_TEST_MODE: "1",
+  });
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stderr).toContain("no shim appeared at");
+  expect(result.stderr).toContain("predates this installer");
+  expect(result.stderr).not.toContain(`CoForge Computer ${fixture.version} installed`);
+  expect(await Bun.file(join(result.home, ".zshrc")).exists()).toBe(false);
+});
 
 // XDG_BIN_HOME relocates the shim, and the installer must resolve it exactly as
 // packages/computer/src/paths.ts does - otherwise it writes PATH setup for, or advertises, a
@@ -539,7 +575,7 @@ test("install.sh follows an absolute XDG_BIN_HOME and ignores a relative one", a
     COFORGE_INSTALLER_TEST_MODE: "1",
   });
   expect(relocated.exitCode).toBe(0);
-  expect(relocated.stderr).not.toContain("This installer cannot change the current shell");
+  expect(relocated.stderr).not.toContain("To use it in this one, run:");
 
   const relative = await run(["--version", fixture.version], {
     ...process.env,
