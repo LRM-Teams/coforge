@@ -64,6 +64,9 @@ instructions for the TanStack Start Web/backend modular monolith.
 
 ## Route and page organization
 
+- `src/features/landing/` owns the public homepage composition. Installation
+  commands belong in the authenticated Computer UI, not the public homepage.
+
 - Public channels belong to `features/conversations/` (discovery, join/create,
   shared message UI and authenticated functions) and
   `server/conversations/public-channels.server.ts` (Workspace authorization,
