@@ -1,5 +1,6 @@
 import { chmod, mkdir, rm } from "node:fs/promises";
 import { dirname } from "node:path";
+import { getLogger } from "@logtape/logtape";
 import {
   decodeDaemonHandshakeRequest,
   decodeDaemonCommandRequest,
@@ -30,6 +31,8 @@ import type { DaemonConfig } from "./daemon-runtime/runtime";
 import type { DaemonCredentialStore } from "./credentials/credential-store";
 import type { DaemonConfigStore } from "./persistence/daemon-config";
 import { COFORGE_DAEMON_SERVER_URL } from "./connection/built-server";
+
+const logger = getLogger(["coforge", "daemon", "local-rpc"]);
 
 export type DaemonLocalRpcServer = {
   close(): Promise<void>;
@@ -80,7 +83,12 @@ export async function startDaemonLocalRpcServer(input: {
               input.version,
             ),
           )
-          .catch(() => {
+          .catch((error: unknown) => {
+            logger.error("Local RPC connection failed", {
+              event: "daemon.local_rpc.connection_failed",
+              error: error instanceof Error ? error.message : String(error),
+              outcome: "error",
+            });
             socket.end();
           });
       },
@@ -118,8 +126,12 @@ async function handleConnection(
   const parsed = readLocalRpcFrames(socket.data.buffer);
   socket.data.buffer = parsed.remainder;
   for (const frame of parsed.frames) {
+    // Captured outside the try so a failure can still say which request failed, including when
+    // the frame itself is what could not be decoded.
+    let currentMethod = "unknown";
     try {
       const envelope = decodeLocalRpcRequest(frame);
+      currentMethod = envelope.method;
       if (envelope.method === LOCAL_RPC_METHODS.HANDSHAKE) {
         const request = decodeDaemonHandshakeRequest(envelope.payload);
         const valid = request.protocolMajor === 1 && request.requestId.length > 0;
@@ -285,10 +297,28 @@ async function handleConnection(
           ),
         );
       } else {
+        logger.warn("Local RPC request used an unknown method", {
+          event: "daemon.local_rpc.unknown_method",
+          method: envelope.method,
+          outcome: "rejected",
+        });
         socket.end();
         return;
       }
-    } catch {
+    } catch (error) {
+      // Closing the connection is the right response - the caller is a local process that will
+      // retry - but doing it silently was not. Every guard in the handlers above (a server-origin
+      // mismatch, a runtime that refuses to configure, a malformed frame) reached the caller as an
+      // indistinguishable closed socket, and `coforge-computer setup` could only report that the
+      // Daemon "could not be started" without ever being able to say why. This line is the only
+      // place that knows.
+      logger.error("Local RPC request failed", {
+        event: "daemon.local_rpc.failed",
+        method: currentMethod,
+        error: error instanceof Error ? error.message : String(error),
+        errorName: error instanceof Error ? error.name : undefined,
+        outcome: "error",
+      });
       socket.end();
       return;
     }

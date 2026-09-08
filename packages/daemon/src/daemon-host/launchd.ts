@@ -108,6 +108,7 @@ export function launchdPlist(input: {
   ${input.daemonConnectionEndpoint ? `<key>EnvironmentVariables</key><dict><key>COFORGE_DAEMON_CONNECTION_ENDPOINT</key><string>${xml(input.daemonConnectionEndpoint)}</string></dict>` : ""}
   <key>ProgramArguments</key>
   <array><string>${xml(input.executablePath)}</string><string>__daemon</string><string>--socket</string><string>${xml(input.socketPath)}</string>${input.stateDirectory ? `<string>--state-directory</string><string>${xml(input.stateDirectory)}</string>` : ""}</array>
+  ${input.stateDirectory ? `<key>StandardOutPath</key><string>${xml(join(input.stateDirectory, "daemon.log"))}</string>\n  <key>StandardErrorPath</key><string>${xml(join(input.stateDirectory, "daemon.log"))}</string>` : ""}
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ProcessType</key><string>Background</string>
