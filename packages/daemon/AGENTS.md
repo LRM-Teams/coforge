@@ -23,7 +23,6 @@ src/
 ├── daemon-application/             # daemon use cases and orchestration
 ├── local-rpc/                      # Computer↔Daemon IPC server and handlers
 ├── daemon-runtime/                 # child-owned one-Workspace runtime
-├── logging/                        # LogTape process diagnostics and redaction
 ├── agent-app-inbox/                # typed Agent-scoped App items and registry
 ├── connection/                    # Daemon WSS connection and reconnect loop
 ├── protocol/                       # daemon-side protocol ports/codecs
@@ -158,7 +157,9 @@ configuration and recovery; the entrypoint assembles these policies, not their r
 - `persistence/` owns durable local state and atomic App Inbox storage. A
   connection outbox is not durable storage.
 - `platform/` contains OS-specific details only. Do not leak platform APIs
-  into domain or application modules. `platform/process-lock.ts` owns the
+  into domain or application modules. `platform/daemon-log-file.ts` owns
+  owner-only log path preparation and symlink rejection; it does not wrap
+  LogTape configuration or loggers. `platform/process-lock.ts` owns the
   reusable SQLite-backed process lock primitive. The Supervisor lifetime lock
   uses it only for foreground exclusion and safe recovery of owned children;
   Computer separately uses the primitive for a full-operation machine mutation

@@ -238,8 +238,8 @@ model Computer {
   id            String                 @id @default(uuid()) @db.Uuid
   ownerId       String                 @db.Uuid
   machineId     String
-  name          String                 @default("computer")
-  displayName   String                 @default("Computer")
+  name          String                 @default("")
+  displayName   String                 @default("")
   /// Where this Computer runs: "local" on a machine the User controls,
   /// "cloud" on a CoForge-hosted sandbox node.
   kind          String                 @default("local")

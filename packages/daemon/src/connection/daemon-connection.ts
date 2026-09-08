@@ -156,13 +156,6 @@ export interface CentrifugeWorkspaceClient {
   disconnect(): void;
   rpc(method: string, data: Uint8Array): Promise<unknown>;
   publish?(channel: string, data: Uint8Array): Promise<unknown>;
-  newSubscription?(channel: string): CentrifugeWorkspaceSubscription;
-}
-
-interface CentrifugeWorkspaceSubscription {
-  on(event: "publication", callback: (publication: { data: Uint8Array }) => void): void;
-  subscribe(): void;
-  unsubscribe(): void;
 }
 
 export type CentrifugeWorkspaceClientFactory = (
@@ -288,7 +281,7 @@ export class DaemonConnection implements DaemonConnectionClient {
           event: "daemon_connection:connected",
           workspace_id: config.workspaceId,
           computer_id: config.computerId,
-          subscription_source: "connect_proxy",
+          control_stream_binding: "connect_proxy",
           outcome: "ok",
         });
         void client

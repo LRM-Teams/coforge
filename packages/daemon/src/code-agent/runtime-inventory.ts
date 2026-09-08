@@ -4,10 +4,11 @@ import {
   type CodeAgentModelMetadata,
   type RuntimeMetadata,
 } from "@coforge/protocol";
-import { agentEnvironment, codeAgentExecutableSearchPath } from "./environment";
+import { agentEnvironment } from "./environment";
 import { JsonlProcess } from "./jsonl-process";
 import { probeClaudeCodeVersion, resolveClaudeCodeExecutable } from "./claude-code/runtime";
 import { COFORGE_DAEMON_VERSION } from "../version";
+import { codeAgentExecutableSearchPath } from "../platform/code-agent-path";
 import { COFORGE_PROVIDER_MODELS_GENERATED } from "@coforge/agent";
 import { COFORGE_AGENT_RUNTIME_METADATA } from "./pi/metadata";
 import { getLogger } from "@logtape/logtape";

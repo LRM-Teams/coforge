@@ -1,6 +1,6 @@
 # CoForge 本地应用日志契约
 
-状态：Computer 与 Workspace Daemon 的滚动 JSONL sink 已实现；其余分类按本文后续补齐
+状态：Computer 与 Workspace Daemon 的根分类滚动 JSONL sink 已实现；其余专用分类按本文后续补齐
 
 更新时间：2026-08-27
 
@@ -17,6 +17,8 @@
 三者均由 LogTape 项目维护、采用 MIT license，并明确支持 Bun。Bun 自身提供 `console`、文件 I/O 和 child-process stream，但不是包含 category、redaction、rolling 与 retention 的日志框架。
 
 LogTape 的社区规模小于传统 Node.js logger，但当前需求直接使用同一项目维护的 Bun runtime、category、rotation、redaction 和 lifecycle interface，不需要拼接多个 logging framework 或第三方 rolling transport。Computer 和 Daemon 只允许这一套 logging stack；若固定版本在 compiled Bun binary 中失败，先停止实现并重新评审选型，不得静默引入第二套 logger 或自定义 rolling sink。
+
+应用入口直接调用 LogTape `configure()` 与 `dispose()`；业务模块直接通过 `getLogger()` 取得 hierarchical category。不得在 LogTape 之上增加 logger wrapper、adapter、facade 或平行的低层日志抽象。
 
 ## 2. 进程和日志命名
 
@@ -36,7 +38,7 @@ LogTape 的社区规模小于传统 Node.js logger，但当前需求直接使用
 
 CoForge data directory 和 `logs/` 权限必须限制为当前用户，Unix mode 为 `0700`；活动和滚动文件为 `0600`。启动时拒绝 symlink root、不可写目录和权限无法收紧的文件。
 
-每个 hierarchical category 写独立 LogTape rotating file sink；业务模块只取得 category logger，不直接配置 sink。Computer 和 Daemon 分别拥有自己的 sink，不允许两个 OS 进程并发 append 同一个文件：
+目标状态下每个 hierarchical category 写独立 LogTape rotating file sink；业务模块只取得 category logger，不直接配置 sink。当前 Computer 与 Workspace Daemon 的根 sink 会先收集其子 category，并给每条记录统一附加 process metadata；下表其余专用文件仍是后续工作，不能声称当前已经实现。Computer 和 Daemon 分别拥有自己的 sink，不允许两个 OS 进程并发 append 同一个文件：
 
 | Owner / category                       | Dedicated directory and files      | 内容                                                                                        |
 | -------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------- |
@@ -55,9 +57,9 @@ CoForge data directory 和 `logs/` 权限必须限制为当前用户，Unix mode
 
 ```json
 {
-  "timestamp": "2026-08-27T12:00:00.000Z",
-  "level": "info",
-  "category": "coforge.agent",
+  "@timestamp": "2026-08-27T12:00:00.000Z",
+  "level": "INFO",
+  "logger": "coforge.agent",
   "event": "agent_runtime:started",
   "service": "coforge-daemon",
   "version": "0.1.0",
@@ -113,7 +115,7 @@ Agent stdout 是 driver control channel，只能解析，不能复制到日志�
 ## 8. 官方资料
 
 - LogTape [overview and Bun support](https://logtape.org/)
-- LogTape [file and rotating file sinks](https://logtape.org/sinks/file)
+- LogTape [sinks and explicit disposal](https://logtape.org/manual/sinks)
 - LogTape [hierarchical categories](https://logtape.org/manual/categories)
 - LogTape [data redaction](https://logtape.org/manual/redaction)
 - Bun [file I/O](https://bun.com/docs/runtime/file-io)

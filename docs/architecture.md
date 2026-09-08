@@ -158,8 +158,9 @@ Daemon 到 Web/backend 的 Agent message read/search/send 使用独立的 HTTPS 
 config 的 `serverHttpUrl`（启动时可由 `COFORGE_SERVER_HTTP_URL` 注入）。未配置
 时请求 fail closed，绝不回退到 WSS。Server→Daemon 的 delivery、ready、ACK
 和 heartbeat/control 仍使用 daemon 唯一的 outbound WSS/RPC 连接。Daemon API key
-认证出的 `(workspace_id, computer_id)` 是服务端定向投递身份；Connect Proxy 只允许该连接订阅
-`daemon:<workspace_id>:<computer_id>` control channel。Agent start、message delivery、runtime usage scan
+认证出的 `(workspace_id, computer_id)` 是服务端定向投递身份；Connect Proxy 在认证连接时把它绑定到
+`daemon:<workspace_id>:<computer_id>` control stream，Daemon 不再为同一 channel 发起第二次客户端订阅。
+这里的 stream/channel 是 Centrifugo 的定向路由机制，不是业务实体。Agent start、message delivery、runtime usage scan
 及其他面向一个 Workspace–Computer connection 的控制消息只发布到该 channel，不向同一
 Computer 的其他 Workspace 或 Workspace 内其他 Daemon 广播。
 
@@ -193,8 +194,8 @@ Daemon 通过受 Daemon API key 保护的 Agent API key HTTP
 route 签发和撤销该 key；远端撤销失败必须按失败返回，不能宣称
 成功。本地 Proxy registration 无论远端结果如何都先撤销。Daemon WSS 建连使用
 Centrifugo 官方 Connect Proxy：Daemon API key 通过 SDK connect data 发送，由
-Web/backend 校验 hash、撤销状态和 Workspace/Computer 绑定后返回连接身份及允许的
-Computer-directed Daemon control subscription。普通 Daemon HTTPS 请求使用 `Authorization: Bearer
+Web/backend 校验 hash、撤销状态和 Workspace/Computer 绑定后返回连接身份，并把这条连接绑定到
+Computer-directed Daemon control stream；Daemon 不额外创建同 channel subscription。普通 Daemon HTTPS 请求使用 `Authorization: Bearer
 <daemon-api-key>`。用户授权的 Computer 注册仍可使用独立的用户 JWT；它不是
 Daemon API key，也不会持久化到 Daemon。本地不引入 durable outbox。
 
@@ -793,7 +794,7 @@ mute 变更与消息创建使用同一 conversation 行锁串行化，仅影响�
 - 凭据不得进入仓库、日志、命令行参数或生成物；
 - Unix socket 使用最小文件权限并验证对端身份；
 - Agent 只能在声明的 Agent workspace 目录中运行；
-- Caddy、Centrifugo、backend 和本地进程都需要结构化日志和关联 id，但日志不得包含 secret；Computer、Daemon、daemon 和 Agent runtime process 的本地分类、滚动、保留、脱敏与失败契约见 [本地日志契约](local-logging.md)。Computer 与 Workspace Daemon 已写入各自 state directory 下的滚动 JSONL；连接、Connect Proxy subscription 来源、ready/reconnect、Agent session/start 及 runtime inventory 探测失败记录稳定关联字段，不记录 credential、消息正文或原始 provider 输出；
+- Caddy、Centrifugo、backend 和本地进程都需要结构化日志和关联 id，但日志不得包含 secret；Computer、Daemon、daemon 和 Agent runtime process 的本地分类、滚动、保留、脱敏与失败契约见 [本地日志契约](local-logging.md)。Computer 与 Workspace Daemon 已写入各自 state directory 下的滚动 JSONL；连接、Connect Proxy control-stream binding、ready/reconnect、Agent session/start 及 runtime inventory 探测失败记录稳定关联字段，不记录 credential、消息正文或原始 provider 输出；
 - 开发与 validation 阶段先使用 Docker PostgreSQL 与托管 PostgreSQL，不引入 Kubernetes。
 - WebSocket 依附于 TCP，所属 Centrifugo 进程死亡时一定会断开；保证目标是 committed message 不丢、自动重连、按序 replay 与重复抑制，而不是宣称连接永不断。
 

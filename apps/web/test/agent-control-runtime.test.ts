@@ -132,8 +132,8 @@ test("cloud and daemon preserve Restart identity, reset sessions, fence Full Res
       join(root, "state"),
     );
   runtime = createRuntime();
-  const execute = async (action: "restart" | "reset-session" | "full-reset") => {
-    const result = await control.execute({
+  const execute = (action: "restart" | "reset-session" | "full-reset") =>
+    control.execute({
       action,
       agentId: "a",
       workspaceId: "w",
@@ -141,9 +141,6 @@ test("cloud and daemon preserve Restart identity, reset sessions, fence Full Res
       requestId: crypto.randomUUID(),
       confirmed: true,
     });
-    while (deliveries.size > 0) await Promise.all(deliveries);
-    return result;
-  };
   try {
     await runtime.start(connection);
     expect((await execute("restart")).phase).toBe("completed");
@@ -151,22 +148,28 @@ test("cloud and daemon preserve Restart identity, reset sessions, fence Full Res
     const marker = join(connection.workspaceRoot, "w", "agents", "a", "keep.txt");
     await Bun.write(marker, "workspace content");
     let sentBefore = sent.length;
+    let launchesBefore = launches.length;
     expect((await execute("restart")).phase).toBe("completed");
-    expect(sent.slice(sentBefore).map(decodePrimitive)).toEqual(["stop", "start"]);
+    expect(logicalControlSteps(sent.slice(sentBefore))).toEqual(["stop", "start"]);
+    expect(launches.length).toBe(launchesBefore + 1);
     expect(launches.at(-1)?.sessionId).toBe(firstId);
     sentBefore = sent.length;
+    launchesBefore = launches.length;
     expect((await execute("reset-session")).phase).toBe("completed");
-    expect(sent.slice(sentBefore).map(decodePrimitive)).toEqual(["stop", "start"]);
+    expect(logicalControlSteps(sent.slice(sentBefore))).toEqual(["stop", "start"]);
+    expect(launches.length).toBe(launchesBefore + 1);
     expect(decodeAgentStartIntent(sent.at(-1)!).sessionId).toBeUndefined();
     expect(launches.at(-1)?.sessionId).toBeUndefined();
     expect(await Bun.file(marker).text()).toBe("workspace content");
     sentBefore = sent.length;
+    launchesBefore = launches.length;
     expect((await execute("full-reset")).phase).toBe("completed");
-    expect(sent.slice(sentBefore).map(decodePrimitive)).toEqual([
+    expect(logicalControlSteps(sent.slice(sentBefore))).toEqual([
       "stop",
       "workspace-reset",
       "start",
     ]);
+    expect(launches.length).toBe(launchesBefore + 1);
     expect(decodeAgentStartIntent(sent.at(-1)!).sessionId).toBeUndefined();
     expect(await Bun.file(marker).exists()).toBe(false);
     const reset = sent
@@ -229,4 +232,36 @@ function decodePrimitive(bytes: Uint8Array) {
   } catch {}
   decodeAgentStartIntent(bytes);
   return "start";
+}
+
+function logicalControlSteps(publications: Uint8Array[]) {
+  // Control transport is at-least-once; duplicate publications must preserve
+  // the stable request and payload, while Daemon performs the operation once.
+  const seen = new Map<string, string>();
+  return publications.flatMap((bytes) => {
+    const step = decodePrimitive(bytes);
+    const requestId = decodeControlRequestId(bytes);
+    const key = `${step}:${requestId}`;
+    const encoded = bytes.toBase64();
+    const previous = seen.get(key);
+    if (previous !== undefined) {
+      expect(encoded).toBe(previous);
+      return [];
+    }
+    seen.set(key, encoded);
+    return [step];
+  });
+}
+
+function decodeControlRequestId(bytes: Uint8Array) {
+  for (const decode of [
+    decodeAgentStopIntent,
+    decodeAgentWorkspaceResetRequest,
+    decodeAgentStartIntent,
+  ]) {
+    try {
+      return decode(bytes).requestId;
+    } catch {}
+  }
+  throw new Error("Unknown control publication");
 }

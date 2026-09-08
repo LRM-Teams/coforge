@@ -613,18 +613,20 @@ test("receives only publications directed to its Computer", async () => {
   expect(started).toEqual(["agent-1"]);
 });
 
-test("uses the Connect Proxy server subscription without subscribing twice", async () => {
+test("consumes the Connect Proxy-bound control stream without a client subscription", async () => {
   const fake = fakeClient();
   let subscriptions = 0;
-  fake.client.newSubscription = () => {
-    subscriptions++;
-    return {
-      on() {},
-      subscribe() {},
-      unsubscribe() {},
-    };
-  };
-  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  const centrifugeClient = Object.assign(fake.client, {
+    newSubscription() {
+      subscriptions++;
+      return {
+        on() {},
+        subscribe() {},
+        unsubscribe() {},
+      };
+    },
+  });
+  const transport = new DaemonConnection("wss://cloud.example", () => centrifugeClient);
   const started: string[] = [];
   transport.onAgentStart((intent) => started.push(intent.agentId));
 
@@ -633,7 +635,7 @@ test("uses the Connect Proxy server subscription without subscribing twice", asy
     `daemon:${config.workspaceId}:${config.computerId}`,
     encodeAgentStartIntent({
       protocolMajor: 1,
-      requestId: "start-server-subscription",
+      requestId: "start-bound-control-stream",
       workspaceId: config.workspaceId,
       computerId: config.computerId,
       agentId: "agent-1",

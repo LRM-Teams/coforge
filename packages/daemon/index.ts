@@ -1,6 +1,16 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { LocalInboxRequest } from "@coforge/protocol";
+import { getRotatingFileSink } from "@logtape/file";
+import {
+  configure,
+  dispose,
+  getJsonLinesFormatter,
+  getLogger,
+  withContext,
+} from "@logtape/logtape";
+import { DEFAULT_REDACT_FIELDS, redactByField } from "@logtape/redaction";
 import { startDaemonLocalRpcServer } from "./src/local-rpc";
 import { startAgentProxy } from "./src/agent-proxy";
 import { createAgentDriver } from "./src/code-agent/registry";
@@ -13,9 +23,9 @@ import {
   defaultCentrifugeWorkspaceClientFactory,
 } from "./src/connection/daemon-connection";
 import { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "./src/connection/built-server";
-import { configureDaemonLogger } from "./src/logging/daemon-logger";
 import { COFORGE_DAEMON_VERSION } from "./src/version";
 import { LocalDaemonLauncher } from "./src/daemon-host/launcher";
+import { prepareDaemonLogFile } from "./src/platform/daemon-log-file";
 export { runMachineSupervisor } from "./src/supervisor/run-supervisor";
 
 export type {
@@ -92,6 +102,8 @@ export {
 } from "./src/connection/daemon-connection";
 export { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "./src/connection/built-server";
 
+const DAEMON_CATEGORY = ["coforge", "daemon"];
+
 export async function runDaemon(args: string[]): Promise<void> {
   const socketIndex = args.indexOf("--socket");
   const socketPath = socketIndex >= 0 ? args[socketIndex + 1] : undefined;
@@ -102,141 +114,180 @@ export async function runDaemon(args: string[]): Promise<void> {
     process.exit(2);
   }
   const daemonStateDirectory = stateDirectory ?? join(homedir(), ".coforge", "daemon");
-  const logging = await configureDaemonLogger({
-    dataDirectory: daemonStateDirectory,
-    version: COFORGE_DAEMON_VERSION,
-  });
-  const logger = logging.logger;
-  logger.info("Daemon process started", { event: "daemon.started", outcome: "ok" });
-  const credentials = new FileDaemonCredentialStore();
-  const configStore = new DaemonConfigStore(daemonStateDirectory, {
-    serverHttpUrl: COFORGE_DAEMON_SERVER_URL,
-  });
-  let runtime: DaemonRuntime | undefined;
-  const agentProxy = startAgentProxy({
-    runtime: {
-      agentMessage: (...args) =>
-        runtime?.agentMessage(...args) ??
-        Promise.reject(new Error("daemon runtime is not running")),
-      agentAttachment: (...args) =>
-        runtime?.agentAttachment(...args) ??
-        Promise.reject(new Error("daemon runtime is not running")),
-      inbox: (...args) =>
-        runtime?.inbox(...args) ?? Promise.reject(new Error("daemon runtime is not running")),
-      issueAgentContext: (agentId) => {
-        if (!runtime) throw new Error("daemon runtime is not running");
-        return runtime.issueAgentContext(agentId);
-      },
-    },
-  });
-  process.env.COFORGE_AGENT_PROXY_URL = agentProxy.url;
-  let config = await configStore.load();
-  const endpoint = () => {
-    return daemonConnectionEndpoint(COFORGE_DAEMON_SERVER_URL);
-  };
-  const lifecycle = () => ({
-    recoveredRestartRequestIds:
-      (config as { restartRequestIds?: string[] } | null)?.restartRequestIds ?? [],
-    requestRestart: Bun.env.COFORGE_SUPERVISOR_SOCKET
-      ? async (requestId: string) => {
-          if (!config) throw new Error("Workspace is not configured");
-          await new LocalDaemonLauncher({
-            executablePath: process.execPath,
-            socketPath: Bun.env.COFORGE_SUPERVISOR_SOCKET!,
-            spawn: () => {},
-          }).control("restart", config.workspaceId, requestId);
-        }
-      : undefined,
-  });
-  const daemon = {
-    async configure(connection: Parameters<DaemonRuntime["start"]>[0]) {
-      const nextConfig = configStore.bindToServer(connection);
-      // A configure request is the Workspace-page replacement operation. Stop
-      // the old connection and all children before adopting the new identity.
-      await runtime?.stop();
-      config = nextConfig;
-      runtime = new DaemonRuntime(
-        config,
-        createAgentDriver,
-        credentials,
+  const logPath = await prepareDaemonLogFile(daemonStateDirectory);
+  await configure({
+    reset: true,
+    sinks: {
+      daemon: redactByField(
+        getRotatingFileSink(logPath, {
+          maxSize: 10 * 1024 * 1024,
+          maxFiles: 5,
+          bufferSize: 8192,
+          flushInterval: 1000,
+          formatter: getJsonLinesFormatter({ properties: "flatten" }),
+        }),
         {
-          create: () => new DaemonConnection(endpoint(), defaultCentrifugeWorkspaceClientFactory),
+          fieldPatterns: [
+            ...DEFAULT_REDACT_FIELDS,
+            /^authorization$/i,
+            /^body$/i,
+            /^cookie$/i,
+            /^message_body$/i,
+            /^prompt$/i,
+            /^secret$/i,
+          ],
         },
-        agentProxy,
-        discoverCodeAgentInventory,
-        daemonStateDirectory,
-        lifecycle(),
-      );
-      await runtime.start(config);
+      ),
     },
-    async start() {
-      if (config) {
-        runtime ??= new DaemonRuntime(
-          config,
-          createAgentDriver,
-          credentials,
-          {
-            create: () => new DaemonConnection(endpoint(), defaultCentrifugeWorkspaceClientFactory),
+    loggers: [
+      { category: DAEMON_CATEGORY, lowestLevel: "info", sinks: ["daemon"] },
+      { category: ["logtape", "meta"], lowestLevel: "error" },
+    ],
+    contextLocalStorage: new AsyncLocalStorage<Record<string, unknown>>(),
+  });
+  return withContext(
+    {
+      service: "coforge-daemon",
+      version: COFORGE_DAEMON_VERSION,
+      process_role: "daemon",
+      pid: process.pid,
+    },
+    async () => {
+      const logger = getLogger(DAEMON_CATEGORY);
+      logger.info("Daemon process started", { event: "daemon:started", outcome: "ok" });
+      const credentials = new FileDaemonCredentialStore();
+      const configStore = new DaemonConfigStore(daemonStateDirectory, {
+        serverHttpUrl: COFORGE_DAEMON_SERVER_URL,
+      });
+      let runtime: DaemonRuntime | undefined;
+      const agentProxy = startAgentProxy({
+        runtime: {
+          agentMessage: (...args) =>
+            runtime?.agentMessage(...args) ??
+            Promise.reject(new Error("daemon runtime is not running")),
+          agentAttachment: (...args) =>
+            runtime?.agentAttachment(...args) ??
+            Promise.reject(new Error("daemon runtime is not running")),
+          inbox: (...args) =>
+            runtime?.inbox(...args) ?? Promise.reject(new Error("daemon runtime is not running")),
+          issueAgentContext: (agentId) => {
+            if (!runtime) throw new Error("daemon runtime is not running");
+            return runtime.issueAgentContext(agentId);
           },
-          agentProxy,
-          discoverCodeAgentInventory,
-          daemonStateDirectory,
-          lifecycle(),
-        );
-        await runtime.start(config);
+        },
+      });
+      process.env.COFORGE_AGENT_PROXY_URL = agentProxy.url;
+      let config = await configStore.load();
+      const endpoint = () => {
+        return daemonConnectionEndpoint(COFORGE_DAEMON_SERVER_URL);
+      };
+      const lifecycle = () => ({
+        recoveredRestartRequestIds:
+          (config as { restartRequestIds?: string[] } | null)?.restartRequestIds ?? [],
+        requestRestart: Bun.env.COFORGE_SUPERVISOR_SOCKET
+          ? async (requestId: string) => {
+              if (!config) throw new Error("Workspace is not configured");
+              await new LocalDaemonLauncher({
+                executablePath: process.execPath,
+                socketPath: Bun.env.COFORGE_SUPERVISOR_SOCKET!,
+                spawn: () => {},
+              }).control("restart", config.workspaceId, requestId);
+            }
+          : undefined,
+      });
+      const daemon = {
+        async configure(connection: Parameters<DaemonRuntime["start"]>[0]) {
+          const nextConfig = configStore.bindToServer(connection);
+          // A configure request is the Workspace-page replacement operation. Stop
+          // the old connection and all children before adopting the new identity.
+          await runtime?.stop();
+          config = nextConfig;
+          runtime = new DaemonRuntime(
+            config,
+            createAgentDriver,
+            credentials,
+            {
+              create: () =>
+                new DaemonConnection(endpoint(), defaultCentrifugeWorkspaceClientFactory),
+            },
+            agentProxy,
+            discoverCodeAgentInventory,
+            daemonStateDirectory,
+            lifecycle(),
+          );
+          await runtime.start(config);
+        },
+        async start() {
+          if (config) {
+            runtime ??= new DaemonRuntime(
+              config,
+              createAgentDriver,
+              credentials,
+              {
+                create: () =>
+                  new DaemonConnection(endpoint(), defaultCentrifugeWorkspaceClientFactory),
+              },
+              agentProxy,
+              discoverCodeAgentInventory,
+              daemonStateDirectory,
+              lifecycle(),
+            );
+            await runtime.start(config);
+          }
+        },
+        async stopAll() {
+          await runtime?.stop();
+          runtime = undefined;
+        },
+        async restart() {
+          await this.stopAll();
+          await this.start();
+        },
+        inbox(context: string, request: LocalInboxRequest) {
+          return (
+            runtime?.inbox(context, request) ??
+            Promise.reject(new Error("daemon runtime is not running"))
+          );
+        },
+      };
+      if (Bun.env.COFORGE_SUPERVISOR_SOCKET) await daemon.start();
+      const localRpc = await startDaemonLocalRpcServer({
+        socketPath,
+        version: COFORGE_DAEMON_VERSION,
+        validateCredential: (credential) => credential.length > 0,
+        runtime: daemon,
+        credentials,
+        configStore,
+      });
+      try {
+        await daemon.start();
+      } catch (error) {
+        logger.error("Daemon failed to recover configured Workspace", {
+          event: "daemon:workspace_recovery_failed",
+          error_code: diagnosticErrorCode(error),
+          outcome: "failed",
+        });
       }
+      let shuttingDown = false;
+      const shutdown = async () => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        await daemon.stopAll();
+        agentProxy.close();
+        await localRpc.close();
+        logger.info("Daemon process stopped", { event: "daemon:stopped", outcome: "ok" });
+        await dispose();
+        resolveShutdown();
+      };
+      let resolveShutdown!: () => void;
+      const shutdownRequested = new Promise<void>((resolve) => {
+        resolveShutdown = resolve;
+      });
+      process.once("SIGINT", () => void shutdown());
+      process.once("SIGTERM", () => void shutdown());
+      await shutdownRequested;
     },
-    async stopAll() {
-      await runtime?.stop();
-      runtime = undefined;
-    },
-    async restart() {
-      await this.stopAll();
-      await this.start();
-    },
-    inbox(context: string, request: LocalInboxRequest) {
-      return (
-        runtime?.inbox(context, request) ??
-        Promise.reject(new Error("daemon runtime is not running"))
-      );
-    },
-  };
-  if (Bun.env.COFORGE_SUPERVISOR_SOCKET) await daemon.start();
-  const localRpc = await startDaemonLocalRpcServer({
-    socketPath,
-    version: COFORGE_DAEMON_VERSION,
-    validateCredential: (credential) => credential.length > 0,
-    runtime: daemon,
-    credentials,
-    configStore,
-  });
-  try {
-    await daemon.start();
-  } catch (error) {
-    logger.error("Daemon failed to recover configured Workspace", {
-      event: "daemon.workspace_recovery.failed",
-      error_code: diagnosticErrorCode(error),
-      outcome: "failed",
-    });
-  }
-  let shuttingDown = false;
-  const shutdown = async () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    await daemon.stopAll();
-    agentProxy.close();
-    await localRpc.close();
-    logger.info("Daemon process stopped", { event: "daemon.stopped", outcome: "ok" });
-    await logging.close();
-    resolveShutdown();
-  };
-  let resolveShutdown!: () => void;
-  const shutdownRequested = new Promise<void>((resolve) => {
-    resolveShutdown = resolve;
-  });
-  process.once("SIGINT", () => void shutdown());
-  process.once("SIGTERM", () => void shutdown());
-  await shutdownRequested;
+  );
 }
 
 // Standalone source/development harness; releases enter through Computer.
