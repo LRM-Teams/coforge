@@ -66,7 +66,9 @@ export const LOGIN_HINTS = {
   AUTH_CREDENTIAL_STORE_UNAVAILABLE:
     "Unlock or start your operating system credential service, then rerun login.",
   AUTH_DEVICE_CODE_EXPIRED: "Run `coforge-computer login` again to request a new code.",
-  AUTH_FAILED: "Check the server configuration, then rerun login.",
+  // This code is the catch-all for anything login throws that is not already a CliError, so its
+  // hint cannot name a single cause. It points at the message, which carries the real one.
+  AUTH_FAILED: "See the reason above, then rerun `coforge-computer login`.",
   AUTH_DAEMON_PREFLIGHT_FAILED:
     "Check local Daemon access and install the build matching its environment. Do not delete existing configuration to switch environments.",
   AUTH_BUILD_ENVIRONMENT_MISMATCH:

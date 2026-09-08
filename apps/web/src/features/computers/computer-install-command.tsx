@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { installCommands, setupCommand } from "@/features/install/install-commands";
+import { installCommands, loginCommand, setupCommand } from "@/features/install/install-commands";
 import { m } from "@/paraglide/messages";
 
 type OperatingSystem = "macos-linux" | "windows";
@@ -21,14 +21,21 @@ export function ComputerInstallCommand({
 }) {
   const [operatingSystem, setOperatingSystem] = useState<OperatingSystem>("macos-linux");
   const [installCopied, setInstallCopied] = useState(false);
+  const [loginCopied, setLoginCopied] = useState(false);
   const [setupCopied, setSetupCopied] = useState(false);
   const commands = installCommands(installOrigin);
   const command = operatingSystem === "windows" ? commands.windows : commands.posix;
+  const signInCommand = loginCommand();
   const joinCommand = workspaceSlug ? setupCommand(workspaceSlug) : null;
 
   async function copyInstallCommand() {
     await navigator.clipboard.writeText(command);
     setInstallCopied(true);
+  }
+
+  async function copyLoginCommand() {
+    await navigator.clipboard.writeText(signInCommand);
+    setLoginCopied(true);
   }
 
   async function copySetupCommand() {
@@ -86,6 +93,22 @@ export function ComputerInstallCommand({
         {installCopied && (
           <p className="mt-2 text-xs text-success">{m.computer_command_copied()}</p>
         )}
+      </div>
+      <div>
+        <p className="text-sm font-medium">{m.computer_login_step()}</p>
+        <p className="mt-1 text-sm text-muted-foreground">{m.computer_login_step_description()}</p>
+        <div className="mt-4 flex items-center gap-2 rounded-xl bg-terminal p-4 text-sm text-terminal-foreground">
+          <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap">{signInCommand}</code>
+          <Button
+            variant="secondary"
+            size="icon"
+            aria-label={m.computer_copy_login_command()}
+            onClick={copyLoginCommand}
+          >
+            {loginCopied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+          </Button>
+        </div>
+        {loginCopied && <p className="mt-2 text-xs text-success">{m.computer_login_command_copied()}</p>}
       </div>
       {joinCommand && (
         <div>

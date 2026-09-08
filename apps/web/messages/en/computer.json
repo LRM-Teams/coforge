@@ -89,5 +89,9 @@
   "device_verify_unknown": "That code is not valid. Check your terminal and try again.",
   "device_verify_expired": "That code has expired. Run the login command again to get a new one.",
   "device_verify_settled": "That code has already been used.",
-  "device_verify_unavailable": "Sign-in is temporarily unavailable. Try again in a moment."
+  "device_verify_unavailable": "Sign-in is temporarily unavailable. Try again in a moment.",
+  "computer_login_step": "Sign in",
+  "computer_login_step_description": "Then sign this computer in to your CoForge account. A code appears in the terminal to approve here.",
+  "computer_copy_login_command": "Copy sign-in command",
+  "computer_login_command_copied": "Command copied"
 }

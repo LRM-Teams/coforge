@@ -6,7 +6,7 @@ import { join } from "path";
 
 import { OAuthDeviceClient } from "./oauth-device-client";
 import { ComputerLogin } from "./login";
-import { CliError, loginError, setupError } from "./errors";
+import { CliError, loginError, safeErrorDetail, setupError } from "./errors";
 import { FileCredentialStore } from "./credential-store";
 import {
   resolveComputerBinaryDirectory,
@@ -189,11 +189,16 @@ export async function runCli(
       if (error.code === "commander.helpDisplayed" || error.code === "commander.version") return 0;
       return error.exitCode;
     }
+    // The login branch carries the underlying cause. Without it every unmapped login failure - a
+    // server with no device endpoint, a DNS failure, a malformed discovery document - collapses
+    // into one indistinguishable "Login failed." under a fixed hint about server configuration
+    // that is unrelated to most of them, leaving nothing to diagnose from.
+    // safeErrorDetail strips anything token-shaped out of the message.
     const failure =
       error instanceof CliError
         ? error
         : loginSelected
-          ? loginError("AUTH_FAILED", "Login failed.")
+          ? loginError("AUTH_FAILED", `Login failed: ${safeErrorDetail(error)}`)
           : setupSelected
             ? setupError("SETUP_FAILED", "Workspace setup failed.", "computer-registration", error)
             : null;

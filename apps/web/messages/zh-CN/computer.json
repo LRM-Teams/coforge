@@ -89,5 +89,9 @@
   "device_verify_unknown": "代码无效。请核对终端后重试。",
   "device_verify_expired": "代码已过期。请重新运行登录命令获取新代码。",
   "device_verify_settled": "该代码已被使用。",
-  "device_verify_unavailable": "登录服务暂时不可用，请稍后重试。"
+  "device_verify_unavailable": "登录服务暂时不可用，请稍后重试。",
+  "computer_login_step": "登录",
+  "computer_login_step_description": "然后为这台电脑登录你的 CoForge 账号。终端会显示一个代码，在这里批准即可。",
+  "computer_copy_login_command": "复制登录命令",
+  "computer_login_command_copied": "命令已复制"
 }

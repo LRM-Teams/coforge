@@ -453,7 +453,10 @@ for (const shell of ["bash", "zsh", "fish"] as const) {
     expect(content).toContain(original);
     expect(content.split(pathLine)).toHaveLength(2);
     expect(first.stderr).toContain("To use it in this one, run:");
-    expect(first.stderr).toContain(`"${join(first.home, ".local/bin/coforge-computer")}" setup`);
+    // The full-path fallback names `login`, the first command a fresh install actually runs:
+    // `setup` registers against an account and has nothing to register as until login stores a
+    // credential.
+    expect(first.stderr).toContain(`"${join(first.home, ".local/bin/coforge-computer")}" login`);
     if (shell === "bash") {
       const loginProfile = await readFile(join(first.home, ".bash_profile"), "utf8");
       expect(loginProfile.split(pathLine)).toHaveLength(2);
@@ -521,6 +524,7 @@ for (const shell of ["bash", "zsh", "fish"] as const) {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain(`CoForge Computer ${fixture.version} installed`);
+    expect(result.stderr).toContain("coforge-computer login");
     expect(result.stderr).toContain("coforge-computer setup --workspace <slug>");
     // The bare command the installer just told the user to run has to resolve on the PATH the
     // installer itself saw - that is the whole claim being made here.

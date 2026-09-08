@@ -254,7 +254,10 @@ case ":${PATH:-}:" in
   *":$bin_directory:"*)
     done_step "CoForge Computer $version installed and ready to use"
     printf '%b\n' "" >&2
-    printf '%s\n' "Connect this computer to a workspace:" >&2
+    # Sign in first: `setup` registers this Computer against an account, so it has nothing to
+    # register as until `login` has stored a credential.
+    printf '%s\n' "Sign in, then connect this computer to a workspace:" >&2
+    printf '%b\n' "  ${accent}coforge-computer login${reset}" >&2
     printf '%b\n' "  ${accent}coforge-computer setup --workspace <slug>${reset}" >&2
     exit 0
     ;;
@@ -325,7 +328,8 @@ done_step "CoForge Computer $version installed"
 printf '%b\n' "" >&2
 printf '%s\n' "New shells will find CoForge Computer. To use it in this one, run:" >&2
 printf '%b\n' "  ${accent}$session_command${reset}" >&2
-printf '%s\n' "Then connect this computer to a workspace:" >&2
+printf '%s\n' "Then sign in and connect this computer to a workspace:" >&2
+printf '%b\n' "  ${accent}coforge-computer login${reset}" >&2
 printf '%b\n' "  ${accent}coforge-computer setup --workspace <slug>${reset}" >&2
 printf '%s\n' "Or leave PATH alone and use the full path:" >&2
-printf '%s\n' "  \"$bin_directory/coforge-computer\" setup --workspace <slug>" >&2
+printf '%s\n' "  \"$bin_directory/coforge-computer\" login" >&2

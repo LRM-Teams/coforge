@@ -284,7 +284,10 @@ try {
   # script's only output - matching install.sh's step-by-step reporting is separate work.
   Write-Host "   CoForge Computer $Version installed and ready to use"
   Write-Host ""
-  Write-Host "Connect this computer to a workspace:"
+  # Sign in first: `setup` registers this Computer against an account, so it has nothing to
+  # register as until `login` has stored a credential.
+  Write-Host "Sign in, then connect this computer to a workspace:"
+  Write-Host "  coforge-computer login"
   Write-Host "  coforge-computer setup --workspace <slug>"
 }
 finally {
