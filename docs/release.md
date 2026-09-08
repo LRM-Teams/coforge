@@ -276,10 +276,22 @@ be on PATH and therefore cannot live in a private directory nobody's PATH names:
   the versioned installation below `~/.coforge`, so upgrade and rollback move the
   `active` link and never touch the user's PATH. Computer background startup is
   user-scoped; only Computer may register a per-user LaunchAgent on macOS.
-- Windows has no comparable per-user PATH convention, so the shim stays in
-  `~/.coforge/computer/bin`. `install.ps1` does not amend the user's `Path`
-  today, so a Windows install is not yet usable without naming the shim's full
-  path; only Computer may use a current-user startup mechanism.
+- Windows has no comparable per-user PATH convention, so the shim - a `.cmd`
+  launcher rather than a symlink - stays in `~/.coforge/computer/bin`, and
+  `install.ps1` puts that directory on PATH instead. It prepends the directory to
+  the current user's `Path` under `HKCU\Environment`, never the machine scope,
+  which would require elevation. The value is read with
+  `DoNotExpandEnvironmentNames` and written back as `ExpandString` rather than
+  through `[Environment]::SetEnvironmentVariable(..., "User")`, which would
+  flatten a user's `%USERPROFILE%`-style entries into today's expansion. The
+  script then also prepends the directory to `$env:Path`, which reaches the
+  session that ran it because the documented entry point (`irm ... | iex`)
+  executes in the user's own process rather than a child - so, as on Linux and
+  macOS, a Windows install is usable immediately. For the same reason the script
+  must never call a top-level `exit`, which would terminate the user's session.
+  No `WM_SETTINGCHANGE` broadcast is sent: consoles read the registry at launch,
+  so only already-running Explorer-spawned applications miss the change. Only
+  Computer may use a current-user startup mechanism.
 
 The installer maintains a user-owned versioned installation directory. It downloads
 the Computer and Daemon binaries into staging, verifies each against the

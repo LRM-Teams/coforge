@@ -665,11 +665,47 @@ test("install scripts fail closed and stay within the current user's own account
     resolve(import.meta.dir, "../../../scripts/release/install.ps1"),
     "utf8",
   );
+  // Assertions that an API or scope is *absent* have to read the code alone. Both scripts explain
+  // at length which APIs they deliberately avoid, and naming one in a comment is not using it -
+  // a scan of the whole file turns those explanations into failures and pushes the next author
+  // into deleting the reasoning to make the test pass.
+  const powershellCode = powershell
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("#"))
+    .join("\n");
 
   expect(shell).not.toContain("sudo");
   expect(shell).not.toContain("/usr/local");
   expect(powershell).not.toContain("Program Files");
   expect(powershell).not.toContain("Start-Process -Verb RunAs");
+  // install.ps1 puts the shim directory on PATH, and every part of how it does that is a
+  // correctness constraint this repository has no Windows runner to catch at runtime.
+  //
+  // The current user's environment only: the "Machine" scope and HKLM both need elevation and
+  // would change PATH for every account on the machine.
+  expect(powershellCode).toContain("Microsoft.Win32.Registry]::CurrentUser");
+  expect(powershellCode).not.toContain("HKLM");
+  expect(powershellCode).not.toContain('"Machine"');
+  // [Environment]::SetEnvironmentVariable(..., "User") reads Path back already expanded and
+  // rewrites it as a plain REG_SZ, destroying any %USERPROFILE%-style reference a user has in
+  // theirs. The raw registry API with these two options is what preserves it.
+  expect(powershellCode).not.toContain("SetEnvironmentVariable(");
+  expect(powershellCode).toContain("DoNotExpandEnvironmentNames");
+  expect(powershellCode).toContain("RegistryValueKind]::ExpandString");
+  // The registry write only reaches future processes; this is what makes the command usable in
+  // the session that ran `irm ... | iex`.
+  expect(powershellCode).toContain("$env:Path = ");
+  // A top-level `exit` terminates the host under `irm ... | iex` - closing the user's window on
+  // success as readily as on failure. Errors leave through `throw`, like everything else here.
+  expect(powershellCode).not.toMatch(/^\s*exit\b/m);
+  expect(powershellCode).toContain("$LASTEXITCODE -ne 0");
+  // The Windows shim is a .cmd launcher (packages/computer/src/updater.ts), not an .exe.
+  expect(powershellCode).toContain("coforge-computer.cmd");
+  // Same home-directory rule as packages/computer/src/cli.ts, and never the read-only $HOME
+  // automatic variable, which is not $env:HOME.
+  expect(powershellCode).toContain("if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }");
+  // Windows PowerShell 5.1 is a supported host, so no PowerShell 6+ only automatic variables.
+  expect(powershellCode).not.toContain("$IsWindows");
   // Neither installer pins a checksum for any published object: every payload is verified
   // against the checksum its feed-hosted sidecar (install.sh, install.ps1) or manifest.json
   // (the updater) names at install time.

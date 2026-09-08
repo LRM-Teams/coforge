@@ -46,7 +46,8 @@ export function resolveComputerInstallDirectory(input: {
  * edit shell configuration and leave the just-installed command unusable until the next shell.
  * Linux and macOS therefore use the XDG user binary directory, which is already on PATH for most
  * users, and the shim there is only a symlink into the versioned installation below `~/.coforge`.
- * Windows has no comparable per-user PATH convention and keeps the private directory.
+ * Windows has no comparable per-user PATH convention, so it keeps the private directory and
+ * install.ps1 puts that directory on the current user's PATH instead.
  */
 export function resolveComputerBinaryDirectory(input: {
   platform: NodeJS.Platform;
