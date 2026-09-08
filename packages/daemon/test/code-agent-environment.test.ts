@@ -16,6 +16,23 @@ test("installed version directory wins over an ambient or declared coforge comma
   );
 });
 
+test("Windows service discovery and Agent launch use the same user executable paths", () => {
+  const environment = agentEnvironment(
+    undefined,
+    {
+      PATH: "C:\\Windows\\System32",
+      USERPROFILE: "C:\\Users\\Frank",
+      APPDATA: "C:\\Users\\Frank\\AppData\\Roaming",
+    },
+    "win32",
+  );
+
+  expect(environment.USERPROFILE).toBe("C:\\Users\\Frank");
+  expect(environment.APPDATA).toBe("C:\\Users\\Frank\\AppData\\Roaming");
+  expect(environment.PATH?.split(";")).toContain("C:\\Users\\Frank\\AppData\\Roaming\\npm");
+  expect(environment.PATH?.split(";")).toContain("C:\\Users\\Frank\\.local\\bin");
+});
+
 test("source development resolves the CLI without a separately compiled daemon CLI", () => {
   const result = Bun.spawnSync(["coforge", "message", "check"], {
     cwd: "/tmp",

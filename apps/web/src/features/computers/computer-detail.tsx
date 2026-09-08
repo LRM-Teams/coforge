@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Check, Copy, RotateCw } from "lucide-react";
+import { useState } from "react";
+import { Pencil, RotateCw } from "lucide-react";
 import type { RuntimeProvider } from "@coforge/protocol";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -40,6 +40,7 @@ export function ComputerDetail({
   timeZone = null,
   onScanUsage,
   onSetRuntimePublic,
+  onUpdateDisplayName,
   onRestart,
   onReadRestartStatus,
   restartPollIntervalMs = RESTART_POLL_INTERVAL_MS,
@@ -49,12 +50,17 @@ export function ComputerDetail({
   timeZone?: string | null;
   onScanUsage: (provider: RuntimeProvider) => Promise<void>;
   onSetRuntimePublic: (runtimeId: string, isPublic: boolean) => Promise<void>;
+  onUpdateDisplayName?: (displayName: string) => Promise<void>;
   onRestart?: (requestId: string) => Promise<ComputerRestartStatus>;
   onReadRestartStatus?: (requestId: string) => Promise<ComputerRestartStatus>;
   restartPollIntervalMs?: number;
   restartMaxPolls?: number;
 }) {
   const [updatingRuntimeId, setUpdatingRuntimeId] = useState<string>();
+  const [editingDisplayName, setEditingDisplayName] = useState(false);
+  const [displayNameDraft, setDisplayNameDraft] = useState(computer.displayName);
+  const [savingDisplayName, setSavingDisplayName] = useState(false);
+  const [displayNameError, setDisplayNameError] = useState(false);
   const [restartState, setRestartState] = useState<
     "idle" | "pending" | "accepted" | "completed" | "error"
   >("idle");
@@ -150,11 +156,90 @@ export function ComputerDetail({
           </h2>
           <dl className="mt-3 grid gap-4 sm:grid-cols-2">
             <div className="min-w-0">
-              <dt className="text-xs text-muted-foreground">{m.computer_machine_id()}</dt>
-              <dd className="mt-1 flex min-w-0 items-center gap-2">
-                <span className="truncate font-mono text-sm">{computer.machineId}</span>
-                <CopyMachineId machineId={computer.machineId} />
+              <dt className="text-xs text-muted-foreground">{m.computer_display_name()}</dt>
+              <dd className="mt-1 text-sm">
+                {editingDisplayName ? (
+                  <form
+                    className="max-w-sm"
+                    onSubmit={async (event) => {
+                      event.preventDefault();
+                      if (!onUpdateDisplayName) return;
+                      setSavingDisplayName(true);
+                      setDisplayNameError(false);
+                      try {
+                        await onUpdateDisplayName(displayNameDraft);
+                        setEditingDisplayName(false);
+                      } catch {
+                        setDisplayNameError(true);
+                      } finally {
+                        setSavingDisplayName(false);
+                      }
+                    }}
+                  >
+                    <label className="sr-only" htmlFor={`display-name-${computer.id}`}>
+                      {m.computer_display_name()}
+                    </label>
+                    <input
+                      id={`display-name-${computer.id}`}
+                      autoFocus
+                      required
+                      maxLength={200}
+                      value={displayNameDraft}
+                      disabled={savingDisplayName}
+                      onChange={(event) => setDisplayNameDraft(event.currentTarget.value)}
+                      className="h-9 w-full rounded-md border bg-background px-3 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                    />
+                    <div className="mt-2 flex gap-2">
+                      <Button type="submit" size="sm" disabled={savingDisplayName}>
+                        {savingDisplayName
+                          ? m.computer_display_name_saving()
+                          : m.computer_display_name_save()}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={savingDisplayName}
+                        onClick={() => {
+                          setDisplayNameDraft(computer.displayName);
+                          setDisplayNameError(false);
+                          setEditingDisplayName(false);
+                        }}
+                      >
+                        {m.computer_display_name_cancel()}
+                      </Button>
+                    </div>
+                    {displayNameError && (
+                      <p role="alert" className="mt-2 text-xs text-destructive">
+                        {m.computer_display_name_error()}
+                      </p>
+                    )}
+                  </form>
+                ) : (
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate">{computer.displayName}</span>
+                    {computer.ownedByCurrentUser && onUpdateDisplayName && (
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={m.computer_display_name_edit()}
+                        onClick={() => {
+                          setDisplayNameDraft(computer.displayName);
+                          setDisplayNameError(false);
+                          setEditingDisplayName(true);
+                        }}
+                      >
+                        <Pencil aria-hidden="true" />
+                      </Button>
+                    )}
+                  </span>
+                )}
               </dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground">{m.computer_name()}</dt>
+              <dd className="mt-1 truncate text-sm">{computer.name}</dd>
             </div>
             <div className="min-w-0">
               <dt className="text-xs text-muted-foreground">{m.computer_connected_at()}</dt>
@@ -238,49 +323,5 @@ function StatusPill({ online }: { online: boolean }) {
       />
       {online ? m.computer_status_online() : m.computer_status_offline()}
     </span>
-  );
-}
-
-export const COPIED_FEEDBACK_MS = 2000;
-
-export function CopyMachineId({
-  machineId,
-  feedbackMs = COPIED_FEEDBACK_MS,
-}: {
-  machineId: string;
-  feedbackMs?: number;
-}) {
-  // Counting presses rather than holding a boolean: pressing again inside the
-  // window is a new confirmation, and a boolean already true would not restart
-  // the timer, so the second press would inherit the first one's remaining ms.
-  const [copiedAt, setCopiedAt] = useState(0);
-  const copied = copiedAt > 0;
-
-  // The confirmation is feedback for one press, not a state the button stays
-  // in, so it expires on its own and never outlives the panel.
-  useEffect(() => {
-    if (!copiedAt) return;
-    const timer = window.setTimeout(() => setCopiedAt(0), feedbackMs);
-    return () => window.clearTimeout(timer);
-  }, [copiedAt, feedbackMs]);
-
-  return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      aria-label={copied ? m.computer_machine_id_copied() : m.computer_copy_machine_id()}
-      onClick={async () => {
-        // Clipboard access is refused outside a secure context, and a machine
-        // id the User can still read and select by hand is not worth an error.
-        try {
-          await navigator.clipboard.writeText(machineId);
-          setCopiedAt((presses) => presses + 1);
-        } catch {
-          setCopiedAt(0);
-        }
-      }}
-    >
-      {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-    </Button>
   );
 }

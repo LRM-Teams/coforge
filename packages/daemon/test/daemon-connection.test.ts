@@ -613,6 +613,42 @@ test("receives only publications directed to its Computer", async () => {
   expect(started).toEqual(["agent-1"]);
 });
 
+test("consumes the Connect Proxy-bound control stream without a client subscription", async () => {
+  const fake = fakeClient();
+  let subscriptions = 0;
+  const centrifugeClient = Object.assign(fake.client, {
+    newSubscription() {
+      subscriptions++;
+      return {
+        on() {},
+        subscribe() {},
+        unsubscribe() {},
+      };
+    },
+  });
+  const transport = new DaemonConnection("wss://cloud.example", () => centrifugeClient);
+  const started: string[] = [];
+  transport.onAgentStart((intent) => started.push(intent.agentId));
+
+  await transport.start("secret", config);
+  fake.publish(
+    `daemon:${config.workspaceId}:${config.computerId}`,
+    encodeAgentStartIntent({
+      protocolMajor: 1,
+      requestId: "start-bound-control-stream",
+      workspaceId: config.workspaceId,
+      computerId: config.computerId,
+      agentId: "agent-1",
+      provider: "pi",
+      model: "",
+      reasoning: "",
+    }),
+  );
+
+  expect(subscriptions).toBe(0);
+  expect(started).toEqual(["agent-1"]);
+});
+
 test("dispatches each scoped remote restart request once", async () => {
   const fake = fakeClient();
   const requests: string[] = [];

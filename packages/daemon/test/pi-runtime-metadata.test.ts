@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import { COFORGE_AGENT_RUNTIME_METADATA } from "../src/code-agent/pi/metadata";
+import { COFORGE_DAEMON_VERSION } from "../src/version";
 
-test("daemon identifies its release-provided CoForge Agent by provider", () => {
-  expect(COFORGE_AGENT_RUNTIME_METADATA).toMatchObject({ provider: "coforge" });
+test("daemon reports the release version of its built-in CoForge Agent", () => {
+  expect(COFORGE_AGENT_RUNTIME_METADATA).toEqual({
+    provider: "coforge",
+    version: COFORGE_DAEMON_VERSION,
+    displayName: "CoForge",
+  });
 });

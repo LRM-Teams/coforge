@@ -49,6 +49,18 @@ export class PrismaComputerRegistrationRepository implements ComputerRegistratio
     request: ComputerRegisterRequest;
   }) {
     return this.db.$transaction(async (tx) => {
+      await tx.computer.updateMany({
+        where: {
+          ownerId: principal.userId,
+          machineId: request.machineId,
+          name: "",
+          displayName: "",
+        },
+        data: {
+          name: request.name.trim(),
+          displayName: request.displayName.trim(),
+        },
+      });
       const computer = await tx.computer.upsert({
         where: {
           ownerId_machineId: {
@@ -56,8 +68,15 @@ export class PrismaComputerRegistrationRepository implements ComputerRegistratio
             machineId: request.machineId,
           },
         },
-        create: { ownerId: principal.userId, machineId: request.machineId },
-        update: {},
+        create: {
+          ownerId: principal.userId,
+          machineId: request.machineId,
+          name: request.name.trim(),
+          displayName: request.displayName.trim(),
+        },
+        update: {
+          name: request.name.trim(),
+        },
       });
       const daemonApiKey = prepareDaemonApiKey({
         principal,

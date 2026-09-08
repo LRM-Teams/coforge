@@ -1,7 +1,13 @@
 import { dirname } from "node:path";
+import {
+  codeAgentExecutableSearchPath,
+  executablePathDelimiter,
+} from "../platform/code-agent-path";
 
 const SAFE_INHERITED_ENVIRONMENT = [
   "HOME",
+  "USERPROFILE",
+  "APPDATA",
   "PATH",
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME",
@@ -22,15 +28,25 @@ const CLI_BIN_DIRECTORIES = [
 
 export function agentEnvironment(
   declared: Readonly<Record<string, string>> | undefined,
+  inherited: Readonly<Record<string, string | undefined>> = Bun.env,
+  platform: NodeJS.Platform = process.platform,
 ): Record<string, string> {
   const environment: Record<string, string> = {};
   for (const name of SAFE_INHERITED_ENVIRONMENT) {
-    const value = process.env[name];
+    const value = inherited[name];
     if (value !== undefined) environment[name] = value;
   }
   const declaredPath = declared?.PATH;
-  const path = [...CLI_BIN_DIRECTORIES, declaredPath ?? environment.PATH].filter(
-    (value): value is string => Boolean(value),
+  const path = codeAgentExecutableSearchPath(
+    {
+      ...environment,
+      PATH: declaredPath ?? environment.PATH,
+    },
+    platform,
   );
-  return { ...environment, ...declared, PATH: path.join(":") };
+  return {
+    ...environment,
+    ...declared,
+    PATH: [...CLI_BIN_DIRECTORIES, path].join(executablePathDelimiter(platform)),
+  };
 }

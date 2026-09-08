@@ -72,6 +72,10 @@ function validate(request: ComputerRegisterRequest) {
     request.protocolMajor !== COMPUTER_REGISTER_PROTOCOL_MAJOR ||
     !request.requestId ||
     !request.workspaceSlug ||
+    !request.name.trim() ||
+    request.name.length > 200 ||
+    !request.displayName.trim() ||
+    request.displayName.length > 200 ||
     !request.machineId ||
     !request.registrationIdempotencyKey
   )

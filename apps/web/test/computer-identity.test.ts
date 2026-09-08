@@ -4,23 +4,22 @@ import { Cloud, Monitor } from "lucide-react";
 import { computerIcon, computerLabel } from "@/features/computers/computer-identity";
 
 test("a cloud Computer never reads as a machine the User controls", () => {
-  const cloud = { kind: "cloud", machineId: "linux:41ab" };
+  const cloud = { kind: "cloud", name: "build-node", displayName: "Build Node" };
 
   expect(computerIcon(cloud)).toBe(Cloud);
-  expect(computerLabel(cloud)).toBe("Cloud computer");
+  expect(computerLabel(cloud)).toBe("Build Node");
 });
 
-test("a local Computer keeps one local-computer icon across platforms", () => {
-  expect(computerIcon({ kind: "local", machineId: "macos:9f2c" })).toBe(Monitor);
-  expect(computerIcon({ kind: "local", machineId: "linux:41ab" })).toBe(Monitor);
-  expect(computerIcon({ kind: "local", machineId: "win32:7c1d" })).toBe(Monitor);
-  expect(computerLabel({ kind: "local", machineId: "macos:9f2c" })).toBe("macOS");
-  expect(computerLabel({ kind: "local", machineId: "win32:7c1d" })).toBe("Windows");
+test("a local Computer uses its display name rather than machine identity", () => {
+  const computer = { kind: "local", name: "franks-mac", displayName: "Frank’s Mac" };
+
+  expect(computerIcon(computer)).toBe(Monitor);
+  expect(computerLabel(computer)).toBe("Frank’s Mac");
 });
 
-test("an unrecognised machine id still names and pictures the Computer", () => {
-  const fallback = { kind: "local", machineId: "fallback:2f7e" };
+test("an empty display name falls back to the Computer name", () => {
+  const fallback = { kind: "local", name: "build-box", displayName: "" };
 
   expect(computerIcon(fallback)).toBe(Monitor);
-  expect(computerLabel(fallback)).toBe("Computer");
+  expect(computerLabel(fallback)).toBe("build-box");
 });

@@ -9,6 +9,7 @@ import {
   readComputerRestartStatus,
   restartComputer,
   setRuntimeVisibility,
+  updateComputerDisplayName,
 } from "@/features/computers/computers.functions";
 import { scanRuntimeUsage } from "@/features/computers/usage-scan";
 import type { UsageView } from "@/features/computers/runtime-usage";
@@ -32,6 +33,7 @@ function ComputerDetailPage() {
   const { computer, timeZone } = Route.useLoaderData();
   const router = useRouter();
   const setVisibility = useServerFn(setRuntimeVisibility);
+  const updateDisplayName = useServerFn(updateComputerDisplayName);
   const requestRestart = useServerFn(restartComputer);
   const readRestart = useServerFn(readComputerRestartStatus);
   // The route component survives a change of `$computerId`, so a snapshot is
@@ -50,11 +52,16 @@ function ComputerDetailPage() {
 
   return (
     <ComputerDetail
+      key={computerId}
       computer={{ ...computer, usage: usage[computerId] }}
       timeZone={timeZone}
       onScanUsage={scan}
       onRestart={(requestId) => requestRestart({ data: { computerId, requestId } })}
       onReadRestartStatus={(requestId) => readRestart({ data: { computerId, requestId } })}
+      onUpdateDisplayName={async (displayName) => {
+        await updateDisplayName({ data: { computerId, displayName } });
+        await router.invalidate({ sync: true });
+      }}
       onSetRuntimePublic={async (runtimeId, isPublic) => {
         await setVisibility({ data: { runtimeId, isPublic } });
         await router.invalidate({ sync: true });

@@ -349,28 +349,36 @@ export class DaemonRuntime {
         pending.push({ kind: "start", value: intent });
         return;
       }
-      void this.handleAgentStart(intent).catch(() => {});
+      void this.handleAgentStart(intent).catch((error) =>
+        this.#logAgentStartFailure(intent, error),
+      );
     };
     const receiveAgentStop = (intent: AgentStopIntent) => {
       if (buffering) {
         pending.push({ kind: "stop", value: intent });
         return;
       }
-      void this.handleAgentStop(intent).catch(() => {});
+      void this.handleAgentStop(intent).catch((error) =>
+        this.#logAgentOperationFailure("stop", intent, error),
+      );
     };
     const receiveAgentMessage = (message: AgentMessageDelivery) => {
       if (buffering) {
         pending.push({ kind: "message", value: message });
         return;
       }
-      void this.handleAgentMessage(message).catch(() => {});
+      void this.handleAgentMessage(message).catch((error) =>
+        this.#logAgentOperationFailure("message_delivery", message, error),
+      );
     };
     const receiveAgentWorkspaceReset = (request: AgentWorkspaceResetRequest) => {
       if (buffering) {
         pending.push({ kind: "workspace-reset", value: request });
         return;
       }
-      void this.handleAgentWorkspaceReset(request).catch(() => {});
+      void this.handleAgentWorkspaceReset(request).catch((error) =>
+        this.#logAgentOperationFailure("workspace_reset", request, error),
+      );
     };
     try {
       this.#unsubscribeReconnect = this.#transport.onReconnect?.(() => {
@@ -378,7 +386,15 @@ export class DaemonRuntime {
         void this.#agentControl
           .replay()
           .then(() => this.#agentSessions.replay())
-          .catch(() => {});
+          .catch((error) => {
+            logger.warning("Agent control recovery replay failed", {
+              event: "agent_control:replay_failed",
+              workspace_id: connection.workspaceId,
+              computer_id: connection.computerId,
+              error_code: diagnosticErrorCode(error),
+              outcome: "failed",
+            });
+          });
       });
       const transport = this.#transport;
       this.#unsubscribeSkillsList = transport.onSkillsList?.(async (request) => {
@@ -471,15 +487,31 @@ export class DaemonRuntime {
       const flushes: Promise<unknown>[] = [];
       for (const publication of buffered) {
         if (publication.kind === "start")
-          flushes.push(this.handleAgentStart(publication.value).catch(() => {}));
+          flushes.push(
+            this.handleAgentStart(publication.value).catch((error) =>
+              this.#logAgentStartFailure(publication.value, error),
+            ),
+          );
         else if (publication.kind === "stop")
-          flushes.push(this.handleAgentStop(publication.value).catch(() => {}));
+          flushes.push(
+            this.handleAgentStop(publication.value).catch((error) =>
+              this.#logAgentOperationFailure("stop", publication.value, error),
+            ),
+          );
         else if (publication.kind === "workspace-reset")
-          flushes.push(this.handleAgentWorkspaceReset(publication.value).catch(() => {}));
+          flushes.push(
+            this.handleAgentWorkspaceReset(publication.value).catch((error) =>
+              this.#logAgentOperationFailure("workspace_reset", publication.value, error),
+            ),
+          );
       }
       for (const publication of buffered)
         if (publication.kind === "message")
-          flushes.push(this.handleAgentMessage(publication.value).catch(() => {}));
+          flushes.push(
+            this.handleAgentMessage(publication.value).catch((error) =>
+              this.#logAgentOperationFailure("message_delivery", publication.value, error),
+            ),
+          );
       await Promise.all(flushes);
     } catch (error) {
       this.#unsubscribeAgentStart?.();
@@ -505,13 +537,64 @@ export class DaemonRuntime {
   }
 
   async #reportCodeAgents(connection: DaemonConfig): Promise<void> {
-    const inventory = await this.discoverCodeAgents();
-    await this.#transport.updateCodeAgents?.({
-      protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-      requestId: crypto.randomUUID(),
-      workspaceId: connection.workspaceId,
-      computerId: connection.computerId,
-      ...inventory,
+    const requestId = crypto.randomUUID();
+    try {
+      const inventory = await this.discoverCodeAgents();
+      await this.#transport.updateCodeAgents?.({
+        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+        requestId,
+        workspaceId: connection.workspaceId,
+        computerId: connection.computerId,
+        ...inventory,
+      });
+      logger.info("Code Agent inventory reported", {
+        event: "code_agent_inventory:reported",
+        request_id: requestId,
+        workspace_id: connection.workspaceId,
+        computer_id: connection.computerId,
+        runtime_count: inventory.runtimes.length,
+        catalog_count: inventory.catalogs.length,
+        outcome: "ok",
+      });
+    } catch (error) {
+      logger.warning("Code Agent inventory report failed", {
+        event: "code_agent_inventory:report_failed",
+        request_id: requestId,
+        workspace_id: connection.workspaceId,
+        computer_id: connection.computerId,
+        error_code: diagnosticErrorCode(error),
+        outcome: "failed",
+      });
+      throw error;
+    }
+  }
+
+  #logAgentStartFailure(intent: AgentStartIntent, error: unknown): void {
+    logger.error("Agent runtime start failed", {
+      event: "agent_runtime:start_failed",
+      request_id: intent.requestId,
+      workspace_id: intent.workspaceId,
+      computer_id: intent.computerId,
+      agent_id: intent.agentId,
+      provider: intent.provider,
+      error_code: diagnosticErrorCode(error),
+      outcome: "failed",
+    });
+  }
+
+  #logAgentOperationFailure(
+    operation: "stop" | "workspace_reset" | "message_delivery",
+    request: AgentStopIntent | AgentWorkspaceResetRequest | AgentMessageDelivery,
+    error: unknown,
+  ): void {
+    logger.warning("Daemon Agent operation failed", {
+      event: `agent_runtime:${operation}_failed`,
+      request_id: request.requestId,
+      workspace_id: request.workspaceId,
+      computer_id: this.#connection.computerId,
+      agent_id: request.agentId,
+      error_code: diagnosticErrorCode(error),
+      outcome: "failed",
     });
   }
 
@@ -1675,6 +1758,11 @@ function safeRuntimeActivityMessage(activity: string, level: string, message: st
     return scrubActivityText(message);
   }
   return "Agent activity observed.";
+}
+
+function diagnosticErrorCode(error: unknown): string {
+  if (error && typeof error === "object" && "code" in error) return String(error.code);
+  return error instanceof Error ? error.name : "UnknownError";
 }
 
 function scrubActivityText(message: string): string {

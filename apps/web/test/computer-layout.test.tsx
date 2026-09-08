@@ -12,6 +12,8 @@ afterEach(cleanup);
 
 const computer = {
   id: "computer-1",
+  name: "franks-macbook-pro",
+  displayName: "Frank’s MacBook Pro",
   machineId: "macos:9f2c",
   kind: "local",
   online: true,
@@ -38,6 +40,8 @@ test("lists each Computer as a typed detail link and marks the selected one", ()
       computer,
       {
         id: "computer-2",
+        name: "build-box",
+        displayName: "Build Box",
         machineId: "linux:41ab",
         kind: "local",
         online: false,
@@ -47,13 +51,15 @@ test("lists each Computer as a typed detail link and marks the selected one", ()
   );
 
   expect(page.getByRole("navigation", { name: "Connected computers" })).toBeTruthy();
-  expect(page.getByText("macos:9f2c")).toBeTruthy();
-  expect(page.getByText("Linux")).toBeTruthy();
+  expect(page.getByText("Frank’s MacBook Pro")).toBeTruthy();
+  expect(page.getByText("franks-macbook-pro")).toBeTruthy();
+  expect(document.body.textContent).not.toContain("macos:9f2c");
+  expect(document.body.textContent).not.toContain("linux:41ab");
 
-  const selected = page.getByRole("link", { name: /macos:9f2c/ });
+  const selected = page.getByRole("link", { name: /Frank’s MacBook Pro/ });
   expect(selected.getAttribute("href")).toBe("/en/computers/computer-1");
   expect(selected.getAttribute("aria-current")).toBe("page");
-  expect(page.getByRole("link", { name: /linux:41ab/ }).getAttribute("aria-current")).toBeNull();
+  expect(page.getByRole("link", { name: /Build Box/ }).getAttribute("aria-current")).toBeNull();
   expect(page.getByText("Computer detail")).toBeTruthy();
 });
 
@@ -75,7 +81,7 @@ test("says a computer is not in this workspace instead of a bare Not Found", () 
   expect(document.body.textContent).toContain("It may have been removed");
   expect(document.body.textContent).not.toContain("Not Found");
   // The list is still there, so the miss is recoverable without the back button.
-  expect(page.getByRole("link", { name: /macos:9f2c/ })).toBeTruthy();
+  expect(page.getByRole("link", { name: /Frank’s MacBook Pro/ })).toBeTruthy();
 });
 
 test("offers the install path instead of a detail panel when no Computer is connected", () => {

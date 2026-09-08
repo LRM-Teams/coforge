@@ -1,33 +1,19 @@
 import "./dom-setup";
 
-import { afterEach, expect, jest, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { afterEach, expect, mock, test } from "bun:test";
+import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
-import { ComputerDetail, CopyMachineId } from "@/features/computers/computer-detail";
-
-const nativeClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+import { ComputerDetail } from "@/features/computers/computer-detail";
 
 afterEach(() => {
-  jest.useRealTimers();
   cleanup();
-  // The stub is installed on the shared navigator, so it would otherwise
-  // outlive this file and reach every test that runs after it.
-  if (nativeClipboard) Object.defineProperty(navigator, "clipboard", nativeClipboard);
-  else Reflect.deleteProperty(navigator, "clipboard");
 });
-
-/** Records what the page put on the clipboard, for the life of one test. */
-function stubClipboard() {
-  const written: string[] = [];
-  Object.defineProperty(navigator, "clipboard", {
-    configurable: true,
-    value: { writeText: async (value: string) => void written.push(value) },
-  });
-  return written;
-}
 
 const computer = {
   id: "computer-1",
+  name: "franks-macbook-pro",
+  displayName: "Frank’s MacBook Pro",
   machineId: "macos:9f2c",
   kind: "local",
   ownedByCurrentUser: true,
@@ -61,9 +47,10 @@ test("shows the machine, its Code Agents, and an explicit no-snapshot usage stat
   );
   const page = within(document.body);
 
-  expect(page.getByRole("heading", { name: "macOS" })).toBeTruthy();
+  expect(page.getByRole("heading", { name: "Frank’s MacBook Pro" })).toBeTruthy();
   expect(page.getByText("Online")).toBeTruthy();
-  expect(page.getByText("macos:9f2c")).toBeTruthy();
+  expect(page.getByText("franks-macbook-pro")).toBeTruthy();
+  expect(document.body.textContent).not.toContain("macos:9f2c");
   expect(page.getByText("Codex Runtime")).toBeTruthy();
   expect(document.body.textContent).toContain("Version 0.151.0");
   expect(page.queryByText("Models")).toBeNull();
@@ -71,6 +58,42 @@ test("shows the machine, its Code Agents, and an explicit no-snapshot usage stat
   expect(page.queryByText("Recommended")).toBeNull();
   expect(document.body.textContent).not.toContain("Detected");
   expect(page.getByText("No snapshot yet")).toBeTruthy();
+});
+
+test("lets the Computer owner edit its display name from the overview", async () => {
+  const updateDisplayName = mock(async (_displayName: string) => undefined);
+  const user = userEvent.setup();
+  render(
+    <ComputerDetail
+      computer={computer}
+      onScanUsage={async () => undefined}
+      onSetRuntimePublic={async () => undefined}
+      onUpdateDisplayName={updateDisplayName}
+    />,
+  );
+
+  const page = within(document.body);
+  await user.click(page.getByRole("button", { name: "Edit display name" }));
+  const input = page.getByRole("textbox", { name: "Display name" });
+  await user.clear(input);
+  await user.type(input, "Frank’s Studio Mac");
+  await user.click(page.getByRole("button", { name: "Save" }));
+
+  await waitFor(() => expect(updateDisplayName).toHaveBeenCalledWith("Frank’s Studio Mac"));
+  expect(page.queryByRole("textbox", { name: "Display name" })).toBeNull();
+});
+
+test("does not offer display-name editing for a shared Computer", () => {
+  render(
+    <ComputerDetail
+      computer={{ ...computer, ownedByCurrentUser: false }}
+      onScanUsage={async () => undefined}
+      onSetRuntimePublic={async () => undefined}
+      onUpdateDisplayName={async () => undefined}
+    />,
+  );
+
+  expect(within(document.body).queryByRole("button", { name: "Edit display name" })).toBeNull();
 });
 
 test("labels publication acceptance as waiting for actual restart recovery", async () => {
@@ -149,77 +172,6 @@ test("shows a bounded restart timeout as an error", async () => {
   expect((await within(document.body).findByRole("alert")).textContent).toContain(
     "did not complete before the deadline",
   );
-});
-
-test("confirms a copy for a moment instead of staying copied", async () => {
-  const written = stubClipboard();
-  render(<CopyMachineId machineId="macos:9f2c" feedbackMs={30} />);
-  const page = within(document.body);
-
-  fireEvent.click(page.getByRole("button", { name: "Copy machine ID" }));
-
-  await waitFor(() => expect(written).toEqual(["macos:9f2c"]));
-  await waitFor(() => expect(page.getByRole("button", { name: "Machine ID copied" })).toBeTruthy());
-  await waitFor(() => expect(page.getByRole("button", { name: "Copy machine ID" })).toBeTruthy());
-});
-
-test("gives a second press its own full confirmation", async () => {
-  const written = stubClipboard();
-  jest.useFakeTimers();
-  render(<CopyMachineId machineId="macos:9f2c" feedbackMs={80} />);
-  const page = within(document.body);
-
-  const press = async () => {
-    fireEvent.click(page.getByRole("button", { name: /machine ID/i }));
-    await act(async () => {});
-  };
-
-  await press();
-  expect(written).toEqual(["macos:9f2c"]);
-  expect(page.getByRole("button", { name: "Machine ID copied" })).toBeTruthy();
-
-  act(() => jest.advanceTimersByTime(60));
-  // The first press's window is nearly spent; the second must start a new one
-  // rather than inherit what is left of it.
-  await press();
-  expect(written).toEqual(["macos:9f2c", "macos:9f2c"]);
-
-  act(() => jest.advanceTimersByTime(79));
-  expect(page.getByRole("button", { name: "Machine ID copied" })).toBeTruthy();
-
-  act(() => jest.advanceTimersByTime(1));
-  expect(page.getByRole("button", { name: "Copy machine ID" })).toBeTruthy();
-});
-
-test("leaves the machine id readable when the clipboard refuses", async () => {
-  let refusals = 0;
-  Object.defineProperty(navigator, "clipboard", {
-    configurable: true,
-    value: {
-      writeText: async () => {
-        refusals += 1;
-        throw new Error("not allowed in an insecure context");
-      },
-    },
-  });
-  render(
-    <ComputerDetail
-      computer={computer}
-      onScanUsage={async () => undefined}
-      onSetRuntimePublic={async () => undefined}
-    />,
-  );
-  const page = within(document.body);
-
-  fireEvent.click(page.getByRole("button", { name: "Copy machine ID" }));
-
-  // Wait for the refusal to have been handled before asserting, or the button
-  // would still be showing its initial state and the assertion would pass on a
-  // component that wrongly claims it copied.
-  await waitFor(() => expect(refusals).toBe(1));
-  expect(page.queryByRole("button", { name: "Machine ID copied" })).toBeNull();
-  expect(page.getByRole("button", { name: "Copy machine ID" })).toBeTruthy();
-  expect(page.getByText("macos:9f2c")).toBeTruthy();
 });
 
 test("scans usage for the runtime the User asked about", async () => {

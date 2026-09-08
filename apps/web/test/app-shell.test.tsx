@@ -34,7 +34,8 @@ const agent = {
 const computers = [
   {
     id: "computer-1",
-    machineId: "machine-1",
+    name: "franks-macbook-pro",
+    displayName: "Frank’s MacBook Pro",
     runtimes: [{ provider: "codex" }, { provider: "claude-code" }],
   },
 ];
@@ -225,6 +226,8 @@ test("loads model catalogs only when the creation dialog opens", async () => {
   fireEvent.click(page().getByRole("button", { name: "New agent" }));
 
   await waitFor(() => expect(loadRuntimeCatalog).toHaveBeenCalledWith("computer-1"));
+  expect(page().getByText("Frank’s MacBook Pro")).toBeTruthy();
+  expect(document.body.textContent).not.toContain("machine-1");
   fireEvent.click(page().getByRole("button", { name: "Cancel" }));
   fireEvent.click(page().getByRole("button", { name: "New agent" }));
   await act(async () => {});

@@ -403,6 +403,8 @@ test("setup does not send runtime inventory to registration", async () => {
     metadataProvider: {
       async get() {
         return {
+          name: "test-computer",
+          displayName: "Test Computer",
           platform: "linux",
           osVersion: "bun-test",
           computerVersion: "test",
@@ -426,6 +428,43 @@ test("setup does not send runtime inventory to registration", async () => {
 
   await setup.run({ workspaceSlug: "workspace-a" });
   expect(registration).not.toHaveProperty("runtimes");
+});
+
+test("setup registers the Computer's name and display name independently of machine identity", async () => {
+  let registration: unknown;
+  const setup = createSetup({
+    metadataProvider: {
+      async get() {
+        return {
+          name: "franks-macbook-pro",
+          displayName: "Frank’s MacBook Pro",
+          platform: "darwin",
+          osVersion: "bun-test",
+          computerVersion: "test",
+          machineId: "macos:opaque-machine-id",
+        };
+      },
+    },
+    registrationFactory: (_serverUrl, _credential) => ({
+      async register(request) {
+        registration = request;
+        return {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          computerId: "computer-id",
+          workspaceId: "workspace-id-a",
+          daemonApiKey: "daemon-secret",
+        };
+      },
+    }),
+  });
+
+  await setup.run({ workspaceSlug: "workspace-a" });
+  expect(registration).toMatchObject({
+    name: "franks-macbook-pro",
+    displayName: "Frank’s MacBook Pro",
+    machineId: "macos:opaque-machine-id",
+  });
 });
 
 test("setup preserves the previous registration when the Daemon launcher fails", async () => {
@@ -538,6 +577,8 @@ function createSetup(overrides: Partial<ComputerSetupOptions> = {}): ComputerSet
     metadataProvider: {
       async get() {
         return {
+          name: "test-computer",
+          displayName: "Test Computer",
           platform: "linux",
           osVersion: "bun-test",
           computerVersion: "test",

@@ -115,6 +115,11 @@ These instructions apply to the entire repository.
 - Keep terminology consistent across code, protocol, logs, and documentation.
   Use one convention for each concept; do not alternate between snake_case,
   camelCase, and arbitrary synonyms for the same public field or event.
+- Use the repository's logging framework directly. Configure its sinks and
+  lifecycle once at the application entry point, and obtain category loggers
+  through the framework in owning modules. Do not add a logger wrapper,
+  adapter, facade, parallel low-level logger, or another abstraction layer over
+  capabilities the logging framework already provides.
 - Define the module map in the owning app's `AGENTS.md` before reorganizing or
   adding a feature. If the ownership or boundary is unclear, stop and record
   the design options and decision before writing implementation code.
