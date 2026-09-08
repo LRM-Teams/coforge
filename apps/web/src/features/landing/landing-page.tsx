@@ -4,8 +4,8 @@ import grokMark from "@lobehub/icons-static-svg/icons/grok.svg";
 import openCodeMark from "@lobehub/icons-static-svg/icons/opencode.svg";
 import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
 import { ArrowRight, ChevronDown } from "lucide-react";
-import { MotionConfig, motion, useReducedMotion, useScroll, useTransform } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { MotionConfig, motion, useReducedMotion } from "motion/react";
+import { useEffect, useState } from "react";
 
 import { BorderBeam } from "@/components/magicui/border-beam";
 import { OrbitingCircles } from "@/components/magicui/orbiting-circles";
@@ -130,30 +130,10 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
   const reducedMotion = useReducedMotion() ?? false;
   const headline = `${m.landing_headline_line_1()} ${m.landing_headline_line_2()}`;
 
-  // The first screen leaves as the reader scrolls: it shrinks a touch, drifts up and fades, driven
-  // by scroll position rather than a timer, so it always matches the reader's hand.
-  const { scrollY } = useScroll();
-  const exitEndRef = useRef(720);
-  useEffect(() => {
-    const measure = () => {
-      exitEndRef.current = Math.max(320, window.innerHeight * 0.9);
-    };
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, []);
-  const progress = (y: number) => Math.min(1, Math.max(0, y / exitEndRef.current));
-  const heroOpacity = useTransform(scrollY, (y) => 1 - progress(y));
-  const heroY = useTransform(scrollY, (y) => -48 * progress(y));
-  const heroScale = useTransform(scrollY, (y) => 1 - 0.06 * progress(y));
-  const heroStyle = reducedMotion
-    ? undefined
-    : { opacity: heroOpacity, y: heroY, scale: heroScale };
-
   return (
     <MotionConfig reducedMotion="user">
       {/* The document itself goes dark too, so overscroll and rounded window corners never show white. */}
-      <style>{`html,body{background:#0a0912;color-scheme:dark}@media(min-width:1024px){html{scroll-snap-type:y mandatory}}`}</style>
+      <style>{`html,body{background:#0a0912;color-scheme:dark}html{scroll-behavior:smooth}`}</style>
       <div className="relative isolate overflow-x-clip bg-[#0a0912] font-display text-white antialiased">
         {/* The animated gradient is the whole picture, behind both screens. */}
         <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10">
@@ -162,14 +142,8 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
           )}
           <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(10,9,18,0.35)_0%,rgba(10,9,18,0.05)_35%,rgba(10,9,18,0.55)_75%,rgba(10,9,18,0.85)_100%)]" />
         </div>
-        {/* Top snap point: it must not live inside the sticky stage, or it drifts with it. */}
-        <div aria-hidden="true" className="absolute top-0 h-px w-full snap-start" />
-        {/* Screen 1 stays pinned while screen 2 slides up over it like a sheet. */}
-        <div className="relative flex min-h-svh flex-col lg:sticky lg:top-0 lg:h-svh lg:overflow-hidden">
-          <motion.header
-            style={reducedMotion ? undefined : { opacity: heroOpacity }}
-            className="flex h-19 w-full items-center justify-between px-5 sm:px-8"
-          >
+        <div className="relative flex min-h-svh flex-col">
+          <header className="flex h-19 w-full items-center justify-between px-5 sm:px-8">
             <a href="/" className="flex items-center gap-2.5" aria-label="CoForge">
               <img src="/logo.svg" alt="" className="size-8 rounded-lg" />
               {/* The wordmark ends on the same dot the icon carries. */}
@@ -207,13 +181,10 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
                 <BorderBeam size={40} duration={7} colorFrom="#c5bafe" colorTo="#5d36dc" />
               </span>
             </div>
-          </motion.header>
+          </header>
 
           <main className="relative mx-auto flex min-h-[calc(100svh-4.75rem)] w-full max-w-6xl flex-col justify-center px-6 pt-8 pb-16">
-            <motion.div
-              style={heroStyle}
-              className="grid grid-cols-1 items-center gap-12 lg:grid-cols-[minmax(0,8fr)_minmax(0,4fr)] lg:gap-6"
-            >
+            <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-[minmax(0,8fr)_minmax(0,4fr)] lg:gap-6">
               <div className="min-w-0">
                 <ShimmerText
                   className="text-xs font-medium tracking-[0.22em] text-white/55 uppercase [--shimmer-contrast:rgba(255,255,255,1)]"
@@ -252,26 +223,22 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
               </div>
 
               <AgentOrbit />
-            </motion.div>
+            </div>
 
-            <motion.a
+            <a
               href="#computer"
               aria-label={m.landing_scroll_hint()}
-              style={reducedMotion ? undefined : { opacity: heroOpacity }}
               className="absolute bottom-5 left-1/2 flex -translate-x-1/2 flex-col items-center gap-1 text-[11px] tracking-[0.2em] text-white/40 uppercase transition-colors hover:text-white/70"
             >
               {m.landing_scroll_hint()}
               <ChevronDown aria-hidden="true" className="size-4 animate-bounce" />
-            </motion.a>
+            </a>
           </main>
         </div>
 
         {/* Second screen: how a machine actually joins, typed out when it scrolls into view. */}
-        <section
-          id="computer"
-          className="relative z-10 snap-start border-t border-white/10 bg-[#0a0912]/45 backdrop-blur-[2px] lg:rounded-t-[2.5rem] lg:shadow-[0_-40px_120px_rgba(0,0,0,0.65)]"
-        >
-          <div className="mx-auto flex min-h-svh w-full max-w-6xl flex-col items-center justify-center px-6 py-20 text-center">
+        <section id="computer" className="relative">
+          <div className="mx-auto flex w-full max-w-6xl flex-col items-center px-6 py-24 text-center lg:py-32">
             <BlurReveal
               as="h2"
               inView
