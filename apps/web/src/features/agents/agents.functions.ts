@@ -14,6 +14,8 @@ import {
 } from "../../server/db/repositories/agent.repositories.server";
 import { ManageAgents } from "../../server/agents/manage-agents.server";
 import { PublishAgentRuntimeControl } from "../../server/agents/agent-runtime-control.server";
+import { AgentControl } from "../../server/agents/agent-control.server";
+import { PrismaAgentControlStore } from "../../server/db/repositories/agent-control.repositories.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 import { requireBrowserUser } from "../../server/auth/require-user.server";
 import { AgentDetailQuery } from "../../server/agents/agent-detail.server";
@@ -52,6 +54,13 @@ function dependencies() {
           createCentrifugoServerApi(),
           async () => {},
           createAgentSessions(db),
+          new AgentControl(
+            new PrismaAgentControlStore(db),
+            createCentrifugoServerApi(),
+            runtimeLock,
+            undefined,
+            createAgentSessions(db),
+          ),
         ).start(intent, ownerId),
       stop: (intent, ownerId) =>
         new PublishAgentRuntimeControl(
@@ -59,6 +68,13 @@ function dependencies() {
           createCentrifugoServerApi(),
           async () => {},
           createAgentSessions(db),
+          new AgentControl(
+            new PrismaAgentControlStore(db),
+            createCentrifugoServerApi(),
+            runtimeLock,
+            undefined,
+            createAgentSessions(db),
+          ),
         ).stop(intent, ownerId),
     },
     {
@@ -129,6 +145,13 @@ function changeRuntimeCredential(
       createCentrifugoServerApi(),
       async () => {},
       createAgentSessions(db),
+      new AgentControl(
+        new PrismaAgentControlStore(db),
+        createCentrifugoServerApi(),
+        getAgentRuntimeLock(),
+        undefined,
+        createAgentSessions(db),
+      ),
     ),
     getAgentRuntimeLock(),
   );

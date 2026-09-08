@@ -50,6 +50,92 @@ const config: AgentRuntimeConfig = {
   reasoning: "balanced",
 };
 
+test("a duplicate fenced start wakes the managed runtime without replaying recovery context", async () => {
+  const stateDirectory = join(tmpdir(), `coforge-managed-wake-${crypto.randomUUID()}`);
+  const credentials = new InMemoryDaemonCredentialStore();
+  await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+  const notices: string[] = [];
+  let sessions = 0;
+  const runtime = new DaemonRuntime(
+    connection,
+    () => ({
+      provider: "pi",
+      async createAgentSession() {
+        sessions++;
+        return {
+          ...sessionSpy(),
+          notify: async (notice) => {
+            notices.push(notice);
+          },
+          readSessionIdentity: async () => ({ sessionId: "session-a", state: "resumable" }),
+        };
+      },
+    }),
+    credentials,
+    {
+      create: () => ({
+        async start() {},
+        async ready() {},
+        async stop() {},
+        async requestAgentLaunchConfig() {
+          return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+        },
+        async revokeAgentApiKey() {},
+        async sendAgentControlResult() {},
+        async reportAgentSession() {},
+      }),
+    },
+    undefined,
+    async () => ({ runtimes: [], catalogs: [] }),
+    stateDirectory,
+  );
+  const intent = {
+    protocolMajor: 1,
+    requestId: "managed-start",
+    workspaceId: connection.workspaceId,
+    computerId: connection.computerId,
+    agentId: "managed-agent",
+    ...config,
+    controlEpoch: 1,
+  };
+  try {
+    await runtime.start(connection);
+    await runtime.handleAgentStart(intent);
+    await runtime.handleAgentStart({
+      ...intent,
+      wakeMessage: {
+        messageId: "wake-message",
+        deliveryId: "wake-delivery",
+        conversationId: "conversation-a",
+        sequence: 2,
+        target: "@ada",
+        latestSender: "@ada",
+        body: "wake only",
+      },
+      resumeMessages: [
+        {
+          messageId: "resume-message",
+          deliveryId: "resume-delivery",
+          conversationId: "conversation-a",
+          sequence: 1,
+          target: "@ada",
+          latestSender: "@ada",
+          body: "must be ignored",
+        },
+      ],
+      unreadSummary: { "@grace": 4 },
+    });
+    expect(sessions).toBe(1);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("wake only");
+    expect(notices[0]).not.toContain("must be ignored");
+    expect(notices[0]).not.toContain("@grace");
+  } finally {
+    await runtime.stop();
+    await rm(stateDirectory, { recursive: true, force: true });
+  }
+});
+
 test("a recreated daemon waits for cloud start and forwards the cloud-selected session", async () => {
   const credentials = new InMemoryDaemonCredentialStore();
   await credentials.save(connection.workspaceId, connection.computerId, "token-a");
@@ -1764,6 +1850,7 @@ describe("DaemonRuntime", () => {
   test("waits for an in-flight start before stopping the transport", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const entered = Promise.withResolvers<void>();
     let release!: () => void;
     const started = new Promise<void>((resolve) => (release = resolve));
     const calls: string[] = [];
@@ -1780,6 +1867,7 @@ describe("DaemonRuntime", () => {
         create: () => ({
           async start() {
             calls.push("start");
+            entered.resolve();
             await started;
           },
           async ready() {},
@@ -1792,7 +1880,7 @@ describe("DaemonRuntime", () => {
 
     const starting = runtime.start(connection);
     const stopping = runtime.stop();
-    await Promise.resolve();
+    await entered.promise;
     expect(calls).toEqual(["start"]);
     release();
     await Promise.all([starting, stopping]);

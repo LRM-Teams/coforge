@@ -5,10 +5,15 @@ export type RuntimeSessionReference = {
   computerId: string;
   sessionId?: string;
   sessionMode?: "create" | "resume";
+  state?: "empty" | "resumable" | "unknown";
   startRequestId: string;
   daemonInstanceId: string;
   launchId?: string;
 };
+export type AgentSessionWriteScope = Pick<
+  AgentStartIntent,
+  "workspaceId" | "requestId" | "controlEpoch"
+> & { launchId?: string };
 
 export interface AgentSessionRepository {
   read(agentId: string): Promise<
@@ -24,6 +29,7 @@ export interface AgentSessionRepository {
     agentId: string,
     previous: RuntimeSessionReference | null,
     next: RuntimeSessionReference,
+    scope: AgentSessionWriteScope,
   ): Promise<boolean>;
 }
 
@@ -50,39 +56,39 @@ export class AgentSessions {
     if (!daemonInstanceId) throw new Error("Workspace daemon identity is unavailable");
     const old = agent.reference;
     const compatible = old?.provider === intent.provider && old.computerId === intent.computerId;
-    const sessionId =
-      intent.sessionId ??
-      (compatible ? old?.sessionId : undefined) ??
-      (intent.provider === "coforge" ? crypto.randomUUID() : undefined);
-    const sessionMode =
-      intent.sessionMode ??
-      (intent.sessionId
-        ? "resume"
-        : compatible && old.sessionId
-          ? (old.sessionMode ?? "resume")
-          : "create");
-    if (sessionMode === "resume" && !sessionId)
-      throw new Error("Agent resume requires a session ID");
-    if (
-      compatible &&
-      old.daemonInstanceId === daemonInstanceId &&
-      intent.sessionId &&
-      intent.sessionId !== old.sessionId
-    )
-      throw new Error("Stop the Agent before selecting a different session");
-    // A repeated start is a wake, not a replacement of a live or pending launch.
-    if (
-      compatible &&
-      old.daemonInstanceId === daemonInstanceId &&
-      (!intent.sessionId || intent.sessionId === old.sessionId)
-    )
+    const controlled = intent.controlEpoch !== undefined;
+    const sameRequest = compatible && old.startRequestId === intent.requestId;
+    // Repeated delivery is the same launch even before its first turn. Empty
+    // history selects fresh only for a NEW operation, never for a delayed wake.
+    if (compatible && (!controlled || sameRequest) && old.daemonInstanceId === daemonInstanceId) {
+      if (!sameRequest && intent.sessionId && intent.sessionId !== old.sessionId)
+        throw new Error("Stop the Agent before selecting a different session");
+      if (!(await this.repository.replace(intent.agentId, old, old, intent)))
+        throw new Error("Agent session selection changed concurrently");
       return {
         ...intent,
         requestId: old.startRequestId,
         previousLaunchId: old.launchId,
-        sessionMode: old.sessionMode ?? sessionMode,
-        ...(sessionId ? { sessionId } : {}),
+        sessionMode: old.sessionMode ?? (old.sessionId ? "resume" : "create"),
+        sessionId: old.sessionId,
       };
+    }
+    const sessionId =
+      intent.sessionId ??
+      (compatible && (!controlled || sameRequest) && old.state !== "empty"
+        ? old.sessionId
+        : undefined) ??
+      (intent.provider === "coforge" ? crypto.randomUUID() : undefined);
+    const sessionMode =
+      (sameRequest && old.sessionId === sessionId ? old.sessionMode : undefined) ??
+      intent.sessionMode ??
+      (intent.sessionId
+        ? "resume"
+        : compatible && old.sessionId && old.state !== "empty" && (!controlled || sameRequest)
+          ? (old.sessionMode ?? "resume")
+          : "create");
+    if (sessionMode === "resume" && !sessionId)
+      throw new Error("Agent resume requires a session ID");
     const next: RuntimeSessionReference = {
       provider: intent.provider,
       computerId: intent.computerId,
@@ -96,7 +102,7 @@ export class AgentSessions {
         ? { launchId: old.launchId }
         : {}),
     };
-    if (!(await this.repository.replace(intent.agentId, old, next)))
+    if (!(await this.repository.replace(intent.agentId, old, next, intent)))
       throw new Error("Agent session selection changed concurrently");
     return {
       ...intent,
@@ -106,7 +112,7 @@ export class AgentSessions {
     };
   }
 
-  async accept(report: AgentSessionReport): Promise<void> {
+  async verify(report: AgentSessionReport) {
     const agent = await this.repository.read(report.agentId);
     const old = agent?.reference;
     if (
@@ -128,13 +134,25 @@ export class AgentSessions {
       (await this.currentDaemon(report.workspaceId, report.computerId)) !== report.daemonInstanceId
     )
       throw new Error("Agent session report is stale or unauthorized");
+    return old;
+  }
+
+  async accept(report: AgentSessionReport): Promise<void> {
+    const old = await this.verify(report);
+    const { state: _observedState, ...reference } = old;
     if (
-      !(await this.repository.replace(report.agentId, old, {
-        ...old,
-        sessionId: report.sessionId,
-        sessionMode: "resume",
-        launchId: report.launchId,
-      }))
+      !(await this.repository.replace(
+        report.agentId,
+        old,
+        {
+          ...reference,
+          sessionId: report.sessionId,
+          sessionMode: "resume",
+          launchId: report.launchId,
+          ...(report.sessionState ? { state: report.sessionState } : {}),
+        },
+        { ...report, requestId: report.startRequestId },
+      ))
     )
       throw new Error("Agent session identity changed concurrently");
   }
@@ -146,18 +164,23 @@ export class AgentSessions {
     const old = agent.reference;
     if (!old) return;
     if (
-      !(await this.repository.replace(agentId, old, {
-        ...old,
-        provider: agent.provider,
-        computerId,
-        sessionId:
-          old.provider === agent.provider && old.computerId === computerId
-            ? old.sessionId
-            : undefined,
-        startRequestId: crypto.randomUUID(),
-        daemonInstanceId: "",
-        launchId: undefined,
-      }))
+      !(await this.repository.replace(
+        agentId,
+        old,
+        {
+          ...old,
+          provider: agent.provider,
+          computerId,
+          sessionId:
+            old.provider === agent.provider && old.computerId === computerId
+              ? old.sessionId
+              : undefined,
+          startRequestId: crypto.randomUUID(),
+          daemonInstanceId: "",
+          launchId: undefined,
+        },
+        { workspaceId, requestId: old.startRequestId },
+      ))
     )
       throw new Error("Agent session identity changed concurrently");
   }

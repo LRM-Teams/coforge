@@ -3,6 +3,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useMemo } from "react";
 
 import { AgentDetail } from "@/features/agents/agent-detail";
+import { getAgentSkills } from "@/features/agents/agent-skills.functions";
+import { executeAgentControl } from "@/features/agents/agent-control.functions";
 import { useAgentStatuses } from "@/features/agents/agent-status-realtime";
 import { useAgentActivity } from "@/features/agents/agent-activity-realtime";
 import {
@@ -47,6 +49,8 @@ function AgentDetailPage() {
   const loadComputers = useServerFn(listComputers);
   const loadCatalog = useServerFn(getComputerRuntimeCatalog);
   const loadDetail = useServerFn(getAgentDetail);
+  const loadSkills = useServerFn(getAgentSkills);
+  const executeControl = useServerFn(executeAgentControl);
   const agents = useMemo(() => [detail], [detail]);
   const refresh = useCallback(
     async () => [await loadDetail({ data: detail.id })],
@@ -69,12 +73,18 @@ function AgentDetailPage() {
     refresh: refreshActivity,
     getConnectionToken: getActivityToken,
   });
+  const loadAgentSkills = useCallback(
+    () => loadSkills({ data: detail.id }),
+    [loadSkills, detail.id],
+  );
   return (
     <AgentDetail
       activity={activity}
       detail={visibleAgents.find((agent) => agent.id === detail.id) ?? detail}
       timeZone={timeZone}
       tab={Route.useSearch().tab}
+      onLoadSkills={loadAgentSkills}
+      onExecuteControl={(request) => executeControl({ data: request })}
       onLoadRuntimeOptions={async (computerId) => {
         const [computers, catalogs] = await Promise.all([
           loadComputers(),

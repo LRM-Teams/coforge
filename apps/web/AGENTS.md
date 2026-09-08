@@ -154,8 +154,10 @@ instructions for the TanStack Start Web/backend modular monolith.
 ## Agent status and activity UI
 
 - `server/agents/agent-sessions.server.ts` owns cloud-selected provider session
-  references and start/daemon/launch fencing. The repository adapter persists
-  nullable `Agent.runtimeSession` separately from user runtime configuration;
+  references and start/daemon/launch fencing. `AgentSession` is the sole persisted
+  owner of native ID/state, scoped by Agent/Workspace/Computer/provider;
+  `Agent.runtimeSession` stores only the upstream provider/computer/start-request/
+  daemon-instance/launch/session-mode fence and is hydrated from that table;
   acknowledged `agent:session` WSS RPC reports never travel as Activity. Ready
   recovery selects Agents in the cloud; no local transcript scan starts Agents.
 - `src/features/agents/agent-activity-avatar.tsx` owns the working activity label
@@ -172,6 +174,27 @@ instructions for the TanStack Start Web/backend modular monolith.
 - `src/features/agents/agents.functions.ts` owns the authenticated Agent list/create seam;
   server-side Agent persistence, start publication, and ready recovery remain under
   `src/server/agents/` and `src/server/db/repositories/`.
+- `server/agents/agent-control.server.ts` owns owner-authorized control operations:
+  fixed command chains for Restart, Reset Session and Full Reset, receipt-driven
+  state transitions, and request/epoch fences. It clears the Session binding at
+  the local chain step; Session observations remain independently owned below.
+  `features/agents/agent-control.functions.ts` is the browser seam; transport
+  receivers under `server/centrifugo/` authenticate claims before applying
+  conditional Session/control updates. Current operation progress is not a new
+  Agent status or a generic durable command mailbox. Profile buttons submit
+  without waiting UI or control-state queries; runtime observations stay in
+  Activity. Full Reset still requires destructive confirmation.
+- `server/agents/agent-session.server.ts` owns Session snapshot acceptance and
+  launch-scoped identity updates. It shares the current control authorization
+  guard, but never advances control operations. Unified RPC callbacks route Session
+  reports to this acceptance seam; sequenced snapshots validate the upstream launch
+  fence before the independent snapshot receiver. Control-result dispatch remains separate.
+- `features/agents/agent-skills.functions.ts` owns the authenticated Profile Skills
+  query. `server/agents/agent-skills.server.ts` authorizes the Agent owner and
+  correlates bounded requests; `server/centrifugo/agent-skills-cache.server.ts`
+  stores short-lived request-scoped results, not inventory or canonical data.
+  The Profile displays Global/Workspace metadata, never skill bodies or a claim
+  that a running session has loaded each entry.
 - `src/features/agents/agent-status-realtime.ts` owns the browser status event contract and
   state updates. Redis supplies initial/reconnect snapshots; Centrifugo publications update
   the open page without periodic backend polling.

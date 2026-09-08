@@ -412,6 +412,89 @@ Daemon 直接管理同一 `workspace_id` 下的多个 Agent。每个 Agent 在�
 
 CoForge Agent 的 Pi SDK 配置与 session 必须和用户安装的 Pi 分离，并且按 Agent workspace 保存：配置目录为 `<agent_workspace>/.builtin-runtime`，session 目录为 `<agent_workspace>/.builtin-sessions`；外部 Pi 使用 `<agent_workspace>/.pi-sessions`。CoForge Agent 不读取或写入用户 Pi 的全局配置、认证或 session 文件。内置 CoForge provider/model 目录在 release 时由 pinned Pi SDK 为 CoForge 支持的单 API-key provider 集合生成，并嵌入 `@coforge/agent`/Daemon；用户安装的外部 Pi 目录仍在本机动态发现。
 
+Session 与 Skills 的作用域不同。内置 CoForge Agent 与外部 Pi 的 Session 只在当前 Agent workspace 的专属目录中创建和恢复：resume 接受精确 session ID 并按当前 cwd 过滤；路径形式的 ID、歧义或越界符号链接必须失败。确认原 ID 缺失时可以按下述可用性优先策略分配新 ID，但绝不能创建同 ID 新会话冒充恢复成功。外部 Pi 从 `.pi-sessions` 精确解析文件后传给原生 `--session <file>`，并检查 `get_state` 返回相同 ID 和文件；不让 CLI 执行 ID 前缀或全局 fallback。
+
+2026-09-08 用户确认 Claude Code/Codex 对齐 Raft 的宿主原生存储方式，不再要求两者的 Session 文件只存 Agent workspace。二者仍以 Agent workspace 为 cwd，保留原生登录、配置和 Global Skills；不自动创建隔离 config home、不复制或改写用户 Global Skills、不扩大环境变量透传白名单。Claude 启用原生持久化，有 ID 时传 `--resume <id>`，首条 stream input 同时携带该 ID；Codex 使用持久 `thread/start(ephemeral: false)`，有 ID 时改用 stable `thread/resume(threadId)`，并验证返回相同 ID。不使用最新会话、交互式 picker 或 fork 代替指定 ID。全局存储复用不是会话所有权检查或 OS 隔离，driver 接受可信调用方传来的绑定 ID；云端将绑定限制在对应 Workspace/Computer/Agent/provider，不能开放任意用户输入的全局 Session ID。
+
+用户随后批准可用性优先的恢复语义：已知 `empty` 或无 ID 的会话直接不下发 Session ID，
+新建会话，不上报恢复错误或 recovery 提示；正常新 identity 仍需上报。非空会话优先恢复，
+仅在 driver 将启动错误归类为会话缺失或可安全判定的启动期不可重放时，确认旧 runtime
+已清理后重试一次 fresh session，并记录 `recovered`。认证、网络、未知错误和未确认退出
+不得触发 fallback；歧义、权限、损坏和其他 I/O 错误同样保守失败。fallback 必须分配新
+identity 并声明替代旧 ID，不能以相同 ID 冒充 resume。切换 runtime/provider 新建会话，
+保留 Agent workspace。
+
+用户已确认三个独立的前端操作；Reset 与 Start 是一个按钮触发的组合操作，不要求用户再点 Start：
+
+| 操作 | 停止完成后的动作 | Agent workspace |
+| --- | --- | --- |
+| Restart Agent | 优先恢复原绑定；空会话直接新建，已分类的恢复错误允许一次 fresh fallback | 保留全部文件 |
+| Reset Session | 清除旧 Session 绑定，不下发 ID，启动新会话 | 保留全部文件，包括 Skills 和旧本地 Session 文件 |
+| Full Reset | 清空当前 Agent workspace，清除旧绑定，不下发 ID，启动新会话 | 删除其中全部文件，包括隐藏配置、Workspace Skills 与 Pi Session 文件 |
+
+三种操作均先确认旧 Runtime/进程树已停止。Full Reset 必须经明确的破坏性确认；路径由
+可信 Workspace/Agent 身份计算，不能由浏览器指定。删除范围不包含用户 HOME、Global
+Skills、其他 Agent 目录、云端 Message 或位于原生 HOME 的 Claude/Codex Session 文件。
+停止失败禁止删除或启动；删除失败禁止启动；Start 失败明确报告失败，不伪装操作成功。
+Full Reset 已删除的用户文件不可因随后 Start 失败而自动还原。重新启动可重新生成必要的
+运行目录；“清空”不是要求运行中的 Agent workspace 永久为空。
+
+应用层 `AgentControl` 以固定 command chain 组合上述操作：Stop → Start、Stop →
+Clear Session → Start、Stop → Reset Workspace → Clear Session → Start。前端不编排
+步骤，Daemon 不接收单独的 `full-reset` 命令。Chain 表达顺序，持久化状态机以成功
+回执推进；同一 Agent 的整个组合共享 request/epoch，通过条件写入拒绝其他操作插入。
+Clear Session 是云端本地步骤，与下一步骤状态在同一 PostgreSQL 事务提交；Session 与
+控制写入先锁 Agent 行，再重新读取关联 Session，避免旧快照覆盖新的绑定或可恢复状态。
+执行结果未知时保留当前步骤，重发沿用原标识；明确失败停止推进。失败的 Full Reset
+不由 ready recovery 或普通 Start 绕过，显式重试重新建立 Stop/Reset 前置条件。
+这保证顺序、互斥和防重复，不是跨进程、文件系统和数据库的全有或全无事务；无通用
+工作流引擎、任务队列或自动补偿。原子命令的拆分参考
+[Raft 1.0.17 官方发行包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)
+中独立的 `agent:stop`、`agent:reset-workspace`、`agent:start` dispatch，不据此推断私有前端实现。
+
+上述完整控制契约已获用户批准并接入 owner Profile。`AgentSession` 是 native identity
+与 state 的唯一持久化所有者，并以 Agent/Workspace/Computer/provider 为 assignment scope；
+`Agent.currentSessionId` 指向当前会话。`Agent.runtimeSession` JSONB 只保存上游 launch fence：
+provider、Computer、start request、Daemon instance、launch ID 与 session mode；读取时从
+`AgentSession` hydrate native identity/state。`Agent.controlState` JSONB 只保存当前
+epoch/action/phase/sequence 控制进度，不复制 native Session ID，也不是通用任务表。新 launch
+报告不同 identity 时新建 Session 行，保留旧行；同一 launch 不允许偷偷换 identity。
+Session 不是 Profile 列表或 transcript 展示功能。
+
+单条 WSS 使用独立的 `agent:stop`、`agent:reset-workspace`、`agent:start` 命令以及
+`agent:control:result`、`agent:session` 回报。组合命令携带同一个 control epoch。
+Web 按可信 Daemon claims、当前成员关系、assignment、
+配置 revision 和 request/epoch/launch 条件落库后 ACK；旧报告不能覆盖当前绑定。创建、
+配置/凭据变更、ready recovery 和启动授权共享此控制边界。初始化、identity/turn 变化、
+正常停止和 reconnect 重放当前 Session/control 快照，不上传正文，不挪用 best-effort
+Activity 或 runtime inventory。超时表示结果未确认，不能当作停止或删除成功。
+用户确认前端不查询控制状态、不展示操作进度或按钮等待态；只发起三种操作，Full Reset
+仍需删除确认，提交失败提供反馈，运行情况由现有 Agent Activity 展示。控制 request/epoch
+与结果确认留在内部，不拿可能丢失的 Activity 代替执行安全检查。
+
+Daemon 的 `AgentControl` 只负责 stop/reset-workspace/start、恢复策略与控制结果；`AgentSessions`
+独立负责 native identity 更新、持久化当前 Session snapshot 及 WSS 发送/重放。
+`AgentRuntimeState` 按 Agent 串行化两者对同一记录的原子更新，控制切换中的绑定捕获/清除
+与控制状态一起提交，旧 launch 的延迟 Session 更新不能复活已 Reset 的绑定。启动与正常
+停止由 DaemonRuntime 编排，重连先重放控制结果再重放 Session snapshot。统一 RPC callback
+把 `agent:session` 交给 Session acceptance seam；带 sequence 的 snapshot 先校验上游 launch
+fence，再交给独立 snapshot receiver。Session 路径与控制结果 receiver 分离，复用可信 scope
+校验与数据库条件写入，但不能推进或完成控制操作。
+
+Daemon 在 workspace 外原子持久化每 Agent 控制防护记录；Full Reset 清空后先落盘再
+启动，重复 request 只重放结果，不能再次删除新文件。根/祖先 symlink 拒绝，目录内部
+symlink 只删除链接。缺失/损坏防护记录、未确认清理或硬崩溃遗留 starting/running/stopping
+状态 fail closed；更高云端 epoch 不能证明旧进程已退出。目前没有自动孤儿进程协调或
+已有停止 workspace 的无记录收养流程，这些情况可能保持 pending，需要人工诊断，
+不能把删除防护记录当作修复。启动后才发生的 provider replay 错误尚不自动 fresh fallback。
+
+部署需要兼容 Web receiver 和加法数据库迁移，再配套升级 Daemon；旧 Daemon 没有完整
+控制能力时不能以 publish 成功冒充完成。未实现协议能力协商，混合版本部署应关闭操作
+入口。回滚保留 Session 数据和本地防重放记录，不能让旧版本绕过未完成 Reset；已删除
+文件不可回滚。数据库迁移和发布需另行授权，本切片只在本地 orb 验证。
+
+目录检查发生在 provider discovery 前，但不是 OS sandbox，也不声称阻止同一 OS 用户在检查之后替换文件。实现依据为 Pi v0.84.3 的 [SessionManager](https://github.com/earendil-works/pi/blob/v0.84.3/packages/coding-agent/src/core/session-manager.ts)（`open` 接收文件路径，传入 `sessionDir` 不自动限制该路径）、[CLI session resolution](https://github.com/earendil-works/pi/blob/v0.84.3/packages/coding-agent/src/main.ts)，以及 [Claude CLI flags](https://code.claude.com/docs/en/cli-reference) 和 [Codex app-server](https://developers.openai.com/codex/app-server)。不通过修改 HOME 来实现 session 隔离，不改变 provider 安装或现有登录配置。
+
 `running_command` Activity 的 `message` 保留 provider 上报命令的前 100 个 Unicode 字符，超出部分由 Daemon 截断，然后通过云端持久化并展示。`reading_file`、`writing_file`、`editing_file` 和 `using_tool` 完整保留 adapter 上报的原始 `message`，不截断或替换。这些 Activity 不做参数脱敏，因此可能包含命令参数、文件路径、工具明细或其他敏感文本。
 
 一台 Computer 始终随 Daemon 交付内置 Pi runtime；此外允许存在零个或多个用户安装的 code-agent runtime。内置 Pi 不通过本机扫描发现，也不显示在 Computer runtime 列表；用户安装的 Codex 与 Claude Code 才需要检测可执行文件和版本。Daemon 在启动完成及每次 WSS 重连 ready 后扫描自身有效 `PATH`，通过 Pi RPC 与 Codex app-server `model/list` 尽力读取当前账号可用的模型目录。Claude Code 的初始化输出不提供可靠的模型目录，因此已安装 Claude Code 时直接上报维护中的静态模型与 reasoning 目录；当前静态目录包含 `opus`、`fable`、`sonnet`、`haiku` 及 8 个版本化 Claude ID，不设置推荐模型。该目录是 CoForge 的可维护支持列表，不声称是当前账号权限或 Raft 内部实现的完整镜像。`daemon_runtime:code_agents_update` 同时上报完整外部 runtime 快照和模型目录；模型项包含 code-agent provider、模型 ID、显示名称、Pi 的底层 model provider，以及该模型支持的 reasoning 值。Backend 校验外部输入大小和字段后，对可信 Workspace–Computer scope 事务性更新 PostgreSQL 快照；已有 runtime 的公开状态在库存更新时保留，新探测到的 runtime 默认仅 Computer 所有者可见。所有者始终可以选择自己的外部 runtime，并可逐个向当前 Workspace 公开或再次设为私有；其他 Workspace 成员只能查看和选择已公开项，公开不允许跨 Workspace 访问。Computer 页面只向请求者显示其可见的外部 Provider 与版本；Agent 创建页面按所选 Computer 展示 Pi 与请求者可见的已安装外部 Provider 的模型和 reasoning 选项。安装新 Provider 或账号模型权限变化后只需重启或重连 Daemon，不需要重新注册 Computer。未选择模型或 reasoning 时使用 provider 默认值；选择值时 Backend 必须按该 Computer 最近上报的目录和公开状态校验，Daemon driver 必须把选择转换成对应 provider 的原生启动配置。静态 Claude Code 目录不保证当前账号拥有每个模型；实际不可用时由 Claude Code 返回明确错误。Agent 对产品和 Web 只暴露 `online`、`offline` 两种业务状态：Agent runtime process 存在且由 AgentProcessManager 持有时为 `online`，进程退出或被停止后为 `offline`。该状态从本地进程生命周期派生，不单独维护或持久化。daemon 使用两个上报通道提供 Agent 信息：`agent:status` 只携带 `online` 或 `offline`，`agent:activity` 携带 starting、stopping、turn、工具、错误和警告明细；activity 不新增 Agent 状态。Activity 是观测数据：Daemon 通过 WSS 向专用 `activity:<workspace_id>` namespace 发起 best-effort publication，不等待业务确认、不重试、不写本地 spool，失败也不影响 Agent 生命周期或消息处理。Centrifugo publish proxy 校验可信 connection metadata、Workspace、Computer、Agent 与 payload scope；Backend 把成功接收的 observation 幂等写入 PostgreSQL，供 Agent Profile 和 Activity tab 查询，并从可信 connection metadata 记录 Computer。observer 失败仍允许丢弃，因此持久历史可能缺项，不承担 Agent 状态、审计或业务事实。没有可用的用户 runtime 不阻止 Computer 或 Daemon 启动，安装并配置合适 runtime 前不能执行对应 Agent。
@@ -455,11 +538,13 @@ runtime 不判断具体 Runtime 或解释 provider config，只将其传给选�
 
 CoForge 内置 SDK 使用显式 session ID，未指定时使用稳定 Agent ID，在该 Agent 的 `.builtin-sessions` 中查找并打开对应会话；不迁移无法确定归属的旧会话。恢复的是已落盘历史而非存活进程，SDK 首条 assistant 消息前的缓冲不保证落盘。
 
-2026-09-08 用户批准云端会话引用闭环：Workspace Daemon ready 仅报告当前运行集合，Web/backend 决定启动哪些 Agent，并在现有 `agent:start` 中选择原始 provider `session_id`。`Agent.runtimeSession` 是独立于用户 runtimeConfig 的 nullable JSON 引用，不新增表。它记录 provider、Computer、session ID，以及云端 start request、Daemon instance、接受的 Agent launch fence。provider 或 Computer 改变时不复用旧引用；显式 session 选择优先，当前 Daemon 的既有 launch 必须先 stop 再切换 session，不能用 wake 默默替换。云端没有兼容 CoForge 引用时分配新 UUID，不借 SDK 的稳定 Agent 默认值复活旧 provider 历史；SDK 独立使用仍支持稳定默认值。Daemon 不扫描本地历史来决定启动 Agent，机器 Coordinator 不理解 provider 会话。
+2026-09-08 用户批准云端会话引用闭环：Workspace Daemon ready 仅报告当前运行集合，Web/backend 决定启动哪些 Agent，并在现有 `agent:start` 中选择 `AgentSession` 保存的原始 provider `session_id`。native ID/state 只存于独立 `AgentSession` 表；`Agent.runtimeSession` 不保存它们，只保存 provider、Computer、start request、Daemon instance、launch ID 与 session mode 组成的上游 launch fence。provider 或 Computer 改变时不复用旧 Session；显式 session 选择优先，当前 Daemon 的既有 launch 必须先 stop 再切换 session，不能用 wake 默默替换。云端没有兼容 CoForge Session 时分配新 UUID，不借 SDK 的稳定 Agent 默认值复活旧 provider 历史；SDK 独立使用仍支持稳定默认值。Daemon 不扫描本地历史来决定启动 Agent，机器 Coordinator 不理解 provider 会话。
 
 Provider-neutral identity callback 通过同一条 WSS 的 typed `agent:session` RPC 上报，携带 request/workspace/computer/agent/provider/session/start-request/daemon-instance/launch 身份。Web 校验可信 Daemon scope、当前 assignment/provider、云端选择和 current Daemon fence，并用 PostgreSQL JSON compare-and-set 接受引用；重复报告幂等，旧 launch 不可覆盖新 launch。重复 start 保留原 launch 的 start fence，并携带云端最后接受的 `previous_launch_id`，以便恢复 ACK 丢失后的失败 launch。现有易失、由云端输入触发的进程退出后 wake 保留该 start 授权，新 launch 报告 `previous_launch_id`，只能接替最后接受的 launch；stop 或 Daemon recreation 清除此本地缓存，缓存不是启动目录或持久 inbox。
 
-用户批准 `agent:start` 的可选 `session_mode`（tag 17）及既有 runtimeSession JSON 中的
+`AgentSessionReport` 保留既有 tag 1–12，并以 tag 13 `control_epoch`、tag 14 `sequence`、
+tag 15 `session_state` 加法扩展。`agent:start` 保留 tag 16 `previous_launch_id`、tag 17
+`session_mode`，并以 tag 18 携带 `control_epoch`。用户批准 `session_mode` 及 runtimeSession fence 中的
 `sessionMode: create | resume`。云端新分配的 CoForge UUID 是 create reservation；首次引用
 报告 ACK 后成为 resume。未 ACK 的 reservation 跨 recreation 仍允许 create（若对应文件已写则
 重开相同 ID）。用户后续明确选择：确认历史不存在时创建新 ID，而不是停止 Agent；旧已存引用默认 resume。
@@ -501,6 +586,29 @@ Codex 用官方 `thread/resume(threadId)` 并验证返回 ID；Pi 用 `--session
 RPC ACK 只证明 Web 接受会话引用，不证明 provider transcript 已 flush，也不证明存活进程可 attach。ID 观察、引用 ACK、首 turn 边界、provider 磁盘持久化是不同事实；在首次身份上报前崩溃没有已保存引用保证。Workspace daemon 重启会重建其 Agent runtime，再由云端选择 ID 恢复可用历史；其他 Workspace instance 不受影响。官方依据：[Claude sessions](https://code.claude.com/docs/en/sessions)、[Claude CLI](https://code.claude.com/docs/en/cli-reference)、[Codex app-server](https://github.com/openai/codex/tree/main/codex-rs/app-server)、[Pi RPC](https://github.com/badlogic/pi-mono/blob/v0.84.3/packages/coding-agent/docs/rpc.md)、[Pi SessionManager](https://github.com/badlogic/pi-mono/blob/v0.84.3/packages/coding-agent/src/core/session-manager.ts)。Workspace restart receipt/phase 的独立批准及所有权见上方 lifecycle 状态机。
 
 Claude Code Usage 使用两种来源：按需扫描优先调用 CLI 的 `/usage` print-mode 结果，常驻 Agent 流同时接收 `rate_limit_event` 作为被动观测。被动事件只提供限流状态、窗口类型和重置时间，因此不得伪造使用百分比；Daemon 仅在内存中保留尚未过期的最新窗口，并在按需来源不可用时回退到该观测结果。
+
+Agent Profile Skills 对齐 Raft 的按需查询，不属于 Computer runtime inventory。Agent owner
+在当前 Workspace 内可查询该 Agent 所用 runtime 的 Global 与 Workspace **目录元数据**，
+无需同时是 Computer owner。浏览器只提供 Agent ID；Web 从 canonical assignment 确定
+Computer/provider，通过现有 daemon WSS 发送 `coforge.rpc.v1.AgentSkillsListRequest`，
+Daemon 经 `agent:skills:list_result` 返回同版本结果。协议包含 request/Workspace/Computer/
+Agent/provider 完整关联、扫描时间及两组目录状态、名称、描述、来源标签；没有正文、绝对
+HOME 路径、Session ID 或 `loaded` 承诺。不增加 PostgreSQL schema，不通过 Activity 或
+inventory JSON 偷渡结果。Redis 保存 30 秒 request-scoped pending/result；首个合法结果
+胜出，过期、未请求或关联不符的结果不接收。Web 最多等待结果 5 秒，返回前重验当前
+membership、Agent ownership、assignment 和 runtime config。旧 Daemon 不支持查询时
+超时，不呈现“空列表成功”。
+
+查询由 `code-agent/agent-skills.ts` 只读枚举明确的 provider-native roots；不执行 provider、
+reload 或写文件，不复制或改写 Global Skills。仅当前 Agent workspace 与所用 runtime
+的声明全局来源可扫描；不跟随越界链接，不枚举其他 Agent、祖先目录、插件或任意 settings
+扩展来源。内置 CoForge 的 shared Global 查询暂为 unsupported，不改变其加载行为。
+扫描限制为每 scope 256 条、2,048 个访问节点、深度 8，每文件 256 KiB、总 wire 1 MiB、
+协作式 3 秒检查预算；一次 Daemon 最多执行一次扫描，超出或损坏项标 partial，繁忙/异常
+返回 error。文件系统 I/O 本身可能超过检查预算，因此它不是 OS 强制超时或 sandbox。
+目录缺失是正常空来源。Profile 刷新只重新观察文件，不证明运行中的 Session 已加载变更。
+具体目录表、公开 Raft 证据、兼容与验证记录见
+[Skills 调查与实现切片](implementation-slices/agent-skills.md)。
 
 首批 driver 使用常驻 CoForge Agent、Codex 与 Claude Code 子进程。`@coforge/agent` 是可独立打包并随 Daemon 交付的内置 Agent runtime，当前使用官方 Pi SDK 创建 session，并复用 Pi SDK 的 JSONL run mode 作为 daemon driver 的内部 control。Codex 和 Claude Code 不随 CoForge 打包；driver 从用户环境的 `PATH` 启动用户已安装、登录和配置的 `codex` / `claude` CLI，分别使用官方 app-server JSONL stdio 与 print-mode 双向 stream-json。CoForge 分配给 Agent 的 Skills 必须在启动前写入该 Agent workspace 下 provider 原生的 project scope：Pi 为 `.pi/skills/<skill>/SKILL.md`，Codex 为 `.agents/skills/<skill>/SKILL.md`，Claude Code 为 `.claude/skills/<skill>/SKILL.md`。CoForge 不复制、改写或接管用户 HOME 下的 provider 全局 Skills；各 CLI 按自身规则继续发现它们。三侧都必须在报告启动成功前完成 skills discovery：CoForge Agent 先完成 Pi `ResourceLoader` reload，Codex driver 先执行 `skills/list(forceReload: true)` 再创建 thread，Claude Code driver 完成 stream control `initialize` 并确认返回已加载的 commands/skills。control protocol 不固定为长期架构。选择、版本、license、失败边界和回滚见 [ADR 0002](adr/0002-provider-native-code-agent-subprocesses.md)。Agent provider 的特殊 command、envelope、活动与错误逻辑必须留在各自 package/driver 内，不能泄漏到 Centrifugo、Web/backend 或共享领域模型。
 

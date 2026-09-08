@@ -20,6 +20,32 @@ if (
 )
   throw new Error("missing approved Claude permission policy");
 
+const resumeFlag = process.argv.indexOf("--resume");
+const resumeId = resumeFlag < 0 ? undefined : process.argv[resumeFlag + 1];
+const sessionIdFlag = process.argv.indexOf("--session-id");
+const preallocatedSessionId = sessionIdFlag < 0 ? undefined : process.argv[sessionIdFlag + 1];
+if (process.argv.includes("expected-new-session-id") && !preallocatedSessionId)
+  throw new Error("fresh session ID was not preallocated");
+const sessionId = resumeId ?? preallocatedSessionId ?? "fixture-session";
+if (process.argv.includes("resume-missing")) {
+  console.error(`No conversation found with session ID: ${resumeId}`);
+  process.exit(1);
+}
+if (process.argv.includes("resume-auth-error")) {
+  console.error("Authentication required");
+  process.exit(1);
+}
+if (process.argv.includes("--no-session-persistence")) throw new Error("persistence disabled");
+if (Bun.env.COFORGE_EXPECTED_SESSION) {
+  if (
+    resumeId !==
+      (Bun.env.COFORGE_EXPECTED_SESSION === "new" ? undefined : Bun.env.COFORGE_EXPECTED_SESSION) ||
+    Bun.env.HOME !== Bun.env.COFORGE_EXPECTED_HOME ||
+    Bun.env.CLAUDE_CONFIG_DIR !== Bun.env.COFORGE_EXPECTED_CLAUDE_CONFIG_DIR ||
+    process.cwd() !== Bun.env.COFORGE_EXPECTED_CWD
+  )
+    throw new Error("invalid native session configuration");
+}
 const promptFlag = process.argv.indexOf("--append-system-prompt-file");
 if (promptFlag < 0) throw new Error("missing system prompt file option");
 const promptPath = process.argv[promptFlag + 1];
@@ -33,15 +59,7 @@ const decoder = new TextDecoder();
 let buffer = "";
 let inputSeen = false;
 const eventFeed = Bun.env.COFORGE_CLAUDE_EVENT_FEED;
-if (eventFeed) {
-  void (async () => {
-    while (true) {
-      const response = await fetch(eventFeed);
-      const records = (await response.json()) as Record<string, unknown>[];
-      for (const record of records) write(record);
-    }
-  })();
-}
+let feedStarted = false;
 // Register interrupt handling before responding to initialization.
 process.on("SIGINT", () => {
   if (exitsOnInterrupt) process.exit(130);
@@ -50,7 +68,7 @@ process.on("SIGINT", () => {
 const initialization = {
   type: "system",
   subtype: "init",
-  session_id: "fixture-session",
+  session_id: sessionId,
   models: [
     {
       value: "claude-sonnet-5",
@@ -79,7 +97,12 @@ function handle(record: Record<string, unknown>): void {
     if (process.argv.includes("missing-before-initialize") && process.argv.includes("--resume")) {
       const error = `No conversation found with session ID: ${process.argv[process.argv.indexOf("--resume") + 1]}`;
       console.error(error);
-      write({ type: "result", subtype: "error_during_execution", is_error: true, errors: [error] });
+      write({
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        errors: [error],
+      });
       process.exit(1);
     }
     if (process.argv.includes("reject-initialize")) {
@@ -98,7 +121,24 @@ function handle(record: Record<string, unknown>): void {
       response: {
         subtype: "success",
         request_id: record.request_id,
-        response: { models: initialization.models },
+        response: {
+          models: initialization.models,
+          ...(process.argv.includes("missing-commands")
+            ? {}
+            : {
+                commands: process.argv.includes("invalid-commands")
+                  ? [{ name: "broken", description: 42 }]
+                  : process.argv.includes("empty-commands")
+                    ? []
+                    : [
+                        {
+                          name: "fixture-skill",
+                          description: "Fixture skill",
+                          argumentHint: "",
+                        },
+                      ],
+              }),
+        },
       },
     });
     if (process.argv.includes("exit-after-init")) process.exit(1);
@@ -126,12 +166,33 @@ function handle(record: Record<string, unknown>): void {
       console.error(process.argv[process.argv.indexOf("resume-error") + 1]);
       process.exit(1);
     }
-    if (record.session_id !== (inputSeen ? "fixture-session" : undefined))
+    if (record.session_id !== (inputSeen ? sessionId : (resumeId ?? preallocatedSessionId)))
       throw new Error("wrong session");
     const gate = !inputSeen && Bun.env.COFORGE_CLAUDE_INIT_GATE;
     inputSeen = true;
     if (gate) {
       void fetch(gate).then(() => {
+        if (process.argv.includes("invalid-session-init")) {
+          console.log(
+            [
+              {
+                ...initialization,
+                session_id: Bun.env.COFORGE_REPORTED_SESSION,
+              },
+              {
+                type: "stream_event",
+                event: {
+                  type: "content_block_delta",
+                  delta: { type: "text_delta", text: "wrong-session-output" },
+                },
+              },
+              { type: "result", subtype: "success" },
+            ]
+              .map((value) => JSON.stringify(value))
+              .join("\n"),
+          );
+          return;
+        }
         write(initialization);
         inputObserved();
       });
@@ -142,7 +203,8 @@ function handle(record: Record<string, unknown>): void {
       process.argv.includes("missing-init") ||
       process.argv.includes("invalid-init")
     ) {
-      if (process.argv.includes("mismatched-init")) write(initialization);
+      if (process.argv.includes("mismatched-init"))
+        write({ ...initialization, session_id: "fixture-session" });
       if (process.argv.includes("invalid-init")) write({ ...initialization, session_id: "" });
       write({ type: "result", subtype: "success" });
       return;
@@ -181,7 +243,12 @@ function handle(record: Record<string, unknown>): void {
       timestamp: "2026-01-02T03:04:05.000Z",
       message: {
         content: [
-          { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "printf safe" } },
+          {
+            type: "tool_use",
+            id: "tool-1",
+            name: "Bash",
+            input: { command: "printf safe" },
+          },
         ],
       },
     });
@@ -189,7 +256,12 @@ function handle(record: Record<string, unknown>): void {
       type: "user",
       message: {
         content: [
-          { type: "tool_result", tool_use_id: "tool-1", content: "tests passed", is_error: false },
+          {
+            type: "tool_result",
+            tool_use_id: "tool-1",
+            content: "tests passed",
+            is_error: false,
+          },
         ],
       },
     });
@@ -199,6 +271,18 @@ function handle(record: Record<string, unknown>): void {
 }
 
 function inputObserved(): void {
+  // Only the process that accepted the input consumes controlled events. A
+  // failed resume must not leave an outstanding poll stealing fresh events.
+  if (eventFeed && !feedStarted) {
+    feedStarted = true;
+    void (async () => {
+      while (true) {
+        const response = await fetch(eventFeed);
+        const records = (await response.json()) as Record<string, unknown>[];
+        for (const record of records) write(record);
+      }
+    })();
+  }
   write({
     type: "stream_event",
     event: {

@@ -35,9 +35,12 @@ test.each(["missing-resume", "missing-before-initialize"])(
       await session.sendMessage("finish");
       await completed.promise;
       await confirmed.promise;
-      expect(reports).toEqual([
-        ["fixture-session", "missing-session"],
-        ["fixture-session", "missing-session"],
+      expect(reports).toHaveLength(2);
+      expect(reports[0]?.[0]).toBe(reports[1]?.[0]);
+      expect(reports[0]?.[0]).not.toBe("missing-session");
+      expect(reports.map(([, replaced]) => replaced)).toEqual([
+        "missing-session",
+        "missing-session",
       ]);
       expect(exits).toBe(0);
     } finally {
@@ -128,11 +131,13 @@ test("Claude first input and turn boundary flow while late identity ACK is pendi
   const ack = Promise.withResolvers<void>();
   const confirmed = Promise.withResolvers<void>();
   let reports = 0;
+  let reportedSessionId: string | undefined;
   const session = await fixtureAdapter().createAgentSession({
     agentWorkspaceDirectory: tmpdir(),
     instructions: TEST_AGENT_INSTRUCTIONS,
     async onSessionId(id) {
-      expect(id).toBe("fixture-session");
+      reportedSessionId ??= id;
+      expect(id).toBe(reportedSessionId);
       reports++;
       observed.resolve();
       if (reports === 2) confirmed.resolve();
@@ -173,13 +178,13 @@ test("Claude serializes duplicate init and turn-end identity observations withou
   try {
     await fixture.session.sendMessage("wait");
     await fixture.emit(
-      { type: "system", subtype: "init", session_id: "fixture-session" },
+      { type: "system", subtype: "init", session_id: fixture.sessionId },
       { type: "result", subtype: "success" },
     );
-    expect(ids).toEqual(["fixture-session"]);
+    expect(ids).toEqual([fixture.sessionId]);
     ack.resolve();
     await confirmed.promise;
-    expect(ids).toEqual(["fixture-session", "fixture-session", "fixture-session"]);
+    expect(ids).toEqual([fixture.sessionId, fixture.sessionId, fixture.sessionId]);
   } finally {
     ack.resolve();
     await fixture.dispose();
@@ -234,7 +239,7 @@ for (const [mode, sessionId] of [
       await exited.promise;
       expect(reports).toEqual([]);
       expect(events.filter((event) => event.type === "completed")).toEqual([]);
-      await expect(session.notify!("not accepted")).rejects.toThrow("session");
+      await expect(session.notify!("not accepted")).rejects.toThrow();
     } finally {
       await session.dispose();
     }
@@ -330,7 +335,10 @@ test("Claude Code rejects concurrent first notifications after process exit", as
       new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,
       "exit-after-init",
     ],
-  }).createAgentSession({ agentWorkspaceDirectory, instructions: TEST_AGENT_INSTRUCTIONS });
+  }).createAgentSession({
+    agentWorkspaceDirectory,
+    instructions: TEST_AGENT_INSTRUCTIONS,
+  });
   try {
     await new Promise<void>((resolve) => session.onExit(resolve));
     const results = await Promise.allSettled([session.notify!("first"), session.notify!("second")]);
@@ -351,7 +359,10 @@ test("Claude Code rejects a failed initialization handshake", async () => {
           new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,
           "reject-initialize",
         ],
-      }).createAgentSession({ agentWorkspaceDirectory, instructions: TEST_AGENT_INSTRUCTIONS }),
+      }).createAgentSession({
+        agentWorkspaceDirectory,
+        instructions: TEST_AGENT_INSTRUCTIONS,
+      }),
     ).rejects.toThrow("initialization was rejected");
   } finally {
     await rm(agentWorkspaceDirectory, { recursive: true, force: true });
@@ -417,7 +428,7 @@ test("Claude Code maps stream-json turns behind the code-agent seam", async () =
 
     await session.sendMessage("finish");
     await waitForEvent(events, "completed");
-    expect(events).toEqual([
+    expect(events.filter((event) => event.type !== "session")).toEqual([
       { type: "text-delta", text: "Claude response" },
       { type: "tool-start", id: "tool-1", name: "Bash" },
       {
@@ -433,6 +444,11 @@ test("Claude Code maps stream-json turns behind the code-agent seam", async () =
       { type: "tool-output", id: "tool-1", text: "tests passed" },
       { type: "tool-end", id: "tool-1", isError: false },
       { type: "completed", status: "completed" },
+    ]);
+    expect(events.filter((event) => event.type === "session")).toEqual([
+      { type: "session", identity: { sessionId: expect.any(String), state: "unknown" } },
+      { type: "session", identity: { sessionId: expect.any(String), state: "empty" } },
+      { type: "session", identity: { sessionId: expect.any(String), state: "resumable" } },
     ]);
 
     await session.dispose();
@@ -454,7 +470,7 @@ test("Claude Code exposes account rate-limit events as partial usage snapshots",
 
     await session.sendMessage("usage");
     await waitForEvent(events, "completed");
-    expect(events[0]).toEqual({
+    expect(events.find((event) => event.type === AGENT_RUNTIME_EVENT_TYPE.USAGE)).toEqual({
       type: AGENT_RUNTIME_EVENT_TYPE.USAGE,
       snapshot: {
         provider: "claude-code",
@@ -607,11 +623,15 @@ test("Claude Code holds first-turn notifications until result, not text or tool 
     });
     await emit({
       type: "assistant",
-      message: { content: [{ type: "tool_use", id: "first-tool", name: "Bash", input: {} }] },
+      message: {
+        content: [{ type: "tool_use", id: "first-tool", name: "Bash", input: {} }],
+      },
     });
     await emit({
       type: "user",
-      message: { content: [{ type: "tool_result", tool_use_id: "first-tool", content: "done" }] },
+      message: {
+        content: [{ type: "tool_result", tool_use_id: "first-tool", content: "done" }],
+      },
     });
     expect(accepted).toBe(false);
     await emit({ type: "result", subtype: "success" });
@@ -669,7 +689,11 @@ test("Claude Code delivers at the complete tool batch in an established session"
       message: {
         content: [
           { type: "tool_result", tool_use_id: "a", content: "done" },
-          { type: "tool_result", tool_use_id: "unknown", content: "irrelevant" },
+          {
+            type: "tool_result",
+            tool_use_id: "unknown",
+            content: "irrelevant",
+          },
         ],
       },
     });
@@ -677,12 +701,16 @@ test("Claude Code delivers at the complete tool batch in an established session"
     await emit({
       type: "user",
       parent_tool_use_id: "child",
-      message: { content: [{ type: "tool_result", tool_use_id: "b", content: "child output" }] },
+      message: {
+        content: [{ type: "tool_result", tool_use_id: "b", content: "child output" }],
+      },
     });
     expect(accepted).toBe(false);
     await emit({
       type: "user",
-      message: { content: [{ type: "tool_result", tool_use_id: "b", content: "done" }] },
+      message: {
+        content: [{ type: "tool_result", tool_use_id: "b", content: "done" }],
+      },
     });
     await notification;
     expect(accepted).toBe(true);
@@ -702,7 +730,9 @@ test("Claude Code retains notifications during compaction until the compact boun
     await emit(
       {
         type: "assistant",
-        message: { content: [{ type: "tool_use", id: "tool", name: "Bash", input: {} }] },
+        message: {
+          content: [{ type: "tool_use", id: "tool", name: "Bash", input: {} }],
+        },
       },
       { type: "system", subtype: "status", status: "compacting" },
     );
@@ -713,7 +743,9 @@ test("Claude Code retains notifications during compaction until the compact boun
     void notification.catch(() => {});
     await emit({
       type: "user",
-      message: { content: [{ type: "tool_result", tool_use_id: "tool", content: "done" }] },
+      message: {
+        content: [{ type: "tool_result", tool_use_id: "tool", content: "done" }],
+      },
     });
     await emit({ type: "system", subtype: "status", status: null });
     expect(accepted).toBe(false);
@@ -743,7 +775,10 @@ test("Claude Code holds later text-only turns and delivers all waiting notices o
     void second.catch(() => {});
     await emit({
       type: "stream_event",
-      event: { type: "content_block_start", content_block: { type: "thinking", thinking: "" } },
+      event: {
+        type: "content_block_start",
+        content_block: { type: "thinking", thinking: "" },
+      },
     });
     await emit(
       { type: "stream_event", event: { type: "message_stop" } },
@@ -772,7 +807,11 @@ test("Claude Code ignores late user echoes after a completed turn", async () => 
     await session.sendMessage("wait");
     await emit({ type: "result", subtype: "success" });
     expect(completions).toHaveLength(1);
-    await emit({ type: "user", uuid: "late-echo", message: { role: "user", content: "wait" } });
+    await emit({
+      type: "user",
+      uuid: "late-echo",
+      message: { role: "user", content: "wait" },
+    });
     await emit({ type: "result", subtype: "success" });
     expect(completions).toHaveLength(1);
     await session.sendMessage("wait");
@@ -832,12 +871,20 @@ async function toolBoundary(emit: (...records: Record<string, unknown>[]) => Pro
   await emit(
     {
       type: "assistant",
-      message: { content: [{ type: "tool_use", id: "boundary-tool", name: "Bash", input: {} }] },
+      message: {
+        content: [{ type: "tool_use", id: "boundary-tool", name: "Bash", input: {} }],
+      },
     },
     {
       type: "user",
       message: {
-        content: [{ type: "tool_result", tool_use_id: "boundary-tool", content: "done" }],
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "boundary-tool",
+            content: "done",
+          },
+        ],
       },
     },
   );
@@ -855,7 +902,12 @@ test("Claude tool events retain file semantics for aliases without exposing patc
       type: "assistant",
       message: {
         content: [
-          { type: "tool_use", id: "alias-read", name: "ReadFile", input: { path: "src/read.ts" } },
+          {
+            type: "tool_use",
+            id: "alias-read",
+            name: "ReadFile",
+            input: { path: "src/read.ts" },
+          },
           {
             type: "tool_use",
             id: "alias-edit",
@@ -928,6 +980,9 @@ async function controlledClaude(
     onSessionId,
     environment: { COFORGE_CLAUDE_EVENT_FEED: server.url.href },
   });
+  const identity = await session.readSessionIdentity!();
+  if (!identity) throw new Error("fixture session identity unavailable");
+  const nativeSessionId = identity.sessionId;
   let serial = 0;
   const markers = new Map<string, () => void>();
   const initialInput = Promise.withResolvers<void>();
@@ -938,6 +993,7 @@ async function controlledClaude(
   });
   return {
     session,
+    sessionId: nativeSessionId,
     async emit(...records: Record<string, unknown>[]) {
       await initialInput.promise;
       const marker = `fixture-boundary-${++serial}`;
@@ -948,7 +1004,10 @@ async function controlledClaude(
         ...records,
         {
           type: "stream_event",
-          event: { type: "content_block_delta", delta: { type: "text_delta", text: marker } },
+          event: {
+            type: "content_block_delta",
+            delta: { type: "text_delta", text: marker },
+          },
         },
       ]);
       if (waiting) {

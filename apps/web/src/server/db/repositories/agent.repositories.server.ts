@@ -37,9 +37,14 @@ function mapAgent(agent: {
   } catch {
     throw new Error(`Agent ${agent.id} has invalid runtime config`);
   }
-  const { computerId, description, runtimeSession: _runtimeSession, ...fields } = agent;
+  const { computerId, description } = agent;
   return {
-    ...fields,
+    id: agent.id,
+    workspaceId: agent.workspaceId,
+    name: agent.name,
+    displayName: agent.displayName,
+    createdAt: agent.createdAt,
+    ownerId: agent.ownerId,
     description: description ?? "",
     ...(computerId ? { computerId } : {}),
     runtimeConfig,

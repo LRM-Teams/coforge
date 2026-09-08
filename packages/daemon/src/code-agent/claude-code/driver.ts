@@ -4,7 +4,7 @@ import {
   type AgentRuntimeEvent,
   type AgentDriver,
 } from "../contract";
-import type { AgentSession, AgentSessionOptions } from "@coforge/agent";
+import type { AgentSession, AgentSessionIdentity, AgentSessionOptions } from "@coforge/agent";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
@@ -43,41 +43,52 @@ export class ClaudeCodeDriver implements AgentDriver {
   }
 
   async createAgentSession(options: AgentSessionOptions): Promise<AgentSession> {
+    if (options.sessionId !== undefined && !options.sessionId.trim())
+      throw new Error("Invalid session ID");
     const promptDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-prompt-"));
     let process: JsonlProcess | undefined;
     try {
       const promptPath = join(promptDirectory, "system-prompt.md");
       await writeFile(promptPath, options.instructions, { mode: 0o600 });
-      const command = (sessionId?: string) => [
+      const command = (resumeSessionId?: string, createSessionId?: string) => [
         ...this.#command,
         "--dangerously-skip-permissions",
         "--permission-mode",
         "bypassPermissions",
-        ...(sessionId ? ["--resume", sessionId] : []),
+        ...(resumeSessionId ? ["--resume", resumeSessionId] : []),
+        ...(createSessionId ? ["--session-id", createSessionId] : []),
         "--append-system-prompt-file",
         promptPath,
         ...(options.runtime?.model ? ["--model", options.runtime.model] : []),
         ...(options.runtime?.reasoning ? ["--effort", options.runtime.reasoning] : []),
       ];
-      const spawn = (sessionId?: string) =>
+      const initialFreshSessionId = options.sessionId ? undefined : crypto.randomUUID();
+      const spawn = (sessionId?: string, freshSessionId?: string) =>
         new JsonlProcess(
-          command(sessionId),
+          command(sessionId, freshSessionId),
           options.agentWorkspaceDirectory,
           agentEnvironment(options.environment),
         );
-      process = spawn(options.sessionId);
+      process = spawn(options.sessionId, initialFreshSessionId);
       const session = new ClaudeCodeAgentSession(
         process,
         () => rm(promptDirectory, { recursive: true, force: true }),
         options.onSessionId,
         options.sessionId,
-        () => spawn(),
+        () => {
+          const sessionId = crypto.randomUUID();
+          return { process: spawn(undefined, sessionId), sessionId };
+        },
+        initialFreshSessionId,
       );
       await session.ready();
       return session;
     } catch (error) {
-      await process?.dispose().catch(() => undefined);
-      await rm(promptDirectory, { recursive: true, force: true });
+      try {
+        await process?.dispose();
+      } finally {
+        await rm(promptDirectory, { recursive: true, force: true });
+      }
       throw error;
     }
   }
@@ -94,9 +105,11 @@ class ClaudeCodeAgentSession implements AgentSession {
   readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
   #state: "idle" | "running" | "interrupting" | "disposed" = "idle";
   #initialized = false;
+  #nativeIdentityObserved = false;
   #initialization: { process: JsonlProcess; promise: Promise<void> } | undefined;
   #sessionId: string | undefined;
   #sessionReports = Promise.resolve();
+  #identity: AgentSessionIdentity | undefined;
   // A fresh Claude session becomes ready at its first result, as in Raft 1.0.17.
   #sessionReadyForNotices = false;
   #compacting = false;
@@ -121,10 +134,18 @@ class ClaudeCodeAgentSession implements AgentSession {
       replacedSessionId?: string,
     ) => Promise<void>,
     private expectedSessionId?: string,
-    private readonly spawnFresh?: () => JsonlProcess,
+    private readonly spawnFresh?: () => { process: JsonlProcess; sessionId: string },
+    initialFreshSessionId?: string,
   ) {
     this.#process = process;
     this.#removePrompt = removePrompt;
+    if (expectedSessionId) {
+      this.#sessionId = expectedSessionId;
+      this.#identity = { sessionId: expectedSessionId, state: "unknown" };
+    } else if (initialFreshSessionId) {
+      this.#sessionId = initialFreshSessionId;
+      this.#identity = { sessionId: initialFreshSessionId, state: "empty" };
+    }
     this.#bindProcess(process);
   }
 
@@ -181,12 +202,13 @@ class ClaudeCodeAgentSession implements AgentSession {
         !this.#replacedSessionId &&
         !this.#progressObserved &&
         !this.#recoveryFailed &&
-        (this.#state === "running" || this.#state === "idle") &&
+        this.#state !== "disposed" &&
         this.spawnFresh
       ) {
         this.#replacedSessionId = this.expectedSessionId;
         this.expectedSessionId = undefined;
         this.#initialized = false;
+        this.#nativeIdentityObserved = false;
         void this.#startFresh().catch((error: unknown) => {
           this.#rejectWaitingNotices(error instanceof Error ? error : new Error(String(error)));
           this.#emit({
@@ -218,7 +240,10 @@ class ClaudeCodeAgentSession implements AgentSession {
 
   async #startFresh(): Promise<void> {
     const firstInput = this.#firstInput;
-    this.#process = this.spawnFresh!();
+    const fresh = this.spawnFresh!();
+    this.#process = fresh.process;
+    this.#sessionId = fresh.sessionId;
+    this.#identity = { sessionId: fresh.sessionId, state: "empty" };
     this.#bindProcess(this.#process);
     await this.ready();
     if (this.#isDisposed()) return;
@@ -251,6 +276,23 @@ class ClaudeCodeAgentSession implements AgentSession {
         if (record.type !== "control_response" || response?.request_id !== requestId) return;
         cleanup();
         if (response.subtype === "success") {
+          // SDKControlInitializeResponse advertises commands, not all loaded skills.
+          // Hidden model-invocable skills need not appear; an empty list is valid.
+          const commands = asRecord(response.response)?.commands;
+          if (
+            !Array.isArray(commands) ||
+            !commands.every((value: unknown) => {
+              const command = asRecord(value);
+              return (
+                typeof command?.name === "string" &&
+                typeof command.description === "string" &&
+                typeof command.argumentHint === "string"
+              );
+            })
+          ) {
+            reject(new Error("Claude Code initialization returned invalid commands"));
+            return;
+          }
           this.#initialized = true;
           resolve();
         } else {
@@ -293,6 +335,7 @@ class ClaudeCodeAgentSession implements AgentSession {
     this.#firstInput ??= text;
     // Reserve the turn before writing; a native result can arrive during flush.
     if (this.#state === "idle") this.#state = "running";
+    this.#setIdentity("unknown");
     await this.#process.send({
       type: "user",
       message: { role: "user", content: text },
@@ -320,6 +363,10 @@ class ClaudeCodeAgentSession implements AgentSession {
   subscribe(listener: (event: AgentRuntimeEvent) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  async readSessionIdentity(): Promise<AgentSessionIdentity> {
+    return this.#identity ?? { sessionId: "", state: "unknown" };
   }
 
   async interrupt(): Promise<void> {
@@ -387,15 +434,21 @@ class ClaudeCodeAgentSession implements AgentSession {
         typeof record.session_id !== "string" ||
         !record.session_id.trim() ||
         record.session_id === this.#replacedSessionId ||
-        (this.expectedSessionId && record.session_id !== this.expectedSessionId)
+        (this.expectedSessionId && record.session_id !== this.expectedSessionId) ||
+        (!this.expectedSessionId &&
+          this.#sessionId !== undefined &&
+          record.session_id !== this.#sessionId)
       ) {
         this.#failRecovery();
         return;
       }
       if (typeof record.session_id === "string" && record.session_id !== this.#sessionId) {
         this.#sessionId = record.session_id;
-        this.#sessionReadyForNotices = record.session_id === this.expectedSessionId;
       }
+      if (this.expectedSessionId !== undefined)
+        this.#sessionReadyForNotices = record.session_id === this.expectedSessionId;
+      this.#setIdentity(this.expectedSessionId ? "resumable" : "empty");
+      this.#nativeIdentityObserved = true;
       this.#reportIdentity();
       return;
     }
@@ -407,7 +460,10 @@ class ClaudeCodeAgentSession implements AgentSession {
         ...this.#usageSnapshot,
         [usageWindow.key]: usageWindow.window,
       };
-      this.#emit({ type: AGENT_RUNTIME_EVENT_TYPE.USAGE, snapshot: this.#usageSnapshot });
+      this.#emit({
+        type: AGENT_RUNTIME_EVENT_TYPE.USAGE,
+        snapshot: this.#usageSnapshot,
+      });
       return;
     }
     if (record.type === "stream_event") {
@@ -429,7 +485,11 @@ class ClaudeCodeAgentSession implements AgentSession {
         delta?.type === "text_delta" &&
         typeof delta.text === "string"
       ) {
-        this.#emit({ type: "text-delta", text: delta.text, ...(subagent ? { subagent } : {}) });
+        this.#emit({
+          type: "text-delta",
+          text: delta.text,
+          ...(subagent ? { subagent } : {}),
+        });
       }
       if (
         event?.type === "content_block_delta" &&
@@ -463,7 +523,9 @@ class ClaudeCodeAgentSession implements AgentSession {
           if (typeof record.parent_tool_use_id === "string")
             activity.entries = activity.entries.map((entry) => ({
               ...entry,
-              subagent: { parentToolUseId: record.parent_tool_use_id as string },
+              subagent: {
+                parentToolUseId: record.parent_tool_use_id as string,
+              },
             }));
           this.#emit({
             type: "activity",
@@ -482,7 +544,11 @@ class ClaudeCodeAgentSession implements AgentSession {
         }
         const text = textContent(block.content);
         if (text) this.#emit({ type: "tool-output", id: block.tool_use_id, text });
-        this.#emit({ type: "tool-end", id: block.tool_use_id, isError: block.is_error === true });
+        this.#emit({
+          type: "tool-end",
+          id: block.tool_use_id,
+          isError: block.is_error === true,
+        });
       }
       if (toolFinished) this.#flushNotices();
       return;
@@ -490,6 +556,7 @@ class ClaudeCodeAgentSession implements AgentSession {
     if (record.type === "result") {
       if (record.parent_tool_use_id != null) return;
       if (
+        !this.#nativeIdentityObserved ||
         !this.#sessionId ||
         (this.expectedSessionId && this.#sessionId !== this.expectedSessionId)
       ) {
@@ -498,6 +565,7 @@ class ClaudeCodeAgentSession implements AgentSession {
       }
       this.#reportIdentity();
       this.#sessionReadyForNotices = true;
+      this.#setIdentity("resumable");
       this.#compacting = false;
       this.#outstandingTools.clear();
       const pending = this.#pendingInterrupt;
@@ -556,6 +624,13 @@ class ClaudeCodeAgentSession implements AgentSession {
     this.#closed = true;
     for (const listener of this.#exitListeners) listener();
     this.#exitListeners.clear();
+  }
+
+  #setIdentity(state: AgentSessionIdentity["state"]): void {
+    if (!this.#sessionId) return;
+    if (this.#identity?.sessionId === this.#sessionId && this.#identity.state === state) return;
+    this.#identity = { sessionId: this.#sessionId, state };
+    this.#emit({ type: "session", identity: this.#identity });
   }
 
   #isDisposed(): boolean {
@@ -620,9 +695,12 @@ function eventTime(record: Readonly<Record<string, unknown>>): string {
     : new Date().toISOString();
 }
 
-function claudeRateLimitWindow(
-  info: Record<string, unknown> | undefined,
-): { key: "primary" | "secondary"; window: NonNullable<UsageSnapshot["primary"]> } | undefined {
+function claudeRateLimitWindow(info: Record<string, unknown> | undefined):
+  | {
+      key: "primary" | "secondary";
+      window: NonNullable<UsageSnapshot["primary"]>;
+    }
+  | undefined {
   if (info?.status !== "allowed" && info?.status !== "rejected") return undefined;
   const key =
     info.rateLimitType === "five_hour"

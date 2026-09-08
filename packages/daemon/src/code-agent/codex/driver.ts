@@ -2,6 +2,7 @@ import type {
   AgentDriver,
   AgentRuntimeEvent,
   AgentSession,
+  AgentSessionIdentity,
   AgentSessionOptions,
   UsageSnapshot,
 } from "@coforge/agent";
@@ -34,6 +35,8 @@ export class CodexDriver implements AgentDriver {
   }
 
   async createAgentSession(options: AgentSessionOptions): Promise<AgentSession> {
+    if (options.sessionId !== undefined && !options.sessionId.trim())
+      throw new Error("Invalid session ID");
     const process = new JsonlProcess(
       this.#command,
       options.agentWorkspaceDirectory,
@@ -122,7 +125,13 @@ export class CodexDriver implements AgentDriver {
         instruction_bytes: new TextEncoder().encode(options.instructions).byteLength,
         outcome: "ok",
       });
-      return new CodexAgentSession(process, thread.id, options.agentId, options.runtimeId);
+      return new CodexAgentSession(
+        process,
+        thread.id,
+        options.sessionId !== undefined && replacedSessionId === undefined,
+        options.agentId,
+        options.runtimeId,
+      );
     } catch (error) {
       await process.dispose();
       throw error;
@@ -139,12 +148,23 @@ class CodexAgentSession implements AgentSession {
   readonly #commandOutputBytes = new Map<string, number>();
   #state: CodexSessionState = { type: "idle" };
   #starting: Promise<void> | undefined;
+  #identity: AgentSessionIdentity;
 
-  constructor(process: JsonlProcess, threadId: string, agentId?: string, runtimeId?: string) {
+  constructor(
+    process: JsonlProcess,
+    threadId: string,
+    resumed: boolean,
+    agentId?: string,
+    runtimeId?: string,
+  ) {
     this.#process = process;
     this.#threadId = threadId;
     this.#agentId = agentId;
     this.#runtimeId = runtimeId;
+    this.#identity = {
+      sessionId: threadId,
+      state: resumed ? "resumable" : "empty",
+    };
     process.onRecord((record) => this.#accept(record));
     process.onFailure((error) =>
       this.#emit({
@@ -166,6 +186,7 @@ class CodexAgentSession implements AgentSession {
   }
 
   async #startTurn(text: string): Promise<void> {
+    this.#setIdentity("unknown");
     this.#state = { type: "starting", completedTurnIds: new Set() };
     let response: Readonly<Record<string, unknown>>;
     try {
@@ -185,6 +206,7 @@ class CodexAgentSession implements AgentSession {
       if (!this.#isDisposed()) this.#state = { type: "idle" };
       throw new Error("Codex did not create a turn");
     }
+    this.#setIdentity("resumable");
     if (this.#state.type !== "starting") return;
     this.#state = this.#state.completedTurnIds.has(turn.id)
       ? { type: "idle" }
@@ -241,6 +263,10 @@ class CodexAgentSession implements AgentSession {
   subscribe(listener: (event: AgentRuntimeEvent) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  async readSessionIdentity(): Promise<AgentSessionIdentity> {
+    return this.#identity;
   }
 
   async interrupt(): Promise<void> {
@@ -321,7 +347,11 @@ class CodexAgentSession implements AgentSession {
         (this.#commandOutputBytes.get(params.itemId) ?? 0) +
           new TextEncoder().encode(params.delta).byteLength,
       );
-      this.#emit({ type: "tool-output", id: params.itemId, text: params.delta });
+      this.#emit({
+        type: "tool-output",
+        id: params.itemId,
+        text: params.delta,
+      });
       return;
     }
     if (record.method === "item/completed") {
@@ -336,7 +366,11 @@ class CodexAgentSession implements AgentSession {
           outcome: item.exitCode === 0 ? "ok" : "failed",
         });
         this.#commandOutputBytes.delete(item.id);
-        this.#emit({ type: "tool-end", id: item.id, isError: item.exitCode !== 0 });
+        this.#emit({
+          type: "tool-end",
+          id: item.id,
+          isError: item.exitCode !== 0,
+        });
       }
       return;
     }
@@ -386,6 +420,12 @@ class CodexAgentSession implements AgentSession {
 
   #emit(event: AgentRuntimeEvent): void {
     for (const listener of this.#listeners) listener(event);
+  }
+
+  #setIdentity(state: AgentSessionIdentity["state"]): void {
+    if (this.#identity.state === state) return;
+    this.#identity = { sessionId: this.#threadId, state };
+    this.#emit({ type: "session", identity: this.#identity });
   }
 
   #isDisposed(): boolean {

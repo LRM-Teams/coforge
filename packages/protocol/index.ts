@@ -56,6 +56,9 @@ export type AgentSessionReport = {
   launchId: string;
   previousLaunchId?: string;
   replacedSessionId?: string;
+  controlEpoch?: number;
+  sequence?: number;
+  sessionState?: "empty" | "resumable" | "unknown";
 };
 export const WORKSPACE_PROTOCOL_MAJOR = COMPUTER_REGISTER_PROTOCOL_MAJOR;
 export type Workspace = { id: string; slug: string; name: string };
@@ -164,6 +167,7 @@ export type AgentStartIntent = {
   sessionId?: string;
   sessionMode?: "create" | "resume";
   previousLaunchId?: string;
+  controlEpoch?: number;
   providerConfig?: AgentRuntimeProviderConfig;
   wakeMessage?: AgentRecoveryMessage;
   resumeMessages?: AgentRecoveryMessage[];
@@ -175,6 +179,8 @@ export type AgentStopIntent = {
   workspaceId: string;
   computerId: string;
   agentId: string;
+  provider?: RuntimeProvider;
+  controlEpoch?: number;
   messageType?: typeof AGENT_STOP_MESSAGE_TYPE;
 };
 export type AgentRecoveryMessage = {
@@ -404,3 +410,5 @@ export {
   encodeCloudAgentMessageResponse,
   decodeCloudAgentMessageResponse,
 } from "./codec";
+export * from "./agent-skills";
+export * from "./agent-control";

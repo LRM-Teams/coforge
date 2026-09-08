@@ -45,7 +45,11 @@ export type UsageSnapshot = Readonly<{
   secondary?: UsageWindow;
   credits?: Readonly<{ hasCredits: boolean; unlimited: boolean }>;
 }>;
-export type AgentSessionOptions = Readonly<{
+export type AgentSessionIdentity = Readonly<{
+  sessionId: string;
+  state: "empty" | "resumable" | "unknown";
+}>;
+type AgentSessionCommonOptions = Readonly<{
   agentId?: string;
   runtimeId?: string;
   agentWorkspaceDirectory: string;
@@ -57,16 +61,19 @@ export type AgentSessionOptions = Readonly<{
   runtime?: AgentRuntimeConfig;
   environment?: Readonly<Record<string, string>>;
 }>;
+export type AgentSessionOptions = AgentSessionCommonOptions;
 export type AgentRuntimeEvent =
   | { type: "activity"; activity: AgentActivity }
   | { type: "usage"; snapshot: UsageSnapshot }
   | { type: "text-delta" | "thinking-delta"; text: string; subagent?: ActivitySubagent }
+  | { type: "session"; identity: AgentSessionIdentity }
   | { type: "tool-start"; id: string; name: string }
   | { type: "tool-output"; id: string; text: string }
   | { type: "tool-end"; id: string; isError: boolean }
   | { type: "completed"; status: "completed" | "interrupted" | "failed" };
 export interface AgentSession {
   sendMessage(message: string): Promise<void>;
+  readSessionIdentity?(): Promise<AgentSessionIdentity | undefined>;
   /**
    * Accept a notification in this session, including while work is in progress.
    * Resolve at the adapter's delivery boundary, not after the whole run.

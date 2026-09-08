@@ -3,7 +3,10 @@ import {
   COMPUTER_REGISTER_METHOD,
   WORKSPACE_GET_METHOD,
   WORKSPACE_LIST_METHOD,
+  AGENT_SKILLS_LIST_RESULT_METHOD,
+  AGENT_CONTROL_RESULT_METHOD,
 } from "@coforge/protocol";
+import { createAgentSkillsListResultMethod } from "./agent-skills-cache.server";
 
 import {
   CentrifugoRpcHandler,
@@ -52,6 +55,8 @@ import {
   WorkspaceAgentRecovery,
 } from "../agents/agent-runtime-control.server";
 import { getAgentRuntimeLock } from "../agents/agent-runtime-lock.server";
+import { AgentControl } from "../agents/agent-control.server";
+import { PrismaAgentControlStore } from "../db/repositories/agent-control.repositories.server";
 import { createCentrifugoServerApi } from "./server-api.server";
 import {
   AGENT_START_METHOD,
@@ -70,6 +75,8 @@ import { PrismaComputerRuntimeRepository } from "../db/repositories/computer-run
 import { PrismaDaemonApiKeyRepository } from "../db/repositories/daemon-api-key.repositories.server";
 import { bestEffortMessageNotifier } from "../notifications/web-push-composition.server";
 import { createAgentSessions } from "../db/repositories/agent-session.repositories.server";
+import { AgentSessionReceiver } from "../agents/agent-session.server";
+import { createAgentControlResultMethod } from "./agent-control-receiver.server";
 
 const unavailable: CentrifugoRpcError = {
   code: 503,
@@ -168,9 +175,18 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
     const agentAuthorization = new RepositoryAgentAuthorization(agentRepository);
     const centrifugo = createCentrifugoServerApi();
     const sessions = createAgentSessions(db);
+    const controlStore = new PrismaAgentControlStore(db);
+    const control = new AgentControl(
+      controlStore,
+      centrifugo,
+      getAgentRuntimeLock(),
+      undefined,
+      sessions,
+    );
+    const sessionReceiver = new AgentSessionReceiver(controlStore);
     return new CentrifugoRpcHandler({
       methods: {
-        [AGENT_SESSION_METHOD]: createAgentSessionMethod(sessions),
+        [AGENT_SESSION_METHOD]: createAgentSessionMethod(sessions, sessionReceiver),
         [COMPUTER_REGISTER_METHOD]: createComputerRegistrationMethod(registration),
         [WORKSPACE_LIST_METHOD]: createWorkspaceListMethod(query),
         [WORKSPACE_GET_METHOD]: createWorkspaceGetMethod(query),
@@ -181,6 +197,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
             centrifugo,
             getAgentRuntimeLock(),
             sessions,
+            control,
           ),
           getComputerRestartStore(),
         ),
@@ -189,8 +206,16 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
           new PrismaComputerRuntimeRepository(db),
         ),
         [DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD]: createDaemonRuntimeUsageScanResultMethod(),
+        [AGENT_SKILLS_LIST_RESULT_METHOD]: createAgentSkillsListResultMethod(),
+        [AGENT_CONTROL_RESULT_METHOD]: createAgentControlResultMethod(control),
         [AGENT_START_METHOD]: createAgentStartMethod(
-          new PublishAgentRuntimeControl(agentAuthorization, centrifugo, async () => {}, sessions),
+          new PublishAgentRuntimeControl(
+            agentAuthorization,
+            centrifugo,
+            async () => {},
+            sessions,
+            control,
+          ),
         ),
         [AGENT_STATUS_METHOD]: createAgentStatusMethod(agentRepository, undefined, centrifugo),
         [AGENT_MESSAGE_ACK_METHOD]: createAgentDeliveryAckMethod(
@@ -226,8 +251,10 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       [DAEMON_CONNECTION_STATUS_METHOD]: createDaemonConnectionStatusMethod(),
       [DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD]: unavailableMethod,
       [DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD]: createDaemonRuntimeUsageScanResultMethod(),
-      [AGENT_START_METHOD]: unavailableMethod,
+      [AGENT_SKILLS_LIST_RESULT_METHOD]: unavailableMethod,
+      [AGENT_CONTROL_RESULT_METHOD]: unavailableMethod,
       [AGENT_SESSION_METHOD]: unavailableMethod,
+      [AGENT_START_METHOD]: unavailableMethod,
       [AGENT_STATUS_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_ACK_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_READ_METHOD]: unavailableMethod,

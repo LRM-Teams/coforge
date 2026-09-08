@@ -16,6 +16,7 @@ import { runtimeStartFields } from "./manage-agents.server";
 import type { AgentSessions } from "./agent-sessions.server";
 import type { AgentRepository } from "../db/repositories/agent.repositories.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
+import type { AgentControl } from "./agent-control.server";
 import type {
   AgentRecoveryContext,
   PendingAgentDelivery,
@@ -36,6 +37,7 @@ export class PublishAgentRuntimeControl {
     private readonly api: Pick<CentrifugoServerApi, "publish">,
     private readonly activities: AgentActivitySink,
     private readonly sessions?: AgentSessions,
+    private readonly control?: AgentControl,
   ) {}
 
   async start(intent: AgentStartIntent, userId: string): Promise<void> {
@@ -47,6 +49,7 @@ export class PublishAgentRuntimeControl {
       userId,
     );
     if (!computerId) throw new Error("agent is not authorized or assigned to a Computer");
+    if (this.control) return this.control.publishStart({ ...intent, computerId }, userId);
     const selected = this.sessions
       ? await this.sessions.prepare({ ...intent, computerId })
       : { ...intent, computerId };
@@ -65,6 +68,7 @@ export class PublishAgentRuntimeControl {
       userId,
     );
     if (!computerId) throw new Error("agent is not authorized or assigned to a Computer");
+    if (this.control) return this.control.publishStop(intent, userId);
     await this.sessions?.retire(intent.agentId, intent.workspaceId, computerId);
     await this.api.publish(
       daemonControlChannel(intent.workspaceId, computerId),
@@ -98,6 +102,7 @@ export class WorkspaceAgentRecovery {
     private readonly api: Pick<CentrifugoServerApi, "publish">,
     private readonly runtimeLock: AgentRuntimeLock,
     private readonly sessions?: AgentSessions,
+    private readonly control?: AgentControl,
   ) {}
 
   async recoverWorkspace(
@@ -141,6 +146,10 @@ export class WorkspaceAgentRecovery {
           ...runtimeStartFields(agent.runtimeConfig),
           ...recovery,
         };
+        if (this.control) {
+          await this.control.recover(intent, agent.ownerId);
+          return;
+        }
         await this.api.publish(
           daemonControlChannel(workspaceId, computerId),
           encodeAgentStartIntent(this.sessions ? await this.sessions.prepare(intent) : intent),

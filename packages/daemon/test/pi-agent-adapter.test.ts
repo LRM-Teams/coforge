@@ -37,7 +37,7 @@ test("external Pi resumes the cloud-selected ID and rejects a different returned
   const session = await create();
   await session.dispose();
   await expect(create(["wrong-session"])).rejects.toThrow(
-    "Pi did not resume the requested session",
+    "Pi did not resume the requested workspace session",
   );
   await rm(history);
   const fresh = await create();
@@ -71,7 +71,9 @@ test("built-in notifications are accepted before completion and steer the existi
   await mkdir(join(agentWorkspaceDirectory, ".builtin-runtime"));
   await Bun.write(
     join(agentWorkspaceDirectory, ".builtin-runtime/models.json"),
-    JSON.stringify({ providers: { openrouter: { baseUrl: `${server.url}v1` } } }),
+    JSON.stringify({
+      providers: { openrouter: { baseUrl: `${server.url}v1` } },
+    }),
   );
   const session = await new CoforgeDriver().createAgentSession({
     agentWorkspaceDirectory,
@@ -81,7 +83,11 @@ test("built-in notifications are accepted before completion and steer the existi
       modelProvider: "openrouter",
       model: "deepseek/deepseek-v4-flash-0731",
       reasoning: "",
-      providerConfig: { kind: "coforge", providerId: "openrouter", apiKey: "fixture-test-key" },
+      providerConfig: {
+        kind: "coforge",
+        providerId: "openrouter",
+        apiKey: "fixture-test-key",
+      },
     },
   });
   const events: AgentRuntimeEvent[] = [];
@@ -151,7 +157,7 @@ test("Pi loads skills before running in a child process behind the code-agent se
 
     await session.sendMessage("finish");
     await waitForEvent(events, "completed");
-    expect(events).toEqual([
+    expect(events.filter((event) => event.type !== "session")).toEqual([
       { type: "text-delta", text: "Pi response" },
       { type: "tool-start", id: "tool-1", name: "bash" },
       {
@@ -167,6 +173,9 @@ test("Pi loads skills before running in a child process behind the code-agent se
       { type: "tool-output", id: "tool-1", text: "tests passed" },
       { type: "tool-end", id: "tool-1", isError: false },
       { type: "completed", status: "completed" },
+    ]);
+    expect(events.filter((event) => event.type === "session")).toEqual([
+      { type: "session", identity: { sessionId: "fixture-new", state: "unknown" } },
     ]);
 
     events.length = 0;
@@ -188,7 +197,10 @@ test("an external Pi-compatible process completes the driver handshake", async (
   try {
     const session = await new PiDriver({
       command: [process.execPath, new URL("../../agent/src/runner.ts", import.meta.url).pathname],
-    }).createAgentSession({ agentWorkspaceDirectory, instructions: TEST_AGENT_INSTRUCTIONS });
+    }).createAgentSession({
+      agentWorkspaceDirectory,
+      instructions: TEST_AGENT_INSTRUCTIONS,
+    });
     await session.dispose();
   } finally {
     await rm(agentWorkspaceDirectory, { recursive: true, force: true });

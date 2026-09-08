@@ -1,5 +1,6 @@
 type ProxySocketData = {
   path: string;
+  protocol?: string;
   upstream?: WebSocket;
   pending: Array<string | Uint8Array>;
 };
@@ -13,7 +14,17 @@ Bun.serve<ProxySocketData>({
   async fetch(request, server) {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/connection/")) {
-      if (server.upgrade(request, { data: { path: url.pathname + url.search, pending: [] } }))
+      const protocol = request.headers
+        .get("sec-websocket-protocol")
+        ?.split(",")
+        .map((value) => value.trim())
+        .find((value) => value === "centrifuge-protobuf");
+      if (
+        server.upgrade(request, {
+          headers: protocol ? { "Sec-WebSocket-Protocol": protocol } : undefined,
+          data: { path: url.pathname + url.search, protocol, pending: [] },
+        })
+      )
         return;
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
@@ -25,7 +36,7 @@ Bun.serve<ProxySocketData>({
   },
   websocket: {
     open(client) {
-      const upstream = new WebSocket(centrifugoOrigin + client.data.path);
+      const upstream = new WebSocket(centrifugoOrigin + client.data.path, client.data.protocol);
       upstream.binaryType = "arraybuffer";
       client.data.upstream = upstream;
       upstream.onopen = () => {
