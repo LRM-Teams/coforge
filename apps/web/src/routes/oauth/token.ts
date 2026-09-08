@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { e2eToken } from "@/server/auth/e2e-device-auth.server";
+import { deviceTokenRequest } from "@/server/auth/device-auth-http.server";
 export const Route = createFileRoute("/oauth/token")({
-  server: { handlers: { POST: ({ request }) => e2eToken(request) } },
+  server: { handlers: { POST: ({ request }) => deviceTokenRequest(request) } },
 });

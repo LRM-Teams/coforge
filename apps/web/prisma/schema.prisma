@@ -49,6 +49,7 @@ model User {
   conversationMembers         ConversationMember[]
   webPushSubscriptions        WebPushSubscription[]
   attachments                 Attachment[]
+  deviceAuthorizations        DeviceAuthorization[]
 
   @@map("users")
 }
@@ -169,6 +170,33 @@ model DaemonApiKey {
   @@index([workspaceId, computerId])
   @@index([ownerId])
   @@map("daemon_api_keys")
+}
+
+/// One in-flight RFC 8628 device authorization grant. This is deliberately durable rather than
+/// in-process state: the browser approving a grant and the Computer polling for it are different
+/// requests that need not reach the same web replica, and a deploy between `login` and the user
+/// finishing the approval page must not silently invalidate the grant.
+///
+/// Neither secret is stored in the clear. The device code is the bearer the Computer polls with,
+/// and the user code is short enough to be typed - and therefore short enough to be guessed - so
+/// both are looked up by hash, the same way daemon API keys are.
+model DeviceAuthorization {
+  id             String    @id @default(uuid()) @db.Uuid
+  deviceCodeHash String    @unique @map("device_code_hash")
+  userCodeHash   String    @unique @map("user_code_hash")
+  /// Null until a signed-in browser approves this grant; the token is minted for this user.
+  userId         String?   @db.Uuid @map("user_id")
+  status         String    @default("pending")
+  expiresAt      DateTime  @map("expires_at")
+  approvedAt     DateTime? @map("approved_at")
+  /// Last poll, so a Computer polling faster than the advertised interval gets `slow_down`.
+  lastPolledAt   DateTime? @map("last_polled_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  user           User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@index([userId])
+  @@map("device_authorizations")
 }
 
 model WorkspaceMembership {

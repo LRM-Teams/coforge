@@ -30,6 +30,7 @@ import { Route as ComputerInstallDotshRouteImport } from './routes/computer.inst
 import { Route as NotificationsOpenRouteImport } from './routes/notifications.open'
 import { Route as OauthDeviceRouteImport } from './routes/oauth/device'
 import { Route as OauthTokenRouteImport } from './routes/oauth/token'
+import { Route as OauthVerifyRouteImport } from './routes/oauth/verify'
 import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
 import { Route as AppComputersIndexRouteImport } from './routes/_app/computers.index'
@@ -42,6 +43,7 @@ import { Route as ApiInternalCentrifugoRouteImport } from './routes/api/internal
 import { Route as ApiInternalCentrifugoAgentActivityRouteImport } from './routes/api/internal/centrifugo-agent-activity'
 import { Route as ApiInternalCentrifugoConnectRouteImport } from './routes/api/internal/centrifugo-connect'
 import { Route as ApiMeAvatarRouteImport } from './routes/api/me/avatar'
+import { Route as ApiWorkspacesSlugRouteImport } from './routes/api/workspaces.$slug'
 import { Route as AppMessagesChannelsChannelIdRouteImport } from './routes/_app/messages.channels.$channelId'
 import { Route as ApiAgentAttachmentsAttachmentIdRouteImport } from './routes/api/agent/attachments.$attachmentId'
 import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/workspaces.$slug'
@@ -151,6 +153,11 @@ const OauthTokenRoute = OauthTokenRouteImport.update({
   path: '/oauth/token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OauthVerifyRoute = OauthVerifyRouteImport.update({
+  id: '/oauth/verify',
+  path: '/oauth/verify',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppAgentsIndexRoute = AppAgentsIndexRouteImport.update({
   id: '/agents/',
   path: '/agents/',
@@ -215,6 +222,11 @@ const ApiMeAvatarRoute = ApiMeAvatarRouteImport.update({
   path: '/avatar',
   getParentRoute: () => ApiMeRoute,
 } as any)
+const ApiWorkspacesSlugRoute = ApiWorkspacesSlugRouteImport.update({
+  id: '/api/workspaces/$slug',
+  path: '/api/workspaces/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppMessagesChannelsChannelIdRoute =
   AppMessagesChannelsChannelIdRouteImport.update({
     id: '/channels/$channelId',
@@ -254,6 +266,7 @@ export interface FileRoutesByFullPath {
   '/notifications/open': typeof NotificationsOpenRoute
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
+  '/oauth/verify': typeof OauthVerifyRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/computers/$computerId': typeof AppComputersComputerIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
@@ -263,6 +276,7 @@ export interface FileRoutesByFullPath {
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
   '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
   '/api/me/avatar': typeof ApiMeAvatarRoute
+  '/api/workspaces/$slug': typeof ApiWorkspacesSlugRoute
   '/agents/': typeof AppAgentsIndexRoute
   '/computers/': typeof AppComputersIndexRoute
   '/messages/': typeof AppMessagesIndexRoute
@@ -289,6 +303,7 @@ export interface FileRoutesByTo {
   '/notifications/open': typeof NotificationsOpenRoute
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
+  '/oauth/verify': typeof OauthVerifyRoute
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/computers/$computerId': typeof AppComputersComputerIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
@@ -298,6 +313,7 @@ export interface FileRoutesByTo {
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
   '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
   '/api/me/avatar': typeof ApiMeAvatarRoute
+  '/api/workspaces/$slug': typeof ApiWorkspacesSlugRoute
   '/agents': typeof AppAgentsIndexRoute
   '/computers': typeof AppComputersIndexRoute
   '/messages': typeof AppMessagesIndexRoute
@@ -328,6 +344,7 @@ export interface FileRoutesById {
   '/notifications/open': typeof NotificationsOpenRoute
   '/oauth/device': typeof OauthDeviceRoute
   '/oauth/token': typeof OauthTokenRoute
+  '/oauth/verify': typeof OauthVerifyRoute
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/_app/computers/$computerId': typeof AppComputersComputerIdRoute
   '/_app/messages/$agentId': typeof AppMessagesAgentIdRoute
@@ -337,6 +354,7 @@ export interface FileRoutesById {
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
   '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
   '/api/me/avatar': typeof ApiMeAvatarRoute
+  '/api/workspaces/$slug': typeof ApiWorkspacesSlugRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/computers/': typeof AppComputersIndexRoute
   '/_app/messages/': typeof AppMessagesIndexRoute
@@ -367,6 +385,7 @@ export interface FileRouteTypes {
     | '/notifications/open'
     | '/oauth/device'
     | '/oauth/token'
+    | '/oauth/verify'
     | '/agents/$agentId'
     | '/computers/$computerId'
     | '/messages/$agentId'
@@ -376,6 +395,7 @@ export interface FileRouteTypes {
     | '/api/internal/centrifugo-agent-activity'
     | '/api/internal/centrifugo-connect'
     | '/api/me/avatar'
+    | '/api/workspaces/$slug'
     | '/agents/'
     | '/computers/'
     | '/messages/'
@@ -402,6 +422,7 @@ export interface FileRouteTypes {
     | '/notifications/open'
     | '/oauth/device'
     | '/oauth/token'
+    | '/oauth/verify'
     | '/agents/$agentId'
     | '/computers/$computerId'
     | '/messages/$agentId'
@@ -411,6 +432,7 @@ export interface FileRouteTypes {
     | '/api/internal/centrifugo-agent-activity'
     | '/api/internal/centrifugo-connect'
     | '/api/me/avatar'
+    | '/api/workspaces/$slug'
     | '/agents'
     | '/computers'
     | '/messages'
@@ -440,6 +462,7 @@ export interface FileRouteTypes {
     | '/notifications/open'
     | '/oauth/device'
     | '/oauth/token'
+    | '/oauth/verify'
     | '/_app/agents/$agentId'
     | '/_app/computers/$computerId'
     | '/_app/messages/$agentId'
@@ -449,6 +472,7 @@ export interface FileRouteTypes {
     | '/api/internal/centrifugo-agent-activity'
     | '/api/internal/centrifugo-connect'
     | '/api/me/avatar'
+    | '/api/workspaces/$slug'
     | '/_app/agents/'
     | '/_app/computers/'
     | '/_app/messages/'
@@ -476,10 +500,12 @@ export interface RootRouteChildren {
   NotificationsOpenRoute: typeof NotificationsOpenRoute
   OauthDeviceRoute: typeof OauthDeviceRoute
   OauthTokenRoute: typeof OauthTokenRoute
+  OauthVerifyRoute: typeof OauthVerifyRoute
   ApiAgentAttachmentUploadCapabilitiesRoute: typeof ApiAgentAttachmentUploadCapabilitiesRoute
   ApiInternalCentrifugoRoute: typeof ApiInternalCentrifugoRoute
   ApiInternalCentrifugoAgentActivityRoute: typeof ApiInternalCentrifugoAgentActivityRoute
   ApiInternalCentrifugoConnectRoute: typeof ApiInternalCentrifugoConnectRoute
+  ApiWorkspacesSlugRoute: typeof ApiWorkspacesSlugRoute
   ApiAgentAttachmentsAttachmentIdRoute: typeof ApiAgentAttachmentsAttachmentIdRoute
   ApiE2eWorkspacesSlugRoute: typeof ApiE2eWorkspacesSlugRoute
 }
@@ -633,6 +659,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OauthTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/oauth/verify': {
+      id: '/oauth/verify'
+      path: '/oauth/verify'
+      fullPath: '/oauth/verify'
+      preLoaderRoute: typeof OauthVerifyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/agents/': {
       id: '/_app/agents/'
       path: '/agents'
@@ -716,6 +749,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/me/avatar'
       preLoaderRoute: typeof ApiMeAvatarRouteImport
       parentRoute: typeof ApiMeRoute
+    }
+    '/api/workspaces/$slug': {
+      id: '/api/workspaces/$slug'
+      path: '/api/workspaces/$slug'
+      fullPath: '/api/workspaces/$slug'
+      preLoaderRoute: typeof ApiWorkspacesSlugRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_app/messages/channels/$channelId': {
       id: '/_app/messages/channels/$channelId'
@@ -831,12 +871,14 @@ const rootRouteChildren: RootRouteChildren = {
   NotificationsOpenRoute: NotificationsOpenRoute,
   OauthDeviceRoute: OauthDeviceRoute,
   OauthTokenRoute: OauthTokenRoute,
+  OauthVerifyRoute: OauthVerifyRoute,
   ApiAgentAttachmentUploadCapabilitiesRoute:
     ApiAgentAttachmentUploadCapabilitiesRoute,
   ApiInternalCentrifugoRoute: ApiInternalCentrifugoRoute,
   ApiInternalCentrifugoAgentActivityRoute:
     ApiInternalCentrifugoAgentActivityRoute,
   ApiInternalCentrifugoConnectRoute: ApiInternalCentrifugoConnectRoute,
+  ApiWorkspacesSlugRoute: ApiWorkspacesSlugRoute,
   ApiAgentAttachmentsAttachmentIdRoute: ApiAgentAttachmentsAttachmentIdRoute,
   ApiE2eWorkspacesSlugRoute: ApiE2eWorkspacesSlugRoute,
 }
