@@ -9,6 +9,9 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* Geist for Latin text across the app; CJK falls back to the system faces. */
+  --font-sans: "Geist Variable", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-display: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
   --font-display-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
   --color-background: var(--background);
