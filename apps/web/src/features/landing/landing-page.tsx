@@ -143,7 +143,7 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
   return (
     <MotionConfig reducedMotion="user">
       {/* The document itself goes dark too, so overscroll and rounded window corners never show white. */}
-      <style>{`html,body{background:#0a0912;color-scheme:dark}html{scroll-snap-type:y proximity}`}</style>
+      <style>{`html,body{background:#0a0912;color-scheme:dark}html{scroll-snap-type:y mandatory}`}</style>
       <div className="relative isolate flex min-h-svh flex-col overflow-x-clip bg-[#0a0912] font-display text-white antialiased">
         {/* The animated gradient is the whole picture; the type sits on it like a poster. */}
         {gradientReady && (
