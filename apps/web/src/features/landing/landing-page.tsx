@@ -383,7 +383,7 @@ function InstallTerminal({ installOrigin }: { installOrigin: string }) {
       transition={{ duration: 0.7, delay: 0.6, ease: "easeOut" }}
       className="w-full"
     >
-      <Terminal className="max-h-none max-w-none border-white/10 bg-[#0d0b17]/85 shadow-2xl shadow-black/40 backdrop-blur-md [&_code]:font-pixel [&_pre]:text-[16px] [&_pre]:leading-7 [&_pre]:whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere] lg:[&_pre]:text-[18px] lg:[&_pre]:leading-8">
+      <Terminal className="max-h-none max-w-none border-white/10 bg-[#0d0b17]/85 shadow-2xl shadow-black/40 backdrop-blur-md [&_code]:font-display-mono [&_pre]:text-[13px] [&_pre]:leading-6 [&_pre]:whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere]">
         <TypingAnimation className="text-white/90" duration={28} delay={300}>
           {`$ ${installCommands(installOrigin).posix}`}
         </TypingAnimation>

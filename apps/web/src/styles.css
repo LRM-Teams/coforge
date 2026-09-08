@@ -6,21 +6,11 @@
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
 
-/* Ark Pixel (SIL OFL): the dot-matrix face for the landing page terminal. Loaded on demand. */
-@font-face {
-  font-family: "Ark Pixel 12px Mono";
-  src: url("/fonts/ark-pixel-12px-mono-zh_cn.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --font-display: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
   --font-display-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-pixel: "Ark Pixel 12px Mono", "Geist Mono Variable", ui-monospace, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
