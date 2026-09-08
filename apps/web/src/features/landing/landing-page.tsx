@@ -5,7 +5,7 @@ import openCodeMark from "@lobehub/icons-static-svg/icons/opencode.svg";
 import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
 import { ArrowRight, ChevronDown } from "lucide-react";
 import { MotionConfig, motion, useReducedMotion, useScroll, useTransform } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { BorderBeam } from "@/components/magicui/border-beam";
 import { OrbitingCircles } from "@/components/magicui/orbiting-circles";
@@ -133,9 +133,19 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
   // The first screen leaves as the reader scrolls: it shrinks a touch, drifts up and fades, driven
   // by scroll position rather than a timer, so it always matches the reader's hand.
   const { scrollY } = useScroll();
-  const heroOpacity = useTransform(scrollY, [0, 420], [1, 0]);
-  const heroY = useTransform(scrollY, [0, 420], [0, -60]);
-  const heroScale = useTransform(scrollY, [0, 420], [1, 0.965]);
+  const exitEndRef = useRef(720);
+  useEffect(() => {
+    const measure = () => {
+      exitEndRef.current = Math.max(320, window.innerHeight * 0.9);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+  const progress = (y: number) => Math.min(1, Math.max(0, y / exitEndRef.current));
+  const heroOpacity = useTransform(scrollY, (y) => 1 - progress(y));
+  const heroY = useTransform(scrollY, (y) => -48 * progress(y));
+  const heroScale = useTransform(scrollY, (y) => 1 - 0.06 * progress(y));
   const heroStyle = reducedMotion
     ? undefined
     : { opacity: heroOpacity, y: heroY, scale: heroScale };
@@ -143,137 +153,144 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
   return (
     <MotionConfig reducedMotion="user">
       {/* The document itself goes dark too, so overscroll and rounded window corners never show white. */}
-      <style>{`html,body{background:#0a0912;color-scheme:dark}html{scroll-snap-type:y mandatory}`}</style>
-      <div className="relative isolate flex min-h-svh flex-col overflow-x-clip bg-[#0a0912] font-display text-white antialiased">
-        {/* The animated gradient is the whole picture; the type sits on it like a poster. */}
-        {gradientReady && (
-          <AnimatedGradient config={heroGradient} theme="dark" paused={reducedMotion} />
-        )}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 -z-[1] bg-[linear-gradient(180deg,rgba(10,9,18,0.35)_0%,rgba(10,9,18,0.05)_35%,rgba(10,9,18,0.55)_75%,rgba(10,9,18,0.85)_100%)]"
-        />
+      <style>{`html,body{background:#0a0912;color-scheme:dark}@media(min-width:1024px){html{scroll-snap-type:y mandatory}}`}</style>
+      <div className="relative overflow-x-clip bg-[#0a0912] font-display text-white antialiased">
+        {/* Top snap point: it must not live inside the sticky stage, or it drifts with it. */}
+        <div aria-hidden="true" className="absolute top-0 h-px w-full snap-start" />
+        {/* Screen 1 stays pinned while screen 2 slides up over it like a sheet. */}
+        <div className="relative isolate flex min-h-svh flex-col lg:sticky lg:top-0 lg:h-svh lg:overflow-hidden">
+          {/* The animated gradient is the whole picture; the type sits on it like a poster. */}
+          {gradientReady && (
+            <AnimatedGradient config={heroGradient} theme="dark" paused={reducedMotion} />
+          )}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 -z-[1] bg-[linear-gradient(180deg,rgba(10,9,18,0.35)_0%,rgba(10,9,18,0.05)_35%,rgba(10,9,18,0.55)_75%,rgba(10,9,18,0.85)_100%)]"
+          />
 
-        <header className="flex h-19 w-full snap-start items-center justify-between px-5 sm:px-8">
-          <a href="/" className="flex items-center gap-2.5" aria-label="CoForge">
-            <img src="/logo.svg" alt="" className="size-8 rounded-lg" />
-            {/* The wordmark ends on the same dot the icon carries. */}
-            <span aria-hidden="true" className="text-[17px] font-bold tracking-[-0.045em]">
-              CoForge<span className="text-[#a993ff]">.</span>
-            </span>
-          </a>
-          <div className="flex items-center gap-2 sm:gap-3">
-            <a
-              href={repositoryUrl}
-              target="_blank"
-              rel="noreferrer"
-              aria-label={m.landing_action_repository()}
-              className="hidden size-8 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white sm:flex"
-            >
-              <GitHubMark className="size-[18px]" />
+          <header className="flex h-19 w-full items-center justify-between px-5 sm:px-8">
+            <a href="/" className="flex items-center gap-2.5" aria-label="CoForge">
+              <img src="/logo.svg" alt="" className="size-8 rounded-lg" />
+              {/* The wordmark ends on the same dot the icon carries. */}
+              <span aria-hidden="true" className="text-[17px] font-bold tracking-[-0.045em]">
+                CoForge<span className="text-[#a993ff]">.</span>
+              </span>
             </a>
-            <LocaleSwitch />
-            <span className="relative inline-flex overflow-hidden rounded-full">
+            <div className="flex items-center gap-2 sm:gap-3">
               <a
-                href="/auth/login"
-                className="group relative flex h-9 items-center overflow-hidden rounded-full border border-white/15 bg-white/10 pr-5 pl-4 text-sm font-medium whitespace-nowrap text-white sm:pr-6 sm:pl-5"
+                href={repositoryUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={m.landing_action_repository()}
+                className="hidden size-8 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white sm:flex"
               >
-                {/* The fill grows out of the left edge; the arrow fades into the right padding, so nothing moves. */}
-                <span
-                  aria-hidden="true"
-                  className="absolute top-1/2 left-3 size-2 -translate-y-1/2 rounded-full bg-white/20 opacity-0 transition-all duration-300 group-hover:scale-[60] group-hover:opacity-100"
-                />
-                <span className="relative">{m.landing_action_sign_in()}</span>
-                <ArrowRight
-                  aria-hidden="true"
-                  className="absolute top-1/2 right-2 size-3.5 -translate-x-1 -translate-y-1/2 opacity-0 transition-all duration-300 group-hover:translate-x-0 group-hover:opacity-100"
-                />
+                <GitHubMark className="size-[18px]" />
               </a>
-              <BorderBeam size={40} duration={7} colorFrom="#c5bafe" colorTo="#5d36dc" />
-            </span>
-          </div>
-        </header>
-
-        <main className="relative mx-auto flex min-h-[calc(100svh-4.75rem)] w-full max-w-6xl flex-col justify-center px-6 pt-8 pb-16">
-          <motion.div
-            style={heroStyle}
-            className="grid grid-cols-1 items-center gap-12 lg:grid-cols-[minmax(0,8fr)_minmax(0,4fr)] lg:gap-6"
-          >
-            <div className="min-w-0">
-              <ShimmerText
-                className="text-xs font-medium tracking-[0.22em] text-white/55 uppercase [--shimmer-contrast:rgba(255,255,255,1)]"
-                duration={1.6}
-                delay={1.4}
-              >
-                {m.landing_eyebrow()}
-              </ShimmerText>
-
-              <h1 className="sr-only">{headline}</h1>
-              <div
-                aria-hidden="true"
-                className="mt-5 text-[clamp(2.25rem,5vw,4.25rem)] leading-[1.04] font-semibold tracking-[-0.03em] text-balance"
-              >
-                <BlurReveal as="span" className="block" speedReveal={1.2}>
-                  {m.landing_headline_line_1()}
-                </BlurReveal>
-                <BlurReveal
-                  as="span"
-                  className="block lg:whitespace-nowrap"
-                  speedReveal={1.2}
-                  delay={0.35}
+              <LocaleSwitch />
+              <span className="relative inline-flex overflow-hidden rounded-full">
+                <a
+                  href="/auth/login"
+                  className="group relative flex h-9 items-center overflow-hidden rounded-full border border-white/15 bg-white/10 pr-5 pl-4 text-sm font-medium whitespace-nowrap text-white sm:pr-6 sm:pl-5"
                 >
-                  {m.landing_headline_line_2()}
-                </BlurReveal>
+                  {/* The fill grows out of the left edge; the arrow fades into the right padding, so nothing moves. */}
+                  <span
+                    aria-hidden="true"
+                    className="absolute top-1/2 left-3 size-2 -translate-y-1/2 rounded-full bg-white/20 opacity-0 transition-all duration-300 group-hover:scale-[60] group-hover:opacity-100"
+                  />
+                  <span className="relative">{m.landing_action_sign_in()}</span>
+                  <ArrowRight
+                    aria-hidden="true"
+                    className="absolute top-1/2 right-2 size-3.5 -translate-x-1 -translate-y-1/2 opacity-0 transition-all duration-300 group-hover:translate-x-0 group-hover:opacity-100"
+                  />
+                </a>
+                <BorderBeam size={40} duration={7} colorFrom="#c5bafe" colorTo="#5d36dc" />
+              </span>
+            </div>
+          </header>
+
+          <main className="relative mx-auto flex min-h-[calc(100svh-4.75rem)] w-full max-w-6xl flex-col justify-center px-6 pt-8 pb-16">
+            <motion.div
+              style={heroStyle}
+              className="grid grid-cols-1 items-center gap-12 lg:grid-cols-[minmax(0,8fr)_minmax(0,4fr)] lg:gap-6"
+            >
+              <div className="min-w-0">
+                <ShimmerText
+                  className="text-xs font-medium tracking-[0.22em] text-white/55 uppercase [--shimmer-contrast:rgba(255,255,255,1)]"
+                  duration={1.6}
+                  delay={1.4}
+                >
+                  {m.landing_eyebrow()}
+                </ShimmerText>
+
+                <h1 className="sr-only">{headline}</h1>
+                <div
+                  aria-hidden="true"
+                  className="mt-5 text-[clamp(2.25rem,5vw,4.25rem)] leading-[1.04] font-semibold tracking-[-0.03em] text-balance"
+                >
+                  <BlurReveal as="span" className="block" speedReveal={1.2}>
+                    {m.landing_headline_line_1()}
+                  </BlurReveal>
+                  <BlurReveal
+                    as="span"
+                    className="block lg:whitespace-nowrap"
+                    speedReveal={1.2}
+                    delay={0.35}
+                  >
+                    {m.landing_headline_line_2()}
+                  </BlurReveal>
+                </div>
+
+                <motion.p
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.6, delay: 1, ease: "easeOut" }}
+                  className="mt-7 max-w-xl text-lg text-pretty text-white/70 sm:text-xl"
+                >
+                  {m.landing_description()}
+                </motion.p>
               </div>
 
-              <motion.p
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 1, ease: "easeOut" }}
-                className="mt-7 max-w-xl text-lg text-pretty text-white/70 sm:text-xl"
-              >
-                {m.landing_description()}
-              </motion.p>
-            </div>
+              <AgentOrbit />
+            </motion.div>
 
-            <AgentOrbit />
-          </motion.div>
-
-          <motion.a
-            href="#computer"
-            aria-label={m.landing_scroll_hint()}
-            style={reducedMotion ? undefined : { opacity: heroOpacity }}
-            className="absolute bottom-5 left-1/2 flex -translate-x-1/2 flex-col items-center gap-1 text-[11px] tracking-[0.2em] text-white/40 uppercase transition-colors hover:text-white/70"
-          >
-            {m.landing_scroll_hint()}
-            <ChevronDown aria-hidden="true" className="size-4 animate-bounce" />
-          </motion.a>
-        </main>
+            <motion.a
+              href="#computer"
+              aria-label={m.landing_scroll_hint()}
+              style={reducedMotion ? undefined : { opacity: heroOpacity }}
+              className="absolute bottom-5 left-1/2 flex -translate-x-1/2 flex-col items-center gap-1 text-[11px] tracking-[0.2em] text-white/40 uppercase transition-colors hover:text-white/70"
+            >
+              {m.landing_scroll_hint()}
+              <ChevronDown aria-hidden="true" className="size-4 animate-bounce" />
+            </motion.a>
+          </main>
+        </div>
 
         {/* Second screen: how a machine actually joins, typed out when it scrolls into view. */}
         <section
           id="computer"
-          className="mx-auto flex min-h-svh w-full max-w-6xl snap-start flex-col items-center justify-center px-6 py-20 text-center"
+          className="relative z-10 snap-start border-t border-white/10 bg-[#0c0a16] lg:rounded-t-[2.5rem] lg:shadow-[0_-40px_120px_rgba(0,0,0,0.65)]"
         >
-          <BlurReveal
-            as="h2"
-            inView
-            speedReveal={1.4}
-            className="max-w-3xl text-3xl font-semibold tracking-[-0.02em] text-balance sm:text-4xl lg:text-5xl"
-          >
-            {m.landing_computer_title()}
-          </BlurReveal>
-          <motion.p
-            initial={{ opacity: 0, y: 12 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-80px" }}
-            transition={{ duration: 0.6, delay: 0.35, ease: "easeOut" }}
-            className="mt-4 max-w-xl text-base text-pretty text-white/60 sm:text-lg"
-          >
-            {m.landing_computer_body()}
-          </motion.p>
-          <div className="mt-10 w-full max-w-2xl text-left">
-            <InstallTerminal installOrigin={installOrigin} />
+          <div className="mx-auto flex min-h-svh w-full max-w-6xl flex-col items-center justify-center px-6 py-20 text-center">
+            <BlurReveal
+              as="h2"
+              inView
+              speedReveal={1.4}
+              className="max-w-3xl text-3xl font-semibold tracking-[-0.02em] text-balance sm:text-4xl lg:text-5xl"
+            >
+              {m.landing_computer_title()}
+            </BlurReveal>
+            <motion.p
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-80px" }}
+              transition={{ duration: 0.6, delay: 0.35, ease: "easeOut" }}
+              className="mt-4 max-w-xl text-base text-pretty text-white/60 sm:text-lg"
+            >
+              {m.landing_computer_body()}
+            </motion.p>
+            <div className="mt-10 w-full max-w-2xl text-left">
+              <InstallTerminal installOrigin={installOrigin} />
+            </div>
           </div>
         </section>
       </div>
@@ -366,7 +383,7 @@ function InstallTerminal({ installOrigin }: { installOrigin: string }) {
       transition={{ duration: 0.7, delay: 0.6, ease: "easeOut" }}
       className="w-full"
     >
-      <Terminal className="max-h-none max-w-none border-white/10 bg-[#0d0b17]/85 shadow-2xl shadow-black/40 backdrop-blur-md [&_code]:font-display-mono [&_pre]:text-[13px] [&_pre]:leading-6 [&_pre]:whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere]">
+      <Terminal className="max-h-none max-w-none border-white/10 bg-[#0d0b17]/85 shadow-2xl shadow-black/40 backdrop-blur-md [&_code]:font-pixel [&_pre]:text-[16px] [&_pre]:leading-7 [&_pre]:whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere] lg:[&_pre]:text-[18px] lg:[&_pre]:leading-8">
         <TypingAnimation className="text-white/90" duration={28} delay={300}>
           {`$ ${installCommands(installOrigin).posix}`}
         </TypingAnimation>
