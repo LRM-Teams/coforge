@@ -80,7 +80,7 @@ export function handleLogout(input: {
 }): Response {
   const ended = endBrowserLogin({
     config: input.config,
-    postLogoutRedirectUri: `${input.origin}/login`,
+    postLogoutRedirectUri: `${input.origin}/`,
     sessionSecret: input.sessionSecret,
     cookieHeader: input.cookieHeader,
   });

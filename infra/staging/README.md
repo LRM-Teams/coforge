@@ -187,9 +187,9 @@ VAPID public/private key 和 OTLP Traces 接入地址写入主机
 `COFORGE_WEB_PUSH_SUBJECT=https://coforge.cn`；
 这些值不会写入 Compose `.env`；OTLP 接入地址通过文件路径变量提供给 Web。Issuer 固定为
 `https://coforge.authing.cn/oidc`，callback 固定为
-`https://staging.coforge.cn/auth/callback`，变更必须走代码评审。改 GitHub Environment 后须
-重新部署才会进容器。不要把这些值提交进 git，也不要在主机 bootstrap 循环里用
-`openssl` 生成它们。
+`https://staging.coforge.cn/auth/callback`，Authing 应用还必须允许 logout redirect URL
+`https://staging.coforge.cn/`。变更必须走代码评审。改 GitHub Environment 后须重新部署才会
+进容器。不要把这些值提交进 git，也不要在主机 bootstrap 循环里用 `openssl` 生成它们。
 
 VAPID pair 必须跨发布、重启和 Web 副本保持稳定。轮换会使已有浏览器 subscription
 需要重新订阅，因此必须作为受控维护操作执行；更新 GitHub Environment 中匹配的两个

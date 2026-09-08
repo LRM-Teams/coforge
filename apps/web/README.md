@@ -19,9 +19,11 @@ Browser login uses Authing as the hosted OpenID Connect IdP. Copy
 random `COFORGE_SESSION_SECRET` of at least 32 characters. Do not commit the
 secret. In the Authing console, register the callback URL
 `http://localhost:8788/auth/callback` exactly, and the logout redirect URL
-`http://localhost:8788/login`. Keep the application type as a standard web app,
+`http://localhost:8788/`. Keep the application type as a standard web app,
 and use authorization-code mode. Computer CLI login is a separate Device Flow
-client and is unchanged.
+client and is unchanged. Each deployed environment must likewise allow its
+public origin with a trailing slash as a logout redirect URL, such as
+`https://staging.coforge.cn/` or `https://coforge.cn/`.
 
 For local UI work without Authing, uncomment `COFORGE_DEV_SKIP_AUTH=1` in
 `apps/web/.env`. This returns a fixed dev user on the server and is ignored when
