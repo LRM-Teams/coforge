@@ -4,15 +4,18 @@ import {
   type CodeAgentModelMetadata,
   type RuntimeMetadata,
 } from "@coforge/protocol";
-import { agentEnvironment } from "./environment";
+import { agentEnvironment, codeAgentExecutableSearchPath } from "./environment";
 import { JsonlProcess } from "./jsonl-process";
 import { probeClaudeCodeVersion, resolveClaudeCodeExecutable } from "./claude-code/runtime";
 import { COFORGE_DAEMON_VERSION } from "../version";
 import { COFORGE_PROVIDER_MODELS_GENERATED } from "@coforge/agent";
 import { COFORGE_AGENT_RUNTIME_METADATA } from "./pi/metadata";
+import { getLogger } from "@logtape/logtape";
+
+const logger = getLogger(["coforge", "daemon", "runtime-inventory"]);
 
 export interface ExternalCodeAgentProbe {
-  which(name: string): string | undefined;
+  which(name: string, searchPath?: string): string | undefined;
   spawn(executable: string): {
     stdout: ReadableStream<Uint8Array>;
     exited: Promise<number>;
@@ -22,11 +25,12 @@ export interface ExternalCodeAgentProbe {
   resolve?(
     provider: RuntimeMetadata["provider"],
     name: string,
+    searchPath?: string,
   ): string | undefined | Promise<string | undefined>;
 }
 
 const bunProbe: ExternalCodeAgentProbe = {
-  which: (name) => Bun.which(name) ?? undefined,
+  which: (name, searchPath) => Bun.which(name, { PATH: searchPath }) ?? undefined,
   spawn: (executable) =>
     Bun.spawn({ cmd: [executable, "--version"], stdout: "pipe", stderr: "ignore" }),
   probe: async (provider, executable) => {
@@ -56,10 +60,12 @@ const bunProbe: ExternalCodeAgentProbe = {
     }
     return readVersionWithBun(executable);
   },
-  resolve: async (provider, name) =>
+  resolve: async (provider, name, searchPath) =>
     provider === RUNTIME_PROVIDER.CLAUDE_CODE
-      ? await resolveClaudeCodeExecutable((value) => Bun.which(value) ?? undefined)
-      : (Bun.which(name) ?? undefined),
+      ? await resolveClaudeCodeExecutable(
+          (value) => Bun.which(value, { PATH: searchPath }) ?? undefined,
+        )
+      : (Bun.which(name, { PATH: searchPath }) ?? undefined),
 };
 
 const externalCodeAgents = [
@@ -70,12 +76,24 @@ const externalCodeAgents = [
 
 export async function discoverExternalCodeAgents(
   probe: ExternalCodeAgentProbe = bunProbe,
+  environment: Readonly<Record<string, string | undefined>> = Bun.env,
+  platform: NodeJS.Platform = process.platform,
 ): Promise<RuntimeMetadata[]> {
   const runtimes: RuntimeMetadata[] = [];
+  const searchPath = codeAgentExecutableSearchPath(environment, platform);
   for (const { provider, executable: name } of externalCodeAgents) {
-    const executable = (await probe.resolve?.(provider, name)) ?? probe.which(name);
-    if (!executable) continue;
     try {
+      const executable =
+        (await probe.resolve?.(provider, name, searchPath)) ?? probe.which(name, searchPath);
+      if (!executable) {
+        logger.info("Code Agent executable was not found", {
+          event: "code_agent_runtime:not_found",
+          provider,
+          executable_name: name,
+          outcome: "unavailable",
+        });
+        continue;
+      }
       const providerProbe =
         provider === RUNTIME_PROVIDER.CODEX ? probe.probe?.(provider, executable) : undefined;
       if (providerProbe !== undefined) {
@@ -108,7 +126,16 @@ export async function discoverExternalCodeAgents(
           throw new Error("runtime version probe timed out");
         }),
       ]);
-      if (exitCode !== 0) continue;
+      if (exitCode !== 0) {
+        logger.warning("Code Agent version probe exited unsuccessfully", {
+          event: "code_agent_runtime:probe_failed",
+          provider,
+          executable_name: name,
+          exit_code: exitCode,
+          outcome: "unavailable",
+        });
+        continue;
+      }
       const version = output.trim().split(/\s+/).pop();
       if (version)
         runtimes.push({
@@ -121,7 +148,14 @@ export async function discoverExternalCodeAgents(
                 ? "Codex"
                 : "Claude Code",
         });
-    } catch {
+    } catch (error) {
+      logger.warning("Code Agent runtime probe failed", {
+        event: "code_agent_runtime:probe_failed",
+        provider,
+        executable_name: name,
+        error_code: diagnosticErrorCode(error),
+        outcome: "unavailable",
+      });
       // An executable without a usable version is not available inventory.
     }
   }
@@ -139,21 +173,32 @@ type CatalogCommands = {
 };
 
 export async function discoverCodeAgentInventory(
-  options: { probe?: ExternalCodeAgentProbe; commands?: CatalogCommands; cwd?: string } = {},
+  options: {
+    probe?: ExternalCodeAgentProbe;
+    commands?: CatalogCommands;
+    cwd?: string;
+    environment?: Readonly<Record<string, string | undefined>>;
+    platform?: NodeJS.Platform;
+  } = {},
 ): Promise<CodeAgentInventory> {
   const probe = options.probe ?? bunProbe;
-  const runtimes = [COFORGE_AGENT_RUNTIME_METADATA, ...(await discoverExternalCodeAgents(probe))];
+  const environment = options.environment ?? Bun.env;
+  const searchPath = codeAgentExecutableSearchPath(environment, options.platform);
+  const runtimes = [
+    COFORGE_AGENT_RUNTIME_METADATA,
+    ...(await discoverExternalCodeAgents(probe, environment, options.platform)),
+  ];
   const cwd = options.cwd ?? process.cwd();
   const commands = options.commands ?? {};
   const discoveries: Array<Promise<CodeAgentModelCatalog | undefined>> = [];
   discoveries.push(Promise.resolve(discoverCoforgeCatalog()));
   if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.PI)) {
-    const executable = probe.which("pi");
+    const executable = probe.which("pi", searchPath);
     if (executable)
       discoveries.push(discoverPiCatalogFromProcess(commands.pi ?? [executable], cwd));
   }
   if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.CODEX)) {
-    const executable = probe.which("codex");
+    const executable = probe.which("codex", searchPath);
     if (executable)
       discoveries.push(discoverCodexCatalog(commands.codex ?? [executable, "app-server"], cwd));
   }
@@ -177,7 +222,7 @@ async function discoverCodexCatalog(
   command: readonly string[],
   cwd: string,
 ): Promise<CodeAgentModelCatalog | undefined> {
-  return withJsonlProcess(command, cwd, async (process) => {
+  return withJsonlProcess(RUNTIME_PROVIDER.CODEX, command, cwd, async (process) => {
     await within(
       process.request({
         method: "initialize",
@@ -211,6 +256,7 @@ async function discoverCodexCatalog(
 }
 
 async function withJsonlProcess<T>(
+  provider: RuntimeMetadata["provider"],
   command: readonly string[],
   cwd: string,
   discover: (process: JsonlProcess) => Promise<T>,
@@ -218,7 +264,13 @@ async function withJsonlProcess<T>(
   const process = new JsonlProcess(command, cwd, agentEnvironment(undefined));
   try {
     return await discover(process);
-  } catch {
+  } catch (error) {
+    logger.warning("Code Agent model catalog discovery failed", {
+      event: "code_agent_catalog:discovery_failed",
+      provider,
+      error_code: diagnosticErrorCode(error),
+      outcome: "unavailable",
+    });
     return undefined;
   } finally {
     await process.dispose().catch(() => undefined);
@@ -229,7 +281,7 @@ async function discoverPiCatalogFromProcess(
   command: readonly string[],
   cwd: string,
 ): Promise<CodeAgentModelCatalog | undefined> {
-  return withJsonlProcess(command, cwd, async (process) => {
+  return withJsonlProcess(RUNTIME_PROVIDER.PI, command, cwd, async (process) => {
     const response = await within(process.request({ type: "get_available_models" }));
     const models = asRecord(response.data)?.models;
     if (!Array.isArray(models)) throw new Error("Pi model catalog is unavailable");
@@ -260,6 +312,11 @@ async function readVersionWithBun(executable: string): Promise<string | undefine
   } finally {
     process.kill();
   }
+}
+
+function diagnosticErrorCode(error: unknown): string {
+  if (error && typeof error === "object" && "code" in error) return String(error.code);
+  return error instanceof Error ? error.name : "UnknownError";
 }
 
 function piModel(value: unknown): CodeAgentModelMetadata | undefined {

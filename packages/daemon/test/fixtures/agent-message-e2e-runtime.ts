@@ -1,4 +1,5 @@
 import { MIMEType } from "node:util";
+import { mkdir } from "node:fs/promises";
 
 const descendant = Bun.spawn({
   cmd: [process.execPath, "-e", "setInterval(() => {}, 1000)"],
@@ -10,6 +11,17 @@ const decoder = new TextDecoder();
 let buffer = "";
 const runtimeConfig = { modelProvider: "", model: "", reasoning: "" };
 let messageNoticeCount = 0;
+const requestedSessionIdFlag = process.argv.indexOf("--session-id");
+const requestedSessionFileFlag = process.argv.indexOf("--session");
+const sessionFile =
+  requestedSessionFileFlag >= 0 ? process.argv[requestedSessionFileFlag + 1] : undefined;
+const sessionHeader = sessionFile ? await Bun.file(sessionFile).json() : undefined;
+const sessionId =
+  requestedSessionIdFlag >= 0
+    ? process.argv[requestedSessionIdFlag + 1] || ""
+    : typeof sessionHeader?.id === "string"
+      ? sessionHeader.id
+      : "e2e-session";
 
 for await (const chunk of Bun.stdin.stream()) {
   buffer += decoder.decode(chunk, { stream: true });
@@ -41,7 +53,19 @@ async function handle(command: {
   level?: string;
 }) {
   if (command.type === "get_state" || command.type === "get_commands") {
-    write({ type: "response", id: command.id, command: command.type, success: true, data: {} });
+    await mkdir(".pi-sessions", { recursive: true });
+    await Bun.write(
+      `.pi-sessions/${sessionId}.jsonl`,
+      `${JSON.stringify({ type: "session", id: sessionId, cwd: process.cwd() })}\n`,
+    );
+    write({
+      type: "response",
+      id: command.id,
+      command: command.type,
+      success: true,
+      data:
+        command.type === "get_state" ? { sessionId, ...(sessionFile ? { sessionFile } : {}) } : {},
+    });
     await Bun.write(".e2e-agent-pid", String(process.pid));
     await Bun.write(
       ".e2e-agent-processes.json",

@@ -1,6 +1,6 @@
 # CoForge 本地应用日志契约
 
-状态：设计已固定，代码实现待后续 TDD 变更
+状态：Computer 与 Workspace Daemon 的滚动 JSONL sink 已实现；其余分类按本文后续补齐
 
 更新时间：2026-08-27
 
@@ -30,9 +30,9 @@ LogTape 的社区规模小于传统 Node.js logger，但当前需求直接使用
 
 ## 3. 本地目录和分类
 
-日志根目录固定为 `<coforge-data-dir>/logs`。`coforge-data-dir` 是 CoForge 自己的 per-user application data directory，和非敏感配置、安装状态及未来本地 spool 共用一个受管理根目录；日志不得另行散落到当前工作目录或平台的独立 log root。
+日志根目录固定为所属进程 state directory 下的 `logs`。Computer 使用 Computer data directory；每个 Workspace Daemon 使用该 binding 的独立 state directory，因此不同 Workspace 进程不会并发写同一个日志文件。日志和非敏感配置、安装状态及未来本地 spool 共用受管理根目录，不得另行散落到当前工作目录或平台的独立 log root。
 
-`coforge-data-dir` 的 Linux/macOS/Windows 物理位置由本地 storage layout 设计一次性固定；该决定尚未完成，日志模块不得抢先发明 `~/.coforge`、`Library/Logs/CoForge` 或另一套 root。测试可以显式注入临时 data directory。
+当前 storage layout 由 Computer 统一解析为 per-user `~/.coforge` 根（Windows 使用对应用户目录）；测试可以显式注入临时 state directory。Workspace Daemon 的活动日志位于其 state directory 的 `logs/daemon/daemon.jsonl`。
 
 CoForge data directory 和 `logs/` 权限必须限制为当前用户，Unix mode 为 `0700`；活动和滚动文件为 `0600`。启动时拒绝 symlink root、不可写目录和权限无法收紧的文件。
 

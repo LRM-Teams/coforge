@@ -8,6 +8,7 @@ import {
   probeClaudeCodeVersion,
   resolveClaudeCodeExecutable,
 } from "../src/code-agent/claude-code/runtime";
+import { COFORGE_DAEMON_VERSION } from "../src/version";
 
 function probeFor(
   runtimes: Record<string, { path: string; version: string; exitCode?: number }>,
@@ -25,6 +26,66 @@ function probeFor(
 }
 
 describe("external Code Agent inventory", () => {
+  test("searches user CLI directories when the Daemon service PATH is minimal", async () => {
+    const searchedPaths: string[] = [];
+    const probe: ExternalCodeAgentProbe = {
+      which(name, searchPath) {
+        searchedPaths.push(searchPath ?? "");
+        if (name === "codex" && searchPath?.includes("/Users/frank/.local/bin")) {
+          return "/Users/frank/.local/bin/codex";
+        }
+        if (name === "claude" && searchPath?.includes("/Users/frank/.local/bin")) {
+          return "/Users/frank/.local/bin/claude";
+        }
+        return undefined;
+      },
+      spawn: (executable) => ({
+        stdout: new Blob([executable.endsWith("codex") ? "codex-cli 0.151.0" : "2.1.0"]).stream(),
+        exited: Promise.resolve(0),
+      }),
+    };
+
+    await expect(
+      discoverExternalCodeAgents(probe, {
+        HOME: "/Users/frank",
+        PATH: "/usr/bin:/bin",
+      }),
+    ).resolves.toEqual([
+      { provider: "codex", version: "0.151.0", displayName: "Codex" },
+      { provider: "claude-code", version: "2.1.0", displayName: "Claude Code" },
+    ]);
+    expect(searchedPaths.every((path) => path.includes("/Users/frank/.local/bin"))).toBe(true);
+  });
+
+  test("searches standard macOS package-manager directories outside launchd's PATH", async () => {
+    const searchedPaths: string[] = [];
+    const probe: ExternalCodeAgentProbe = {
+      which(name, searchPath) {
+        searchedPaths.push(searchPath ?? "");
+        if (name === "pi" && searchPath?.includes("/opt/homebrew/bin")) {
+          return "/opt/homebrew/bin/pi";
+        }
+        return undefined;
+      },
+      spawn: () => ({
+        stdout: new Blob(["0.84.4\n"]).stream(),
+        exited: Promise.resolve(0),
+      }),
+    };
+
+    await expect(
+      discoverExternalCodeAgents(
+        probe,
+        {
+          HOME: "/Users/frank",
+          PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+        },
+        "darwin",
+      ),
+    ).resolves.toEqual([{ provider: "pi", version: "0.84.4", displayName: "Pi" }]);
+    expect(searchedPaths.every((path) => path.includes("/usr/local/bin"))).toBe(true);
+  });
+
   test("resolves Claude Code from PATH before any platform fallback", async () => {
     await expect(resolveClaudeCodeExecutable(() => "/custom/bin/claude")).resolves.toBe(
       "/custom/bin/claude",
@@ -144,7 +205,7 @@ describe("external Code Agent inventory", () => {
 
     expect(inventory.runtimes[0]).toEqual({
       provider: "coforge",
-      version: "builtin",
+      version: COFORGE_DAEMON_VERSION,
       displayName: "CoForge",
     });
     const coforgeCatalog = inventory.catalogs.find((catalog) => catalog.provider === "coforge");

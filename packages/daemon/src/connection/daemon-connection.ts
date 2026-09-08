@@ -52,6 +52,7 @@ import {
 import { isAgentApiKey } from "../credentials/agent-api-key";
 import type { AgentRuntimeProviderConfig } from "../code-agent/contract";
 import { AgentMessageRequestError } from "./agent-message-request-error";
+import { getLogger } from "@logtape/logtape";
 
 export type AgentLaunchConfig = {
   agentApiKey: string;
@@ -61,6 +62,7 @@ export type AgentLaunchConfig = {
 const AGENT_STATUS_REFRESH_MS = 30_000;
 const COMPUTER_STATUS_REFRESH_MS = 30_000;
 const RECONNECT_READY_RETRY_MS = 1_000;
+const logger = getLogger(["coforge", "daemon", "connection"]);
 
 export interface DaemonConnectionTiming {
   schedule(callback: () => void, delayMs: number): unknown;
@@ -214,7 +216,6 @@ export const defaultAgentMessageHttpClient: AgentMessageHttpClient = {
 /** The Daemon's single connection for its configured Workspace. */
 export class DaemonConnection implements DaemonConnectionClient {
   #client: CentrifugeWorkspaceClient | undefined;
-  #daemonSubscription: CentrifugeWorkspaceSubscription | undefined;
   #connected = false;
   #hasConnected = false;
   #agentStartListener: ((intent: AgentStartIntent) => void) | undefined;
@@ -262,24 +263,19 @@ export class DaemonConnection implements DaemonConnectionClient {
     );
     this.#client = client;
     const daemonChannel = this.#daemonChannel(config.workspaceId, config.computerId);
-    if (!client.newSubscription) {
-      client.on("publication", ({ channel, data }) => {
-        if (client !== this.#client || channel !== daemonChannel) return;
-        this.#handleAgentPublication(data, config);
-      });
-    }
-    const subscription = client.newSubscription?.(daemonChannel);
-    this.#daemonSubscription = subscription;
-    subscription?.on("publication", ({ data }) => {
-      if (client === this.#client) {
-        this.#handleAgentPublication(data, config);
-      }
+    client.on("publication", ({ channel, data }) => {
+      if (client !== this.#client || channel !== daemonChannel) return;
+      this.#handleAgentPublication(data, config);
     });
-    subscription?.subscribe();
     client.on("disconnected", () => {
       if (client === this.#client) {
         this.#connected = false;
         this.#cancelReadyRecovery();
+        logger.warning("Daemon cloud connection disconnected", {
+          event: "daemon_connection:disconnected",
+          workspace_id: config.workspaceId,
+          computer_id: config.computerId,
+        });
       }
     });
     await new Promise<void>((resolve, reject) => {
@@ -288,6 +284,13 @@ export class DaemonConnection implements DaemonConnectionClient {
         const reconnect = this.#hasConnected;
         this.#connected = true;
         this.#hasConnected = true;
+        logger.info("Daemon cloud connection established", {
+          event: "daemon_connection:connected",
+          workspace_id: config.workspaceId,
+          computer_id: config.computerId,
+          subscription_source: "connect_proxy",
+          outcome: "ok",
+        });
         void client
           .rpc(
             DAEMON_CONNECTION_STATUS_METHOD,
@@ -309,12 +312,19 @@ export class DaemonConnection implements DaemonConnectionClient {
         }
         resolve();
       });
-      client.on("error", reject);
+      client.on("error", (error) => {
+        logger.error("Daemon cloud connection failed", {
+          event: "daemon_connection:failed",
+          workspace_id: config.workspaceId,
+          computer_id: config.computerId,
+          error_code: diagnosticErrorCode(error),
+          outcome: "failed",
+        });
+        reject(error);
+      });
       client.connect();
     }).catch((error) => {
       this.#cancelReadyRecovery();
-      subscription?.unsubscribe();
-      this.#daemonSubscription = undefined;
       client.disconnect();
       this.#client = undefined;
       throw error;
@@ -597,7 +607,15 @@ export class DaemonConnection implements DaemonConnectionClient {
           else this.#agentStartListener?.(intent);
         }
       }
-    } catch {
+    } catch (error) {
+      logger.warning("Rejected invalid Daemon control publication", {
+        event: "daemon_control:rejected",
+        workspace_id: config.workspaceId,
+        computer_id: config.computerId,
+        payload_bytes: data.byteLength,
+        error_code: diagnosticErrorCode(error),
+        outcome: "rejected",
+      });
       // Invalid publications are rejected at the protocol boundary and never reach the runtime.
     }
   }
@@ -645,9 +663,28 @@ export class DaemonConnection implements DaemonConnectionClient {
   async ready(createRequest: () => DaemonRuntimeReadyRequest): Promise<void> {
     if (!this.#connected || !this.#client) throw new Error("daemon connection is not connected");
     this.#readyPublications = [];
+    const request = createRequest();
     try {
-      await this.#sendReady(this.#client, createRequest());
+      await this.#sendReady(this.#client, request);
       this.#readyRequestFactory = createRequest;
+      logger.info("Daemon ready recovery completed", {
+        event: "daemon_ready:completed",
+        request_id: request.requestId,
+        workspace_id: request.workspaceId,
+        computer_id: request.computerId,
+        running_agent_count: request.runningAgentIds.length,
+        outcome: "ok",
+      });
+    } catch (error) {
+      logger.error("Daemon ready recovery failed", {
+        event: "daemon_ready:failed",
+        request_id: request.requestId,
+        workspace_id: request.workspaceId,
+        computer_id: request.computerId,
+        error_code: diagnosticErrorCode(error),
+        outcome: "failed",
+      });
+      throw error;
     } finally {
       this.#dispatchReadyPublications();
     }
@@ -663,7 +700,21 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   async reportAgentSession(report: AgentSessionReport): Promise<void> {
     if (!this.#connected || !this.#client) throw new Error("daemon connection is not connected");
-    await this.#client.rpc(AGENT_SESSION_METHOD, encodeAgentSessionReport(report));
+    try {
+      await this.#client.rpc(AGENT_SESSION_METHOD, encodeAgentSessionReport(report));
+    } catch (error) {
+      logger.error("Agent session report failed", {
+        event: "agent_session:report_failed",
+        request_id: report.requestId,
+        workspace_id: report.workspaceId,
+        computer_id: report.computerId,
+        agent_id: report.agentId,
+        provider: report.provider,
+        error_code: diagnosticErrorCode(error),
+        outcome: "failed",
+      });
+      throw error;
+    }
   }
 
   async #sendReady(
@@ -688,11 +739,20 @@ export class DaemonConnection implements DaemonConnectionClient {
     createRequest: () => DaemonRuntimeReadyRequest,
   ): Promise<void> {
     if (client !== this.#client || client !== this.#readyRecoveryClient || !this.#connected) return;
+    const request = createRequest();
     try {
-      await this.#sendReady(client, createRequest());
-    } catch {
+      await this.#sendReady(client, request);
+    } catch (error) {
       if (client !== this.#client || client !== this.#readyRecoveryClient || !this.#connected)
         return;
+      logger.warning("Daemon reconnect recovery will retry", {
+        event: "daemon_ready:retry_scheduled",
+        request_id: request.requestId,
+        workspace_id: request.workspaceId,
+        computer_id: request.computerId,
+        error_code: diagnosticErrorCode(error),
+        retry_delay_ms: RECONNECT_READY_RETRY_MS,
+      });
       this.#readyRetryTimer = this.timing.schedule(() => {
         this.#readyRetryTimer = undefined;
         void this.#attemptReadyRecovery(client, createRequest);
@@ -736,8 +796,6 @@ export class DaemonConnection implements DaemonConnectionClient {
       this.#computerStatusRefreshTimer = undefined;
     }
     await this.#statusRpcQueue;
-    this.#daemonSubscription?.unsubscribe();
-    this.#daemonSubscription = undefined;
     this.#client = undefined;
     this.#connected = false;
     this.#hasConnected = false;
@@ -755,6 +813,11 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#statusRpcQueue = Promise.resolve();
     client?.disconnect();
   }
+}
+
+function diagnosticErrorCode(error: unknown): string {
+  if (error && typeof error === "object" && "code" in error) return String(error.code);
+  return error instanceof Error ? error.name : "UnknownError";
 }
 
 function parseAgentRuntimeProviderConfig(value: unknown): AgentRuntimeProviderConfig | undefined {

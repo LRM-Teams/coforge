@@ -8,6 +8,7 @@ import {
   restartComputerInputSchema,
   scanUsageInputSchema,
   setRuntimeVisibilityInputSchema,
+  updateComputerDisplayNameInputSchema,
 } from "./computer.schemas";
 import { requireBrowserUser } from "../../server/auth/require-user.server";
 import { getDatabaseClient } from "../../server/db/client.server";
@@ -131,7 +132,8 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
         computer: {
           select: {
             id: true,
-            machineId: true,
+            name: true,
+            displayName: true,
             kind: true,
             ownerId: true,
           },
@@ -146,7 +148,8 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
       const computerRuntimes = runtimes.filter((runtime) => runtime.computerId === computer.id);
       return {
         id: computer.id,
-        machineId: computer.machineId,
+        name: computer.name,
+        displayName: computer.displayName,
         kind: computer.kind,
         connectedAt: createdAt,
         ownedByCurrentUser: computer.ownerId === user.id,
@@ -209,6 +212,25 @@ export const setRuntimeVisibility = createServerFn({ method: "POST" })
     const { db, visibility } = runtimeVisibility();
     const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
     return visibility.setPublic({ workspaceId, userId: user.id }, data.runtimeId, data.isPublic);
+  });
+
+export const updateComputerDisplayName = createServerFn({ method: "POST" })
+  .validator(updateComputerDisplayNameInputSchema)
+  .handler(async ({ data }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Computer persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const result = await db.computer.updateMany({
+      where: {
+        id: data.computerId,
+        ownerId: user.id,
+        workspaces: { some: { workspaceId } },
+      },
+      data: { displayName: data.displayName },
+    });
+    if (result.count !== 1) throw new Error("Computer is not available");
+    return { displayName: data.displayName };
   });
 
 function modelMetadata(value: unknown): CodeAgentModelMetadata[] | undefined {

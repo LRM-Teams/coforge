@@ -15,6 +15,8 @@ const request = {
   protocolMajor: 1,
   requestId: "request-1",
   workspaceSlug: "team",
+  name: "test-computer",
+  displayName: "Test Computer",
   machineId: "machine-1",
   platform: "linux",
   osVersion: "1",

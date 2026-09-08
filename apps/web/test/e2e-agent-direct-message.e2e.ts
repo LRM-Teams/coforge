@@ -25,8 +25,12 @@ import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
 } from "../src/server/db/repositories/agent.repositories.server";
+import { createAgentSessions } from "../src/server/db/repositories/agent-session.repositories.server";
 import { ManageAgents } from "../src/server/agents/manage-agents.server";
 import { PublishAgentRuntimeControl } from "../src/server/agents/agent-runtime-control.server";
+import { AgentControl } from "../src/server/agents/agent-control.server";
+import { getAgentRuntimeLock } from "../src/server/agents/agent-runtime-lock.server";
+import { PrismaAgentControlStore } from "../src/server/db/repositories/agent-control.repositories.server";
 import { PrismaDirectConversationRepository } from "../src/server/db/repositories/direct-conversation.repositories.server";
 import { SendDirectMessage } from "../src/server/conversations/direct-message.server";
 import { RedisMessageRequestIdempotency } from "../src/server/conversations/redis-message-request-idempotency.server";
@@ -94,6 +98,8 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       protocolMajor: 1,
       requestId: crypto.randomUUID(),
       workspaceSlug: "e2e-workspace",
+      name: "e2e-computer",
+      displayName: "E2E Computer",
       machineId: "e2e-machine",
       platform: "linux",
       osVersion: "e2e",
@@ -136,7 +142,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     },
     body: JSON.stringify({ agentId: created.agent.id, workspaceId }),
   });
-  expect(keyProbe.status).toBe(200);
+  expect(keyProbe.status).toBe(403);
   await keyProbe.body?.cancel();
 
   const credentials = new InMemoryDaemonCredentialStore();
@@ -191,7 +197,10 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
         ),
     },
     proxy,
-    async () => ({ runtimes: [], catalogs: [] }),
+    async () => ({
+      runtimes: [{ provider: "pi", version: "fixture", displayName: "Pi E2E fixture" }],
+      catalogs: [],
+    }),
     daemonStateDirectory,
   );
   const statusEvents: AgentStatusEvent[] = [];
@@ -376,14 +385,14 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     ]);
     expect(firstLaunchActivity.map(({ detailKind }) => detailKind)).toEqual([
       "starting",
-      "turn_completed",
+      "idle",
       "freshness_hold",
       "running_command",
-      "reading_file",
-      "writing_file",
-      "editing_file",
-      "using_tool",
-      "turn_completed",
+      "tool_started",
+      "tool_started",
+      "tool_started",
+      "tool_started",
+      "idle",
     ]);
     expect(firstLaunchActivity[3]!.detail).toBe("printf e2e-activity");
     expect(firstLaunchActivity.slice(4, 8).map(({ detail }) => detail)).toEqual([
@@ -442,10 +451,20 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       ).agentReadThroughSequence,
     ).toBe(offlineMessage.sequence);
 
+    const centrifugo = createCentrifugoServerApi();
+    const sessions = createAgentSessions(db);
     const runtimeControl = new PublishAgentRuntimeControl(
       new RepositoryAgentAuthorization(agents),
-      createCentrifugoServerApi(),
+      centrifugo,
       async () => undefined,
+      sessions,
+      new AgentControl(
+        new PrismaAgentControlStore(db),
+        centrifugo,
+        getAgentRuntimeLock(),
+        undefined,
+        sessions,
+      ),
     );
     const updated = await new ManageAgents(
       agents,
@@ -499,8 +518,11 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
         })) >= 1,
     );
     const replacementActivity = await db.agentActivity.findFirstOrThrow({
-      where: { agentId: created.agent.id, launchId: { not: firstLaunchId } },
-      orderBy: { createdAt: "desc" },
+      where: {
+        agentId: created.agent.id,
+        launchId: { not: firstLaunchId },
+        clientSeq: 1,
+      },
     });
     expect(replacementActivity.clientSeq).toBe(1);
     expect(replacementActivity.detailKind).toBe("starting");
@@ -573,10 +595,10 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     });
     expect(activityHtml).toContain(errorMessage);
     expect(activityHtml).toContain("running_command");
-    expect(activityHtml).toContain("reading_file");
-    expect(activityHtml).toContain("writing_file");
-    expect(activityHtml).toContain("editing_file");
-    expect(activityHtml).toContain("using_tool");
+    expect(activityHtml).toContain("read_file");
+    expect(activityHtml).toContain("write_file");
+    expect(activityHtml).toContain("edit_file");
+    expect(activityHtml).toContain("web_search");
     expect(activityHtml).toContain("printf e2e-activity");
     expect(activityHtml).toContain("/workspace/e2e-read.ts");
     expect(activityHtml).toContain("/workspace/e2e-write.ts");

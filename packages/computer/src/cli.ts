@@ -20,7 +20,7 @@ import { COFORGE_RELEASE_FEED_URL, COFORGE_SERVER_URL } from "./release-channel"
 import { FileComputerConfig, loadBuildProfile } from "./local-config";
 import { resolveComputerConfigDirectory } from "./paths";
 import { ComputerSetup } from "./setup/computer-setup";
-import { currentComputerPlatform } from "./platform";
+import { currentComputerNames, currentComputerPlatform } from "./platform";
 import { FileMachineIdFallback, resolveMachineId } from "./machine-id";
 import {
   CentrifugoComputerRegisterTransport,
@@ -350,7 +350,9 @@ export function createSetupCommand(
     credentials,
     metadataProvider: {
       async get() {
+        const computerNames = currentComputerNames({ platform: platform.os });
         return {
+          ...computerNames,
           platform: platform.os,
           osVersion: process.version,
           computerVersion: VERSION,

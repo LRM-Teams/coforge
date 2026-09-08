@@ -132,8 +132,8 @@ test("cloud and daemon preserve Restart identity, reset sessions, fence Full Res
       join(root, "state"),
     );
   runtime = createRuntime();
-  const execute = (action: "restart" | "reset-session" | "full-reset") =>
-    control.execute({
+  const execute = async (action: "restart" | "reset-session" | "full-reset") => {
+    const result = await control.execute({
       action,
       agentId: "a",
       workspaceId: "w",
@@ -141,6 +141,9 @@ test("cloud and daemon preserve Restart identity, reset sessions, fence Full Res
       requestId: crypto.randomUUID(),
       confirmed: true,
     });
+    while (deliveries.size > 0) await Promise.all(deliveries);
+    return result;
+  };
   try {
     await runtime.start(connection);
     expect((await execute("restart")).phase).toBe("completed");

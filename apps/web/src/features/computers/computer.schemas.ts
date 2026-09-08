@@ -30,3 +30,7 @@ export const setRuntimeVisibilityInputSchema = z.object({
   runtimeId: z.string().min(1),
   isPublic: z.boolean(),
 });
+export const updateComputerDisplayNameInputSchema = z.object({
+  computerId: z.string().min(1),
+  displayName: z.string().trim().min(1).max(200),
+});

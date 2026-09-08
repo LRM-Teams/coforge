@@ -11,6 +11,8 @@ export type SetupResult = { workspace: AccessibleWorkspace; configPath: string }
 
 export interface ComputerMetadataProvider {
   get(): Promise<{
+    name: string;
+    displayName: string;
     platform: ComputerPlatformName;
     osVersion: string;
     computerVersion: string;
@@ -133,6 +135,8 @@ export class ComputerSetup {
             input.workspaceSlug ?? workspace.slug,
           ),
           workspaceSlug: workspace.slug,
+          name: metadata.name,
+          displayName: metadata.displayName,
           machineId: metadata.machineId,
           platform: metadata.platform,
           osVersion: metadata.osVersion,

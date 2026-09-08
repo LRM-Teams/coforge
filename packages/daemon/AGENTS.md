@@ -118,9 +118,9 @@ configuration and recovery; the entrypoint assembles these policies, not their r
 - `code-agent/` adapts installed provider processes into the provider-neutral
   contract. Higher layers must consume normalized status and activity messages and
   must not parse Claude, Codex, or Pi output. This module inventories external
-  Codex and Claude Code installations from Daemon's effective PATH at startup
-  and after reconnect. Built-in Pi is neither scanned nor reported in Computer
-  inventory. It also discovers the model catalogs available to the current Pi,
+  Pi, Codex, and Claude Code installations from Daemon's effective PATH at startup
+  and after reconnect. Built-in CoForge Agent is reported from its embedded version
+  rather than scanned from PATH. It also discovers the model catalogs available to the current Pi,
   and Codex accounts, reports the maintained Claude Code model catalog when
   Claude Code is installed, and translates persisted model/reasoning selections
   into each provider's native startup configuration. Claude Code model

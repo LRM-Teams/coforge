@@ -81,9 +81,7 @@ export function ComputerLayout({
                   <ComputerTile computer={computer} online={computer.online} />
                   <span className="flex min-w-0 flex-1 flex-col gap-1">
                     <span className="truncate text-xs font-medium">{computerLabel(computer)}</span>
-                    <span className="truncate font-mono text-xs text-muted-foreground">
-                      {computer.machineId}
-                    </span>
+                    <span className="truncate text-xs text-muted-foreground">{computer.name}</span>
                   </span>
                 </Link>
               </li>

@@ -101,6 +101,8 @@ export type ComputerRegisterRequest = {
   protocolMajor: number;
   requestId: string;
   workspaceSlug: string;
+  name: string;
+  displayName: string;
   machineId: string;
   platform: string;
   osVersion: string;

@@ -56,8 +56,15 @@ export class PrismaComputerRegistrationRepository implements ComputerRegistratio
             machineId: request.machineId,
           },
         },
-        create: { ownerId: principal.userId, machineId: request.machineId },
-        update: {},
+        create: {
+          ownerId: principal.userId,
+          machineId: request.machineId,
+          name: request.name.trim(),
+          displayName: request.displayName.trim(),
+        },
+        update: {
+          name: request.name.trim(),
+        },
       });
       const daemonApiKey = prepareDaemonApiKey({
         principal,

@@ -9,7 +9,7 @@ A CoForge-owned person identity authorizing an interactive management action. Ex
 _Avoid_: Account, operator, Computer user
 
 **Computer**:
-The long-lived service identity of one per-user CoForge installation profile registered with one CoForge issuer. It is distinct from both the User who registered it and the physical hardware.
+The long-lived service identity of one per-user CoForge installation profile registered with one CoForge issuer. Its `name` is the operating-system hostname and its `displayName` is the human-facing Computer Name or pretty hostname used for display and selection. It is distinct from both the User who registered it and the physical hardware.
 _Avoid_: Device, daemon, machine credential
 
 **Workspace**:
@@ -114,7 +114,7 @@ User-wide provider credential and is never shared implicitly with another Agent.
 _Avoid_: User API key, Computer credential, Agent API key
 
 **Code Agent installation**:
-An external provider executable, currently Codex or Claude Code, discovered from the Daemon's effective PATH on one Computer. Its reported provider and version form a replaceable observation, not a credential or Agent runtime. Built-in Pi is not part of this inventory.
+An external provider executable, currently Codex or Claude Code, discovered from the Daemon's effective executable search path on one Computer. That path includes the service environment and the user's standard local executable directory. Its reported provider and version form a replaceable observation, not a credential or Agent runtime. Built-in Pi is not part of this inventory.
 _Avoid_: Agent runtime, Computer registration, built-in Agent
 
 **Code Agent installation visibility**:
@@ -143,5 +143,5 @@ The trusted daemon-owned boundary that authorizes a local Agent runtime to invok
 _Avoid_: Token endpoint, token store, loopback HTTP proxy
 
 **machine_id**:
-A stable public identifier for one Computer installation profile. It is neither a credential nor necessarily the primary key of a server-side Computer record.
+A stable internal registration identifier for one Computer installation profile. It supports identity reconciliation but is neither a credential, a user-facing Computer name, nor necessarily the primary key of a server-side Computer record.
 _Avoid_: Hardware fingerprint, machine secret, Computer token

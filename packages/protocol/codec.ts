@@ -894,6 +894,8 @@ export function decodeComputerRegisterRequest(bytes: Uint8Array): ComputerRegist
     protocolMajor: value.protocolMajor,
     requestId: value.requestId,
     workspaceSlug: value.workspaceSlug,
+    name: value.name,
+    displayName: value.displayName,
     machineId: value.machineId,
     platform: value.platform,
     osVersion: value.osVersion,

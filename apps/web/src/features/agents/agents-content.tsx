@@ -25,7 +25,8 @@ import type { CreateAgentInput } from "./agent.schemas";
 
 type ComputerOption = {
   id: string;
-  machineId: string;
+  name: string;
+  displayName: string;
   online?: boolean;
   runtimes: { provider: string }[];
 };
@@ -183,13 +184,13 @@ export function AgentsContent({
                     }}
                   >
                     <SelectTrigger aria-label={m.agent_form_computer()} className="h-9 min-w-0">
-                      <SelectValue>{() => selectedComputer?.machineId}</SelectValue>
+                      <SelectValue>{() => selectedComputer?.displayName}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {computers.map((computer) => (
                         <SelectItem key={computer.id} value={computer.id}>
                           <span className="flex min-w-0 items-center gap-2">
-                            <span className="truncate">{computer.machineId}</span>
+                            <span className="truncate">{computer.displayName}</span>
                             <span className="shrink-0 text-muted-foreground">
                               ·{" "}
                               {computer.online

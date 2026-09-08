@@ -101,14 +101,17 @@ export async function runDaemon(args: string[]): Promise<void> {
     console.error("coforge-daemon requires --socket");
     process.exit(2);
   }
-  const logging = await configureDaemonLogger({ version: COFORGE_DAEMON_VERSION });
+  const daemonStateDirectory = stateDirectory ?? join(homedir(), ".coforge", "daemon");
+  const logging = await configureDaemonLogger({
+    dataDirectory: daemonStateDirectory,
+    version: COFORGE_DAEMON_VERSION,
+  });
   const logger = logging.logger;
   logger.info("Daemon process started", { event: "daemon.started", outcome: "ok" });
   const credentials = new FileDaemonCredentialStore();
-  const configStore = new DaemonConfigStore(
-    stateDirectory ?? join(homedir(), ".coforge", "daemon"),
-    { serverHttpUrl: COFORGE_DAEMON_SERVER_URL },
-  );
+  const configStore = new DaemonConfigStore(daemonStateDirectory, {
+    serverHttpUrl: COFORGE_DAEMON_SERVER_URL,
+  });
   let runtime: DaemonRuntime | undefined;
   const agentProxy = startAgentProxy({
     runtime: {
@@ -161,7 +164,7 @@ export async function runDaemon(args: string[]): Promise<void> {
         },
         agentProxy,
         discoverCodeAgentInventory,
-        stateDirectory ?? join(homedir(), ".coforge", "daemon"),
+        daemonStateDirectory,
         lifecycle(),
       );
       await runtime.start(config);
@@ -177,7 +180,7 @@ export async function runDaemon(args: string[]): Promise<void> {
           },
           agentProxy,
           discoverCodeAgentInventory,
-          stateDirectory ?? join(homedir(), ".coforge", "daemon"),
+          daemonStateDirectory,
           lifecycle(),
         );
         await runtime.start(config);
@@ -209,8 +212,12 @@ export async function runDaemon(args: string[]): Promise<void> {
   });
   try {
     await daemon.start();
-  } catch {
-    console.error("coforge-daemon: failed to recover configured Workspace");
+  } catch (error) {
+    logger.error("Daemon failed to recover configured Workspace", {
+      event: "daemon.workspace_recovery.failed",
+      error_code: diagnosticErrorCode(error),
+      outcome: "failed",
+    });
   }
   let shuttingDown = false;
   const shutdown = async () => {
@@ -234,3 +241,8 @@ export async function runDaemon(args: string[]): Promise<void> {
 
 // Standalone source/development harness; releases enter through Computer.
 if (import.meta.main) await runDaemon(Bun.argv.slice(2));
+
+function diagnosticErrorCode(error: unknown): string {
+  if (error && typeof error === "object" && "code" in error) return String(error.code);
+  return error instanceof Error ? error.name : "UnknownError";
+}

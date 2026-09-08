@@ -12,6 +12,8 @@ message ComputerRegisterRequest {
   string os_version = 6;
   string computer_version = 7;
   string registration_idempotency_key = 9;
+  string name = 10;
+  string display_name = 11;
   reserved 8;
 }
 
