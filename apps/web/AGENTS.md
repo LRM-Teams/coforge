@@ -3,6 +3,18 @@
 These instructions apply to `apps/web` and refine the repository-level
 instructions for the TanStack Start Web/backend modular monolith.
 
+## Product design
+
+- Before designing or changing product UI, read and follow
+  [the product design guidance](../../docs/design.md), including progressive
+  disclosure, task-led hierarchy, and rendered verification.
+- Reuse the existing UI primitives and the color ownership defined in
+  [design tokens](../../docs/design-tokens.md). Do not apply marketing-page
+  defaults from `design-taste-frontend` to the product workspace.
+- Keep supplemental explanations behind accessible, on-demand help when
+  appropriate; keep essential constraints, errors, and risks visible. Help
+  must work for keyboard and touch users, not only on hover.
+
 ## TanStack Start boundaries
 
 - `src/server.ts` is the TanStack Start runtime entry point. Keep it limited to
