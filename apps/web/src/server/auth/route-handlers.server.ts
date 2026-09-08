@@ -5,6 +5,7 @@ import {
   handleLoginStart,
   handleLogout,
 } from "./http.server";
+import { publicOrigin } from "../http/public-origin.server";
 
 export function loginStartHandler({ request }: { request: Request }): Response | Promise<Response> {
   return withAuthConfig(request, (config, sessionSecret) =>
@@ -23,7 +24,7 @@ export function loginCallbackHandler({ request }: { request: Request }): Promise
 export function logoutHandler({ request }: { request: Request }): Response | Promise<Response> {
   return withAuthConfig(request, (config, sessionSecret) =>
     handleLogout({
-      origin: new URL(request.url).origin,
+      origin: publicOrigin(request),
       config,
       sessionSecret,
       cookieHeader: request.headers.get("cookie") ?? "",
