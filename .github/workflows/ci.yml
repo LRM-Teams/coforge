@@ -176,3 +176,65 @@ jobs:
 
       - name: Build
         run: mise run build:web
+
+  # install.sh is gated by shellcheck in the Computer job; install.ps1 had no machine gate at all,
+  # which is how a top-level `exit` - fatal under the documented `irm ... | iex` entry point,
+  # because it terminates the user's own session - survived in it unnoticed. This job is that
+  # missing gate. It is deliberately static: running the installer end to end would need a real
+  # Windows binary in a fixture feed and would write to the runner's HKCU\Environment, so nothing
+  # here proves the installer's runtime behavior - see the note in the pull request.
+  windows-installer:
+    name: Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Record PowerShell version
+        shell: pwsh
+        run: $PSVersionTable | Out-String
+
+      - name: Parse with PowerShell 7
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "scripts/release/install.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors) {
+            $errors | Out-String | Write-Error
+            exit 1
+          }
+
+      # install.ps1 documents Windows PowerShell 5.1 as a supported host and carries 5.1-specific
+      # workarounds, so the 5.1 preinstalled on this runner parses it too. Its parser rejects
+      # syntax that PowerShell 7 accepts, which is the whole point of the second pass.
+      - name: Parse with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "scripts/release/install.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors) {
+            $errors | Out-String | Write-Error
+            exit 1
+          }
+
+      - name: Lint with PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -SkipPublisherCheck
+          # PSAvoidUsingWriteHost targets reusable functions, whose output a caller may want to
+          # capture. This is a bootstrap script run as `irm ... | iex`, where the pipeline carries
+          # the expression's value: Write-Output would make progress text the result of that
+          # expression. Write-Host is the correct call here, so the rule is excluded rather than
+          # worked around.
+          $findings = Invoke-ScriptAnalyzer -Path "scripts/release/install.ps1" `
+            -Severity Warning, Error -ExcludeRule PSAvoidUsingWriteHost
+          if ($findings) {
+            $findings | Format-Table -AutoSize | Out-String | Write-Error
+            exit 1
+          }
