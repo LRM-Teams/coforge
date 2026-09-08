@@ -8,11 +8,10 @@ const computerDirectory = join(REPO_ROOT, "packages/computer");
 const daemonDirectory = join(REPO_ROOT, "packages/daemon");
 const suffix = process.platform === "win32" ? ".exe" : "";
 const computerBinary = join(computerDirectory, `dist/coforge-computer${suffix}`);
-const daemonBinary = join(daemonDirectory, `dist/coforge-daemon${suffix}`);
 const previousBinaries = new Map<string, Uint8Array | null>();
 
 beforeAll(async () => {
-  for (const path of [computerBinary, daemonBinary]) {
+  for (const path of [computerBinary]) {
     const file = Bun.file(path);
     previousBinaries.set(
       path,
@@ -98,7 +97,14 @@ test.each([
         }),
       );
       const daemon = Bun.spawnSync(
-        [daemonBinary, "--socket", join(state, "daemon.sock"), "--state-directory", state],
+        [
+          computerBinary,
+          "__workspace-daemon",
+          "--socket",
+          join(state, "daemon.sock"),
+          "--state-directory",
+          state,
+        ],
         {
           env: { ...Bun.env, HOME: join(state, "home") },
           stdout: "pipe",

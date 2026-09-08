@@ -17,18 +17,16 @@ export class SystemdUserDaemonHost implements DaemonLauncher {
     executablePath: string;
     socketPath: string;
     stateDirectory?: string;
-    serverUrl: string;
+    serverUrl?: string;
     daemonConnectionEndpoint?: string;
+    serviceName?: string;
+    runtimeHomeDirectory?: string;
     writeFile?: (path: string, content: string) => Promise<void>;
     run?: CommandRunner;
   }) {
-    this.#unitPath = join(
-      options.homeDirectory,
-      ".config",
-      "systemd",
-      "user",
-      "coforge-daemon.service",
-    );
+    const serviceName = options.serviceName ?? "coforge-daemon.service";
+    if (!isValidServiceName(serviceName)) throw new Error("invalid systemd user service name");
+    this.#unitPath = join(options.homeDirectory, ".config", "systemd", "user", serviceName);
     this.#run = options.run ?? runCommand;
     this.#writeFile =
       options.writeFile ??
@@ -41,7 +39,9 @@ export class SystemdUserDaemonHost implements DaemonLauncher {
       options.socketPath,
       options.stateDirectory,
       options.daemonConnectionEndpoint,
+      options.runtimeHomeDirectory,
     );
+    this.#serviceName = serviceName;
     this.#local = new LocalDaemonLauncher({
       executablePath: options.executablePath,
       socketPath: options.socketPath,
@@ -50,25 +50,36 @@ export class SystemdUserDaemonHost implements DaemonLauncher {
     });
   }
 
-  async ensureStarted(config: DaemonWorkspaceConfig): Promise<void> {
-    await this.#writeFile(this.#unitPath, this.#unit);
-    await this.#run(["systemctl", "--user", "daemon-reload"]);
-    await this.#run(["systemctl", "--user", "enable", "coforge-daemon.service"]);
-    const result = await this.#run(["systemctl", "--user", "start", "coforge-daemon.service"]);
-    if (result !== 0) throw new Error("could not start the CoForge Daemon user service");
-    await this.#local.ensureStarted(config);
-  }
+  readonly #serviceName: string;
 
   preflight(): Promise<void> {
     return this.#local.preflight();
   }
 
-  ensureRunning(): Promise<void> {
-    return this.#local.ensureRunning();
+  async ensureStarted(config: DaemonWorkspaceConfig): Promise<void> {
+    await this.#writeFile(this.#unitPath, this.#unit);
+    await this.#run(["systemctl", "--user", "daemon-reload"]);
+    await this.#run(["systemctl", "--user", "enable", this.#serviceName]);
+    await this.ensureRunning();
+    await this.#local.ensureStarted(config);
   }
 
-  command(operation: "start" | "stop" | "restart"): Promise<void> {
-    return this.#local.command(operation);
+  async ensureRunning(): Promise<void> {
+    const result = await this.#run(["systemctl", "--user", "start", this.#serviceName]);
+    if (result !== 0)
+      throw new Error(
+        "The systemd user manager could not start CoForge Daemon. Run `coforge-computer foreground` under an external supervisor; CoForge will not detach a fallback process.",
+      );
+    await this.#local.ensureRunning();
+  }
+
+  command(operation: "start" | "stop" | "restart", workspaceId?: string): Promise<void> {
+    return this.#local.command(operation, workspaceId);
+  }
+
+  async stop(): Promise<void> {
+    const result = await this.#run(["systemctl", "--user", "stop", this.#serviceName]);
+    if (result !== 0) throw new Error("could not stop the CoForge Daemon user service");
   }
 }
 
@@ -77,14 +88,16 @@ export function systemdUserUnit(
   socketPath: string,
   stateDirectory?: string,
   daemonConnectionEndpoint?: string,
+  runtimeHomeDirectory?: string,
 ): string {
   return `[Unit]
 Description=CoForge Daemon
 
 [Service]
-${daemonConnectionEndpoint ? `Environment=COFORGE_DAEMON_CONNECTION_ENDPOINT=${systemdEscape(daemonConnectionEndpoint)}\n` : ""}ExecStart=${systemdEscape(executablePath)} --socket ${systemdEscape(socketPath)}${stateDirectory ? ` --state-directory ${systemdEscape(stateDirectory)}` : ""}
+${runtimeHomeDirectory ? `Environment=HOME=${systemdEscape(runtimeHomeDirectory)}\n` : ""}${daemonConnectionEndpoint ? `Environment=COFORGE_DAEMON_CONNECTION_ENDPOINT=${systemdEscape(daemonConnectionEndpoint)}\n` : ""}ExecStart=${systemdEscape(executablePath)} __daemon --socket ${systemdEscape(socketPath)}${stateDirectory ? ` --state-directory ${systemdEscape(stateDirectory)}` : ""}
 Restart=on-failure
 RestartSec=2
+KillMode=mixed
 
 [Install]
 WantedBy=default.target
@@ -98,4 +111,8 @@ async function runCommand(command: string[]): Promise<number> {
 
 function systemdEscape(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll(" ", "\\x20");
+}
+
+function isValidServiceName(value: string): boolean {
+  return value.length <= 255 && /^[A-Za-z0-9][A-Za-z0-9_.@:-]*\.service$/.test(value);
 }

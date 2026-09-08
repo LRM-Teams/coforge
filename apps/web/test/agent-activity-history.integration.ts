@@ -78,10 +78,11 @@ test("compact activity history preserves launch sequence across clock rollback a
         computerId: String(computerId),
         launchId: String(launchId),
         clientSeq: Number(clientSeq),
-        activity: String(activity),
+        detailKind: String(activity),
         level: "info",
-        message: "must not be selected",
+        detail: "must not be selected",
         occurredAt: at(Number(second)),
+        entries: [],
       })),
     });
 
@@ -92,7 +93,7 @@ test("compact activity history preserves launch sequence across clock rollback a
     expect(
       history
         .find(({ id }) => id === agent.id)
-        ?.activity.map(({ launchId, clientSeq, activity }) => [launchId, clientSeq, activity]),
+        ?.activity.map(({ launchId, clientSeq, detailKind }) => [launchId, clientSeq, detailKind]),
     ).toEqual([
       ["launch-a", 3, "idle"],
       ["launch-a", 2, "working"],

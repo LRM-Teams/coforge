@@ -8,6 +8,8 @@ export const DAEMON_CONNECTION_STATUS_METHOD = "daemon:connection_status" as con
 export const DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD = "daemon:code_agents_update" as const;
 export const DAEMON_RUNTIME_USAGE_SCAN_METHOD = "daemon:usage_scan" as const;
 export const DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD = "daemon:usage_scan_result" as const;
+export const COMPUTER_RESTART_METHOD = "computer:restart" as const;
+export const COMPUTER_RESTART_MESSAGE_TYPE = "coforge.rpc.v1.ComputerRestartIntent" as const;
 export const AGENT_START_METHOD = "agent:start" as const;
 export const AGENT_START_MESSAGE_TYPE = "coforge.rpc.v1.AgentStartIntent" as const;
 export const AGENT_STOP_METHOD = "agent:stop" as const;
@@ -40,6 +42,21 @@ export const AGENT_MESSAGE_VALIDATION_MESSAGES = [
 export type AgentMessageValidationMessage = (typeof AGENT_MESSAGE_VALIDATION_MESSAGES)[number];
 export const AGENT_STATUS_METHOD = "agent:status" as const;
 export const AGENT_ACTIVITY_METHOD = "agent:activity" as const;
+export const AGENT_SESSION_METHOD = "agent:session" as const;
+export type AgentSessionReport = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  computerId: string;
+  agentId: string;
+  provider: RuntimeProvider;
+  sessionId: string;
+  startRequestId: string;
+  daemonInstanceId: string;
+  launchId: string;
+  previousLaunchId?: string;
+  replacedSessionId?: string;
+};
 export const WORKSPACE_PROTOCOL_MAJOR = COMPUTER_REGISTER_PROTOCOL_MAJOR;
 export type Workspace = { id: string; slug: string; name: string };
 
@@ -85,7 +102,6 @@ export type ComputerRegisterRequest = {
   platform: string;
   osVersion: string;
   computerVersion: string;
-  runtimes: RuntimeMetadata[];
   registrationIdempotencyKey: string;
 };
 export type ComputerRegisterResponse = {
@@ -101,8 +117,17 @@ export type DaemonRuntimeReadyRequest = {
   workspaceId: string;
   computerId: string;
   workerInstanceId: string;
+  daemonVersion?: string;
   startedAt: number;
   runningAgentIds: string[];
+  recoveredRestartRequestIds?: string[];
+};
+export type ComputerRestartIntent = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  computerId: string;
+  messageType?: typeof COMPUTER_RESTART_MESSAGE_TYPE;
 };
 export type DaemonRuntimeCodeAgentsUpdateRequest = {
   protocolMajor: number;
@@ -137,6 +162,8 @@ export type AgentStartIntent = {
   modelProvider?: string;
   reasoning: string;
   sessionId?: string;
+  sessionMode?: "create" | "resume";
+  previousLaunchId?: string;
   providerConfig?: AgentRuntimeProviderConfig;
   wakeMessage?: AgentRecoveryMessage;
   resumeMessages?: AgentRecoveryMessage[];
@@ -177,22 +204,25 @@ export type AgentMessageDeliveryAck = Omit<
   AgentMessageDelivery,
   "body" | "conversationId" | "method" | "requestId"
 > & { method: typeof AGENT_MESSAGE_ACK_METHOD; requestId: string };
+export { parseActivityEntries } from "./activity-entries";
+export type { ActivityTrajectoryEntry, ActivitySubagent } from "./activity-entries";
 export type AgentActivity = {
   protocolMajor: number;
   requestId: string;
   workspaceId: string;
   agentId: string;
-  activity: string;
+  detailKind: string;
   level: "info" | "warning" | "error";
-  message: string;
+  detail: string;
   messageId?: string;
   conversationId?: string;
-  occurredAt: string;
+  observedAtMs: number;
   launchId: string;
   clientSeq: number;
-  diagnostic?: {
+  entries?: import("./activity-entries").ActivityTrajectoryEntry[];
+  runtimeError?: {
     errorClass: string;
-    reason: string;
+    errorReason: string;
     fingerprint: string;
   };
 };
@@ -332,6 +362,7 @@ export type {
   LocalRpcResponse,
   DaemonCommandRequest,
   DaemonCommandResponse,
+  ManagedRuntimeIdentity,
   LocalAgentMessageRequest,
   AgentMessageResponse,
   LocalInboxRequest,
@@ -350,8 +381,12 @@ export {
   decodeDaemonRuntimeUsageScanRequest,
   encodeDaemonRuntimeUsageScanResponse,
   decodeDaemonRuntimeUsageScanResponse,
+  encodeComputerRestartIntent,
+  decodeComputerRestartIntent,
 } from "./codec";
 export {
+  encodeAgentSessionReport,
+  decodeAgentSessionReport,
   encodeAgentStartIntent,
   decodeAgentStartIntent,
   encodeAgentStopIntent,

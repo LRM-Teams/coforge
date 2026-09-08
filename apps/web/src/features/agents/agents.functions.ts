@@ -35,6 +35,7 @@ import {
 } from "../../server/agents/agent-runtime-config.server";
 import { getAgentStatusCache } from "../../server/agents/agent-status.server";
 import { issueBrowserRealtimeToken } from "../../server/auth/browser-realtime-token.server";
+import { createAgentSessions } from "../../server/db/repositories/agent-session.repositories.server";
 
 function dependencies() {
   const db = getDatabaseClient();
@@ -50,12 +51,14 @@ function dependencies() {
           new RepositoryAgentAuthorization(agents),
           createCentrifugoServerApi(),
           async () => {},
+          createAgentSessions(db),
         ).start(intent, ownerId),
       stop: (intent, ownerId) =>
         new PublishAgentRuntimeControl(
           new RepositoryAgentAuthorization(agents),
           createCentrifugoServerApi(),
           async () => {},
+          createAgentSessions(db),
         ).stop(intent, ownerId),
     },
     {
@@ -67,6 +70,7 @@ function dependencies() {
               select: {
                 modelCatalogs: {
                   where: {
+                    workspaceId,
                     provider: config.provider,
                   },
                   select: { models: true },
@@ -124,6 +128,7 @@ function changeRuntimeCredential(
       new RepositoryAgentAuthorization(agents),
       createCentrifugoServerApi(),
       async () => {},
+      createAgentSessions(db),
     ),
     getAgentRuntimeLock(),
   );

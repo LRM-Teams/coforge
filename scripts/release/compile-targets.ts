@@ -35,21 +35,20 @@ export function resolveBunCompileTarget(
 }
 
 const REPO_ROOT = resolve(import.meta.dir, "../..");
-const COMPUTER_ENTRYPOINT = join(REPO_ROOT, "packages/computer/src/cli.ts");
-const DAEMON_ENTRYPOINT = join(REPO_ROOT, "packages/daemon/index.ts");
+const COMPUTER_ENTRYPOINT = join(REPO_ROOT, "packages/computer/src/main.ts");
 
 export type CompileTargetOptions = {
   target: ReleaseTarget;
   version: string;
   feedUrl: string;
-  /** Directory the two compiled binaries are written into; each target's compile call needs its
+  /** Directory the unified binary is written into; each target's compile call needs its
    * own directory or scratch file name to avoid two targets racing on the same output path. */
   outputDirectory: string;
 };
 
-export type CompiledArtifacts = { computer: Uint8Array; daemon: Uint8Array };
+export type CompiledArtifacts = { computer: Uint8Array };
 
-/** Cross-compiles both release binaries for one target.
+/** Cross-compiles the unified release binary for one target.
  * compile-targets.test.ts executes the host-target Computer to verify its release identity;
  * build-release.test.ts covers manifest assembly using small fixture binaries. */
 export async function compileTargetArtifacts(
@@ -57,11 +56,6 @@ export async function compileTargetArtifacts(
 ): Promise<CompiledArtifacts> {
   const bunTarget = resolveBunCompileTarget(options.target);
   const serverUrl = resolveServerUrl(options.feedUrl);
-  // Sequential, not Promise.all: both calls cross-compile for the same bun-<os>-<arch>, and on a
-  // runner with no warm toolchain cache for that target, Bun downloads the target's cross-compile
-  // runtime on demand - two concurrent downloads racing to populate the same cache entry is a
-  // failure mode worth avoiding for free, and compilation is already the slow part of this script
-  // (see the doc comment above), so paying for it twice in sequence costs nothing that matters.
   const computer = await compileOne({
     entrypoint: COMPUTER_ENTRYPOINT,
     bunTarget,
@@ -78,22 +72,11 @@ export async function compileTargetArtifacts(
       "process.env.COFORGE_RELEASE_FEED_URL": JSON.stringify(options.feedUrl),
       "process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH": JSON.stringify("0"),
       "Bun.env.COFORGE_COMPUTER_VERSION": JSON.stringify(options.version),
-    },
-  });
-  const daemon = await compileOne({
-    entrypoint: DAEMON_ENTRYPOINT,
-    bunTarget,
-    outfile: join(options.outputDirectory, `${options.target}-coforge-daemon`),
-    // packages/daemon/package.json's own `build` script injects COFORGE_DAEMON_VERSION (read by
-    // packages/daemon/src/version.ts, falling back to package.json's version when unset) the
-    // same way; without this the release daemon would report package.json's "0.1.0" instead of
-    // the release version regardless of what release this binary actually is.
-    define: {
       "process.env.COFORGE_DAEMON_VERSION": JSON.stringify(options.version),
       "process.env.COFORGE_DAEMON_SERVER_URL": JSON.stringify(serverUrl),
     },
   });
-  return { computer, daemon };
+  return { computer };
 }
 
 async function compileOne(options: {

@@ -29,6 +29,7 @@ function mapAgent(agent: {
   ownerId: string;
   computerId: string | null;
   runtimeConfig: unknown;
+  runtimeSession?: unknown;
 }): AgentRecord {
   let runtimeConfig;
   try {
@@ -36,7 +37,7 @@ function mapAgent(agent: {
   } catch {
     throw new Error(`Agent ${agent.id} has invalid runtime config`);
   }
-  const { computerId, description, ...fields } = agent;
+  const { computerId, description, runtimeSession: _runtimeSession, ...fields } = agent;
   return {
     ...fields,
     description: description ?? "",

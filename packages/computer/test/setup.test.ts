@@ -397,8 +397,8 @@ test("setup sends a direct slug to registration without listing Workspaces", asy
   expect(requested).toEqual(["direct-slug"]);
 });
 
-test("setup forwards discovered runtime metadata to registration", async () => {
-  let runtimes: unknown;
+test("setup does not send runtime inventory to registration", async () => {
+  let registration: unknown;
   const setup = createSetup({
     metadataProvider: {
       async get() {
@@ -407,13 +407,12 @@ test("setup forwards discovered runtime metadata to registration", async () => {
           osVersion: "bun-test",
           computerVersion: "test",
           machineId: "linux:test-machine-id",
-          runtimes: [{ provider: "codex", version: "1.2.3", displayName: "Codex" }],
         };
       },
     },
     registrationFactory: (_serverUrl, _credential) => ({
       async register(request) {
-        runtimes = request.runtimes;
+        registration = request;
         return {
           protocolMajor: 1,
           requestId: request.requestId,
@@ -426,7 +425,7 @@ test("setup forwards discovered runtime metadata to registration", async () => {
   });
 
   await setup.run({ workspaceSlug: "workspace-a" });
-  expect(runtimes).toEqual([{ provider: "codex", version: "1.2.3", displayName: "Codex" }]);
+  expect(registration).not.toHaveProperty("runtimes");
 });
 
 test("setup preserves the previous registration when the Daemon launcher fails", async () => {
@@ -543,7 +542,6 @@ function createSetup(overrides: Partial<ComputerSetupOptions> = {}): ComputerSet
           osVersion: "bun-test",
           computerVersion: "test",
           machineId: "linux:test-machine-id",
-          runtimes: [],
         };
       },
     },

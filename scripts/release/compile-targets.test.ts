@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { LocalDaemonLauncher } from "../../packages/daemon";
 import { isReleaseTarget, resolveBunCompileTarget } from "./compile-targets";
 
 test.each([
@@ -63,7 +64,8 @@ test.each([
       );
       const daemon = Bun.spawn(
         [
-          join(directory, `${target}-coforge-daemon${process.platform === "win32" ? ".exe" : ""}`),
+          executable,
+          "__workspace-daemon",
           "--socket",
           join(directory, "daemon.sock"),
           "--state-directory",
@@ -134,6 +136,102 @@ test.each([
   },
   60_000,
 );
+test("published unified Computer runs management, Daemon, and Agent modes from one executable", async () => {
+  const target = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
+  if (!isReleaseTarget(target)) throw new Error(`unsupported test host: ${target}`);
+  const directory = await mkdtemp(join(tmpdir(), "coforge-unified-executable-"));
+  const outputDirectory = join(directory, "artifacts");
+  try {
+    const options = {
+      target,
+      version: "9.8.7-rc.6",
+      feedUrl: "https://releases-staging.coforge.cn",
+      outputDirectory,
+    };
+    // Build outside bun:test so its module resolver and mocks cannot affect release compilation.
+    const build = Bun.spawnSync(
+      [
+        process.execPath,
+        "--eval",
+        `import { compileTargetArtifacts } from ${JSON.stringify(join(import.meta.dir, "compile-targets.ts"))}; await compileTargetArtifacts(${JSON.stringify(options)});`,
+      ],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(build.stderr.toString()).toBe("");
+    expect(build.exitCode).toBe(0);
+    const executable = join(
+      outputDirectory,
+      `${target}-coforge-computer${process.platform === "win32" ? ".exe" : ""}`,
+    );
+    expect(await readdir(outputDirectory)).toEqual([
+      `${target}-coforge-computer${process.platform === "win32" ? ".exe" : ""}`,
+    ]);
+
+    const management = Bun.spawnSync([executable, "--cli-version"], {
+      env: { ...Bun.env, COFORGE_COMPUTER_VERSION: "0.0.0-wrong" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(management.exitCode).toBe(0);
+    expect(management.stdout.toString()).toBe("9.8.7-rc.6\n");
+    expect(management.stderr.toString()).toBe("");
+
+    const isolatedHome = join(directory, "agent-home");
+    const agent = Bun.spawnSync([executable, "__agent-cli"], {
+      env: {
+        ...Bun.env,
+        HOME: isolatedHome,
+        USERPROFILE: isolatedHome,
+        COFORGE_DAEMON_HOME: join(directory, "agent-daemon-state"),
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(agent.exitCode).toBe(1);
+    expect(agent.stderr.toString()).toStartWith("Usage: coforge ");
+    expect(await readdir(directory)).toEqual(["artifacts"]);
+
+    const socketPath = join(directory, "daemon.sock");
+    const daemon = Bun.spawn(
+      [
+        executable,
+        "__daemon",
+        "--socket",
+        socketPath,
+        "--state-directory",
+        join(directory, "daemon-state"),
+      ],
+      {
+        env: { ...Bun.env, COFORGE_DAEMON_VERSION: "0.0.0-wrong" },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    try {
+      const launcher = new LocalDaemonLauncher({
+        executablePath: "/unused",
+        socketPath,
+        serverUrl: "https://staging.coforge.cn",
+        spawn: () => {},
+      });
+      await launcher.ensureRunning();
+      expect(await launcher.identity()).toMatchObject({
+        version: "9.8.7-rc.6",
+        processId: daemon.pid,
+      });
+    } finally {
+      daemon.kill();
+      await daemon.exited;
+    }
+    expect(await new Response(daemon.stdout).text()).toBe("");
+    expect(await new Response(daemon.stderr).text()).toBe("");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
 
 test("every release target used by updater.ts, install.sh and install.ps1 maps to a bun-<os>-<arch> compile target", () => {
   const targets = [

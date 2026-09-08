@@ -6,6 +6,7 @@ import {
   type UsageSnapshot,
 } from "../code-agent/contract";
 import { mkdirSync } from "node:fs";
+import { ActivityTrajectory } from "../agent-runtime/activity-trajectory";
 import {
   AgentProcessManager,
   type AgentDriverFactory,
@@ -50,6 +51,7 @@ import {
   type CodeAgentInventory,
 } from "../code-agent/runtime-inventory";
 import { getLogger } from "@logtape/logtape";
+import { COFORGE_DAEMON_VERSION } from "../version";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
 const FULL_THREAD_TARGET =
@@ -83,7 +85,7 @@ export function generateRuntimeInstanceId(): string {
   return crypto.randomUUID();
 }
 
-/** The daemon-owned resident runtime for the single configured Workspace. */
+/** A daemon-owned resident runtime for one supervised Workspace. */
 export class DaemonRuntime {
   readonly #connection: DaemonConfig;
   readonly #createDriver: AgentDriverFactory;
@@ -111,6 +113,16 @@ export class DaemonRuntime {
   readonly #agentProxyTokens = new Map<string, string>();
   readonly #agentApiKeys = new Map<string, string>();
   readonly #agentLaunches = new Map<string, Promise<AgentRuntime>>();
+  readonly #sessionReferences = new Map<
+    string,
+    {
+      requestId: string;
+      provider: AgentRuntimeConfig["provider"];
+      sessionId?: string;
+      sessionMode?: "create" | "resume";
+      launchId?: string;
+    }
+  >();
   readonly #agentInputQueues = new Map<string, AgentInputQueue>();
   readonly #stoppingAgents = new Set<string>();
   readonly #agentStops = new Map<string, Promise<void>>();
@@ -139,6 +151,10 @@ export class DaemonRuntime {
     },
     private readonly discoverCodeAgents: () => Promise<CodeAgentInventory> = discoverCodeAgentInventory,
     private readonly stateDirectory = ".coforge-daemon-state",
+    private readonly lifecycle: {
+      requestRestart?(requestId: string): Promise<void>;
+      recoveredRestartRequestIds?: string[];
+    } = {},
   ) {
     this.#connection = connection;
     this.#createDriver = createDriver;
@@ -285,6 +301,7 @@ export class DaemonRuntime {
         workspaceId: connection.workspaceId,
         computerId: connection.computerId,
         serverHttpUrl: connection.serverHttpUrl,
+        requestRestart: this.lifecycle.requestRestart,
       });
       await this.#transport.ready(() => ({
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
@@ -296,6 +313,8 @@ export class DaemonRuntime {
         workerInstanceId: this.#runtimeInstanceId,
         startedAt: this.#startedAt,
         runningAgentIds: this.#readyRunningAgentIds(),
+        daemonVersion: COFORGE_DAEMON_VERSION,
+        recoveredRestartRequestIds: this.lifecycle.recoveredRestartRequestIds ?? [],
       }));
       await this.#reportCodeAgents(connection).catch(() => {});
       if (this.#stopping) {
@@ -351,8 +370,10 @@ export class DaemonRuntime {
     agentId: string,
     config: AgentRuntimeConfig,
     sessionId?: string,
-    requestId: string = crypto.randomUUID(),
+    requestId?: string,
     recovery?: Pick<AgentStartIntent, "wakeMessage" | "resumeMessages" | "unreadSummary">,
+    previousLaunchId?: string,
+    sessionMode?: "create" | "resume",
   ): Promise<AgentRuntime> {
     if (this.#stopping || !this.#started)
       return Promise.reject(new Error("daemon runtime is not running"));
@@ -405,7 +426,14 @@ export class DaemonRuntime {
     // Register the launch before its first await so concurrent starts cannot mint twice.
     // Launch failure is surfaced by `launch`; the item completion is also rejected when cleared.
     void recoveryCompletion?.catch(() => {});
-    const launch = this.#launchAgent(agentId, config, sessionId, requestId)
+    const launch = this.#launchAgent(
+      agentId,
+      config,
+      sessionId,
+      requestId,
+      previousLaunchId,
+      sessionMode,
+    )
       .then(
         async (runtime) => {
           this.#ensureAgentInputDrain(agentId);
@@ -516,8 +544,24 @@ export class DaemonRuntime {
     agentId: string,
     config: AgentRuntimeConfig,
     sessionId?: string,
-    requestId: string = crypto.randomUUID(),
+    requestedId?: string,
+    cloudPreviousLaunchId?: string,
+    sessionMode?: "create" | "resume",
   ): Promise<AgentRuntime> {
+    const previous = this.#sessionReferences.get(agentId);
+    const continuing =
+      previous?.provider === config.provider &&
+      (!requestedId || requestedId === previous.requestId);
+    const requestId = requestedId ?? (continuing ? previous.requestId : crypto.randomUUID());
+    const reference = {
+      requestId,
+      provider: config.provider,
+      sessionId: sessionId ?? (continuing ? previous.sessionId : undefined),
+      sessionMode: sessionMode ?? (continuing ? previous.sessionMode : undefined),
+      launchId: cloudPreviousLaunchId ?? (continuing ? previous.launchId : undefined),
+    };
+    const previousLaunchId = reference.launchId;
+    this.#sessionReferences.set(agentId, reference);
     const launch = { launchId: crypto.randomUUID(), clientSeq: 0, stopping: false };
     this.#currentActivityLaunches.set(agentId, launch);
     let agentApiKey: string | undefined;
@@ -558,22 +602,63 @@ export class DaemonRuntime {
           this.#connection.workspaceId,
           agentId,
         ),
-        sessionId,
+        reference.sessionId,
         {
           COFORGE_DAEMON_SOCKET: "",
           COFORGE_AGENT_CONTEXT: localContext,
           COFORGE_AGENT_PROXY_URL: this.#agentProxy?.url ?? "",
         },
         launch.launchId,
+        this.#transport.reportAgentSession
+          ? async (reportedSessionId, replacedSessionId) => {
+              if (
+                this.#currentActivityLaunches.get(agentId) !== launch ||
+                launch.stopping ||
+                this.#stopping
+              )
+                throw new Error("Agent session launch was superseded");
+              await this.#transport.reportAgentSession!({
+                protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+                requestId: crypto.randomUUID(),
+                workspaceId: this.#connection.workspaceId,
+                computerId: this.#connection.computerId,
+                agentId,
+                provider: config.provider,
+                sessionId: reportedSessionId,
+                ...(replacedSessionId ? { replacedSessionId } : {}),
+                startRequestId: requestId,
+                daemonInstanceId: this.#runtimeInstanceId,
+                launchId: launch.launchId,
+                ...(previousLaunchId ? { previousLaunchId } : {}),
+              });
+              if (this.#currentActivityLaunches.get(agentId) === launch && !launch.stopping) {
+                reference.sessionId = reportedSessionId;
+                reference.sessionMode = "resume";
+                reference.launchId = launch.launchId;
+                if (replacedSessionId)
+                  this.#emitAgentActivity(agentId, launch, {
+                    protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+                    requestId: crypto.randomUUID(),
+                    workspaceId: this.#connection.workspaceId,
+                    agentId,
+                    detailKind: "other",
+                    level: "info",
+                    detail:
+                      "Original session history was not found. A new session was started; previous context was not restored.",
+                  });
+              }
+            }
+          : undefined,
+        reference.sessionMode,
       );
       if (this.#stoppingAgents.has(agentId)) {
         await this.#agentProcessManager.stop(agentId);
         throw new Error(`Agent runtime is stopping: ${agentId}`);
       }
-      const emit = (activity: Omit<AgentActivity, "launchId" | "clientSeq" | "occurredAt">) => {
+      const emit = (activity: Omit<AgentActivity, "launchId" | "clientSeq" | "observedAtMs">) => {
         this.#emitAgentActivity(agentId, launch, activity);
       };
-      const unsubscribe = runtime.session.subscribe((runtimeEvent) => {
+      const trajectory = new ActivityTrajectory((runtimeEvent) => {
         if (runtimeEvent.type === AGENT_RUNTIME_EVENT_TYPE.USAGE) {
           if (runtimeEvent.snapshot.provider === config.provider)
             this.#rememberUsage(runtimeEvent.snapshot);
@@ -585,20 +670,23 @@ export class DaemonRuntime {
             requestId: crypto.randomUUID(),
             workspaceId: this.#connection.workspaceId,
             agentId,
-            activity: runtimeEvent.activity.activity,
+            detailKind: runtimeEvent.activity.detailKind,
             level: runtimeEvent.activity.level,
-            message: safeRuntimeActivityMessage(
-              runtimeEvent.activity.activity,
-              runtimeEvent.activity.level,
-              runtimeEvent.activity.message,
-            ),
-            ...(runtimeEvent.activity.level === "error"
-              ? { diagnostic: runtimeFailureDiagnostic(runtimeEvent.activity.message) }
-              : runtimeEvent.activity.diagnostic
-                ? { diagnostic: runtimeEvent.activity.diagnostic }
+            entries: runtimeEvent.activity.entries,
+            detail: runtimeEvent.activity.entries?.some((entry) => entry.kind !== "tool_start")
+              ? ""
+              : safeRuntimeActivityMessage(
+                  runtimeEvent.activity.detailKind,
+                  runtimeEvent.activity.level,
+                  runtimeEvent.activity.detail,
+                ),
+            ...(runtimeEvent.activity.runtimeError
+              ? { runtimeError: runtimeEvent.activity.runtimeError }
+              : runtimeEvent.activity.level === "error"
+                ? { runtimeError: runtimeFailureDiagnostic(runtimeEvent.activity.detail) }
                 : {}),
           });
-          if (runtimeEvent.activity.activity === "idle")
+          if (runtimeEvent.activity.detailKind === "idle")
             void this.drainAppInboxNotices(agentId).catch(() => {});
           return;
         }
@@ -610,24 +698,26 @@ export class DaemonRuntime {
                 requestId: crypto.randomUUID(),
                 workspaceId: this.#connection.workspaceId,
                 agentId,
-                activity: "error",
+                detailKind: "runtime_error",
                 level: "error",
-                message: "Agent runtime failed.",
-                diagnostic: runtimeFailureDiagnostic("turn failure"),
+                detail: "Agent runtime failed.",
+                runtimeError: runtimeFailureDiagnostic("turn failure"),
               }
             : {
                 protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
                 requestId: crypto.randomUUID(),
                 workspaceId: this.#connection.workspaceId,
                 agentId,
-                activity: "turn_completed",
+                detailKind: "idle",
                 level: "info",
-                message: "Agent turn completed.",
+                detail: "Agent turn completed.",
               },
         );
         void this.drainAppInboxNotices(agentId).catch(() => {});
       });
+      const unsubscribe = runtime.session.subscribe((event) => trajectory.accept(event));
       runtime.session.onExit(() => {
+        trajectory.dispose();
         if (this.#currentActivityLaunches.get(agentId) !== launch) return;
         this.#messageAttention.clearAgent(agentId);
         this.#revokeLocalLaunch(agentId, localContext, proxyToken);
@@ -642,9 +732,9 @@ export class DaemonRuntime {
           requestId: crypto.randomUUID(),
           workspaceId: this.#connection.workspaceId,
           agentId,
-          activity: "stopped",
+          detailKind: "stopped",
           level: "info",
-          message: "Agent runtime stopped",
+          detail: "Agent runtime stopped",
         });
         if (this.#currentActivityLaunches.get(agentId) === launch)
           this.#currentActivityLaunches.delete(agentId);
@@ -655,9 +745,9 @@ export class DaemonRuntime {
         requestId,
         workspaceId: this.#connection.workspaceId,
         agentId,
-        activity: "starting",
+        detailKind: "starting",
         level: "info",
-        message: "Agent runtime is starting.",
+        detail: "Agent runtime is starting.",
       });
       void this.drainAppInboxNotices(agentId).catch(() => {});
       return runtime;
@@ -679,9 +769,9 @@ export class DaemonRuntime {
           requestId: crypto.randomUUID(),
           workspaceId: this.#connection.workspaceId,
           agentId,
-          activity: "launch_failed",
+          detailKind: "runtime_error",
           level: "error",
-          message: this.#launchFailureMessage(agentId, stage, error),
+          detail: this.#launchFailureMessage(agentId, stage, error),
         });
       }
       if (this.#currentActivityLaunches.get(agentId) === launch)
@@ -740,6 +830,8 @@ export class DaemonRuntime {
         resumeMessages: intent.resumeMessages,
         unreadSummary: intent.unreadSummary,
       },
+      intent.previousLaunchId,
+      intent.sessionMode,
     );
   }
 
@@ -787,6 +879,7 @@ export class DaemonRuntime {
     if (existingStop) return existingStop;
     // Close this Agent's launch gate and local capabilities before the first await.
     this.#stoppingAgents.add(agentId);
+    this.#sessionReferences.delete(agentId);
     this.#closeAgentInputQueue(agentId, new Error(`Agent runtime is stopping: ${agentId}`));
     const activityLaunch = this.#currentActivityLaunches.get(agentId);
     if (activityLaunch) activityLaunch.stopping = true;
@@ -803,9 +896,9 @@ export class DaemonRuntime {
             requestId: crypto.randomUUID(),
             workspaceId: this.#connection.workspaceId,
             agentId,
-            activity: "stop_failed",
+            detailKind: "runtime_error",
             level: "error",
-            message: this.#stopFailureMessage(agentId, error),
+            detail: this.#stopFailureMessage(agentId, error),
           });
         throw error;
       })
@@ -843,9 +936,9 @@ export class DaemonRuntime {
         requestId: crypto.randomUUID(),
         workspaceId: this.#connection.workspaceId,
         agentId,
-        activity: "stopped",
+        detailKind: "stopped",
         level: "info",
-        message: "Agent runtime stopped",
+        detail: "Agent runtime stopped",
       });
     this.#currentActivityLaunches.delete(agentId);
   }
@@ -872,15 +965,21 @@ export class DaemonRuntime {
   #emitAgentActivity(
     agentId: string,
     launch: { launchId: string; clientSeq: number; stopping: boolean },
-    activity: Omit<AgentActivity, "launchId" | "clientSeq" | "occurredAt">,
+    activity: Omit<AgentActivity, "launchId" | "clientSeq" | "observedAtMs">,
   ): void {
     if (!this.#activityEnabled || this.#currentActivityLaunches.get(agentId) !== launch) return;
-    if (launch.stopping && activity.activity !== "stopped" && activity.level !== "error") return;
+    if (
+      launch.stopping &&
+      activity.detailKind !== "stopped" &&
+      activity.level !== "error" &&
+      !activity.entries?.some((entry) => entry.kind !== "tool_start")
+    )
+      return;
     this.#transport.sendAgentActivity?.({
       ...activity,
       launchId: launch.launchId,
       clientSeq: ++launch.clientSeq,
-      occurredAt: new Date().toISOString(),
+      observedAtMs: Date.now(),
     });
   }
 
@@ -1050,9 +1149,9 @@ export class DaemonRuntime {
             requestId: crypto.randomUUID(),
             workspaceId: this.#connection.workspaceId,
             agentId,
-            activity: "freshness_hold",
+            detailKind: "freshness_hold",
             level: "info",
-            message: "Reply held until the Agent reviews newer messages.",
+            detail: "Reply held until the Agent reviews newer messages.",
           });
       }
       logger.info("Agent sent a message", {
@@ -1315,6 +1414,7 @@ export class DaemonRuntime {
     }
     for (const agentId of activeAgentIds) this.#sendAgentStatus(agentId, "inactive");
     this.#currentActivityLaunches.clear();
+    this.#sessionReferences.clear();
     try {
       await Promise.all(
         [...this.#pendingAgentApiKeyRevokes].map((agentApiKey) =>
@@ -1339,12 +1439,7 @@ export class DaemonRuntime {
 function safeRuntimeActivityMessage(activity: string, level: string, message: string): string {
   if (level === "error" || level === "warning") return scrubActivityText(message);
   if (activity === "running_command") return [...scrubActivityText(message)].slice(0, 100).join("");
-  if (
-    activity === "reading_file" ||
-    activity === "writing_file" ||
-    activity === "editing_file" ||
-    activity === "using_tool"
-  ) {
+  if (activity === "tool_started") {
     return scrubActivityText(message);
   }
   return "Agent activity observed.";
@@ -1364,7 +1459,7 @@ function runtimeFailureDiagnostic(message: string) {
   for (const character of safe) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
   return {
     errorClass: "AgentRuntimeError",
-    reason: "runtime_failure",
+    errorReason: "runtime_failure",
     fingerprint: (hash >>> 0).toString(16).padStart(8, "0"),
   };
 }

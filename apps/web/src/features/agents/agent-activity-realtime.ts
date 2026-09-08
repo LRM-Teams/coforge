@@ -62,19 +62,17 @@ export function useAgentActivity({
           event.clientSeq < 1
         )
           return;
-        const occurredAt = new Date(event.occurredAt);
-        if (!Number.isFinite(occurredAt.getTime())) return;
+        if (!Number.isSafeInteger(event.observedAtMs) || event.observedAtMs < 1) return;
         merge([
           {
             launchId: event.launchId,
             clientSeq: event.clientSeq,
-            activity: event.activity,
+            detailKind: event.detailKind,
             level: event.level,
-            message: event.message,
-            occurredAt,
-            diagnosticErrorClass: event.diagnostic?.errorClass,
-            diagnosticReason: event.diagnostic?.reason,
-            diagnosticFingerprint: event.diagnostic?.fingerprint,
+            detail: event.detail,
+            observedAtMs: event.observedAtMs,
+            entries: event.entries,
+            runtimeError: event.runtimeError,
           },
         ]);
       } catch {

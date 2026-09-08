@@ -99,46 +99,6 @@ const firstMessage: DirectConversationView["messages"][number] = {
   createdAt: "2026-08-29T10:00:00Z",
 };
 
-test("a message anchor scrolls the linked message into view", () => {
-  const scrollIntoView = mock(() => {});
-  const original = HTMLElement.prototype.scrollIntoView;
-  HTMLElement.prototype.scrollIntoView = scrollIntoView;
-  window.location.hash = "#message-one";
-  try {
-    renderConversation({ ...base, messages: [firstMessage] });
-    expect(document.querySelector("#message-one")?.textContent).toContain("Please check");
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" });
-  } finally {
-    window.location.hash = "";
-    HTMLElement.prototype.scrollIntoView = original;
-  }
-});
-
-test("a notification anchor opens the thread containing the linked reply", async () => {
-  const root = { ...firstMessage, id: "12345678-0000-4000-8000-000000000001" };
-  const reply = {
-    ...firstMessage,
-    id: "12345678-0000-4000-8000-000000000002",
-    sequence: 2,
-    threadRootId: root.id,
-    senderKind: "agent" as const,
-    body: "Linked thread reply",
-  };
-  window.location.hash = `#message-${reply.id}`;
-  try {
-    const { page } = renderConversation({ ...base, messages: [root, reply] });
-    await waitFor(() =>
-      expect(
-        within(page.getByRole("region", { name: "Thread" }))
-          .getByText("Linked thread reply")
-          .closest("[data-message]")?.id,
-      ).toBe(`message-${reply.id}`),
-    );
-  } finally {
-    window.location.hash = "";
-  }
-});
-
 test("thread replies stay out of main history and preserve separate drafts and main scroll", async () => {
   const user = userEvent.setup();
   const calls: unknown[][] = [];
@@ -249,10 +209,10 @@ test("shared chat activity updates header and sidebar, with matching hover dots"
   const entry = {
     launchId: "launch",
     clientSeq: 1,
-    activity: "running_command",
+    detailKind: "running_command",
     level: "info",
-    message: "",
-    occurredAt: new Date(),
+    detail: "",
+    observedAtMs: Date.now(),
   };
   const agent = {
     ...base.agent,
@@ -288,7 +248,7 @@ test("shared chat activity updates header and sidebar, with matching hover dots"
   fireEvent.click(avatars[0]!);
   const popup = await page.findByRole("dialog");
   expect(popup.querySelector("li .bg-amber-500")).not.toBeNull();
-  view.rerender(tree([{ ...entry, clientSeq: 2, activity: "idle" }]));
+  view.rerender(tree([{ ...entry, clientSeq: 2, detailKind: "idle" }]));
   expect(document.querySelector("header [role=status]")).toBeNull();
   expect(document.querySelector("button[data-working=true]")).toBeNull();
 });

@@ -2,6 +2,7 @@ import type { RuntimeProvider } from "@coforge/protocol";
 
 export type ComputerRuntimeRecord = {
   id: string;
+  workspaceId: string;
   computerId: string;
   ownerId: string;
   provider: RuntimeProvider;

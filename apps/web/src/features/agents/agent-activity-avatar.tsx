@@ -10,10 +10,10 @@ import { activityDotClass, activityLabel } from "./agent-activity-presentation";
 
 type AvatarActivity = {
   id?: string;
-  activity: string;
+  detailKind: string;
   level: string;
-  message: string;
-  occurredAt: Date | string;
+  detail: string;
+  observedAtMs: number;
 };
 
 const workActivities = new Set([
@@ -38,7 +38,7 @@ export function useAgentWorkingLabel({
 }) {
   const [now, setNow] = useState(() => Date.now());
   const latest = activity[0];
-  const age = latest ? now - new Date(latest.occurredAt).getTime() : Infinity;
+  const age = latest ? now - latest.observedAtMs : Infinity;
   const working =
     status === "active" &&
     !loading &&
@@ -46,14 +46,14 @@ export function useAgentWorkingLabel({
     age >= 0 &&
     age < 60_000 &&
     latest?.level !== "error" &&
-    workActivities.has(latest?.activity ?? "");
+    workActivities.has(latest?.detailKind ?? "");
   useEffect(() => {
     setNow(Date.now());
     if (!working) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [latest, working]);
-  return working && latest ? activityLabel(latest.activity, latest.level) : null;
+  return working && latest ? activityLabel(latest.detailKind, latest.level) : null;
 }
 
 /** Activity is newest-first, ordered and deduplicated by the owning Activity module. */
@@ -125,9 +125,9 @@ export function AgentActivityAvatar({
               aria-hidden="true"
               className={cn(
                 "absolute -right-1 -bottom-1 size-3 rounded-full border-2 border-card",
-                workingLabel && activity[0]?.activity === "running_command"
+                workingLabel && activity[0]?.detailKind === "running_command"
                   ? cn(
-                      activityDotClass(activity[0].activity, activity[0].level),
+                      activityDotClass(activity[0].detailKind, activity[0].level),
                       "motion-safe:animate-pulse",
                     )
                   : status === "active"
@@ -191,23 +191,23 @@ export function AgentActivityAvatar({
                     return (
                       <li key={entry.id ?? index} className="flex items-start gap-3 text-xs">
                         <time
-                          dateTime={new Date(entry.occurredAt).toISOString()}
-                          aria-label={new Date(entry.occurredAt).toLocaleString(getLocale(), {
+                          dateTime={new Date(entry.observedAtMs).toISOString()}
+                          aria-label={new Date(entry.observedAtMs).toLocaleString(getLocale(), {
                             timeZone: time.resolvedOptions().timeZone,
                           })}
                           className="shrink-0 font-mono text-muted-foreground tabular-nums"
                         >
-                          {time.format(new Date(entry.occurredAt))}
+                          {time.format(new Date(entry.observedAtMs))}
                         </time>
                         <span
                           aria-hidden="true"
                           className={cn(
                             "mt-1 size-1.5 shrink-0 rounded-full",
-                            activityDotClass(entry.activity, entry.level),
+                            activityDotClass(entry.detailKind, entry.level),
                           )}
                         />
                         <span className="min-w-0">
-                          {activityLabel(entry.activity, entry.level)}
+                          {activityLabel(entry.detailKind, entry.level)}
                         </span>
                       </li>
                     );

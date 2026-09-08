@@ -10,11 +10,11 @@ function entry(clientSeq: number, id = `live-${clientSeq}`): ActivityEntry {
     id,
     launchId: "launch-1",
     clientSeq,
-    activity: "using_tool",
+    detailKind: "tool_started",
     level: "info",
-    message: "Tool",
-    occurredAt: new Date(clientSeq * 1000),
-    createdAt: new Date(clientSeq * 1000),
+    detail: "Tool",
+    observedAtMs: clientSeq * 1000,
+    entries: [],
   };
 }
 
@@ -40,17 +40,8 @@ test("keeps separate launches and bounds the newest-first observation window", (
 });
 
 test("launch sequence wins over skewed timestamps when deciding recovery", () => {
-  const failure = {
-    ...entry(1),
-    activity: "error",
-    level: "error",
-    occurredAt: new Date(9000),
-  };
-  const recovery = {
-    ...entry(2),
-    activity: "working",
-    occurredAt: new Date(8000),
-  };
+  const failure = { ...entry(1), detailKind: "runtime_error", level: "error", observedAtMs: 9000 };
+  const recovery = { ...entry(2), detailKind: "model_response_started", observedAtMs: 8000 };
   expect(mergeAgentActivity([failure], [recovery]).map((value) => value.clientSeq)).toEqual([2, 1]);
   expect(latestActivityError([failure, recovery])).toBeUndefined();
 });
@@ -58,23 +49,21 @@ test("launch sequence wins over skewed timestamps when deciding recovery", () =>
 test("sequences from different launches do not override server observation order", () => {
   const failure = {
     ...entry(99),
-    activity: "error",
+    detailKind: "runtime_error",
     level: "error",
-    occurredAt: new Date(1000),
-    createdAt: new Date(1001),
+    observedAtMs: 1000,
   };
   const recovery = {
     ...entry(1),
     launchId: "launch-2",
-    activity: "starting",
-    occurredAt: new Date(1000),
-    createdAt: new Date(1002),
+    detailKind: "starting",
+    observedAtMs: 1000,
   };
   expect(latestActivityError(mergeAgentActivity([failure], [recovery]))).toBeUndefined();
 });
 
 test("a delayed publication does not replace its persisted metadata", () => {
   const persisted = entry(1, "persisted-1");
-  const live = { ...persisted, id: undefined, createdAt: undefined };
+  const live = { ...persisted, id: undefined };
   expect(mergeAgentActivity([persisted], [live])).toEqual([persisted]);
 });

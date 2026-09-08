@@ -1,15 +1,16 @@
+import type { ActivityTrajectoryEntry } from "@coforge/protocol";
+
 export type ActivityEntry = {
   id?: string;
   launchId: string;
   clientSeq: number;
-  activity: string;
+  detailKind: string;
   level: string;
-  message: string;
-  occurredAt: Date;
+  detail: string;
+  observedAtMs: number;
+  entries?: ActivityTrajectoryEntry[];
+  runtimeError?: { errorClass: string; errorReason: string; fingerprint: string };
   createdAt?: Date;
-  diagnosticErrorClass?: string | null;
-  diagnosticReason?: string | null;
-  diagnosticFingerprint?: string | null;
 };
 
 export function mergeAgentActivity(current: ActivityEntry[], incoming: ActivityEntry[]) {
@@ -26,8 +27,8 @@ export function mergeAgentActivity(current: ActivityEntry[], incoming: ActivityE
 function orderActivity<T extends ActivityEntry>(activity: T[]): T[] {
   const chronological = [...activity].sort(
     (a, b) =>
-      b.occurredAt.getTime() - a.occurredAt.getTime() ||
-      (b.createdAt ?? b.occurredAt).getTime() - (a.createdAt ?? a.occurredAt).getTime(),
+      b.observedAtMs - a.observedAtMs ||
+      (b.createdAt?.getTime() ?? b.observedAtMs) - (a.createdAt?.getTime() ?? a.observedAtMs),
   );
   // Cross-launch order is observational. Within each launch, sequence is stronger
   // than wall time. Reorder its existing slots rather than using a non-transitive comparator.
@@ -44,10 +45,20 @@ function orderActivity<T extends ActivityEntry>(activity: T[]): T[] {
 export function latestActivityError<T extends ActivityEntry>(activity: T[]) {
   // Newest-first. A successful launch/resumed work supersedes older failures;
   // shutdown, warnings and unknown events do not prove recovery.
-  const outcome = orderActivity(activity).find(
+  const ordered = orderActivity(activity);
+  const outcome = ordered.find(
     (entry) =>
       entry.level === "error" ||
-      ["starting", "working", "turn_completed", "idle"].includes(entry.activity),
+      ["starting", "model_response_started", "thinking_started", "idle"].includes(entry.detailKind),
   );
-  return outcome?.level === "error" ? outcome : undefined;
+  if (outcome?.level !== "error") return undefined;
+  const recovered = ordered.some(
+    (entry) =>
+      entry.level !== "error" &&
+      ["starting", "model_response_started", "thinking_started", "idle"].includes(
+        entry.detailKind,
+      ) &&
+      entry.observedAtMs >= outcome.observedAtMs,
+  );
+  return recovered ? undefined : outcome;
 }

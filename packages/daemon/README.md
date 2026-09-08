@@ -4,14 +4,16 @@
 topology is deliberately small:
 
 ```text
-Computer --Unix socket--> Daemon --one WSS--> server
-                              └─ N Agent runtime OS child processes
+Computer --Unix socket--> Daemon supervisor
+                              ├─ Workspace runtime A --one WSS--> server
+                              └─ Workspace runtime B --one WSS--> server
 ```
 
-The daemon owns one configured logical Workspace connection and an
-`AgentProcessManager` that starts and stops any number of provider-neutral Agent
-runtime processes. Computer can configure, start, stop, and restart the daemon;
-it cannot operate Agents directly.
+The daemon supervisor owns the machine-wide process and maintains one isolated
+resident runtime per configured Workspace. Each resident runtime owns its
+Workspace connection, Agent process manager, workspace root, credentials, and
+activity/status state. Computer can add or reconfigure a Workspace through the
+local RPC seam, but it never discovers providers or operates Agents directly.
 
 After the server handshake/`ready` flow, the server may deliver an `agent.start`
 intent containing `agentId`, the complete `AgentRuntimeConfig`, and an optional
@@ -21,11 +23,15 @@ the same WSS. It does not pretend to implement provider-specific resume or
 server push until those transports exist.
 
 `stopAll()` stops every locally owned Agent runtime and the daemon transport.
-There is no Daemon process, worker supervisor, runtime pool, capacity
-policy, cross-Workspace scheduler, or Computer-to-Agent RPC.
+The machine supervisor is responsible only for lifecycle and routing local RPC
+to the selected Workspace runtime. It is not a cross-Workspace scheduler or
+capacity policy, and it does not expose Computer-to-Agent RPC. Runtime
+inventory is discovered by each Daemon-owned Workspace runtime and published
+through that runtime's authenticated cloud connection.
 
-Computer setup replaces the single active binding by issuing `stopAll` first,
-then configuring and starting the new Workspace. A failed replacement leaves
-the previous Computer registration on disk and reports an error; the daemon
-does not claim a remote unregister because that operation is not in the
+Computer setup adds or reconfigures only the selected Workspace binding and
+asks the supervisor to ensure that runtime is started. It does not stop other
+Workspace runtimes and does not send provider inventory. A failed replacement
+leaves the previous Computer registration on disk and reports an error; the
+daemon does not claim a remote unregister because that operation is not in the
 current server contract.

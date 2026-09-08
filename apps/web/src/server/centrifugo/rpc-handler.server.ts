@@ -42,6 +42,28 @@ import {
 import type { CentrifugoServerApi } from "./server-api.server";
 import { AgentMessageValidationError } from "../conversations/agent-message-validation-error.server";
 import { isChannelMessageTarget } from "@coforge/protocol";
+import type { ComputerRestartStore } from "../computers/computer-restart-store.server";
+import { decodeAgentSessionReport } from "@coforge/protocol";
+import type { AgentSessions } from "../agents/agent-sessions.server";
+
+export function createAgentSessionMethod(sessions: AgentSessions): CentrifugoRpcMethod {
+  return async (payload, metadata) => {
+    try {
+      const report = decodeAgentSessionReport(payload);
+      if (
+        !metadata.principal.userId ||
+        metadata.principal.agentId ||
+        metadata.principal.workspaceId !== report.workspaceId ||
+        metadata.principal.computerId !== report.computerId
+      )
+        return { code: 403, message: "Agent session scope is not authorized" };
+      await sessions.accept(report);
+      return new Uint8Array();
+    } catch {
+      return { code: 409, message: "Agent session report rejected" };
+    }
+  };
+}
 
 export function createAgentDeliveryAckMethod(repository: {
   receiveDeliveryAck(input: {
@@ -373,13 +395,16 @@ function logHold(
 }
 
 export const createDaemonRuntimeReadyMethod =
-  (recovery?: {
-    recoverWorkspace(
-      workspaceId: string,
-      computerId: string,
-      runningAgentIds: readonly string[],
-    ): Promise<void>;
-  }): CentrifugoRpcMethod =>
+  (
+    recovery?: {
+      recoverWorkspace(
+        workspaceId: string,
+        computerId: string,
+        runningAgentIds: readonly string[],
+      ): Promise<void>;
+    },
+    restarts?: ComputerRestartStore,
+  ): CentrifugoRpcMethod =>
   async (payload, metadata) => {
     const request = decodeDaemonRuntimeReadyRequest(payload);
     if (
@@ -395,10 +420,29 @@ export const createDaemonRuntimeReadyMethod =
       !request.workspaceId ||
       !request.computerId ||
       !request.workerInstanceId ||
+      !request.daemonVersion?.trim() ||
+      !request.recoveredRestartRequestIds ||
+      new Set(request.recoveredRestartRequestIds).size !==
+        request.recoveredRestartRequestIds.length ||
       !request.requestId
     )
       return { code: 400, message: "invalid daemon runtime ready request" };
     try {
+      await restarts?.ready(
+        { workspaceId: request.workspaceId, computerId: request.computerId },
+        {
+          workerInstanceId: request.workerInstanceId,
+          daemonVersion: request.daemonVersion,
+          startedAt: request.startedAt,
+        },
+        request.recoveredRestartRequestIds,
+      );
+      const current = await restarts?.identity?.({
+        workspaceId: request.workspaceId,
+        computerId: request.computerId,
+      });
+      if (current && current.workerInstanceId !== request.workerInstanceId)
+        return { code: 409, message: "daemon runtime was superseded" };
       await recovery?.recoverWorkspace(
         request.workspaceId,
         request.computerId,
@@ -454,14 +498,14 @@ export function createDaemonRuntimeCodeAgentsUpdateMethod(inventory: {
     if (
       request.protocolMajor !== 1 ||
       !request.requestId ||
-      request.runtimes.some((runtime) => !runtime.version.trim()) ||
+      (request.runtimes ?? []).some((runtime) => !runtime.version.trim()) ||
       !validModelCatalogs(request.catalogs)
     )
       return { code: 400, message: "invalid Code Agent inventory" };
     try {
       await inventory.replace(
         { workspaceId: request.workspaceId, computerId: request.computerId },
-        request.runtimes,
+        request.runtimes ?? [],
         request.catalogs,
       );
       return new Uint8Array();

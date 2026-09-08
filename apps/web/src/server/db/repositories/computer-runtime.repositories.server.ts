@@ -12,6 +12,7 @@ import type {
 
 const runtimeShape = {
   id: true,
+  workspaceId: true,
   computerId: true,
   provider: true,
   version: true,
@@ -34,6 +35,7 @@ function runtimeProvider(value: string): RuntimeProvider {
 
 function mapRuntime(runtime: {
   id: string;
+  workspaceId: string;
   computerId: string;
   provider: string;
   version: string;
@@ -55,7 +57,7 @@ export class PrismaComputerRuntimeRepository implements ComputerRuntimeVisibilit
 
   async listInWorkspace(workspaceId: string) {
     const runtimes = await this.db.computerRuntime.findMany({
-      where: { computer: { workspaces: { some: { workspaceId } } } },
+      where: { workspaceId },
       select: runtimeShape,
       orderBy: [{ computerId: "asc" }, { provider: "asc" }],
     });
@@ -64,11 +66,7 @@ export class PrismaComputerRuntimeRepository implements ComputerRuntimeVisibilit
 
   async findInWorkspace(workspaceId: string, computerId: string, provider: RuntimeProvider) {
     const runtime = await this.db.computerRuntime.findFirst({
-      where: {
-        computerId,
-        provider,
-        computer: { workspaces: { some: { workspaceId } } },
-      },
+      where: { workspaceId, computerId, provider },
       select: runtimeShape,
     });
     return runtime ? mapRuntime(runtime) : undefined;
@@ -76,10 +74,7 @@ export class PrismaComputerRuntimeRepository implements ComputerRuntimeVisibilit
 
   async findByIdInWorkspace(workspaceId: string, runtimeId: string) {
     const runtime = await this.db.computerRuntime.findFirst({
-      where: {
-        id: runtimeId,
-        computer: { workspaces: { some: { workspaceId } } },
-      },
+      where: { id: runtimeId, workspaceId },
       select: runtimeShape,
     });
     return runtime ? mapRuntime(runtime) : undefined;
@@ -111,22 +106,25 @@ export class PrismaComputerRuntimeRepository implements ComputerRuntimeVisibilit
       const providers = runtimes.map((runtime) => runtime.provider);
       await transaction.computerRuntime.deleteMany({
         where: {
+          workspaceId: scope.workspaceId,
           computerId: scope.computerId,
           ...(providers.length ? { provider: { notIn: providers } } : {}),
         },
       });
       await transaction.computerModelCatalog.deleteMany({
-        where: { computerId: scope.computerId },
+        where: { workspaceId: scope.workspaceId, computerId: scope.computerId },
       });
       for (const runtime of runtimes) {
         await transaction.computerRuntime.upsert({
           where: {
-            computerId_provider: {
+            workspaceId_computerId_provider: {
+              workspaceId: scope.workspaceId,
               computerId: scope.computerId,
               provider: runtime.provider,
             },
           },
           create: {
+            workspaceId: scope.workspaceId,
             computerId: scope.computerId,
             provider: runtime.provider,
             version: runtime.version,
@@ -142,6 +140,7 @@ export class PrismaComputerRuntimeRepository implements ComputerRuntimeVisibilit
       if (catalogs.length)
         await transaction.computerModelCatalog.createMany({
           data: catalogs.map((catalog) => ({
+            workspaceId: scope.workspaceId,
             computerId: scope.computerId,
             provider: catalog.provider,
             models: catalog.models,

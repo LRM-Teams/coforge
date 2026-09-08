@@ -94,7 +94,7 @@ describe("SendDirectMessage", () => {
     });
 
     expect(calls).toEqual(["persist", "publish"]);
-    expect(publication?.channel).toBe("daemon:computer-a");
+    expect(publication?.channel).toBe("daemon:workspace-a:computer-a");
     expect(decodeAgentMessageDelivery(publication!.data)).toEqual({
       protocolMajor: 1,
       requestId: "request-a",

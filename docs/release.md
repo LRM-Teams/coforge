@@ -47,29 +47,29 @@ redaction, and a non-root deployment identity.
 | Track | Candidate identity | Test target | Production effect |
 | --- | --- | --- | --- |
 | Cloud application | Full `registry/repository@sha256:...` image reference | `staging` GitHub Environment and Compose project | Deploy the same digest to production Compose |
-| Local Computer distribution | A release version plus its manifest's SHA-256 checksum for every platform's Computer and Daemon binary | Version published behind the staging feed's `latest` pointer | Build the same commit against the production feed, publish it, then point production's `latest` at it |
+| Local Computer distribution | A release version plus its manifest's SHA-256 checksum for every platform's unified Computer executable | Version published behind the staging feed's `latest` pointer | Build the same commit against the production feed, publish it, then point production's `latest` at it |
 
 The daemon runtime role is released inside `coforge-daemon`; it is not a third local
 product component. `@coforge/agent` is independently packable for dependency and
 verification purposes, but the exact installed package remains part of the
 Daemon component payload rather than becoming a third user-facing component.
 
-Computer and Daemon are two independently buildable, versioned, and packable
-source units - Computer declares Daemon as a package dependency, and Daemon
-declares an exact `@coforge/agent` runtime dependency - but they are released
-together under one shared version identity. Every publication ships both
-components' binaries for every supported platform beneath that version,
-recorded in one `manifest.json` that names each binary's byte size and SHA-256
-checksum. There is no separate release-set digest, per-component manifest, or
-installation-bundle archive: integrity comes from TLS in transit plus the
-manifest's checksums, not a signed multi-tier envelope, and a version is either
-published completely or not at all.
+Computer and Daemon remain two independently buildable source packages -
+Computer declares Daemon as a build dependency, and Daemon declares an exact
+`@coforge/agent` runtime dependency - but release builds compile both roles
+into one native `coforge-computer` executable under one shared version. A
+standalone Daemon build may remain a test/development artifact, but it is never
+published in the user distribution. Every publication records one executable's
+byte size and SHA-256 checksum per target. There is no separate release-set
+digest, per-component manifest, or installation-bundle archive: integrity
+comes from TLS in transit plus the manifest's checksums.
 
-Users install, upgrade, and invoke only Computer. Daemon is not a second
-user-installed product or public CLI entry point, but it still runs as an
-independent OS process. The two binaries are fetched and verified separately
-per platform; an implementation must not collapse the runtime process boundary
-between them.
+Users install, upgrade, and invoke only Computer. Its main entry dispatches
+`__daemon` to the Daemon runtime, `__agent-cli` to the existing
+`@coforge/cli/runner`, and ordinary arguments to the Computer management CLI.
+Daemon still runs as an independent OS process over the existing Unix socket;
+sharing executable bytes does not collapse that runtime boundary. Build-time
+release version injection must give both roles the same version.
 
 ## Release identity and evidence
 
@@ -80,7 +80,7 @@ Every deployment or local-distribution publication record must identify:
 | `source_commit` | Full Git commit SHA on `main`; host-initiated rollback uses the explicit `manual` sentinel and remains bound to immutable image digests |
 | `track` | Cloud application or local Computer distribution |
 | `artifact_identity` | Cloud image digest or local release version and its manifest's SHA-256 |
-| `artifact_members` | Image reference or, per platform, each Computer/Daemon binary's name, size, and SHA-256 checksum |
+| `artifact_members` | Image reference or, per platform, the unified Computer executable's name, size, and SHA-256 checksum |
 | `environment_or_channel` | Isolated `staging` or `production` target |
 | `workflow_run` | GitHub Actions run URL or stable run ID; host-initiated rollback uses the explicit `manual` sentinel |
 | `previous_identity` | Last known healthy digest/manifest, or an explicit bootstrap marker; cloud JSONL names this `previous_digest` |
@@ -135,7 +135,6 @@ latest                                       plain text, one version string, e.g
 <version>/manifest.json                      unsigned JSON: schema_version, version, commit, buildDate, platforms
 <version>/<target>/coforge-computer.gz       gzip transport copy
 <version>/<target>/coforge-computer.sha256   bare lowercase hex SHA-256 of that platform's coforge-computer, nothing else
-<version>/<target>/coforge-daemon.gz         gzip transport copy
 computer/install.sh
 computer/install.ps1
 ```
@@ -153,17 +152,18 @@ installed executable size and never permits overwriting a published version.
 
 `<target>` is one of the existing `releaseTarget` values: `linux-x64`,
 `linux-arm64`, `darwin-x64`, `darwin-arm64`, `windows-x64`, `windows-arm64`.
-`manifest.json` names, for every supported target, the Computer and Daemon
-binary's file name, byte size, and SHA-256 checksum (bare lowercase hex, no
-`sha256:` prefix). `commit` (the full `main` source SHA) and `buildDate` exist
+`manifest.json` uses `schema_version: 2`. For every supported target,
+`platforms[target]` contains only `computer` identity plus its `gzip` transport
+metadata; no `daemon` member exists. Computer identity names the executable,
+uncompressed byte size, and SHA-256 checksum (bare lowercase hex, no `sha256:`
+prefix); its `gzip` member names `coforge-computer.gz` and records compressed
+size and checksum. `commit` (the full `main` source SHA) and `buildDate` exist
 to look up how a version was built after the fact; they are not themselves
 verified by the installer. `schema_version` is reserved so a future payload-
 signing field could be added without breaking older installers, but signing is
 explicitly out of scope for this contract: **integrity comes from HTTPS in
 transit plus the manifest's SHA-256 checksums, not a signed envelope.** This
-mirrors how Claude Code and `@botiverse/raft-daemon` ship updates; CoForge's
-manifest nests `computer` and `daemon` per platform only because it ships two
-binaries where those tools ship one.
+mirrors how Claude Code and `@botiverse/raft-daemon` ship updates.
 
 `coforge-computer.sha256` is a sidecar, not a substitute for the manifest: it
 exists because `install.sh` and `install.ps1` are the bootstrap that fetches
@@ -181,12 +181,10 @@ drift apart. `updater.ts`, which runs after Computer is already installed and
 has a real `JSON.parse`, keeps reading `manifest.json` directly and never
 reads the sidecar; only the two bootstrap scripts do.
 
-Every publication ships both components together under one version identity;
-there is no mechanism to change only Computer or only Daemon while reusing the
-other's prior artifact. `coforge-computer` still depends on `coforge-daemon`
-at the package/build boundary, and the Daemon artifact still carries its exact
-installed `@coforge/agent` dependency, but both are built, tested, and
-promoted as a single unit.
+Every publication ships the unified executable under one version identity;
+there is no mechanism to change only Computer or only Daemon while reusing
+prior executable bytes. The two source packages are built, tested, and
+promoted as one release unit.
 
 All objects beneath a `<version>/` prefix are write-once: once published,
 changing any byte requires a new version string. `latest` is the feed's only
@@ -261,7 +259,8 @@ Versioned keys remain immutable, including across retries.
 Installation, upgrade, background startup, and rollback run entirely as the
 current user. They must not request `sudo` or administrator elevation, write to
 `/usr/local`, `/opt`, `/Library`, `Program Files`, or system service locations,
-or reuse another user's installation.
+reuse another user's installation, enable Linux lingering, or modify root-owned
+or system-level service configuration.
 
 Configuration, credentials, version storage, and logs live below the current
 user's `~/.coforge`, split into `computer` and `daemon` roots. The one exception
@@ -294,19 +293,19 @@ be on PATH and therefore cannot live in a private directory nobody's PATH names:
   Computer may use a current-user startup mechanism.
 
 The installer maintains a user-owned versioned installation directory. It downloads
-the Computer and Daemon binaries into staging, verifies each against the
-manifest's recorded size and SHA-256 checksum, activates only after both
-payloads pass, preserves the prior version for rollback, and never relocates
+the unified Computer executable into staging, verifies it against the
+manifest's recorded size and SHA-256 checksum, activates only after it passes,
+preserves the prior version for rollback, and never relocates
 stable machine identity, credentials, configuration, or user data into a
 versioned directory. Only the `coforge-computer` shim enters the current
-user's PATH. The Daemon payload remains inside the versioned installation
-directory, is never registered as its own system or user service, and is
-launched by Computer through the exact path selected by the active version.
+user's PATH. Computer launches the adjacent executable with `__daemon` through
+the exact path selected by the active version; no standalone Daemon payload or
+service entry is installed.
 
 Installation also writes a tiny version-local `coforge` launcher which invokes
-that directory's `coforge-daemon __agent-cli`. Daemon prepends its own
+that directory's `coforge-computer __agent-cli`. Daemon prepends its own
 executable directory to Agent PATH. The Agent CLI implementation remains in
-`packages/cli`, compiled into Daemon; its internal entry does not initialize
+`packages/cli`, compiled into the unified executable; its internal entry does not initialize
 logging, sockets, cloud connections or Workspace recovery. Users continue to
 run only Computer management commands; Agents execute `coforge`.
 This adds neither a third native payload nor a Bun/npm requirement. The
@@ -314,6 +313,21 @@ launcher is covered by the installed version's offline integrity check and
 does not follow a later active-version switch underneath an existing Daemon.
 The installer supplies this launcher; Daemon startup does not repair older
 installations. No older-client or older-installer compatibility is maintained.
+Installer identity metadata uses schema 2 and records the `computer` identity
+plus the generated `agentCli` launcher identity. It contains no Daemon
+identity.
+
+Previously published rc1 through rc3 remain immutable. They are not rewritten
+with schema 2 and receive no raw-artifact or two-payload fallback. Crossing
+from their layout requires a fresh bootstrap install; the old updater is not
+assumed to accept schema 2. Existing installations remain rollbackable to
+their own retained bytes, but rollback does not translate between layouts.
+
+Normal CLI lifecycle commands are one-shot local RPC clients. They start or
+reuse the native per-user process manager and never detach an unmanaged
+fallback. Environments without that manager, including containers, must run
+`coforge-computer foreground` under an explicit external supervisor. That mode
+does not transfer process ownership to the CLI and is not silently selected.
 
 Both `install.sh` and `install.ps1` expose two selection modes with identical
 semantics:
@@ -321,9 +335,8 @@ semantics:
 - omitted or `--version latest` resolves the feed's `latest` pointer;
 - `--version <version>` selects one exact published version.
 
-An exact version is enough to select an installation because Computer and
-Daemon are released and versioned together; there is no independent Daemon
-version to disambiguate.
+An exact version is enough to select an installation because it identifies the
+complete unified executable; there is no independent Daemon version.
 
 Staging and production artifacts are **not interchangeable**. The feed a build
 trusts is compiled into it (`COFORGE_RELEASE_FEED_URL`, see
@@ -435,22 +448,23 @@ unavailable.
 
 ### Local Computer distribution
 
-The automated local-distribution path always publishes both components
-together, to the track's own feed (a staging build trusts a different
+The automated local-distribution path always publishes the unified executable,
+built from both source packages, to the track's own feed (a staging build trusts a different
 `COFORGE_RELEASE_FEED_URL` than a production build compiles in, so the two
 tracks' `latest` pointers are never the same object):
 
 1. Run the repository gates for the exact `main` commit.
-2. Build the Computer and Daemon artifacts once for the complete Windows,
-   Linux, and macOS platform matrix, with the approved Bun executable targets.
+2. Build the unified Computer executable once for the complete Windows, Linux,
+   and macOS platform matrix, with the approved Bun executable targets and the
+   same release version injected into both Computer and Daemon roles.
    Do not rebuild one platform after another platform passed.
-3. Compute every platform's Computer and Daemon binary byte size and SHA-256
-   checksum, assemble the version's `manifest.json`, and generate each
+3. Compute every platform's Computer executable byte size and SHA-256 checksum,
+   assemble the schema 2 `manifest.json`, and generate each
    platform's `coforge-computer.sha256` sidecar from the same Computer binary
    bytes and the same checksum computation as the manifest entry - the two
    must never be allowed to diverge.
 4. Publish `manifest.json`, every platform's `coforge-computer.sha256`
-   sidecar, and every platform binary beneath the new `<version>/` prefix on
+   sidecar, and every platform's sole `coforge-computer.gz` beneath the new `<version>/` prefix on
    the staging feed. Prove anonymous/direct reads of their exact
    private-origin keys are rejected, then re-read them through
    `releases.coforge.cn` and compare consumer-visible bytes with the workflow
@@ -562,7 +576,7 @@ verification. Capture failure diagnostics without secrets.
 A local Computer release version is healthy only when:
 
 1. the feed's `latest` pointer resolves the requested version and no other;
-2. the version's manifest and every downloaded platform binary match their
+2. the version's schema 2 manifest and every downloaded platform Computer executable match their
    recorded byte sizes and SHA-256 checksums;
 3. an unsigned anonymous/direct GET of each exact private OSS object key is
    rejected, the CDN succeeds through private-origin authorization, the
@@ -582,6 +596,19 @@ A local Computer release version is healthy only when:
 
 The implementation must define the required platform matrix and exact command
 seams before a local distribution channel can be promoted.
+
+An upgrade or rollback coordinator must execute outside the managed service's
+kill scope. Under native management it acquires the machine mutation lock for
+the complete transaction, prepares and verifies bytes, pauses launches,
+snapshots the exact running Workspace set, asks `systemd --user` or per-user
+`launchd` to stop the Supervisor, activates the target, restarts the manager,
+and accepts health only with a new Supervisor identity, expected version, and
+new identity for every previously running Workspace child. Candidate failure
+automatically restores the prior immutable installation and the same running
+set, then repeats those checks; failed rollback keeps launches held for explicit
+recovery. A foreground externally supervised instance cannot currently be
+stopped by this coordinator and must be stopped through its external supervisor
+before upgrade.
 
 ## Rollback
 
@@ -688,9 +715,9 @@ than reconstruct or invoke the removed gateway workflow.
 The local feed topology and `releases.coforge.cn` consumer boundary above
 are approved. `scripts/release/publish.ts`, run manually through
 `.github/workflows/release-staging.yml` (`workflow_dispatch` only, `environment:
-staging`), now implements a first version of the "Main to staging" local-
-distribution path: it runs the repository gates, cross-compiles Computer and
-Daemon for a set of release targets, assembles the version tree
+staging`), implements the "Main to staging" local-
+distribution path: it runs the repository gates, cross-compiles the unified
+Computer for a set of release targets, assembles the schema 2 version tree
 (`build-release.ts`), uploads every object `buildReleaseTree` lists, and verifies
 signed OSS read-back. Before updating `latest`, it calls the reusable
 `verifyReleaseObject` probe for **every** exact object key: unsigned origin GET
@@ -717,9 +744,13 @@ The remaining known platform gap is not silently papered over:
   "complete Windows, Linux, and macOS platform matrix" step 2 requires, and
   `release-staging.yml` does not override that default. A real staging
   publish through the current workflow therefore does not yet ship
-  `windows-x64`/`windows-arm64` binaries; Windows Computer/Daemon behavior has
+  `windows-x64`/`windows-arm64` binaries; Windows unified-executable behavior has
   not been verified end to end. Passing `--targets` with all six is possible
   today, but nothing has proven the Windows binaries actually work first.
+- **macOS lifecycle runtime verification**: launchd unit generation and adapter
+  behavior have automated coverage, but the complete install, manager-owned
+  Coordinator, upgrade, health-identity, and rollback flow has not yet run on a
+  macOS host. Do not treat source-level tests as platform release evidence.
 
 Distribution credentials (`ALIYUN_OSS_ACCESS_KEY_ID`/`ALIYUN_OSS_ACCESS_KEY_SECRET`,
 see `infra/staging/README.md`) and updater commands (`packages/computer/src/

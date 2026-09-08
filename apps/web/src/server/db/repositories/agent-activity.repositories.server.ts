@@ -1,4 +1,4 @@
-import type { AgentActivity } from "@coforge/protocol";
+import { parseActivityEntries, type AgentActivity } from "@coforge/protocol";
 import type { PrismaClient } from "../../../../generated/client";
 
 export type TrustedAgentActivity = AgentActivity & { computerId: string };
@@ -8,8 +8,10 @@ type CompactActivity = {
   id: string;
   launchId: string;
   clientSeq: number;
-  activity: string;
+  detailKind: string;
   level: string;
+  detail: string;
+  entries: unknown;
   occurredAt: Date;
   createdAt: Date;
   slot: bigint;
@@ -56,8 +58,10 @@ export class AgentActivityRepository {
           activity."agentId",
           activity."launchId",
           activity."clientSeq",
-          activity."activity",
+          activity."detailKind",
           activity."level",
+          activity."detail",
+          activity."entries",
           activity."occurredAt",
           activity."createdAt",
           ROW_NUMBER() OVER (
@@ -82,8 +86,9 @@ export class AgentActivityRepository {
         compact."id",
         compact."launchId",
         compact."clientSeq",
-        compact."activity",
+        compact."detailKind",
         compact."level",
+        compact."entries",
         compact."occurredAt",
         compact."createdAt",
         compact.slot
@@ -108,17 +113,21 @@ export class AgentActivityRepository {
           id: activityId,
           launchId,
           clientSeq,
-          activity: activityName,
+          detailKind,
           level,
+          detail,
+          entries,
           occurredAt,
           createdAt,
         }) => ({
           id: activityId,
           launchId,
           clientSeq,
-          activity: activityName,
+          detailKind,
           level,
-          occurredAt,
+          detail,
+          entries: entries === null ? [] : parseActivityEntries(entries),
+          observedAtMs: occurredAt.getTime(),
           createdAt,
         }),
       ),
@@ -133,23 +142,47 @@ export class AgentActivityRepository {
         computerId: input.computerId,
         launchId: input.launchId,
         clientSeq: input.clientSeq,
-        activity: input.activity,
+        detailKind: input.detailKind,
         level: input.level,
-        message: input.message,
-        diagnosticErrorClass: input.diagnostic?.errorClass,
-        diagnosticReason: input.diagnostic?.reason,
-        diagnosticFingerprint: input.diagnostic?.fingerprint,
-        occurredAt: new Date(input.occurredAt),
+        detail: input.detail,
+        entries: input.entries,
+        runtimeErrorClass: input.runtimeError?.errorClass,
+        runtimeErrorReason: input.runtimeError?.errorReason,
+        runtimeErrorFingerprint: input.runtimeError?.fingerprint,
+        occurredAt: new Date(input.observedAtMs),
       },
       skipDuplicates: true,
     });
   }
 
-  list(workspaceId: string, agentId: string) {
-    return this.db.agentActivity.findMany({
+  async list(workspaceId: string, agentId: string) {
+    const rows = await this.db.agentActivity.findMany({
       where: { workspaceId, agentId },
       orderBy: [{ occurredAt: "desc" }, { clientSeq: "desc" }, { createdAt: "desc" }],
       take: 100,
     });
+    return rows.map(
+      ({
+        occurredAt,
+        entries,
+        runtimeErrorClass,
+        runtimeErrorReason,
+        runtimeErrorFingerprint,
+        ...row
+      }) => ({
+        ...row,
+        observedAtMs: occurredAt.getTime(),
+        entries: entries === null ? [] : parseActivityEntries(entries),
+        ...(runtimeErrorClass
+          ? {
+              runtimeError: {
+                errorClass: runtimeErrorClass,
+                errorReason: runtimeErrorReason ?? "",
+                fingerprint: runtimeErrorFingerprint ?? "",
+              },
+            }
+          : {}),
+      }),
+    );
   }
 }

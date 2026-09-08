@@ -5,7 +5,11 @@ import type { RuntimeProvider } from "@coforge/protocol";
 
 import { ComputerDetail } from "@/features/computers/computer-detail";
 import { ComputerNotFound } from "@/features/computers/computer-not-found";
-import { setRuntimeVisibility } from "@/features/computers/computers.functions";
+import {
+  readComputerRestartStatus,
+  restartComputer,
+  setRuntimeVisibility,
+} from "@/features/computers/computers.functions";
 import { scanRuntimeUsage } from "@/features/computers/usage-scan";
 import type { UsageView } from "@/features/computers/runtime-usage";
 
@@ -28,6 +32,8 @@ function ComputerDetailPage() {
   const { computer, timeZone } = Route.useLoaderData();
   const router = useRouter();
   const setVisibility = useServerFn(setRuntimeVisibility);
+  const requestRestart = useServerFn(restartComputer);
+  const readRestart = useServerFn(readComputerRestartStatus);
   // The route component survives a change of `$computerId`, so a snapshot is
   // held against the Computer it was scanned for, never the mounted component.
   const [usage, setUsage] = useState<Record<string, Record<string, UsageView>>>({});
@@ -47,6 +53,8 @@ function ComputerDetailPage() {
       computer={{ ...computer, usage: usage[computerId] }}
       timeZone={timeZone}
       onScanUsage={scan}
+      onRestart={(requestId) => requestRestart({ data: { computerId, requestId } })}
+      onReadRestartStatus={(requestId) => readRestart({ data: { computerId, requestId } })}
       onSetRuntimePublic={async (runtimeId, isPublic) => {
         await setVisibility({ data: { runtimeId, isPublic } });
         await router.invalidate({ sync: true });

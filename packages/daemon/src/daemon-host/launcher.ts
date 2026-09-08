@@ -1,5 +1,5 @@
 import { access } from "node:fs/promises";
-import { join, win32 } from "node:path";
+import { dirname, join, win32 } from "node:path";
 import {
   decodeDaemonHandshakeResponse,
   decodeDaemonCommandResponse,
@@ -15,6 +15,8 @@ import {
 } from "@coforge/protocol";
 import type { DaemonHandshakeResponse } from "@coforge/protocol";
 import { DaemonConfigStore } from "../persistence/daemon-config";
+import { COFORGE_DAEMON_SERVER_URL } from "../connection/built-server";
+import { FileBindingStore } from "../supervisor/binding-store";
 
 export interface DaemonLauncher {
   preflight?(): Promise<void>;
@@ -23,13 +25,14 @@ export interface DaemonLauncher {
 }
 export interface DaemonCommandRunner {
   ensureRunning(): Promise<void>;
-  command(operation: "start" | "stop" | "restart"): Promise<void>;
+  command(operation: "start" | "stop" | "restart", workspaceId?: string): Promise<void>;
 }
 export type DaemonWorkspaceConfig = {
   workspaceId: string;
   computerId: string;
   workspaceRoot: string;
   daemonApiKey: string;
+  serverHttpUrl?: string;
 };
 
 export type LocalDaemonConnection = {
@@ -40,37 +43,29 @@ export type LocalDaemonConnection = {
 export type LocalDaemonLauncherOptions = {
   executablePath: string;
   socketPath: string;
-  stateDirectory: string;
-  serverUrl: string;
+  stateDirectory?: string;
+  serverUrl?: string;
   connect?: (socketPath: string) => Promise<LocalDaemonConnection>;
-  spawn?: (executablePath: string, socketPath: string) => void;
+  spawn?: (command: string[]) => void;
   sleep?: (milliseconds: number) => Promise<void>;
   timeoutMilliseconds?: number;
 };
 
 export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner {
+  readonly #serverUrl: string;
   #connect: (socketPath: string) => Promise<LocalDaemonConnection>;
-  #spawn: (executablePath: string, socketPath: string) => void;
   #sleep: (milliseconds: number) => Promise<void>;
   #timeoutMilliseconds: number;
 
   constructor(private readonly options: LocalDaemonLauncherOptions) {
+    this.#serverUrl = options.serverUrl ?? COFORGE_DAEMON_SERVER_URL;
     this.#connect = options.connect ?? connectToLocalDaemon;
-    this.#spawn =
-      options.spawn ??
-      ((executablePath, socketPath) => {
-        const process = Bun.spawn(
-          [executablePath, "--socket", socketPath, "--state-directory", options.stateDirectory],
-          {
-            stdin: "ignore",
-            stdout: "ignore",
-            stderr: "ignore",
-          },
-        );
-        process.unref();
-      });
     this.#sleep = options.sleep ?? Bun.sleep;
     this.#timeoutMilliseconds = options.timeoutMilliseconds ?? 10_000;
+  }
+
+  async stop(): Promise<void> {
+    if (await this.#handshake()) await this.command("stop");
   }
 
   async stopAll(): Promise<void> {
@@ -78,8 +73,12 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
   }
 
   async preflight(): Promise<void> {
-    await new DaemonConfigStore(this.options.stateDirectory, {
-      serverHttpUrl: this.options.serverUrl,
+    await new FileBindingStore(
+      this.options.stateDirectory ?? dirname(this.options.socketPath),
+      this.#serverUrl,
+    ).load();
+    await new DaemonConfigStore(this.options.stateDirectory ?? dirname(this.options.socketPath), {
+      serverHttpUrl: this.#serverUrl,
     }).load();
     let connection: LocalDaemonConnection;
     try {
@@ -100,45 +99,53 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
     try {
       if (await this.#handshake(input)) return;
     } catch (error) {
-      if (isEnvironmentMismatch(error)) throw error;
-      throw new Error("coforge-daemon did not accept the local handshake");
+      if (error instanceof Error && error.message.includes("server does not match")) throw error;
+      throw new Error("coforge-daemon did not accept the local handshake", { cause: error });
     }
-    this.#spawn(this.options.executablePath, this.options.socketPath);
+    await this.#waitForHandshake(input);
+  }
+
+  async ensureRunning(): Promise<void> {
+    if (await this.#handshake()) return;
+    await this.#waitForHandshake();
+  }
+
+  async #waitForHandshake(input?: DaemonWorkspaceConfig): Promise<void> {
     const deadline = Date.now() + this.#timeoutMilliseconds;
     while (Date.now() < deadline) {
       if (await this.#handshake(input)) return;
       await this.#sleep(50);
     }
-    throw new Error("coforge-daemon did not accept the local handshake");
+    throw new Error(
+      "CoForge Daemon did not accept the local handshake. Start the user process manager, or run `coforge-computer foreground` under an external supervisor.",
+    );
   }
 
-  async ensureRunning(): Promise<void> {
-    if (await this.#handshake()) return;
-    this.#spawn(this.options.executablePath, this.options.socketPath);
-    const deadline = Date.now() + this.#timeoutMilliseconds;
-    while (Date.now() < deadline) {
-      if (await this.#handshake()) return;
-      await this.#sleep(50);
-    }
-    throw new Error("coforge-daemon did not accept the local handshake");
+  async command(operation: "start" | "stop" | "restart", workspaceId?: string): Promise<void> {
+    await this.ensureRunning();
+    await this.control(operation, workspaceId);
   }
 
-  async command(operation: "start" | "stop" | "restart"): Promise<void> {
-    if (operation !== "stop") await this.ensureRunning();
+  async control(
+    operation: "start" | "stop" | "restart" | "snapshot" | "pause" | "resume",
+    workspaceId?: string,
+    requestId: string = crypto.randomUUID(),
+  ) {
     let connection: LocalDaemonConnection | undefined;
     try {
       connection = await this.#connect(this.options.socketPath);
       await this.#verifyHandshake(connection);
-      const requestId = crypto.randomUUID();
+      const method = `daemon:${operation}`;
       const response = decodeLocalRpcResponse(
         await connection.request(
           frameLocalRpc(
             encodeLocalRpcRequest({
-              method: LOCAL_RPC_METHODS[operation.toUpperCase() as "START" | "STOP" | "RESTART"],
+              method,
               payload: encodeDaemonCommandRequest({
                 protocolMajor: 1,
                 requestId,
-                expectedServerUrl: this.options.serverUrl,
+                workspaceId,
+                expectedServerUrl: this.#serverUrl,
               }),
             }),
           ),
@@ -146,16 +153,44 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
       );
       const commandResponse = decodeDaemonCommandResponse(response.payload);
       if (
-        response.method !==
-          LOCAL_RPC_METHODS[operation.toUpperCase() as "START" | "STOP" | "RESTART"] ||
+        response.method !== method ||
         commandResponse.protocolMajor !== 1 ||
         commandResponse.requestId !== requestId ||
         !commandResponse.accepted
       ) {
         throw new Error(`coforge-daemon did not accept ${operation}`);
       }
+      return commandResponse.runtimes ?? [];
     } finally {
       connection?.close();
+    }
+  }
+
+  async identity(): Promise<DaemonHandshakeResponse> {
+    const connection = await this.#connect(this.options.socketPath);
+    try {
+      const requestId = crypto.randomUUID();
+      const envelope = decodeLocalRpcResponse(
+        await connection.request(
+          frameLocalRpc(
+            encodeLocalRpcRequest({
+              method: LOCAL_RPC_METHODS.HANDSHAKE,
+              payload: encodeDaemonHandshakeRequest({ protocolMajor: 1, requestId }),
+            }),
+          ),
+        ),
+      );
+      const result = decodeDaemonHandshakeResponse(envelope.payload);
+      if (
+        envelope.method !== LOCAL_RPC_METHODS.HANDSHAKE ||
+        !validHandshakeResponse(result, requestId) ||
+        !result.serverUrl ||
+        new URL(result.serverUrl).origin !== new URL(this.#serverUrl).origin
+      )
+        throw new Error("invalid process identity");
+      return result;
+    } finally {
+      connection.close();
     }
   }
 
@@ -184,7 +219,8 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
                 computerId: config.computerId,
                 workspaceRoot: config.workspaceRoot,
                 daemonApiKey: config.daemonApiKey,
-                expectedServerUrl: this.options.serverUrl,
+                expectedServerUrl: this.#serverUrl,
+                serverHttpUrl: config.serverHttpUrl,
               }),
             }),
           ),
@@ -222,7 +258,7 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
     if (
       !validHandshakeResponse(response, requestId) ||
       !response.serverUrl ||
-      new URL(response.serverUrl).origin !== new URL(this.options.serverUrl).origin
+      new URL(response.serverUrl).origin !== new URL(this.#serverUrl).origin
     ) {
       throw new Error("coforge-daemon server does not match this Computer build");
     }
@@ -233,7 +269,7 @@ export function resolveDaemonExecutablePath(input: {
   installRoot: string;
   platform: NodeJS.Platform;
 }): string {
-  const name = input.platform === "win32" ? "coforge-daemon.exe" : "coforge-daemon";
+  const name = input.platform === "win32" ? "coforge-computer.exe" : "coforge-computer";
   if (input.platform === "win32") return win32.join(input.installRoot, "active", name);
   return join(input.installRoot, "active", name);
 }
@@ -244,10 +280,6 @@ export async function assertDaemonExecutable(path: string): Promise<void> {
 
 function validHandshakeResponse(response: DaemonHandshakeResponse, requestId: string): boolean {
   return response.protocolMajor === 1 && response.requestId === requestId && response.accepted;
-}
-
-function isEnvironmentMismatch(error: unknown): boolean {
-  return error instanceof Error && error.message.includes("server does not match");
 }
 
 function connectToLocalDaemon(socketPath: string): Promise<LocalDaemonConnection> {
@@ -287,11 +319,16 @@ async function connectWithBun(socketPath: string): Promise<LocalDaemonConnection
   });
   return {
     request(payload) {
-      return new Promise((resolve, reject) => {
+      let timeout: ReturnType<typeof setTimeout>;
+      return new Promise<Uint8Array>((resolve, reject) => {
         resolveResponse = resolve;
         rejectResponse = reject;
+        timeout = setTimeout(() => {
+          socket.end();
+          reject(new Error("local lifecycle request timed out"));
+        }, 35_000);
         socket.write(payload);
-      });
+      }).finally(() => clearTimeout(timeout));
     },
     close() {
       socket.end();

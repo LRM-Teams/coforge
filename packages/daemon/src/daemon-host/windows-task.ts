@@ -16,13 +16,13 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
     executablePath: string;
     socketPath: string;
     stateDirectory?: string;
-    serverUrl: string;
+    serverUrl?: string;
     daemonConnectionEndpoint?: string;
     run?: CommandRunner;
   }) {
     this.#taskName = options.taskName ?? "CoForge Daemon";
     this.#run = options.run ?? runCommand;
-    const daemonCommand = `"${options.executablePath.replaceAll('"', '""')}" --socket ${options.socketPath}${options.stateDirectory ? ` --state-directory "${options.stateDirectory}"` : ""}`;
+    const daemonCommand = `"${options.executablePath.replaceAll('"', '""')}" __daemon --socket ${options.socketPath}${options.stateDirectory ? ` --state-directory "${options.stateDirectory}"` : ""}`;
     this.#command = options.daemonConnectionEndpoint
       ? `cmd.exe /d /s /c "set COFORGE_DAEMON_CONNECTION_ENDPOINT=${options.daemonConnectionEndpoint}&& ${daemonCommand}"`
       : daemonCommand;
@@ -32,6 +32,10 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
       stateDirectory: options.stateDirectory ?? join(homedir(), ".coforge", "daemon"),
       serverUrl: options.serverUrl,
     });
+  }
+
+  preflight(): Promise<void> {
+    return this.#local.preflight();
   }
 
   async ensureStarted(config: DaemonWorkspaceConfig): Promise<void> {
@@ -47,21 +51,26 @@ export class WindowsUserDaemonHost implements DaemonLauncher {
       "/F",
     ]);
     if (result !== 0) throw new Error("could not register the CoForge Daemon user task");
-    const start = await this.#run(["schtasks.exe", "/Run", "/TN", this.#taskName]);
-    if (start !== 0) throw new Error("could not start the CoForge Daemon user task");
+    await this.ensureRunning();
     await this.#local.ensureStarted(config);
   }
 
-  preflight(): Promise<void> {
-    return this.#local.preflight();
+  async ensureRunning(): Promise<void> {
+    const result = await this.#run(["schtasks.exe", "/Run", "/TN", this.#taskName]);
+    if (result !== 0)
+      throw new Error(
+        "The Windows user task could not start CoForge Daemon. Run `coforge-computer foreground` under an external supervisor; CoForge will not detach a fallback process.",
+      );
+    await this.#local.ensureRunning();
   }
 
-  ensureRunning(): Promise<void> {
-    return this.#local.ensureRunning();
+  command(operation: "start" | "stop" | "restart", workspaceId?: string): Promise<void> {
+    return this.#local.command(operation, workspaceId);
   }
 
-  command(operation: "start" | "stop" | "restart"): Promise<void> {
-    return this.#local.command(operation);
+  async stop(): Promise<void> {
+    const result = await this.#run(["schtasks.exe", "/End", "/TN", this.#taskName]);
+    if (result !== 0) throw new Error("could not stop the CoForge Daemon user task");
   }
 }
 

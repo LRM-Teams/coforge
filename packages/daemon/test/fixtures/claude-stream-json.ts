@@ -1,4 +1,24 @@
-export {};
+import { appendFile } from "node:fs/promises";
+
+const launchLogIndex = process.argv.indexOf("--launch-log");
+if (launchLogIndex >= 0)
+  await appendFile(
+    process.argv[launchLogIndex + 1]!,
+    `${process.argv.includes("--resume") ? "resume" : "fresh"}\n`,
+  );
+
+if (
+  process.argv.includes("expect-resume") &&
+  (process.argv[process.argv.indexOf("--resume") + 1] !== "selected-session" ||
+    process.argv.includes("--no-session-persistence"))
+)
+  throw new Error("missing persistent explicit resume");
+
+if (
+  !process.argv.includes("--dangerously-skip-permissions") ||
+  process.argv[process.argv.indexOf("--permission-mode") + 1] !== "bypassPermissions"
+)
+  throw new Error("missing approved Claude permission policy");
 
 const promptFlag = process.argv.indexOf("--append-system-prompt-file");
 if (promptFlag < 0) throw new Error("missing system prompt file option");
@@ -56,6 +76,12 @@ function handle(record: Record<string, unknown>): void {
   if (record.type === "control_request") {
     const request = record.request as Record<string, unknown>;
     if (request.subtype !== "initialize") throw new Error("wrong startup request");
+    if (process.argv.includes("missing-before-initialize") && process.argv.includes("--resume")) {
+      const error = `No conversation found with session ID: ${process.argv[process.argv.indexOf("--resume") + 1]}`;
+      console.error(error);
+      write({ type: "result", subtype: "error_during_execution", is_error: true, errors: [error] });
+      process.exit(1);
+    }
     if (process.argv.includes("reject-initialize")) {
       write({
         type: "control_response",
@@ -80,6 +106,26 @@ function handle(record: Record<string, unknown>): void {
   }
   if (record.type === "user") {
     const message = record.message as Record<string, unknown>;
+    if (process.argv.includes("missing-resume") && process.argv.includes("--resume")) {
+      if (process.argv.includes("progress-before-missing"))
+        write({ type: "stream_event", event: { type: "message_start" } });
+      if (process.argv.includes("init-before-missing"))
+        write({ ...initialization, session_id: "missing-session" });
+      console.error(
+        `No conversation found with session ID: ${process.argv[process.argv.indexOf("--resume") + 1]}`,
+      );
+      if (process.argv.includes("mixed-error")) console.error("EACCES: permission denied");
+      if (process.argv.includes("invalid-output")) console.log("{broken JSON");
+      process.exit(1);
+    }
+    if (process.argv.includes("fresh-fails") && !process.argv.includes("--resume")) {
+      console.error("No conversation found with session ID: missing-session");
+      process.exit(1);
+    }
+    if (process.argv.includes("resume-error")) {
+      console.error(process.argv[process.argv.indexOf("resume-error") + 1]);
+      process.exit(1);
+    }
     if (record.session_id !== (inputSeen ? "fixture-session" : undefined))
       throw new Error("wrong session");
     const gate = !inputSeen && Bun.env.COFORGE_CLAUDE_INIT_GATE;
@@ -89,6 +135,16 @@ function handle(record: Record<string, unknown>): void {
         write(initialization);
         inputObserved();
       });
+      return;
+    }
+    if (
+      process.argv.includes("mismatched-init") ||
+      process.argv.includes("missing-init") ||
+      process.argv.includes("invalid-init")
+    ) {
+      if (process.argv.includes("mismatched-init")) write(initialization);
+      if (process.argv.includes("invalid-init")) write({ ...initialization, session_id: "" });
+      write({ type: "result", subtype: "success" });
       return;
     }
     write(initialization);

@@ -16,13 +16,13 @@
   },
   "dependencies": {
     "@coforge/agent": "0.1.0",
-    "@coforge/cli": "workspace:*",
     "@coforge/protocol": "workspace:*",
     "@logtape/logtape": "2.3.2",
     "@logtape/redaction": "2.3.2",
     "centrifuge": "5.2.1"
   },
   "devDependencies": {
+    "@coforge/cli": "workspace:*",
     "@types/bun": "1.4.0",
     "oxfmt": "0.65.0",
     "oxlint": "1.80.0",

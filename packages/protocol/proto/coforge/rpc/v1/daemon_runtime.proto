@@ -14,6 +14,7 @@ message DaemonRuntimeConfigureRequest {
   string daemon_api_key = 6;
   string computer_id = 7;
   string expected_server_url = 8;
+  optional string server_http_url = 9;
 }
 
 message DaemonRuntimeConfigureResponse {
@@ -30,6 +31,16 @@ message DaemonRuntimeReadyRequest {
   string worker_instance_id = 5;
   int64 started_at = 6;
   repeated string running_agent_ids = 7;
+  string daemon_version = 8;
+  repeated string recovered_restart_request_ids = 9;
+}
+
+message ComputerRestartIntent {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string message_type = 5;
 }
 
 message DaemonRuntimeCodeAgentsUpdateRequest {

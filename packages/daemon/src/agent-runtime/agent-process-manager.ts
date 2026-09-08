@@ -17,7 +17,7 @@ export type AgentRestartConfig = Readonly<{
 }>;
 
 export type { AgentDriverFactory } from "@coforge/agent";
-/** Owns Agent availability and runtime processes for the daemon's single Workspace. */
+/** Owns Agent availability and runtime processes for one supervised Workspace. */
 export class AgentProcessManager {
   readonly #createDriver: AgentDriverFactory;
   readonly #runtimes = new Map<string, AgentRuntime>();
@@ -44,6 +44,8 @@ export class AgentProcessManager {
     sessionId?: string,
     environment?: Readonly<Record<string, string>>,
     runtimeId?: string,
+    onSessionId?: (sessionId: string, replacedSessionId?: string) => Promise<void>,
+    sessionMode?: "create" | "resume",
   ): Promise<AgentRuntime> {
     if (this.#stopping.has(agentId)) {
       throw new Error(`Agent runtime is stopping: ${agentId}`);
@@ -60,6 +62,8 @@ export class AgentProcessManager {
         agentWorkspaceDirectory,
         instructions: buildCoforgeAgentInstructions(agentWorkspaceDirectory),
         sessionId,
+        sessionMode,
+        onSessionId,
         runtime: config,
         environment,
       });

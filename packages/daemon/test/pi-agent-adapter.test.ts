@@ -8,6 +8,45 @@ import { CoforgeDriver, PiDriver } from "../src/code-agent/pi/driver";
 
 const TEST_AGENT_INSTRUCTIONS = "Test Agent instructions.";
 
+test("external Pi resumes the cloud-selected ID and rejects a different returned session", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "coforge-pi-resume-"));
+  const history = join(workspace, ".pi-sessions", "timestamp_selected-session.jsonl");
+  await mkdir(join(workspace, ".pi-sessions"));
+  await Bun.write(
+    history,
+    JSON.stringify({ type: "session", id: "selected-session", cwd: workspace }),
+  );
+  const reports: Array<[string, string | undefined]> = [];
+  const create = (extra: string[] = []) =>
+    new PiDriver({
+      command: [
+        process.execPath,
+        new URL("./fixtures/pi-rpc.ts", import.meta.url).pathname,
+        "expect-resume",
+        ...extra,
+      ],
+    }).createAgentSession({
+      agentWorkspaceDirectory: workspace,
+      instructions: TEST_AGENT_INSTRUCTIONS,
+      sessionId: "selected-session",
+      async onSessionId(id, replaced) {
+        reports.push([id, replaced]);
+      },
+      environment: { COFORGE_DECLARED_TEST_VALUE: "allowed" },
+    });
+  const session = await create();
+  await session.dispose();
+  await expect(create(["wrong-session"])).rejects.toThrow(
+    "Pi did not resume the requested session",
+  );
+  await rm(history);
+  const fresh = await create();
+  await fresh.dispose();
+  expect(reports.at(-1)?.[0]).not.toBe("selected-session");
+  expect(reports.at(-1)?.[1]).toBe("selected-session");
+  await rm(workspace, { recursive: true, force: true });
+});
+
 test("built-in notifications are accepted before completion and steer the existing session", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-builtin-notify-"));
   const started = Promise.withResolvers<void>();
@@ -118,10 +157,11 @@ test("Pi loads skills before running in a child process behind the code-agent se
       {
         type: "activity",
         activity: {
-          activity: "running_command",
+          detailKind: "running_command",
           level: "info",
-          message: "printf safe",
-          occurredAt: "2024-12-03T14:02:47.890Z",
+          detail: "printf safe",
+          observedAtMs: Date.parse("2024-12-03T14:02:47.890Z"),
+          entries: [{ kind: "tool_start", toolName: "bash" }],
         },
       },
       { type: "tool-output", id: "tool-1", text: "tests passed" },
@@ -267,9 +307,9 @@ test("Pi rejects prompts after its resident Agent runtime process exits", async 
     expect(events.at(-1)).toMatchObject({
       type: "activity",
       activity: {
-        activity: "error",
+        detailKind: "runtime_error",
         level: "error",
-        message: "code agent process exited unexpectedly",
+        detail: "code agent process exited unexpectedly",
       },
     });
     await expect(session.sendMessage("after-exit")).rejects.toThrow("exited unexpectedly");

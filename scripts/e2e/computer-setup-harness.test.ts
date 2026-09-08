@@ -12,8 +12,8 @@ const managedWeb = await readFile(new URL("./managed-web.sh", import.meta.url), 
 
 test("Computer setup harness exercises the compiled CLI and real daemon path", () => {
   expect(harness).toContain(".amp/e2e/bin/coforge-computer");
-  expect(harness).toContain(".amp/e2e/bin/coforge-daemon");
-  expect(harness).toContain("build-computer-fixture.ts");
+  expect(harness).toContain('COFORGE_E2E_DAEMON_EXECUTABLE="$root/.amp/e2e/bin/coforge-computer"');
+  expect(harness).not.toContain("dist/coforge-daemon");
   expect(harness).toContain("COFORGE_SETUP_INTENT");
   expect(harness).toContain("COFORGE_E2E_ALLOW_DEVICE_AUTH=1");
   expect(harness).toContain("provider_home in .codex .claude");

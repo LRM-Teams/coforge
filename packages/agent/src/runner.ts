@@ -12,6 +12,7 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
+import { readdir, readFile } from "node:fs/promises";
 import { getCoforgeAgentDir, getCoforgeSessionDir } from "./paths";
 import { withRuntimeEnvironment } from "./runtime-provider";
 
@@ -45,6 +46,7 @@ export async function createSession(options: {
   agentDir?: string;
   sessionDir?: string;
   sessionId?: string;
+  sessionMode?: "create" | "resume";
   modelProvider?: string;
   model?: string;
   reasoning?: string;
@@ -84,7 +86,12 @@ export async function createSession(options: {
       ? modelRuntime.getModel(options.modelProvider, options.model)
       : undefined;
   if (options.model && !model) throw new Error("Pi model is unavailable");
-  const sessionManager = await sessionManagerFor(cwd, sessionDir, options.sessionId);
+  const { sessionManager, replacedSessionId } = await sessionManagerFor(
+    cwd,
+    sessionDir,
+    options.sessionId ?? options.agentId,
+    options.sessionMode ?? (options.sessionId ? "resume" : "create"),
+  );
   const created = await createAgentSessionFromServices({
     services,
     sessionManager,
@@ -106,18 +113,60 @@ export async function createSession(options: {
   return {
     ...created,
     services,
+    replacedSessionId,
     dispose: async () => created.session.dispose(),
   };
 }
 
-async function sessionManagerFor(cwd: string, sessionDir: string, sessionId?: string) {
+async function sessionManagerFor(
+  cwd: string,
+  sessionDir: string,
+  sessionId: string | undefined,
+  mode: "create" | "resume",
+) {
   if (sessionId) {
-    const existing = (await SessionManager.list(cwd, sessionDir)).find(
-      (session) => session.id === sessionId,
-    );
-    if (existing) return SessionManager.open(existing.path, sessionDir, cwd);
+    const path = await findSessionFile(sessionDir, sessionId);
+    if (path) {
+      const sessionManager = SessionManager.open(path, sessionDir, cwd);
+      if (sessionManager.getSessionId() !== sessionId)
+        throw new Error("CoForge session history changed during recovery");
+      return { sessionManager, replacedSessionId: undefined };
+    }
   }
-  return SessionManager.create(cwd, sessionDir, sessionId ? { id: sessionId } : undefined);
+  const replacedSessionId = mode === "resume" ? sessionId : undefined;
+  return {
+    sessionManager: SessionManager.create(cwd, sessionDir, {
+      id: replacedSessionId ? crypto.randomUUID() : sessionId,
+    }),
+    replacedSessionId,
+  };
+}
+
+/** Scoped Pi-format lookup that preserves I/O and malformed-header failures. */
+export async function findSessionFile(
+  sessionDir: string,
+  sessionId: string,
+): Promise<string | undefined> {
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(sessionId))
+    throw new Error("Invalid CoForge session ID");
+  // SDK list() hides read failures. Inspect scoped headers directly, including
+  // renamed files, so a missing filename is not mistaken for missing history.
+  const files = await readdir(sessionDir).catch((error: unknown) => {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
+    throw error;
+  });
+  let match: string | undefined;
+  for (const name of files.filter((name) => name.endsWith(".jsonl"))) {
+    const path = join(sessionDir, name);
+    const content = await readFile(path, "utf8");
+    const header = JSON.parse(content.split("\n").find((line) => line.trim()) ?? "null");
+    if (header?.type !== "session" || typeof header.id !== "string")
+      throw new Error("Invalid CoForge session history");
+    if (header.id !== sessionId) continue;
+    if (match) throw new Error("Ambiguous CoForge session history");
+    match = path;
+  }
+  return match;
 }
 
 export async function discoverModels(cwd: string) {

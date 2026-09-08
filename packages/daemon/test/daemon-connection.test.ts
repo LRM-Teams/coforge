@@ -14,6 +14,7 @@ import {
   encodeAgentMessageDelivery,
   encodeAgentStartIntent,
   encodeAgentStopIntent,
+  encodeComputerRestartIntent,
 } from "@coforge/protocol";
 import { DAEMON_RUNTIME_READY_METHOD } from "@coforge/protocol";
 
@@ -135,10 +136,10 @@ test("publishes Agent activity best effort on its restricted channel", async () 
     requestId: "activity-1",
     workspaceId: config.workspaceId,
     agentId: "agent-1",
-    activity: "using_tool",
+    detailKind: "tool_started",
     level: "info",
-    message: "Running a tool",
-    occurredAt: "2026-08-29T00:00:00.000Z",
+    detail: "Running a tool",
+    observedAtMs: Date.parse("2026-08-29T00:00:00.000Z"),
     launchId: "launch-1",
     clientSeq: 1,
   } as const;
@@ -273,10 +274,10 @@ test("retains Agent activity in memory while disconnected", () => {
       requestId: "activity-1",
       workspaceId: config.workspaceId,
       agentId: "agent-1",
-      activity: "starting",
+      detailKind: "starting",
       level: "info",
-      message: "Starting",
-      occurredAt: "2026-08-29T00:00:00.000Z",
+      detail: "Starting",
+      observedAtMs: Date.parse("2026-08-29T00:00:00.000Z"),
       launchId: "launch-1",
       clientSeq: 1,
     }),
@@ -299,10 +300,10 @@ test("retains only each Agent's newest activity while disconnected and flushes o
       requestId: `${agentId}-${clientSeq}`,
       workspaceId: config.workspaceId,
       agentId,
-      activity: "using_tool",
+      detailKind: "tool_started",
       level: "info",
-      message: "latest",
-      occurredAt: "2026-08-29T00:00:00.000Z",
+      detail: "latest",
+      observedAtMs: Date.parse("2026-08-29T00:00:00.000Z"),
       launchId,
       clientSeq,
     });
@@ -434,7 +435,7 @@ test("buffers reconnect publications until ready settles and preserves control a
 
   fake.connect();
   fake.publish(
-    `daemon:${config.computerId}`,
+    `daemon:${config.workspaceId}:${config.computerId}`,
     encodeAgentStopIntent({
       protocolMajor: 1,
       requestId: "stop-1",
@@ -444,7 +445,7 @@ test("buffers reconnect publications until ready settles and preserves control a
     }),
   );
   fake.publish(
-    `daemon:${config.computerId}`,
+    `daemon:${config.workspaceId}:${config.computerId}`,
     encodeAgentStartIntent({
       protocolMajor: 1,
       requestId: "start-1",
@@ -503,7 +504,7 @@ test("retries reconnect ready on the same connection before releasing buffered p
 
   fake.connect();
   fake.publish(
-    `daemon:${config.computerId}`,
+    `daemon:${config.workspaceId}:${config.computerId}`,
     encodeAgentMessageDelivery({
       protocolMajor: 1,
       requestId: "delivery-1",
@@ -519,7 +520,7 @@ test("retries reconnect ready on the same connection before releasing buffered p
     }),
   );
   fake.publish(
-    `daemon:${config.computerId}`,
+    `daemon:${config.workspaceId}:${config.computerId}`,
     encodeAgentStartIntent({
       protocolMajor: 1,
       requestId: "start-1",
@@ -606,10 +607,69 @@ test("receives only publications directed to its Computer", async () => {
     reasoning: "",
   });
 
-  fake.publish("daemon:other-computer", data);
-  fake.publish(`daemon:${config.computerId}`, data);
+  fake.publish(`daemon:other-workspace:${config.computerId}`, data);
+  fake.publish(`daemon:${config.workspaceId}:${config.computerId}`, data);
 
   expect(started).toEqual(["agent-1"]);
+});
+
+test("dispatches each scoped remote restart request once", async () => {
+  const fake = fakeClient();
+  const requests: string[] = [];
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", {
+    ...config,
+    requestRestart: async (requestId) => {
+      requests.push(requestId);
+    },
+  });
+  const restart = encodeComputerRestartIntent({
+    protocolMajor: 1,
+    requestId: "restart-1",
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+  });
+
+  fake.publish(`daemon:other-workspace:${config.computerId}`, restart);
+  fake.publish(`daemon:${config.workspaceId}:${config.computerId}`, restart);
+  fake.publish(`daemon:${config.workspaceId}:${config.computerId}`, restart);
+  await Promise.resolve();
+
+  expect(requests).toEqual(["restart-1"]);
+});
+
+test("failed Coordinator restart acceptance allows stable-request redelivery without concurrent duplicates", async () => {
+  const fake = fakeClient();
+  const first = Promise.withResolvers<void>();
+  const requests: string[] = [];
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  await transport.start("secret", {
+    ...config,
+    requestRestart: (id) => {
+      requests.push(id);
+      return requests.length === 1 ? first.promise : Promise.resolve();
+    },
+  });
+  const restart = encodeComputerRestartIntent({
+    protocolMajor: 1,
+    requestId: "retry-restart",
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+  });
+  const publish = () => fake.publish(`daemon:${config.workspaceId}:${config.computerId}`, restart);
+  try {
+    publish();
+    publish();
+    expect(requests).toEqual(["retry-restart"]);
+    first.reject(new Error("local RPC acceptance failed"));
+    await first.promise.catch(() => {});
+    publish();
+    publish();
+    expect(requests).toEqual(["retry-restart", "retry-restart"]);
+  } finally {
+    first.resolve();
+    await transport.stop();
+  }
 });
 
 test("contains a reconnect ready failure and retries on the next reconnect", async () => {

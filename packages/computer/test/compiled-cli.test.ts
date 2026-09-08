@@ -7,9 +7,8 @@ import { buildReleaseTree } from "../../../scripts/release/build-release";
 
 let directory: string;
 let executable: string;
-let daemonExecutable: string;
 
-test("release-only installation provides the Agent CLI without a separate executable", async () => {
+test("single-file installation provides management and Agent CLI without a Daemon executable", async () => {
   const feed = join(directory, "feed");
   const version = "9.0.0-test";
   const target = "linux-x64";
@@ -21,7 +20,6 @@ test("release-only installation provides the Agent CLI without a separate execut
       artifacts: {
         [target]: {
           computer: new Uint8Array(await Bun.file(executable).arrayBuffer()),
-          daemon: new Uint8Array(await Bun.file(daemonExecutable).arrayBuffer()),
         },
       },
     },
@@ -48,7 +46,7 @@ test("release-only installation provides the Agent CLI without a separate execut
       installRoot: root,
     }).install(version);
     const bin = join(root, "versions", version);
-    await rm(join(bin, "coforge-computer"));
+    expect(await Bun.file(join(bin, "coforge-daemon")).exists()).toBe(false);
     const invoke = async (args: string[], input = "") => {
       const child = Bun.spawn([join(bin, "coforge"), ...args], {
         cwd: directory,
@@ -82,7 +80,7 @@ test("release-only installation provides the Agent CLI without a separate execut
       await Bun.file(join(directory, "agent-home", ".coforge", "computer", "config.json")).exists(),
     ).toBe(false);
     expect(requests).toContain(`/${version}/${target}/coforge-computer.gz`);
-    expect(requests).toContain(`/${version}/${target}/coforge-daemon.gz`);
+    expect(requests).not.toContain(`/${version}/${target}/coforge-daemon.gz`);
     expect(requests).not.toContain(`/${version}/${target}/coforge-computer`);
   } finally {
     server.stop(true);
@@ -92,17 +90,15 @@ test("release-only installation provides the Agent CLI without a separate execut
 beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), "coforge-computer-cli-"));
   executable = join(directory, "coforge-computer");
-  const result = await Bun.build({
-    entrypoints: [new URL("../src/cli.ts", import.meta.url).pathname],
-    compile: { outfile: executable },
-  });
-  if (!result.success) throw new AggregateError(result.logs, "failed to compile CLI fixture");
-  daemonExecutable = join(directory, "coforge-daemon");
-  const daemon = await Bun.build({
-    entrypoints: [new URL("../../daemon/index.ts", import.meta.url).pathname],
-    compile: { outfile: daemonExecutable },
-  });
-  if (!daemon.success) throw new AggregateError(daemon.logs, "failed to compile Daemon fixture");
+  const result = Bun.spawnSync([
+    process.execPath,
+    "build",
+    "--compile",
+    new URL("../src/main.ts", import.meta.url).pathname,
+    "--outfile",
+    executable,
+  ]);
+  if (result.exitCode !== 0) throw new Error(result.stderr.toString());
 });
 
 afterAll(async () => {
@@ -139,7 +135,7 @@ test("local test build strips terminal controls from device authorization instru
   try {
     const fixture = join(directory, "local-computer");
     const built = await Bun.build({
-      entrypoints: [new URL("../src/cli.ts", import.meta.url).pathname],
+      entrypoints: [new URL("../src/main.ts", import.meta.url).pathname],
       compile: { outfile: fixture },
       plugins: [
         {
@@ -192,6 +188,7 @@ test("compiled CLI writes help to stdout and exits successfully", () => {
   expect(result.stdout.toString()).toContain("start");
   expect(result.stdout.toString()).toContain("stop");
   expect(result.stdout.toString()).toContain("restart");
+  expect(result.stdout.toString()).toContain("foreground");
   expect(result.stdout.toString()).toContain("logs");
   expect(result.stderr.toString()).toBe("");
 });

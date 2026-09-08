@@ -16,7 +16,7 @@ export const getWorkspaceActivity = createServerFn({ method: "GET" }).handler(as
     workspaceId,
     agents: agents.map((agent) => ({
       ...agent,
-      activity: agent.activity.map((entry) => ({ ...entry, message: "" })),
+      activity: agent.activity,
     })),
   };
 });

@@ -147,7 +147,7 @@ export class SendDirectMessage {
       throw new Error("message sender must be a public @username");
     if (!message.computerId) throw new Error("Agent is not assigned to a Computer");
     await this.centrifugo.publish(
-      daemonControlChannel(message.computerId),
+      daemonControlChannel(message.workspaceId, message.computerId),
       encodeAgentMessageDelivery({
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
         requestId,

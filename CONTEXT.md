@@ -27,13 +27,10 @@ _Avoid_: Workspace login, machine assignment
 A short-lived connection identity derived from exactly one active Workspace–Computer connection. It cannot confer authority for another Workspace or for User management actions.
 _Avoid_: Computer login, global daemon session
 
-Computer has exactly one Workspace–Computer connection at a time. Running setup
-again for another Workspace atomically moves the server-owned connection,
-revokes every older Daemon API key for that Computer, and resets its Code Agent
-installation visibility to private. Agents in the previous Workspace are
-detached from the Computer. The local setup flow stops old runtime processes
-and WSS, then replaces only the active config; old local data, credentials, and
-Agent directories are retained.
+A Computer can have multiple Workspace–Computer connections concurrently. Each
+connection has an independent credential and Workspace session; adding one does
+not replace, revoke, or detach another. Lifecycle scope is one connection or all
+local connections, while installation upgrade scope is the whole Computer.
 
 **Agent**:
 The logical collaborator belonging to exactly one Workspace, receiving messages, producing responses, and named in server-side authorization and audit records. It is owned by an external User identity.

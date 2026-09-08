@@ -8,6 +8,41 @@ import type { AgentRuntimeEvent } from "../src/code-agent/contract";
 
 const TEST_AGENT_INSTRUCTIONS = "Test Agent instructions.";
 
+test("Codex resumes or starts fresh only for the native missing-thread error", async () => {
+  const adapter = new CodexDriver({
+    command: [
+      process.execPath,
+      new URL("./fixtures/codex-app-server.ts", import.meta.url).pathname,
+    ],
+  });
+  const session = await adapter.createAgentSession({
+    agentWorkspaceDirectory: tmpdir(),
+    instructions: TEST_AGENT_INSTRUCTIONS,
+    sessionId: "thread-1",
+  });
+  await session.dispose();
+  const reports: Array<[string, string | undefined]> = [];
+  const fresh = await adapter.createAgentSession({
+    agentWorkspaceDirectory: tmpdir(),
+    instructions: TEST_AGENT_INSTRUCTIONS,
+    sessionId: "missing-thread",
+    async onSessionId(id, replaced) {
+      reports.push([id, replaced]);
+    },
+  });
+  await fresh.dispose();
+  expect(reports).toEqual([["thread-1", "missing-thread"]]);
+  await expect(
+    adapter.createAgentSession({
+      agentWorkspaceDirectory: tmpdir(),
+      instructions: TEST_AGENT_INSTRUCTIONS,
+      sessionId: "unreadable-thread",
+    }),
+  ).rejects.toMatchObject({
+    responseError: { code: -32603, message: "failed to read thread: permission denied" },
+  });
+});
+
 test("Codex loads skills before running app-server behind the code-agent seam", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-codex-"));
   const skillDirectory = join(agentWorkspaceDirectory, ".agents", "skills", "fixture-skill");
@@ -49,10 +84,11 @@ test("Codex loads skills before running app-server behind the code-agent seam", 
       {
         type: "activity",
         activity: {
-          activity: "running_command",
+          detailKind: "running_command",
           level: "info",
-          message: "printf safe",
-          occurredAt: "2026-01-02T03:04:05.000Z",
+          detail: "printf safe",
+          observedAtMs: Date.parse("2026-01-02T03:04:05.000Z"),
+          entries: [{ kind: "tool_start", toolName: "bash" }],
         },
       },
       { type: "tool-output", id: "item-1", text: "tests passed" },
@@ -74,19 +110,21 @@ test("Codex loads skills before running app-server behind the code-agent seam", 
       {
         type: "activity",
         activity: {
-          activity: "writing_file",
+          detailKind: "tool_started",
           level: "info",
-          message: "src/new.ts",
-          occurredAt: "2026-01-02T03:04:05.000Z",
+          detail: "src/new.ts",
+          observedAtMs: Date.parse("2026-01-02T03:04:05.000Z"),
+          entries: [{ kind: "tool_start", toolName: "write_file" }],
         },
       },
       {
         type: "activity",
         activity: {
-          activity: "editing_file",
+          detailKind: "tool_started",
           level: "info",
-          message: "src/existing.ts",
-          occurredAt: "2026-01-02T03:04:05.000Z",
+          detail: "src/existing.ts",
+          observedAtMs: Date.parse("2026-01-02T03:04:05.000Z"),
+          entries: [{ kind: "tool_start", toolName: "edit_file" }],
         },
       },
       { type: "completed", status: "completed" },

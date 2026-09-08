@@ -26,6 +26,11 @@ function handle(command: {
   streamingBehavior?: string;
 }): void {
   if (command.type === "get_state") {
+    const selected = process.argv[process.argv.indexOf("--session") + 1];
+    const fresh = process.argv.includes("--session-id")
+      ? process.argv[process.argv.indexOf("--session-id") + 1]
+      : undefined;
+    const expectsResume = process.argv.includes("expect-resume");
     const promptFlag = process.argv.indexOf("--system-prompt");
     const instructions = promptFlag < 0 ? undefined : process.argv[promptFlag + 1];
     const environmentIsRestricted =
@@ -36,8 +41,11 @@ function handle(command: {
       type: "response",
       id: command.id,
       command: "get_state",
-      success: environmentIsRestricted,
-      data: {},
+      success:
+        environmentIsRestricted && (!expectsResume || selected === "selected-session" || !!fresh),
+      data: {
+        sessionId: process.argv.includes("wrong-session") ? "wrong" : (fresh ?? "selected-session"),
+      },
     });
     return;
   }

@@ -13,16 +13,29 @@ message DaemonHandshakeResponse {
   string daemon_id = 3;
   bool accepted = 4;
   string server_url = 5;
+  string version = 6;
+  uint32 process_id = 7;
 }
 
 message DaemonCommandRequest {
   uint32 protocol_major = 1;
   string request_id = 2;
   string expected_server_url = 3;
+  optional string workspace_id = 4;
 }
 
 message DaemonCommandResponse {
   uint32 protocol_major = 1;
   string request_id = 2;
   bool accepted = 3;
+  repeated ManagedRuntimeIdentity runtimes = 4;
+}
+
+message ManagedRuntimeIdentity {
+  string workspace_id = 1;
+  string computer_id = 2;
+  bool enabled = 3;
+  uint32 process_id = 4;
+  string instance_id = 5;
+  string version = 6;
 }

@@ -200,10 +200,10 @@ These instructions apply to the entire repository.
 
 ## Architecture invariants
 
-- The local product has exactly two packageable components: `packages/computer` and `packages/daemon`; the Computer package depends on the Daemon package for build and distribution.
-- Users install only the Computer distribution. It must include the compatible Daemon payload; Daemon is not a second user-installed product or a public CLI entry point.
+- The local product has exactly two source/package components: `packages/computer` and `packages/daemon`; the Computer package depends on the Daemon package at build time.
+- Users install one native `coforge-computer` executable. That executable contains both package roles and dispatches internal `__daemon` and `__agent-cli` modes; Daemon is not a standalone release payload, user-installed product, or public CLI entry point.
 - Never create another local product component. Daemon runtime supervision is implemented and released inside `coforge-daemon`.
-- `coforge-computer` and `coforge-daemon` are independent OS processes. Their local control channel is a Unix domain socket, not a TCP management port.
+- Computer and Daemon roles remain independent OS processes even though both execute the same native file. Their local control channel is a Unix domain socket, not a TCP management port.
 - One coforge-daemon owns one persisted daemon configuration and one cloud Workspace connection.
 - `coforge-computer` does not maintain a long-lived cloud WebSocket. The daemon owns exactly one long-lived WSS connection for its configured Workspace.
 - Server→Daemon delivery/control uses versioned CoForge RPC over the daemon WSS. Agent→Web message read/send uses the separately authorized HTTPS RPC and retries a stable `request_id`; OAuth, installation, and release metadata are the other HTTPS exceptions. Do not add unrelated Computer/Daemon REST business endpoints.

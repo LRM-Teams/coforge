@@ -10,7 +10,7 @@ export type LaunchdDaemonHostOptions = {
   executablePath: string;
   socketPath: string;
   stateDirectory?: string;
-  serverUrl: string;
+  serverUrl?: string;
   daemonConnectionEndpoint?: string;
   homeDirectory: string;
   uid: number;
@@ -48,21 +48,30 @@ export class LaunchdDaemonHost implements DaemonLauncher {
     });
   }
 
-  async ensureStarted(config: DaemonWorkspaceConfig): Promise<void> {
-    await this.ensureInstalled();
-    await this.#local.ensureStarted(config);
-  }
-
   preflight(): Promise<void> {
     return this.#local.preflight();
   }
 
-  ensureRunning(): Promise<void> {
-    return this.#local.ensureRunning();
+  async ensureStarted(config: DaemonWorkspaceConfig): Promise<void> {
+    await this.ensureRunning();
+    await this.#local.ensureStarted(config);
   }
 
-  command(operation: "start" | "stop" | "restart"): Promise<void> {
-    return this.#local.command(operation);
+  async ensureRunning(): Promise<void> {
+    await this.ensureInstalled();
+    await this.#local.ensureRunning();
+  }
+
+  command(operation: "start" | "stop" | "restart", workspaceId?: string): Promise<void> {
+    return this.#local.command(operation, workspaceId);
+  }
+
+  async stop(): Promise<void> {
+    const target = `gui/${this.#options.uid}/${this.#options.label}`;
+    // Booting the user agent out prevents KeepAlive from immediately relaunching it.
+    const result = await this.#run(["launchctl", "bootout", target]);
+    // Darwin ESRCH (3) means the process is already absent, not a stop failure.
+    if (result !== 0 && result !== 3) throw new Error("could not stop the CoForge Daemon");
   }
 
   async ensureInstalled(): Promise<void> {
@@ -77,7 +86,10 @@ export class LaunchdDaemonHost implements DaemonLauncher {
       `gui/${this.#options.uid}`,
       this.#plistPath,
     ]);
-    if (result !== 0) throw new Error("could not register the CoForge Daemon with launchd");
+    if (result !== 0)
+      throw new Error(
+        "The launchd user agent could not start CoForge Daemon. Run `coforge-computer foreground` under an external supervisor; CoForge will not detach a fallback process.",
+      );
   }
 }
 
@@ -95,7 +107,7 @@ export function launchdPlist(input: {
   <key>Label</key><string>${xml(input.label)}</string>
   ${input.daemonConnectionEndpoint ? `<key>EnvironmentVariables</key><dict><key>COFORGE_DAEMON_CONNECTION_ENDPOINT</key><string>${xml(input.daemonConnectionEndpoint)}</string></dict>` : ""}
   <key>ProgramArguments</key>
-  <array><string>${xml(input.executablePath)}</string><string>--socket</string><string>${xml(input.socketPath)}</string>${input.stateDirectory ? `<string>--state-directory</string><string>${xml(input.stateDirectory)}</string>` : ""}</array>
+  <array><string>${xml(input.executablePath)}</string><string>__daemon</string><string>--socket</string><string>${xml(input.socketPath)}</string>${input.stateDirectory ? `<string>--state-directory</string><string>${xml(input.stateDirectory)}</string>` : ""}</array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ProcessType</key><string>Background</string>

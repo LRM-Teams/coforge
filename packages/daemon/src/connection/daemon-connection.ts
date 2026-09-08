@@ -1,10 +1,14 @@
 import { Centrifuge } from "centrifuge/build/protobuf";
 import {
+  AGENT_SESSION_METHOD,
+  encodeAgentSessionReport,
+  type AgentSessionReport,
   decodeAgentStartIntent,
   decodeAgentStopIntent,
   decodeDaemonRuntimeUsageScanRequest,
   encodeDaemonRuntimeUsageScanResponse,
   decodeAgentMessageDelivery,
+  decodeComputerRestartIntent,
   encodeAgentActivity,
   encodeAgentStatus,
   encodeAgentMessageDeliveryAck,
@@ -72,6 +76,8 @@ export interface DaemonConnectionConfig {
   computerId: string;
   /** Server HTTP origin used only for Agent read/send RPCs. */
   serverHttpUrl?: string;
+  /** Requests replacement of only this Workspace runtime. The supervisor supplies recovery evidence. */
+  requestRestart?(requestId: string): Promise<void>;
 }
 
 export interface AgentMessageHttpClient {
@@ -99,6 +105,7 @@ export interface DaemonConnectionClient {
   onAgentMessage?(callback: (message: AgentMessageDelivery) => void): () => void;
   sendAgentActivity?(activity: AgentActivity): void;
   sendAgentStatus?(status: AgentStatus): void;
+  reportAgentSession?(report: AgentSessionReport): Promise<void>;
   sendAgentDeliveryAck?(ack: AgentMessageDeliveryAck): Promise<void>;
   agentMessage?(
     request: AgentMessageRequest,
@@ -211,6 +218,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   readonly #pendingActivity = new Map<string, AgentActivity>();
   readonly #supersededActivityLaunches = new Map<string, Set<string>>();
   readonly #latestStatuses = new Map<string, AgentStatus>();
+  readonly #restartRequestIds = new Set<string>();
   #statusRefreshTimer: ReturnType<typeof setInterval> | undefined;
   #computerStatusRefreshTimer: unknown;
   #statusRpcQueue = Promise.resolve();
@@ -234,18 +242,18 @@ export class DaemonConnection implements DaemonConnectionClient {
       new TextEncoder().encode(JSON.stringify({ daemonApiKey: _token })),
     );
     this.#client = client;
-    const daemonChannel = this.#daemonChannel(config.computerId);
+    const daemonChannel = this.#daemonChannel(config.workspaceId, config.computerId);
     if (!client.newSubscription) {
       client.on("publication", ({ channel, data }) => {
         if (client !== this.#client || channel !== daemonChannel) return;
-        this.#handleAgentPublication(data, config.workspaceId);
+        this.#handleAgentPublication(data, config);
       });
     }
     const subscription = client.newSubscription?.(daemonChannel);
     this.#daemonSubscription = subscription;
     subscription?.on("publication", ({ data }) => {
       if (client === this.#client) {
-        this.#handleAgentPublication(data, config.workspaceId);
+        this.#handleAgentPublication(data, config);
       }
     });
     subscription?.subscribe();
@@ -487,15 +495,39 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   #serverHttpUrl = "";
 
-  #daemonChannel(computerId: string): string {
-    return `daemon:${computerId}`;
+  #daemonChannel(workspaceId: string, computerId: string): string {
+    return `daemon:${workspaceId}:${computerId}`;
   }
 
   #activityChannel(workspaceId: string): string {
     return `activity:${workspaceId}`;
   }
 
-  #handleAgentPublication(data: Uint8Array, workspaceId: string): void {
+  #handleAgentPublication(data: Uint8Array, config: DaemonConnectionConfig): void {
+    const workspaceId = config.workspaceId;
+    try {
+      const restart = decodeComputerRestartIntent(data);
+      if (
+        restart.protocolMajor === 1 &&
+        restart.workspaceId === workspaceId &&
+        restart.computerId === config.computerId &&
+        config.requestRestart &&
+        !this.#restartRequestIds.has(restart.requestId)
+      ) {
+        if (this.#restartRequestIds.size >= 256)
+          this.#restartRequestIds.delete(this.#restartRequestIds.values().next().value!);
+        this.#restartRequestIds.add(restart.requestId);
+        try {
+          void config.requestRestart(restart.requestId).catch(() => {
+            this.#restartRequestIds.delete(restart.requestId);
+          });
+        } catch (error) {
+          this.#restartRequestIds.delete(restart.requestId);
+          throw error;
+        }
+        return;
+      }
+    } catch {}
     try {
       const usage = decodeDaemonRuntimeUsageScanRequest(data);
       if (usage.protocolMajor === 1 && usage.workspaceId === workspaceId && usage.computerId) {
@@ -567,6 +599,11 @@ export class DaemonConnection implements DaemonConnectionClient {
       DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD,
       encodeDaemonRuntimeCodeAgentsUpdateRequest(request),
     );
+  }
+
+  async reportAgentSession(report: AgentSessionReport): Promise<void> {
+    if (!this.#connected || !this.#client) throw new Error("daemon connection is not connected");
+    await this.#client.rpc(AGENT_SESSION_METHOD, encodeAgentSessionReport(report));
   }
 
   async #sendReady(
@@ -651,6 +688,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#pendingActivity.clear();
     this.#supersededActivityLaunches.clear();
     this.#latestStatuses.clear();
+    this.#restartRequestIds.clear();
     this.#statusRpcQueue = Promise.resolve();
     client?.disconnect();
   }

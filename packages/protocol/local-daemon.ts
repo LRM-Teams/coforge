@@ -30,6 +30,9 @@ export const LOCAL_RPC_METHODS = {
   START: "daemon:start",
   STOP: "daemon:stop",
   RESTART: "daemon:restart",
+  SNAPSHOT: "daemon:snapshot",
+  PAUSE: "daemon:pause",
+  RESUME: "daemon:resume",
   AGENT_MESSAGE: "agent:message",
   AGENT_INBOX: "agent:inbox",
   USAGE_SCAN: "usage:scan",
@@ -344,6 +347,7 @@ export type DaemonRuntimeConfigureRequest = {
   daemonApiKey: string;
   computerId: string;
   expectedServerUrl: string;
+  serverHttpUrl?: string;
 };
 export type DaemonRuntimeConfigureResponse = {
   protocolMajor: number;
@@ -354,11 +358,21 @@ export type DaemonCommandRequest = {
   protocolMajor: number;
   requestId: string;
   expectedServerUrl: string;
+  workspaceId?: string;
+};
+export type ManagedRuntimeIdentity = {
+  workspaceId: string;
+  computerId: string;
+  enabled: boolean;
+  processId: number;
+  instanceId: string;
+  version: string;
 };
 export type DaemonCommandResponse = {
   protocolMajor: number;
   requestId: string;
   accepted: boolean;
+  runtimes?: ManagedRuntimeIdentity[];
 };
 export type LocalRpcRequest = { method: string; payload: Uint8Array };
 export type LocalRpcResponse = { method: string; payload: Uint8Array };
@@ -398,6 +412,7 @@ export function decodeDaemonRuntimeConfigureRequest(
     daemonApiKey: v.daemonApiKey,
     computerId: v.computerId,
     expectedServerUrl: v.expectedServerUrl,
+    serverHttpUrl: v.serverHttpUrl,
   };
 }
 export function encodeDaemonRuntimeConfigureResponse(
@@ -424,6 +439,7 @@ export function decodeDaemonCommandRequest(bytes: Uint8Array): DaemonCommandRequ
     protocolMajor: value.protocolMajor,
     requestId: value.requestId,
     expectedServerUrl: value.expectedServerUrl,
+    workspaceId: value.workspaceId,
   };
 }
 export function encodeDaemonCommandResponse(value: DaemonCommandResponse): Uint8Array {
@@ -435,6 +451,16 @@ export function decodeDaemonCommandResponse(bytes: Uint8Array): DaemonCommandRes
     protocolMajor: value.protocolMajor,
     requestId: value.requestId,
     accepted: value.accepted,
+    runtimes: value.runtimes.map(
+      ({ workspaceId, computerId, enabled, processId, instanceId, version }) => ({
+        workspaceId,
+        computerId,
+        enabled,
+        processId,
+        instanceId,
+        version,
+      }),
+    ),
   };
 }
 
@@ -449,6 +475,8 @@ export type DaemonHandshakeResponse = {
   daemonId: string;
   accepted: boolean;
   serverUrl: string;
+  version?: string;
+  processId?: number;
 };
 
 export function encodeDaemonHandshakeRequest(value: DaemonHandshakeRequest): Uint8Array {
@@ -475,6 +503,8 @@ export function decodeDaemonHandshakeResponse(bytes: Uint8Array): DaemonHandshak
     daemonId: value.daemonId,
     accepted: value.accepted,
     serverUrl: value.serverUrl,
+    version: value.version || undefined,
+    processId: value.processId || undefined,
   };
 }
 

@@ -8,6 +8,56 @@ import { ProcessTreeOwner } from "../src/platform/process-tree";
 import { AgentProcessManager } from "../src/agent-runtime/agent-process-manager";
 import type { AgentSession } from "@coforge/agent";
 
+test("close waits for bounded split stderr diagnostics after process exit", async () => {
+  const stderr = Promise.withResolvers<void>();
+  const failed = Promise.withResolvers<void>();
+  const closed = Promise.withResolvers<void>();
+  const lines: string[] = [];
+  const tree = {
+    child: {
+      pid: 1,
+      exited: Promise.resolve(1),
+      exitCode: 1,
+      stdin: { write: () => true, end: () => undefined, flush: async () => undefined },
+      stdout: { async *[Symbol.asyncIterator]() {} },
+      stderr: {
+        async *[Symbol.asyncIterator]() {
+          await stderr.promise;
+          const encoder = new TextEncoder();
+          yield encoder.encode("No conversation found with session ID: ");
+          yield encoder.encode("selected\r\n");
+          yield encoder.encode("x".repeat(5000) + "\nlast diagnostic");
+        },
+      },
+      kill: () => undefined,
+    },
+    terminate: async () => undefined,
+    waitForExit: async () => true,
+  } satisfies OwnedProcessTree;
+  const process = new JsonlProcess(["unused"], tmpdir(), {}, { spawn: () => tree });
+  let didClose = false;
+  process.onStderr((line) => lines.push(line));
+  process.onFailure(() => failed.resolve());
+  process.onClose(() => {
+    didClose = true;
+    closed.resolve();
+  });
+  try {
+    await failed.promise;
+    expect(didClose).toBe(false);
+    stderr.resolve();
+    await closed.promise;
+    expect(lines).toEqual([
+      "No conversation found with session ID: selected",
+      "[oversized stderr diagnostic]",
+      "last diagnostic",
+    ]);
+  } finally {
+    stderr.resolve();
+    await process.dispose();
+  }
+});
+
 test("send waits for stdin drain after a backpressured write", async () => {
   let releaseDrain!: () => void;
   const drain = new Promise<void>((resolve) => (releaseDrain = resolve));

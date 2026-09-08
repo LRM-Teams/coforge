@@ -10,7 +10,6 @@ const request: ComputerRegisterRequest = {
   platform: "linux",
   osVersion: "1",
   computerVersion: "1",
-  runtimes: [],
   registrationIdempotencyKey: "retry-key",
 };
 

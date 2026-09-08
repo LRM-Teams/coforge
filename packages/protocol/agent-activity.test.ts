@@ -7,13 +7,17 @@ const activity: AgentActivity = {
   requestId: "request-1",
   workspaceId: "workspace-1",
   agentId: "agent-1",
-  activity: "using_tool",
+  detailKind: "tool_started",
   level: "info",
-  message: "tool",
-  occurredAt: "2026-08-29T00:00:00.000Z",
+  detail: "tool",
+  observedAtMs: Date.parse("2026-08-29T00:00:00.000Z"),
   launchId: "launch-1",
   clientSeq: 1,
-  diagnostic: { errorClass: "CodexAuthError", reason: "turn_failed", fingerprint: "deadbeef" },
+  runtimeError: {
+    errorClass: "CodexAuthError",
+    errorReason: "turn_failed",
+    fingerprint: "deadbeef",
+  },
 };
 
 test("round trips the launch ordering identity", () => {
@@ -25,7 +29,7 @@ test("rejects incomplete or invalid launch ordering identity", () => {
     { ...activity, launchId: "" },
     { ...activity, clientSeq: 0 },
     { ...activity, clientSeq: 1.5 },
-    { ...activity, occurredAt: "not-a-time" },
+    { ...activity, observedAtMs: NaN },
   ])
     expect(() => encodeAgentActivity(invalid)).toThrow("invalid agent activity");
 });

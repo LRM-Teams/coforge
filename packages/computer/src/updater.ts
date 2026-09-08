@@ -1,5 +1,6 @@
 import { chmod, mkdir, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { acquireProcessLock } from "@coforge/daemon";
 
 const CHECKSUM_PATTERN = /^[0-9a-f]{64}$/;
 // Matches the pointer file, a version directory, and a manifest.json platform entry: a bare
@@ -27,11 +28,11 @@ type PlatformArtifact = ArtifactIdentity & {
 };
 
 type ReleaseManifest = {
-  schema_version: 1;
+  schema_version: 2;
   version: string;
   commit: string;
   buildDate: string;
-  platforms: Record<string, { computer: PlatformArtifact; daemon: PlatformArtifact }>;
+  platforms: Record<string, { computer: PlatformArtifact }>;
 };
 
 type ActiveState = {
@@ -41,11 +42,16 @@ type ActiveState = {
 };
 
 type InstalledIdentity = {
-  schema_version: 1;
+  schema_version: 2;
   version: string;
   computer: ArtifactIdentity;
-  daemon: ArtifactIdentity;
   agentCli: ArtifactIdentity;
+};
+
+export type PreparedUpdate = {
+  version: string;
+  previous: string | null;
+  rollbackVersion?: string | null;
 };
 
 export class UpdateError extends Error {
@@ -71,6 +77,13 @@ export interface ComputerUpdaterOptions {
   fetch?: typeof globalThis.fetch;
 }
 
+export interface LockedComputerUpdater {
+  prepare(selection: string): Promise<PreparedUpdate>;
+  prepareRollback(): Promise<PreparedUpdate>;
+  activatePrepared(prepared: PreparedUpdate): Promise<void>;
+  restoreVerified(version: string, rollbackVersion: string | null): Promise<void>;
+}
+
 export class ComputerUpdater {
   readonly #baseUrl: URL;
   readonly #target: string;
@@ -89,7 +102,7 @@ export class ComputerUpdater {
   }
 
   async install(selection: string): Promise<{ version: string; previous: string | null }> {
-    return this.#withLock(async () => {
+    return this.withExclusiveOperation(async () => {
       const version = await this.#resolveSelection(selection);
       const manifest = this.#parseManifest(
         await this.#download(`${version}/manifest.json`),
@@ -102,14 +115,10 @@ export class ComputerUpdater {
           `manifest has no platform entry for ${this.#target}`,
         );
       }
-      const [computerBytes, daemonBytes] = await Promise.all([
-        this.#downloadArtifact(version, platform.computer),
-        this.#downloadArtifact(version, platform.daemon),
-      ]);
-      const payloads = { computer: computerBytes, daemon: daemonBytes };
+      const computerBytes = await this.#downloadArtifact(version, platform.computer);
 
       const previousState = await this.#readJson<ActiveState>("active.json");
-      await this.#installVersion(version, payloads);
+      await this.#installVersion(version, computerBytes);
       const previous =
         previousState?.current === version
           ? previousState.previous
@@ -120,8 +129,89 @@ export class ComputerUpdater {
     });
   }
 
+  /** Download and verify a candidate without changing the active version. The currently active
+   * bytes are also verified here, while its processes are still running, so a coordinator never
+   * enters the quiesced phase without an offline rollback target. */
+  async prepare(selection: string): Promise<PreparedUpdate> {
+    return this.withExclusiveOperation((updater) => updater.prepare(selection));
+  }
+
+  async #prepare(selection: string): Promise<PreparedUpdate> {
+    const version = await this.#resolveSelection(selection);
+    const manifest = this.#parseManifest(await this.#download(`${version}/manifest.json`), version);
+    const platform = manifest.platforms[this.#target];
+    if (!platform) {
+      throw new UpdateError(
+        "UPDATE_UNSUPPORTED_TARGET",
+        `manifest has no platform entry for ${this.#target}`,
+      );
+    }
+    const active = await this.#readJson<ActiveState>("active.json");
+    if (active?.current) {
+      this.#assertVersion(active.current, "active version is invalid");
+      await this.#assertInstalled(active.current);
+    }
+    await this.#installVersion(version, await this.#downloadArtifact(version, platform.computer));
+    return {
+      version,
+      previous: active?.current ?? null,
+      rollbackVersion: active?.previous ?? null,
+    };
+  }
+
+  /** Activate only the candidate prepared for the observed active version. */
+  async activatePrepared(prepared: PreparedUpdate): Promise<void> {
+    await this.withExclusiveOperation((updater) => updater.activatePrepared(prepared));
+  }
+
+  async #activatePrepared(prepared: PreparedUpdate): Promise<void> {
+    await this.#assertInstalled(prepared.version);
+    const active = await this.#readJson<ActiveState>("active.json");
+    if ((active?.current ?? null) !== prepared.previous) {
+      throw new UpdateError("UPDATE_BUSY", "active version changed after update preparation");
+    }
+    await this.#activate({
+      schema_version: 1,
+      current: prepared.version,
+      previous:
+        prepared.version === prepared.previous
+          ? (prepared.rollbackVersion ?? null)
+          : prepared.previous,
+    });
+  }
+
+  /** Verify retained immutable bytes and select them without network access. */
+  async restoreVerified(version: string, rollbackVersion: string | null): Promise<void> {
+    await this.withExclusiveOperation((updater) =>
+      updater.restoreVerified(version, rollbackVersion),
+    );
+  }
+
+  async #restoreVerified(version: string, rollbackVersion: string | null): Promise<void> {
+    this.#assertVersion(version, "rollback version is invalid");
+    await this.#assertInstalled(version);
+    await this.#activate({ schema_version: 1, current: version, previous: rollbackVersion });
+  }
+
+  /** Select and verify the retained previous version without consulting the release feed. */
+  async prepareRollback(): Promise<PreparedUpdate> {
+    return this.withExclusiveOperation((updater) => updater.prepareRollback());
+  }
+
+  async #prepareRollback(): Promise<PreparedUpdate> {
+    const active = await this.#readJson<ActiveState>("active.json");
+    if (!active?.previous || !isValidVersion(active.previous)) {
+      throw new UpdateError("UPDATE_NO_ROLLBACK", "no previous verified version is available");
+    }
+    await Promise.all([
+      this.#assertInstalled(active.current),
+      this.#assertInstalled(active.previous),
+    ]);
+    return { version: active.previous, previous: active.current, rollbackVersion: active.previous };
+  }
+
   async rollback(): Promise<{ version: string; previous: string }> {
-    return this.#withLock(async () => {
+    return this.withExclusiveOperation(async () => {
       const active = await this.#readJson<ActiveState>("active.json");
       if (!active?.previous || !isValidVersion(active.previous)) {
         throw new UpdateError("UPDATE_NO_ROLLBACK", "no previous verified version is available");
@@ -171,7 +261,7 @@ export class ComputerUpdater {
   #assertManifest(value: unknown, expectedVersion: string): asserts value is ReleaseManifest {
     const manifest = value as ReleaseManifest | undefined;
     if (
-      manifest?.schema_version !== 1 ||
+      manifest?.schema_version !== 2 ||
       typeof manifest.version !== "string" ||
       typeof manifest.commit !== "string" ||
       typeof manifest.buildDate !== "string" ||
@@ -266,10 +356,7 @@ export class ComputerUpdater {
     return bytes;
   }
 
-  async #installVersion(
-    version: string,
-    payloads: Record<"computer" | "daemon", Uint8Array>,
-  ): Promise<void> {
+  async #installVersion(version: string, computer: Uint8Array): Promise<void> {
     const versions = join(this.#installRoot, "versions");
     const destination = join(versions, version);
     try {
@@ -286,26 +373,21 @@ export class ComputerUpdater {
     const computerName = this.#target.startsWith("windows-")
       ? "coforge-computer.exe"
       : "coforge-computer";
-    const daemonName = this.#target.startsWith("windows-")
-      ? "coforge-daemon.exe"
-      : "coforge-daemon";
     const agentCli = new TextEncoder().encode(
       this.#target.startsWith("windows-")
-        ? '@echo off\r\n"%~dp0coforge-daemon.exe" __agent-cli %*\r\n'
-        : '#!/bin/sh\nexec "${0%/*}/coforge-daemon" __agent-cli "$@"\n',
+        ? '@echo off\r\n"%~dp0coforge-computer.exe" __agent-cli %*\r\n'
+        : '#!/bin/sh\nexec "${0%/*}/coforge-computer" __agent-cli "$@"\n',
     );
     const installedIdentity: InstalledIdentity = {
-      schema_version: 1,
+      schema_version: 2,
       version,
-      computer: { size: payloads.computer.byteLength, checksum: checksum(payloads.computer) },
-      daemon: { size: payloads.daemon.byteLength, checksum: checksum(payloads.daemon) },
+      computer: { size: computer.byteLength, checksum: checksum(computer) },
       agentCli: { size: agentCli.byteLength, checksum: checksum(agentCli) },
     };
     await mkdir(staging, { recursive: true, mode: 0o700 });
     try {
       await Promise.all([
-        writeFile(join(staging, computerName), payloads.computer, { mode: 0o700 }),
-        writeFile(join(staging, daemonName), payloads.daemon, { mode: 0o700 }),
+        writeFile(join(staging, computerName), computer, { mode: 0o700 }),
         writeFile(
           join(staging, this.#target.startsWith("windows-") ? "coforge.cmd" : "coforge"),
           agentCli,
@@ -319,10 +401,7 @@ export class ComputerUpdater {
       await mkdir(versions, { recursive: true, mode: 0o700 });
       await rename(staging, destination);
       if (process.platform !== "win32") {
-        await Promise.all([
-          chmod(join(destination, computerName), 0o700),
-          chmod(join(destination, daemonName), 0o700),
-        ]);
+        await chmod(join(destination, computerName), 0o700);
       }
     } finally {
       await rm(staging, { recursive: true, force: true });
@@ -334,13 +413,9 @@ export class ComputerUpdater {
     const computerName = this.#target.startsWith("windows-")
       ? "coforge-computer.exe"
       : "coforge-computer";
-    const daemonName = this.#target.startsWith("windows-")
-      ? "coforge-daemon.exe"
-      : "coforge-daemon";
     try {
-      const [computer, daemon, marker, identityText] = await Promise.all([
+      const [computer, marker, identityText] = await Promise.all([
         readFile(join(directory, computerName)),
-        readFile(join(directory, daemonName)),
         readFile(join(directory, "version"), "utf8"),
         readFile(join(directory, "installation.json"), "utf8"),
       ]);
@@ -357,12 +432,11 @@ export class ComputerUpdater {
         throw integrity("installed Agent CLI failed its offline integrity check");
       if (
         marker.trim() !== version ||
-        identity.schema_version !== 1 ||
+        identity.schema_version !== 2 ||
         identity.version !== version ||
+        "daemon" in identity ||
         !validIdentity(identity.computer) ||
-        !validIdentity(identity.daemon) ||
-        !matchesIdentity(computer, identity.computer) ||
-        !matchesIdentity(daemon, identity.daemon)
+        !matchesIdentity(computer, identity.computer)
       ) {
         throw integrity("installed version failed its offline integrity check");
       }
@@ -418,23 +492,57 @@ export class ComputerUpdater {
     await rename(temporary, destination);
   }
 
-  async #withLock<T>(operation: () => Promise<T>): Promise<T> {
-    const lock = join(this.#installRoot, ".update-lock");
+  async withExclusiveOperation<T>(
+    operation: (updater: LockedComputerUpdater) => Promise<T>,
+  ): Promise<T> {
     await mkdir(this.#installRoot, { recursive: true, mode: 0o700 });
+    let lock: ReturnType<typeof acquireProcessLock>;
     try {
-      await mkdir(lock, { mode: 0o700 });
+      lock = acquireProcessLock(join(this.#installRoot, "machine-mutation-lock.sqlite"));
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+      if (isLockContention(error)) {
         throw new UpdateError("UPDATE_BUSY", "another install, upgrade, or rollback is running");
       }
       throw error;
     }
+    let held = true;
+    const assertHeld = () => {
+      if (!held) throw new UpdateError("UPDATE_BUSY", "exclusive update operation has ended");
+    };
+    const updater: LockedComputerUpdater = {
+      prepare: async (selection) => {
+        assertHeld();
+        return this.#prepare(selection);
+      },
+      prepareRollback: async () => {
+        assertHeld();
+        return this.#prepareRollback();
+      },
+      activatePrepared: async (prepared) => {
+        assertHeld();
+        return this.#activatePrepared(prepared);
+      },
+      restoreVerified: async (version, rollbackVersion) => {
+        assertHeld();
+        return this.#restoreVerified(version, rollbackVersion);
+      },
+    };
     try {
-      return await operation();
+      return await operation(updater);
     } finally {
-      await rm(lock, { recursive: true, force: true });
+      held = false;
+      lock.release();
     }
   }
+}
+
+function isLockContention(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error.code === "SQLITE_BUSY" || error.code === "SQLITE_LOCKED")
+  );
 }
 
 function checksum(bytes: Uint8Array): string {
@@ -455,15 +563,15 @@ function validIdentity(value: unknown): value is ArtifactIdentity {
 /** The binary field is a single path segment appended directly to the download URL and to
  * on-disk paths, so it must not carry a separator or a traversal segment. It is also pinned to
  * the feed's fixed naming (docs/release.md) rather than merely validated as "some safe
- * filename": otherwise a manifest that swapped the two names would pass every other check and
- * only be caught if the swapped checksums happened to differ. */
-function validPlatformEntry(
-  value: unknown,
-): value is { computer: PlatformArtifact; daemon: PlatformArtifact } {
+ * filename": otherwise a manifest could select an unexpected executable name while retaining a
+ * self-consistent checksum. */
+function validPlatformEntry(value: unknown): value is { computer: PlatformArtifact } {
   const candidate = value as { computer?: unknown; daemon?: unknown } | undefined;
   return (
-    validArtifact(candidate?.computer, "coforge-computer") &&
-    validArtifact(candidate?.daemon, "coforge-daemon")
+    typeof candidate === "object" &&
+    candidate !== null &&
+    Object.keys(candidate).length === 1 &&
+    validArtifact(candidate.computer, "coforge-computer")
   );
 }
 

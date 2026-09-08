@@ -8,15 +8,10 @@ if (!server) throw new Error("COFORGE_E2E_WEB_URL is required");
 const endpoint =
   Bun.env.COFORGE_E2E_CENTRIFUGO_ENDPOINT ?? "ws://127.0.0.1:8000/connection/websocket";
 
-for (const component of ["computer", "daemon"] as const) {
+{
   const result = await Bun.build({
-    entrypoints: [
-      resolve(
-        root,
-        component === "computer" ? "packages/computer/src/cli.ts" : "packages/daemon/index.ts",
-      ),
-    ],
-    compile: { outfile: resolve(root, `.amp/e2e/bin/coforge-${component}`) },
+    entrypoints: [resolve(root, "packages/computer/src/main.ts")],
+    compile: { outfile: resolve(root, ".amp/e2e/bin/coforge-computer") },
     plugins: [
       {
         name: "local-e2e-transports",

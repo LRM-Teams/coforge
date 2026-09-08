@@ -1,26 +1,25 @@
-import type { RuntimeProvider } from "@coforge/protocol";
+import type { RuntimeProvider, ActivityTrajectoryEntry, ActivitySubagent } from "@coforge/protocol";
 
 export type AgentActivityType =
-  | "working"
+  | "model_request_started"
+  | "model_response_started"
+  | "thinking_started"
   | "freshness_hold"
   | "starting"
   | "stopped"
-  | "turn_completed"
   | "idle"
   | "running_command"
-  | "reading_file"
-  | "writing_file"
-  | "editing_file"
-  | "using_tool"
-  | "error"
+  | "tool_started"
+  | "runtime_error"
   | "warning";
 export type AgentActivityLevel = "info" | "warning" | "error";
 export type AgentActivity = Readonly<{
-  activity: AgentActivityType;
+  detailKind: AgentActivityType;
   level: AgentActivityLevel;
-  message: string;
-  occurredAt: string;
-  diagnostic?: Readonly<{ errorClass: string; reason: string; fingerprint: string }>;
+  detail: string;
+  observedAtMs: number;
+  entries?: ActivityTrajectoryEntry[];
+  runtimeError?: Readonly<{ errorClass: string; errorReason: string; fingerprint: string }>;
 }>;
 
 export type AgentRuntimeProviderConfig =
@@ -52,13 +51,16 @@ export type AgentSessionOptions = Readonly<{
   agentWorkspaceDirectory: string;
   instructions: string;
   sessionId?: string;
+  sessionMode?: "create" | "resume";
+  /** Acknowledged cloud persistence of the provider's actual session identity. */
+  onSessionId?(sessionId: string, replacedSessionId?: string): Promise<void>;
   runtime?: AgentRuntimeConfig;
   environment?: Readonly<Record<string, string>>;
 }>;
 export type AgentRuntimeEvent =
   | { type: "activity"; activity: AgentActivity }
   | { type: "usage"; snapshot: UsageSnapshot }
-  | { type: "text-delta"; text: string }
+  | { type: "text-delta" | "thinking-delta"; text: string; subagent?: ActivitySubagent }
   | { type: "tool-start"; id: string; name: string }
   | { type: "tool-output"; id: string; text: string }
   | { type: "tool-end"; id: string; isError: boolean }

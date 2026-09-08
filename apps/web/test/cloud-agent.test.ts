@@ -109,7 +109,7 @@ describe("PublishAgentRuntimeControl", () => {
     await recovery.recoverWorkspace("workspace-1", "computer-1", ["agent-running"]);
 
     expect(payloads).toHaveLength(2);
-    expect(channels).toEqual(["daemon:computer-1", "daemon:computer-1"]);
+    expect(channels).toEqual(["daemon:workspace-1:computer-1", "daemon:workspace-1:computer-1"]);
     expect(pendingReads).toEqual(["agent-running"]);
     expect(recoveryReads).toEqual(["agent-1"]);
     expect(decodeAgentMessageDelivery(payloads[0]!)).toMatchObject({
@@ -248,11 +248,8 @@ describe("PublishAgentRuntimeControl", () => {
       "user-1",
     );
 
-    expect(channels).toEqual(["daemon:computer-1"]);
-    expect(decodeAgentStartIntent(payloads[0]!)).toMatchObject({
-      model: "",
-      reasoning: "",
-    });
+    expect(channels).toEqual(["daemon:workspace-1:computer-1"]);
+    expect(decodeAgentStartIntent(payloads[0]!)).toMatchObject({ model: "", reasoning: "" });
   });
 
   test("derives the start target from the authorized Agent and routes scoped activity", async () => {
@@ -293,10 +290,10 @@ describe("PublishAgentRuntimeControl", () => {
         requestId: "e",
         workspaceId: "w",
         agentId: "a",
-        activity: "starting",
+        detailKind: "starting",
         level: "info",
-        message: "started",
-        occurredAt: "2026-08-27T00:00:00.000Z",
+        detail: "started",
+        observedAtMs: Date.parse("2026-08-27T00:00:00.000Z"),
         launchId: "launch-1",
         clientSeq: 1,
       }),
@@ -319,10 +316,10 @@ describe("PublishAgentRuntimeControl", () => {
           requestId: "e",
           workspaceId: "w",
           agentId: "a",
-          activity: "error",
+          detailKind: "runtime_error",
           level: "error",
-          message: "failed",
-          occurredAt: "2026-08-27T00:00:00.000Z",
+          detail: "failed",
+          observedAtMs: Date.parse("2026-08-27T00:00:00.000Z"),
           launchId: "launch-1",
           clientSeq: 1,
         }),

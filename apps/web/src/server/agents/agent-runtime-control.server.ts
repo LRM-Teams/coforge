@@ -13,6 +13,7 @@ import {
 } from "@coforge/protocol";
 import { daemonControlChannel, type CentrifugoServerApi } from "../centrifugo/server-api.server";
 import { runtimeStartFields } from "./manage-agents.server";
+import type { AgentSessions } from "./agent-sessions.server";
 import type { AgentRepository } from "../db/repositories/agent.repositories.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import type {
@@ -34,6 +35,7 @@ export class PublishAgentRuntimeControl {
     private readonly authorization: AgentRuntimeControlAuthorization,
     private readonly api: Pick<CentrifugoServerApi, "publish">,
     private readonly activities: AgentActivitySink,
+    private readonly sessions?: AgentSessions,
   ) {}
 
   async start(intent: AgentStartIntent, userId: string): Promise<void> {
@@ -45,9 +47,12 @@ export class PublishAgentRuntimeControl {
       userId,
     );
     if (!computerId) throw new Error("agent is not authorized or assigned to a Computer");
+    const selected = this.sessions
+      ? await this.sessions.prepare({ ...intent, computerId })
+      : { ...intent, computerId };
     await this.api.publish(
-      daemonControlChannel(computerId),
-      encodeAgentStartIntent({ ...intent, computerId }),
+      daemonControlChannel(intent.workspaceId, computerId),
+      encodeAgentStartIntent(selected),
     );
   }
 
@@ -60,8 +65,9 @@ export class PublishAgentRuntimeControl {
       userId,
     );
     if (!computerId) throw new Error("agent is not authorized or assigned to a Computer");
+    await this.sessions?.retire(intent.agentId, intent.workspaceId, computerId);
     await this.api.publish(
-      daemonControlChannel(computerId),
+      daemonControlChannel(intent.workspaceId, computerId),
       encodeAgentStopIntent({ ...intent, computerId }),
     );
   }
@@ -91,6 +97,7 @@ export class WorkspaceAgentRecovery {
     },
     private readonly api: Pick<CentrifugoServerApi, "publish">,
     private readonly runtimeLock: AgentRuntimeLock,
+    private readonly sessions?: AgentSessions,
   ) {}
 
   async recoverWorkspace(
@@ -111,7 +118,7 @@ export class WorkspaceAgentRecovery {
           );
           for (const delivery of deliveries) {
             await this.api.publish(
-              daemonControlChannel(computerId),
+              daemonControlChannel(workspaceId, computerId),
               encodeAgentMessageDelivery({
                 protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
                 requestId: crypto.randomUUID(),
@@ -125,17 +132,18 @@ export class WorkspaceAgentRecovery {
           return;
         }
         const recovery = await this.conversations.readAgentRecoveryContext(workspaceId, agent.id);
+        const intent: AgentStartIntent = {
+          protocolMajor: 1,
+          requestId: crypto.randomUUID(),
+          workspaceId,
+          computerId,
+          agentId: agent.id,
+          ...runtimeStartFields(agent.runtimeConfig),
+          ...recovery,
+        };
         await this.api.publish(
-          daemonControlChannel(computerId),
-          encodeAgentStartIntent({
-            protocolMajor: 1,
-            requestId: crypto.randomUUID(),
-            workspaceId,
-            computerId,
-            agentId: agent.id,
-            ...runtimeStartFields(agent.runtimeConfig),
-            ...recovery,
-          }),
+          daemonControlChannel(workspaceId, computerId),
+          encodeAgentStartIntent(this.sessions ? await this.sessions.prepare(intent) : intent),
         );
       });
     }

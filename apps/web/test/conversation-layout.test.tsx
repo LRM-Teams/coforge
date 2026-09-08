@@ -99,10 +99,10 @@ test("saved timezone and usable activity reach both sidebar and conversation des
               {
                 launchId: "launch",
                 clientSeq: 1,
-                activity: "running_command",
+                detailKind: "running_command",
                 level: "info",
-                message: "",
-                occurredAt: new Date("2026-09-07T07:18:30Z"),
+                detail: "",
+                observedAtMs: Date.parse("2026-09-07T07:18:30Z"),
               },
             ],
           },

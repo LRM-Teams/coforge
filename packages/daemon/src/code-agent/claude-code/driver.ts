@@ -8,6 +8,7 @@ import type { AgentSession, AgentSessionOptions } from "@coforge/agent";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
+import { toolActivity } from "../tool-activity";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
 import { readClaudeCodeUsage } from "./usage";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -28,9 +29,6 @@ export class ClaudeCodeDriver implements AgentDriver {
       "stream-json",
       "--verbose",
       "--include-partial-messages",
-      "--permission-mode",
-      "dontAsk",
-      "--no-session-persistence",
     ];
   }
 
@@ -50,20 +48,30 @@ export class ClaudeCodeDriver implements AgentDriver {
     try {
       const promptPath = join(promptDirectory, "system-prompt.md");
       await writeFile(promptPath, options.instructions, { mode: 0o600 });
-      const command = [
+      const command = (sessionId?: string) => [
         ...this.#command,
+        "--dangerously-skip-permissions",
+        "--permission-mode",
+        "bypassPermissions",
+        ...(sessionId ? ["--resume", sessionId] : []),
         "--append-system-prompt-file",
         promptPath,
         ...(options.runtime?.model ? ["--model", options.runtime.model] : []),
         ...(options.runtime?.reasoning ? ["--effort", options.runtime.reasoning] : []),
       ];
-      process = new JsonlProcess(
-        command,
-        options.agentWorkspaceDirectory,
-        agentEnvironment(options.environment),
-      );
-      const session = new ClaudeCodeAgentSession(process, () =>
-        rm(promptDirectory, { recursive: true, force: true }),
+      const spawn = (sessionId?: string) =>
+        new JsonlProcess(
+          command(sessionId),
+          options.agentWorkspaceDirectory,
+          agentEnvironment(options.environment),
+        );
+      process = spawn(options.sessionId);
+      const session = new ClaudeCodeAgentSession(
+        process,
+        () => rm(promptDirectory, { recursive: true, force: true }),
+        options.onSessionId,
+        options.sessionId,
+        () => spawn(),
       );
       await session.ready();
       return session;
@@ -76,16 +84,24 @@ export class ClaudeCodeDriver implements AgentDriver {
 }
 
 class ClaudeCodeAgentSession implements AgentSession {
-  readonly #process: JsonlProcess;
+  #process: JsonlProcess;
+  readonly #exitListeners = new Set<() => void>();
+  #closed = false;
+  #firstInput: string | undefined;
+  #progressObserved = false;
+  #replacedSessionId: string | undefined;
   readonly #removePrompt: () => Promise<void>;
   readonly #listeners = new Set<(event: AgentRuntimeEvent) => void>();
   #state: "idle" | "running" | "interrupting" | "disposed" = "idle";
   #initialized = false;
+  #initialization: { process: JsonlProcess; promise: Promise<void> } | undefined;
   #sessionId: string | undefined;
+  #sessionReports = Promise.resolve();
   // A fresh Claude session becomes ready at its first result, as in Raft 1.0.17.
   #sessionReadyForNotices = false;
   #compacting = false;
   #inputFailure: Error | undefined;
+  #recoveryFailed = false;
   readonly #outstandingTools = new Set<string>();
   readonly #waitingNotices: Array<{
     text: string;
@@ -97,36 +113,140 @@ class ClaudeCodeAgentSession implements AgentSession {
     | { promise: Promise<void>; resolve(): void; reject(error: Error): void }
     | undefined;
 
-  constructor(process: JsonlProcess, removePrompt: () => Promise<void>) {
+  constructor(
+    process: JsonlProcess,
+    removePrompt: () => Promise<void>,
+    private readonly reportSessionId?: (
+      sessionId: string,
+      replacedSessionId?: string,
+    ) => Promise<void>,
+    private expectedSessionId?: string,
+    private readonly spawnFresh?: () => JsonlProcess,
+  ) {
     this.#process = process;
     this.#removePrompt = removePrompt;
-    process.onRecord((record) => this.#accept(record));
+    this.#bindProcess(process);
+  }
+
+  #bindProcess(process: JsonlProcess): void {
+    let missing = false;
+    let otherDiagnostic = false;
+    let failure: Error | undefined;
+    process.onStderr((line) => {
+      // Raft uses this native diagnostic, not an SDK existence query. Match
+      // the entire selected-ID line, never arbitrary provider/model output.
+      if (
+        this.expectedSessionId &&
+        line.trim() === `No conversation found with session ID: ${this.expectedSessionId}`
+      )
+        missing = true;
+      else if (line.trim()) otherDiagnostic = true;
+    });
+    process.onRecord((record) => {
+      if (this.#process !== process) return;
+      if (
+        this.expectedSessionId &&
+        !this.#progressObserved &&
+        !this.#recoveryFailed &&
+        record.type === "result" &&
+        record.subtype === "error_during_execution" &&
+        record.is_error === true &&
+        Array.isArray(record.errors) &&
+        record.errors.length === 1 &&
+        record.errors[0] === `No conversation found with session ID: ${this.expectedSessionId}`
+      ) {
+        missing = true;
+        return;
+      }
+      this.#accept(record);
+    });
     process.onFailure((error) => {
-      this.#rejectPendingInterrupt(error);
-      this.#rejectWaitingNotices(error);
-      this.#emit({
-        type: "activity",
-        activity: createAgentActivity("error", "error", error.message),
-      });
+      failure = error;
+      if (error.message !== "code agent process exited unexpectedly") {
+        this.#rejectPendingInterrupt(error);
+        this.#rejectWaitingNotices(error);
+        this.#emit({
+          type: "activity",
+          activity: createAgentActivity("runtime_error", "error", error.message),
+        });
+      }
     });
     process.onClose(() => {
-      this.#rejectPendingInterrupt(new Error("code agent process closed during interrupt"));
+      if (this.#process !== process) return;
+      if (
+        missing &&
+        !otherDiagnostic &&
+        failure?.message === "code agent process exited unexpectedly" &&
+        this.expectedSessionId &&
+        !this.#replacedSessionId &&
+        !this.#progressObserved &&
+        !this.#recoveryFailed &&
+        (this.#state === "running" || this.#state === "idle") &&
+        this.spawnFresh
+      ) {
+        this.#replacedSessionId = this.expectedSessionId;
+        this.expectedSessionId = undefined;
+        this.#initialized = false;
+        void this.#startFresh().catch((error: unknown) => {
+          this.#rejectWaitingNotices(error instanceof Error ? error : new Error(String(error)));
+          this.#emit({
+            type: "activity",
+            activity: createAgentActivity(
+              "runtime_error",
+              "error",
+              "Claude fresh session launch failed",
+            ),
+          });
+          void this.dispose().catch(() => undefined);
+        });
+        return;
+      }
+      if (failure && this.#state !== "disposed") {
+        this.#emit({
+          type: "activity",
+          activity: createAgentActivity("runtime_error", "error", failure.message),
+        });
+      }
+      this.#rejectPendingInterrupt(
+        failure ?? new Error("code agent process closed during interrupt"),
+      );
       this.#rejectWaitingNotices(new Error("code agent process closed before writing input"));
       void this.#removePrompt();
+      this.#finishClose();
     });
+  }
+
+  async #startFresh(): Promise<void> {
+    const firstInput = this.#firstInput;
+    this.#process = this.spawnFresh!();
+    this.#bindProcess(this.#process);
+    await this.ready();
+    if (this.#isDisposed()) return;
+    if (firstInput !== undefined) await this.#sendInput(firstInput);
   }
 
   async ready(): Promise<void> {
     if (this.#initialized) return;
+    const process = this.#process;
+    if (this.#initialization?.process === process) return this.#initialization.promise;
+    const promise = this.#initialize(process);
+    this.#initialization = { process, promise };
+    return promise;
+  }
+
+  async #initialize(process: JsonlProcess): Promise<void> {
     const requestId = crypto.randomUUID();
     await new Promise<void>((resolve, reject) => {
       let unsubscribeRecord: () => void = () => undefined;
       let unsubscribeFailure: () => void = () => undefined;
+      let unsubscribeClose: () => void = () => undefined;
+      let failure = new Error("Claude Code initialization process closed");
       const cleanup = () => {
         unsubscribeRecord();
         unsubscribeFailure();
+        unsubscribeClose();
       };
-      unsubscribeRecord = this.#process.onRecord((record) => {
+      unsubscribeRecord = process.onRecord((record) => {
         const response = asRecord(record.response);
         if (record.type !== "control_response" || response?.request_id !== requestId) return;
         cleanup();
@@ -137,11 +257,20 @@ class ClaudeCodeAgentSession implements AgentSession {
           reject(new Error("Claude Code initialization was rejected"));
         }
       });
-      unsubscribeFailure = this.#process.onFailure((error) => {
-        cleanup();
-        reject(error);
+      unsubscribeFailure = process.onFailure((error) => {
+        failure = error;
+        if (error.message !== "code agent process exited unexpectedly") {
+          cleanup();
+          reject(error);
+        }
       });
-      void this.#process
+      unsubscribeClose = process.onClose(() => {
+        cleanup();
+        if (this.#process !== process && !this.#isDisposed())
+          void this.ready().then(resolve, reject);
+        else reject(failure);
+      });
+      void process
         .send({
           type: "control_request",
           request_id: requestId,
@@ -161,6 +290,7 @@ class ClaudeCodeAgentSession implements AgentSession {
 
   async #sendInput(text: string): Promise<void> {
     if (this.#inputFailure) throw this.#inputFailure;
+    this.#firstInput ??= text;
     // Reserve the turn before writing; a native result can arrive during flush.
     if (this.#state === "idle") this.#state = "running";
     await this.#process.send({
@@ -214,7 +344,12 @@ class ClaudeCodeAgentSession implements AgentSession {
   }
 
   onExit(listener: () => void): () => void {
-    return this.#process.onClose(listener);
+    if (this.#closed) {
+      queueMicrotask(listener);
+      return () => undefined;
+    }
+    this.#exitListeners.add(listener);
+    return () => this.#exitListeners.delete(listener);
   }
 
   async dispose(): Promise<void> {
@@ -225,12 +360,21 @@ class ClaudeCodeAgentSession implements AgentSession {
     this.#pendingInterrupt = undefined;
     try {
       await this.#process.dispose();
+      this.#finishClose();
     } finally {
       await this.#removePrompt();
     }
   }
 
   #accept(record: Readonly<Record<string, unknown>>): void {
+    if (this.#recoveryFailed || this.#state === "disposed") return;
+    if (
+      ["stream_event", "assistant", "user", "result"].includes(String(record.type)) ||
+      (record.type === "system" && record.subtype === "init")
+    ) {
+      this.#progressObserved = true;
+      this.#firstInput = undefined;
+    }
     if (record.type === "system" && record.parent_tool_use_id == null) {
       if (record.subtype === "status" && record.status === "compacting") this.#compacting = true;
       if (record.subtype === "compact_boundary") {
@@ -239,10 +383,20 @@ class ClaudeCodeAgentSession implements AgentSession {
       }
     }
     if (record.type === "system" && record.subtype === "init") {
+      if (
+        typeof record.session_id !== "string" ||
+        !record.session_id.trim() ||
+        record.session_id === this.#replacedSessionId ||
+        (this.expectedSessionId && record.session_id !== this.expectedSessionId)
+      ) {
+        this.#failRecovery();
+        return;
+      }
       if (typeof record.session_id === "string" && record.session_id !== this.#sessionId) {
         this.#sessionId = record.session_id;
-        this.#sessionReadyForNotices = false;
+        this.#sessionReadyForNotices = record.session_id === this.expectedSessionId;
       }
+      this.#reportIdentity();
       return;
     }
     if (record.type === "rate_limit_event") {
@@ -266,13 +420,27 @@ class ClaudeCodeAgentSession implements AgentSession {
         this.#state = "running";
       }
       const delta = asRecord(event?.delta);
+      const subagent =
+        typeof record.parent_tool_use_id === "string"
+          ? { parentToolUseId: record.parent_tool_use_id }
+          : undefined;
       if (
         event?.type === "content_block_delta" &&
         delta?.type === "text_delta" &&
         typeof delta.text === "string"
       ) {
-        this.#emit({ type: "text-delta", text: delta.text });
+        this.#emit({ type: "text-delta", text: delta.text, ...(subagent ? { subagent } : {}) });
       }
+      if (
+        event?.type === "content_block_delta" &&
+        delta?.type === "thinking_delta" &&
+        typeof delta.thinking === "string"
+      )
+        this.#emit({
+          type: "thinking-delta",
+          text: delta.thinking,
+          ...(subagent ? { subagent } : {}),
+        });
       return;
     }
     if (record.type === "assistant") {
@@ -291,26 +459,15 @@ class ClaudeCodeAgentSession implements AgentSession {
           typeof block.name === "string"
         ) {
           this.#emit({ type: "tool-start", id: block.id, name: block.name });
-          const input = asRecord(block.input);
-          const details =
-            block.name === "Bash" && typeof input?.command === "string"
-              ? input.command
-              : typeof input?.file_path === "string"
-                ? input.file_path
-                : block.name;
-          const activity =
-            block.name === "Bash"
-              ? "running_command"
-              : block.name === "Read"
-                ? "reading_file"
-                : block.name === "Write"
-                  ? "writing_file"
-                  : block.name === "Edit"
-                    ? "editing_file"
-                    : "using_tool";
+          const activity = toolActivity(block.name, block.input, eventTime(record));
+          if (typeof record.parent_tool_use_id === "string")
+            activity.entries = activity.entries.map((entry) => ({
+              ...entry,
+              subagent: { parentToolUseId: record.parent_tool_use_id as string },
+            }));
           this.#emit({
             type: "activity",
-            activity: createAgentActivity(activity, "info", details, eventTime(record)),
+            activity,
           });
         }
       }
@@ -332,6 +489,14 @@ class ClaudeCodeAgentSession implements AgentSession {
     }
     if (record.type === "result") {
       if (record.parent_tool_use_id != null) return;
+      if (
+        !this.#sessionId ||
+        (this.expectedSessionId && this.#sessionId !== this.expectedSessionId)
+      ) {
+        this.#failRecovery();
+        return;
+      }
+      this.#reportIdentity();
       this.#sessionReadyForNotices = true;
       this.#compacting = false;
       this.#outstandingTools.clear();
@@ -351,6 +516,27 @@ class ClaudeCodeAgentSession implements AgentSession {
     }
   }
 
+  #reportIdentity(): void {
+    const sessionId = this.#sessionId;
+    if (!sessionId || !this.reportSessionId) return;
+    // Serialize observations, not the event reader. A repeated turn-end report
+    // confirms the reference, not that the provider flushed its transcript.
+    this.#sessionReports = this.#sessionReports
+      .then(async () => {
+        await this.reportSessionId!(sessionId, this.#replacedSessionId);
+      })
+      .catch((error) => {
+        this.#emit({
+          type: "activity",
+          activity: createAgentActivity(
+            "runtime_error",
+            "error",
+            error instanceof Error ? error.message : "Claude session identity report failed",
+          ),
+        });
+      });
+  }
+
   #flushNotices(): void {
     if (this.#inputFailure || this.#state === "disposed" || this.#state === "interrupting") return;
     if (!this.#sessionReadyForNotices || this.#compacting || this.#outstandingTools.size > 0)
@@ -365,12 +551,35 @@ class ClaudeCodeAgentSession implements AgentSession {
     for (const listener of this.#listeners) listener(event);
   }
 
+  #finishClose(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    for (const listener of this.#exitListeners) listener();
+    this.#exitListeners.clear();
+  }
+
   #isDisposed(): boolean {
     return this.#state === "disposed";
   }
 
+  #failRecovery(): void {
+    const error = new Error(
+      this.expectedSessionId
+        ? "Claude did not resume the requested session"
+        : "Claude did not establish a valid session identity",
+    );
+    this.#recoveryFailed = true;
+    this.#rejectWaitingNotices(error);
+    this.#emit({
+      type: "activity",
+      activity: createAgentActivity("runtime_error", "error", error.message),
+    });
+    // Never block the event reader on process-tree cleanup.
+    void this.dispose().catch(() => undefined);
+  }
+
   #rejectWaitingNotices(error: Error): void {
-    this.#inputFailure = error;
+    this.#inputFailure ??= error;
     for (const notice of this.#waitingNotices.splice(0)) notice.reject(error);
   }
 

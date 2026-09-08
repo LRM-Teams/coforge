@@ -26,10 +26,10 @@ class FakeClient {
         agentId,
         launchId: "launch",
         clientSeq,
-        activity: "running_command",
+        detailKind: "running_command",
         level: "info",
-        message: "",
-        occurredAt: new Date().toISOString(),
+        detail: "",
+        observedAtMs: Date.now(),
       }),
     });
   }
@@ -133,7 +133,7 @@ test("a live publication restores activity after history loading fails", async (
   expect(activityForAgent(result.current, "a").error).toBe(false);
   expect(activityForAgent(result.current, "b").error).toBe(true);
   expect(result.current.loading).toBe(false);
-  expect(result.current.activity.a?.[0]?.activity).toBe("running_command");
+  expect(result.current.activity.a?.[0]?.detailKind).toBe("running_command");
   unmount();
 });
 
