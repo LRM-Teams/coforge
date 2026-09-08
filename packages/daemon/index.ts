@@ -12,6 +12,7 @@ import {
   DaemonConnection,
   defaultCentrifugeWorkspaceClientFactory,
 } from "./src/connection/daemon-connection";
+import { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "./src/connection/built-server";
 import { configureDaemonLogger } from "./src/logging/daemon-logger";
 import { COFORGE_DAEMON_VERSION } from "./src/version";
 
@@ -43,7 +44,6 @@ export { LocalDaemonLauncher, resolveDaemonExecutablePath } from "./src/daemon-h
 export type {
   DaemonLauncher,
   DaemonCommandRunner,
-  DaemonStopper,
   DaemonWorkspaceConfig,
 } from "./src/daemon-host/launcher";
 export { DaemonConfigStore } from "./src/persistence/daemon-config";
@@ -82,6 +82,7 @@ export {
   DaemonConnection,
   defaultCentrifugeWorkspaceClientFactory,
 } from "./src/connection/daemon-connection";
+export { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "./src/connection/built-server";
 
 if (import.meta.main && Bun.argv[2] === "__agent-cli") {
   const { runAgentCli } = await import("@coforge/cli/runner");
@@ -101,7 +102,7 @@ if (import.meta.main && Bun.argv[2] === "__agent-cli") {
   const credentials = new FileDaemonCredentialStore();
   const configStore = new DaemonConfigStore(
     stateDirectory ?? join(homedir(), ".coforge", "daemon"),
-    { serverHttpUrl: Bun.env.COFORGE_SERVER_HTTP_URL },
+    { serverHttpUrl: COFORGE_DAEMON_SERVER_URL },
   );
   let runtime: DaemonRuntime | undefined;
   const agentProxy = startAgentProxy({
@@ -124,13 +125,11 @@ if (import.meta.main && Bun.argv[2] === "__agent-cli") {
   let config = await configStore.load();
   const daemon = {
     async configure(connection: Parameters<DaemonRuntime["start"]>[0]) {
+      const nextConfig = configStore.bindToServer(connection);
       // A configure request is the Workspace-page replacement operation. Stop
       // the old connection and all children before adopting the new identity.
       await runtime?.stop();
-      config = {
-        ...connection,
-        serverHttpUrl: connection.serverHttpUrl ?? Bun.env.COFORGE_SERVER_HTTP_URL,
-      };
+      config = nextConfig;
       runtime = new DaemonRuntime(
         config,
         createAgentDriver,
@@ -138,7 +137,7 @@ if (import.meta.main && Bun.argv[2] === "__agent-cli") {
         {
           create: () =>
             new DaemonConnection(
-              Bun.env.COFORGE_DAEMON_CONNECTION_ENDPOINT ?? "",
+              daemonConnectionEndpoint(COFORGE_DAEMON_SERVER_URL),
               defaultCentrifugeWorkspaceClientFactory,
             ),
         },
@@ -157,7 +156,7 @@ if (import.meta.main && Bun.argv[2] === "__agent-cli") {
           {
             create: () =>
               new DaemonConnection(
-                Bun.env.COFORGE_DAEMON_CONNECTION_ENDPOINT ?? "",
+                daemonConnectionEndpoint(COFORGE_DAEMON_SERVER_URL),
                 defaultCentrifugeWorkspaceClientFactory,
               ),
           },
@@ -185,6 +184,7 @@ if (import.meta.main && Bun.argv[2] === "__agent-cli") {
   };
   const localRpc = await startDaemonLocalRpcServer({
     socketPath,
+    serverUrl: COFORGE_DAEMON_SERVER_URL,
     validateCredential: (credential) => credential.length > 0,
     runtime: daemon,
     credentials,

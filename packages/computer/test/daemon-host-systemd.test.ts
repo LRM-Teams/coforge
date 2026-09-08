@@ -14,6 +14,7 @@ test("systemd user unit starts the verified daemon and restarts it after failure
 test("systemd user service is installed and started without a system service", async () => {
   const commands: string[][] = [];
   const service = new SystemdUserDaemonHost({
+    serverUrl: "https://coforge.test",
     homeDirectory: "/home/alice",
     executablePath: "/install/coforge-daemon",
     socketPath: "/run/user/501/coforge/daemon.sock",

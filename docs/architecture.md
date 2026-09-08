@@ -288,7 +288,28 @@ Daemon；macOS 由 Computer 安装用户级 `launchd` LaunchAgent（不需要 su
 `launchd` 负责登录时启动和崩溃重启，Computer 仍通过本地 Unix Socket 完成健康检查与
 handshake。Daemon 不注册为系统级服务，也不开放 TCP 管理端口。
 
-`login [--server <url>]` 仍可用于单独重新认证，但普通用户不需要先执行它。推荐入口是单个 `setup` 流程：没有 User credential 时在流程内部完成 OAuth 2.0 Device Authorization Grant；先通过 RFC 8414 metadata 发现 device authorization 与 token endpoint，再按 RFC 8628 展示 user code、轮询并处理 `authorization_pending` / `slow_down`。轮询连接超时后降低请求频率并重试，单次请求必须受 device-code 剩余有效期约束。凭据不进入命令参数或日志。
+`login` 仍可用于单独重新认证，但普通用户不需要先执行它。推荐入口是单个 `setup` 流程：没有 User credential 时在流程内部完成 OAuth 2.0 Device Authorization Grant；先通过 RFC 8414 metadata 发现 device authorization 与 token endpoint，再按 RFC 8628 展示 user code、轮询并处理 `authorization_pending` / `slow_down`。轮询连接超时后降低请求频率并重试，单次请求必须受 device-code 剩余有效期约束。凭据不进入命令参数或日志。
+
+本地发行包在构建时固定环境，不提供公开的 `--server` 参数：staging 的更新源
+`https://releases-staging.coforge.cn` 对应业务服务器 `https://staging.coforge.cn`；
+production 的更新源 `https://releases.coforge.cn` 对应 `https://coforge.cn`。
+Computer 的登录、setup、start/restart 与同包 Daemon 的 HTTPS/WSS 使用同一环境；
+运行时环境变量不能改变发行包的服务器。已有 Computer profile 或 Daemon config
+属于另一环境时拒绝启动，不覆盖配置或携带旧凭据连接新环境。缺少服务器身份的
+旧 Daemon config 也不能推断归属后自动恢复。测试通过内部模块/构造函数注入本地
+服务，不为测试保留公开切换参数。Bun 构建常量替换遵循其
+[define 文档](https://bun.com/docs/bundler#define)；不改变 runtime 版本或云端协议。
+
+本地 Unix RPC handshake 返回 Daemon 的构建服务器身份 `server_url`；configure
+和生命周期 command 携带 `expected_server_url`，Daemon 在凭据验证、配置写入和
+运行时操作之前检查它。Computer 在登录、setup、start/restart 之前检查已有配置和
+存活 socket，即使 Computer profile 不存在也不跳过；真正发送 configure/command
+的连接仍须重新验证身份。不带服务器身份的旧 peer 拒绝复用。
+setup 发现已注册的 launchd service 时，不改写其 plist，也不强制 kickstart；
+随后仍须通过实际发送配置的 socket 验证身份。普通 `stop` 只通过已验证的 RPC
+停止 Workspace 运行时和 Agent，不终止 Daemon 进程，也不卸载或停止 OS service。
+`start` 和 `restart` 操作同一 Daemon 内的运行时。这避免了在 socket 验证后，
+再按可被并发替换的共享 OS service label 执行破坏性停止或重启。
 
 MVP OAuth client 使用 `client_id = coforge-computer` 与 `scope = openid offline_access`。Workspace 页面为当前 Workspace 创建一次性 setup intent，并通过 CoForge Computer setup deep link 或安装器参数传入；用户不输入 Workspace ID/slug，也不在 Computer 端选择 Workspace。`UserAccessToken` 仅用于 Computer 注册；注册响应中的 `DaemonApiKey` 是供 Daemon 连接云端的长期、可撤销 API key。Agent API key 是独立的 Agent 授权材料；三者不可混用。持久 credential 通过 Bun 的跨平台原生 credential API 写入 macOS Keychain、Linux Secret Service 或 Windows Credential Manager，不允许自动降级为明文文件。Linux 无可用 Secret Service 时 setup 以稳定错误失败并提示用户启动或解锁系统凭据服务。
 

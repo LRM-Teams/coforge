@@ -1,10 +1,7 @@
-import type { DaemonCommandRunner, DaemonStopper } from "@coforge/daemon";
+import type { DaemonCommandRunner } from "@coforge/daemon";
 import type { Logger } from "@logtape/logtape";
 
-export function createCommand(input: {
-  daemon: DaemonCommandRunner & DaemonStopper;
-  logger?: Logger;
-}): {
+export function createCommand(input: { daemon: DaemonCommandRunner; logger?: Logger }): {
   start(): Promise<void>;
   stop(): Promise<void>;
   restart(): Promise<void>;
@@ -19,7 +16,6 @@ export function createCommand(input: {
     async stop() {
       input.logger?.info("Computer stop requested", { event: "computer:stopping" });
       await input.daemon.command("stop");
-      await input.daemon.stop();
       input.logger?.info("Computer stop completed", { event: "computer:stopped" });
     },
     async restart() {

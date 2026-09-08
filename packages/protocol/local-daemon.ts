@@ -343,13 +343,18 @@ export type DaemonRuntimeConfigureRequest = {
   workspaceRoot: string;
   daemonApiKey: string;
   computerId: string;
+  expectedServerUrl: string;
 };
 export type DaemonRuntimeConfigureResponse = {
   protocolMajor: number;
   requestId: string;
   accepted: boolean;
 };
-export type DaemonCommandRequest = { protocolMajor: number; requestId: string };
+export type DaemonCommandRequest = {
+  protocolMajor: number;
+  requestId: string;
+  expectedServerUrl: string;
+};
 export type DaemonCommandResponse = {
   protocolMajor: number;
   requestId: string;
@@ -392,6 +397,7 @@ export function decodeDaemonRuntimeConfigureRequest(
     workspaceRoot: v.workspaceRoot,
     daemonApiKey: v.daemonApiKey,
     computerId: v.computerId,
+    expectedServerUrl: v.expectedServerUrl,
   };
 }
 export function encodeDaemonRuntimeConfigureResponse(
@@ -414,7 +420,11 @@ export function encodeDaemonCommandRequest(value: DaemonCommandRequest): Uint8Ar
 }
 export function decodeDaemonCommandRequest(bytes: Uint8Array): DaemonCommandRequest {
   const value = fromBinary(DaemonCommandRequestSchema, bytes);
-  return { protocolMajor: value.protocolMajor, requestId: value.requestId };
+  return {
+    protocolMajor: value.protocolMajor,
+    requestId: value.requestId,
+    expectedServerUrl: value.expectedServerUrl,
+  };
 }
 export function encodeDaemonCommandResponse(value: DaemonCommandResponse): Uint8Array {
   return toBinary(DaemonCommandResponseSchema, create(DaemonCommandResponseSchema, value));
@@ -438,6 +448,7 @@ export type DaemonHandshakeResponse = {
   requestId: string;
   daemonId: string;
   accepted: boolean;
+  serverUrl: string;
 };
 
 export function encodeDaemonHandshakeRequest(value: DaemonHandshakeRequest): Uint8Array {
@@ -463,6 +474,7 @@ export function decodeDaemonHandshakeResponse(bytes: Uint8Array): DaemonHandshak
     requestId: value.requestId,
     daemonId: value.daemonId,
     accepted: value.accepted,
+    serverUrl: value.serverUrl,
   };
 }
 

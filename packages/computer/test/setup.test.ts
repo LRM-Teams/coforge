@@ -184,7 +184,7 @@ test("setup authenticates and saves the profile when no profile exists", async (
   const setup = createSetup({
     config: {
       async loadCurrentProfile() {
-        throw new Error("missing");
+        return null;
       },
       async saveCurrentProfile(profile) {
         calls.push(`profile:${profile.serverUrl}`);
@@ -207,11 +207,11 @@ test("setup authenticates and saves the profile when no profile exists", async (
     },
   });
 
-  await setup.run({ workspaceSlug: "workspace-a", serverUrl: "https://new.example", json: true });
-  expect(calls).toEqual(["auth:https://new.example", "profile:https://new.example"]);
+  await setup.run({ workspaceSlug: "workspace-a", json: true });
+  expect(calls).toEqual(["auth:https://coforge.example", "profile:https://coforge.example"]);
 });
 
-test("setup uses an explicit server for catalog and registration", async () => {
+test("setup uses its injected build server for catalog and registration", async () => {
   const servers: string[] = [];
   const setup = createSetup({
     workspaceLookup: createWorkspaceLookup(
@@ -239,11 +239,129 @@ test("setup uses an explicit server for catalog and registration", async () => {
       };
     },
   });
-  await setup.run({ workspaceSlug: "workspace-a", serverUrl: "https://explicit.example" });
+  await setup.run({ workspaceSlug: "workspace-a" });
   expect(servers).toEqual([
-    "lookup:https://explicit.example",
-    "registration:https://explicit.example",
+    "lookup:https://coforge.example",
+    "registration:https://coforge.example",
   ]);
+});
+
+test("setup rejects a cross-environment profile before authentication or setup side effects", async () => {
+  const calls: string[] = [];
+  const setup = createSetup({
+    config: {
+      async loadCurrentProfile() {
+        return { serverUrl: "https://staging.coforge.cn" };
+      },
+      async saveRegistration() {
+        calls.push("save");
+        return "/saved";
+      },
+      async discardRegistration() {},
+    },
+    credentials: {
+      async load() {
+        calls.push("credentials");
+        return null;
+      },
+    },
+    authenticate: {
+      async authenticate() {
+        calls.push("authenticate");
+        return credential;
+      },
+    },
+    launcher: {
+      async ensureStarted() {
+        calls.push("daemon");
+      },
+    },
+  });
+
+  await expect(setup.run({ workspaceSlug: "workspace-a" })).rejects.toMatchObject({
+    code: "SETUP_BUILD_ENVIRONMENT_MISMATCH",
+  });
+  expect(calls).toEqual([]);
+});
+
+test("setup preflights daemon identity before authentication, registration, save, or launch", async () => {
+  const calls: string[] = [];
+  const setup = createSetup({
+    config: {
+      async loadCurrentProfile() {
+        return null;
+      },
+      async saveRegistration() {
+        calls.push("save");
+        return "/saved";
+      },
+      async discardRegistration() {},
+    },
+    credentials: {
+      async load() {
+        calls.push("credentials");
+        return null;
+      },
+    },
+    authenticate: {
+      async authenticate() {
+        calls.push("authenticate");
+        return credential;
+      },
+    },
+    registrationFactory: () => ({
+      async register() {
+        calls.push("register");
+        throw new Error("must not register");
+      },
+    }),
+    launcher: {
+      async preflight() {
+        throw new Error("wrong daemon environment");
+      },
+      async ensureStarted() {
+        calls.push("launch");
+      },
+    },
+  });
+
+  await expect(setup.run({ workspaceSlug: "workspace-a" })).rejects.toMatchObject({
+    code: "SETUP_BUILD_ENVIRONMENT_MISMATCH",
+  });
+  expect(calls).toEqual([]);
+});
+
+test("setup accepts a profile URL with the same origin", async () => {
+  const setup = createSetup({
+    config: {
+      async loadCurrentProfile() {
+        return { serverUrl: "https://coforge.example/" };
+      },
+      async saveRegistration() {
+        return "/saved";
+      },
+      async discardRegistration() {},
+    },
+  });
+
+  await expect(setup.run({ workspaceSlug: "workspace-a" })).resolves.toBeDefined();
+});
+
+test("setup does not treat a corrupted profile as missing", async () => {
+  const setup = createSetup({
+    config: {
+      async loadCurrentProfile() {
+        throw new Error("current profile is invalid");
+      },
+      async saveRegistration() {
+        return "/saved";
+      },
+      async discardRegistration() {},
+    },
+  });
+  await expect(setup.run({ workspaceSlug: "workspace-a" })).rejects.toMatchObject({
+    code: "SETUP_CONFIG_READ_FAILED",
+  });
 });
 
 test("setup returns structured data without writing output", async () => {
@@ -430,6 +548,7 @@ function createSetup(overrides: Partial<ComputerSetupOptions> = {}): ComputerSet
       },
     },
     idempotencyKeyProvider: { create: (_serverUrl, value) => `key:${value}` },
+    serverUrl: "https://coforge.example",
     ...overrides,
     workspaceRoot: overrides.workspaceRoot ?? "/home/test-user/coforge-workspaces",
   });

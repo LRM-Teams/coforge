@@ -113,10 +113,17 @@ done_step() {
 }
 
 fetch() {
+  # Do not use curl's progress meter here. The installer already reports the bounded,
+  # meaningful steps below; curl's meter writes frequent carriage-return updates to stderr,
+  # which become a large stream of lines when stderr is captured by a terminal wrapper.
+  curl --fail --silent --show-error --location --proto "$curl_proto" --tlsv1.2 "$@"
+}
+
+fetch_binary() {
   if [ "$is_interactive" -eq 1 ] && [ "${COFORGE_INSTALLER_PROGRESS:-}" != "0" ]; then
     curl --fail --progress-bar --show-error --location --proto "$curl_proto" --tlsv1.2 "$@"
   else
-    curl --fail --silent --show-error --location --proto "$curl_proto" --tlsv1.2 "$@"
+    fetch "$@"
   fi
 }
 
@@ -168,7 +175,7 @@ fi
 computer_path="$temporary_directory/coforge-computer"
 compressed_path="$temporary_directory/coforge-computer.gz"
 step "Downloading CoForge Computer"
-fetch --max-filesize "$max_binary_bytes" --output "$compressed_path" "$feed_url/$version/$target/coforge-computer.gz"
+fetch_binary --max-filesize "$max_binary_bytes" --output "$compressed_path" "$feed_url/$version/$target/coforge-computer.gz"
 done_step "Download complete"
 # Limit the output both while expanding and after completion. POSIX ulimit -f is measured
 # in 512-byte blocks, so this matches max_binary_bytes without trusting gzip metadata.
@@ -202,6 +209,79 @@ chmod 700 "$computer_path"
 # into $TMPDIR on every single install.
 step "Installing CoForge"
 "$computer_path" install --version "$version"
+
+bin_directory="$HOME/.coforge/computer/bin"
+# Expand HOME and PATH when the user's shell reads its configuration, not in this installer.
+# shellcheck disable=SC2016
+posix_path_line='export PATH="$HOME/.coforge/computer/bin:$PATH"'
+# shellcheck disable=SC2016
+fish_path_line='fish_add_path "$HOME/.coforge/computer/bin"'
+
+append_path_line() {
+  configuration_path=$1
+  configuration_line=$2
+  configuration_directory=${configuration_path%/*}
+
+  mkdir -p "$configuration_directory" || return 1
+  if [ -f "$configuration_path" ] && grep -Fqx "$configuration_line" "$configuration_path"; then
+    return 0
+  fi
+  printf '\n%s\n' "$configuration_line" >> "$configuration_path"
+}
+
+case "${SHELL:-}" in
+  */fish)
+    fish_configuration_root=${XDG_CONFIG_HOME:-$HOME/.config}
+    shell_configuration="$fish_configuration_root/fish/conf.d/coforge.fish"
+    shell_path_line=$fish_path_line
+    session_command="fish_add_path \"$bin_directory\""
+    shell_name=fish
+    ;;
+  */zsh)
+    shell_configuration="${ZDOTDIR:-$HOME}/.zshrc"
+    shell_path_line=$posix_path_line
+    session_command="export PATH=\"$bin_directory:\$PATH\""
+    shell_name=zsh
+    ;;
+  */bash)
+    shell_configuration="$HOME/.bashrc"
+    shell_path_line=$posix_path_line
+    session_command="export PATH=\"$bin_directory:\$PATH\""
+    shell_name=bash
+    ;;
+  *) shell_configuration= ;;
+esac
+
+if [ -n "$shell_configuration" ]; then
+  if ! append_path_line "$shell_configuration" "$shell_path_line"; then
+    echo "install.sh: CoForge was installed, but PATH could not be saved to $shell_configuration" >&2
+    echo "install.sh: add this line manually: $shell_path_line" >&2
+    exit 1
+  fi
+  if [ "$shell_name" = bash ]; then
+    # Login Bash reads the first existing profile, not .bashrc (notably on macOS).
+    login_configuration="$HOME/.bash_profile"
+    for candidate in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+      if [ -f "$candidate" ]; then
+        login_configuration=$candidate
+        break
+      fi
+    done
+    if ! append_path_line "$login_configuration" "$shell_path_line"; then
+      echo "install.sh: CoForge was installed, but PATH could not be saved to $login_configuration" >&2
+      exit 1
+    fi
+  fi
+  done_step "Saved CoForge PATH setup for $shell_name in $shell_configuration"
+else
+  echo "install.sh: warning: could not identify bash, zsh, or fish from SHELL; PATH was not changed" >&2
+  session_command="export PATH=\"$bin_directory:\$PATH\""
+fi
+
 done_step "CoForge Computer $version installed"
 printf '%b\n' "" >&2
-printf '%b\n' "Next: ${accent}coforge-computer setup --workspace <slug>${reset}" >&2
+printf '%b\n' "This installer cannot change the current shell. For this session, run:" >&2
+printf '%b\n' "  ${accent}$session_command${reset}" >&2
+printf '%s\n' "Or run directly without changing PATH:" >&2
+# shellcheck disable=SC2016
+printf '%s\n' '  "$HOME/.coforge/computer/bin/coforge-computer" setup --workspace <slug>' >&2

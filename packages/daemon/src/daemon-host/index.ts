@@ -6,17 +6,18 @@ export { LocalDaemonLauncher, resolveDaemonExecutablePath } from "./launcher";
 import { LaunchdDaemonHost } from "./launchd";
 import { SystemdUserDaemonHost } from "./systemd-user";
 import { WindowsUserDaemonHost } from "./windows-task";
-import type { DaemonCommandRunner, DaemonLauncher, DaemonStopper } from "./launcher";
+import type { DaemonCommandRunner, DaemonLauncher } from "./launcher";
 
 export function createDaemonHost(input: {
   platform: NodeJS.Platform;
   executablePath: string;
   socketPath: string;
   stateDirectory?: string;
+  serverUrl: string;
   daemonConnectionEndpoint?: string;
   homeDirectory: string;
   uid: number;
-}): DaemonLauncher & DaemonStopper & DaemonCommandRunner {
+}): DaemonLauncher & DaemonCommandRunner {
   if (input.platform === "darwin") {
     return new LaunchdDaemonHost({ ...input, label: "cn.coforge.computer.daemon" });
   }

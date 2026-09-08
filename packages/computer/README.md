@@ -5,7 +5,7 @@ supervises `coforge-daemon`. The current vertical slice implements interactive
 login with the OAuth 2.0 device authorization grant:
 
 ```bash
-mise exec -- bun run packages/computer/src/cli.ts login --server https://coforge.example
+mise exec -- bun run packages/computer/src/cli.ts login
 ```
 
 The command discovers `device_authorization_endpoint`, `token_endpoint`, and
@@ -14,6 +14,11 @@ metadata. It prints the verification URL and user code, polls according to RFC
 8628 (including `authorization_pending` and `slow_down`), saves the credential
 without printing it, and returns the Workspaces the user can access. Login does
 not bind a Workspace or start a workspace-daemon.
+
+Official builds are bound to one environment: production uses `https://coforge.cn`, and staging
+uses `https://staging.coforge.cn`. Login and setup do not expose a `--server` override. If an
+existing profile names another environment, Computer fails before authentication, registration,
+or Daemon startup rather than overwriting the profile.
 
 Use `--json` for automation. Stdout contains exactly one JSON object; progress
 and device authorization instructions use stderr. Success includes
@@ -49,9 +54,11 @@ Computer does not maintain a cloud WebSocket; each Daemon runtime owns its own
 cloud WSS connection.
 
 Use `coforge-computer start` to start or reuse the user-managed Daemon and
-configure every registered Daemon Runtime. Use `coforge-computer stop` to
-stop that Daemon and, with it, all of its Daemon Runtimes. Use
-`coforge-computer restart` to perform both operations in order.
+start its configured Workspace runtime. Use `coforge-computer stop` to stop
+the Workspace runtime and its Agents through verified local RPC, leaving the
+Daemon process and OS service installed and running. Use `coforge-computer restart`
+to stop and start the runtime within the same Daemon process. On macOS, repeated
+setup reuses the registered launchd service without rewriting or force-restarting it.
 
 Use `coforge-computer logs` to print existing Computer log files and follow
 new log records in real time. Press `Ctrl-C` to exit.
@@ -101,6 +108,24 @@ stdout, stderr, or generated artifacts.
 Stable `machine_id` issuance and the initial cloud registration payload are
 implemented in the Computer setup slice. Server-side validation and identity
 proof remain pending.
+
+## Local testing
+
+Unit tests inject server URLs through application constructors. For local end-to-end
+testing, set `COFORGE_E2E_WEB_URL` to the local Web URL and optionally
+`COFORGE_E2E_CENTRIFUGO_ENDPOINT` to its separate WebSocket endpoint, then run:
+
+```sh
+mise exec -- bun scripts/e2e/build-computer-fixture.ts
+```
+
+This private build injects those endpoints into `.amp/e2e/bin/coforge-computer`
+and `.amp/e2e/bin/coforge-daemon`, separate from release output. It does not add
+a runtime server switch to official binaries. The existing
+`scripts/e2e/run-computer-setup.sh` harness builds these fixtures, uses an isolated
+HOME, and runs setup without `--server`; it still requires explicit
+`COFORGE_E2E_ALLOW_DEVICE_AUTH=1` and `COFORGE_E2E_WORKSPACE_SLUG` for real local
+authorization/registration. Never publish these test binaries.
 
 Official references:
 

@@ -45,6 +45,10 @@ Computer owns writing it into staging, recording its identity and verifying
 it on rollback. There is no legacy installer compatibility path.
 Computer's user command tree does not own Agent message commands.
 
+`src/release-channel.ts` owns the compiled official feed/server mapping.
+`src/local-config.ts` owns reading and validating the persisted profile against
+that environment; login, setup, and lifecycle adapters share that public seam.
+
 ### Layer rules
 
 - `main.ts` and `cli/` know about process arguments and terminal concerns only.

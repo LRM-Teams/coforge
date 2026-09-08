@@ -13,16 +13,37 @@ export class DaemonConfigStore {
   async load(): Promise<DaemonConfig | null> {
     try {
       const config = JSON.parse(await Bun.file(this.#path).text()) as DaemonConfig;
-      return config.serverHttpUrl || !this.#serverHttpUrl
-        ? config
-        : { ...config, serverHttpUrl: this.#serverHttpUrl };
+      if (!this.#serverHttpUrl) return config;
+      if (!config.serverHttpUrl) {
+        throw new Error("Persisted daemon configuration does not identify its server");
+      }
+      return this.bindToServer(config);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw error;
     }
   }
   async save(config: DaemonConfig): Promise<void> {
-    await this.#write(config);
+    await this.#write(this.bindToServer(config));
+  }
+  assertExpectedServer(expectedServerUrl: string): void {
+    if (
+      !this.#serverHttpUrl ||
+      !expectedServerUrl ||
+      new URL(expectedServerUrl).origin !== new URL(this.#serverHttpUrl).origin
+    ) {
+      throw new Error("Daemon request server does not match this daemon build");
+    }
+  }
+  bindToServer(config: DaemonConfig): DaemonConfig {
+    if (
+      this.#serverHttpUrl &&
+      config.serverHttpUrl &&
+      new URL(config.serverHttpUrl).origin !== new URL(this.#serverHttpUrl).origin
+    ) {
+      throw new Error("Daemon configuration server does not match this daemon build");
+    }
+    return this.#serverHttpUrl ? { ...config, serverHttpUrl: this.#serverHttpUrl } : config;
   }
   async clear(): Promise<void> {
     await rm(this.#path, { force: true });
