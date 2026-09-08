@@ -8,12 +8,9 @@ import { MotionConfig, motion, useReducedMotion, useScroll, useTransform } from 
 import { useEffect, useState } from "react";
 
 import { BorderBeam } from "@/components/magicui/border-beam";
-import { OrbitingCircles } from "@/components/magicui/orbiting-circles";
-import { AnimatedSpan, Terminal, TypingAnimation } from "@/components/magicui/terminal";
 import AnimatedGradient from "@/components/spell/animated-gradient";
 import { BlurReveal } from "@/components/spell/blur-reveal";
 import { ShimmerText } from "@/components/spell/shimmer-text";
-import { installCommands, setupCommand } from "@/features/install/install-commands";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
@@ -97,7 +94,7 @@ const locales = [
 function LocaleSwitch() {
   const active = getLocale();
   return (
-    <div className="flex h-8 items-center rounded-full border border-white/15 bg-white/5 p-0.5 text-xs font-medium">
+    <div className="flex h-8 shrink-0 items-center rounded-full border border-white/15 bg-white/5 p-0.5 text-xs font-medium whitespace-nowrap">
       {locales.map((locale) => (
         <a
           key={locale.code}
@@ -125,7 +122,7 @@ function useWebGl2() {
   return ready;
 }
 
-export function LandingPage({ installOrigin }: { installOrigin: string }) {
+export function LandingPage() {
   const gradientReady = useWebGl2();
   const reducedMotion = useReducedMotion() ?? false;
   const headline = `${m.landing_headline_line_1()} ${m.landing_headline_line_2()}`;
@@ -158,11 +155,14 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
           <a href="/" className="flex items-center gap-2.5" aria-label="CoForge">
             <img src="/logo.svg" alt="" className="size-8 rounded-lg" />
             {/* The wordmark ends on the same dot the icon carries. */}
-            <span aria-hidden="true" className="text-[17px] font-bold tracking-[-0.045em]">
+            <span
+              aria-hidden="true"
+              className="hidden text-[17px] font-bold tracking-[-0.045em] sm:inline"
+            >
               CoForge<span className="text-[#a993ff]">.</span>
             </span>
           </a>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <a
               href={repositoryUrl}
               target="_blank"
@@ -176,7 +176,7 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
             <span className="relative inline-flex overflow-hidden rounded-full">
               <a
                 href="/auth/login"
-                className="group relative flex h-9 items-center overflow-hidden rounded-full border border-white/15 bg-white/10 pr-6 pl-5 text-sm font-medium text-white"
+                className="group relative flex h-9 items-center overflow-hidden rounded-full border border-white/15 bg-white/10 pr-5 pl-3 text-sm font-medium whitespace-nowrap text-white sm:pr-6 sm:pl-5"
               >
                 {/* The fill grows out of the left edge; the arrow fades into the right padding, so nothing moves. */}
                 <span
@@ -194,49 +194,42 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
           </div>
         </header>
 
-        <main className="relative mx-auto flex min-h-[calc(100svh-4.75rem)] w-full max-w-6xl flex-col justify-center px-6 pt-8 pb-16">
-          <motion.div
-            style={heroStyle}
-            className="grid grid-cols-1 items-center gap-12 lg:grid-cols-[minmax(0,8fr)_minmax(0,4fr)] lg:gap-6"
-          >
-            <div className="min-w-0">
-              <ShimmerText
-                className="text-xs font-medium tracking-[0.22em] text-white/55 uppercase [--shimmer-contrast:rgba(255,255,255,1)]"
-                duration={1.6}
-                delay={1.4}
-              >
-                {m.landing_eyebrow()}
-              </ShimmerText>
-
-              <h1 className="sr-only">{headline}</h1>
-              <div
-                aria-hidden="true"
-                className="mt-5 text-[clamp(2.5rem,5vw,4.25rem)] leading-[1.04] font-semibold tracking-[-0.03em]"
-              >
-                <BlurReveal as="span" className="block" speedReveal={1.2}>
-                  {m.landing_headline_line_1()}
-                </BlurReveal>
-                <BlurReveal
-                  as="span"
-                  className="block whitespace-nowrap"
-                  speedReveal={1.2}
-                  delay={0.35}
+        <main className="relative mx-auto flex min-h-[calc(100svh-4.75rem)] w-full max-w-[1400px] flex-col justify-center px-6 pt-8 pb-16">
+          <motion.div style={heroStyle} className="flex flex-col items-center">
+            <div className="relative w-full py-16 sm:py-20">
+              <div className="mx-auto w-full min-w-0 max-w-2xl px-12 text-center sm:px-24 lg:w-[64%] lg:px-0">
+                <ShimmerText
+                  className="text-xs font-medium tracking-[0.22em] text-white/55 uppercase [--shimmer-contrast:rgba(255,255,255,1)]"
+                  duration={1.6}
+                  delay={1.4}
                 >
-                  {m.landing_headline_line_2()}
-                </BlurReveal>
-              </div>
+                  {m.landing_eyebrow()}
+                </ShimmerText>
 
-              <motion.p
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: 1, ease: "easeOut" }}
-                className="mt-7 max-w-xl text-lg text-pretty text-white/70 sm:text-xl"
-              >
-                {m.landing_description()}
-              </motion.p>
+                <h1 className="sr-only">{headline}</h1>
+                <div
+                  aria-hidden="true"
+                  className="mt-5 text-[clamp(1.25rem,6.8vw,1.65rem)] leading-[1.1] font-semibold tracking-[-0.03em] sm:text-[clamp(2rem,4.8vw,4.25rem)]"
+                >
+                  <BlurReveal as="span" className="block" speedReveal={1.2}>
+                    {m.landing_headline_line_1()}
+                  </BlurReveal>
+                  <BlurReveal as="span" className="block" speedReveal={1.2} delay={0.35}>
+                    {m.landing_headline_line_2()}
+                  </BlurReveal>
+                </div>
+              </div>
+              <ScatteredAgents />
             </div>
 
-            <AgentOrbit />
+            <motion.p
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 1, ease: "easeOut" }}
+              className="mx-auto max-w-xl text-center text-base text-pretty text-white/70 sm:text-lg"
+            >
+              {m.landing_description()}
+            </motion.p>
           </motion.div>
 
           <motion.a
@@ -250,10 +243,9 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
           </motion.a>
         </main>
 
-        {/* Second screen: how a machine actually joins, typed out when it scrolls into view. */}
         <section
           id="computer"
-          className="mx-auto flex min-h-svh w-full max-w-6xl snap-start flex-col items-center justify-center px-6 py-20 text-center"
+          className="mx-auto flex w-full max-w-6xl snap-start flex-col items-center justify-center px-6 py-20 text-center"
         >
           <BlurReveal
             as="h2"
@@ -272,125 +264,37 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
           >
             {m.landing_computer_body()}
           </motion.p>
-          <div className="mt-10 w-full max-w-2xl text-left">
-            <InstallTerminal installOrigin={installOrigin} />
-          </div>
         </section>
       </div>
     </MotionConfig>
   );
 }
 
-/**
- * The picture for "teammates": the three code agents circle the CoForge mark. The outer ring carries
- * the agents, the inner ring a few small dots going the other way, like work passing between them.
- * The rings are drawn here instead of by the component so they read on the dark page.
- */
-function AgentOrbit() {
+// Fixed, asymmetric positions keep the relaxed composition stable across SSR and refreshes.
+// The title owns this frame at every width; narrow screens shrink the tiles, never move them below.
+const agentPositions = [
+  "top-[38%] left-0 -rotate-12 lg:left-[3%] lg:size-24",
+  "top-[24%] right-0 rotate-12 lg:right-[3%] lg:size-24",
+  "top-0 left-[17%] rotate-6 lg:size-16",
+  "top-[60%] right-0 -rotate-6 lg:right-[12%] lg:size-20",
+  "top-[72%] left-0 -rotate-12 lg:left-[9%] lg:size-20",
+];
+
+function ScatteredAgents() {
   return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.96 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.8, delay: 0.6, ease: "easeOut" }}
-      className="relative mx-auto flex h-[340px] w-full max-w-[340px] items-center justify-center lg:h-[420px] lg:max-w-none"
-    >
-      <span
-        aria-hidden="true"
-        className="absolute size-[260px] rounded-full border border-white/10 lg:size-[300px]"
-      />
-      <span
-        aria-hidden="true"
-        className="absolute size-[152px] rounded-full border border-white/10 lg:size-[176px]"
-      />
-
-      <img
-        src="/logo.svg"
-        alt="CoForge"
-        className="size-16 rounded-2xl shadow-[0_0_80px_rgba(93,54,220,0.55)] ring-1 ring-white/20"
-      />
-
-      <div className="absolute inset-0 hidden items-center justify-center lg:flex">
-        <OrbitingCircles radius={150} iconSize={48} duration={36} path={false}>
-          {supportedAgents.map((agent) => (
-            <AgentBadge key={agent.name} agent={agent} />
-          ))}
-        </OrbitingCircles>
-        <OrbitingCircles radius={88} iconSize={40} duration={26} path={false} reverse>
-          {upcomingAgents.map((agent) => (
-            <AgentBadge key={agent.name} agent={agent} />
-          ))}
-        </OrbitingCircles>
-      </div>
-      <div className="absolute inset-0 flex items-center justify-center lg:hidden">
-        <OrbitingCircles radius={130} iconSize={44} duration={36} path={false}>
-          {supportedAgents.map((agent) => (
-            <AgentBadge key={agent.name} agent={agent} />
-          ))}
-        </OrbitingCircles>
-        <OrbitingCircles radius={76} iconSize={36} duration={26} path={false} reverse>
-          {upcomingAgents.map((agent) => (
-            <AgentBadge key={agent.name} agent={agent} />
-          ))}
-        </OrbitingCircles>
-      </div>
-    </motion.div>
-  );
-}
-
-function AgentBadge({
-  agent,
-}: {
-  agent: (typeof supportedAgents)[number] | (typeof upcomingAgents)[number];
-}) {
-  return (
-    <span
-      aria-label={agent.name}
-      className="flex size-full items-center justify-center rounded-full border border-white/15 bg-[#14121f]/85 shadow-lg shadow-black/40 backdrop-blur-sm"
-    >
-      <AgentMark mark={agent.mark} monochrome={agent.monochrome} />
-    </span>
-  );
-}
-
-/**
- * The picture for "your own computer": the real way a machine joins a Workspace, typed out line by
- * line. Commands are the product's actual commands; the status lines are the product's actual
- * milestones, so nothing here is fiction.
- */
-function InstallTerminal({ installOrigin }: { installOrigin: string }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-80px" }}
-      transition={{ duration: 0.7, delay: 0.6, ease: "easeOut" }}
-      className="w-full"
-    >
-      <Terminal className="max-h-none max-w-none border-white/10 bg-[#0d0b17]/85 shadow-2xl shadow-black/40 backdrop-blur-md [&_code]:font-display-mono [&_pre]:text-[13px] [&_pre]:leading-6">
-        <TypingAnimation className="text-white/90" duration={28} delay={300}>
-          {`$ ${installCommands(installOrigin).posix}`}
-        </TypingAnimation>
-        <AnimatedSpan className="text-emerald-400">✔ {m.landing_terminal_installed()}</AnimatedSpan>
-        <TypingAnimation className="text-white/90" duration={28}>
-          {`$ ${setupCommand("acme")}`}
-        </TypingAnimation>
-        <AnimatedSpan className="text-emerald-400">✔ {m.landing_terminal_connected()}</AnimatedSpan>
-        <AnimatedSpan className="text-white/60">
-          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            ℹ {m.landing_terminal_runtimes()}
-            {supportedAgents.map((agent) => (
-              <span key={agent.name} className="inline-flex items-center gap-1.5 text-white/85">
-                <AgentMark mark={agent.mark} monochrome={agent.monochrome} />
-                {agent.name}
-              </span>
-            ))}
-          </span>
-        </AnimatedSpan>
-        <AnimatedSpan className="text-emerald-400">
-          ✔ {m.landing_terminal_agent_online()}
-        </AnimatedSpan>
-        <AnimatedSpan className="text-white/50">{m.landing_terminal_hint()}</AnimatedSpan>
-      </Terminal>
-    </motion.div>
+    <ul aria-label={m.landing_agents_title()} className="pointer-events-none absolute inset-0">
+      {[...supportedAgents, ...upcomingAgents].map((agent, index) => (
+        <li
+          key={agent.name}
+          className={cn(
+            "absolute flex size-10 items-center justify-center rounded-xl border border-white/15 bg-terminal/85 shadow-lg shadow-black/30 sm:size-14 lg:rounded-2xl lg:[&>img]:size-1/2 lg:[&>span[aria-hidden]]:size-1/2",
+            agentPositions[index],
+          )}
+        >
+          <span className="sr-only">{agent.name}</span>
+          <AgentMark mark={agent.mark} monochrome={agent.monochrome} />
+        </li>
+      ))}
+    </ul>
   );
 }
