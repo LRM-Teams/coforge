@@ -444,6 +444,7 @@ test("GitHub workflows pin external actions to full commit SHAs", async () => {
   for (const path of [
     "../../.github/workflows/ci.yml",
     "../../.github/workflows/deploy-staging.yml",
+    "../../.github/workflows/release-staging.yml",
   ]) {
     const workflow = await Bun.file(new URL(path, import.meta.url)).text();
     const references = workflow
@@ -456,6 +457,55 @@ test("GitHub workflows pin external actions to full commit SHAs", async () => {
       expect(reference).toMatch(/^[^@]+@[0-9a-f]{40}$/);
     }
   }
+});
+
+describe("GitHub validation workflow contract", () => {
+  test("manual publication refuses refs other than main before running gates", async () => {
+    const workflow = await Bun.file(
+      new URL("../../.github/workflows/release-staging.yml", import.meta.url),
+    ).text();
+    const gates = workflow.match(/^  gates:\n[\s\S]*?(?=^  [\w-]+:\n)/m)?.[0];
+    expect(gates).toContain("if: github.ref == 'refs/heads/main'");
+  });
+
+  test("CI serves pull requests and reusable callers without also running on main pushes", async () => {
+    const workflow = await Bun.file(
+      new URL("../../.github/workflows/ci.yml", import.meta.url),
+    ).text();
+
+    expect(workflow).toContain("  pull_request:\n");
+    expect(workflow).toContain("  workflow_call:\n");
+    expect(workflow).not.toContain("  push:\n");
+  });
+
+  test("staging deployment and manual release use the shared CI gates", async () => {
+    for (const path of [
+      "../../.github/workflows/deploy-staging.yml",
+      "../../.github/workflows/release-staging.yml",
+    ]) {
+      const workflow = await Bun.file(new URL(path, import.meta.url)).text();
+      const gates = workflow.match(/^  gates:\n[\s\S]*?(?=^  [\w-]+:\n)/m)?.[0];
+
+      expect(gates).toBeDefined();
+      expect(gates).toContain("uses: ./.github/workflows/ci.yml");
+      expect(gates).not.toContain("runs-on:");
+      expect(gates).not.toContain("mise run");
+    }
+  });
+
+  test("CI covers protocol, Agent, and CLI tests, checks, and buildable libraries", async () => {
+    const workflow = await Bun.file(
+      new URL("../../.github/workflows/ci.yml", import.meta.url),
+    ).text();
+
+    for (const workspace of ["protocol", "agent", "cli"]) {
+      expect(workflow).toContain(`bun run --cwd packages/${workspace} test`);
+      expect(workflow).toContain(`bun run --cwd packages/${workspace} check`);
+    }
+    for (const workspace of ["agent", "cli"]) {
+      expect(workflow).toContain(`bun run --cwd packages/${workspace} build`);
+    }
+  });
 });
 
 describe("parseRemoteOutputs", () => {
