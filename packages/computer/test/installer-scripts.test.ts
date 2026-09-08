@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -19,10 +19,27 @@ const script = resolve(import.meta.dir, "../../../scripts/release/install.sh");
 async function run(
   args: string[],
   env: Record<string, string | undefined>,
-): Promise<{ exitCode: number; stderr: string }> {
-  const child = Bun.spawn({ cmd: [script, ...args], env, stdout: "pipe", stderr: "pipe" });
+  isolatedHome?: string,
+  shellRoots: { zdotdir?: string; xdgConfigHome?: string } = {},
+): Promise<{ exitCode: number; stderr: string; home: string }> {
+  // Every installer execution gets a disposable HOME. This is a safety boundary, not just test
+  // cleanup: behavior tests exercise shell startup-file persistence and must never append to the
+  // developer's real shell configuration, even when callers spread process.env.
+  const home = isolatedHome ?? (await mkdtemp(join(tmpdir(), "coforge-installer-home-")));
+  if (!isolatedHome) temporaryDirectories.push(home);
+  const child = Bun.spawn({
+    cmd: [script, ...args],
+    env: {
+      ...env,
+      HOME: home,
+      ZDOTDIR: shellRoots.zdotdir ?? home,
+      XDG_CONFIG_HOME: shellRoots.xdgConfigHome ?? join(home, ".config"),
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-  return { exitCode, stderr };
+  return { exitCode, stderr, home };
 }
 
 function sha256hex(bytes: Uint8Array): string {
@@ -342,6 +359,189 @@ test("install.sh removes its temporary directory after a successful install inst
   expect(await readdir(testTmpDir)).toEqual([]);
 });
 
+test("installer test helper never uses inherited shell configuration roots", async () => {
+  const fixture = await serveFixture();
+  const external = await mkdtemp(join(tmpdir(), "coforge-external-shell-"));
+  temporaryDirectories.push(external);
+  await mkdir(join(external, "fish/conf.d"), { recursive: true });
+  for (const path of [join(external, ".zshrc"), join(external, "fish/conf.d/coforge.fish")]) {
+    await Bun.write(path, "# sentinel\n");
+  }
+  for (const shell of ["zsh", "fish"]) {
+    const result = await run(["--version", fixture.version], {
+      ...process.env,
+      SHELL: `/usr/bin/${shell}`,
+      ZDOTDIR: external,
+      XDG_CONFIG_HOME: external,
+      COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+      COFORGE_INSTALLER_TEST_MODE: "1",
+    });
+    expect(result.exitCode).toBe(0);
+  }
+  expect(await Bun.file(join(external, ".zshrc")).text()).toBe("# sentinel\n");
+  expect(await Bun.file(join(external, "fish/conf.d/coforge.fish")).text()).toBe("# sentinel\n");
+});
+
+for (const shell of ["bash", "zsh", "fish"] as const) {
+  test(`install.sh preserves and idempotently updates ${shell} PATH configuration`, async () => {
+    const fixture = await serveFixture();
+    const xdg = await mkdtemp(join(tmpdir(), "coforge-xdg-"));
+    const zdot = await mkdtemp(join(tmpdir(), "coforge-zdot-"));
+    temporaryDirectories.push(xdg, zdot);
+    const first = await run(
+      ["--version", fixture.version],
+      {
+        ...process.env,
+        SHELL: `/usr/bin/${shell}`,
+        XDG_CONFIG_HOME: xdg,
+        ZDOTDIR: zdot,
+        COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+        COFORGE_INSTALLER_TEST_MODE: "1",
+      },
+      undefined,
+      { zdotdir: zdot, xdgConfigHome: xdg },
+    );
+    expect(first.exitCode).toBe(0);
+
+    const configuration =
+      shell === "fish"
+        ? join(xdg, "fish/conf.d/coforge.fish")
+        : shell === "zsh"
+          ? join(zdot, ".zshrc")
+          : join(first.home, ".bashrc");
+    const original = "# existing user configuration";
+    // Put existing content before a repeated install to prove it is preserved rather than
+    // replacing the startup file. The first install's PATH line must remain singular too.
+    const firstContent = await readFile(configuration, "utf8");
+    await Bun.write(configuration, `${original}\n${firstContent}`);
+
+    const second = await run(
+      ["--version", fixture.version],
+      {
+        ...process.env,
+        SHELL: `/usr/bin/${shell}`,
+        XDG_CONFIG_HOME: xdg,
+        ZDOTDIR: zdot,
+        COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+        COFORGE_INSTALLER_TEST_MODE: "1",
+      },
+      first.home,
+      { zdotdir: zdot, xdgConfigHome: xdg },
+    );
+    const secondConfiguration = configuration;
+    expect(second.exitCode).toBe(0);
+    const content = await readFile(secondConfiguration, "utf8");
+    const pathLine =
+      shell === "fish"
+        ? 'fish_add_path "$HOME/.coforge/computer/bin"'
+        : 'export PATH="$HOME/.coforge/computer/bin:$PATH"';
+    expect(content).toContain(original);
+    expect(content.split(pathLine)).toHaveLength(2);
+    expect(first.stderr).toContain("This installer cannot change the current shell");
+    expect(first.stderr).toContain('"$HOME/.coforge/computer/bin/coforge-computer" setup');
+    if (shell === "bash") {
+      const loginProfile = await readFile(join(first.home, ".bash_profile"), "utf8");
+      expect(loginProfile.split(pathLine)).toHaveLength(2);
+    }
+
+    const shellExecutable = Bun.which(shell);
+    if (shellExecutable) {
+      const installedBin = join(first.home, ".coforge/computer/bin");
+      await mkdir(installedBin, { recursive: true });
+      const installedExecutable = join(installedBin, "coforge-computer");
+      await Bun.write(installedExecutable, "#!/bin/sh\nexit 0\n");
+      await Bun.spawn({ cmd: ["chmod", "700", installedExecutable] }).exited;
+      const shellArgs =
+        shell === "bash"
+          ? ["--noprofile", "--rcfile", configuration, "-i", "-c", "command -v coforge-computer"]
+          : ["-i", "-c", "command -v coforge-computer"];
+      const freshShell = Bun.spawn({
+        cmd: [shellExecutable, ...shellArgs],
+        env: {
+          ...process.env,
+          HOME: first.home,
+          ZDOTDIR: zdot,
+          XDG_CONFIG_HOME: xdg,
+        },
+        stdout: "pipe",
+        stderr: "ignore",
+      });
+      const [exitCode, stdout] = await Promise.all([
+        freshShell.exited,
+        new Response(freshShell.stdout).text(),
+      ]);
+      expect(exitCode).toBe(0);
+      expect(stdout.trim()).toBe(installedExecutable);
+    }
+  });
+}
+
+test("install.sh reports PATH persistence failure and does not claim install success", async () => {
+  const fixture = await serveFixture();
+  const notDirectory = join(await mkdtemp(join(tmpdir(), "coforge-zdot-file-")), "file");
+  temporaryDirectories.push(notDirectory.slice(0, -5));
+  await Bun.write(notDirectory, "not a directory");
+  const child = await run(
+    ["--version", fixture.version],
+    {
+      ...process.env,
+      SHELL: "/usr/bin/zsh",
+      ZDOTDIR: notDirectory,
+      COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+      COFORGE_INSTALLER_TEST_MODE: "1",
+    },
+    undefined,
+    { zdotdir: notDirectory },
+  );
+  expect(child.exitCode).not.toBe(0);
+  expect(child.stderr).toContain("PATH could not be saved");
+  expect(child.stderr).not.toContain(`CoForge Computer ${fixture.version} installed`);
+});
+
+test("install.sh shows curl progress only for the binary download on a terminal", async () => {
+  const fixture = await serveFixture();
+  const directory = await mkdtemp(join(tmpdir(), "coforge-curl-wrapper-"));
+  temporaryDirectories.push(directory);
+  const curlLog = join(directory, "curl.log");
+  const realCurl = Bun.which("curl");
+  if (!realCurl) throw new Error("curl is required for installer tests");
+  await Bun.write(
+    join(directory, "curl"),
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> "$CURL_ARGUMENT_LOG"\nexec "${realCurl}" "$@"\n`,
+  );
+  await Bun.spawn({ cmd: ["chmod", "700", join(directory, "curl")] }).exited;
+  const home = await mkdtemp(join(tmpdir(), "coforge-installer-home-"));
+  temporaryDirectories.push(home);
+  const child = Bun.spawn({
+    cmd:
+      process.platform === "darwin"
+        ? ["script", "-q", "/dev/null", script, "--version", "latest"]
+        : ["script", "-q", "-e", "-c", `${script} --version latest`, "/dev/null"],
+    env: {
+      ...process.env,
+      HOME: home,
+      SHELL: "/usr/bin/bash",
+      PATH: `${directory}:${process.env.PATH}`,
+      CURL_ARGUMENT_LOG: curlLog,
+      COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+      COFORGE_INSTALLER_TEST_MODE: "1",
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  expect(await child.exited).toBe(0);
+  const calls = (await readFile(curlLog, "utf8")).trim().split("\n");
+  const latest = calls.find((call) => call.endsWith("/latest"));
+  const sidecar = calls.find((call) => call.includes("coforge-computer.sha256"));
+  const binary = calls.find((call) => call.includes("coforge-computer.gz"));
+  expect(latest).toContain("--silent");
+  expect(sidecar).toContain("--silent");
+  expect(latest).not.toContain("--progress-bar");
+  expect(sidecar).not.toContain("--progress-bar");
+  expect(binary).toContain("--progress-bar");
+  expect(binary).not.toContain("--silent");
+});
+
 test("install scripts fail closed and stay within the current user's own account", async () => {
   const shell = await readFile(
     resolve(import.meta.dir, "../../../scripts/release/install.sh"),
@@ -362,6 +562,13 @@ test("install scripts fail closed and stay within the current user's own account
   expect(shell).not.toMatch(/[0-9a-f]{64}/);
   expect(powershell).not.toMatch(/[0-9a-f]{64}/);
   expect(shell).toContain("HTTPS");
+  // curl's progress meter is noisy when stderr is captured by a terminal wrapper. The installer
+  // already emits one line per meaningful step and must leave the user with an actionable PATH
+  // fix for the user-local shim (a child shell cannot modify its parent's PATH).
+  expect(shell).toContain("fetch_binary()");
+  expect(shell).toContain("fetch_binary --max-filesize");
+  expect(shell).toContain("export PATH=");
+  expect(shell).toContain("$HOME/.coforge/computer/bin");
   expect(powershell).toContain("HTTPS");
   // Neither script's size-cap constants may ever be a literal 0: curl treats `--max-filesize 0`
   // as "unlimited" (N4), and install.ps1's Get-CoforgeObject enforces its MaxBytes with a plain

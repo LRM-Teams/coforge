@@ -67,9 +67,15 @@ export const LOGIN_HINTS = {
     "Unlock or start your operating system credential service, then rerun login.",
   AUTH_DEVICE_CODE_EXPIRED: "Run `coforge-computer login` again to request a new code.",
   AUTH_FAILED: "Check the server configuration, then rerun login.",
+  AUTH_DAEMON_PREFLIGHT_FAILED:
+    "Check local Daemon access and install the build matching its environment. Do not delete existing configuration to switch environments.",
+  AUTH_BUILD_ENVIRONMENT_MISMATCH:
+    "Install the build matching the existing environment. Do not delete the profile to switch environments.",
   AUTH_INVALID_SERVER: "Use an HTTPS server URL without credentials, a query, or a fragment.",
   AUTH_NETWORK_ERROR: "Check the server URL and network connection, then rerun login.",
   AUTH_PROFILE_WRITE_FAILED: "Check the configuration directory permissions, then rerun login.",
+  AUTH_PROFILE_READ_FAILED:
+    "Repair the Computer profile without changing its environment, then rerun login.",
   AUTH_WORKSPACE_GET_FAILED: "Check the Workspace slug and your account access, then rerun setup.",
   AUTH_WORKSPACE_LIST_FAILED: "Check your account access and rerun login.",
 } as const;
@@ -81,6 +87,10 @@ export function loginError(code: LoginErrorCode, message: string): CliError {
 }
 
 export const SETUP_HINTS = {
+  SETUP_BUILD_ENVIRONMENT_MISMATCH:
+    "Install the build matching the existing environment. Do not delete the profile to switch environments.",
+  SETUP_CONFIG_READ_FAILED:
+    "Repair the Computer profile without changing its environment, then rerun setup.",
   SETUP_OAUTH_FAILED: "Complete OAuth login again, then rerun setup.",
   SETUP_CREDENTIALS_FAILED: "Check the local credential store, then rerun setup.",
   SETUP_WORKSPACE_LOOKUP_FAILED:

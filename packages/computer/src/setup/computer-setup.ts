@@ -1,5 +1,5 @@
 import type { AccessibleWorkspace, Credential } from "../login";
-import type { ComputerConfig } from "../local-config";
+import { loadBuildProfile, type ComputerConfig } from "../local-config";
 import { CliError, setupError } from "../errors";
 import type { ComputerRegisterRequest, ComputerRegistrationClient } from "@coforge/protocol";
 import type { DaemonLauncher } from "@coforge/daemon";
@@ -8,7 +8,6 @@ import type { WorkspaceLookup } from "../workspace/lookup";
 export type ComputerPlatformName = "darwin" | "linux" | "win32";
 
 export type SetupResult = { workspace: AccessibleWorkspace; configPath: string };
-const DEFAULT_SERVER_URL = "https://coforge.cn";
 
 export interface ComputerMetadataProvider {
   get(): Promise<{
@@ -49,22 +48,26 @@ export type ComputerSetupOptions = {
   metadataProvider: ComputerMetadataProvider;
   idempotencyKeyProvider: RegistrationIdempotencyKeyProvider;
   workspaceRoot: string;
+  serverUrl: string;
 };
 
 export class ComputerSetup {
   constructor(private readonly options: ComputerSetupOptions) {}
 
-  async run(input: {
-    workspaceSlug?: string;
-    serverUrl?: string;
-    json?: boolean;
-  }): Promise<SetupResult> {
-    const profile = await this.loadProfile();
-    const serverUrl = input.serverUrl ?? profile?.serverUrl ?? DEFAULT_SERVER_URL;
-    if (!serverUrl) {
+  async run(input: { workspaceSlug?: string; json?: boolean }): Promise<SetupResult> {
+    const serverUrl = this.options.serverUrl;
+    const profile = await loadBuildProfile(this.options.config, serverUrl, "setup");
+    const launcher =
+      typeof this.options.launcher === "function"
+        ? this.options.launcher(serverUrl)
+        : this.options.launcher;
+    try {
+      await launcher.preflight?.();
+    } catch (error) {
+      if (error instanceof CliError) throw error;
       throw setupError(
-        "SETUP_NOT_LOGGED_IN",
-        "A server URL is required when no login profile exists.",
+        "SETUP_BUILD_ENVIRONMENT_MISMATCH",
+        "The existing Daemon belongs to another server environment.",
       );
     }
     let storedCredential: Credential | null;
@@ -157,10 +160,6 @@ export class ComputerSetup {
       };
       // Start first: the Daemon must accept its credential before local
       // configuration advertises this registration as usable.
-      const launcher =
-        typeof this.options.launcher === "function"
-          ? this.options.launcher(serverUrl)
-          : this.options.launcher;
       // Replacement is deliberately ordered: stop the old daemon before the
       // new binding is advertised. The old local binding remains on disk until
       // the new one is durably saved, so failures are visible and recoverable.
@@ -203,13 +202,5 @@ export class ComputerSetup {
     }
 
     return { workspace, configPath };
-  }
-
-  private async loadProfile(): Promise<{ serverUrl: string } | null> {
-    try {
-      return await this.options.config.loadCurrentProfile();
-    } catch {
-      return null;
-    }
   }
 }

@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import {
   decodeLocalRpcResponse,
   decodeDaemonRuntimeConfigureResponse,
+  encodeDaemonCommandRequest,
   encodeLocalRpcRequest,
   encodeDaemonRuntimeConfigureRequest,
   frameLocalRpc,
@@ -24,6 +25,7 @@ const config = {
   workspaceRoot: "/workspaces/workspace-a",
   daemonApiKey: "daemon-secret",
 };
+const launcherEnvironment = { stateDirectory: tmpdir(), serverUrl: "https://coforge.test" };
 
 class FakeCredentialStore implements DaemonCredentialStore {
   token: string | null = null;
@@ -46,25 +48,59 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => server.close()));
 });
 
+async function expectSocketClosedWithoutResponse(
+  socketPath: string,
+  frame: Uint8Array,
+): Promise<void> {
+  const closed = Promise.withResolvers<void>();
+  const socket = await Bun.connect({
+    unix: socketPath,
+    socket: {
+      data() {
+        closed.reject(new Error("daemon unexpectedly returned a response"));
+      },
+      close() {
+        closed.resolve();
+      },
+      error(_socket, error) {
+        closed.reject(error);
+      },
+    },
+  });
+  socket.write(frame);
+  await closed.promise;
+}
+
 test("daemon accepts a Computer handshake over its Unix socket", async () => {
   const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
+  let configured = 0;
+  let started = 0;
   const server = await startDaemonLocalRpcServer({
     socketPath,
+    serverUrl: launcherEnvironment.serverUrl,
     validateCredential: (credential) => credential === "daemon-secret",
     runtime: {
-      configure: async () => {},
+      configure: async () => {
+        configured++;
+      },
+      start: async () => {
+        started++;
+      },
     },
     credentials: new InMemoryDaemonCredentialStore(),
   });
   servers.push(server);
   const launcher = new LocalDaemonLauncher({
+    ...launcherEnvironment,
     executablePath: "/unused",
     socketPath,
   });
 
   await launcher.ensureStarted(config);
   await launcher.ensureStarted(config);
-  expect(true).toBe(true);
+  await launcher.command("start");
+  expect(configured).toBe(2);
+  expect(started).toBe(1);
 });
 
 test("daemon stores configured connection metadata without its token", async () => {
@@ -72,6 +108,7 @@ test("daemon stores configured connection metadata without its token", async () 
   const saved: WorkspaceConfig[] = [];
   const server = await startDaemonLocalRpcServer({
     socketPath,
+    serverUrl: launcherEnvironment.serverUrl,
     validateCredential: (credential) => credential === config.daemonApiKey,
     runtime: { configure: async () => {} },
     credentials: new InMemoryDaemonCredentialStore(),
@@ -87,7 +124,11 @@ test("daemon stores configured connection metadata without its token", async () 
   });
   servers.push(server);
 
-  const launcher = new LocalDaemonLauncher({ executablePath: "/unused", socketPath });
+  const launcher = new LocalDaemonLauncher({
+    ...launcherEnvironment,
+    executablePath: "/unused",
+    socketPath,
+  });
   await launcher.ensureStarted(config);
 
   expect(saved).toEqual([
@@ -105,6 +146,7 @@ test("daemon rejects an invalid handshake credential", async () => {
   let registrations = 0;
   const server = await startDaemonLocalRpcServer({
     socketPath,
+    serverUrl: launcherEnvironment.serverUrl,
     validateCredential: () => false,
     runtime: {
       configure: async () => {},
@@ -113,6 +155,7 @@ test("daemon rejects an invalid handshake credential", async () => {
   });
   servers.push(server);
   const launcher = new LocalDaemonLauncher({
+    ...launcherEnvironment,
     executablePath: "/unused",
     socketPath,
     spawn: () => {},
@@ -126,6 +169,95 @@ test("daemon rejects an invalid handshake credential", async () => {
   expect(registrations).toBe(0);
 });
 
+test("daemon rejects missing or wrong request servers before credentials, persistence, or runtime changes", async () => {
+  const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
+  const calls: string[] = [];
+  const server = await startDaemonLocalRpcServer({
+    socketPath,
+    serverUrl: launcherEnvironment.serverUrl,
+    validateCredential: () => {
+      calls.push("validate");
+      return true;
+    },
+    runtime: {
+      configure: async () => {
+        calls.push("configure");
+      },
+      start: async () => {
+        calls.push("start");
+      },
+      stopAll: async () => {
+        calls.push("stop");
+      },
+      restart: async () => {
+        calls.push("restart");
+      },
+    },
+    credentials: {
+      async load() {
+        calls.push("credential-load");
+        return null;
+      },
+      async save() {
+        calls.push("credential-save");
+      },
+      async delete() {
+        calls.push("credential-delete");
+      },
+    },
+    configStore: {
+      async load() {
+        calls.push("config-load");
+        return null;
+      },
+      async save() {
+        calls.push("config-save");
+      },
+      async clear() {
+        calls.push("config-clear");
+      },
+    },
+  });
+  servers.push(server);
+
+  for (const expectedServerUrl of ["", "https://other.coforge.example"]) {
+    const configure = frameLocalRpc(
+      encodeLocalRpcRequest({
+        method: LOCAL_RPC_METHODS.CONFIGURE,
+        payload: encodeDaemonRuntimeConfigureRequest({
+          protocolMajor: 1,
+          requestId: randomUUID(),
+          ...config,
+          expectedServerUrl,
+        }),
+      }),
+    );
+    await expectSocketClosedWithoutResponse(socketPath, configure);
+
+    for (const method of [
+      LOCAL_RPC_METHODS.START,
+      LOCAL_RPC_METHODS.STOP,
+      LOCAL_RPC_METHODS.RESTART,
+    ]) {
+      await expectSocketClosedWithoutResponse(
+        socketPath,
+        frameLocalRpc(
+          encodeLocalRpcRequest({
+            method,
+            payload: encodeDaemonCommandRequest({
+              protocolMajor: 1,
+              requestId: randomUUID(),
+              expectedServerUrl,
+            }),
+          }),
+        ),
+      );
+    }
+  }
+
+  expect(calls).toEqual([]);
+});
+
 test("daemon processes requests on one socket in order", async () => {
   const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
   let releaseFirst!: () => void;
@@ -136,6 +268,7 @@ test("daemon processes requests on one socket in order", async () => {
   const configured: string[] = [];
   const server = await startDaemonLocalRpcServer({
     socketPath,
+    serverUrl: launcherEnvironment.serverUrl,
     validateCredential: async () => {
       if (configured.length === 0) {
         firstStarted.resolve();
@@ -181,6 +314,7 @@ test("daemon processes requests on one socket in order", async () => {
           ...config,
           computerId,
           requestId,
+          expectedServerUrl: "https://coforge.test",
         }),
       }),
     );
@@ -207,6 +341,7 @@ test("daemon rotates a changed token before configuring and does not rewrite an 
   const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
   const server = await startDaemonLocalRpcServer({
     socketPath,
+    serverUrl: launcherEnvironment.serverUrl,
     validateCredential: () => true,
     runtime: {
       configure: async () => {
@@ -216,7 +351,11 @@ test("daemon rotates a changed token before configuring and does not rewrite an 
     credentials,
   });
   servers.push(server);
-  const launcher = new LocalDaemonLauncher({ executablePath: "/unused", socketPath });
+  const launcher = new LocalDaemonLauncher({
+    ...launcherEnvironment,
+    executablePath: "/unused",
+    socketPath,
+  });
   await launcher.ensureStarted({ ...config, daemonApiKey: "new-token" });
   await launcher.ensureStarted({ ...config, daemonApiKey: "new-token" });
   expect(credentials.token).toBe("new-token");
@@ -233,6 +372,7 @@ test("daemon restores the old token when configuration persistence fails", async
     let clears = 0;
     const server = await startDaemonLocalRpcServer({
       socketPath,
+      serverUrl: launcherEnvironment.serverUrl,
       validateCredential: () => true,
       runtime: {
         configure: async () => {
@@ -253,6 +393,7 @@ test("daemon restores the old token when configuration persistence fails", async
     });
     servers.push(server);
     const launcher = new LocalDaemonLauncher({
+      ...launcherEnvironment,
       executablePath: "/unused",
       socketPath,
       spawn: () => {},
@@ -273,6 +414,7 @@ test("daemon clears a first token when configuration fails", async () => {
   const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
   const server = await startDaemonLocalRpcServer({
     socketPath,
+    serverUrl: launcherEnvironment.serverUrl,
     validateCredential: () => true,
     runtime: {
       configure: async () => {
@@ -284,6 +426,7 @@ test("daemon clears a first token when configuration fails", async () => {
   servers.push(server);
   await expect(
     new LocalDaemonLauncher({
+      ...launcherEnvironment,
       executablePath: "/unused",
       socketPath,
       spawn: () => {},
@@ -298,6 +441,7 @@ test("launcher stops waiting when the daemon closes the socket during configurat
   const socketPath = join(tmpdir(), `coforge-${randomUUID()}.sock`);
   const server = await startDaemonLocalRpcServer({
     socketPath,
+    serverUrl: launcherEnvironment.serverUrl,
     validateCredential: () => true,
     runtime: {
       configure: async () => {},
@@ -314,6 +458,7 @@ test("launcher stops waiting when the daemon closes the socket during configurat
 
   await expect(
     new LocalDaemonLauncher({
+      ...launcherEnvironment,
       executablePath: "/unused",
       socketPath,
       spawn: () => {},

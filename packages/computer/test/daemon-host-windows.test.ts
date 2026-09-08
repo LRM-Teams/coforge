@@ -4,6 +4,7 @@ import { WindowsUserDaemonHost } from "@coforge/daemon";
 test("Windows daemon task runs at the current user's logon", async () => {
   const commands: string[][] = [];
   const task = new WindowsUserDaemonHost({
+    serverUrl: "https://coforge.test",
     executablePath: "C:\\Users\\alice\\Coforge\\coforge-daemon.exe",
     socketPath: "\\\\.\\pipe\\coforge-daemon",
     run: async (command) => {

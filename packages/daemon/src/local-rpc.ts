@@ -44,10 +44,12 @@ type DaemonRuntimePort = Partial<{
 
 export async function startDaemonLocalRpcServer(input: {
   socketPath: string;
+  serverUrl: string;
   validateCredential: (credential: string) => boolean | Promise<boolean>;
   runtime: DaemonRuntimePort;
   credentials: DaemonCredentialStore;
-  configStore?: Pick<DaemonConfigStore, "load" | "save" | "clear">;
+  configStore?: Pick<DaemonConfigStore, "load" | "save" | "clear"> &
+    Partial<Pick<DaemonConfigStore, "assertExpectedServer">>;
 }): Promise<DaemonLocalRpcServer> {
   await mkdir(dirname(input.socketPath), { recursive: true, mode: 0o700 });
   await rm(input.socketPath, { force: true });
@@ -65,6 +67,7 @@ export async function startDaemonLocalRpcServer(input: {
               socket,
               chunk,
               daemonId,
+              input.serverUrl,
               input.validateCredential,
               input.runtime,
               input.credentials,
@@ -92,10 +95,14 @@ async function handleConnection(
   socket: Bun.Socket<LocalSocketData>,
   chunk: Uint8Array,
   daemonId: string,
+  serverUrl: string,
   validateCredential: (credential: string) => boolean | Promise<boolean>,
   runtime: DaemonRuntimePort,
   credentials: DaemonCredentialStore,
-  configStore: Pick<DaemonConfigStore, "load" | "save" | "clear"> | undefined,
+  configStore:
+    | (Pick<DaemonConfigStore, "load" | "save" | "clear"> &
+        Partial<Pick<DaemonConfigStore, "assertExpectedServer">>)
+    | undefined,
 ): Promise<void> {
   const next = new Uint8Array(socket.data.buffer.byteLength + chunk.byteLength);
   next.set(socket.data.buffer);
@@ -118,6 +125,7 @@ async function handleConnection(
                 requestId: request.requestId,
                 daemonId,
                 accepted: valid,
+                serverUrl,
               }),
             }),
           ),
@@ -172,6 +180,9 @@ async function handleConnection(
         envelope.method === LOCAL_RPC_METHODS.RESTART
       ) {
         const request = decodeDaemonCommandRequest(envelope.payload);
+        configStore?.assertExpectedServer?.(request.expectedServerUrl);
+        if (new URL(request.expectedServerUrl).origin !== new URL(serverUrl).origin)
+          throw new Error("Daemon request server does not match this daemon build");
         const valid = request.protocolMajor === 1 && request.requestId.length > 0;
         if (valid) {
           if (envelope.method === LOCAL_RPC_METHODS.START && runtime.start) await runtime.start();
@@ -195,6 +206,10 @@ async function handleConnection(
         );
       } else if (envelope.method === LOCAL_RPC_METHODS.CONFIGURE) {
         const request = decodeDaemonRuntimeConfigureRequest(envelope.payload);
+        configStore?.assertExpectedServer?.(request.expectedServerUrl);
+        if (new URL(request.expectedServerUrl).origin !== new URL(serverUrl).origin) {
+          throw new Error("Daemon request server does not match this daemon build");
+        }
         const valid =
           request.protocolMajor === 1 &&
           [

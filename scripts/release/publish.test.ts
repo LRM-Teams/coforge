@@ -80,6 +80,9 @@ interface FakeOssOptions {
   credentials?: OssCredentials;
   failUploadKeys?: Set<string>;
   tamperReadbackKeys?: Set<string>;
+  tamperCdnKeys?: Set<string>;
+  publicOriginKeys?: Set<string>;
+  previousLatest?: string;
   /** Objects that already exist in the bucket before the publish starts. */
   preexistingKeys?: Set<string>;
   /** Keys whose existence probe answers with an ambiguous status instead of 200/404. */
@@ -95,21 +98,45 @@ function startFakeOssServer(bucket: string, options: FakeOssOptions = {}): FakeO
   const credentials = options.credentials ?? CREDENTIALS;
   const store = new Map<string, Uint8Array>();
   for (const key of options.preexistingKeys ?? []) store.set(key, new Uint8Array([0x7b, 0x7d]));
+  if (options.previousLatest) store.set("latest", new TextEncoder().encode(options.previousLatest));
   const calls: Array<{ method: string; key: string }> = [];
 
   const server = Bun.serve({
     port: 0,
     async fetch(request) {
       const url = new URL(request.url);
-      const objectKey = url.pathname.slice(1);
+      const cdn = url.pathname.startsWith("/cdn/");
+      const objectKey = url.pathname.slice(cdn ? 5 : 1);
       const method = request.method;
-      calls.push({ method, key: objectKey });
+      const anonymous = method === "GET" && !request.headers.has("authorization");
+      calls.push({
+        method: cdn ? "CDN_GET" : anonymous ? "ANONYMOUS_GET" : method,
+        key: objectKey,
+      });
+
+      if (cdn) {
+        if (request.headers.has("authorization") || request.headers.has("cookie"))
+          return new Response("credentials forwarded", { status: 400 });
+        const bytes = store.get(objectKey);
+        return bytes
+          ? new Response(
+              options.tamperCdnKeys?.has(objectKey) &&
+                new TextDecoder().decode(bytes) !== options.previousLatest
+                ? "stale bytes"
+                : bytes,
+            )
+          : new Response("missing", { status: 404 });
+      }
+      if (anonymous)
+        return new Response("origin", {
+          status: options.publicOriginKeys?.has(objectKey) ? 200 : 403,
+        });
 
       const date = request.headers.get("date") ?? "";
       const contentType = request.headers.get("content-type") ?? "";
       const authorization = request.headers.get("authorization") ?? "";
       const expectedStringToSign = ossStringToSign({
-        method: method as "PUT" | "GET" | "HEAD",
+        method: method as "PUT" | "GET" | "HEAD" | "DELETE",
         bucket,
         objectKey,
         date,
@@ -126,6 +153,10 @@ function startFakeOssServer(bucket: string, options: FakeOssOptions = {}): FakeO
         );
       }
 
+      if (method === "DELETE") {
+        store.delete(objectKey);
+        return new Response(null, { status: 204 });
+      }
       if (method === "PUT") {
         if (options.failUploadKeys?.has(objectKey)) {
           return new Response("<Error><Code>InternalError</Code></Error>", {
@@ -240,6 +271,7 @@ test("a successful publish uploads every object, verifies every object, then wri
   const fake = startFakeOssServer(BUCKET);
 
   const result = await uploadReleaseTree(outputDirectory, tree, {
+    feedUrl: `${fake.baseUrl}/cdn`,
     target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
     credentials: CREDENTIALS,
   });
@@ -255,8 +287,15 @@ test("a successful publish uploads every object, verifies every object, then wri
     ...tree.files.filter((key) => key !== manifestKey).map((key) => ({ method: "PUT", key })),
     { method: "PUT", key: manifestKey },
     ...tree.files.map((key) => ({ method: "GET", key })),
+    ...tree.files.flatMap((key) => [
+      { method: "ANONYMOUS_GET", key },
+      { method: "CDN_GET", key },
+    ]),
+    { method: "HEAD", key: LATEST_OBJECT_KEY },
     { method: "PUT", key: LATEST_OBJECT_KEY },
     { method: "GET", key: LATEST_OBJECT_KEY },
+    { method: "ANONYMOUS_GET", key: LATEST_OBJECT_KEY },
+    { method: "CDN_GET", key: LATEST_OBJECT_KEY },
   ];
   expect(fake.calls).toEqual(expectedSequence);
 
@@ -279,6 +318,7 @@ test("a failed object upload never writes latest, and stops before uploading lat
 
   await expect(
     uploadReleaseTree(outputDirectory, tree, {
+      feedUrl: `${fake.baseUrl}/cdn`,
       target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
       credentials: CREDENTIALS,
     }),
@@ -305,6 +345,7 @@ test("republishing a version that already completed is refused before anything i
 
   await expect(
     uploadReleaseTree(outputDirectory, tree, {
+      feedUrl: `${fake.baseUrl}/cdn`,
       target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
       credentials: CREDENTIALS,
     }),
@@ -325,6 +366,7 @@ test("a version left half-uploaded by an earlier failure can still be published"
   const fake = startFakeOssServer(BUCKET, { preexistingKeys: new Set([partial]) });
 
   const result = await uploadReleaseTree(outputDirectory, tree, {
+    feedUrl: `${fake.baseUrl}/cdn`,
     target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
     credentials: CREDENTIALS,
   });
@@ -343,6 +385,7 @@ test("an ambiguous existence probe aborts the publish instead of reading as abse
   // transient credential or permission fault.
   await expect(
     uploadReleaseTree(outputDirectory, tree, {
+      feedUrl: `${fake.baseUrl}/cdn`,
       target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
       credentials: CREDENTIALS,
     }),
@@ -375,6 +418,7 @@ test("a tampered read-back fails the publish and never writes latest", async () 
 
   await expect(
     uploadReleaseTree(outputDirectory, tree, {
+      feedUrl: `${fake.baseUrl}/cdn`,
       target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
       credentials: CREDENTIALS,
     }),
@@ -391,6 +435,58 @@ test("a tampered read-back fails the publish and never writes latest", async () 
 /* ------------------------------------------------------------------------------------------- */
 /* 4. Credential redaction                                                                       */
 /* ------------------------------------------------------------------------------------------- */
+
+for (const failure of ["tamperCdnKeys", "publicOriginKeys"] as const) {
+  test(`${failure} blocks activation even after signed OSS verification succeeds`, async () => {
+    const directory = await tempDir("coforge-delivery-gate-");
+    const tree = await fixtureTree("9.9.9-delivery-gate", directory);
+    const key = manifestObjectKey(tree.version);
+    const fake = startFakeOssServer(BUCKET, { [failure]: new Set([key]) });
+    await expect(
+      uploadReleaseTree(directory, tree, {
+        feedUrl: `${fake.baseUrl}/cdn`,
+        target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
+        credentials: CREDENTIALS,
+      }),
+    ).rejects.toThrow(/delivery verification failed/);
+    expect(fake.calls).toContainEqual({ method: "GET", key });
+    expect(fake.calls.some((call) => call.method === "PUT" && call.key === "latest")).toBe(false);
+  });
+}
+
+for (const previousLatest of ["0.1.0-rc.3\n", undefined]) {
+  test(`latest CDN failure restores ${previousLatest ? "previous version" : "empty bootstrap"}`, async () => {
+    const directory = await tempDir("coforge-selector-gate-");
+    const tree = await fixtureTree("9.9.9-selector-gate", directory);
+    const fake = startFakeOssServer(BUCKET, { previousLatest, tamperCdnKeys: new Set(["latest"]) });
+    await expect(
+      uploadReleaseTree(directory, tree, {
+        feedUrl: `${fake.baseUrl}/cdn`,
+        target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
+        credentials: CREDENTIALS,
+      }),
+    ).rejects.toThrow(/activation failed.*restored/);
+    const response = await fetch(`${fake.baseUrl}/cdn/latest`);
+    if (previousLatest) expect(await response.text()).toBe(previousLatest);
+    else expect(response.status).toBe(404);
+  });
+}
+
+test("rollback failure is reported instead of claiming the previous selector is restored", async () => {
+  const directory = await tempDir("coforge-rollback-failure-");
+  const tree = await fixtureTree("9.9.9-rollback-failure", directory);
+  const fake = startFakeOssServer(BUCKET, {
+    previousLatest: "0.1.0-rc.3\n",
+    failUploadKeys: new Set(["latest"]),
+  });
+  await expect(
+    uploadReleaseTree(directory, tree, {
+      feedUrl: `${fake.baseUrl}/cdn`,
+      target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
+      credentials: CREDENTIALS,
+    }),
+  ).rejects.toThrow(/rollback could not be verified/);
+});
 
 test("a failed publish never prints the access key, secret, or an Authorization header value", async () => {
   const outputDirectory = await tempDir("coforge-publish-tree-");

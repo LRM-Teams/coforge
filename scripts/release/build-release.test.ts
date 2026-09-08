@@ -125,9 +125,16 @@ function flipHexChar(hex: string, index: number): string {
 }
 
 async function runInstallSh(baseUrl: string): Promise<{ exitCode: number; stderr: string }> {
+  const home = await tempDir("coforge-install-home-");
   const child = Bun.spawn({
     cmd: [join(import.meta.dir, "install.sh"), "--version", "latest"],
-    env: { ...process.env, COFORGE_RELEASE_FEED_URL: baseUrl, COFORGE_INSTALLER_TEST_MODE: "1" },
+    env: {
+      ...process.env,
+      HOME: home,
+      SHELL: "/bin/bash",
+      COFORGE_RELEASE_FEED_URL: baseUrl,
+      COFORGE_INSTALLER_TEST_MODE: "1",
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -299,7 +306,9 @@ test("the real install.sh installs successfully from the produced tree", async (
   const { exitCode, stderr } = await runInstallSh(baseUrl);
 
   expect(stderr).toContain(`CoForge Computer ${version} installed`);
-  expect(stderr).toContain("Next: coforge-computer setup --workspace <slug>");
+  expect(stderr).toContain(
+    '"$HOME/.coforge/computer/bin/coforge-computer" setup --workspace <slug>',
+  );
   expect(exitCode).toBe(0);
   expect((await readFile(log, "utf8")).trim().split("\n")).toEqual([
     "install",

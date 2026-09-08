@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { LocalDaemonLauncher } from "./launcher";
-import type { DaemonLauncher, DaemonStopper, DaemonWorkspaceConfig } from "./launcher";
+import type { DaemonLauncher, DaemonWorkspaceConfig } from "./launcher";
 
 type CommandRunner = (command: string[]) => Promise<number>;
 
@@ -10,6 +10,7 @@ export type LaunchdDaemonHostOptions = {
   executablePath: string;
   socketPath: string;
   stateDirectory?: string;
+  serverUrl: string;
   daemonConnectionEndpoint?: string;
   homeDirectory: string;
   uid: number;
@@ -17,7 +18,7 @@ export type LaunchdDaemonHostOptions = {
   run?: CommandRunner;
 };
 
-export class LaunchdDaemonHost implements DaemonLauncher, DaemonStopper {
+export class LaunchdDaemonHost implements DaemonLauncher {
   readonly #plistPath: string;
   readonly #run: CommandRunner;
   readonly #writeFile: (path: string, content: string) => Promise<void>;
@@ -42,12 +43,18 @@ export class LaunchdDaemonHost implements DaemonLauncher, DaemonStopper {
     this.#local = new LocalDaemonLauncher({
       executablePath: options.executablePath,
       socketPath: options.socketPath,
+      stateDirectory: options.stateDirectory ?? join(options.homeDirectory, ".coforge", "daemon"),
+      serverUrl: options.serverUrl,
     });
   }
 
   async ensureStarted(config: DaemonWorkspaceConfig): Promise<void> {
     await this.ensureInstalled();
     await this.#local.ensureStarted(config);
+  }
+
+  preflight(): Promise<void> {
+    return this.#local.preflight();
   }
 
   ensureRunning(): Promise<void> {
@@ -58,20 +65,12 @@ export class LaunchdDaemonHost implements DaemonLauncher, DaemonStopper {
     return this.#local.command(operation);
   }
 
-  async stop(): Promise<void> {
-    const target = `gui/${this.#options.uid}/${this.#options.label}`;
-    // Booting the user agent out prevents KeepAlive from immediately relaunching it.
-    const result = await this.#run(["launchctl", "bootout", target]);
-    if (result !== 0) throw new Error("could not stop the CoForge Daemon");
-  }
-
   async ensureInstalled(): Promise<void> {
-    await this.#writeFile(this.#plistPath, launchdPlist(this.#options));
     const target = `gui/${this.#options.uid}/${this.#options.label}`;
     if ((await this.#run(["launchctl", "print", target])) === 0) {
-      await this.#run(["launchctl", "kickstart", "-k", target]);
       return;
     }
+    await this.#writeFile(this.#plistPath, launchdPlist(this.#options));
     const result = await this.#run([
       "launchctl",
       "bootstrap",

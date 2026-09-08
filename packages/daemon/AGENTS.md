@@ -46,6 +46,10 @@ Daemon. This is not a user-facing Daemon management CLI.
 Computer's updater installs the version-local launcher. Daemon startup does
 not mutate the installation or supply missing files for older installers.
 
+`src/connection/built-server.ts` supplies the build-inlined server and WSS
+endpoint. `src/persistence/daemon-config.ts` owns environment validation for
+configuration and recovery; the entrypoint assembles these policies, not their rules.
+
 ### Layer rules
 
 - `daemon-runtime/agent-message-attention-index.ts` owns full-target thread

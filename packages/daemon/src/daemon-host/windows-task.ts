@@ -1,9 +1,11 @@
 import { LocalDaemonLauncher } from "./launcher";
-import type { DaemonLauncher, DaemonStopper, DaemonWorkspaceConfig } from "./launcher";
+import type { DaemonLauncher, DaemonWorkspaceConfig } from "./launcher";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 type CommandRunner = (command: string[]) => Promise<number>;
 
-export class WindowsUserDaemonHost implements DaemonLauncher, DaemonStopper {
+export class WindowsUserDaemonHost implements DaemonLauncher {
   readonly #taskName: string;
   readonly #run: CommandRunner;
   readonly #local: LocalDaemonLauncher;
@@ -14,6 +16,7 @@ export class WindowsUserDaemonHost implements DaemonLauncher, DaemonStopper {
     executablePath: string;
     socketPath: string;
     stateDirectory?: string;
+    serverUrl: string;
     daemonConnectionEndpoint?: string;
     run?: CommandRunner;
   }) {
@@ -26,6 +29,8 @@ export class WindowsUserDaemonHost implements DaemonLauncher, DaemonStopper {
     this.#local = new LocalDaemonLauncher({
       executablePath: options.executablePath,
       socketPath: options.socketPath,
+      stateDirectory: options.stateDirectory ?? join(homedir(), ".coforge", "daemon"),
+      serverUrl: options.serverUrl,
     });
   }
 
@@ -47,17 +52,16 @@ export class WindowsUserDaemonHost implements DaemonLauncher, DaemonStopper {
     await this.#local.ensureStarted(config);
   }
 
+  preflight(): Promise<void> {
+    return this.#local.preflight();
+  }
+
   ensureRunning(): Promise<void> {
     return this.#local.ensureRunning();
   }
 
   command(operation: "start" | "stop" | "restart"): Promise<void> {
     return this.#local.command(operation);
-  }
-
-  async stop(): Promise<void> {
-    const result = await this.#run(["schtasks.exe", "/End", "/TN", this.#taskName]);
-    if (result !== 0) throw new Error("could not stop the CoForge Daemon user task");
   }
 }
 

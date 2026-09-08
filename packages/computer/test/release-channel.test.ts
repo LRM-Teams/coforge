@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { resolveReleaseFeedUrl } from "../src/release-channel";
+import { resolveReleaseFeedUrl, resolveServerUrl } from "../src/release-channel";
 
 test("an unset feed URL falls back to the production default", () => {
   expect(resolveReleaseFeedUrl(undefined)).toBe("https://releases.coforge.cn/");
@@ -13,6 +13,23 @@ test("a configured feed URL is used as-is", () => {
   );
 });
 
+test("official release feeds select the matching Web server", () => {
+  expect(resolveServerUrl("https://releases.coforge.cn")).toBe("https://coforge.cn");
+  expect(resolveServerUrl("https://releases.coforge.cn/")).toBe("https://coforge.cn");
+  expect(resolveServerUrl("https://releases-staging.coforge.cn")).toBe(
+    "https://staging.coforge.cn",
+  );
+  expect(resolveServerUrl("https://releases-staging.coforge.cn/")).toBe(
+    "https://staging.coforge.cn",
+  );
+});
+
+test("a compiled product rejects an unsupported release feed", () => {
+  expect(() => resolveServerUrl("https://releases.example.com/")).toThrow(
+    /does not identify an official CoForge build environment/,
+  );
+});
+
 test("rejects a feed URL that is unusable rather than deferring the failure", () => {
   // The updater is constructed while commands are registered, so an unvalidated bad URL
   // surfaced as a bare TypeError from `login --help`, with nothing in CI to catch it.
@@ -20,15 +37,9 @@ test("rejects a feed URL that is unusable rather than deferring the failure", ()
   expect(() => resolveReleaseFeedUrl("http://releases.coforge.cn/")).toThrow(/must use HTTPS/);
 });
 
-/** `bun build --env=PREFIX_*` inlines only variables that are set while building; an unset one
- * stays a runtime lookup, so a binary built without release config would honour whatever
- * COFORGE_RELEASE_FEED_URL the environment happens to carry at install time. Exporting it as
- * "${VAR-}" makes the empty case inline too. */
-test("the build script always sets the release feed variable so it inlines", async () => {
+test("the package build delegates environment selection to the release build owner", async () => {
   const manifest = await Bun.file(new URL("../package.json", import.meta.url)).json();
   const build: string = manifest.scripts.build;
 
-  expect(build).toContain('COFORGE_RELEASE_FEED_URL="${COFORGE_RELEASE_FEED_URL-}"');
-  expect(build.indexOf("COFORGE_RELEASE_FEED_URL=")).toBeLessThan(build.indexOf("bun build"));
-  expect(build).toContain("--env=COFORGE_RELEASE_*");
+  expect(build).toBe("bun ../../scripts/release/build-package.ts computer");
 });

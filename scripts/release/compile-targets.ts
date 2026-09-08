@@ -1,4 +1,5 @@
 import { join, resolve } from "node:path";
+import { resolveServerUrl } from "../../packages/computer/src/release-channel";
 
 // The release target names this repository already uses across docs/release.md, updater.ts's
 // manifest.platforms keys and install.sh's/install.ps1's `uname`/architecture switch, mapped to
@@ -55,6 +56,7 @@ export async function compileTargetArtifacts(
   options: CompileTargetOptions,
 ): Promise<CompiledArtifacts> {
   const bunTarget = resolveBunCompileTarget(options.target);
+  const serverUrl = resolveServerUrl(options.feedUrl);
   // Sequential, not Promise.all: both calls cross-compile for the same bun-<os>-<arch>, and on a
   // runner with no warm toolchain cache for that target, Bun downloads the target's cross-compile
   // runtime on demand - two concurrent downloads racing to populate the same cache entry is a
@@ -74,6 +76,7 @@ export async function compileTargetArtifacts(
     // be in its environment at update time.
     define: {
       "process.env.COFORGE_RELEASE_FEED_URL": JSON.stringify(options.feedUrl),
+      "process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH": JSON.stringify("0"),
       "Bun.env.COFORGE_COMPUTER_VERSION": JSON.stringify(options.version),
     },
   });
@@ -85,7 +88,10 @@ export async function compileTargetArtifacts(
     // packages/daemon/src/version.ts, falling back to package.json's version when unset) the
     // same way; without this the release daemon would report package.json's "0.1.0" instead of
     // the release version regardless of what release this binary actually is.
-    define: { "process.env.COFORGE_DAEMON_VERSION": JSON.stringify(options.version) },
+    define: {
+      "process.env.COFORGE_DAEMON_VERSION": JSON.stringify(options.version),
+      "process.env.COFORGE_DAEMON_SERVER_URL": JSON.stringify(serverUrl),
+    },
   });
   return { computer, daemon };
 }

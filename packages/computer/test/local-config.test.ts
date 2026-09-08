@@ -1,9 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { FileComputerConfig } from "../src/local-config";
+import { FileComputerConfig, loadBuildProfile } from "../src/local-config";
 
 const directories: string[] = [];
 
@@ -21,6 +21,76 @@ test("current profile persists only the normalized server URL", async () => {
   expect(JSON.parse(await readFile(join(directory, "profile.json"), "utf8"))).toEqual({
     server_url: "https://coforge.example",
   });
+});
+
+test("a missing profile is absent but a corrupted profile is an error", async () => {
+  const directory = await temporaryDirectory();
+  const config = new FileComputerConfig(directory);
+
+  expect(await config.loadCurrentProfile()).toBeNull();
+  await writeFile(join(directory, "profile.json"), "not json");
+  await expect(config.loadCurrentProfile()).rejects.toBeInstanceOf(SyntaxError);
+});
+
+test("build profile loading accepts a missing profile and equivalent URL origins", async () => {
+  expect(
+    await loadBuildProfile(
+      {
+        async loadCurrentProfile() {
+          return null;
+        },
+      },
+      "https://coforge.cn",
+      "setup",
+    ),
+  ).toBeNull();
+  await expect(
+    loadBuildProfile(
+      {
+        async loadCurrentProfile() {
+          return { serverUrl: "https://coforge.cn/" };
+        },
+      },
+      "https://coforge.cn",
+      "setup",
+    ),
+  ).resolves.toEqual({ serverUrl: "https://coforge.cn/" });
+});
+
+test("build profile loading reports read, malformed, and environment mismatch failures stably", async () => {
+  await expect(
+    loadBuildProfile(
+      {
+        async loadCurrentProfile() {
+          throw new Error("read failed");
+        },
+      },
+      "https://coforge.cn",
+      "setup",
+    ),
+  ).rejects.toMatchObject({ code: "SETUP_CONFIG_READ_FAILED" });
+  await expect(
+    loadBuildProfile(
+      {
+        async loadCurrentProfile() {
+          return { serverUrl: "not a URL" };
+        },
+      },
+      "https://coforge.cn",
+      "setup",
+    ),
+  ).rejects.toMatchObject({ code: "SETUP_CONFIG_READ_FAILED" });
+  await expect(
+    loadBuildProfile(
+      {
+        async loadCurrentProfile() {
+          return { serverUrl: "https://staging.coforge.cn" };
+        },
+      },
+      "https://coforge.cn",
+      "setup",
+    ),
+  ).rejects.toMatchObject({ code: "SETUP_BUILD_ENVIRONMENT_MISMATCH" });
 });
 
 test("each Workspace configuration persists its stable id without its slug", async () => {

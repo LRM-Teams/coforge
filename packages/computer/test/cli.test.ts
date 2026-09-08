@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { runCli, type LoginCommand, type SetupCommand } from "../src/cli";
 import { loginError, setupError } from "../src/errors";
 
-test("login starts device authorization for the selected server", async () => {
+test("login uses the server selected by the compiled build", async () => {
   const calls: Array<{ serverUrl: string; json: boolean }> = [];
   const login: LoginCommand = {
     async run(serverUrl, options) {
@@ -12,12 +12,18 @@ test("login starts device authorization for the selected server", async () => {
   };
 
   await expect(
-    runCli(["login", "--server", "https://coforge.example"], {
+    runCli(["login"], {
       login,
       setup: { async run() {} },
     }),
   ).resolves.toBe(0);
-  expect(calls).toEqual([{ serverUrl: "https://coforge.example", json: false }]);
+  expect(calls).toEqual([{ serverUrl: "https://coforge.cn", json: false }]);
+});
+
+test("login and setup reject the removed public --server option", async () => {
+  const dependencies = { login: { async run() {} }, setup: { async run() {} } };
+  await expect(runCli(["login", "--server", "https://example.com"], dependencies)).resolves.toBe(1);
+  await expect(runCli(["setup", "--server", "https://example.com"], dependencies)).resolves.toBe(1);
 });
 
 test("login forwards JSON mode to the command", async () => {
@@ -273,21 +279,6 @@ test("JSON setup with neither --workspace nor COFORGE_SETUP_INTENT reports an ac
     if (previousIntent === undefined) delete process.env.COFORGE_SETUP_INTENT;
     else process.env.COFORGE_SETUP_INTENT = previousIntent;
   }
-});
-
-test("setup forwards an explicit server URL", async () => {
-  let serverUrl: string | undefined;
-  await expect(
-    runCli(["setup", "--server", "https://coforge.example"], {
-      login: { async run() {} },
-      setup: {
-        async run(_workspace, options) {
-          serverUrl = options.serverUrl;
-        },
-      },
-    }),
-  ).resolves.toBe(0);
-  expect(serverUrl).toBe("https://coforge.example");
 });
 
 test("JSON setup failure is one stable stdout object with an actionable hint", async () => {

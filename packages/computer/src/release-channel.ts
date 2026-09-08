@@ -1,14 +1,8 @@
-/** Which release feed a build trusts is compiled in, not read at process start: staging and
- * production builds are different artifacts, and a runtime toggle would let a staging binary
- * (or an attacker) redirect a production install to an untrusted feed. `bun build --compile
- * --env=COFORGE_RELEASE_*` (see package.json's build script) inlines this `process.env` read
- * as a literal string at compile time, so the value below must stay a direct
- * `process.env.COFORGE_RELEASE_FEED_URL` member expression - reading through an indirection (a
- * variable, a parameter) defeats the inliner and turns this back into a runtime lookup.
- *
- * `--env` only inlines a variable that is actually set while building; one that is unset
- * stays a live runtime lookup in the compiled binary, which is why the build script exports
- * it as `"${VAR-}"`. An empty string still inlines, and the parser below treats it as absent. */
+/** Release and package builds both replace the direct
+ * `process.env.COFORGE_RELEASE_FEED_URL` expression through Bun.build's `define`.
+ * Keep that read direct so it cannot become a runtime override. The build scripts
+ * resolve even an unset feed before compilation and derive the bundled Daemon's
+ * server from the same mapping below. */
 
 const DEFAULT_RELEASE_FEED_URL = "https://releases.coforge.cn/";
 
@@ -32,3 +26,17 @@ export function resolveReleaseFeedUrl(raw: string | undefined): string {
 }
 
 export const COFORGE_RELEASE_FEED_URL = resolveReleaseFeedUrl(process.env.COFORGE_RELEASE_FEED_URL);
+
+/** A release feed and Web server are one compiled environment. Keep this mapping deliberately
+ * closed: accepting an arbitrary valid feed would make an unofficial build look like an official
+ * product while its authentication and Daemon traffic target an unrelated environment. */
+export function resolveServerUrl(releaseFeedUrl: string): string {
+  const feed = releaseFeedUrl.endsWith("/") ? releaseFeedUrl.slice(0, -1) : releaseFeedUrl;
+  if (feed === "https://releases.coforge.cn") return "https://coforge.cn";
+  if (feed === "https://releases-staging.coforge.cn") return "https://staging.coforge.cn";
+  throw new Error(
+    `COFORGE_RELEASE_FEED_URL does not identify an official CoForge build environment: ${releaseFeedUrl}`,
+  );
+}
+
+export const COFORGE_SERVER_URL = resolveServerUrl(COFORGE_RELEASE_FEED_URL);

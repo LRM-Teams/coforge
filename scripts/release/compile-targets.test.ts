@@ -1,51 +1,139 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { isReleaseTarget, resolveBunCompileTarget } from "./compile-targets";
 
-test("published Computer reports its compiled release version, not a runtime override", async () => {
-  const target = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
-  if (!isReleaseTarget(target)) throw new Error(`unsupported test host: ${target}`);
-  const directory = await mkdtemp(join(tmpdir(), "coforge-release-version-"));
-  try {
-    const options = {
-      target,
-      version: "9.8.7-rc.6",
-      feedUrl: "https://releases-staging.coforge.cn",
-      outputDirectory: directory,
-    };
-    // Build outside bun:test so its module resolver and mocks cannot affect release compilation.
-    const build = Bun.spawnSync(
-      [
-        process.execPath,
-        "--eval",
-        `import { compileTargetArtifacts } from ${JSON.stringify(join(import.meta.dir, "compile-targets.ts"))}; await compileTargetArtifacts(${JSON.stringify(options)});`,
-      ],
-      {
+test.each([
+  ["https://releases-staging.coforge.cn", "https://staging.coforge.cn"],
+  ["https://releases.coforge.cn", "https://coforge.cn"],
+])(
+  "published Computer %s keeps its compiled identity and login server",
+  async (feedUrl, serverUrl) => {
+    const target = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
+    if (!isReleaseTarget(target)) throw new Error(`unsupported test host: ${target}`);
+    const directory = await mkdtemp(join(tmpdir(), "coforge-release-version-"));
+    try {
+      const options = {
+        target,
+        version: "9.8.7-rc.6",
+        feedUrl,
+        outputDirectory: directory,
+      };
+      // Build outside bun:test so its module resolver and mocks cannot affect release compilation.
+      const build = Bun.spawnSync(
+        [
+          process.execPath,
+          "--eval",
+          `import { compileTargetArtifacts } from ${JSON.stringify(join(import.meta.dir, "compile-targets.ts"))}; await compileTargetArtifacts(${JSON.stringify(options)});`,
+        ],
+        {
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      );
+      expect(build.stderr.toString()).toBe("");
+      expect(build.exitCode).toBe(0);
+      const executable = join(
+        directory,
+        `${target}-coforge-computer${process.platform === "win32" ? ".exe" : ""}`,
+      );
+      const result = Bun.spawnSync([executable, "--cli-version"], {
+        env: { ...Bun.env, COFORGE_COMPUTER_VERSION: "0.0.0-wrong" },
         stdout: "pipe",
         stderr: "pipe",
-      },
-    );
-    expect(build.stderr.toString()).toBe("");
-    expect(build.exitCode).toBe(0);
-    const executable = join(
-      directory,
-      `${target}-coforge-computer${process.platform === "win32" ? ".exe" : ""}`,
-    );
-    const result = Bun.spawnSync([executable, "--cli-version"], {
-      env: { ...Bun.env, COFORGE_COMPUTER_VERSION: "0.0.0-wrong" },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.toString()).toBe("9.8.7-rc.6\n");
-    expect(result.stderr.toString()).toBe("");
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-}, 60_000);
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.toString()).toBe("9.8.7-rc.6\n");
+      expect(result.stderr.toString()).toBe("");
+      const otherServer = serverUrl.includes("staging")
+        ? "https://coforge.cn"
+        : "https://staging.coforge.cn";
+      const state = join(directory, "daemon-state");
+      await mkdir(state);
+      await Bun.write(
+        join(state, "config.json"),
+        JSON.stringify({
+          computerId: "test-computer",
+          workspaceId: "test-workspace",
+          workspaceRoot: directory,
+          serverHttpUrl: otherServer,
+        }),
+      );
+      const daemon = Bun.spawn(
+        [
+          join(directory, `${target}-coforge-daemon${process.platform === "win32" ? ".exe" : ""}`),
+          "--socket",
+          join(directory, "daemon.sock"),
+          "--state-directory",
+          state,
+        ],
+        {
+          env: {
+            ...Bun.env,
+            HOME: join(directory, "daemon-home"),
+            COFORGE_DAEMON_SERVER_URL: otherServer,
+            COFORGE_SERVER_HTTP_URL: otherServer,
+          },
+          stdout: "pipe",
+          stderr: "pipe",
+          timeout: 5000,
+        },
+      );
+      const [daemonCode, daemonError] = await Promise.all([
+        daemon.exited,
+        new Response(daemon.stderr).text(),
+      ]);
+      expect(daemonCode).toBe(1);
+      expect(daemonError).toContain("does not match this daemon build");
+      const requests: string[] = [];
+      const proxy = Bun.listen({
+        hostname: "127.0.0.1",
+        port: 0,
+        socket: {
+          data(socket, data) {
+            requests.push(data.toString());
+            socket.end("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n");
+          },
+        },
+      });
+      try {
+        const login = Bun.spawn([executable, "login"], {
+          env: {
+            ...Bun.env,
+            HOME: join(directory, "clean-home"),
+            COFORGE_RELEASE_FEED_URL: "https://invalid.example",
+            COFORGE_SERVER_HTTP_URL: "https://invalid.example",
+            HTTPS_PROXY: `http://127.0.0.1:${proxy.port}`,
+            https_proxy: `http://127.0.0.1:${proxy.port}`,
+            NO_PROXY: "",
+            no_proxy: "",
+          },
+          stdout: "pipe",
+          stderr: "pipe",
+          timeout: 5000,
+        });
+        const [code, stdout, stderr] = await Promise.all([
+          login.exited,
+          new Response(login.stdout).text(),
+          new Response(login.stderr).text(),
+        ]);
+        expect(code).toBe(1);
+        expect(stdout + stderr).toContain(serverUrl);
+        // The proxy deliberately rejects the tunnel; this is a routing check, not login success.
+        expect(stdout + stderr).toContain("AUTH_FAILED");
+        expect(requests.join("\n")).toContain(`CONNECT ${new URL(serverUrl).hostname}:443`);
+        expect(requests.join("\n")).not.toContain("invalid.example");
+      } finally {
+        proxy.stop(true);
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+  60_000,
+);
 
 test("every release target used by updater.ts, install.sh and install.ps1 maps to a bun-<os>-<arch> compile target", () => {
   const targets = [

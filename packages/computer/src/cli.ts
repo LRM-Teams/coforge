@@ -15,8 +15,8 @@ import {
   resolveDaemonSocketPath,
 } from "./paths";
 import { ComputerUpdater, UpdateError } from "./updater";
-import { COFORGE_RELEASE_FEED_URL } from "./release-channel";
-import { FileComputerConfig } from "./local-config";
+import { COFORGE_RELEASE_FEED_URL, COFORGE_SERVER_URL } from "./release-channel";
+import { FileComputerConfig, loadBuildProfile } from "./local-config";
 import { resolveComputerConfigDirectory } from "./paths";
 import { ComputerSetup } from "./setup/computer-setup";
 import { currentComputerPlatform } from "./platform";
@@ -43,17 +43,13 @@ import { followComputerLogs } from "./logging/computer-logs";
 import computerPackage from "../package.json";
 
 const VERSION = Bun.env.COFORGE_COMPUTER_VERSION ?? computerPackage.version;
-const DEFAULT_SERVER_URL = "https://coforge.cn";
 
 export interface LoginCommand {
   run(serverUrl: string, options: { json: boolean }): Promise<void>;
 }
 
 export interface SetupCommand {
-  run(
-    workspaceSlug: string | undefined,
-    options: { json: boolean; serverUrl?: string },
-  ): Promise<void>;
+  run(workspaceSlug: string | undefined, options: { json: boolean }): Promise<void>;
 }
 
 export interface UpdateCommand {
@@ -101,23 +97,21 @@ export async function runCli(
   program
     .command("login")
     .description("Sign in to CoForge without selecting a Workspace.")
-    .option("--server <url>", "CoForge server URL", DEFAULT_SERVER_URL)
     .option("--json", "write one stable JSON result to stdout")
-    .action((options: { server: string; json?: boolean }) => {
+    .action((options: { json?: boolean }) => {
       loginSelected = true;
       json = options.json ?? false;
-      return dependencies.login.run(options.server, { json });
+      return dependencies.login.run(COFORGE_SERVER_URL, { json });
     });
   program
     .command("setup")
     .description("Register this Computer with one Workspace and start its Daemon.")
-    .option("--server <url>", "CoForge server URL", DEFAULT_SERVER_URL)
     .option(
       "--workspace <slug>",
       "Workspace slug to join (falls back to COFORGE_SETUP_INTENT when omitted)",
     )
     .option("--json", "write one stable JSON result to stdout")
-    .action((options: { server: string; json?: boolean; workspace?: string }, command: Command) => {
+    .action((options: { json?: boolean; workspace?: string }) => {
       setupSelected = true;
       json = options.json ?? false;
       const workspaceSlug = resolveSetupWorkspace(options.workspace);
@@ -128,10 +122,7 @@ export async function runCli(
           "workspace-lookup",
         );
       }
-      return dependencies.setup.run(workspaceSlug, {
-        serverUrl: command.getOptionValueSource("server") === "cli" ? options.server : undefined,
-        json,
-      });
+      return dependencies.setup.run(workspaceSlug, { json });
     });
   for (const operation of ["install", "upgrade"] as const) {
     program
@@ -202,6 +193,8 @@ export async function runCli(
       } else {
         io.stderr(`${failure.code}: ${failure.message}\nHint: ${failure.hint}`);
       }
+    } else if (error instanceof CliError) {
+      io.stderr(`${error.code}: ${error.message}\nHint: ${error.hint}`);
     } else if (error instanceof UpdateError) {
       io.stderr(`${error.code}: ${error.message}`);
     } else {
@@ -271,6 +264,31 @@ function createLoginCommand(
   });
   return {
     async run(serverUrl, options) {
+      const platform = currentComputerPlatform();
+      const stateDirectory = resolveComputerStateDirectory({
+        platform: platform.os,
+        homeDirectory: homedir(),
+        environment: process.env,
+      });
+      const installDirectory = resolveComputerInstallDirectory({
+        platform: platform.os,
+        homeDirectory: homedir(),
+        environment: process.env,
+      });
+      try {
+        await createDaemonLauncher(
+          platform.os,
+          installDirectory,
+          stateDirectory,
+          serverUrl,
+        ).preflight?.();
+      } catch {
+        throw loginError(
+          "AUTH_DAEMON_PREFLIGHT_FAILED",
+          "Could not verify the local Daemon environment. Login was not started.",
+        );
+      }
+      await loadBuildProfile(config, serverUrl, "login");
       await login.run({ serverUrl, json: options.json });
     },
   };
@@ -350,12 +368,12 @@ export function createSetupCommand(
     }),
     launcher: (serverUrl) =>
       createDaemonLauncher(platform.os, installDirectory, stateDirectory, serverUrl),
+    serverUrl: COFORGE_SERVER_URL,
   });
   return {
     async run(workspaceSlug, options) {
       const result = await setup.run({
         workspaceSlug,
-        serverUrl: options.serverUrl,
         json: options.json,
       });
       writeSetupResult(io.stdout, result, options.json);
@@ -375,6 +393,8 @@ function createDaemonLauncher(
         process.env.COFORGE_E2E_DAEMON_EXECUTABLE ??
         resolveDaemonExecutablePath({ installRoot: installDirectory, platform }),
       socketPath: resolveDaemonSocketPath({ platform, stateDirectory }),
+      stateDirectory,
+      serverUrl,
     });
   }
   return createDaemonHost({
@@ -385,6 +405,7 @@ function createDaemonLauncher(
         : resolveDaemonExecutablePath({ installRoot: installDirectory, platform }),
     socketPath: resolveDaemonSocketPath({ platform, stateDirectory }),
     stateDirectory,
+    serverUrl,
     daemonConnectionEndpoint:
       process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1" &&
       process.env.COFORGE_E2E_DAEMON_CONNECTION_ENDPOINT
@@ -400,12 +421,27 @@ function createCommand(
   installDirectory: string,
   stateDirectory: string,
   serverUrl: string,
+  config: FileComputerConfig,
   logger?: import("@logtape/logtape").Logger,
 ): DaemonCommand {
-  return createClientCommand({
-    daemon: createDaemonLauncher(platform, installDirectory, stateDirectory, serverUrl),
+  const launcher = createDaemonLauncher(platform, installDirectory, stateDirectory, serverUrl);
+  const command = createClientCommand({
+    daemon: launcher,
     logger,
   });
+  return {
+    async start() {
+      await launcher.preflight?.();
+      await loadBuildProfile(config, serverUrl, "daemon");
+      await command.start();
+    },
+    stop: () => command.stop(),
+    async restart() {
+      await launcher.preflight?.();
+      await loadBuildProfile(config, serverUrl, "daemon");
+      await command.restart();
+    },
+  };
 }
 
 function createLogsCommand(
@@ -488,7 +524,8 @@ if (import.meta.main) {
           platform.os,
           installDirectory,
           stateDirectory,
-          DEFAULT_SERVER_URL,
+          COFORGE_SERVER_URL,
+          config,
           logging.logger,
         ),
         logs: createLogsCommand(computerDirectory, io),

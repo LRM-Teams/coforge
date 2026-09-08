@@ -1,11 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { LocalDaemonLauncher } from "./launcher";
-import type { DaemonLauncher, DaemonStopper, DaemonWorkspaceConfig } from "./launcher";
+import type { DaemonLauncher, DaemonWorkspaceConfig } from "./launcher";
 
 type CommandRunner = (command: string[]) => Promise<number>;
 
-export class SystemdUserDaemonHost implements DaemonLauncher, DaemonStopper {
+export class SystemdUserDaemonHost implements DaemonLauncher {
   readonly #unitPath: string;
   readonly #run: CommandRunner;
   readonly #writeFile: (path: string, content: string) => Promise<void>;
@@ -17,6 +17,7 @@ export class SystemdUserDaemonHost implements DaemonLauncher, DaemonStopper {
     executablePath: string;
     socketPath: string;
     stateDirectory?: string;
+    serverUrl: string;
     daemonConnectionEndpoint?: string;
     writeFile?: (path: string, content: string) => Promise<void>;
     run?: CommandRunner;
@@ -44,6 +45,8 @@ export class SystemdUserDaemonHost implements DaemonLauncher, DaemonStopper {
     this.#local = new LocalDaemonLauncher({
       executablePath: options.executablePath,
       socketPath: options.socketPath,
+      stateDirectory: options.stateDirectory ?? join(options.homeDirectory, ".coforge", "daemon"),
+      serverUrl: options.serverUrl,
     });
   }
 
@@ -56,17 +59,16 @@ export class SystemdUserDaemonHost implements DaemonLauncher, DaemonStopper {
     await this.#local.ensureStarted(config);
   }
 
+  preflight(): Promise<void> {
+    return this.#local.preflight();
+  }
+
   ensureRunning(): Promise<void> {
     return this.#local.ensureRunning();
   }
 
   command(operation: "start" | "stop" | "restart"): Promise<void> {
     return this.#local.command(operation);
-  }
-
-  async stop(): Promise<void> {
-    const result = await this.#run(["systemctl", "--user", "stop", "coforge-daemon.service"]);
-    if (result !== 0) throw new Error("could not stop the CoForge Daemon user service");
   }
 }
 

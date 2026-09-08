@@ -237,9 +237,9 @@ performs against `manifest.json` after Computer is installed, and the web UI
 must not link to a CDN or OSS origin directly.
 
 Users never depend on or discover the OSS bucket URL. Immutable version objects
-use a long immutable cache policy; `latest` uses revalidation/no-cache. A
-publication is incomplete until the workflow refreshes affected CDN objects and
-downloads the consumer-visible bytes again to compare them with its local
+use a long immutable cache policy; `latest` requires an evidenced, effective
+every-request origin-revalidation policy. A publication is incomplete until the
+workflow downloads exact consumer-visible bytes to compare them with its local
 manifest and binaries. For every publication, the workflow must
 also prove that an unsigned anonymous/direct GET of the exact OSS object key is
 rejected, while the public CDN URL succeeds through the configured private-origin
@@ -247,6 +247,14 @@ authorization. The durable record stores only the pass/fail evidence, not the
 private bucket endpoint or credentials. A redirect to OSS, an anonymously
 readable origin object, or a CDN fetch that cannot be tied to the same bytes
 fails publication.
+
+Under that revalidation policy, explicit CDN purge is not a routine publication
+requirement. Retain evidence of matching cache rules, completed propagation and
+appropriate client cache behavior; old entries created before a policy change
+must not survive under the former policy. Stale or unverifiable responses fail
+publication, and cache-busting URLs must not substitute for consumer-path checks.
+Cache-policy migration or purging legacy entries is separate operator work.
+Versioned keys remain immutable, including across retries.
 
 ### Per-user installation
 
@@ -305,6 +313,35 @@ copied into the production feed. Promotion therefore rebuilds the same commit
 against the production feed rather than copying bytes; what carries across
 environments is the commit and the test evidence, not the artifact.
 
+The same build selection fixes the business server: `releases-staging.coforge.cn`
+maps to `https://staging.coforge.cn`, and `releases.coforge.cn` maps to
+`https://coforge.cn`. Release compilation gives the bundled Daemon that same
+server. Login, setup, and Daemon recovery do not offer a public `--server` or
+runtime server override. Existing cross-environment configuration fails rather
+than redirecting credentials. Private E2E fixture builds inject local transports
+at module boundaries; they are not distributable release artifacts.
+
+For the running local E2E stack, execute:
+
+```sh
+COFORGE_E2E_ALLOW_DEVICE_AUTH=1 \
+COFORGE_E2E_WEB_URL=http://localhost:8789 \
+COFORGE_E2E_WORKSPACE_SLUG=dev-user \
+mise exec -- bun test ./scripts/e2e/computer-environment.e2e.ts
+```
+
+This compiles private local fixtures and the production Daemon, exercises setup
+against Web/PostgreSQL/Redis/Centrifugo, checks the registered Computer's exact
+online status, and rejects wrong-environment or legacy Daemon state/peers with
+no Computer profile. OAuth uses the development provider. This is not evidence
+of macOS launchd behavior, staging Authing login, or a published artifact's
+installation on a real Mac; those remain separate release acceptance checks.
+
+The POSIX bootstrap persists PATH setup for Bash, Zsh, or Fish without elevation
+or replacing existing configuration. It prints the command needed in the current
+shell (a piped installer cannot modify its parent shell) and an absolute setup
+command. Metadata requests are quiet; only the binary download has a progress bar.
+
 `install.sh` and `install.ps1` read the same `COFORGE_RELEASE_FEED_URL`
 variable, but unconditionally and at runtime: any `https://` value is
 accepted, not just the compiled-in default. This is deliberate, not an
@@ -330,6 +367,15 @@ a caller exporting the variable by hand) therefore remains unresolved and
 belongs to a future per-environment publishing/serving decision, not to this
 variable. Both scripts carry the threat-model half of this reasoning inline
 as a comment.
+
+CI has one reusable validation definition in `.github/workflows/ci.yml`, invoked
+directly for pull requests and by the staging deployment for each `main` push.
+There is no second standalone CI run on that same main push. The existing
+Computer, Daemon, Web and infrastructure checks remain, with explicit protocol,
+Agent and CLI coverage. Manual local releases call the same gates again for
+their selected commit; this intentional pre-release validation is not replaced
+by a mutable "latest successful CI" result. Docker image builds and version/feed-
+specific cross-compilation remain independent artifact builds, not redundant gates.
 
 Publishing a local-distribution release is **manual**. The workflow exposes only
 `workflow_dispatch`; it is not triggered by merging to `main`. Continuous publish
@@ -393,7 +439,8 @@ tracks' `latest` pointers are never the same object):
    write the staging feed's `latest` pointer to the new version. A publish
    that fails before this step leaves an unreferenced version directory that
    no installer will ever resolve.
-6. Refresh and re-read `latest` through the staging feed, then run the
+6. Re-read `latest` through the staging feed under the evidenced revalidation
+   policy, then run the
    local-distribution checks below against the version it resolves.
 7. Record the version and its manifest checksums as healthy only after every
    required check passes.
@@ -450,13 +497,15 @@ updating itself from staging. Promotion therefore rebuilds:
    branch, channel name, or unspecified "latest build" approval is invalid.
 3. After approval, the Agent builds the approved commit against the production
    feed configuration, producing a distinct set of binaries whose only intended
-   difference from the staging set is the compiled-in feed address.
+   difference from the staging set is the compiled-in environment (feed and
+   matching business server addresses).
 4. The Agent publishes the new manifest, checksum sidecars and binaries beneath
    the production feed's `<version>/` path, then re-reads each object from the
    production feed and confirms it matches what was published.
 5. Only after that confirmation does the Agent write the production feed's
    `latest` pointer to the approved version.
-6. The Agent refreshes and re-reads the production feed's `latest`, verifies it
+6. The Agent re-reads the production feed's `latest` under the evidenced
+   revalidation policy, verifies it
    resolves the approved version, runs the production local-distribution checks,
    and records the result.
 
@@ -543,7 +592,8 @@ valid recovery plan and the release must not proceed.
 
 If staging publication or production verification fails, leave the affected
 feed's `latest` pointing at its last healthy version - do not advance it -
-refresh the CDN, and verify the selector and installation again. Because both
+verify the restored selector through OSS and the exact revalidating CDN URL,
+and verify installation again. Because both
 components always publish together, there is no separately unchanged peer to
 preserve.
 
@@ -621,14 +671,26 @@ are approved. `scripts/release/publish.ts`, run manually through
 staging`), now implements a first version of the "Main to staging" local-
 distribution path: it runs the repository gates, cross-compiles Computer and
 Daemon for a set of release targets, assembles the version tree
-(`build-release.ts`), uploads every object `buildReleaseTree` lists, reads
-each one back and compares bytes, and only then writes and re-reads the
-staging feed's `latest` pointer - all directly against the private OSS
-bucket origin over its signed HTTP API (no `ossutil`/SDK dependency; see
-`scripts/release/publish.ts`'s own header comment).
+(`build-release.ts`), uploads every object `buildReleaseTree` lists, and verifies
+signed OSS read-back. Before updating `latest`, it calls the reusable
+`verifyReleaseObject` probe for **every** exact object key: unsigned origin GET
+must return 403, and the anonymous CDN GET must return 200 with the expected
+SHA-256 and no redirect, cookie, or origin disclosure. Requests are bounded and
+probe failures produce sanitized diagnostics. No OSS credentials reach CDN probes.
+The existing `latest` bytes are saved and verified before activation. The new
+selector is then checked through OSS and CDN; on failure the previous bytes are
+restored and verified, or a first-publish selector is removed and absence checked.
+Rollback verification failure is reported separately, never as a healthy release.
+Object checks and the previous selector hash are retained in workflow logs.
 
-Two known gaps remain against the contract above, and neither is silently
-papered over:
+The existing staging CDN policy revalidates `/latest` and `*.json` on each
+request, while versioned binaries are immutable (see
+`docs/operations/aliyun-oss-cdn.md`, Section 10). The publisher tests the exact
+consumer URL without cache-busting query parameters; it does not change CDN
+configuration or issue purge requests. A stale response fails publication rather
+than bypassing the cache to manufacture a pass.
+
+The remaining known platform gap is not silently papered over:
 
 - **Platform matrix**: `publish.ts --targets` defaults to the four POSIX
   targets (`linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`), not the
@@ -638,25 +700,14 @@ papered over:
   `windows-x64`/`windows-arm64` binaries; Windows Computer/Daemon behavior has
   not been verified end to end. Passing `--targets` with all six is possible
   today, but nothing has proven the Windows binaries actually work first.
-- **CDN verification (steps 4 and 6)**: `publish.ts` verifies every object by
-  reading it back with a signed request against the OSS bucket origin
-  itself, not by re-reading `releases-staging.coforge.cn`, and it does not
-  refresh CDN caches or prove that an anonymous/direct GET of the OSS object
-  key is rejected while the CDN succeeds - `scripts/verify-oss-cdn.ts`
-  already implements exactly that probe, but is not yet wired into this
-  publish workflow. The staging CDN's cache rules themselves are no longer a
-  blocker: `docs/operations/aliyun-oss-cdn.md` Section 10 records that
-  `releases-staging` now revalidates `/latest` and `*.json` on every request
-  while `<version>/*` stays immutable for 365 days, which is the layout this
-  feed needs. What is still missing is only the verification step - nothing
-  in this workflow proves the CDN actually serves what OSS accepted.
 
 Distribution credentials (`ALIYUN_OSS_ACCESS_KEY_ID`/`ALIYUN_OSS_ACCESS_KEY_SECRET`,
 see `infra/staging/README.md`) and updater commands (`packages/computer/src/
 updater.ts`, `install.sh`, `install.ps1`) were already implemented before this
 publish workflow. The release Skill may still inspect and prepare evidence for
-the gaps above, but must not invent a CDN-verified publication or a Windows
-release claim this workflow does not yet produce.
+the platform gap above, but must not invent a Windows release claim this
+workflow does not yet produce. CDN verification is implemented; a successful
+live workflow run, not unit tests alone, is its publication evidence.
 
 ## Official references
 

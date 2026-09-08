@@ -172,7 +172,10 @@ export function centrifugoWebSocketEndpoint(serverUrl: string, endpointOverride?
  * E2E-only split endpoint. OAuth and HTTP workspace URLs remain serverUrl;
  * production has no override and keeps deriving WSS from that URL.
  */
-export function resolveCentrifugoWebSocketEndpoint(serverUrl: string, env = Bun.env): string {
+export function resolveCentrifugoWebSocketEndpoint(
+  serverUrl: string,
+  env = process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1" ? Bun.env : {},
+): string {
   const override =
     env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1" ? env.COFORGE_E2E_CENTRIFUGO_ENDPOINT : undefined;
   return centrifugoWebSocketEndpoint(serverUrl, override);
@@ -196,7 +199,10 @@ export function daemonConnectionEndpoint(serverUrl: string): string {
  * fronts them with one reverse proxy the way Caddy does in staging/production;
  * production has no override and keeps deriving WSS from `serverUrl`.
  */
-export function resolveDaemonConnectionEndpoint(serverUrl: string, env = Bun.env): string {
+export function resolveDaemonConnectionEndpoint(
+  serverUrl: string,
+  env = process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1" ? Bun.env : {},
+): string {
   const override =
     env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1"
       ? env.COFORGE_E2E_DAEMON_CONNECTION_ENDPOINT

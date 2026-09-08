@@ -28,6 +28,7 @@ describe("local daemon RPC", () => {
       requestId: "request-1",
       daemonId: "daemon-1",
       accepted: true,
+      serverUrl: "https://coforge.example",
     };
     expect(decodeDaemonHandshakeResponse(encodeDaemonHandshakeResponse(response))).toEqual(
       response,
@@ -42,6 +43,7 @@ describe("local daemon RPC", () => {
       computerId: "computer-1",
       workspaceRoot: "/workspaces/workspace-1",
       daemonApiKey: "worker-secret",
+      expectedServerUrl: "https://coforge.example",
     };
     expect(
       decodeDaemonRuntimeConfigureRequest(encodeDaemonRuntimeConfigureRequest(request)),

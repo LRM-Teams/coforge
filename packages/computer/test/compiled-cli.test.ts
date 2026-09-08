@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ComputerUpdater } from "../src/updater";
@@ -109,6 +109,77 @@ afterAll(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 
+test("local test build strips terminal controls from device authorization instructions", async () => {
+  const requests: string[] = [];
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      const url = new URL(request.url);
+      requests.push(url.pathname);
+      const issuer = url.origin;
+      if (url.pathname === "/.well-known/oauth-authorization-server") {
+        return Response.json({
+          issuer,
+          device_authorization_endpoint: `${issuer}/oauth/device`,
+          token_endpoint: `${issuer}/oauth/token`,
+        });
+      }
+      if (url.pathname === "/oauth/device") {
+        return Response.json({
+          device_code: "device-secret",
+          user_code: "ABCD\u001b[31mPWN",
+          verification_uri: `${issuer}/activate\u001b[31mPWN`,
+          expires_in: 5,
+          interval: 1,
+        });
+      }
+      return Response.json({ error: "access_denied" }, { status: 400 });
+    },
+  });
+  try {
+    const fixture = join(directory, "local-computer");
+    const built = await Bun.build({
+      entrypoints: [new URL("../src/cli.ts", import.meta.url).pathname],
+      compile: { outfile: fixture },
+      plugins: [
+        {
+          name: "local-test-server",
+          setup(build) {
+            build.onLoad({ filter: /\/computer\/src\/release-channel\.ts$/ }, () => ({
+              contents: `export const COFORGE_SERVER_URL = ${JSON.stringify(server.url.origin)}; export const COFORGE_RELEASE_FEED_URL = "https://releases.coforge.cn";`,
+              loader: "ts",
+            }));
+          },
+        },
+      ],
+    });
+    expect(built.success).toBe(true);
+    const child = Bun.spawn([fixture, "login", "--json"], {
+      env: { ...process.env, HOME: join(directory, "local-home"), FORCE_COLOR: "0", NO_COLOR: "1" },
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 5000,
+    });
+    const [code, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(code).toBe(1);
+    expect(stdout + stderr).toContain("AUTH_DEVICE_CODE_CANCELLED");
+    expect(stdout + stderr).not.toContain("\u001b");
+    expect(stdout + stderr).toContain("/activate%1B[31mPWN");
+    expect(stdout + stderr).toContain("User code:   ABCDPWN");
+    expect(requests).toEqual([
+      "/.well-known/oauth-authorization-server",
+      "/oauth/device",
+      "/oauth/token",
+    ]);
+  } finally {
+    server.stop(true);
+  }
+}, 15_000);
+
 test("compiled CLI writes help to stdout and exits successfully", () => {
   const result = Bun.spawnSync({ cmd: [executable, "--help"], stdout: "pipe", stderr: "pipe" });
 
@@ -136,7 +207,7 @@ test("compiled login help documents the stable automation options", () => {
   expect(result.stdout.toString()).toContain("Usage: coforge-computer login [options]");
   expect(result.stdout.toString()).toContain("Sign in to CoForge without selecting a Workspace.");
   expect(result.stdout.toString()).not.toContain("register");
-  expect(result.stdout.toString()).toContain("--server <url>");
+  expect(result.stdout.toString()).not.toContain("--server");
   expect(result.stdout.toString()).toContain("--json");
   expect(result.stderr.toString()).toBe("");
 });
@@ -150,7 +221,7 @@ test("compiled setup help documents JSON mode and does not offer --all", () => {
 
   expect(result.exitCode).toBe(0);
   expect(result.stdout.toString()).toContain("--json");
-  expect(result.stdout.toString()).toContain("--server <url>");
+  expect(result.stdout.toString()).not.toContain("--server");
   expect(result.stdout.toString()).not.toContain("--all");
   expect(result.stderr.toString()).toBe("");
 });
@@ -168,7 +239,7 @@ test("compiled CLI writes usage errors to stderr with a stable nonzero exit code
   expect(result.stderr.toString()).not.toContain("Error:");
 });
 
-test("compiled login rejects a server URL containing credentials without printing them", () => {
+test("compiled login rejects the removed server override without printing its value", () => {
   const unsafeUrl = "https://user:password@coforge.example";
   const result = Bun.spawnSync({
     cmd: [executable, "login", "--server", unsafeUrl],
@@ -178,73 +249,13 @@ test("compiled login rejects a server URL containing credentials without printin
 
   expect(result.exitCode).toBe(1);
   expect(result.stdout.toString()).toBe("");
-  expect(result.stderr.toString()).toContain("AUTH_INVALID_SERVER");
-  expect(result.stderr.toString()).toContain("Hint:");
-  expect(result.stderr.toString()).toContain(
-    "server URL must not contain credentials, query, or fragment",
-  );
+  expect(result.stderr.toString()).toContain("unknown option '--server'");
   expect(`${result.stdout}${result.stderr}`).not.toContain(unsafeUrl);
   expect(`${result.stdout}${result.stderr}`).not.toContain("user");
   expect(`${result.stdout}${result.stderr}`).not.toContain("password");
 });
 
-test("compiled login strips terminal controls from device authorization instructions", async () => {
-  let server: ReturnType<typeof Bun.serve>;
-  server = Bun.serve({
-    port: 0,
-    fetch(request): Response {
-      const url = new URL(request.url);
-      const issuer = `http://localhost:${server.port}`;
-      if (url.pathname === "/.well-known/oauth-authorization-server") {
-        return Response.json({
-          issuer,
-          device_authorization_endpoint: `${issuer}/oauth/device`,
-          token_endpoint: `${issuer}/oauth/token`,
-        });
-      }
-      if (url.pathname === "/oauth/device") {
-        return Response.json({
-          device_code: "device-secret",
-          user_code: "ABCD\u001b[31mPWN",
-          verification_uri: `${issuer}/activate\u001b[31mPWN`,
-          expires_in: 5,
-          interval: 1,
-        });
-      }
-      if (url.pathname === "/oauth/token") {
-        return Response.json({ error: "access_denied" }, { status: 400 });
-      }
-      return new Response("not found", { status: 404 });
-    },
-  });
-
-  try {
-    const child = Bun.spawn(
-      [executable, "login", "--server", `http://localhost:${server.port}`, "--json"],
-      {
-        env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" },
-        stdout: "pipe",
-        stderr: "pipe",
-      },
-    );
-    const [exitCode, stdout, stderr] = await Promise.all([
-      child.exited,
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-    ]);
-    const output = `${stdout}${stderr}`;
-
-    expect(exitCode).toBe(1);
-    expect(output).toContain("AUTH_DEVICE_CODE_CANCELLED");
-    expect(output).not.toContain("\u001b");
-    expect(output).toContain(`/activate%1B[31mPWN`);
-    expect(output).toContain("User code:   ABCDPWN");
-  } finally {
-    server.stop(true);
-  }
-});
-
-test("compiled setup reports a stable network failure without claiming success", () => {
+test("compiled setup rejects the removed server override without claiming success", () => {
   const result = Bun.spawnSync({
     cmd: [executable, "setup", "--server", "https://127.0.0.1:1"],
     env: { ...process.env, XDG_CONFIG_HOME: directory },
@@ -253,13 +264,33 @@ test("compiled setup reports a stable network failure without claiming success",
   });
 
   expect(result.exitCode).toBe(1);
-  expect(result.stdout.toString()).toContain("CoForge Computer login");
-  expect(result.stderr.toString()).toContain("AUTH_NETWORK_ERROR");
-  expect(result.stderr.toString()).toContain("Hint:");
+  expect(result.stderr.toString()).toContain("unknown option '--server'");
   expect(`${result.stdout}${result.stderr}`).not.toContain("registration was created");
 });
 
-test("compiled JSON setup keeps its internal login non-interactive", () => {
+test("compiled environment mismatch blocks login, setup, start, and restart", async () => {
+  const home = join(directory, "cross-environment-home");
+  const configDirectory = join(home, ".coforge", "computer");
+  await mkdir(configDirectory, { recursive: true });
+  await writeFile(
+    join(configDirectory, "profile.json"),
+    JSON.stringify({ server_url: "https://staging.coforge.cn" }),
+  );
+
+  for (const command of ["login", "setup", "start", "restart"]) {
+    const result = Bun.spawnSync({
+      cmd: [executable, command],
+      env: { ...process.env, HOME: home },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(result.exitCode).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain("BUILD_ENVIRONMENT_MISMATCH");
+  }
+  expect(await Bun.file(join(home, ".coforge", "daemon", "daemon.json")).exists()).toBe(false);
+});
+
+test("compiled JSON setup also rejects the removed server override", () => {
   const result = Bun.spawnSync({
     cmd: [executable, "setup", "--server", "https://127.0.0.1:1", "--json"],
     env: { ...process.env, XDG_CONFIG_HOME: directory },
@@ -268,7 +299,8 @@ test("compiled JSON setup keeps its internal login non-interactive", () => {
   });
 
   expect(result.exitCode).toBe(1);
-  expect(result.stdout.toString()).toContain('"code":"AUTH_NETWORK_ERROR"');
+  expect(result.stdout.toString()).toBe("");
   expect(result.stdout.toString()).not.toContain("CoForge Computer login");
+  expect(result.stderr.toString()).toContain("unknown option '--server'");
   expect(`${result.stdout}${result.stderr}`).not.toContain("registration was created");
 });

@@ -30,6 +30,7 @@ import {
   type ReleaseTree,
 } from "./build-release";
 import { compileTargetArtifacts, isReleaseTarget, type ReleaseTarget } from "./compile-targets";
+import { verifyReleaseObject } from "../verify-oss-cdn";
 
 /* -------------------------------------------------------------------------------------------- */
 /* Alibaba Cloud OSS V1 "Authorization header" signature                                         */
@@ -62,7 +63,7 @@ function canonicalizedResource(bucket: string, objectKey: string): string {
 }
 
 export function ossStringToSign(options: {
-  method: "PUT" | "GET" | "HEAD";
+  method: "PUT" | "GET" | "HEAD" | "DELETE";
   bucket: string;
   objectKey: string;
   date: string;
@@ -237,6 +238,7 @@ export async function assertVersionIsUnpublished(
 
 export interface UploadOptions {
   target: OssTarget;
+  feedUrl: string;
   credentials: OssCredentials;
   fetchImpl?: typeof fetch;
   now?: () => Date;
@@ -307,30 +309,120 @@ export async function uploadReleaseTree(
     log(`verified ${relativePath}`);
   }
 
-  const latestBytes = new TextEncoder().encode(`${tree.version}\n`);
-  await putObject(
-    options.target,
-    LATEST_OBJECT_KEY,
-    latestBytes,
-    options.credentials,
-    ossDate(now()),
-    fetchImpl,
-  );
-  log(`uploaded ${LATEST_OBJECT_KEY}`);
-
-  const latestReadback = await getObject(
-    options.target,
-    LATEST_OBJECT_KEY,
-    options.credentials,
-    ossDate(now()),
-    fetchImpl,
-  );
-  if (!bytesEqual(latestBytes, latestReadback)) {
-    throw new Error(
-      `OSS read-back mismatch: ${LATEST_OBJECT_KEY} does not match the published version`,
+  async function verifyDelivery(key: string, bytes: Uint8Array): Promise<void> {
+    const report = await verifyReleaseObject(
+      {
+        origin_url: options.target.objectUrl(key),
+        cdn_url: `${options.feedUrl.replace(/\/$/, "")}/${key}`,
+        expected_sha256: new Bun.CryptoHasher("sha256").update(bytes).digest("hex"),
+      },
+      fetchImpl,
     );
+    if (!report.passed) {
+      const failed = report.checks.filter((check) => !check.passed).map((check) => check.id);
+      throw new Error(`Release delivery verification failed: ${key} (${failed.join(", ")})`);
+    }
+    log(`verified delivery ${key}: private origin and byte-identical CDN`);
   }
-  log(`verified ${LATEST_OBJECT_KEY}`);
+
+  for (const key of tree.files) {
+    await verifyDelivery(key, await readFile(join(outputDirectory, key)));
+  }
+
+  const previous = (await objectExists(
+    options.target,
+    LATEST_OBJECT_KEY,
+    options.credentials,
+    ossDate(now()),
+    fetchImpl,
+  ))
+    ? await getObject(
+        options.target,
+        LATEST_OBJECT_KEY,
+        options.credentials,
+        ossDate(now()),
+        fetchImpl,
+      )
+    : null;
+  if (previous) await verifyDelivery(LATEST_OBJECT_KEY, previous);
+  log(
+    previous
+      ? `previous latest sha256=${new Bun.CryptoHasher("sha256").update(previous).digest("hex")}`
+      : "previous latest: empty bootstrap",
+  );
+
+  async function writeLatest(bytes: Uint8Array): Promise<void> {
+    await putObject(
+      options.target,
+      LATEST_OBJECT_KEY,
+      bytes,
+      options.credentials,
+      ossDate(now()),
+      fetchImpl,
+    );
+    const readback = await getObject(
+      options.target,
+      LATEST_OBJECT_KEY,
+      options.credentials,
+      ossDate(now()),
+      fetchImpl,
+    );
+    if (!bytesEqual(bytes, readback)) throw new Error("OSS latest read-back mismatch");
+    await verifyDelivery(LATEST_OBJECT_KEY, bytes);
+  }
+
+  try {
+    await writeLatest(new TextEncoder().encode(`${tree.version}\n`));
+  } catch {
+    try {
+      if (previous) {
+        await writeLatest(previous);
+      } else {
+        const date = ossDate(now());
+        const signature = ossStringToSign({
+          method: "DELETE",
+          bucket: options.target.bucket,
+          objectKey: LATEST_OBJECT_KEY,
+          date,
+          contentType: "",
+        });
+        const response = await fetchImpl(options.target.objectUrl(LATEST_OBJECT_KEY), {
+          method: "DELETE",
+          headers: {
+            Date: date,
+            Authorization: ossAuthorizationHeader(options.credentials, signature),
+          },
+          redirect: "manual",
+          signal: AbortSignal.timeout(30_000),
+        });
+        await response.body?.cancel();
+        if (
+          !response.ok ||
+          (await objectExists(
+            options.target,
+            LATEST_OBJECT_KEY,
+            options.credentials,
+            ossDate(now()),
+            fetchImpl,
+          ))
+        )
+          throw new Error("could not restore empty selector");
+        const cdn = await fetchImpl(`${options.feedUrl.replace(/\/$/, "")}/latest`, {
+          redirect: "manual",
+          credentials: "omit",
+          signal: AbortSignal.timeout(30_000),
+        });
+        await cdn.body?.cancel();
+        if (cdn.status !== 404 || cdn.headers.has("location"))
+          throw new Error("empty CDN selector not verified");
+      }
+    } catch {
+      throw new Error(
+        "Release activation failed; rollback could not be verified. Inspect staging before another publish.",
+      );
+    }
+    throw new Error("Release activation failed; previous latest restored and verified.");
+  }
 
   return { uploaded: [...tree.files], latestKey: LATEST_OBJECT_KEY };
 }
@@ -449,6 +541,7 @@ export async function runPublish(
     };
     const result = await uploadReleaseTree(treeDirectory, tree, {
       target,
+      feedUrl: options.feedUrl,
       credentials: options.credentials,
       fetchImpl: deps.fetchImpl,
       now: deps.now,
