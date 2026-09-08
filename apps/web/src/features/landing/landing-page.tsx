@@ -154,21 +154,22 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
     <MotionConfig reducedMotion="user">
       {/* The document itself goes dark too, so overscroll and rounded window corners never show white. */}
       <style>{`html,body{background:#0a0912;color-scheme:dark}@media(min-width:1024px){html{scroll-snap-type:y mandatory}}`}</style>
-      <div className="relative overflow-x-clip bg-[#0a0912] font-display text-white antialiased">
-        {/* Top snap point: it must not live inside the sticky stage, or it drifts with it. */}
-        <div aria-hidden="true" className="absolute top-0 h-px w-full snap-start" />
-        {/* Screen 1 stays pinned while screen 2 slides up over it like a sheet. */}
-        <div className="relative isolate flex min-h-svh flex-col lg:sticky lg:top-0 lg:h-svh lg:overflow-hidden">
-          {/* The animated gradient is the whole picture; the type sits on it like a poster. */}
+      <div className="relative isolate overflow-x-clip bg-[#0a0912] font-display text-white antialiased">
+        {/* The animated gradient is the whole picture, behind both screens. */}
+        <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10">
           {gradientReady && (
             <AnimatedGradient config={heroGradient} theme="dark" paused={reducedMotion} />
           )}
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 -z-[1] bg-[linear-gradient(180deg,rgba(10,9,18,0.35)_0%,rgba(10,9,18,0.05)_35%,rgba(10,9,18,0.55)_75%,rgba(10,9,18,0.85)_100%)]"
-          />
-
-          <header className="flex h-19 w-full items-center justify-between px-5 sm:px-8">
+          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(10,9,18,0.35)_0%,rgba(10,9,18,0.05)_35%,rgba(10,9,18,0.55)_75%,rgba(10,9,18,0.85)_100%)]" />
+        </div>
+        {/* Top snap point: it must not live inside the sticky stage, or it drifts with it. */}
+        <div aria-hidden="true" className="absolute top-0 h-px w-full snap-start" />
+        {/* Screen 1 stays pinned while screen 2 slides up over it like a sheet. */}
+        <div className="relative flex min-h-svh flex-col lg:sticky lg:top-0 lg:h-svh lg:overflow-hidden">
+          <motion.header
+            style={reducedMotion ? undefined : { opacity: heroOpacity }}
+            className="flex h-19 w-full items-center justify-between px-5 sm:px-8"
+          >
             <a href="/" className="flex items-center gap-2.5" aria-label="CoForge">
               <img src="/logo.svg" alt="" className="size-8 rounded-lg" />
               {/* The wordmark ends on the same dot the icon carries. */}
@@ -206,7 +207,7 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
                 <BorderBeam size={40} duration={7} colorFrom="#c5bafe" colorTo="#5d36dc" />
               </span>
             </div>
-          </header>
+          </motion.header>
 
           <main className="relative mx-auto flex min-h-[calc(100svh-4.75rem)] w-full max-w-6xl flex-col justify-center px-6 pt-8 pb-16">
             <motion.div
@@ -268,7 +269,7 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
         {/* Second screen: how a machine actually joins, typed out when it scrolls into view. */}
         <section
           id="computer"
-          className="relative z-10 snap-start border-t border-white/10 bg-[#0c0a16] lg:rounded-t-[2.5rem] lg:shadow-[0_-40px_120px_rgba(0,0,0,0.65)]"
+          className="relative z-10 snap-start border-t border-white/10 bg-[#0a0912]/45 backdrop-blur-[2px] lg:rounded-t-[2.5rem] lg:shadow-[0_-40px_120px_rgba(0,0,0,0.65)]"
         >
           <div className="mx-auto flex min-h-svh w-full max-w-6xl flex-col items-center justify-center px-6 py-20 text-center">
             <BlurReveal
