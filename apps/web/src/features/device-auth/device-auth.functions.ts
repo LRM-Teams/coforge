@@ -20,6 +20,15 @@ import { PrismaDeviceAuthorizationStore } from "@/server/db/repositories/device-
 
 export type DeviceCodeState = "ok" | "unknown" | "expired" | "settled" | "unavailable";
 
+/** Resolves the signed-in user for the approval page, redirecting to /login when there is none -
+ * which is what makes "sign in first, then approve" a property of the route rather than an
+ * instruction. Exposed as a feature server function, the way every other route reaches user
+ * state, so a route file never imports a `@/server/...` module directly. */
+export const getDeviceVerifyUser = createServerFn({ method: "GET" }).handler(async () => {
+  const user = currentUser();
+  return { email: user.email };
+});
+
 function resolveStore(): DeviceAuthorizationStore | undefined {
   const db = getDatabaseClient();
   return db ? new PrismaDeviceAuthorizationStore(db) : undefined;

@@ -7,11 +7,12 @@ import { m } from "@/paraglide/messages";
 
 type OperatingSystem = "macos-linux" | "windows";
 
-/** The per-OS command that installs CoForge Computer on the User's machine, rooted at the
- * deployment they are signed in to rather than at a fixed host, followed by the explicit
- * second command that joins it to the current Workspace. The two stay separate commands
- * (rather than one auto-chained script) so joining a second Workspace from the same
- * machine later has an equally natural, explicit expression. */
+/** The three commands that connect a machine: install, rooted at the deployment the User is
+ * signed in to rather than at a fixed host; sign in, which `setup` cannot run without because
+ * registering a Computer needs an account to register against; and join, which binds it to the
+ * current Workspace. They stay separate commands rather than one auto-chained script so that
+ * joining a second Workspace from the same machine later has an equally natural, explicit
+ * expression - and so a re-run of any single step is obvious. */
 export function ComputerInstallCommand({
   installOrigin,
   workspaceSlug,
@@ -108,7 +109,9 @@ export function ComputerInstallCommand({
             {loginCopied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
           </Button>
         </div>
-        {loginCopied && <p className="mt-2 text-xs text-success">{m.computer_login_command_copied()}</p>}
+        {loginCopied && (
+          <p className="mt-2 text-xs text-success">{m.computer_login_command_copied()}</p>
+        )}
       </div>
       {joinCommand && (
         <div>
