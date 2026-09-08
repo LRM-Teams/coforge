@@ -83,12 +83,27 @@ async function serveFixture(
     gzipStatus?: number;
     corruptGzip?: boolean;
     latestContent?: string;
+    omitShim?: boolean;
   } = {},
 ) {
   const version = options.version ?? "3.2.1";
   const target = options.target ?? currentTarget();
   const log = options.argumentLog ?? "/dev/null";
-  const computer = Buffer.from(`#!/bin/sh\nprintf '%s\\n' "$@" > "${log}"\n`);
+  // The stub stands in for the real binary's `install` subcommand, so it must also do the one
+  // thing install.sh checks for afterwards: leave an executable shim in the directory
+  // packages/computer/src/paths.ts resolves. Without this the script's version-skew guard fires
+  // and every test here fails - which is exactly the behavior that guard exists to produce.
+  const computer = Buffer.from(
+    `#!/bin/sh\n` +
+      `printf '%s\\n' "$@" > "${log}"\n` +
+      (options.omitShim
+        ? ""
+        : `bin_directory=\${XDG_BIN_HOME:-}\n` +
+          `case "$bin_directory" in\n  /*) ;;\n  *) bin_directory="$HOME/.local/bin" ;;\nesac\n` +
+          `mkdir -p "$bin_directory"\n` +
+          `printf '#!/bin/sh\\nexit 0\\n' > "$bin_directory/coforge-computer"\n` +
+          `chmod 755 "$bin_directory/coforge-computer"\n`),
+  );
   const checksum = options.tamperChecksum ? "0".repeat(64) : sha256hex(computer);
 
   const files = new Map<string, Uint8Array>([
@@ -433,12 +448,12 @@ for (const shell of ["bash", "zsh", "fish"] as const) {
     const content = await readFile(secondConfiguration, "utf8");
     const pathLine =
       shell === "fish"
-        ? 'fish_add_path "$HOME/.coforge/computer/bin"'
-        : 'export PATH="$HOME/.coforge/computer/bin:$PATH"';
+        ? 'fish_add_path "$HOME/.local/bin"'
+        : 'export PATH="$HOME/.local/bin:$PATH"';
     expect(content).toContain(original);
     expect(content.split(pathLine)).toHaveLength(2);
-    expect(first.stderr).toContain("This installer cannot change the current shell");
-    expect(first.stderr).toContain('"$HOME/.coforge/computer/bin/coforge-computer" setup');
+    expect(first.stderr).toContain("To use it in this one, run:");
+    expect(first.stderr).toContain(`"${join(first.home, ".local/bin/coforge-computer")}" setup`);
     if (shell === "bash") {
       const loginProfile = await readFile(join(first.home, ".bash_profile"), "utf8");
       expect(loginProfile.split(pathLine)).toHaveLength(2);
@@ -446,7 +461,7 @@ for (const shell of ["bash", "zsh", "fish"] as const) {
 
     const shellExecutable = Bun.which(shell);
     if (shellExecutable) {
-      const installedBin = join(first.home, ".coforge/computer/bin");
+      const installedBin = join(first.home, ".local/bin");
       await mkdir(installedBin, { recursive: true });
       const installedExecutable = join(installedBin, "coforge-computer");
       await Bun.write(installedExecutable, "#!/bin/sh\nexit 0\n");
@@ -475,6 +490,105 @@ for (const shell of ["bash", "zsh", "fish"] as const) {
     }
   });
 }
+
+// The reason the shim goes to the XDG user binary directory at all: for most users it is already
+// on PATH, and then a fresh install is usable in the shell that ran the installer. Nothing may be
+// appended to shell configuration in that case, and the installer must not print the PATH advice
+// - a user told to run `fish_add_path` for a directory already on PATH is being sent to fix a
+// problem they do not have.
+for (const shell of ["bash", "zsh", "fish"] as const) {
+  test(`install.sh changes no ${shell} configuration when the shim directory is already on PATH`, async () => {
+    const fixture = await serveFixture();
+    const home = await mkdtemp(join(tmpdir(), "coforge-installer-home-"));
+    const xdg = await mkdtemp(join(tmpdir(), "coforge-xdg-"));
+    const zdot = await mkdtemp(join(tmpdir(), "coforge-zdot-"));
+    temporaryDirectories.push(home, xdg, zdot);
+
+    const result = await run(
+      ["--version", fixture.version],
+      {
+        ...process.env,
+        PATH: `${join(home, ".local/bin")}:${process.env.PATH ?? ""}`,
+        SHELL: `/usr/bin/${shell}`,
+        XDG_CONFIG_HOME: xdg,
+        ZDOTDIR: zdot,
+        COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+        COFORGE_INSTALLER_TEST_MODE: "1",
+      },
+      home,
+      { zdotdir: zdot, xdgConfigHome: xdg },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(`CoForge Computer ${fixture.version} installed`);
+    expect(result.stderr).toContain("coforge-computer setup --workspace <slug>");
+    // The bare command the installer just told the user to run has to resolve on the PATH the
+    // installer itself saw - that is the whole claim being made here.
+    expect(await Bun.file(join(home, ".local/bin/coforge-computer")).exists()).toBe(true);
+    expect(result.stderr).not.toContain("To use it in this one, run:");
+    expect(result.stderr).not.toContain("fish_add_path");
+    expect(result.stderr).not.toContain("export PATH=");
+    for (const configuration of [
+      join(xdg, "fish/conf.d/coforge.fish"),
+      join(zdot, ".zshrc"),
+      join(home, ".bashrc"),
+      join(home, ".bash_profile"),
+      join(home, ".profile"),
+    ]) {
+      expect(await Bun.file(configuration).exists()).toBe(false);
+    }
+  });
+}
+
+// install.sh is served by the web app while binaries come from the release feed, so a user can
+// reach a version published before the shim moved. The script must not report success or print
+// advice naming a command that was never installed.
+test("install.sh fails when the installed version leaves no shim where it expects one", async () => {
+  const fixture = await serveFixture({ omitShim: true });
+  const result = await run(["--version", fixture.version], {
+    ...process.env,
+    SHELL: "/usr/bin/zsh",
+    COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+    COFORGE_INSTALLER_TEST_MODE: "1",
+  });
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stderr).toContain("no shim appeared at");
+  expect(result.stderr).toContain("predates this installer");
+  expect(result.stderr).not.toContain(`CoForge Computer ${fixture.version} installed`);
+  expect(await Bun.file(join(result.home, ".zshrc")).exists()).toBe(false);
+});
+
+// XDG_BIN_HOME relocates the shim, and the installer must resolve it exactly as
+// packages/computer/src/paths.ts does - otherwise it writes PATH setup for, or advertises, a
+// directory the binary never installs into.
+test("install.sh follows an absolute XDG_BIN_HOME and ignores a relative one", async () => {
+  const fixture = await serveFixture();
+  const binHome = await mkdtemp(join(tmpdir(), "coforge-bin-home-"));
+  temporaryDirectories.push(binHome);
+
+  const relocated = await run(["--version", fixture.version], {
+    ...process.env,
+    PATH: `${binHome}:${process.env.PATH ?? ""}`,
+    SHELL: "/usr/bin/zsh",
+    XDG_BIN_HOME: binHome,
+    COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+    COFORGE_INSTALLER_TEST_MODE: "1",
+  });
+  expect(relocated.exitCode).toBe(0);
+  expect(relocated.stderr).not.toContain("To use it in this one, run:");
+
+  const relative = await run(["--version", fixture.version], {
+    ...process.env,
+    SHELL: "/usr/bin/zsh",
+    XDG_BIN_HOME: "bin",
+    COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+    COFORGE_INSTALLER_TEST_MODE: "1",
+  });
+  expect(relative.exitCode).toBe(0);
+  expect(await readFile(join(relative.home, ".zshrc"), "utf8")).toContain(
+    'export PATH="$HOME/.local/bin:$PATH"',
+  );
+});
 
 test("install.sh reports PATH persistence failure and does not claim install success", async () => {
   const fixture = await serveFixture();
@@ -551,11 +665,47 @@ test("install scripts fail closed and stay within the current user's own account
     resolve(import.meta.dir, "../../../scripts/release/install.ps1"),
     "utf8",
   );
+  // Assertions that an API or scope is *absent* have to read the code alone. Both scripts explain
+  // at length which APIs they deliberately avoid, and naming one in a comment is not using it -
+  // a scan of the whole file turns those explanations into failures and pushes the next author
+  // into deleting the reasoning to make the test pass.
+  const powershellCode = powershell
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("#"))
+    .join("\n");
 
   expect(shell).not.toContain("sudo");
   expect(shell).not.toContain("/usr/local");
   expect(powershell).not.toContain("Program Files");
   expect(powershell).not.toContain("Start-Process -Verb RunAs");
+  // install.ps1 puts the shim directory on PATH, and every part of how it does that is a
+  // correctness constraint this repository has no Windows runner to catch at runtime.
+  //
+  // The current user's environment only: the "Machine" scope and HKLM both need elevation and
+  // would change PATH for every account on the machine.
+  expect(powershellCode).toContain("Microsoft.Win32.Registry]::CurrentUser");
+  expect(powershellCode).not.toContain("HKLM");
+  expect(powershellCode).not.toContain('"Machine"');
+  // [Environment]::SetEnvironmentVariable(..., "User") reads Path back already expanded and
+  // rewrites it as a plain REG_SZ, destroying any %USERPROFILE%-style reference a user has in
+  // theirs. The raw registry API with these two options is what preserves it.
+  expect(powershellCode).not.toContain("SetEnvironmentVariable(");
+  expect(powershellCode).toContain("DoNotExpandEnvironmentNames");
+  expect(powershellCode).toContain("RegistryValueKind]::ExpandString");
+  // The registry write only reaches future processes; this is what makes the command usable in
+  // the session that ran `irm ... | iex`.
+  expect(powershellCode).toContain("$env:Path = ");
+  // A top-level `exit` terminates the host under `irm ... | iex` - closing the user's window on
+  // success as readily as on failure. Errors leave through `throw`, like everything else here.
+  expect(powershellCode).not.toMatch(/^\s*exit\b/m);
+  expect(powershellCode).toContain("$LASTEXITCODE -ne 0");
+  // The Windows shim is a .cmd launcher (packages/computer/src/updater.ts), not an .exe.
+  expect(powershellCode).toContain("coforge-computer.cmd");
+  // Same home-directory rule as packages/computer/src/cli.ts, and never the read-only $HOME
+  // automatic variable, which is not $env:HOME.
+  expect(powershellCode).toContain("if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }");
+  // Windows PowerShell 5.1 is a supported host, so no PowerShell 6+ only automatic variables.
+  expect(powershellCode).not.toContain("$IsWindows");
   // Neither installer pins a checksum for any published object: every payload is verified
   // against the checksum its feed-hosted sidecar (install.sh, install.ps1) or manifest.json
   // (the updater) names at install time.
@@ -568,7 +718,10 @@ test("install scripts fail closed and stay within the current user's own account
   expect(shell).toContain("fetch_binary()");
   expect(shell).toContain("fetch_binary --max-filesize");
   expect(shell).toContain("export PATH=");
-  expect(shell).toContain("$HOME/.coforge/computer/bin");
+  // The shim - the one installed path that must be on PATH - lives in the XDG user binary
+  // directory, never in the private ~/.coforge root that nothing has on PATH.
+  expect(shell).toContain("$HOME/.local/bin");
+  expect(shell).not.toContain(".coforge/computer/bin");
   expect(powershell).toContain("HTTPS");
   // Neither script's size-cap constants may ever be a literal 0: curl treats `--max-filesize 0`
   // as "unlimited" (N4), and install.ps1's Get-CoforgeObject enforces its MaxBytes with a plain

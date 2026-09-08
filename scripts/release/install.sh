@@ -72,7 +72,7 @@ case "$feed_url" in
 esac
 
 command -v gzip >/dev/null 2>&1 || {
-  echo "install.sh: gzip is required to install CoForge" >&2
+  echo "install.sh: gzip is required to install CoForge Computer" >&2
   exit 1
 }
 
@@ -139,7 +139,7 @@ max_pointer_bytes=4096
 max_binary_bytes=536870912
 
 if [ "$version" = "latest" ]; then
-  step "Finding the latest CoForge version"
+  step "Finding the latest CoForge Computer version"
   latest_pointer=$(fetch --max-filesize "$max_pointer_bytes" "$feed_url/latest" | tr -d '[:space:]')
   is_valid_version "$latest_pointer" || {
     echo "install.sh: the latest pointer did not return a valid version" >&2
@@ -207,15 +207,58 @@ chmod 700 "$computer_path"
 # fires once it returns and the temporary directory - including the ~138 MB binary - is removed.
 # `exec` would replace this shell with the child and skip the trap entirely, leaking that binary
 # into $TMPDIR on every single install.
-step "Installing CoForge"
+step "Installing CoForge Computer"
 "$computer_path" install --version "$version"
 
-bin_directory="$HOME/.coforge/computer/bin"
-# Expand HOME and PATH when the user's shell reads its configuration, not in this installer.
-# shellcheck disable=SC2016
-posix_path_line='export PATH="$HOME/.coforge/computer/bin:$PATH"'
-# shellcheck disable=SC2016
-fish_path_line='fish_add_path "$HOME/.coforge/computer/bin"'
+# This must resolve the shim directory by exactly the rule
+# packages/computer/src/paths.ts:resolveComputerBinaryDirectory applies, because the binary
+# invoked above is what actually creates the shim - if the two disagree, every hint printed below
+# names a path that does not exist. A relative XDG_BIN_HOME is not a usable PATH entry, so, as
+# there, only an absolute value is honoured.
+bin_directory=${XDG_BIN_HOME:-}
+case "$bin_directory" in
+  /*) ;;
+  *) bin_directory="$HOME/.local/bin" ;;
+esac
+
+# This script is served by the web app and the binary comes from the release feed, so the two
+# reach a user on independent cadences: a deploy carrying this version of the script can download
+# a published version that still installs its shim somewhere else. Every message below - most of
+# all the "already on PATH, just run it" path - would then name a command that does not exist, so
+# confirm the shim really landed where this script believes it did before claiming anything.
+if [ ! -x "$bin_directory/coforge-computer" ]; then
+  echo "install.sh: CoForge Computer $version was installed, but no shim appeared at" >&2
+  echo "install.sh: $bin_directory/coforge-computer - that version predates this installer." >&2
+  echo "install.sh: re-run this installer once a newer CoForge Computer version is published." >&2
+  exit 1
+fi
+
+# Expand HOME and PATH when the user's shell reads its configuration, not in this installer. The
+# literal below is only correct for the default directory; an XDG_BIN_HOME install writes the
+# already-resolved path instead, since that variable need not be set in a later shell.
+if [ "$bin_directory" = "$HOME/.local/bin" ]; then
+  # shellcheck disable=SC2016
+  posix_path_line='export PATH="$HOME/.local/bin:$PATH"'
+  # shellcheck disable=SC2016
+  fish_path_line='fish_add_path "$HOME/.local/bin"'
+else
+  posix_path_line="export PATH=\"$bin_directory:\$PATH\""
+  fish_path_line="fish_add_path \"$bin_directory\""
+fi
+
+# Installing into the XDG user binary directory is what makes this "just work": it is already on
+# PATH for most users, so the command is usable in this very shell and there is nothing to
+# configure and nothing to tell the user to run. Shell configuration is edited only in the
+# fallback below, when the directory really is absent from PATH.
+case ":${PATH:-}:" in
+  *":$bin_directory:"*)
+    done_step "CoForge Computer $version installed and ready to use"
+    printf '%b\n' "" >&2
+    printf '%s\n' "Connect this computer to a workspace:" >&2
+    printf '%b\n' "  ${accent}coforge-computer setup --workspace <slug>${reset}" >&2
+    exit 0
+    ;;
+esac
 
 append_path_line() {
   configuration_path=$1
@@ -254,7 +297,7 @@ esac
 
 if [ -n "$shell_configuration" ]; then
   if ! append_path_line "$shell_configuration" "$shell_path_line"; then
-    echo "install.sh: CoForge was installed, but PATH could not be saved to $shell_configuration" >&2
+    echo "install.sh: CoForge Computer $version was installed, but PATH could not be saved to $shell_configuration" >&2
     echo "install.sh: add this line manually: $shell_path_line" >&2
     exit 1
   fi
@@ -268,20 +311,21 @@ if [ -n "$shell_configuration" ]; then
       fi
     done
     if ! append_path_line "$login_configuration" "$shell_path_line"; then
-      echo "install.sh: CoForge was installed, but PATH could not be saved to $login_configuration" >&2
+      echo "install.sh: CoForge Computer $version was installed, but PATH could not be saved to $login_configuration" >&2
       exit 1
     fi
   fi
-  done_step "Saved CoForge PATH setup for $shell_name in $shell_configuration"
+  done_step "Added $bin_directory to your $shell_name PATH in $shell_configuration"
 else
-  echo "install.sh: warning: could not identify bash, zsh, or fish from SHELL; PATH was not changed" >&2
+  echo "install.sh: warning: SHELL is not bash, zsh, or fish, so PATH was left unchanged" >&2
   session_command="export PATH=\"$bin_directory:\$PATH\""
 fi
 
 done_step "CoForge Computer $version installed"
 printf '%b\n' "" >&2
-printf '%b\n' "This installer cannot change the current shell. For this session, run:" >&2
+printf '%s\n' "New shells will find CoForge Computer. To use it in this one, run:" >&2
 printf '%b\n' "  ${accent}$session_command${reset}" >&2
-printf '%s\n' "Or run directly without changing PATH:" >&2
-# shellcheck disable=SC2016
-printf '%s\n' '  "$HOME/.coforge/computer/bin/coforge-computer" setup --workspace <slug>' >&2
+printf '%s\n' "Then connect this computer to a workspace:" >&2
+printf '%b\n' "  ${accent}coforge-computer setup --workspace <slug>${reset}" >&2
+printf '%s\n' "Or leave PATH alone and use the full path:" >&2
+printf '%s\n' "  \"$bin_directory/coforge-computer\" setup --workspace <slug>" >&2

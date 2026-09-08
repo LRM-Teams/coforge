@@ -213,7 +213,79 @@ try {
   }
 
   & $computerPath install --version $Version
-  exit $LASTEXITCODE
+  # Not `exit`: the documented entry point is `irm ... | iex`, which runs this script inside the
+  # user's own PowerShell process, where a top-level `exit` terminates their session - closing the
+  # window on success just as readily as on failure. Throwing surfaces the failure through the
+  # same path as every other error above and leaves the host alone. Running in-process is also
+  # what lets the PATH work below take effect in the very session that ran the installer.
+  if ($LASTEXITCODE -ne 0) {
+    throw "install.ps1: CoForge Computer $Version install exited with code $LASTEXITCODE"
+  }
+
+  # Mirrors packages/computer/src/paths.ts:resolveComputerBinaryDirectory for win32, which in turn
+  # takes its home directory the way packages/computer/src/cli.ts does - HOME first, USERPROFILE
+  # second. `$HOME` is a read-only PowerShell automatic variable and is not the same thing as
+  # `$env:HOME`, so the environment variables are read explicitly.
+  $homeDirectory = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
+  $binDirectory = Join-Path $homeDirectory ".coforge\computer\bin"
+  # Windows has no directory convention that is already on PATH the way ~/.local/bin is on
+  # Linux and macOS, so the shim keeps the private directory and this script puts that directory
+  # on PATH instead. The shim is a .cmd launcher, not an .exe (packages/computer/src/updater.ts);
+  # PATHEXT is what makes it invocable as a bare `coforge-computer` from both cmd and PowerShell.
+  $shimPath = Join-Path $binDirectory "coforge-computer.cmd"
+  if (-not (Test-Path -LiteralPath $shimPath)) {
+    throw "install.ps1: CoForge Computer $Version was installed, but no shim appeared at $shimPath - that version predates this installer. Re-run this installer once a newer version is published."
+  }
+
+  # Persist to the current user's environment only - never HKLM or the "Machine" scope, which
+  # would need elevation and would change PATH for every account on the box.
+  #
+  # The registry is written through the raw API rather than
+  # [Environment]::SetEnvironmentVariable(..., "User"), which reads the value back expanded and
+  # rewrites it as a plain REG_SZ. On any user whose Path legitimately contains a reference like
+  # %USERPROFILE%, that silently bakes in today's expansion and destroys the reference. Reading
+  # with DoNotExpandEnvironmentNames and writing back as ExpandString preserves it.
+  $environmentKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
+  try {
+    $storedPath = [string]$environmentKey.GetValue(
+      "Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    # Compare entry by entry, not by substring: a substring test both misses "already present but
+    # written with a trailing separator" and falsely matches a directory this one is a prefix of.
+    $storedEntries = $storedPath.Split(";") | Where-Object { $_ -ne "" }
+    $alreadyStored = $false
+    foreach ($entry in $storedEntries) {
+      if ($entry.TrimEnd("\") -ieq $binDirectory.TrimEnd("\")) { $alreadyStored = $true }
+    }
+    if (-not $alreadyStored) {
+      $updatedPath = if ($storedPath -eq "") { $binDirectory } else { "$binDirectory;$storedPath" }
+      $environmentKey.SetValue("Path", $updatedPath, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+    }
+  }
+  finally {
+    if ($environmentKey) { $environmentKey.Close() }
+  }
+  # No WM_SETTINGCHANGE broadcast: every console opened from here on reads the registry at launch,
+  # so the only processes a broadcast would reach are Explorer-spawned applications already
+  # running, which is not worth a user32 P/Invoke in a bootstrap script.
+
+  # The registry write only reaches future processes. This assignment is what makes the command
+  # usable in the session that ran the installer - it works precisely because `irm ... | iex`
+  # executes here rather than in a child process. Checked independently of the registry: either
+  # can already be true without the other.
+  $sessionEntries = ($env:Path -split ";") | Where-Object { $_ -ne "" }
+  $alreadyInSession = $false
+  foreach ($entry in $sessionEntries) {
+    if ($entry.TrimEnd("\") -ieq $binDirectory.TrimEnd("\")) { $alreadyInSession = $true }
+  }
+  if (-not $alreadyInSession) { $env:Path = "$binDirectory;$env:Path" }
+
+  # Write-Host, not Write-Output: under `irm ... | iex` the pipeline carries the script's return
+  # value, and progress text written there would become the expression's result. This is also the
+  # script's only output - matching install.sh's step-by-step reporting is separate work.
+  Write-Host "   CoForge Computer $Version installed and ready to use"
+  Write-Host ""
+  Write-Host "Connect this computer to a workspace:"
+  Write-Host "  coforge-computer setup --workspace <slug>"
 }
 finally {
   Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force -ErrorAction SilentlyContinue
