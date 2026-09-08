@@ -1,24 +1,58 @@
-import { ArrowRight, ArrowUp, Check, Cpu, MessageCircle, Monitor } from "lucide-react";
+import claudeCodeMark from "@lobehub/icons-static-svg/icons/claudecode-color.svg";
+import codexMark from "@lobehub/icons-static-svg/icons/codex.svg";
+import grokMark from "@lobehub/icons-static-svg/icons/grok.svg";
+import openCodeMark from "@lobehub/icons-static-svg/icons/opencode.svg";
+import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
+import { ArrowRight, ChevronDown } from "lucide-react";
+import { MotionConfig, motion, useReducedMotion, useScroll, useTransform } from "motion/react";
+import { useEffect, useState } from "react";
 
-import { Avatar } from "@/components/ui/avatar";
-import { installCommands } from "@/features/install/install-commands";
-import { buttonVariants } from "@/components/ui/button";
+import { BorderBeam } from "@/components/magicui/border-beam";
+import { OrbitingCircles } from "@/components/magicui/orbiting-circles";
+import { AnimatedSpan, Terminal, TypingAnimation } from "@/components/magicui/terminal";
+import AnimatedGradient from "@/components/spell/animated-gradient";
+import { BlurReveal } from "@/components/spell/blur-reveal";
+import { ShimmerText } from "@/components/spell/shimmer-text";
+import { installCommands, setupCommand } from "@/features/install/install-commands";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
 
 export const repositoryUrl = "https://github.com/LRM-Teams/coforge";
-const repositoryLabel = "github.com/LRM-Teams/coforge";
 
-// The page renders outside the app shell, so it carries its own motion rules.
-// Everything is CSS-only and switched off under reduced motion.
-const landingStyles = `
-@keyframes landing-rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-@keyframes landing-blink{50%{opacity:0}}
-.landing-rise{animation:landing-rise .7s cubic-bezier(.2,.7,.2,1) both}
-.landing-blink{animation:landing-blink 1.1s steps(1) infinite}
-@media (prefers-reduced-motion:reduce){.landing-rise,.landing-blink{animation:none}}
-`;
+// The landing page is dark in both themes, so the gradient carries one fixed palette: the page
+// ground, the brand purple, and the light accent lavender. Shape and swirl follow Spell's "Prism"
+// preset, slowed down so it reads as ambient light behind the type.
+const heroGradient = {
+  preset: "custom",
+  color1: "#0a0912",
+  color2: "#5d36dc",
+  color3: "#c5bafe",
+  rotation: -50,
+  proportion: 42,
+  scale: 0.4,
+  speed: 8,
+  distortion: 3,
+  swirl: 55,
+  swirlIterations: 12,
+  softness: 100,
+  offset: -299,
+  shape: "Checks",
+  shapeSize: 45,
+} as const;
+
+// The code agents shown on the landing page. The first three are what the daemon adapts today;
+// OpenCode and Grok are listed ahead of their adapters at Frank's request (2026-09-08).
+// Marks come from LobeHub's static icon set; the monochrome ones take the text colour via a mask.
+const supportedAgents = [
+  { name: "Claude Code", mark: claudeCodeMark, monochrome: false },
+  { name: "Codex", mark: codexMark, monochrome: true },
+  { name: "Pi", mark: piMark, monochrome: true },
+] as const;
+const upcomingAgents = [
+  { name: "OpenCode", mark: openCodeMark, monochrome: true },
+  { name: "Grok", mark: grokMark, monochrome: true },
+] as const;
 
 // Lucide dropped brand marks, so the GitHub octicon is inlined here.
 function GitHubMark({ className = "size-4 shrink-0" }: { className?: string }) {
@@ -26,6 +60,20 @@ function GitHubMark({ className = "size-4 shrink-0" }: { className?: string }) {
     <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="currentColor">
       <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
     </svg>
+  );
+}
+
+function AgentMark({ mark, monochrome }: { mark: string; monochrome: boolean }) {
+  if (!monochrome) {
+    return <img src={mark} alt="" className="size-5 shrink-0" />;
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className="size-5 shrink-0 bg-white mask-contain mask-center mask-no-repeat"
+      // Vite inlines small SVGs as data URLs that contain quotes, so the url() must be quoted.
+      style={{ maskImage: `url("${mark}")`, WebkitMaskImage: `url("${mark}")` }}
+    />
   );
 }
 
@@ -49,7 +97,7 @@ const locales = [
 function LocaleSwitch() {
   const active = getLocale();
   return (
-    <div className="flex items-center rounded-md border bg-background/60 p-0.5 text-xs font-medium">
+    <div className="flex h-8 items-center rounded-full border border-white/15 bg-white/5 p-0.5 text-xs font-medium">
       {locales.map((locale) => (
         <a
           key={locale.code}
@@ -57,8 +105,8 @@ function LocaleSwitch() {
           aria-label={locale.name()}
           aria-current={locale.code === active ? "true" : undefined}
           className={cn(
-            "rounded-sm px-2 py-1 text-muted-foreground hover:text-foreground",
-            locale.code === active && "bg-card text-foreground shadow-xs",
+            "flex h-full items-center rounded-full px-2.5 text-white/60 hover:text-white",
+            locale.code === active && "bg-white/15 text-white",
           )}
         >
           {locale.label}
@@ -68,224 +116,281 @@ function LocaleSwitch() {
   );
 }
 
+/** The gradient is WebGL2 and decorative: it exists only after mount, and only where it can draw. */
+function useWebGl2() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    setReady(document.createElement("canvas").getContext("webgl2") !== null);
+  }, []);
+  return ready;
+}
+
 export function LandingPage({ installOrigin }: { installOrigin: string }) {
-  const teammate = { name: m.landing_scene_teammate_name(), tone: 4 as const };
-  const agent = { name: m.landing_scene_agent_name(), tone: 1 as const };
+  const gradientReady = useWebGl2();
+  const reducedMotion = useReducedMotion() ?? false;
+  const headline = `${m.landing_headline_line_1()} ${m.landing_headline_line_2()}`;
+
+  // The first screen leaves as the reader scrolls: it shrinks a touch, drifts up and fades, driven
+  // by scroll position rather than a timer, so it always matches the reader's hand.
+  const { scrollY } = useScroll();
+  const heroOpacity = useTransform(scrollY, [0, 420], [1, 0]);
+  const heroY = useTransform(scrollY, [0, 420], [0, -60]);
+  const heroScale = useTransform(scrollY, [0, 420], [1, 0.965]);
+  const heroStyle = reducedMotion
+    ? undefined
+    : { opacity: heroOpacity, y: heroY, scale: heroScale };
 
   return (
-    <main className="relative isolate flex min-h-svh flex-col overflow-hidden text-foreground [background:var(--sidebar-background)]">
-      <style>{landingStyles}</style>
-      {/* Brand glow behind the scene, from the same purple the app uses for selection. */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 -z-10 bg-radial-[at_78%_32%] from-brand/20 via-transparent to-transparent dark:from-brand/25"
-      />
+    <MotionConfig reducedMotion="user">
+      {/* The document itself goes dark too, so overscroll and rounded window corners never show white. */}
+      <style>{`html,body{background:#0a0912;color-scheme:dark}html{scroll-snap-type:y proximity}`}</style>
+      <div className="relative isolate flex min-h-svh flex-col overflow-x-clip bg-[#0a0912] font-display text-white antialiased">
+        {/* The animated gradient is the whole picture; the type sits on it like a poster. */}
+        {gradientReady && (
+          <AnimatedGradient config={heroGradient} theme="dark" paused={reducedMotion} />
+        )}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-[1] bg-[linear-gradient(180deg,rgba(10,9,18,0.35)_0%,rgba(10,9,18,0.05)_35%,rgba(10,9,18,0.55)_75%,rgba(10,9,18,0.85)_100%)]"
+        />
 
-      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
-        <span className="flex items-center gap-2.5 text-base font-semibold tracking-tight">
-          <img src="/logo.svg" alt="CoForge" className="size-8" />
-          CoForge
-        </span>
-        <div className="flex items-center gap-2">
-          <LocaleSwitch />
-          <a
-            href={repositoryUrl}
-            target="_blank"
-            rel="noreferrer"
-            aria-label={m.landing_action_repository()}
-            className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "size-9")}
-          >
-            <GitHubMark className="size-5" />
+        <header className="flex h-19 w-full snap-start items-center justify-between px-5 sm:px-8">
+          <a href="/" className="flex items-center gap-2.5" aria-label="CoForge">
+            <img src="/logo.svg" alt="" className="size-8 rounded-lg" />
+            {/* The wordmark ends on the same dot the icon carries. */}
+            <span aria-hidden="true" className="text-[17px] font-bold tracking-[-0.045em]">
+              CoForge<span className="text-[#a993ff]">.</span>
+            </span>
           </a>
-        </div>
-      </header>
-
-      <section className="mx-auto grid w-full max-w-6xl flex-1 grid-cols-[minmax(0,1fr)] items-center gap-12 px-6 py-10 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-16 lg:py-6">
-        <div className="min-w-0 max-w-xl">
-          <span className="inline-flex items-center gap-2 rounded-full border border-brand/25 bg-accent/60 px-3 py-1 text-xs font-medium text-accent-foreground">
-            <span aria-hidden="true" className="size-1.5 rounded-full bg-brand" />
-            {m.landing_eyebrow()}
-          </span>
-          <h1 className="mt-6 text-4xl leading-[1.08] font-semibold tracking-tight text-balance sm:text-5xl">
-            {m.landing_headline_lead()}
-            <br />
-            <span className="text-brand">{m.landing_headline_highlight()}</span>
-          </h1>
-          <p className="mt-5 max-w-lg text-base text-pretty text-muted-foreground sm:text-lg">
-            {m.landing_description()}
-          </p>
-          <div className="mt-8 flex flex-wrap items-center gap-3">
-            <a
-              href="/auth/login"
-              className={cn(
-                buttonVariants({ size: "lg" }),
-                "h-11 bg-brand px-5 text-base text-brand-foreground hover:bg-brand/90",
-              )}
-            >
-              {m.landing_action_sign_in()}
-              <ArrowRight aria-hidden="true" data-icon="inline-end" />
-            </a>
+          <div className="flex items-center gap-3">
             <a
               href={repositoryUrl}
               target="_blank"
               rel="noreferrer"
-              className={cn(
-                buttonVariants({ variant: "outline", size: "lg" }),
-                "h-11 gap-2 bg-card/70 px-4 font-mono text-sm",
-              )}
+              aria-label={m.landing_action_repository()}
+              className="flex size-8 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/10 hover:text-white"
             >
-              <GitHubMark />
-              {repositoryLabel}
+              <GitHubMark className="size-[18px]" />
             </a>
-          </div>
-        </div>
-
-        {/* The scene: one real conversation on top of one real install. */}
-        <div className="relative w-full min-w-0 lg:pr-6">
-          <article className="landing-rise rounded-xl border bg-card shadow-xl shadow-brand/10 dark:shadow-black/40">
-            <div className="flex items-center gap-3 border-b px-4 py-3">
-              <Avatar people={[teammate, agent]} size="md" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">
-                  {m.landing_scene_conversation_title()}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {m.landing_scene_conversation_kind()}
-                </p>
-              </div>
-              <span className="flex shrink-0 items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
-                <span aria-hidden="true" className="size-1.5 rounded-full bg-success" />
-                {m.landing_scene_status_online()}
-              </span>
-            </div>
-
-            <ul className="flex flex-col gap-5 px-4 py-5">
-              <li className="landing-rise flex justify-end" style={{ animationDelay: "0.35s" }}>
-                <div className="flex max-w-[85%] items-end gap-2.5">
-                  <p className="rounded-lg bg-accent px-4 py-2.5 text-sm leading-5 font-medium text-accent-foreground">
-                    {m.landing_scene_user_message()}
-                  </p>
-                  <Avatar people={[teammate]} size="sm" />
-                </div>
-              </li>
-              <li
-                className="landing-rise flex items-start gap-2.5"
-                style={{ animationDelay: "1.2s" }}
+            <LocaleSwitch />
+            <span className="relative inline-flex overflow-hidden rounded-full">
+              <a
+                href="/auth/login"
+                className="group relative flex h-9 items-center overflow-hidden rounded-full border border-white/15 bg-white/10 pr-6 pl-5 text-sm font-medium text-white"
               >
-                <Avatar people={[agent]} size="sm" online />
-                <div className="min-w-0 max-w-[85%]">
-                  <p className="mb-1 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground">{agent.name}</span>
-                    <span className="rounded bg-accent/60 px-1.5 py-px text-[11px] font-medium text-accent-foreground">
-                      {m.landing_scene_agent_runtime()}
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <Monitor aria-hidden="true" className="size-3" />
-                      {m.landing_scene_computer_name()}
-                    </span>
-                  </p>
-                  <p className="rounded-lg bg-muted px-4 py-2.5 text-sm leading-5 font-medium">
-                    {m.landing_scene_agent_message()}
-                  </p>
-                </div>
-              </li>
-            </ul>
-
-            <div className="mx-4 mb-4 flex items-center gap-2 rounded-2xl border bg-background px-3 py-2">
-              <span className="flex-1 truncate text-sm text-muted-foreground">
-                {m.landing_scene_composer_placeholder()}
-              </span>
-              <span
-                aria-hidden="true"
-                className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand text-brand-foreground"
-              >
-                <ArrowUp className="size-4" />
-              </span>
-            </div>
-          </article>
-
-          <div
-            className="landing-rise relative -mt-3 ml-auto w-full rounded-xl bg-terminal p-4 text-sm text-terminal-foreground shadow-xl ring-1 ring-white/10 sm:-mr-4 sm:w-[88%] lg:-mr-6"
-            style={{ animationDelay: "0.15s" }}
-          >
-            <div className="flex items-center gap-2 text-xs text-terminal-foreground/60">
-              <Monitor aria-hidden="true" className="size-3.5" />
-              <span className="shrink-0 font-medium whitespace-nowrap text-terminal-foreground/80">
-                {m.landing_scene_terminal_title()}
-              </span>
-              <span className="hidden min-w-0 truncate sm:inline">
-                · {m.landing_scene_terminal_hint()}
-              </span>
-            </div>
-            <pre className="mt-3 overflow-x-auto font-mono text-[13px] leading-6 whitespace-pre">
-              <code>
-                <span className="text-accent dark:text-accent-foreground">$ </span>
-                {installCommands(installOrigin).posix}
-                {"\n"}
-                <span className="landing-rise inline-block" style={{ animationDelay: "1.6s" }}>
-                  <Check aria-hidden="true" className="mr-1.5 inline size-3.5 text-success" />
-                  <span className="text-success">{m.landing_scene_terminal_connected()}</span>
-                </span>
-                {"\n"}
-                <span
-                  className="landing-rise inline-block text-terminal-foreground/60"
-                  style={{ animationDelay: "2s" }}
-                >
-                  {m.landing_scene_terminal_runtimes()}
-                </span>
-                {"\n"}
-                <span className="text-accent dark:text-accent-foreground">$ </span>
+                {/* The fill grows out of the left edge; the arrow fades into the right padding, so nothing moves. */}
                 <span
                   aria-hidden="true"
-                  className="landing-blink inline-block h-3.5 w-2 translate-y-0.5 bg-terminal-foreground/80"
+                  className="absolute top-1/2 left-3 size-2 -translate-y-1/2 rounded-full bg-white/20 opacity-0 transition-all duration-300 group-hover:scale-[60] group-hover:opacity-100"
                 />
-              </code>
-            </pre>
+                <span className="relative">{m.landing_action_sign_in()}</span>
+                <ArrowRight
+                  aria-hidden="true"
+                  className="absolute top-1/2 right-2 size-3.5 -translate-x-1 -translate-y-1/2 opacity-0 transition-all duration-300 group-hover:translate-x-0 group-hover:opacity-100"
+                />
+              </a>
+              <BorderBeam size={40} duration={7} colorFrom="#c5bafe" colorTo="#5d36dc" />
+            </span>
           </div>
-        </div>
-      </section>
+        </header>
 
-      <footer className="mx-auto w-full max-w-6xl px-6 pb-8">
-        <ul className="grid gap-5 border-t border-border/70 pt-6 sm:grid-cols-3 sm:gap-8">
-          <LandingPoint
-            icon={<MessageCircle aria-hidden="true" className="size-4" />}
-            heading={m.landing_point_conversations_title()}
-            body={m.landing_point_conversations_body()}
-          />
-          <LandingPoint
-            icon={<Monitor aria-hidden="true" className="size-4" />}
-            heading={m.landing_point_computers_title()}
-            body={m.landing_point_computers_body()}
-          />
-          <LandingPoint
-            icon={<Cpu aria-hidden="true" className="size-4" />}
-            heading={m.landing_point_runtimes_title()}
-            body={m.landing_point_runtimes_body()}
-          />
-        </ul>
-      </footer>
-    </main>
+        <main className="relative mx-auto flex min-h-[calc(100svh-4.75rem)] w-full max-w-6xl flex-col justify-center px-6 pt-8 pb-16">
+          <motion.div
+            style={heroStyle}
+            className="grid grid-cols-1 items-center gap-12 lg:grid-cols-[minmax(0,8fr)_minmax(0,4fr)] lg:gap-6"
+          >
+            <div className="min-w-0">
+              <ShimmerText
+                className="text-xs font-medium tracking-[0.22em] text-white/55 uppercase [--shimmer-contrast:rgba(255,255,255,1)]"
+                duration={1.6}
+                delay={1.4}
+              >
+                {m.landing_eyebrow()}
+              </ShimmerText>
+
+              <h1 className="sr-only">{headline}</h1>
+              <div
+                aria-hidden="true"
+                className="mt-5 text-[clamp(2.5rem,5vw,4.25rem)] leading-[1.04] font-semibold tracking-[-0.03em]"
+              >
+                <BlurReveal as="span" className="block" speedReveal={1.2}>
+                  {m.landing_headline_line_1()}
+                </BlurReveal>
+                <BlurReveal
+                  as="span"
+                  className="block whitespace-nowrap"
+                  speedReveal={1.2}
+                  delay={0.35}
+                >
+                  {m.landing_headline_line_2()}
+                </BlurReveal>
+              </div>
+
+              <motion.p
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 1, ease: "easeOut" }}
+                className="mt-7 max-w-xl text-lg text-pretty text-white/70 sm:text-xl"
+              >
+                {m.landing_description()}
+              </motion.p>
+            </div>
+
+            <AgentOrbit />
+          </motion.div>
+
+          <motion.a
+            href="#computer"
+            aria-label={m.landing_scroll_hint()}
+            style={reducedMotion ? undefined : { opacity: heroOpacity }}
+            className="absolute bottom-5 left-1/2 flex -translate-x-1/2 flex-col items-center gap-1 text-[11px] tracking-[0.2em] text-white/40 uppercase transition-colors hover:text-white/70"
+          >
+            {m.landing_scroll_hint()}
+            <ChevronDown aria-hidden="true" className="size-4 animate-bounce" />
+          </motion.a>
+        </main>
+
+        {/* Second screen: how a machine actually joins, typed out when it scrolls into view. */}
+        <section
+          id="computer"
+          className="mx-auto flex min-h-svh w-full max-w-6xl snap-start flex-col items-center justify-center px-6 py-20 text-center"
+        >
+          <BlurReveal
+            as="h2"
+            inView
+            speedReveal={1.4}
+            className="max-w-3xl text-3xl font-semibold tracking-[-0.02em] text-balance sm:text-4xl lg:text-5xl"
+          >
+            {m.landing_computer_title()}
+          </BlurReveal>
+          <motion.p
+            initial={{ opacity: 0, y: 12 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-80px" }}
+            transition={{ duration: 0.6, delay: 0.35, ease: "easeOut" }}
+            className="mt-4 max-w-xl text-base text-pretty text-white/60 sm:text-lg"
+          >
+            {m.landing_computer_body()}
+          </motion.p>
+          <div className="mt-10 w-full max-w-2xl text-left">
+            <InstallTerminal installOrigin={installOrigin} />
+          </div>
+        </section>
+      </div>
+    </MotionConfig>
   );
 }
 
-function LandingPoint({
-  icon,
-  heading,
-  body,
+/**
+ * The picture for "teammates": the three code agents circle the CoForge mark. The outer ring carries
+ * the agents, the inner ring a few small dots going the other way, like work passing between them.
+ * The rings are drawn here instead of by the component so they read on the dark page.
+ */
+function AgentOrbit() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.8, delay: 0.6, ease: "easeOut" }}
+      className="relative mx-auto flex h-[340px] w-full max-w-[340px] items-center justify-center lg:h-[420px] lg:max-w-none"
+    >
+      <span
+        aria-hidden="true"
+        className="absolute size-[260px] rounded-full border border-white/10 lg:size-[300px]"
+      />
+      <span
+        aria-hidden="true"
+        className="absolute size-[152px] rounded-full border border-white/10 lg:size-[176px]"
+      />
+
+      <img
+        src="/logo.svg"
+        alt="CoForge"
+        className="size-16 rounded-2xl shadow-[0_0_80px_rgba(93,54,220,0.55)] ring-1 ring-white/20"
+      />
+
+      <div className="absolute inset-0 hidden items-center justify-center lg:flex">
+        <OrbitingCircles radius={150} iconSize={48} duration={36} path={false}>
+          {supportedAgents.map((agent) => (
+            <AgentBadge key={agent.name} agent={agent} />
+          ))}
+        </OrbitingCircles>
+        <OrbitingCircles radius={88} iconSize={40} duration={26} path={false} reverse>
+          {upcomingAgents.map((agent) => (
+            <AgentBadge key={agent.name} agent={agent} />
+          ))}
+        </OrbitingCircles>
+      </div>
+      <div className="absolute inset-0 flex items-center justify-center lg:hidden">
+        <OrbitingCircles radius={130} iconSize={44} duration={36} path={false}>
+          {supportedAgents.map((agent) => (
+            <AgentBadge key={agent.name} agent={agent} />
+          ))}
+        </OrbitingCircles>
+        <OrbitingCircles radius={76} iconSize={36} duration={26} path={false} reverse>
+          {upcomingAgents.map((agent) => (
+            <AgentBadge key={agent.name} agent={agent} />
+          ))}
+        </OrbitingCircles>
+      </div>
+    </motion.div>
+  );
+}
+
+function AgentBadge({
+  agent,
 }: {
-  icon: React.ReactNode;
-  heading: string;
-  body: string;
+  agent: (typeof supportedAgents)[number] | (typeof upcomingAgents)[number];
 }) {
   return (
-    <li className="flex gap-3">
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-        {icon}
-      </span>
-      <div>
-        <h2 className="text-sm font-medium">{heading}</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">{body}</p>
-      </div>
-    </li>
+    <span
+      aria-label={agent.name}
+      className="flex size-full items-center justify-center rounded-full border border-white/15 bg-[#14121f]/85 shadow-lg shadow-black/40 backdrop-blur-sm"
+    >
+      <AgentMark mark={agent.mark} monochrome={agent.monochrome} />
+    </span>
+  );
+}
+
+/**
+ * The picture for "your own computer": the real way a machine joins a Workspace, typed out line by
+ * line. Commands are the product's actual commands; the status lines are the product's actual
+ * milestones, so nothing here is fiction.
+ */
+function InstallTerminal({ installOrigin }: { installOrigin: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-80px" }}
+      transition={{ duration: 0.7, delay: 0.6, ease: "easeOut" }}
+      className="w-full"
+    >
+      <Terminal className="max-h-none max-w-none border-white/10 bg-[#0d0b17]/85 shadow-2xl shadow-black/40 backdrop-blur-md [&_code]:font-display-mono [&_pre]:text-[13px] [&_pre]:leading-6">
+        <TypingAnimation className="text-white/90" duration={28} delay={300}>
+          {`$ ${installCommands(installOrigin).posix}`}
+        </TypingAnimation>
+        <AnimatedSpan className="text-emerald-400">✔ {m.landing_terminal_installed()}</AnimatedSpan>
+        <TypingAnimation className="text-white/90" duration={28}>
+          {`$ ${setupCommand("acme")}`}
+        </TypingAnimation>
+        <AnimatedSpan className="text-emerald-400">✔ {m.landing_terminal_connected()}</AnimatedSpan>
+        <AnimatedSpan className="text-white/60">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            ℹ {m.landing_terminal_runtimes()}
+            {supportedAgents.map((agent) => (
+              <span key={agent.name} className="inline-flex items-center gap-1.5 text-white/85">
+                <AgentMark mark={agent.mark} monochrome={agent.monochrome} />
+                {agent.name}
+              </span>
+            ))}
+          </span>
+        </AnimatedSpan>
+        <AnimatedSpan className="text-emerald-400">
+          ✔ {m.landing_terminal_agent_online()}
+        </AnimatedSpan>
+        <AnimatedSpan className="text-white/50">{m.landing_terminal_hint()}</AnimatedSpan>
+      </Terminal>
+    </motion.div>
   );
 }
