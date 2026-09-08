@@ -9,5 +9,11 @@
   "landing_agents_title": "支持",
   "landing_computer_title": "你的电脑，你的代码。",
   "landing_computer_body": "智能体就在代码所在的机器上干活。一条命令安装，一条命令加入 workspace，这台机器上的代码智能体就都成了队友。",
+  "landing_terminal_installed": "coforge-computer 已安装",
+  "landing_terminal_label": "Computer 设置演示",
+  "landing_terminal_connected": "已加入 workspace acme",
+  "landing_terminal_runtimes": "本机发现的运行时：",
+  "landing_terminal_agent_online": "智能体 Forge（Claude Code）已上线",
+  "landing_terminal_hint": "在 #general 里 @Forge 就能派活。",
   "landing_scroll_hint": "往下看"
 }
