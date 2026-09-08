@@ -39,11 +39,26 @@ export function resolveComputerInstallDirectory(input: {
   return joinUserDirectory(input, "computer", "install");
 }
 
+/**
+ * Resolves the directory holding the `coforge-computer` shim - the single installed path that
+ * must enter the user's PATH. Unlike every other Computer directory it deliberately does not sit
+ * under `~/.coforge`: a private directory is on nobody's PATH, so it would force the installer to
+ * edit shell configuration and leave the just-installed command unusable until the next shell.
+ * Linux and macOS therefore use the XDG user binary directory, which is already on PATH for most
+ * users, and the shim there is only a symlink into the versioned installation below `~/.coforge`.
+ * Windows has no comparable per-user PATH convention and keeps the private directory.
+ */
 export function resolveComputerBinaryDirectory(input: {
   platform: NodeJS.Platform;
   homeDirectory: string;
   environment: PathEnvironment;
 }): string {
+  if (input.platform === "linux" || input.platform === "darwin") {
+    const configured = input.environment.XDG_BIN_HOME;
+    return configured && posix.isAbsolute(configured)
+      ? configured
+      : posix.join(input.homeDirectory, ".local", "bin");
+  }
   return joinUserDirectory(input, "computer", "bin");
 }
 

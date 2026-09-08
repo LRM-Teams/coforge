@@ -433,12 +433,12 @@ for (const shell of ["bash", "zsh", "fish"] as const) {
     const content = await readFile(secondConfiguration, "utf8");
     const pathLine =
       shell === "fish"
-        ? 'fish_add_path "$HOME/.coforge/computer/bin"'
-        : 'export PATH="$HOME/.coforge/computer/bin:$PATH"';
+        ? 'fish_add_path "$HOME/.local/bin"'
+        : 'export PATH="$HOME/.local/bin:$PATH"';
     expect(content).toContain(original);
     expect(content.split(pathLine)).toHaveLength(2);
     expect(first.stderr).toContain("This installer cannot change the current shell");
-    expect(first.stderr).toContain('"$HOME/.coforge/computer/bin/coforge-computer" setup');
+    expect(first.stderr).toContain(`"${join(first.home, ".local/bin/coforge-computer")}" setup`);
     if (shell === "bash") {
       const loginProfile = await readFile(join(first.home, ".bash_profile"), "utf8");
       expect(loginProfile.split(pathLine)).toHaveLength(2);
@@ -446,7 +446,7 @@ for (const shell of ["bash", "zsh", "fish"] as const) {
 
     const shellExecutable = Bun.which(shell);
     if (shellExecutable) {
-      const installedBin = join(first.home, ".coforge/computer/bin");
+      const installedBin = join(first.home, ".local/bin");
       await mkdir(installedBin, { recursive: true });
       const installedExecutable = join(installedBin, "coforge-computer");
       await Bun.write(installedExecutable, "#!/bin/sh\nexit 0\n");
@@ -475,6 +475,84 @@ for (const shell of ["bash", "zsh", "fish"] as const) {
     }
   });
 }
+
+// The reason the shim goes to the XDG user binary directory at all: for most users it is already
+// on PATH, and then a fresh install is usable in the shell that ran the installer. Nothing may be
+// appended to shell configuration in that case, and the installer must not print the PATH advice
+// - a user told to run `fish_add_path` for a directory already on PATH is being sent to fix a
+// problem they do not have.
+for (const shell of ["bash", "zsh", "fish"] as const) {
+  test(`install.sh changes no ${shell} configuration when the shim directory is already on PATH`, async () => {
+    const fixture = await serveFixture();
+    const home = await mkdtemp(join(tmpdir(), "coforge-installer-home-"));
+    const xdg = await mkdtemp(join(tmpdir(), "coforge-xdg-"));
+    const zdot = await mkdtemp(join(tmpdir(), "coforge-zdot-"));
+    temporaryDirectories.push(home, xdg, zdot);
+
+    const result = await run(
+      ["--version", fixture.version],
+      {
+        ...process.env,
+        PATH: `${join(home, ".local/bin")}:${process.env.PATH ?? ""}`,
+        SHELL: `/usr/bin/${shell}`,
+        XDG_CONFIG_HOME: xdg,
+        ZDOTDIR: zdot,
+        COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+        COFORGE_INSTALLER_TEST_MODE: "1",
+      },
+      home,
+      { zdotdir: zdot, xdgConfigHome: xdg },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(`CoForge Computer ${fixture.version} installed`);
+    expect(result.stderr).toContain("coforge-computer setup --workspace <slug>");
+    expect(result.stderr).not.toContain("This installer cannot change the current shell");
+    expect(result.stderr).not.toContain("fish_add_path");
+    expect(result.stderr).not.toContain("export PATH=");
+    for (const configuration of [
+      join(xdg, "fish/conf.d/coforge.fish"),
+      join(zdot, ".zshrc"),
+      join(home, ".bashrc"),
+      join(home, ".bash_profile"),
+      join(home, ".profile"),
+    ]) {
+      expect(await Bun.file(configuration).exists()).toBe(false);
+    }
+  });
+}
+
+// XDG_BIN_HOME relocates the shim, and the installer must resolve it exactly as
+// packages/computer/src/paths.ts does - otherwise it writes PATH setup for, or advertises, a
+// directory the binary never installs into.
+test("install.sh follows an absolute XDG_BIN_HOME and ignores a relative one", async () => {
+  const fixture = await serveFixture();
+  const binHome = await mkdtemp(join(tmpdir(), "coforge-bin-home-"));
+  temporaryDirectories.push(binHome);
+
+  const relocated = await run(["--version", fixture.version], {
+    ...process.env,
+    PATH: `${binHome}:${process.env.PATH ?? ""}`,
+    SHELL: "/usr/bin/zsh",
+    XDG_BIN_HOME: binHome,
+    COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+    COFORGE_INSTALLER_TEST_MODE: "1",
+  });
+  expect(relocated.exitCode).toBe(0);
+  expect(relocated.stderr).not.toContain("This installer cannot change the current shell");
+
+  const relative = await run(["--version", fixture.version], {
+    ...process.env,
+    SHELL: "/usr/bin/zsh",
+    XDG_BIN_HOME: "bin",
+    COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+    COFORGE_INSTALLER_TEST_MODE: "1",
+  });
+  expect(relative.exitCode).toBe(0);
+  expect(await readFile(join(relative.home, ".zshrc"), "utf8")).toContain(
+    'export PATH="$HOME/.local/bin:$PATH"',
+  );
+});
 
 test("install.sh reports PATH persistence failure and does not claim install success", async () => {
   const fixture = await serveFixture();
@@ -568,7 +646,10 @@ test("install scripts fail closed and stay within the current user's own account
   expect(shell).toContain("fetch_binary()");
   expect(shell).toContain("fetch_binary --max-filesize");
   expect(shell).toContain("export PATH=");
-  expect(shell).toContain("$HOME/.coforge/computer/bin");
+  // The shim - the one installed path that must be on PATH - lives in the XDG user binary
+  // directory, never in the private ~/.coforge root that nothing has on PATH.
+  expect(shell).toContain("$HOME/.local/bin");
+  expect(shell).not.toContain(".coforge/computer/bin");
   expect(powershell).toContain("HTTPS");
   // Neither script's size-cap constants may ever be a literal 0: curl treats `--max-filesize 0`
   // as "unlimited" (N4), and install.ps1's Get-CoforgeObject enforces its MaxBytes with a plain

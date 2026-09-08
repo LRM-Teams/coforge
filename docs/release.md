@@ -263,15 +263,23 @@ current user. They must not request `sudo` or administrator elevation, write to
 `/usr/local`, `/opt`, `/Library`, `Program Files`, or system service locations,
 or reuse another user's installation.
 
-- Linux resolves configuration, data, state, and cache from the XDG base
-  directories. Only the Computer shim may use the current user's
-  `~/.local/bin` when no configured user binary directory exists; Computer
-  background startup is user-scoped.
-- macOS resolves support files and version storage from the current user's
-  `~/Library/Application Support/CoForge`; only Computer may register a
-  per-user LaunchAgent.
-- Windows resolves program and application data below the current user's
-  `LocalAppData`; only Computer may use a current-user startup mechanism.
+Configuration, credentials, version storage, and logs live below the current
+user's `~/.coforge`, split into `computer` and `daemon` roots. The one exception
+is the `coforge-computer` shim, which is the single installed path that has to
+be on PATH and therefore cannot live in a private directory nobody's PATH names:
+
+- Linux and macOS place the shim in the XDG user binary directory - `XDG_BIN_HOME`
+  when it is set to an absolute path, otherwise `~/.local/bin`. That directory is
+  already on PATH for most users, so an install is usable in the shell that ran
+  the installer, and `install.sh` writes shell configuration only when the
+  directory is genuinely absent from PATH. The shim itself is only a symlink into
+  the versioned installation below `~/.coforge`, so upgrade and rollback move the
+  `active` link and never touch the user's PATH. Computer background startup is
+  user-scoped; only Computer may register a per-user LaunchAgent on macOS.
+- Windows has no comparable per-user PATH convention, so the shim stays in
+  `~/.coforge/computer/bin`. `install.ps1` does not amend the user's `Path`
+  today, so a Windows install is not yet usable without naming the shim's full
+  path; only Computer may use a current-user startup mechanism.
 
 The installer maintains a user-owned versioned installation directory. It downloads
 the Computer and Daemon binaries into staging, verifies each against the

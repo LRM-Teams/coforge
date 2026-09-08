@@ -374,7 +374,10 @@ export class ComputerUpdater {
 
   async #activate(state: ActiveState): Promise<void> {
     await this.#writeJsonAtomic("active.json", state);
-    await mkdir(this.#binaryDirectory, { recursive: true, mode: 0o700 });
+    // 0o755, not the 0o700 used everywhere below `~/.coforge`: the shim directory is a shared
+    // conventional location (`~/.local/bin`) that other tools also install into, and a recursive
+    // create would otherwise leave `~/.local` itself owner-only for every one of them.
+    await mkdir(this.#binaryDirectory, { recursive: true, mode: 0o755 });
     if (this.#target.startsWith("windows-")) {
       const launcher = [
         "@echo off",

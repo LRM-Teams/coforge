@@ -210,12 +210,42 @@ chmod 700 "$computer_path"
 step "Installing CoForge"
 "$computer_path" install --version "$version"
 
-bin_directory="$HOME/.coforge/computer/bin"
-# Expand HOME and PATH when the user's shell reads its configuration, not in this installer.
-# shellcheck disable=SC2016
-posix_path_line='export PATH="$HOME/.coforge/computer/bin:$PATH"'
-# shellcheck disable=SC2016
-fish_path_line='fish_add_path "$HOME/.coforge/computer/bin"'
+# This must resolve the shim directory by exactly the rule
+# packages/computer/src/paths.ts:resolveComputerBinaryDirectory applies, because the binary
+# invoked above is what actually creates the shim - if the two disagree, every hint printed below
+# names a path that does not exist. A relative XDG_BIN_HOME is not a usable PATH entry, so, as
+# there, only an absolute value is honoured.
+bin_directory=${XDG_BIN_HOME:-}
+case "$bin_directory" in
+  /*) ;;
+  *) bin_directory="$HOME/.local/bin" ;;
+esac
+# Expand HOME and PATH when the user's shell reads its configuration, not in this installer. The
+# literal below is only correct for the default directory; an XDG_BIN_HOME install writes the
+# already-resolved path instead, since that variable need not be set in a later shell.
+if [ "$bin_directory" = "$HOME/.local/bin" ]; then
+  # shellcheck disable=SC2016
+  posix_path_line='export PATH="$HOME/.local/bin:$PATH"'
+  # shellcheck disable=SC2016
+  fish_path_line='fish_add_path "$HOME/.local/bin"'
+else
+  posix_path_line="export PATH=\"$bin_directory:\$PATH\""
+  fish_path_line="fish_add_path \"$bin_directory\""
+fi
+
+# Installing into the XDG user binary directory is what makes this "just work": it is already on
+# PATH for most users, so the command is usable in this very shell and there is nothing to
+# configure and nothing to tell the user to run. Shell configuration is edited only in the
+# fallback below, when the directory really is absent from PATH.
+case ":${PATH:-}:" in
+  *":$bin_directory:"*)
+    done_step "CoForge Computer $version installed"
+    printf '%b\n' "" >&2
+    printf '%s\n' "Get started:" >&2
+    printf '%b\n' "  ${accent}coforge-computer setup --workspace <slug>${reset}" >&2
+    exit 0
+    ;;
+esac
 
 append_path_line() {
   configuration_path=$1
@@ -283,5 +313,4 @@ printf '%b\n' "" >&2
 printf '%b\n' "This installer cannot change the current shell. For this session, run:" >&2
 printf '%b\n' "  ${accent}$session_command${reset}" >&2
 printf '%s\n' "Or run directly without changing PATH:" >&2
-# shellcheck disable=SC2016
-printf '%s\n' '  "$HOME/.coforge/computer/bin/coforge-computer" setup --workspace <slug>' >&2
+printf '%s\n' "  \"$bin_directory/coforge-computer\" setup --workspace <slug>" >&2
