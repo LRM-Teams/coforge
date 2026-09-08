@@ -134,7 +134,7 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
     <MotionConfig reducedMotion="user">
       {/* The document itself goes dark too, so overscroll and rounded window corners never show white. */}
       <style>{`html,body{background:#0a0912;color-scheme:dark}html{scroll-behavior:smooth}`}</style>
-      <div className="relative isolate overflow-x-clip bg-[#0a0912] font-display text-white antialiased">
+      <div className="relative isolate overflow-x-clip bg-[#0a0912] text-white antialiased">
         {/* The animated gradient is the whole picture, behind both screens. */}
         <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10">
           {gradientReady && (
@@ -197,7 +197,7 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
                 <h1 className="sr-only">{headline}</h1>
                 <div
                   aria-hidden="true"
-                  className="mt-5 text-[clamp(2.25rem,5vw,4.25rem)] leading-[1.04] font-semibold tracking-[-0.03em] text-balance"
+                  className="mt-5 font-display text-[clamp(2.25rem,5vw,4.25rem)] leading-[1.04] font-semibold tracking-[-0.03em] text-balance"
                 >
                   <BlurReveal as="span" className="block" speedReveal={1.2}>
                     {m.landing_headline_line_1()}

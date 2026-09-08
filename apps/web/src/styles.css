@@ -1,19 +1,20 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-/* Self-hosted so the fonts also load where Google Fonts does not; only the landing page uses them
-   until the design spec settles typography for the workbench. */
+/* Self-hosted so the fonts also load where Google Fonts does not. JetBrains Mono is the app face
+   (Frank's pick, 2026-09-08, following DHH's Omarchy default); Geist only sets the landing headline. */
+@import "@fontsource-variable/jetbrains-mono";
 @import "@fontsource-variable/geist";
-@import "@fontsource-variable/geist-mono";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  /* Geist for Latin text across the app; CJK falls back to the system faces. */
-  --font-sans: "Geist Variable", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* JetBrains Mono for Latin text across the app; CJK falls back to the system faces. */
+  --font-sans:
+    "JetBrains Mono Variable", ui-monospace, "PingFang SC", "Microsoft YaHei", system-ui, monospace;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-display: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-display-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
