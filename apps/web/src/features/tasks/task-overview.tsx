@@ -77,7 +77,9 @@ export function TaskOverview({
               ))}
             </SelectContent>
           </Select>
-          <TaskLayoutToggle layout={layout} onChange={onLayoutChange} />
+          <div className="ml-auto">
+            <TaskLayoutToggle layout={layout} onChange={onLayoutChange} />
+          </div>
         </div>
         {visible.length === 0 && (
           <p className="py-16 text-center text-sm text-muted-foreground">

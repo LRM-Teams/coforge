@@ -79,6 +79,8 @@ test("status menu submits the rendered revision and locks all movement while sav
     status: "in_review",
     expectedRevision: 7,
   });
+  expect(within(page.getByRole("region", { name: "In review" })).getByText("Work 1")).toBeTruthy();
+  expect(page.getByRole("heading", { name: "In progress 1" })).toBeTruthy();
   for (const control of page.getAllByRole("combobox", { name: "Change status" }))
     expect(control.hasAttribute("disabled")).toBe(true);
   await act(async () => finish());
@@ -104,4 +106,39 @@ test("read-only views expose neither status controls nor drag handles", () => {
   const page = within(document.body);
   expect(page.queryByRole("combobox", { name: "Change status" })).toBeNull();
   expect(page.queryByRole("button", { name: /Move task/ })).toBeNull();
+});
+
+test("failed optimistic move restores latest server data rather than the old snapshot", async () => {
+  let fail!: (cause: Error) => void;
+  const onMove = mock(
+    () =>
+      new Promise<void>((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
+  const view = renderWorkflow(onMove);
+  const page = within(document.body);
+  const user = userEvent.setup();
+  await user.click(page.getAllByRole("combobox", { name: "Change status" })[0]!);
+  await user.click(page.getByRole("option", { name: "In review" }));
+  expect(within(page.getByRole("region", { name: "In review" })).getByText("Work 1")).toBeTruthy();
+  view.rerender(
+    <TaskWorkflow
+      tasks={[{ ...tasks[0]!, status: "closed", revision: 8 }, tasks[1]!]}
+      layout="list"
+      currentMemberId={() => "me"}
+      onMove={onMove}
+      renderTask={(task, controls) => (
+        <article>
+          {task.title}
+          {controls}
+        </article>
+      )}
+    />,
+  );
+  await act(async () => fail(new Error("CONFLICT")));
+  expect(within(page.getByRole("region", { name: "Closed" })).getByText("Work 1")).toBeTruthy();
+  expect(page.getByRole("heading", { name: "In review 0" })).toBeTruthy();
+  expect(page.getByRole("heading", { name: "In progress 1" })).toBeTruthy();
+  expect(page.getByRole("alert").textContent).toContain("could not be updated");
 });

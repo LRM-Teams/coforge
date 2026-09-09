@@ -70,16 +70,25 @@ export function TaskWorkflow<T extends TaskView>({
   renderTask: (task: T, controls: ReactNode) => ReactNode;
 }) {
   const [active, setActive] = useState<T>();
-  const [pending, setPending] = useState<string>();
+  const [pending, setPending] = useState<{
+    messageId: string;
+    revision: number;
+    status: TaskStatus;
+  }>();
   const saving = useRef(false);
   const [error, setError] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor),
   );
+  const displayedTasks = tasks.map((task) =>
+    pending?.messageId === task.messageId && pending.revision === task.revision
+      ? { ...task, status: pending.status }
+      : task,
+  );
   const groups = statuses.map((status) => ({
     status,
-    tasks: tasks.filter((task) => task.status === status),
+    tasks: displayedTasks.filter((task) => task.status === status),
   }));
 
   const controls = (task: T) => {
@@ -153,12 +162,14 @@ export function TaskWorkflow<T extends TaskView>({
             )}
           >
             {group.tasks.map((task) => (
-              <div key={task.messageId}>{renderTask(task, controls(task))}</div>
+              <div key={task.messageId} aria-busy={pending?.messageId === task.messageId}>
+                {renderTask(task, controls(task))}
+              </div>
             ))}
           </TaskGroup>
         ))}
       </div>
-      <DragOverlay>
+      <DragOverlay dropAnimation={null}>
         {active ? (
           <div className="w-64 rounded-lg border bg-card p-3 shadow-lg">
             <span className="text-xs text-muted-foreground">#{active.number}</span>
@@ -175,7 +186,7 @@ export function TaskWorkflow<T extends TaskView>({
     if (!command) return;
     saving.current = true;
     setError(false);
-    setPending(task.messageId);
+    setPending({ messageId: task.messageId, revision: task.revision, status });
     try {
       await onMove(task, command);
     } catch {
@@ -238,7 +249,16 @@ function TaskGroup({
       }
     >
       <h2 className="mb-3 flex items-center gap-2 text-sm font-medium">
-        {statusLabel(status)} <span className="text-xs text-muted-foreground">{count}</span>
+        <span
+          className={`inline-flex items-center gap-2 rounded-md px-2 py-1 ${statusAppearance[status].background}`}
+        >
+          <span
+            aria-hidden="true"
+            className={`size-2 shrink-0 rounded-full ${statusAppearance[status].dot}`}
+          />
+          {statusLabel(status)}
+        </span>
+        <span className="text-xs text-muted-foreground">{count}</span>
       </h2>
       <div className={board ? "flex min-h-24 flex-col gap-3" : "flex flex-col gap-2"}>
         {children}
@@ -256,6 +276,14 @@ export function statusLabel(status: TaskStatus) {
     closed: m.tasks_status_closed,
   }[status]();
 }
+
+const statusAppearance = {
+  todo: { background: "bg-muted", dot: "bg-muted-foreground" },
+  in_progress: { background: "bg-info/10", dot: "bg-info" },
+  in_review: { background: "bg-brand/10", dot: "bg-brand" },
+  done: { background: "bg-success/10", dot: "bg-success" },
+  closed: { background: "bg-offline/15", dot: "bg-offline" },
+} satisfies Record<TaskStatus, { background: string; dot: string }>;
 
 function parseTaskStatus(value: string | null): TaskStatus | undefined {
   return TASK_STATUSES.find((status) => status === value);
