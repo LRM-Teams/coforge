@@ -42,24 +42,35 @@ test("opens the language menu by pointer and keyboard with the correct locale li
   expect(document.activeElement).toBe(page.getByRole("menuitem", { name: "切换到中文" }));
 });
 
-test("keeps installation commands and copy controls off the first screen", () => {
+test("shows the terminal in the single-page hero instead of the description and second screen", () => {
   const markup = renderToStaticMarkup(<LandingPage installOrigin={installOrigin} />);
   const firstScreen = markup.match(/<main\b[^>]*>[\s\S]*?<\/main>/)?.[0];
 
   expect(firstScreen).toBeDefined();
-  expect(firstScreen).not.toContain("curl -fsSL");
-  expect(firstScreen).not.toContain("install.ps1");
-  expect(firstScreen).not.toContain("coforge-computer setup");
+  expect(firstScreen).toContain('aria-label="Computer setup demo"');
+  expect(firstScreen).toContain("coforge-computer installed");
+  expect(firstScreen).toContain("Connected to workspace acme");
+  expect(markup.match(/aria-label="Computer setup demo"/g)).toHaveLength(1);
+  expect(markup).not.toContain("Talk to them like teammates");
+  expect(markup).not.toContain("Your computer, your code.");
+  expect(markup).not.toContain('href="#computer"');
+  expect(markup).not.toContain("<section");
   expect(markup).not.toContain("Copy install command");
   expect(markup).toContain('href="/auth/login"');
 });
 
-test("retains the second-screen terminal demonstration", () => {
-  const markup = renderToStaticMarkup(<LandingPage installOrigin={installOrigin} />);
+test("keeps code agent marks inside the terminal rather than around the headline", () => {
+  const page = render(<LandingPage installOrigin={installOrigin} />);
+  const terminal = page.getByRole("region", { name: "Computer setup demo" });
 
-  expect(markup).toContain('aria-label="Computer setup demo"');
-  expect(markup).toContain("coforge-computer installed");
-  expect(markup).toContain("Connected to workspace acme");
+  expect(page.queryByRole("list", { name: "Works with" })).toBeNull();
+  expect(page.queryByText("OpenCode")).toBeNull();
+  expect(page.queryByText("Grok")).toBeNull();
+  for (const name of ["Claude Code", "Codex", "Pi"]) {
+    const label = page.getByText(name, { exact: true });
+    expect(terminal.contains(label)).toBe(true);
+    expect(label.querySelector("img, [aria-hidden='true']")).not.toBeNull();
+  }
 });
 
 test("links to the public repository", () => {

@@ -1,10 +1,8 @@
 import claudeCodeMark from "@lobehub/icons-static-svg/icons/claudecode-color.svg";
 import codexMark from "@lobehub/icons-static-svg/icons/codex.svg";
-import grokMark from "@lobehub/icons-static-svg/icons/grok.svg";
-import openCodeMark from "@lobehub/icons-static-svg/icons/opencode.svg";
 import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
 import { Check, ChevronDown, Languages } from "lucide-react";
-import { MotionConfig, motion, useReducedMotion, useScroll, useTransform } from "motion/react";
+import { MotionConfig, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
@@ -19,7 +17,6 @@ import AnimatedGradient from "@/components/spell/animated-gradient";
 import { BlurReveal } from "@/components/spell/blur-reveal";
 import { ShimmerText } from "@/components/spell/shimmer-text";
 import { installCommands, setupCommand } from "@/features/install/install-commands";
-import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
 
@@ -46,17 +43,12 @@ const heroGradient = {
   shapeSize: 45,
 } as const;
 
-// The code agents shown on the landing page. The first three are what the daemon adapts today;
-// OpenCode and Grok are listed ahead of their adapters at Frank's request (2026-09-08).
+// The code agents supported by the daemon and shown in the terminal demonstration.
 // Marks come from LobeHub's static icon set; the monochrome ones take the text colour via a mask.
 const supportedAgents = [
   { name: "Claude Code", mark: claudeCodeMark, monochrome: false },
   { name: "Codex", mark: codexMark, monochrome: true },
   { name: "Pi", mark: piMark, monochrome: true },
-] as const;
-const upcomingAgents = [
-  { name: "OpenCode", mark: openCodeMark, monochrome: true },
-  { name: "Grok", mark: grokMark, monochrome: true },
 ] as const;
 
 // Lucide dropped brand marks, so the GitHub octicon is inlined here.
@@ -142,20 +134,10 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
   const reducedMotion = useReducedMotion() ?? false;
   const headline = `${m.landing_headline_line_1()} ${m.landing_headline_line_2()}`;
 
-  // The first screen leaves as the reader scrolls: it shrinks a touch, drifts up and fades, driven
-  // by scroll position rather than a timer, so it always matches the reader's hand.
-  const { scrollY } = useScroll();
-  const heroOpacity = useTransform(scrollY, [0, 420], [1, 0]);
-  const heroY = useTransform(scrollY, [0, 420], [0, -60]);
-  const heroScale = useTransform(scrollY, [0, 420], [1, 0.965]);
-  const heroStyle = reducedMotion
-    ? undefined
-    : { opacity: heroOpacity, y: heroY, scale: heroScale };
-
   return (
     <MotionConfig reducedMotion="user">
       {/* The document itself goes dark too, so overscroll and rounded window corners never show white. */}
-      <style>{`html,body{background:#0a0912;color-scheme:dark}html{scroll-snap-type:y proximity}`}</style>
+      <style>{`html,body{background:#0a0912;color-scheme:dark}`}</style>
       <div className="relative isolate flex min-h-dvh flex-col overflow-x-clip bg-[#0a0912] font-display text-white antialiased">
         {/* The animated gradient is the whole picture; the type sits on it like a poster. */}
         {gradientReady && (
@@ -166,7 +148,7 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
           className="pointer-events-none absolute inset-0 -z-[1] bg-[linear-gradient(180deg,rgba(10,9,18,0.35)_0%,rgba(10,9,18,0.05)_35%,rgba(10,9,18,0.55)_75%,rgba(10,9,18,0.85)_100%)]"
         />
 
-        <header className="flex h-19 w-full shrink-0 snap-start items-center justify-between px-5 sm:px-8">
+        <header className="flex h-19 w-full shrink-0 items-center justify-between px-5 sm:px-8">
           <a href="/" className="shrink-0" aria-label="CoForge">
             <img src="/coforge-brand.svg" alt="" className="h-5 w-auto min-[400px]:h-6 sm:h-8" />
           </a>
@@ -196,9 +178,9 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
           </div>
         </header>
 
-        <main className="relative mx-auto flex min-h-[calc(100dvh-4.75rem)] w-full max-w-[1400px] shrink-0 flex-col justify-center px-6 pt-8 pb-16">
-          <motion.div style={heroStyle} className="flex flex-col items-center">
-            <div className="relative w-full py-16 sm:py-20">
+        <main className="relative mx-auto flex min-h-[calc(100dvh-4.75rem)] w-full max-w-[1400px] shrink-0 flex-col justify-center px-6 pt-4 pb-8">
+          <div className="flex flex-col items-center">
+            <div className="relative w-full py-12 sm:py-10">
               <div className="mx-auto w-full min-w-0 max-w-2xl px-12 text-center sm:px-24 lg:w-[64%] lg:px-0">
                 <ShimmerText
                   className="text-xs font-medium tracking-[0.22em] text-white/55 uppercase [--shimmer-contrast:rgba(255,255,255,1)]"
@@ -221,94 +203,23 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
                   </BlurReveal>
                 </div>
               </div>
-              <ScatteredAgents />
             </div>
 
-            <motion.p
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 1, ease: "easeOut" }}
-              className="mx-auto max-w-xl text-center text-base text-pretty text-white/70 sm:text-lg"
+            <div
+              role="region"
+              aria-label={m.landing_terminal_label()}
+              className="mt-4 w-full max-w-2xl text-left"
             >
-              {m.landing_description()}
-            </motion.p>
-          </motion.div>
-
-          <motion.a
-            href="#computer"
-            aria-label={m.landing_scroll_hint()}
-            style={reducedMotion ? undefined : { opacity: heroOpacity }}
-            className="absolute bottom-5 left-1/2 flex -translate-x-1/2 flex-col items-center gap-1 text-[11px] tracking-[0.2em] text-white/40 uppercase transition-colors hover:text-white/70"
-          >
-            {m.landing_scroll_hint()}
-            <ChevronDown aria-hidden="true" className="size-4 animate-bounce" />
-          </motion.a>
-        </main>
-
-        <section
-          id="computer"
-          className="mx-auto flex min-h-dvh w-full max-w-6xl shrink-0 snap-start flex-col items-center justify-center px-6 py-20 text-center"
-        >
-          <BlurReveal
-            as="h2"
-            inView
-            speedReveal={1.4}
-            className="max-w-3xl text-3xl font-semibold tracking-[-0.02em] text-balance sm:text-4xl lg:text-5xl"
-          >
-            {m.landing_computer_title()}
-          </BlurReveal>
-          <motion.p
-            initial={{ opacity: 0, y: 12 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-80px" }}
-            transition={{ duration: 0.6, delay: 0.35, ease: "easeOut" }}
-            className="mt-4 max-w-xl text-base text-pretty text-white/60 sm:text-lg"
-          >
-            {m.landing_computer_body()}
-          </motion.p>
-          <div
-            role="region"
-            aria-label={m.landing_terminal_label()}
-            className="mt-10 w-full max-w-2xl text-left"
-          >
-            <InstallTerminal installOrigin={installOrigin} />
+              <InstallTerminal installOrigin={installOrigin} />
+            </div>
           </div>
-        </section>
+        </main>
       </div>
     </MotionConfig>
   );
 }
 
-// Fixed, asymmetric positions keep the relaxed composition stable across SSR and refreshes.
-// The title owns this frame at every width; narrow screens shrink the tiles, never move them below.
-const agentPositions = [
-  "top-[38%] left-0 -rotate-12 lg:left-[3%] lg:size-24",
-  "top-[24%] right-0 rotate-12 lg:right-[3%] lg:size-24",
-  "top-0 left-[17%] rotate-6 lg:size-16",
-  "top-[60%] right-0 -rotate-6 lg:right-[12%] lg:size-20",
-  "top-[72%] left-0 -rotate-12 lg:left-[9%] lg:size-20",
-];
-
-function ScatteredAgents() {
-  return (
-    <ul aria-label={m.landing_agents_title()} className="pointer-events-none absolute inset-0">
-      {[...supportedAgents, ...upcomingAgents].map((agent, index) => (
-        <li
-          key={agent.name}
-          className={cn(
-            "absolute flex size-10 items-center justify-center rounded-xl border border-white/15 bg-terminal/85 shadow-lg shadow-black/30 sm:size-14 lg:rounded-2xl lg:[&>img]:size-1/2 lg:[&>span[aria-hidden]]:size-1/2",
-            agentPositions[index],
-          )}
-        >
-          <span className="sr-only">{agent.name}</span>
-          <AgentMark mark={agent.mark} monochrome={agent.monochrome} />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-// The second-screen walkthrough is a demonstration, not the first-screen install action.
+// This walkthrough is a demonstration; actionable setup belongs in the Computer UI.
 function InstallTerminal({ installOrigin }: { installOrigin: string }) {
   return (
     <Terminal className="min-h-88 max-h-none max-w-none border-white/10 bg-terminal/85 shadow-2xl shadow-black/40 backdrop-blur-md [&_code]:grid-cols-1 [&_code]:font-display-mono [&_code]:[overflow-wrap:anywhere] [&_pre]:text-[13px] [&_pre]:leading-6 [&_pre]:whitespace-pre-wrap">
