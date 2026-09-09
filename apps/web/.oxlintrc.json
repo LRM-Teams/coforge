@@ -10,12 +10,17 @@
   "overrides": [
     {
       "files": [
-        "src/components/ui/button.tsx",
-        "src/components/ui/select.tsx",
-        "src/components/ui/tooltip.tsx"
+        "src/components/base/badges/badges.tsx",
+        "src/components/application/app-navigation/base-components/nav-account-card.tsx"
       ],
       "rules": {
         "coforge/no-native-button": "off"
+      }
+    },
+    {
+      "files": ["src/components/base/select/select-native.tsx"],
+      "rules": {
+        "coforge/no-native-select": "off"
       }
     },
     {

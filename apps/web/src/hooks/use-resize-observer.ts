@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import type { RefObject } from "react";
+import type { RefObject } from "@react-types/shared";
 
 /**
  * Checks if the ResizeObserver API is supported.

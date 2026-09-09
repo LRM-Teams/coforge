@@ -579,8 +579,6 @@ function Preferences({
         <PreferenceSection icon={<Clock3 aria-hidden="true" />} heading={m.preferences_time_zone()}>
           <ComboBox
             aria-label={m.preferences_time_zone()}
-            className="untitled-ui"
-            popoverClassName="untitled-ui"
             placeholder={m.preferences_time_zone_search_placeholder()}
             shortcut={false}
             items={timeZoneOptions}

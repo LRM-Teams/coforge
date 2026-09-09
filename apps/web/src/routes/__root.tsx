@@ -6,7 +6,7 @@ import { getLocale } from "@/paraglide/runtime";
 
 import appCss from "../styles.css?url";
 
-const themeScript = `try{var theme=localStorage.getItem("coforge-theme");if(theme==="dark"||((!theme||theme==="system")&&matchMedia("(prefers-color-scheme: dark)").matches)){document.documentElement.classList.add("dark")}}catch{}`;
+const themeScript = `try{var theme=localStorage.getItem("coforge-theme");if(theme==="dark"||((!theme||theme==="system")&&matchMedia("(prefers-color-scheme: dark)").matches)){document.documentElement.classList.add("dark-mode")}}catch{}`;
 
 export const Route = createRootRoute({
   head: () => ({

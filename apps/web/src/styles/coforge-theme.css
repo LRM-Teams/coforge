@@ -1,0 +1,84 @@
+/*
+ * CoForge brand overrides on top of Untitled UI's stock theme (./theme.css, unmodified).
+ * This is the ONLY file that redefines Untitled tokens or adds CoForge-specific ones.
+ * See docs/design-tokens.md for the full mapping table and rationale.
+ *
+ * Mechanism: Untitled itself never edits its `--color-brand-*` ramp between light/dark —
+ * it only re-points a handful of *semantic* tokens (e.g. `--color-bg-brand-solid`,
+ * `--color-border-brand`) at a different ramp step inside `.dark-mode { ... }`
+ * (see theme.css around line 700). We follow the same pattern here.
+ */
+
+@theme {
+  /* CoForge brand ramp (violet, hue ~254°). 600 is the primary brand solid (#5d36dc);
+     400 (#a993ff) is the old dark-mode accent color, reused for accents/focus rings. */
+  --color-brand-50: #f8f5ff;
+  --color-brand-100: #efe8ff;
+  --color-brand-200: #ded1ff;
+  --color-brand-300: #c9b3ff;
+  --color-brand-400: #a993ff;
+  --color-brand-500: #8f6ff2;
+  --color-brand-600: #5d36dc;
+  --color-brand-700: #4c2ab8;
+  --color-brand-800: #3d2295;
+  --color-brand-900: #332073;
+  --color-brand-950: #21134d;
+
+  /* Tokens Untitled has no equivalent for. */
+  --color-sidebar: #f8f7fe;
+  --color-sidebar-fg: #101319;
+  --color-sidebar-accent: #ebeaf7;
+  --color-sidebar-accent-fg: #5d36dc;
+
+  /* Terminal / command blocks stay dark in both themes. */
+  --color-terminal: #171b23;
+  --color-terminal-fg: #f4f6fb;
+
+  /* Avatar placeholder background tones (used when there is no photo). */
+  --color-avatar-1: #7556b9;
+  --color-avatar-2: #d18a38;
+  --color-avatar-3: #b65757;
+  --color-avatar-4: #5268b7;
+  --color-avatar-5: #497665;
+  --color-avatar-6: #ba5937;
+
+  /* Presence dots. Untitled's success/gray scales don't give us a single flat
+     "online green" / "offline gray" dot color, so these stay as CoForge tokens. */
+  --color-online: #1bb618;
+  --color-offline: #afbccb;
+}
+
+/* Sidebar background is a gradient in dark mode, which can't be expressed as a single
+   `--color-*` token (Tailwind color utilities need a flat color). Consumers that need the
+   gradient use this custom property directly via `style`, per the app shell. */
+:root {
+  --sidebar-gradient: linear-gradient(180deg, #f6f5fe 0%, #faf9ff 100%);
+}
+
+@layer base {
+  .dark-mode {
+    /* Re-point ramp-based semantic tokens at a lighter step, matching Untitled's own
+       dark-mode pattern of remapping rather than redefining the ramp (see theme.css). */
+    --color-border-brand: var(--color-brand-400);
+    --color-focus-ring: var(--color-brand-400);
+
+    /* NOTE: --color-bg-brand-solid intentionally keeps Untitled's own default
+       (var(--color-brand-600), unchanged from light) instead of the lighter #a993ff.
+       The official Button component (src/components/base/buttons/button.tsx) hardcodes
+       `text-white` for color="primary" with no themeable ink token, so a lighter dark-mode
+       solid would render white-on-light-lavender text with poor contrast. Editing
+       button.tsx to make the ink themeable is out of scope (official components are not
+       modified). #a993ff remains available as brand-400 for accents, focus rings, and
+       borders where white text isn't involved. See docs/design-tokens.md. */
+
+    --color-sidebar: #141720;
+    --color-sidebar-fg: #f4f6fb;
+    --color-sidebar-accent: #2b2544;
+    --color-sidebar-accent-fg: #c5bafe;
+
+    --color-online: #42c83f;
+    --color-offline: #778393;
+
+    --sidebar-gradient: linear-gradient(155deg, #21183b 0%, #171421 52%, #141720 100%);
+  }
+}

@@ -1,86 +1,118 @@
 @import "tailwindcss";
-@import "tw-animate-css";
-/* Untitled UI uses Inter for body and display text. Keep all fonts self-hosted;
-   the protected marketing page continues to use its own Geist families. */
+@import "./styles/theme.css";
+@import "./styles/typography.css";
+
+@plugin "@tailwindcss/typography";
+@plugin "tailwindcss-react-aria-components";
+@plugin "tailwindcss-animate";
+
+/* Untitled UI's own dark mode switch: toggling `.dark-mode` on <html> (see
+   src/features/theme). Do not use Tailwind's default `.dark` class name. */
+@custom-variant dark (&:where(.dark-mode, .dark-mode *));
+@custom-variant label (& [data-label]);
+@custom-variant focus-input-within (&:has(input:focus));
+
+@utility scrollbar-hide {
+  /* For Webkit-based browsers (Chrome, Safari and Opera) */
+  &::-webkit-scrollbar {
+    display: none;
+    -webkit-appearance: none;
+  }
+
+  /* For IE, Edge and Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
+@utility transition-inherit-all {
+  transition-property: inherit;
+  transition-duration: inherit;
+  transition-timing-function: inherit;
+}
+
+/* Inter has no CJK glyphs; keep the installed Chinese UI fonts as fallbacks after it.
+   Fonts are self-hosted via @fontsource so the app has no external font requests. */
 @import "@fontsource-variable/inter";
-@import "@fontsource-variable/geist";
-@import "@fontsource-variable/geist-mono";
+@import "@fontsource-variable/geist"; /* landing page display text only */
+@import "@fontsource-variable/geist-mono"; /* --font-mono */
 
-@custom-variant dark (&:is(.dark *));
-/* Base UI state variants remain only for the isolated homepage controls. */
-@custom-variant data-open (&:where([data-open]:not([data-open="false"])));
-@custom-variant data-closed (&:where([data-closed]:not([data-closed="false"])));
-@custom-variant data-disabled (&:where([data-disabled]:not([data-disabled="false"])));
-
-@theme inline {
-  /* Inter has no CJK glyphs; use installed Chinese UI fonts before emoji. */
-  --font-sans:
+@theme {
+  --font-body:
     "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans", Arial, sans-serif, "Apple Color Emoji",
     "Segoe UI Emoji", "Noto Color Emoji";
-  --font-legacy:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial,
-    system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
-    "Noto Color Emoji";
-  --font-display: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-display-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary-hover: var(--secondary-hover);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-text: var(--destructive-text);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-brand: var(--brand);
-  --color-brand-foreground: var(--brand-foreground);
-  --color-info: var(--info);
-  --color-info-foreground: var(--info-foreground);
-  --color-success: var(--success);
-  --color-offline: var(--offline);
-  --color-terminal: var(--terminal);
-  --color-terminal-foreground: var(--terminal-foreground);
-  --color-avatar-1: var(--avatar-1);
-  --color-avatar-2: var(--avatar-2);
-  --color-avatar-3: var(--avatar-3);
-  --color-avatar-4: var(--avatar-4);
-  --color-avatar-5: var(--avatar-5);
-  --color-avatar-6: var(--avatar-6);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --font-display:
+    "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans", Arial, sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji", "Noto Color Emoji";
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Landing page keeps its own Geist display family; Inter has no CJK glyphs either way. */
+  --font-landing-display: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
 }
 
-/* 亮色取值来自 Figma《Coforge UI 设计规范》，映射表见 docs/design-tokens.md */
-:root {
+html,
+body {
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-font-variant-ligatures: contextual;
+  font-variant-ligatures: contextual;
+  -webkit-font-kerning: normal;
+  font-kerning: normal;
+}
+
+/* Hide the default expand arrow on Safari.  */
+details summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Hide default arrows from number inputs. */
+/* Chrome, Safari, Edge, Opera */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+/* Firefox */
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Hide the default clear button (X) from search inputs. */
+input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+/* Hide the default outline on chart elements. */
+.recharts-surface,
+.recharts-surface g,
+.recharts-surface path {
+  outline: none;
+}
+
+@layer base {
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+/*
+ * The landing page (`src/features/landing/**`, route `/`) is visually frozen and keeps
+ * its own isolated Base UI controls (src/features/landing/controls/), which reference
+ * these bare custom properties directly (e.g. `bg-(--primary)`) instead of Untitled's
+ * semantic utilities, so they never collide with Untitled's `bg-primary` etc. Values
+ * below are the pre-migration shadcn tokens the landing page was designed against,
+ * copied verbatim so `/` renders identically.
+ */
+.landing-page {
   color-scheme: light;
-  --radius: 0.375rem;
   --background: #ffffff;
   --foreground: #101319;
-  --card: #ffffff;
-  --card-foreground: #101319;
   --popover: #ffffff;
   --popover-foreground: #101319;
-  --primary: #5d36dc;
-  --primary-foreground: #ffffff;
+  /* Landing intentionally keeps a neutral CTA in both themes, not the brand purple. */
+  --primary: #f4f6fb;
+  --primary-foreground: #101319;
   --secondary: #f4f6fa;
   --secondary-foreground: #101319;
   --secondary-hover: color-mix(in oklch, var(--secondary), var(--foreground) 5%);
@@ -94,38 +126,16 @@
   --input: #e0e5f1;
   --ring: #5d36dc;
   --brand: #5d36dc;
-  --brand-foreground: #ffffff;
-  --info: #2d53fe;
-  --info-foreground: #ffffff;
-  --success: #1bb618;
-  --offline: #afbccb;
-  --sidebar: #f8f7fe;
-  --sidebar-background: linear-gradient(180deg, #f6f5fe 0%, #faf9ff 100%);
-  --sidebar-foreground: #101319;
-  --sidebar-accent: #ebeaf7;
-  --sidebar-accent-foreground: #5d36dc;
-  --sidebar-border: #e0e5f1;
-  /* 终端/命令块在明暗两种主题下都保持深色 */
-  --terminal: #171b23;
-  --terminal-foreground: #f4f6fb;
-  /* 头像占位底色，设计稿使用真实头像图，规范未定义 */
-  --avatar-1: #7556b9;
-  --avatar-2: #d18a38;
-  --avatar-3: #b65757;
-  --avatar-4: #5268b7;
-  --avatar-5: #497665;
-  --avatar-6: #ba5937;
 }
 
-.dark {
+.dark-mode .landing-page,
+.landing-page.dark-mode {
   color-scheme: dark;
   --background: #101319;
   --foreground: #f4f6fb;
-  --card: #171b23;
-  --card-foreground: #f4f6fb;
   --popover: #171b23;
   --popover-foreground: #f4f6fb;
-  --primary: #a993ff;
+  --primary: #f4f6fb;
   --primary-foreground: #101319;
   --secondary: #20262d;
   --secondary-foreground: #f4f6fb;
@@ -140,121 +150,6 @@
   --input: #3a4250;
   --ring: #c5bafe;
   --brand: #a993ff;
-  --brand-foreground: #101319;
-  --info: #6d87ff;
-  --info-foreground: #101319;
-  --success: #42c83f;
-  --offline: #778393;
-  --sidebar: #141720;
-  --sidebar-background: linear-gradient(155deg, #21183b 0%, #171421 52%, #141720 100%);
-  --sidebar-foreground: #f4f6fb;
-  --sidebar-accent: #2b2544;
-  --sidebar-accent-foreground: #c5bafe;
-  --sidebar-border: #303743;
 }
 
-/* The public homepage intentionally keeps its established neutral CTA while product primary
-   actions use the brand palette. Descendant `.dark` controls otherwise redeclare these tokens. */
-.landing-page,
-.landing-page .dark {
-  --primary: #f4f6fb;
-  --primary-foreground: #101319;
-}
-
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-
-  button:not(:disabled) {
-    @apply cursor-pointer;
-  }
-
-  body {
-    @apply bg-background text-foreground;
-    position: relative;
-    margin: 0;
-  }
-}
-
-/* Untitled UI's semantic utility names overlap CoForge's brand-oriented
-   `primary` token. Keep the compatibility mapping opt-in so existing product
-   UI and the protected landing page retain their current meanings. */
-.untitled-ui {
-  --color-primary: var(--background);
-  font-family: var(--font-sans);
-}
-
-.untitled-ui.bg-primary,
-.untitled-ui .bg-primary {
-  background-color: var(--background);
-}
-
-.untitled-ui.bg-primary_hover,
-.untitled-ui .bg-primary_hover,
-.untitled-ui.bg-tertiary,
-.untitled-ui .bg-tertiary {
-  background-color: var(--muted);
-}
-
-.untitled-ui.bg-brand-solid,
-.untitled-ui .bg-brand-solid {
-  background-color: var(--brand);
-}
-
-.untitled-ui.text-primary,
-.untitled-ui .text-primary,
-.untitled-ui.text-secondary,
-.untitled-ui .text-secondary {
-  color: var(--foreground);
-}
-
-.untitled-ui.text-tertiary,
-.untitled-ui .text-tertiary,
-.untitled-ui.text-quaternary,
-.untitled-ui .text-quaternary,
-.untitled-ui.text-placeholder,
-.untitled-ui .text-placeholder,
-.untitled-ui.text-fg-quaternary,
-.untitled-ui .text-fg-quaternary {
-  color: var(--muted-foreground);
-}
-
-.untitled-ui.text-fg-brand-primary,
-.untitled-ui .text-fg-brand-primary {
-  color: var(--brand);
-}
-
-.untitled-ui.text-fg-white,
-.untitled-ui .text-fg-white {
-  color: var(--brand-foreground);
-}
-
-.untitled-ui.text-error-primary,
-.untitled-ui .text-error-primary {
-  color: var(--destructive-text);
-}
-
-.untitled-ui.ring-primary,
-.untitled-ui .ring-primary,
-.untitled-ui.ring-secondary,
-.untitled-ui .ring-secondary,
-.untitled-ui.ring-secondary_alt,
-.untitled-ui .ring-secondary_alt {
-  --tw-ring-color: var(--border);
-}
-
-.untitled-ui.ring-brand,
-.untitled-ui .ring-brand,
-.untitled-ui.ring-brand-solid,
-.untitled-ui .ring-brand-solid,
-.untitled-ui.ring-focus-ring,
-.untitled-ui .ring-focus-ring {
-  --tw-ring-color: var(--ring);
-}
-
-.untitled-ui.text-md,
-.untitled-ui .text-md {
-  font-size: 1rem;
-  line-height: 1.5rem;
-}
+@import "./styles/coforge-theme.css";
