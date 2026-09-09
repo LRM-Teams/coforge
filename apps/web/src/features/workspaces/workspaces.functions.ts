@@ -11,8 +11,10 @@ import {
 } from "../../server/workspaces/catalog.server";
 import {
   preferredWorkspaceSlugFromRequest,
+  requireWorkspaceIdForRequest,
   writePreferredWorkspaceSlug,
 } from "../../server/workspaces/selection.server";
+import { WorkspaceMembers } from "../../server/workspaces/members.server";
 
 function catalog() {
   const db = getDatabaseClient();
@@ -30,6 +32,16 @@ export const loadWorkspaceSwitcher = createServerFn({ method: "GET" }).handler(a
   const current = await catalog().selectForUser(user.id, preferredWorkspaceSlugFromRequest());
   return { workspaces, current };
 });
+
+export const listWorkspaceMembers = createServerFn({ method: "GET" }).handler(async () => {
+  const user = currentUser();
+  const db = getDatabaseClient();
+  if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
+  const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+  return new WorkspaceMembers(db).list(workspaceId, user.id);
+});
+
+export type WorkspaceMemberDirectory = Awaited<ReturnType<typeof listWorkspaceMembers>>;
 
 export const selectWorkspace = createServerFn({ method: "POST" })
   .validator(selectWorkspaceInputSchema)

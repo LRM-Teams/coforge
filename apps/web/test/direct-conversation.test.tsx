@@ -201,11 +201,23 @@ test("renders the empty private conversation", () => {
     }),
   ).toBeTruthy();
   expect(page.getByText("@release-helper")).toBeTruthy();
-  expect(page.getByRole("heading", { name: "No messages yet" })).toBeTruthy();
+  const history = within(page.getByLabelText("Message history"));
+  expect(history.getByRole("heading", { name: "Chat with Release Helper" })).toBeTruthy();
+  expect(page.getAllByRole("textbox", { name: "Message" })).toHaveLength(1);
   expect(page.queryByRole("link", { name: /Back to messages/i })).toBeNull();
   rerender({ ...base, messages: [firstMessage] });
-  expect(page.queryByRole("heading", { name: "No messages yet" })).toBeNull();
+  expect(history.queryByRole("heading", { name: "Chat with Release Helper" })).toBeNull();
   expect(page.getByText("Please check")).toBeTruthy();
+});
+
+test("empty thread keeps its root and reply composer instead of the private-chat introduction", async () => {
+  const { page } = renderConversation({ ...base, messages: [firstMessage] });
+  await userEvent.setup().click(page.getByRole("button", { name: "Reply in thread" }));
+  const thread = within(page.getByRole("region", { name: "Thread" }));
+  expect(thread.getByRole("heading", { name: "No replies yet", level: 3 })).toBeTruthy();
+  expect(thread.getByLabelText("Original message").textContent).toContain("Please check");
+  expect(thread.getByRole("textbox", { name: "Message" })).toBeTruthy();
+  expect(thread.queryByText("Chat with Release Helper")).toBeNull();
 });
 
 test("shared chat activity updates header and sidebar, with matching hover dots", async () => {

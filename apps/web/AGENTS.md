@@ -181,12 +181,21 @@ instructions for the TanStack Start Web/backend modular monolith.
   use the existing `AppToastProvider` rather than a second notification system.
 - `components/ui/empty.tsx` supplies the shadcn Empty presentation primitives;
   owning features choose their icon, localized copy, and empty-state condition.
+- `features/conversations/direct-conversation.tsx` owns the shared conversation
+  empty-state layout and compact thread prompt. Direct and channel views supply
+  their own identity, media, and copy; they retain their existing composer or join action.
 - `components/layout/mobile-navigation.tsx` connects page-owned mobile menu
   controls to `AppShell`'s global navigation drawer. Pages own their titles
   and actions; conversation list/detail selection and list scroll retention
   remain in `features/conversations/conversation-layout.tsx`.
 - `features/computers/computer-layout.tsx` owns the analogous Computer
   list/detail selection, return control, list scroll retention, and empty state.
+- `features/agents/agents-content.tsx` owns the Members page's mixed human/Agent
+  cards, counted type filters, search recovery, and Agent creation dialog.
+  Computer prerequisites appear only after requesting Agent creation; runtime
+  management remains in Agent detail, not the directory. Workspace directory
+  reads belong to `features/workspaces/workspaces.functions.ts` and
+  `server/workspaces/members.server.ts`; owner-only Agent operations remain separate.
 - `src/features/profiles/profile.functions.ts` owns the authenticated current-user
   profile read and description mutation. Avatar bytes and profile persistence
   stay under `src/server/profiles/` and `src/server/db/repositories/`.

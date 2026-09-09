@@ -92,11 +92,18 @@ test("says a computer is not in this workspace instead of a bare Not Found", () 
   expect(page.getByRole("link", { name: /Frank’s MacBook Pro/ })).toBeTruthy();
 });
 
-test("offers the install path instead of a detail panel when no Computer is connected", () => {
-  const page = renderLayout([]);
+test("offers one working setup action instead of a detail panel when no Computer is connected", () => {
+  let additions = 0;
+  render(
+    <ComputerLayout computers={[]} onAdd={() => additions++}>
+      <p>Computer detail</p>
+    </ComputerLayout>,
+  );
+  const page = within(document.body);
 
-  expect(page.getByRole("heading", { name: "No computers connected" })).toBeTruthy();
-  expect(page.getAllByRole("button", { name: "Add computer" }).length).toBe(2);
+  expect(page.getByRole("heading", { name: "Connect your first computer" })).toBeTruthy();
+  fireEvent.click(page.getByRole("button", { name: "Add computer" }));
+  expect(additions).toBe(1);
   expect(page.queryByText("Computer detail")).toBeNull();
   expect(page.queryByRole("link")).toBeNull();
 });

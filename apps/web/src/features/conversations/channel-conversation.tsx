@@ -115,7 +115,13 @@ export function ChannelConversation({
           </Button>
         ) : undefined;
       }}
-      emptyDescription={m.channel_empty()}
+      emptyState={{
+        title: `#${conversation.name}`,
+        description: conversation.senderMemberId ? m.channel_empty() : m.channel_empty_preview(),
+        media: (
+          <Hash aria-hidden="true" className="size-12 text-muted-foreground" strokeWidth={1.5} />
+        ),
+      }}
       header={
         <header className="shrink-0 border-b px-3 sm:px-5">
           <div className="-mx-3 flex h-14 items-center gap-3 border-b px-3 sm:-mx-5 sm:px-5">

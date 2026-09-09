@@ -235,6 +235,17 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
           {...conversationProps}
           header={header}
           conversation={{ ...conversation, messages: mainMessages }}
+          emptyState={{
+            title: m.conversation_empty_title({ name: conversation.agent.displayName }),
+            description: m.conversation_empty_description(),
+            media: (
+              <Avatar
+                people={[{ name: conversation.agent.displayName }]}
+                size="xl"
+                className="size-16 rounded-2xl text-xl"
+              />
+            ),
+          }}
           threadEntry={(message) => {
             const replies = conversation.messages.filter(
               (reply) => reply.threadRootId === message.id,
@@ -374,6 +385,13 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
               {...conversationProps}
               root={root}
               onClose={() => setSelected(undefined)}
+              emptyState={{
+                title: m.conversation_thread_empty_title(),
+                description: m.conversation_thread_empty(),
+                media: (
+                  <MessageSquare aria-hidden="true" className="size-6 text-muted-foreground" />
+                ),
+              }}
               conversation={{
                 ...conversation,
                 messages: conversation.messages.filter(
@@ -403,7 +421,7 @@ export function ConversationPane({
   conversation,
   header,
   readOnlyNotice,
-  emptyDescription,
+  emptyState,
   onSend,
   root,
   onClose,
@@ -422,7 +440,7 @@ export function ConversationPane({
   conversation: Omit<DirectConversationView, "agent">;
   header?: React.ReactNode;
   readOnlyNotice?: React.ReactNode;
-  emptyDescription?: string;
+  emptyState: { title: string; description: string; media: React.ReactNode };
   root?: DirectConversationView["messages"][number];
   onClose?: () => void;
   threadEntry?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
@@ -839,19 +857,26 @@ export function ConversationPane({
             </div>
           )}
           {conversation.messages.length === 0 ? (
-            <Empty className={root ? "py-10" : "h-full"}>
-              <EmptyHeader>
-                <EmptyMedia variant="icon" className="size-12 rounded-2xl text-muted-foreground">
-                  <MessageSquare aria-hidden="true" className="size-6" />
-                </EmptyMedia>
-                <EmptyTitle role="heading" aria-level={2} className="text-base">
-                  {m.conversation_empty_title()}
+            <Empty
+              className={
+                root
+                  ? "px-0 py-8"
+                  : "items-start px-1 pt-[clamp(2rem,10svh,5rem)] pb-8 text-left sm:px-3"
+              }
+            >
+              <EmptyHeader className={root ? "gap-2" : "w-full max-w-sm items-start gap-3"}>
+                <EmptyMedia className="mb-1">{emptyState.media}</EmptyMedia>
+                <EmptyTitle
+                  role="heading"
+                  aria-level={root ? 3 : 2}
+                  className={cn(
+                    "max-w-full [overflow-wrap:anywhere]",
+                    root ? "text-sm" : "text-xl font-semibold",
+                  )}
+                >
+                  {emptyState.title}
                 </EmptyTitle>
-                <EmptyDescription>
-                  {root
-                    ? m.conversation_thread_empty()
-                    : (emptyDescription ?? m.conversation_empty_description())}
-                </EmptyDescription>
+                <EmptyDescription>{emptyState.description}</EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : (

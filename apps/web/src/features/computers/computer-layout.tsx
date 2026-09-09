@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { ChevronLeft, Monitor, Plus } from "lucide-react";
+import { Cable, ChevronLeft, LaptopMinimal, Plus } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
@@ -54,8 +54,10 @@ export function ComputerLayout({
     return (
       <main className="flex h-svh min-w-0 md:p-2">
         <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card md:rounded-xl md:border">
-          <PageHeader heading={m.computer_page_title()} actions={<AddComputer onAdd={onAdd} />} />
-          <NoComputers onAdd={onAdd} />
+          <PageHeader heading={m.computer_page_title()} />
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <NoComputers onAdd={onAdd} />
+          </div>
         </section>
       </main>
     );
@@ -155,18 +157,23 @@ export function BackToComputers() {
 
 function NoComputers({ onAdd }: { onAdd: () => void }) {
   return (
-    <Empty>
-      <EmptyHeader>
-        <EmptyMedia variant="icon" className="size-12 rounded-2xl text-muted-foreground">
-          <Monitor aria-hidden="true" className="size-6" />
+    <Empty className="gap-6 px-6 pt-[clamp(3rem,12svh,7rem)] pb-10">
+      <EmptyHeader className="max-w-xs gap-3">
+        <EmptyMedia aria-hidden="true" className="relative mb-3 h-28 w-44">
+          <span className="absolute inset-x-2 top-0 h-24 rounded-full bg-muted/70" />
+          <LaptopMinimal className="relative size-28 text-muted-foreground" strokeWidth={1} />
+          <span className="absolute right-2 bottom-0 flex size-10 items-center justify-center rounded-xl border bg-card text-muted-foreground shadow-sm">
+            <Cable className="size-5" strokeWidth={1.5} />
+          </span>
         </EmptyMedia>
-        <EmptyTitle role="heading" aria-level={2} className="text-base">
+        <EmptyTitle role="heading" aria-level={2} className="text-lg font-semibold">
           {m.computer_empty_title()}
         </EmptyTitle>
         <EmptyDescription>{m.computer_empty_description()}</EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <Button variant="outline" onClick={onAdd}>
+        <Button className="h-11 px-5" onClick={onAdd}>
+          <Plus aria-hidden="true" data-icon="inline-start" />
           {m.computer_add_title()}
         </Button>
       </EmptyContent>

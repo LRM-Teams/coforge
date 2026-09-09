@@ -155,7 +155,6 @@ mock.module("@/features/agents/agents.functions", () => ({
   updateAgent: mock(async () => ({ restart: "not-required" })),
   deleteAgentRuntimeCredential: mock(async () => ({ deleted: true })),
   saveAgentRuntimeCredential: mock(async () => ({ saved: true })),
-  retryAgentStart: mock(async () => {}),
   getAgentStatusConnectionToken: mock(async () => "test-agent-status-token"),
   getAgentActivityConnectionToken: mock(async () => "test-agent-activity-token"),
   getAgentDetail: mock(async () => {
@@ -250,6 +249,7 @@ mock.module("@/server/auth/current-user", () => ({
 }));
 mock.module("@/features/workspaces/workspaces.functions", () => ({
   loadWorkspaceSwitcher,
+  listWorkspaceMembers: mock(async () => ({ people: [], agents: [] })),
   selectWorkspace: mock(async () => {}),
   createWorkspace: mock(async () => {}),
 }));
@@ -622,7 +622,7 @@ test("a late send response cannot enter a different Agent conversation", async (
 
 test("channel URL uses the shared messages layout and selects the channel", async () => {
   const { page } = await renderRoute("/messages/channels/channel-1");
-  expect(page.getByRole("heading", { name: "#general" })).toBeTruthy();
+  expect(page.getByRole("heading", { name: "#general", level: 1 })).toBeTruthy();
   expect(page.getByRole("link", { name: /general/ }).getAttribute("aria-current")).toBe("page");
   expect(page.getByRole("button", { name: "Create channel" })).toBeTruthy();
   expect(page.getByRole("textbox", { name: "Message" })).toBeTruthy();

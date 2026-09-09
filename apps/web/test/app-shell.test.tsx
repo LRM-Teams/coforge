@@ -4,15 +4,23 @@ import { afterEach, expect, jest, mock, test } from "bun:test";
 import { RouterContextProvider } from "@tanstack/react-router";
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState, type ComponentProps } from "react";
 
 import { AppShell } from "@/components/app-shell";
 import { AppToastProvider } from "@/components/ui/toast";
-import type { AgentView } from "@/features/agents/agent-card";
-import { AgentsContent } from "@/features/agents/agents-content";
+import type { AgentView } from "@/features/agents/agents-content";
+import { AgentsContent as MembersContent } from "@/features/agents/agents-content";
 import { overwriteGetLocale } from "@/paraglide/runtime";
 import { getRouter } from "@/router";
 
 const user = { name: "Frank An", email: "frank@example.com" };
+
+function AgentsContent(
+  props: Omit<ComponentProps<typeof MembersContent>, "memberType" | "onMemberTypeChange">,
+) {
+  const [memberType, setMemberType] = useState<"all" | "human" | "agent">("all");
+  return <MembersContent {...props} memberType={memberType} onMemberTypeChange={setMemberType} />;
+}
 
 afterEach(() => {
   cleanup();
@@ -30,6 +38,10 @@ const agent = {
     model: "gpt-5",
   },
   status: { value: "inactive" as const, expiresAt: null },
+};
+const agentDirectory = {
+  people: [],
+  agents: [{ ...agent, description: "", computerName: "Office computer" }],
 };
 const computers = [
   {
@@ -82,17 +94,23 @@ const modelCatalogs = [
 function renderShell(
   agents: AgentView[] = [agent],
   onCreate = async () => ({ startPublished: true }),
-  onRetry = async () => {},
 ) {
   return render(
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
         <AppShell user={user}>
           <AgentsContent
+            directory={{
+              people: [],
+              agents: agents.map((item) => ({
+                ...item,
+                description: item.description ?? "",
+                computerName: "Office computer",
+              })),
+            }}
             agents={agents}
             computers={computers}
             onCreate={onCreate}
-            onRetry={onRetry}
             onLoadRuntimeCatalog={async () => modelCatalogs}
           />
         </AppShell>
@@ -109,16 +127,23 @@ function renderAgents(
   agents: AgentView[] = [agent],
   onCreate = async () => ({ startPublished: true }),
   defaultCreateDialogOpen = false,
-  onRetry = async () => {},
   onLoadRuntimeCatalog = async () => modelCatalogs,
+  availableComputers = computers,
 ) {
   render(
     <RouterContextProvider router={getRouter()}>
       <AgentsContent
+        directory={{
+          people: [],
+          agents: agents.map((item) => ({
+            ...item,
+            description: item.description ?? "",
+            computerName: "Office computer",
+          })),
+        }}
         agents={agents}
-        computers={computers}
+        computers={availableComputers}
         onCreate={onCreate}
-        onRetry={onRetry}
         onLoadRuntimeCatalog={onLoadRuntimeCatalog}
         defaultCreateDialogOpen={defaultCreateDialogOpen}
       />
@@ -198,15 +223,23 @@ test("renders persisted Agent fields without fabricated details", () => {
   const markup = renderShell();
 
   expect(markup).toContain("<main");
-  expect(markup).toContain("Agent overview");
+  expect(page().getByRole("heading", { name: "Members", level: 1 })).toBeTruthy();
   expect(markup).toContain("New agent");
-  expect(markup).toContain("Search agents");
+  expect(markup).toContain("Search members");
   expect(markup).toContain("Release Helper");
   expect(markup).toContain("@release-helper");
-  expect(markup).toContain("Codex / gpt-5");
+  expect(markup).toContain("Office computer");
+  expect(markup).not.toContain("Codex / gpt-5");
+  expect(page().queryByRole("button", { name: "Retry start" })).toBeNull();
+  expect(page().getByRole("link", { name: "Release Helper" }).getAttribute("href")).toContain(
+    "/agents/agent-1",
+  );
   expect(markup).toContain('href="/en/messages/agent-1"');
+  const chat = page().getByRole("link", { name: "Private chat" });
+  expect(chat.textContent).toBe("");
+  expect(chat.querySelector("svg")).toBeTruthy();
   expect(markup).not.toContain("Private chat is coming");
-  expect(markup.match(/data-agent-card/g)?.length).toBe(1);
+  expect(page().getByRole("list", { name: "Members" }).children.length).toBe(1);
 });
 
 test("shows Agent status on the avatar", () => {
@@ -221,14 +254,31 @@ test("shows Agent status on the avatar", () => {
     },
   ]);
 
-  const activeCard = page().getByText("Release Helper").closest("[data-agent-card]");
-  const inactiveCard = page().getByText("Research Helper").closest("[data-agent-card]");
+  const activeCard = page().getByText("Release Helper").closest("li");
+  const inactiveCard = page().getByText("Research Helper").closest("li");
   if (!(activeCard instanceof HTMLElement) || !(inactiveCard instanceof HTMLElement))
     throw new Error("Agent cards were not rendered");
   expect(activeCard.querySelector("span.relative.flex.shrink-0 > span.bg-success")).toBeTruthy();
   expect(inactiveCard.querySelector("span.relative.flex.shrink-0 > span.bg-offline")).toBeTruthy();
-  expect(within(activeCard).getByText("Online")).toBeTruthy();
-  expect(within(inactiveCard).getByText("Offline")).toBeTruthy();
+  expect(activeCard.textContent).not.toContain("Online");
+  expect(inactiveCard.textContent).not.toContain("Offline");
+  expect(within(activeCard).getByRole("img", { name: "Release Helper, Online" })).toBeTruthy();
+  expect(within(inactiveCard).getByRole("img", { name: "Research Helper, Offline" })).toBeTruthy();
+});
+
+test("explains the Computer prerequisite only after requesting a new Agent", async () => {
+  renderAgents([], undefined, false, undefined, []);
+  expect(page().queryByRole("link", { name: "Connect a computer" })).toBeNull();
+  expect(page().queryByRole("heading", { name: "Connect a computer first" })).toBeNull();
+  const browserUser = userEvent.setup({ document });
+  await browserUser.click(page().getByRole("button", { name: "New agent" }));
+  expect(page().getByRole("dialog")).toBeTruthy();
+  expect(page().getByRole("link", { name: "Connect a computer" }).getAttribute("href")).toBe(
+    "/en/computers",
+  );
+  expect(page().queryByRole("textbox", { name: "Name" })).toBeNull();
+  await browserUser.click(page().getByRole("button", { name: "Cancel" }));
+  expect(page().queryByRole("dialog")).toBeNull();
 });
 
 test("shows an empty state", () => {
@@ -236,9 +286,91 @@ test("shows an empty state", () => {
   expect(page().getByText("No agents yet")).toBeTruthy();
 });
 
+test("shows Workspace humans and other owners' Agents without granting Agent actions", async () => {
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <AgentsContent
+        directory={{
+          people: [
+            { id: "person", name: "ada", displayName: "Ada Lovelace", description: "Engineer" },
+          ],
+          agents: [
+            {
+              id: "other-agent",
+              name: "builder",
+              displayName: "Team Builder",
+              description: "Build releases",
+              computerName: "Shared workstation",
+            },
+            {
+              id: "second-agent",
+              name: "reviewer",
+              displayName: "Reviewer",
+              description: "",
+              computerName: null,
+            },
+          ],
+        }}
+        agents={[]}
+        computers={[]}
+        onCreate={async () => ({ startPublished: true })}
+        onLoadRuntimeCatalog={async () => []}
+      />
+    </RouterContextProvider>,
+  );
+  expect(page().getByText("Ada Lovelace")).toBeTruthy();
+  expect(page().getByText("Team Builder")).toBeTruthy();
+  expect(page().getByText("Shared workstation")).toBeTruthy();
+  expect(page().getByRole("button", { name: "All" }).textContent).toBe("All3");
+  expect(page().getByRole("button", { name: "Human" }).textContent).toBe("Human1");
+  expect(page().getByRole("button", { name: "Agent" }).textContent).toBe("Agent2");
+  expect(page().getByText("Ada Lovelace").closest("li")?.textContent).not.toContain("computer");
+  expect(page().getByText("Ada Lovelace").closest("li")?.textContent).not.toContain("Offline");
+  expect(page().getByText("No computer assigned")).toBeTruthy();
+  expect(page().queryByText("No agents yet")).toBeNull();
+  expect(page().queryByRole("link", { name: "Private chat" })).toBeNull();
+  expect(page().queryByRole("button", { name: "Retry start" })).toBeNull();
+  const browserUser = userEvent.setup({ document });
+  await browserUser.click(page().getByRole("button", { name: "Human" }));
+  expect(page().getByText("Ada Lovelace")).toBeTruthy();
+  expect(page().queryByText("Team Builder")).toBeNull();
+  await browserUser.click(page().getByRole("button", { name: "Agent" }));
+  expect(page().getByText("Team Builder")).toBeTruthy();
+  expect(page().queryByText("Ada Lovelace")).toBeNull();
+  await browserUser.type(page().getByRole("searchbox"), "ada");
+  expect(page().queryByText("Ada Lovelace")).toBeNull();
+  expect(page().getByRole("button", { name: "Agent" }).textContent).toBe("Agent2");
+  await browserUser.click(page().getByRole("button", { name: "All" }));
+  expect(page().getByText("Ada Lovelace")).toBeTruthy();
+  await browserUser.clear(page().getByRole("searchbox"));
+  await browserUser.type(page().getByRole("searchbox"), "ada");
+  expect(page().getByText("Ada Lovelace")).toBeTruthy();
+  expect(page().queryByText("Team Builder")).toBeNull();
+  await browserUser.clear(page().getByRole("searchbox"));
+  await browserUser.type(page().getByRole("searchbox"), "workstation");
+  expect(page().getByText("Team Builder")).toBeTruthy();
+  expect(page().queryByText("Ada Lovelace")).toBeNull();
+});
+
+test("recovers the Agent list from an unmatched search", async () => {
+  renderAgents();
+  const browserUser = userEvent.setup({ document });
+  const search = page().getByRole("searchbox");
+  await browserUser.type(search, "missing-agent");
+  expect(page().getByRole("heading", { name: "No members match your search" })).toBeTruthy();
+  expect(page().queryByText("Release Helper")).toBeNull();
+  expect(page().queryByText("No agents yet")).toBeNull();
+  fireEvent.click(page().getByRole("button", { name: "Clear search" }));
+  expect(search.getAttribute("value")).toBe("");
+  expect(page().getByText("Release Helper")).toBeTruthy();
+  await browserUser.type(search, "   ");
+  expect(page().getByText("Release Helper")).toBeTruthy();
+  expect(page().queryByRole("button", { name: "Clear search" })).toBeNull();
+});
+
 test("loads model catalogs only when the creation dialog opens", async () => {
   const loadRuntimeCatalog = mock(async () => modelCatalogs);
-  renderAgents([], undefined, false, undefined, loadRuntimeCatalog);
+  renderAgents([], undefined, false, loadRuntimeCatalog);
 
   expect(loadRuntimeCatalog).not.toHaveBeenCalled();
   fireEvent.click(page().getByRole("button", { name: "New agent" }));
@@ -257,7 +389,7 @@ test("offers to retry when a model catalog request fails", async () => {
     if (loadRuntimeCatalog.mock.calls.length === 1) throw new Error("catalog unavailable");
     return modelCatalogs;
   });
-  renderAgents([], undefined, true, undefined, loadRuntimeCatalog);
+  renderAgents([], undefined, true, loadRuntimeCatalog);
 
   await waitFor(() => expect(page().getByRole("button", { name: "Try again" })).toBeTruthy());
   fireEvent.click(page().getByRole("button", { name: "Try again" }));
@@ -268,7 +400,7 @@ test("offers to retry when a model catalog request fails", async () => {
 
 test("submits a manual CoForge model when catalog loading fails", async () => {
   const onCreate = mock(async () => ({ startPublished: true }));
-  renderAgents([], onCreate, true, undefined, async () => {
+  renderAgents([], onCreate, true, async () => {
     throw new Error("catalog unavailable");
   });
   fireEvent.change(await page().findByLabelText("Name"), {
@@ -369,86 +501,16 @@ test("shows a deferred-start notice after creation", async () => {
   );
 });
 
-test("retries an inactive Agent start", async () => {
-  const onRetry = mock(async () => {});
-  render(
-    <RouterContextProvider router={getRouter()}>
-      <AgentsContent
-        agents={[agent]}
-        computers={computers}
-        onCreate={async () => ({ startPublished: true })}
-        onRetry={onRetry}
-        onLoadRuntimeCatalog={async () => modelCatalogs}
-      />
-    </RouterContextProvider>,
-  );
-
-  fireEvent.click(page().getByRole("button", { name: "Retry start" }));
-  await waitFor(() => expect(onRetry).toHaveBeenCalledWith("agent-1"));
-});
-
-test("offers retry again after an inactive Agent start request cools down", async () => {
-  jest.useFakeTimers();
-  const onRetry = mock(async () => {});
-  renderAgents([agent], async () => ({ startPublished: true }), false, onRetry);
-
-  fireEvent.click(page().getByRole("button", { name: "Retry start" }));
-  await act(async () => {});
-  expect(page().getByText("Start requested.")).toBeTruthy();
-  expect(page().queryByRole("button", { name: "Retry start" })).toBeNull();
-
-  act(() => jest.advanceTimersByTime(3_000));
-
-  expect(page().getByRole("button", { name: "Retry start" })).toBeTruthy();
-  expect(page().queryByText("Start requested.")).toBeNull();
-});
-
-test("clears the pending start request when the Agent becomes active", async () => {
-  const onRetry = mock(async () => {});
-  const view = render(
-    <RouterContextProvider router={getRouter()}>
-      <AgentsContent
-        agents={[agent]}
-        computers={computers}
-        onCreate={async () => ({ startPublished: true })}
-        onRetry={onRetry}
-        onLoadRuntimeCatalog={async () => modelCatalogs}
-      />
-    </RouterContextProvider>,
-  );
-  fireEvent.click(page().getByRole("button", { name: "Retry start" }));
-  await waitFor(() => expect(page().getByText("Start requested.")).toBeTruthy());
-
-  view.rerender(
-    <RouterContextProvider router={getRouter()}>
-      <AgentsContent
-        agents={[
-          {
-            ...agent,
-            status: { value: "active", expiresAt: Date.now() + 60_000 },
-          },
-        ]}
-        computers={computers}
-        onCreate={async () => ({ startPublished: true })}
-        onRetry={onRetry}
-        onLoadRuntimeCatalog={async () => modelCatalogs}
-      />
-    </RouterContextProvider>,
-  );
-
-  expect(page().queryByText("Start requested.")).toBeNull();
-});
-
 test("collapsing the sidebar keeps navigation and the user menu reachable", () => {
   render(
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
         <AppShell user={user}>
           <AgentsContent
+            directory={agentDirectory}
             agents={[agent]}
             computers={computers}
             onCreate={async () => ({ startPublished: true })}
-            onRetry={async () => {}}
             onLoadRuntimeCatalog={async () => modelCatalogs}
           />
         </AppShell>
@@ -514,6 +576,6 @@ test("renders the same shell from the Simplified Chinese catalog", () => {
 
   expect(markup).toContain("成员");
   expect(markup).toContain("智能体");
-  expect(markup).toContain("智能体汇总");
+  expect(page().getByRole("heading", { name: "成员", level: 1 })).toBeTruthy();
   expect(markup).toContain("新建智能体");
 });

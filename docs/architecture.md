@@ -89,6 +89,8 @@ packages/
 
 本文不加限定词的 `workspace` 指云端协作、成员、权限、conversation 与 Agent 的逻辑边界。每个 Agent 另有自己的文件系统 Agent workspace 目录，它不是第二个逻辑 workspace。文档必须用限定词区分两者。
 
+Members 是 Workspace 内的人员与 Agent 目录，不是当前用户拥有的 Agent 管理列表。经用户批准，Workspace 真人成员可读取同一 Workspace 全体人员与 Agent 的名称、简介、类型，以及 Agent 所绑定且仍关联此 Workspace 的电脑名称。目录仅返回显式选择的基本字段，不返回邮箱、头像存储键、运行配置或凭据。目录可见性不授予 Agent 私聊、资料管理、配置或重启权限；这些操作继续使用原有 owner 授权接口。无需新增 schema、邀请或角色模型。
+
 `coforge-computer` 与 `coforge-daemon` 通过 Unix domain socket 通信。不得为了方便而给本地管理接口开放 TCP 监听端口。
 
 ## 4. 云端职责

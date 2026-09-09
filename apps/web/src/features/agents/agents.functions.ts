@@ -214,15 +214,6 @@ export const getAgentActivityConnectionToken = createServerFn({
   });
 });
 
-export const retryAgentStart = createServerFn({ method: "POST" })
-  .validator(agentIdSchema)
-  .handler(async ({ data: agentId }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const { agentManagement, db } = dependencies();
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-    await agentManagement.retryStart({ userId: user.id, workspaceId }, agentId);
-  });
-
 export const createAgent = createServerFn({ method: "POST" })
   .validator(createAgentInputSchema)
   .handler(async ({ data }) => {

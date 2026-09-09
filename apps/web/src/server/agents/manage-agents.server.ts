@@ -118,47 +118,6 @@ export class ManageAgents {
     }
   }
 
-  async retryStart(principal: AgentPrincipal, agentId: string): Promise<void> {
-    return this.runtimeLock.run(agentId, async () => {
-      const agent = await this.agents.getById(agentId);
-      if (
-        !agent ||
-        agent.workspaceId !== principal.workspaceId ||
-        agent.ownerId !== principal.userId ||
-        !agent.computerId
-      )
-        throw new Error("Agent is not authorized");
-      if (
-        !(await this.availability.canRun(
-          principal.workspaceId,
-          principal.userId,
-          agent.computerId,
-          {
-            provider: agent.runtimeConfig.runtime,
-            model: agent.runtimeConfig.model,
-            modelProvider:
-              agent.runtimeConfig.provider.kind === "coforge"
-                ? agent.runtimeConfig.provider.providerId
-                : "",
-            reasoning: agent.runtimeConfig.reasoning,
-          },
-        ))
-      )
-        throw new Error("runtime selection is not available on the selected Computer");
-      await this.runtimeControl.start(
-        {
-          protocolMajor: 1,
-          requestId: crypto.randomUUID(),
-          workspaceId: agent.workspaceId,
-          computerId: agent.computerId,
-          agentId: agent.id,
-          ...runtimeStartFields(agent.runtimeConfig),
-        },
-        principal.userId,
-      );
-    });
-  }
-
   async update(
     principal: AgentPrincipal,
     input: Omit<AgentCreateInput, "computerId"> & { agentId: string },

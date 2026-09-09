@@ -71,6 +71,39 @@ test("channel identifies the current human, not every human, as You", async () =
   expect(onSend).toHaveBeenCalledWith("A shared conversation", expect.any(String), undefined);
 });
 
+test.each([true, false])(
+  "empty channel keeps its identity and the correct entry action (joined=%s)",
+  (joined) => {
+    render(
+      <AppToastProvider>
+        <ChannelConversation
+          conversation={{ ...history, messages: [], senderMemberId: joined ? "alice-member" : "" }}
+          onSend={async () => {}}
+          onJoin={async () => {}}
+          onMutedChange={async () => {}}
+        />
+      </AppToastProvider>,
+    );
+    const page = within(document.body);
+    const empty = within(page.getByLabelText("Message history"));
+    expect(empty.getByRole("heading", { name: "#engineering" })).toBeTruthy();
+    expect(empty.queryByText(/private conversation/)).toBeNull();
+    if (joined) {
+      expect(
+        empty.getByText(
+          "This is the start of the channel. Send the first message to your Workspace.",
+        ),
+      ).toBeTruthy();
+      expect(page.getByRole("textbox", { name: "Message" })).toBeTruthy();
+      expect(page.queryByRole("button", { name: "Join channel" })).toBeNull();
+    } else {
+      expect(empty.getByText("Messages shared in this channel will appear here.")).toBeTruthy();
+      expect(page.queryByRole("textbox")).toBeNull();
+      expect(page.getAllByRole("button", { name: "Join channel" })).toHaveLength(1);
+    }
+  },
+);
+
 test("a non-joined Workspace member can read but must join before composing", async () => {
   const onJoin = mock(async () => {});
   render(
