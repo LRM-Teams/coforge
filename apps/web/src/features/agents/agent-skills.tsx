@@ -117,7 +117,7 @@ function SkillScope({ heading, scope }: { heading: string; scope: AgentSkillsSco
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y [&_td]:px-4 [&_td]:py-4">
+            <tbody className="divide-y divide-secondary [&_td]:px-4 [&_td]:py-4">
               {scope.entries.map((entry) => (
                 <tr key={`${entry.sourcePath}:${entry.name}`}>
                   <td className="py-2 pr-4 font-medium">{entry.name}</td>

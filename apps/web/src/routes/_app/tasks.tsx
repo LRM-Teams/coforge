@@ -17,7 +17,7 @@ export const Route = createFileRoute("/_app/tasks")({
   loader: () => loadTaskOverview(),
   pendingComponent: () => (
     <main className="flex-1 p-6">
-      <p role="status" className="text-sm text-muted-foreground">
+      <p role="status" className="text-sm text-tertiary">
         {m.tasks_loading()}
       </p>
     </main>

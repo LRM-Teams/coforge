@@ -19,7 +19,7 @@ export function AgentDetailPending({ tab }: { tab: "profile" | "activity" | "rem
   return (
     <main
       aria-busy="true"
-      className="flex h-svh max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background px-4 pt-5 md:px-8 md:pt-8"
+      className="flex h-svh max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-primary px-4 pt-5 md:px-8 md:pt-8"
     >
       <p role="status" className="sr-only">
         {m.agent_detail_loading()}
@@ -34,11 +34,14 @@ export function AgentDetailPending({ tab }: { tab: "profile" | "activity" | "rem
         </div>
         <Skeleton className="h-9 w-24 motion-safe:animate-pulse" />
       </div>
-      <nav aria-hidden="true" className="flex shrink-0 gap-5 overflow-x-auto border-b md:gap-6">
+      <nav
+        aria-hidden="true"
+        className="flex shrink-0 gap-5 overflow-x-auto border-b border-secondary md:gap-6"
+      >
         {tabs.map(({ value, label, icon: Icon }) => (
           <span
             key={value}
-            className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-0.5 pb-3 text-sm font-semibold ${tab === value ? "border-brand text-brand" : "border-transparent text-muted-foreground"}`}
+            className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-0.5 pb-3 text-sm font-semibold ${tab === value ? "border-brand text-brand" : "border-transparent text-tertiary"}`}
           >
             <Icon className="size-4 shrink-0" />
             {label}
@@ -55,7 +58,7 @@ export function AgentDetailPending({ tab }: { tab: "profile" | "activity" | "rem
             {["w-52", "w-64"].map((width) => (
               <div
                 key={width}
-                className="flex items-center justify-between gap-6 rounded-xl border bg-card p-4"
+                className="flex items-center justify-between gap-6 rounded-xl border border-secondary bg-primary p-4"
               >
                 <Skeleton className={`h-4 max-w-2/3 ${width}`} />
                 <Skeleton className="h-4 w-20" />
@@ -70,14 +73,14 @@ export function AgentDetailPending({ tab }: { tab: "profile" | "activity" | "rem
 
 function ProfilePending() {
   return (
-    <div aria-hidden="true" className="divide-y">
+    <div aria-hidden="true" className="divide-y divide-secondary">
       {[Bot, Monitor].map((Icon, index) => (
         <section
           key={index}
           className="grid gap-5 py-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8"
         >
           <div className="flex items-start gap-2">
-            <Icon className="size-4 text-muted-foreground" />
+            <Icon className="size-4 text-tertiary" />
             <Skeleton className="h-4 w-32" />
           </div>
           <div className="space-y-5 motion-safe:animate-pulse">
@@ -106,7 +109,7 @@ function ActivityPending() {
   return (
     <div
       aria-hidden="true"
-      className="mt-6 divide-y rounded-xl border px-4 md:px-6 motion-safe:animate-pulse"
+      className="mt-6 divide-y divide-secondary rounded-xl border border-secondary px-4 md:px-6 motion-safe:animate-pulse"
     >
       {["w-3/4", "w-2/3", "w-4/5", "w-1/2", "w-3/5"].map((width, index) => (
         <div

@@ -14,10 +14,8 @@ export function ComputerNotFound() {
     <>
       <PageHeader leading={<BackToComputers />} heading={m.computer_not_found()} />
       <div className="grid flex-1 place-content-center px-6 text-center">
-        <MonitorX aria-hidden="true" className="mx-auto size-6 text-muted-foreground" />
-        <p className="mt-3 max-w-sm text-sm text-muted-foreground">
-          {m.computer_not_found_description()}
-        </p>
+        <MonitorX aria-hidden="true" className="mx-auto size-6 text-tertiary" />
+        <p className="mt-3 max-w-sm text-sm text-tertiary">{m.computer_not_found_description()}</p>
       </div>
     </>
   );

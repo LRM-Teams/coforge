@@ -30,7 +30,10 @@ export function TaskLayoutToggle({
   onChange: (layout: TaskLayout) => void;
 }) {
   return (
-    <div className="inline-flex items-center -space-x-px rounded-lg shadow-xs" aria-label={m.tasks_layout()}>
+    <div
+      className="inline-flex items-center -space-x-px rounded-lg shadow-xs"
+      aria-label={m.tasks_layout()}
+    >
       {(["board", "list"] as const).map((value) => (
         <Button
           key={value}
@@ -263,7 +266,7 @@ function TaskGroup({
         className={
           board
             ? "flex min-h-24 flex-col gap-3"
-            : "flex flex-col divide-y [&_article]:rounded-none [&_article]:border-0 [&_article]:shadow-none"
+            : "flex flex-col divide-y divide-secondary [&_article]:rounded-none [&_article]:border-0 [&_article]:shadow-none"
         }
       >
         {children}

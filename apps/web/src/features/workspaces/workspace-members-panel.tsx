@@ -80,7 +80,7 @@ export function WorkspaceMembersPanel(props: {
       {props.incomingInvitations.length > 0 ? (
         <section className="space-y-3">
           <h3 className="text-lg font-semibold">{m.workspace_invitations_incoming()}</h3>
-          <ul className="divide-y overflow-hidden rounded-xl border border-secondary bg-primary shadow-xs">
+          <ul className="divide-y divide-secondary overflow-hidden rounded-xl border border-secondary bg-primary shadow-xs">
             {props.incomingInvitations.map((invitation) => (
               <li
                 key={invitation.id}
@@ -150,7 +150,7 @@ export function WorkspaceMembersPanel(props: {
 
       <section className="space-y-3">
         <h3 className="text-lg font-semibold">{m.workspace_members_title()}</h3>
-        <ul className="divide-y overflow-hidden rounded-xl border border-secondary bg-primary shadow-xs">
+        <ul className="divide-y divide-secondary overflow-hidden rounded-xl border border-secondary bg-primary shadow-xs">
           {props.members.map((member) => {
             const isSelf = member.userId === props.actorUserId;
             const canEditRole = canManage && member.role !== "owner";
@@ -225,7 +225,7 @@ export function WorkspaceMembersPanel(props: {
       {canManage && props.pendingInvitations.length > 0 ? (
         <section className="space-y-3">
           <h3 className="text-lg font-semibold">{m.workspace_invitations_pending()}</h3>
-          <ul className="divide-y overflow-hidden rounded-xl border border-secondary bg-primary shadow-xs">
+          <ul className="divide-y divide-secondary overflow-hidden rounded-xl border border-secondary bg-primary shadow-xs">
             {props.pendingInvitations.map((invitation) => (
               <li
                 key={invitation.id}
