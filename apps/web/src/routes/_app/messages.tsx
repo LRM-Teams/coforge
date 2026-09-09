@@ -6,6 +6,7 @@ import { getWorkspaceActivity } from "@/features/agents/agent-activity.functions
 import { useWorkspaceActivity } from "@/features/agents/workspace-activity-realtime";
 import { useAgentStatuses } from "@/features/agents/agent-status-realtime";
 import { ConversationLayout } from "@/features/conversations/conversation-layout";
+import { MessagesPending } from "@/features/conversations/conversation-pending";
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { getUserPreferences } from "@/features/settings/settings.functions";
 import {
@@ -24,6 +25,9 @@ export const Route = createFileRoute("/_app/messages")({
     ]);
     return { agents, channels, timeZone: preferences.timeZone };
   },
+  pendingMs: 300,
+  pendingMinMs: 0,
+  pendingComponent: MessagesPending,
   errorComponent: PageLoadError,
   component: MessagesPage,
 });

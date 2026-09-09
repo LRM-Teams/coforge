@@ -6,6 +6,10 @@ import type { RuntimeProvider } from "@coforge/protocol";
 import { ComputerDetail } from "@/features/computers/computer-detail";
 import { ComputerNotFound } from "@/features/computers/computer-not-found";
 import {
+  ComputerDetailLoadError,
+  ComputerDetailPending,
+} from "@/features/computers/computers-pending";
+import {
   readComputerRestartStatus,
   restartComputer,
   setRuntimeVisibility,
@@ -24,6 +28,10 @@ export const Route = createFileRoute("/_app/computers/$computerId")({
     if (!computer) throw notFound();
     return { computer, timeZone: loaderData?.timeZone ?? null };
   },
+  pendingMs: 300,
+  pendingMinMs: 0,
+  pendingComponent: ComputerDetailPending,
+  errorComponent: ComputerDetailLoadError,
   component: ComputerDetailPage,
   notFoundComponent: ComputerNotFound,
 });

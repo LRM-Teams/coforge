@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import {
   Activity as ActivityIcon,
   AlertCircle,
@@ -14,7 +14,6 @@ import { Link } from "@tanstack/react-router";
 import { Avatar } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { RelativeTime } from "@/components/ui/relative-time";
-import { useAppToast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogBackdrop,
@@ -190,7 +189,9 @@ function Profile({
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const toast = useAppToast();
+  const savingRef = useRef(false);
+  const [editError, setEditError] = useState("");
+  const [runtimeError, setRuntimeError] = useState("");
   const runtime = configValue(detail.runtimeConfig, "runtime");
   const providerKind = nestedConfigValue(detail.runtimeConfig, "provider", "kind");
   const providerId = nestedConfigValue(detail.runtimeConfig, "provider", "providerId");
@@ -233,13 +234,23 @@ function Profile({
         </dl>
       </section>
 
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+      <Dialog
+        open={editOpen}
+        onOpenChange={(open) => {
+          if (savingRef.current) return;
+          setEditOpen(open);
+          if (open) setEditError("");
+        }}
+      >
         <DialogPortal keepMounted>
           <DialogBackdrop />
           <DialogPopup>
             <form
               onSubmit={async (event) => {
                 event.preventDefault();
+                if (savingRef.current) return;
+                savingRef.current = true;
+                setEditError("");
                 setSaving(true);
                 const form = new FormData(event.currentTarget);
                 try {
@@ -253,9 +264,10 @@ function Profile({
                     reasoning: String(form.get("reasoning") ?? ""),
                   });
                   setEditOpen(false);
-                } catch (cause) {
-                  toast.error(m.agent_update_error(), cause);
+                } catch {
+                  setEditError(m.agent_update_error());
                 } finally {
+                  savingRef.current = false;
                   setSaving(false);
                 }
               }}
@@ -302,9 +314,19 @@ function Profile({
                   }}
                   onLoad={onLoadRuntimeOptions}
                 />
+                {editError && (
+                  <p role="alert" className="text-sm text-destructive-text sm:col-span-2">
+                    {editError}
+                  </p>
+                )}
               </div>
               <div className="flex justify-end gap-3 border-t px-6 py-4">
-                <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={saving}
+                  onClick={() => setEditOpen(false)}
+                >
                   {m.controls_cancel()}
                 </Button>
                 <Button type="submit" disabled={saving}>
@@ -384,21 +406,32 @@ function Profile({
         />
       )}
 
-      <Dialog open={runtimeDialogOpen} onOpenChange={setRuntimeDialogOpen}>
+      <Dialog
+        open={runtimeDialogOpen}
+        onOpenChange={(open) => {
+          if (savingRef.current) return;
+          setRuntimeDialogOpen(open);
+          if (open) setRuntimeError("");
+        }}
+      >
         <DialogPortal keepMounted>
           <DialogBackdrop />
           <DialogPopup>
             <form
               onSubmit={async (event: FormEvent<HTMLFormElement>) => {
                 event.preventDefault();
+                if (savingRef.current) return;
+                savingRef.current = true;
+                setRuntimeError("");
                 setSaving(true);
                 try {
                   const apiKey = String(new FormData(event.currentTarget).get("apiKey") ?? "");
                   await onSaveRuntimeCredential(apiKey);
                   setRuntimeDialogOpen(false);
-                } catch (cause) {
-                  toast.error(m.agent_runtime_save_error(), cause);
+                } catch {
+                  setRuntimeError(m.agent_runtime_save_error());
                 } finally {
+                  savingRef.current = false;
                   setSaving(false);
                 }
               }}
@@ -428,6 +461,11 @@ function Profile({
                   label={m.agent_runtime_field()}
                   value={providerKind === "coforge" ? m.agent_provider_pi_builtin() : runtime}
                 />
+                {runtimeError && (
+                  <p role="alert" className="text-sm text-destructive-text sm:col-span-2">
+                    {runtimeError}
+                  </p>
+                )}
                 {providerKind === "coforge" && providerId && (
                   <>
                     <RuntimeField label={m.agent_runtime_provider_field()} value={providerId} />
@@ -472,12 +510,20 @@ function Profile({
                     <Button
                       type="button"
                       variant="ghost"
+                      disabled={saving}
                       onClick={async () => {
+                        if (savingRef.current) return;
+                        savingRef.current = true;
+                        setRuntimeError("");
+                        setSaving(true);
                         try {
                           await onDeleteRuntimeCredential();
                           setRuntimeDialogOpen(false);
-                        } catch (cause) {
-                          toast.error(m.agent_runtime_delete_error(), cause);
+                        } catch {
+                          setRuntimeError(m.agent_runtime_delete_error());
+                        } finally {
+                          savingRef.current = false;
+                          setSaving(false);
                         }
                       }}
                     >
@@ -489,6 +535,7 @@ function Profile({
                   <Button
                     type="button"
                     variant="outline"
+                    disabled={saving}
                     onClick={() => setRuntimeDialogOpen(false)}
                   >
                     {m.controls_cancel()}

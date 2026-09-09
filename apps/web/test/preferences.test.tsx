@@ -3,7 +3,7 @@ import "./dom-setup";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { useState } from "react";
 import { RouterContextProvider } from "@tanstack/react-router";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { AppShell } from "@/components/app-shell";
@@ -241,6 +241,90 @@ test("edits the profile name and description and uploads a profile image on save
   expect(savedDescription).toBe("Helping teams ship reliable software.");
   expect(uploadedFile).toBe(file);
   expect(view.queryByRole("textbox", { name: "Description" })).toBeNull();
+});
+
+test("keeps profile drafts and prevents duplicate saves while a failed save is pending", async () => {
+  const user = userEvent.setup({ document });
+  let rejectSave!: (cause: unknown) => void;
+  const pendingSave = new Promise<void>((_resolve, reject) => {
+    rejectSave = reject;
+  });
+  let saves = 0;
+  const view = render(
+    <SettingsContent
+      {...notificationProps}
+      profile={profile}
+      locale="en"
+      theme="system"
+      timeZone={null}
+      onProfileSave={() => {
+        saves += 1;
+        return pendingSave;
+      }}
+      onAvatarUpload={async () => {}}
+      onAvatarRemove={async () => {}}
+      onLocaleChange={() => {}}
+      onThemeChange={() => {}}
+      onTimeZoneChange={() => {}}
+    />,
+  );
+
+  await user.click(view.getByRole("button", { name: "Edit" }));
+  const name = view.getByRole("textbox", { name: "Name" });
+  await user.clear(name);
+  await user.type(name, "Unsaved name");
+  const save = view.getByRole("button", { name: "Save" });
+  await user.click(save);
+  await user.click(save);
+
+  expect(saves).toBe(1);
+  expect(save.hasAttribute("disabled")).toBeTrue();
+  rejectSave(new Error("offline"));
+  await waitFor(() => expect(view.getByRole("alert")).toBeTruthy());
+  expect(view.getByRole("textbox", { name: "Name" }).getAttribute("value")).toBe("Unsaved name");
+  expect(view.queryByRole("textbox", { name: "Description" })).toBeTruthy();
+});
+
+test("does not repeat a successful avatar update when profile details are retried", async () => {
+  const user = userEvent.setup({ document });
+  let avatarUploads = 0;
+  let profileSaves = 0;
+  const view = render(
+    <SettingsContent
+      {...notificationProps}
+      profile={profile}
+      locale="en"
+      theme="system"
+      timeZone={null}
+      onProfileSave={async () => {
+        profileSaves += 1;
+        if (profileSaves === 1) throw new Error("profile unavailable");
+      }}
+      onAvatarUpload={async () => {
+        avatarUploads += 1;
+      }}
+      onAvatarRemove={async () => {}}
+      onLocaleChange={() => {}}
+      onThemeChange={() => {}}
+      onTimeZoneChange={() => {}}
+    />,
+  );
+
+  await user.click(view.getByRole("button", { name: "Edit" }));
+  await user.type(view.getByRole("textbox", { name: "Name" }), " updated");
+  await user.upload(
+    view.getByLabelText("Replace picture"),
+    new File(["image"], "avatar.png", { type: "image/png" }),
+  );
+  await user.click(view.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(view.getByRole("alert").textContent).toContain("profile image was updated"),
+  );
+  await user.click(view.getByRole("button", { name: "Save" }));
+
+  expect(avatarUploads).toBe(1);
+  expect(profileSaves).toBe(2);
+  expect(view.getByRole("status").textContent).toContain("Profile saved.");
 });
 
 test("uses the current user avatar as the personal settings menu trigger without a tooltip", () => {

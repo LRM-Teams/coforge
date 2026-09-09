@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute, getRouteApi, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
-import { SettingsContent } from "@/components/settings-content";
+import { SettingsContent, SettingsPending } from "@/components/settings-content";
 import { useAppToast } from "@/components/ui/toast";
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { saveUserProfile } from "@/features/profiles/profile.functions";
@@ -26,6 +26,9 @@ const appRoute = getRouteApi("/_app");
 
 export const Route = createFileRoute("/_app/settings")({
   loader: () => getUserPreferences(),
+  pendingMs: 300,
+  pendingMinMs: 0,
+  pendingComponent: SettingsPending,
   errorComponent: PageLoadError,
   component: SettingsPage,
 });
@@ -152,40 +155,25 @@ function SettingsPage() {
   }
 
   async function changeProfile(input: { name: string; description: string }) {
-    try {
-      await saveProfile({ data: input });
-      await router.invalidate({ sync: true });
-    } catch (cause) {
-      toast.error(m.settings_profile_save_error(), cause);
-      throw cause;
-    }
+    await saveProfile({ data: input });
+    await router.invalidate({ sync: true });
   }
 
   async function uploadAvatar(file: File) {
-    try {
-      const form = new FormData();
-      form.set("file", file);
-      const response = await fetch("/api/me/avatar", {
-        method: "POST",
-        body: form,
-      });
-      if (!response.ok) throw new Error("Profile image upload failed");
-      await router.invalidate({ sync: true });
-    } catch (cause) {
-      toast.error(m.settings_avatar_save_error(), cause);
-      throw cause;
-    }
+    const form = new FormData();
+    form.set("file", file);
+    const response = await fetch("/api/me/avatar", {
+      method: "POST",
+      body: form,
+    });
+    if (!response.ok) throw new Error("Profile image upload failed");
+    await router.invalidate({ sync: true });
   }
 
   async function removeAvatar() {
-    try {
-      const response = await fetch("/api/me/avatar", { method: "DELETE" });
-      if (!response.ok) throw new Error("Profile image removal failed");
-      await router.invalidate({ sync: true });
-    } catch (cause) {
-      toast.error(m.settings_avatar_save_error(), cause);
-      throw cause;
-    }
+    const response = await fetch("/api/me/avatar", { method: "DELETE" });
+    if (!response.ok) throw new Error("Profile image removal failed");
+    await router.invalidate({ sync: true });
   }
 
   return (

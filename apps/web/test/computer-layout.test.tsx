@@ -5,6 +5,7 @@ import { RouterContextProvider } from "@tanstack/react-router";
 import { cleanup, render, within } from "@testing-library/react";
 
 import { ComputerLayout } from "@/features/computers/computer-layout";
+import { ComputerDetailPending, ComputersPending } from "@/features/computers/computers-pending";
 import { ComputerNotFound } from "@/features/computers/computer-not-found";
 import { getRouter } from "@/router";
 
@@ -98,4 +99,30 @@ test("offers the install path instead of a detail panel when no Computer is conn
   expect(page.getAllByRole("button", { name: "Add computer" }).length).toBe(2);
   expect(page.queryByText("Computer detail")).toBeNull();
   expect(page.queryByRole("link")).toBeNull();
+});
+
+test("announces Computer loading once without showing fake status or visible Loading copy", () => {
+  render(<ComputersPending />);
+  const page = within(document.body);
+  const status = page.getByRole("status");
+  expect(status.className).toContain("sr-only");
+  expect(status.textContent).toBe("Loading computers");
+  expect(page.queryByText("Online")).toBeNull();
+  expect(page.queryByText("Offline")).toBeNull();
+  expect(document.querySelectorAll('[aria-busy="true"]').length).toBe(1);
+});
+
+test("keeps the real narrow-screen back control in the pending detail panel", () => {
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <ComputerLayout
+        computers={[computer]}
+        selectedComputerId={computer.id}
+        onAdd={() => undefined}
+      >
+        <ComputerDetailPending />
+      </ComputerLayout>
+    </RouterContextProvider>,
+  );
+  expect(within(document.body).getByRole("button", { name: "Back to computers" })).toBeTruthy();
 });

@@ -873,10 +873,12 @@ test("shows a safe toast and reuses a requestId after failure until the draft ch
 
   await user.type(composer, "second");
   await user.click(page.getByRole("button", { name: "Send" }));
+  // Repeated safe feedback updates one toast; request identity still belongs
+  // to each draft independently of notification deduplication.
   await waitFor(() =>
     expect(
       page.getByRole("region", { name: "Notifications" }).textContent?.match(/could not/g)?.length,
-    ).toBe(2),
+    ).toBe(1),
   );
   const secondFailedRequestId = onSend.mock.calls[2]![1];
   expect(secondFailedRequestId).not.toBe(failedRequestId);

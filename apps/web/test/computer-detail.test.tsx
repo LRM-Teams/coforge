@@ -255,6 +255,95 @@ test("allows the Computer owner to publish a private runtime", async () => {
   await waitFor(() => expect(setPublic).toHaveBeenCalledWith("runtime-1", true));
 });
 
+test("keeps runtime visibility unchanged, reports failures inline, and prevents duplicate updates", async () => {
+  let rejectUpdate: ((reason?: unknown) => void) | undefined;
+  const setPublic = mock(
+    () =>
+      new Promise<void>((_resolve, reject) => {
+        rejectUpdate = reject;
+      }),
+  );
+  render(
+    <ComputerDetail
+      computer={computer}
+      onScanUsage={async () => undefined}
+      onSetRuntimePublic={setPublic}
+    />,
+  );
+  const publish = within(document.body).getByRole("button", {
+    name: "Publish Codex Runtime",
+  });
+
+  fireEvent.click(publish);
+  fireEvent.click(publish);
+  expect(setPublic).toHaveBeenCalledTimes(1);
+  expect(publish.getAttribute("aria-pressed")).toBe("false");
+
+  rejectUpdate?.(new Error("unavailable"));
+  const alert = await within(document.body).findByRole("alert");
+  expect(alert.textContent).toContain("Runtime visibility could not be changed");
+  expect(publish.getAttribute("aria-pressed")).toBe("false");
+  await waitFor(() => expect(publish.hasAttribute("disabled")).toBe(false));
+});
+
+test("tracks concurrent runtime visibility updates and failures independently", async () => {
+  const runtimeAFirst = Promise.withResolvers<void>();
+  const runtimeARetry = Promise.withResolvers<void>();
+  const runtimeB = Promise.withResolvers<void>();
+  let runtimeAAttempts = 0;
+  const setPublic = mock((runtimeId: string) => {
+    if (runtimeId === "runtime-1") {
+      runtimeAAttempts += 1;
+      return runtimeAAttempts === 1 ? runtimeAFirst.promise : runtimeARetry.promise;
+    }
+    return runtimeB.promise;
+  });
+  render(
+    <ComputerDetail
+      computer={{
+        ...computer,
+        runtimes: [
+          computer.runtimes[0]!,
+          {
+            id: "runtime-2",
+            provider: "claude-code" as const,
+            displayName: "Claude Runtime",
+            version: "1.0.0",
+            isPublic: false,
+          },
+        ],
+      }}
+      onScanUsage={async () => undefined}
+      onSetRuntimePublic={setPublic}
+    />,
+  );
+  const page = within(document.body);
+  const publishA = page.getByRole("button", { name: "Publish Codex Runtime" });
+  const publishB = page.getByRole("button", { name: "Publish Claude Runtime" });
+  const runtimeA = within(publishA.closest("li")!);
+
+  fireEvent.click(publishA);
+  fireEvent.click(publishB);
+  expect(publishA.hasAttribute("disabled")).toBe(true);
+  expect(publishB.hasAttribute("disabled")).toBe(true);
+
+  runtimeAFirst.reject(new Error("unavailable"));
+  expect((await runtimeA.findByRole("alert")).textContent).toContain(
+    "Runtime visibility could not be changed",
+  );
+  expect(publishB.hasAttribute("disabled")).toBe(true);
+
+  runtimeB.resolve();
+  await waitFor(() => expect(publishB.hasAttribute("disabled")).toBe(false));
+  expect(runtimeA.getByRole("alert")).toBeTruthy();
+
+  fireEvent.click(publishA);
+  await waitFor(() => expect(runtimeA.queryByRole("alert")).toBeNull());
+  expect(publishA.hasAttribute("disabled")).toBe(true);
+  runtimeARetry.resolve();
+  await waitFor(() => expect(publishA.hasAttribute("disabled")).toBe(false));
+});
+
 test("does not expose owner-only runtime controls on a shared Computer", () => {
   render(
     <ComputerDetail

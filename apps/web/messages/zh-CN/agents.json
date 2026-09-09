@@ -1,5 +1,6 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
+  "agents_loading": "正在加载智能体…",
   "agent_avatar_recent": "最近活动",
   "agent_avatar_working": "正在工作",
   "agent_avatar_loading": "正在加载活动…",

@@ -1,65 +1,73 @@
-import { Toast } from "@base-ui/react/toast";
-import { X } from "lucide-react";
+import { useEffect, useState, type CSSProperties } from "react";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { Toaster, toast } from "sonner";
 
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
 
+const toastStyle: CSSProperties & Record<`--${string}`, string> = {
+  "--normal-bg": "var(--popover)",
+  "--normal-text": "var(--popover-foreground)",
+  "--normal-border": "var(--border)",
+};
+
+const offset = {
+  top: "max(1rem, env(safe-area-inset-top))",
+  bottom: "max(1rem, env(safe-area-inset-bottom))",
+  right: "max(1rem, env(safe-area-inset-right))",
+  left: "max(1rem, env(safe-area-inset-left))",
+};
+
 export function AppToastProvider({ children }: { children: React.ReactNode }) {
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 767px)");
+    const update = () => setMobile(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
   return (
-    <Toast.Provider>
+    <>
       {children}
-      <Toast.Portal>
-        <Toast.Viewport
-          aria-label={m.navigation_notifications()}
-          className="fixed right-4 bottom-4 z-50 flex w-[calc(100vw-2rem)] max-w-sm flex-col-reverse gap-2 outline-none"
-        >
-          <ToastList />
-        </Toast.Viewport>
-      </Toast.Portal>
-    </Toast.Provider>
+      <Toaster
+        position={mobile ? "top-center" : "bottom-right"}
+        visibleToasts={3}
+        hotkey={["F6"]}
+        customAriaLabel={m.navigation_notifications()}
+        offset={offset}
+        mobileOffset={offset}
+        style={toastStyle}
+        icons={{
+          success: <CheckCircle2 aria-hidden="true" className="size-4 text-primary" />,
+          error: <AlertCircle aria-hidden="true" className="size-4 text-destructive" />,
+        }}
+        toastOptions={{
+          classNames: {
+            toast: "rounded-xl!",
+            title: "text-sm! font-medium!",
+            description: "text-xs! text-muted-foreground!",
+          },
+        }}
+      />
+    </>
   );
 }
 
 export function useAppToast() {
-  const manager = Toast.useToastManager();
   return {
+    success(title: string) {
+      toast.success(title, { id: `success:${title}` });
+    },
     error(title: string, cause?: unknown) {
-      manager.add({
-        title,
-        description: errorReference(cause),
-        type: "error",
-        priority: "high",
+      toast.error(title, {
+        id: `error:${title}`,
+        description:
+          isAppError(cause) && cause.errorId
+            ? m.error_reference({ errorId: cause.errorId })
+            : undefined,
       });
     },
   };
-}
-
-function ToastList() {
-  const { toasts } = Toast.useToastManager();
-  return toasts.map((toast) => (
-    <Toast.Root
-      key={toast.id}
-      toast={toast}
-      className="rounded-xl border border-destructive/30 bg-popover p-4 text-popover-foreground shadow-lg transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0"
-    >
-      <Toast.Content className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <Toast.Title className="text-sm font-medium" />
-          <Toast.Description className="mt-1 text-xs text-muted-foreground" />
-        </div>
-        <Toast.Close
-          aria-label={m.toast_dismiss()}
-          className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <X aria-hidden="true" className="size-4" />
-        </Toast.Close>
-      </Toast.Content>
-    </Toast.Root>
-  ));
-}
-
-function errorReference(cause: unknown): string | undefined {
-  return isAppError(cause) && cause.errorId
-    ? m.error_reference({ errorId: cause.errorId })
-    : undefined;
 }

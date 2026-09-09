@@ -4,6 +4,7 @@ import { useCallback, useMemo } from "react";
 
 import { AgentDetail } from "@/features/agents/agent-detail";
 import { listAgentReminders } from "@/features/agents/agent-reminders.functions";
+import { AgentDetailPending } from "@/features/agents/agent-detail-pending";
 import { getAgentSkills } from "@/features/agents/agent-skills.functions";
 import { executeAgentControl } from "@/features/agents/agent-control.functions";
 import { useAgentStatuses } from "@/features/agents/agent-status-realtime";
@@ -15,7 +16,6 @@ import {
   saveAgentRuntimeCredential,
   updateAgent,
 } from "@/features/agents/agents.functions";
-import { m } from "@/paraglide/messages";
 import { getUserPreferences } from "@/features/settings/settings.functions";
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
@@ -35,12 +35,16 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
     ]);
     return { detail, timeZone: preferences.timeZone };
   },
-  pendingComponent: () => (
-    <main className="flex-1 p-6 text-sm text-muted-foreground">{m.agent_detail_loading()}</main>
-  ),
+  pendingMs: 300,
+  pendingMinMs: 0,
+  pendingComponent: AgentDetailPendingPage,
   errorComponent: PageLoadError,
   component: AgentDetailPage,
 });
+
+function AgentDetailPendingPage() {
+  return <AgentDetailPending tab={Route.useSearch().tab} />;
+}
 
 function AgentDetailPage() {
   const { detail, timeZone } = Route.useLoaderData();

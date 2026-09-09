@@ -20,6 +20,7 @@
   "messages_empty_title": "No Agents available for private messages",
   "messages_empty_description": "Agent conversations will appear here when available.",
   "conversation_history": "Message history",
+  "conversation_loading": "Loading messages…",
   "conversation_empty_title": "No messages yet",
   "conversation_empty_description": "Send a message to start this private conversation.",
   "conversation_message_label": "Message",
