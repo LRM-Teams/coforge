@@ -81,7 +81,7 @@ interface SettingsContentProps {
 
 export function SettingsPending() {
   return (
-    <main aria-busy="true" className="flex h-svh min-w-0 md:gap-2 md:p-2">
+    <main aria-busy="true" className="flex h-svh min-w-0">
       <p role="status" className="sr-only">
         {m.settings_loading()}
       </p>
@@ -159,7 +159,7 @@ export function SettingsContent(props: SettingsContentProps) {
   }
 
   return (
-    <main className="flex h-svh min-w-0 md:gap-2 md:p-2">
+    <main className="flex h-svh min-w-0">
       <nav
         aria-label={m.settings_title()}
         className={cn(
@@ -172,19 +172,19 @@ export function SettingsContent(props: SettingsContentProps) {
           <SettingsNavigationGroup label={m.settings_personal_group()}>
             <SettingsNavigationButton
               active={section === "account"}
-              icon={<UserRound aria-hidden="true" />}
+              icon={UserRound}
               label={m.settings_account()}
               onClick={() => selectSection("account")}
             />
             <SettingsNavigationButton
               active={section === "preferences"}
-              icon={<SlidersHorizontal aria-hidden="true" />}
+              icon={SlidersHorizontal}
               label={m.settings_preferences()}
               onClick={() => selectSection("preferences")}
             />
             <SettingsNavigationButton
               active={section === "notifications"}
-              icon={<BellRing aria-hidden="true" />}
+              icon={BellRing}
               label={m.settings_notifications()}
               onClick={() => selectSection("notifications")}
             />
@@ -192,7 +192,7 @@ export function SettingsContent(props: SettingsContentProps) {
           <SettingsNavigationGroup label={m.settings_workspace_group()}>
             <SettingsNavigationButton
               active={section === "members"}
-              icon={<Users aria-hidden="true" />}
+              icon={Users}
               label={m.settings_members()}
               onClick={() => selectSection("members")}
             />
@@ -278,7 +278,7 @@ function SettingsNavigationButton({
   onClick,
 }: {
   active: boolean;
-  icon: React.ReactNode;
+  icon: React.FC<{ className?: string }>;
   label: string;
   onClick: () => void;
 }) {
@@ -287,14 +287,14 @@ function SettingsNavigationButton({
       <Button
         type="button"
         color="tertiary"
+        iconLeading={icon}
         aria-current={active ? "page" : undefined}
         onPress={onClick}
         className={cn(
-          "h-11 w-full min-w-0 justify-start gap-3 rounded-lg px-3 text-sm font-medium",
+          "h-11 w-full min-w-0 justify-start rounded-lg px-3 text-sm font-medium",
           active && "bg-brand-primary text-brand-secondary",
         )}
       >
-        <span className="inline-flex shrink-0 [&_svg]:size-4">{icon}</span>
         <span className="truncate">{label}</span>
       </Button>
     </li>
