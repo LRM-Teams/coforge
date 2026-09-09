@@ -498,13 +498,13 @@ describe("GitHub validation workflow contract", () => {
       new URL("../../.github/workflows/ci.yml", import.meta.url),
     ).text();
 
-    for (const workspace of ["protocol", "agent", "cli"]) {
-      expect(workflow).toContain(`bun run --cwd packages/${workspace} test`);
-      expect(workflow).toContain(`bun run --cwd packages/${workspace} check`);
+    // The selector's behavioral tests cover which packages enter this matrix.
+    // Each selected library must still execute its full package-owned gates.
+    for (const command of ["test", "check", "build"]) {
+      expect(workflow).toContain(`bun run --cwd packages/\${{ matrix.package }} ${command}`);
     }
-    for (const workspace of ["agent", "cli"]) {
-      expect(workflow).toContain(`bun run --cwd packages/${workspace} build`);
-    }
+    expect(workflow).toContain("if: matrix.package != 'protocol'");
+    expect(workflow).toContain("bun run --cwd packages/protocol generate");
   });
 });
 
