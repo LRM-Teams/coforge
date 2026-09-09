@@ -95,6 +95,14 @@ instructions for the TanStack Start Web/backend modular monolith.
   server-side module owns Conversation-type visibility checks and bounded
   history mapping.
 
+- Message-backed Tasks belong to `server/tasks/task-board.server.ts`:
+  `TaskBoard.execute(principal, command)` owns authorization, message/task atomic
+  creation, numbering, exclusive claims and revision-checked status writes.
+  `features/tasks/tasks.functions.ts` exposes `executeTask` to the browser;
+  `features/tasks/` owns the board and message actions. Agent Task RPC adapters
+  under `server/agents/` call the same TaskBoard, never duplicate business rules.
+  `packages/protocol/tasks.ts` owns the framework-free shared contract.
+
 - Browser realtime connection ownership belongs to `features/realtime/`. The
   `_app` layout owns one Centrifuge connection for the selected Workspace;
   feature modules may subscribe to authorized channels but must not create

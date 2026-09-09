@@ -28,6 +28,7 @@ import type {
 } from "../connection/daemon-connection";
 import {
   WORKSPACE_PROTOCOL_MAJOR,
+  TASK_PROTOCOL_MAJOR,
   isChannelMessageTarget,
   type AgentActivity,
   type AgentMessageRecord,
@@ -46,6 +47,8 @@ import {
   type LocalReminderRequest,
   type ReminderJob,
   type ReminderSync,
+  type TaskCommand,
+  type TaskResult,
 } from "@coforge/protocol";
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentControl } from "../agent-runtime/agent-control";
@@ -1572,6 +1575,28 @@ export class DaemonRuntime {
       olderCursor: result.olderCursor,
       newerCursor: result.newerCursor,
     };
+  }
+
+  async agentTask(
+    context: string,
+    command: TaskCommand,
+    agentApiKey?: string,
+  ): Promise<TaskResult> {
+    if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
+    const agentId = [...this.#agentContexts.entries()].find(([, value]) => value === context)?.[0];
+    if (!agentId) throw new Error("invalid agent local context");
+    if (!this.#transport.agentTask) throw new Error("daemon connection is not connected");
+    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    const result = await this.#transport.agentTask(
+      {
+        ...command,
+        protocolMajor: TASK_PROTOCOL_MAJOR,
+        workspaceId: this.#connection.workspaceId,
+        agentId,
+      },
+      agentApiKey,
+    );
+    return { tasks: result.tasks };
   }
 
   async #canonicalAgentMessageTarget(

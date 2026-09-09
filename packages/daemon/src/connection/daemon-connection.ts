@@ -65,10 +65,16 @@ import {
   type ReminderSnapshotRequest,
   type ReminderSync,
   AGENT_THREAD_UNFOLLOW_METHOD,
+  AGENT_TASK_METHOD,
+  encodeTaskRequest,
+  decodeTaskResponse,
+  type TaskRequest,
+  type TaskResponse,
 } from "@coforge/protocol";
 import { isAgentApiKey } from "../credentials/agent-api-key";
 import type { AgentRuntimeProviderConfig } from "../code-agent/contract";
 import { AgentMessageRequestError } from "./agent-message-request-error";
+import { AgentTaskRequestError } from "./agent-task-request-error";
 import { getLogger } from "@logtape/logtape";
 
 export type AgentLaunchConfig = {
@@ -123,6 +129,14 @@ export interface AgentMessageHttpClient {
     request: AgentReminderOperationRequest;
   }): Promise<AgentReminderOperationResponse>;
 }
+export interface AgentTaskHttpClient {
+  request(input: {
+    url: string;
+    agentApiKey: string;
+    daemonApiKey: string;
+    request: TaskRequest;
+  }): Promise<TaskResponse>;
+}
 
 type HttpFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
@@ -159,6 +173,7 @@ export interface DaemonConnectionClient {
     request: AgentMessageRequest,
     agentApiKey?: string,
   ): Promise<CloudAgentMessageResponse>;
+  agentTask?(request: TaskRequest, agentApiKey?: string): Promise<TaskResponse>;
   agentAttachment?(attachmentId: string, agentApiKey?: string): Promise<Response>;
   requestAgentApiKey?(input: { agentId: string; workspaceId: string }): Promise<string>;
   requestAgentLaunchConfig?(input: {
@@ -276,6 +291,41 @@ export const createAgentMessageHttpClient = (
 
 export const defaultAgentMessageHttpClient = createAgentMessageHttpClient();
 
+export const defaultAgentTaskHttpClient: AgentTaskHttpClient = {
+  async request({ url, agentApiKey, daemonApiKey, request }) {
+    const response = await fetch(url, {
+      method: "POST",
+      signal: AbortSignal.timeout(10_000),
+      headers: {
+        authorization: `Bearer ${daemonApiKey}`,
+        "x-coforge-agent-api-key": `Bearer ${agentApiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        method: AGENT_TASK_METHOD,
+        b64data: btoa(String.fromCharCode(...encodeTaskRequest(request))),
+      }),
+    });
+    if (!response.ok) throw new Error(`server Agent Task request failed (${response.status})`);
+    const envelope = (await response.json()) as {
+      result?: { b64data?: string };
+      error?: { code?: unknown; message?: unknown };
+    };
+    if (typeof envelope.error?.code === "number")
+      throw envelope.error.code === 400 && typeof envelope.error.message === "string"
+        ? new AgentTaskRequestError(envelope.error.message)
+        : envelope.error.code === 403
+          ? new AgentTaskRequestError("Agent Task access denied")
+          : new Error(`server Agent Task request failed (${envelope.error.code})`);
+    const result = decodeTaskResponse(
+      Uint8Array.from(atob(envelope.result?.b64data ?? ""), (c) => c.charCodeAt(0)),
+    );
+    if (result.requestId !== request.requestId)
+      throw new Error("Task response request ID does not match request");
+    return result;
+  },
+};
+
 /** The Daemon's single connection for its configured Workspace. */
 export class DaemonConnection implements DaemonConnectionClient {
   #client: CentrifugeWorkspaceClient | undefined;
@@ -313,6 +363,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     private readonly clientFactory: CentrifugeWorkspaceClientFactory = defaultCentrifugeWorkspaceClientFactory,
     private readonly agentMessageHttpClient: AgentMessageHttpClient = defaultAgentMessageHttpClient,
     private readonly timing: DaemonConnectionTiming = defaultDaemonConnectionTiming,
+    private readonly agentTaskHttpClient: AgentTaskHttpClient = defaultAgentTaskHttpClient,
   ) {
     if (!endpoint) throw new Error("cloud endpoint not configured");
   }
@@ -560,6 +611,17 @@ export class DaemonConnection implements DaemonConnectionClient {
       encodeReminderSnapshotRequest(request),
     );
     return decodeReminderSync(rpcData(reply));
+  }
+
+  async agentTask(request: TaskRequest, agentApiKey?: string): Promise<TaskResponse> {
+    if (!this.#connected) throw new Error("daemon connection is not connected");
+    if (!this.#serverHttpUrl) throw new Error("Agent Task HTTP endpoint is not configured");
+    return this.agentTaskHttpClient.request({
+      url: `${new URL(this.#serverHttpUrl).origin}/api/agent-messages`,
+      agentApiKey: agentApiKey ?? this.#token,
+      daemonApiKey: this.#token,
+      request,
+    });
   }
 
   async agentAttachment(attachmentId: string, agentApiKey?: string): Promise<Response> {

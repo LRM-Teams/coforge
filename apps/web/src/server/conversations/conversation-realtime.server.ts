@@ -9,21 +9,28 @@ export type ConversationRealtime = {
     conversationId: string;
     messageId: string;
     sequence: number;
+    publicationId?: string;
   }): Promise<void>;
 };
 
 export class CentrifugoConversationRealtime implements ConversationRealtime {
   constructor(private readonly centrifugo: CentrifugoServerApi) {}
 
-  async messageAvailable(input: { conversationId: string; messageId: string; sequence: number }) {
+  async messageAvailable(input: {
+    conversationId: string;
+    messageId: string;
+    sequence: number;
+    publicationId?: string;
+  }) {
+    const { publicationId, ...message } = input;
     const event: MessageAvailableEvent = {
       type: "message.available.v1",
-      ...input,
+      ...message,
     };
     await this.centrifugo.publishJson(
       conversationRealtimeChannel(input.conversationId),
       event,
-      input.messageId,
+      publicationId ?? input.messageId,
     );
   }
 }

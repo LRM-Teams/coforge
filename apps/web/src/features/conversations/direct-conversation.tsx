@@ -21,7 +21,9 @@ import {
   MessageSquare,
   Paperclip,
   Quote,
+  ListTodo,
 } from "lucide-react";
+import type { TaskView } from "@coforge/protocol";
 
 import {
   BackToAgents,
@@ -42,6 +44,7 @@ import { useAppToast } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ReminderNotice, type ReminderNoticeView } from "./reminder-notice";
 import { cn } from "@/lib/utils";
+import { TaskBadge } from "@/features/tasks/task-board";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
 
@@ -107,6 +110,10 @@ type ConversationProps = {
   onReadThread?: (rootMessageId: string, throughSequence: number) => Promise<void>;
   onLoadReminderNotices?: (threadRootId?: string) => Promise<ReminderNoticeView[]>;
   reminderRefreshKey?: number;
+  tasks?: TaskView[];
+  onConvertToTask?: (messageId: string) => Promise<void>;
+  onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
+  onShowTasks?: () => void;
 };
 
 export type ThreadedConversationProps = Omit<ConversationProps, "conversation" | "agentStatus"> & {
@@ -145,6 +152,17 @@ export function DirectConversation(props: ConversationProps) {
       <span className="hidden shrink-0 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground sm:block">
         @{conversation.agent.name}
       </span>
+      {props.onShowTasks && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="ml-auto"
+          onClick={props.onShowTasks}
+        >
+          <ListTodo aria-hidden="true" /> {m.tasks_tab()}
+        </Button>
+      )}
     </header>
   );
   return <ThreadedConversation {...props} header={header} />;
@@ -314,6 +332,22 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
               </div>
             );
           }}
+          messageFooter={(message) => {
+            const task = props.tasks?.find((candidate) => candidate.messageId === message.id);
+            return task ? (
+              <TaskBadge task={task} />
+            ) : props.onConvertToTask ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className="mt-1 h-auto px-0 text-muted-foreground"
+                onClick={() => void props.onConvertToTask?.(message.id).catch(() => {})}
+              >
+                {m.tasks_convert()}
+              </Button>
+            ) : null;
+          }}
         />
       </div>
       {visited.map((rootId) => {
@@ -354,7 +388,8 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
 function anchoredThreadRoot(messages: DirectConversationView["messages"]) {
   if (typeof window === "undefined" || !window.location.hash.startsWith("#message-")) return;
   const messageId = window.location.hash.slice("#message-".length);
-  return messages.find((message) => message.id === messageId)?.threadRootId;
+  const message = messages.find((candidate) => candidate.id === messageId);
+  return message?.threadRootId ?? message?.id;
 }
 
 export function ConversationPane({
@@ -368,12 +403,14 @@ export function ConversationPane({
   threadEntry,
   threadPreview,
   threadHeaderAction,
+  messageFooter,
   onLoadOlder,
   onLoadOwnMessages,
   onLoadMessageAround,
   onShowLatest,
   onLoadReminderNotices,
   reminderRefreshKey,
+  onCreateTask,
 }: Omit<ConversationProps, "conversation" | "agentStatus"> & {
   conversation: Omit<DirectConversationView, "agent">;
   header?: React.ReactNode;
@@ -384,12 +421,14 @@ export function ConversationPane({
   threadEntry?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
   threadPreview?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
   threadHeaderAction?: React.ReactNode;
+  messageFooter?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
 }) {
   const composerId = useId();
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [file, setFile] = useState<File>();
+  const [asTask, setAsTask] = useState(false);
   const toast = useAppToast();
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [followingLatest, setFollowingLatest] = useState(true);
@@ -685,7 +724,10 @@ export function ConversationPane({
         if (!response.ok) throw new Error(await response.text());
         attachmentId = ((await response.json()) as { id: string }).id;
       }
-      const sentMessage = await onSend(text, request.requestId, attachmentId);
+      const sentMessage =
+        asTask && !root && onCreateTask
+          ? (await onCreateTask(text, request.requestId, attachmentId), undefined)
+          : await onSend(text, request.requestId, attachmentId);
       if (sentMessage && onLoadOwnMessages) {
         setOwnMessageIndex((current) => {
           const messages = new Map(current.map((message) => [message.id, message]));
@@ -697,6 +739,7 @@ export function ConversationPane({
       retryRef.current = undefined;
       setBody("");
       setFile(undefined);
+      setAsTask(false);
     } catch (cause) {
       const message = m.conversation_send_error();
       setError(message);
@@ -898,6 +941,7 @@ export function ConversationPane({
                             </a>
                           )}
                         </div>
+                        {messageFooter?.(message)}
                         {threadPreview?.(message)}
                       </div>
                     </div>
@@ -1086,6 +1130,17 @@ export function ConversationPane({
                 className="sr-only"
               />
             </label>
+            {!root && onCreateTask && (
+              <Button
+                type="button"
+                variant={asTask ? "secondary" : "ghost"}
+                size="xs"
+                aria-pressed={asTask}
+                onClick={() => setAsTask((current) => !current)}
+              >
+                <ListTodo aria-hidden="true" /> {m.tasks_as_task()}
+              </Button>
+            )}
             <Button
               type="submit"
               size="icon"

@@ -43,6 +43,15 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 - Use \`coforge reminder list|update|snooze|cancel|log\` to manage reminders. A due App Inbox item is completed with \`coforge reminder ack --id <full-reminder-uuid> --revision <exact-positive-revision>\` (or \`dismiss\`) exactly as shown by the item.
 - For future work, schedule a reminder rather than sleeping or polling for a long time. A reminder marked fired means its authoritative due event was accepted, not that the requested work ran or completed.
 
+### Tasks
+
+- Task commands use the parent target (\`#general\` or \`@username\`), never a \`:thread\` suffix. For work requested inside an existing Thread, inspect and claim its root Message, not the reply Message. Use the returned Task message ID with the parent target to send progress to that exact Thread; for example \`#general:<message-id>\`.
+- Before starting work, run \`coforge task list --target <target>\`. Claim an existing Task with \`coforge task claim --target <target> --number <number>\`; for an ordinary work Message, claim it atomically with \`coforge task claim --target <target> --message-id <message-id>\`. If claiming fails, do not perform conflicting work.
+- Create an independent Task with \`coforge task create --target <target> --title <title>\`. This records work; it does not create dependency scheduling or imply that another Agent will execute it. Do not turn ordinary conversation into Tasks.
+- Post progress and results in the original Task Thread using \`coforge message send\`, then move your Task to \`in_review\` with \`coforge task update --target <target> --number <number> --status in_review\`.
+- Mark your Task \`done\` only after a human clearly accepts the result in that original Thread. Natural-language acceptance is a judgment you must make from the conversation, not an automatic approval detector or a requirement that the human click the UI. Never invent or infer approval from silence.
+- Task updates use revisions to reject stale writes. If an update reports a conflict, read the Task list again and decide from the current state; do not repeatedly overwrite it.
+
 Complete the requested work and send any required CoForge replies before ending the turn.`;
 
 /** Builds the complete standing instructions injected into a CoForge Agent session. */

@@ -1,12 +1,15 @@
 import { randomBytes } from "node:crypto";
 import {
   encodeLocalReminderRequest,
+  validateTaskRequest,
   type LocalAgentMessageRequest,
   type LocalInboxRequest,
   type LocalReminderRequest,
+  type TaskCommand,
 } from "@coforge/protocol";
 import { isAgentApiKey } from "./credentials/agent-api-key";
 import { AgentMessageRequestError } from "./connection/agent-message-request-error";
+import { AgentTaskRequestError } from "./connection/agent-task-request-error";
 
 export type AgentProxy = {
   url: string;
@@ -32,6 +35,7 @@ export function startAgentProxy(input: {
       request: LocalReminderRequest,
       agentApiKey: string,
     ): Promise<unknown>;
+    agentTask?(context: string, request: TaskCommand, agentApiKey: string): Promise<unknown>;
     issueAgentContext?: (agentId: string, context?: string) => string;
   };
   port?: number;
@@ -51,6 +55,7 @@ export function startAgentProxy(input: {
         (request.method !== "POST" || requestUrl.pathname !== "/agent/message") &&
         (request.method !== "POST" || requestUrl.pathname !== "/agent/inbox") &&
         (request.method !== "POST" || requestUrl.pathname !== "/agent/reminder") &&
+        (request.method !== "POST" || requestUrl.pathname !== "/agent/task") &&
         (request.method !== "GET" || requestUrl.pathname !== "/agent/attachment")
       )
         return new Response("not found", { status: 404 });
@@ -96,6 +101,19 @@ export function startAgentProxy(input: {
           encodeLocalReminderRequest(local);
           return Response.json(
             await input.runtime.reminder(binding.context, local, binding.agentApiKey),
+          );
+        }
+        if (requestUrl.pathname === "/agent/task") {
+          if (!input.runtime.agentTask) return new Response("not found", { status: 404 });
+          const command = payload as TaskCommand;
+          validateTaskRequest({
+            ...command,
+            protocolMajor: 1,
+            workspaceId: "local",
+            agentId: binding.agentId,
+          });
+          return Response.json(
+            await input.runtime.agentTask(binding.context, command, binding.agentApiKey),
           );
         }
         if (requestUrl.pathname === "/agent/inbox") {
@@ -180,6 +198,8 @@ export function startAgentProxy(input: {
         // Deliberately do not expose runtime/transport exception text.
         if (error instanceof SyntaxError) return new Response("bad request", { status: 400 });
         if (error instanceof AgentMessageRequestError)
+          return new Response(error.message, { status: 400 });
+        if (error instanceof AgentTaskRequestError)
           return new Response(error.message, { status: 400 });
         return new Response("proxy request failed", { status: 502 });
       }

@@ -466,11 +466,11 @@ identity 并声明替代旧 ID，不能以相同 ID 冒充 resume。切换 runti
 
 用户已确认三个独立的前端操作；Reset 与 Start 是一个按钮触发的组合操作，不要求用户再点 Start：
 
-| 操作 | 停止完成后的动作 | Agent workspace |
-| --- | --- | --- |
-| Restart Agent | 优先恢复原绑定；空会话直接新建，已分类的恢复错误允许一次 fresh fallback | 保留全部文件 |
-| Reset Session | 清除旧 Session 绑定，不下发 ID，启动新会话 | 保留全部文件，包括 Skills 和旧本地 Session 文件 |
-| Full Reset | 清空当前 Agent workspace，清除旧绑定，不下发 ID，启动新会话 | 删除其中全部文件，包括隐藏配置、Workspace Skills 与 Pi Session 文件 |
+| 操作          | 停止完成后的动作                                                        | Agent workspace                                                     |
+| ------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Restart Agent | 优先恢复原绑定；空会话直接新建，已分类的恢复错误允许一次 fresh fallback | 保留全部文件                                                        |
+| Reset Session | 清除旧 Session 绑定，不下发 ID，启动新会话                              | 保留全部文件，包括 Skills 和旧本地 Session 文件                     |
+| Full Reset    | 清空当前 Agent workspace，清除旧绑定，不下发 ID，启动新会话             | 删除其中全部文件，包括隐藏配置、Workspace Skills 与 Pi Session 文件 |
 
 三种操作均先确认旧 Runtime/进程树已停止。Full Reset 必须经明确的破坏性确认；路径由
 可信 Workspace/Agent 身份计算，不能由浏览器指定。删除范围不包含用户 HOME、Global
@@ -878,6 +878,47 @@ reminder；CLI 列表超过当前有界返回能力明确报错而不静默丢�
 数据库集成检查使用显式的隔离 PostgreSQL：
 `REMINDER_TEST_DATABASE_URL=... mise exec -- bun test ./apps/web/test/reminder.integration.ts`。
 普通 `mise run test` 不运行这个 `.integration.ts` 专项；执行前应在隔离库应用当前迁移。
+
+### 6.6 消息 Task
+
+2026-09-09 用户批准参考 Raft 实现 Task，先完成频道 Thread 并独立验证，再并行实现
+Task 业务、Agent RPC/CLI 和 Web。Task 是同一 Workspace、同一 Conversation 内顶层
+Message 的跟踪元数据，不是执行进程、调度队列或 claim/lease worker。频道与现有私聊
+均支持；Thread 回复不能成为 Task。一个消息最多一个 Task，编号在 Conversation 内
+单调分配。Task 创建与根 Message 必须原子提交，转换保留原消息和讨论。
+
+首版提供 create、convert、list、claim、unclaim、update。状态集合为 todo、in_progress、
+in_review、done、closed。claim 原子地取得单一 ConversationMember owner 并进入
+in_progress；相同 owner 重复 claim 幂等，不允许抢占他人 Task。unclaim 由 owner 发起，
+以 expected revision 原子地清空 owner 并回到 todo，且不能用于 done/closed；终态必须通过
+显式 update 为 todo 重新打开，重新打开清空 owner。owner 可提交状态变更，已加入会话的真人可验收、关闭或重新打开；Agent 不修改
+其他成员持有的 Task。所有操作重新校验 Workspace 与会话权限，公开频道的未加入真人
+只可读，私聊只限其参与者。客户端携带 revision 的 update 与 unclaim 写入拒绝旧快照覆盖新状态。
+
+用户明确选择：真人在 Task Thread 中正常回复验收意见，Agent 根据明确验收将自己
+Task 标记 done；不要求真人点击看板，不加 human-only Done 限制。工作前先 claim、
+claim 失败不得开始冲突执行、完成先 in_review、收到明确验收再 done 是 Agent instructions
+规则，不声称服务端能识别自然语言批准、验证工作成果或阻止模型违背规则。
+
+Web/backend 的 TaskBoard 拥有权限、编号、认领和状态持久化；Web Server Functions 与
+Agent 专用 versioned Task RPC 共用该 seam。Agent RPC 复用既有双凭据 HTTPS endpoint
+和 Credential Proxy，不借 Agent Activity 或 message body 偷渡 Task 数据。Daemon 只校验
+本地 Agent context 并转发，不拥有 Task 数据或调度器。沿用 Bun、Prisma/PostgreSQL、
+Centrifugo 与现有会话通知规则，不新增服务、依赖、runtime 版本或 license。创建 Task
+仍遵循真人消息通知资格；Task 元数据变更不自动唤醒 Agent。Thread 和同一 Agent session
+保持现有行为；claim 不额外隐式 follow，讨论回复/mention 仍按 Thread 规则 follow。
+
+实现依据：[Raft Tasks](https://docs.raft.build/features/collaboration/tasks.md)、
+[Divide the work](https://docs.raft.build/divide-the-work.md) 及
+[官方 daemon 1.0.17](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)
+（SHA-256 `76b1249c6987ffba3657948f2074e7f0b6c64775181ec9a00b8ac5e95b5186d2`）。
+公开源码未证明私有服务端事务、状态矩阵或 human-only 审批门；上述权限与并发规则是
+CoForge 的显式选择。未照搬 Raft 的 assign/unassign、amend/history、资源 receipt、
+reviewer isolation 或结构化子任务/依赖调度。子任务首版只是各自独立的普通 Task。
+复用现有工具链比引入外部任务框架更符合消息所有权且无新运行服务成本；代价是维护
+小型任务状态与授权实现。迁移仅加法保留既有消息；回滚旧代码保留 Task 数据，不执行
+生产迁移或发布。验证 seam 为 TaskBoard 的真实 PostgreSQL 行为、Agent RPC/CLI 和
+浏览器交互，重点覆盖并发认领、越权、幂等、旧 revision 与消息/Thread 无回归。
 
 ## 7. 端到端链路
 

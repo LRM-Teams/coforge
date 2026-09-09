@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Bell, BellOff, Hash } from "lucide-react";
+import { Bell, BellOff, Hash, ListTodo } from "lucide-react";
+import type { TaskView } from "@coforge/protocol";
 import { Button } from "@/components/ui/button";
 import { BackToAgents } from "./conversation-layout";
 import {
@@ -32,6 +33,10 @@ export function ChannelConversation({
   reminderRefreshKey,
   onReadThread,
   onThreadFollowedChange,
+  tasks,
+  onConvertToTask,
+  onCreateTask,
+  onShowTasks,
 }: {
   conversation: ChannelConversationView;
   onSend: (
@@ -59,6 +64,10 @@ export function ChannelConversation({
   reminderRefreshKey?: number;
   onReadThread?: (rootMessageId: string, throughSequence: number) => Promise<void>;
   onThreadFollowedChange?: (rootMessageId: string, followed: boolean) => Promise<void>;
+  tasks?: TaskView[];
+  onConvertToTask?: (messageId: string) => Promise<void>;
+  onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
+  onShowTasks?: () => void;
 }) {
   const [joining, setJoining] = useState(false);
   const [savingMute, setSavingMute] = useState(false);
@@ -85,6 +94,9 @@ export function ChannelConversation({
       onLoadReminderNotices={onLoadReminderNotices}
       reminderRefreshKey={reminderRefreshKey}
       onReadThread={onReadThread}
+      tasks={tasks}
+      onConvertToTask={conversation.senderMemberId ? onConvertToTask : undefined}
+      onCreateTask={conversation.senderMemberId ? onCreateTask : undefined}
       threadHeaderAction={(rootMessageId) => {
         const followed = conversation.followedThreadRootIds?.includes(rootMessageId) ?? false;
         return conversation.senderMemberId ? (
@@ -128,6 +140,11 @@ export function ChannelConversation({
               }}
             >
               {conversation.muted ? <BellOff aria-hidden="true" /> : <Bell aria-hidden="true" />}
+            </Button>
+          )}
+          {onShowTasks && (
+            <Button type="button" variant="ghost" size="sm" onClick={onShowTasks}>
+              <ListTodo aria-hidden="true" /> {m.tasks_tab()}
             </Button>
           )}
         </header>

@@ -157,6 +157,87 @@ test("formats usable reminder lists, empty logs, and receipt acknowledgements", 
   ).toContain(`id=${reminderId} revision=3`);
 });
 
+test("Task commands require exact arguments and reject thread targets", () => {
+  expect(
+    parseArgs(["task", "claim", "--target", "#general", "--message-id", "message-1"]),
+  ).toMatchObject({
+    command: "task",
+    task: { operation: "claim", target: "#general", messageId: "message-1" },
+  });
+  expect(parseArgs(["task", "list", "--target", "@ada", "--status", "todo"])).toMatchObject({
+    command: "task",
+    task: { operation: "list", target: "@ada", status: "todo" },
+  });
+  expect(() => parseArgs(["task", "claim", "--target", "#general"])).toThrow("Usage:");
+  expect(() => parseArgs(["task", "list", "--target", "#general:deadbeef"])).toThrow("Usage:");
+  expect(() => parseArgs(["task", "delete", "--target", "#general"])).toThrow("Usage:");
+});
+
+test("Task update reads one revision then submits once and formats Thread-useful identity", async () => {
+  const calls: any[] = [];
+  const output = await run(
+    ["task", "update", "--target", "#general", "--number", "2", "--status", "in_review"],
+    {
+      check: async () => ({ messages: [] }),
+      read: async () => ({}),
+      send: async () => ({}),
+      view: async () => ({ bytes: new Uint8Array() }),
+      task: async (command) => {
+        calls.push(command);
+        return {
+          tasks: [
+            {
+              messageId: "message-2",
+              conversationId: "conversation",
+              number: 2,
+              title: "Verify",
+              status: command.operation === "update" ? "in_review" : "in_progress",
+              revision: 5,
+              owner: { memberId: "member", kind: "agent", name: "builder" },
+            },
+          ],
+        };
+      },
+    },
+  );
+  expect(calls).toHaveLength(2);
+  expect(calls[1]).toMatchObject({ operation: "update", expectedRevision: 5 });
+  expect(output).toContain("#2 status=in_review owner=builder message=message-2");
+});
+
+test("Task unclaim reads one revision unless explicitly supplied and submits once", async () => {
+  for (const args of [
+    ["task", "unclaim", "--target", "#general", "--number", "2"],
+    ["task", "unclaim", "--target", "#general", "--number", "2", "--expected-revision", "4"],
+  ]) {
+    const calls: any[] = [];
+    await run(args, {
+      check: async () => ({ messages: [] }),
+      read: async () => ({}),
+      send: async () => ({}),
+      view: async () => ({ bytes: new Uint8Array() }),
+      task: async (command) => {
+        calls.push(command);
+        return {
+          tasks: [
+            {
+              messageId: "message-2",
+              conversationId: "conversation",
+              number: 2,
+              title: "Verify",
+              status: "in_progress",
+              revision: 4,
+              owner: { memberId: "member", kind: "agent", name: "builder" },
+            },
+          ],
+        };
+      },
+    });
+    expect(calls.at(-1)).toMatchObject({ operation: "unclaim", expectedRevision: 4 });
+    expect(calls).toHaveLength(args.includes("--expected-revision") ? 1 : 2);
+  }
+});
+
 test("Agent channel mute and unmute change its own setting without sending a message", async () => {
   const calls: unknown[] = [];
   for (const command of ["mute", "unmute"] as const) {

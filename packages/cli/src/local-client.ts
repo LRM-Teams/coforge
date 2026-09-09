@@ -7,6 +7,8 @@ import {
   encodeLocalReminderRequest,
   type AgentReminderOperationResponse,
   type LocalReminderRequest,
+  type TaskCommand,
+  type TaskResult,
 } from "@coforge/protocol";
 import type { LocalReminderReceiptResponse, ReminderTransportRequest } from "../index";
 
@@ -77,6 +79,7 @@ export function connectLocal(
       body?: string,
       options?: { sendDraft?: boolean; continueAnyway?: boolean },
     ) => call("send", target, body, options),
+    task: (command: TaskCommand) => callTask(command),
     view: async (attachmentId: string) => {
       if (!context) throw new Error("coforge agent context is not configured");
       if (!/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
@@ -138,5 +141,20 @@ export function connectLocal(
     return decodeAgentReminderOperationResponse(
       encodeAgentReminderOperationResponse(result as AgentReminderOperationResponse),
     );
+  }
+
+  async function callTask(command: TaskCommand) {
+    if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+      throw new Error("coforge agent context is invalid");
+    if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
+    const response = await fetch(proxyUrl.replace(/\/agent\/message$/, "/agent/task"), {
+      method: "POST",
+      headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+      body: JSON.stringify(command),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok)
+      throw new Error(`agent Task request failed (${response.status}): ${await response.text()}`);
+    return (await response.json()) as TaskResult;
   }
 }

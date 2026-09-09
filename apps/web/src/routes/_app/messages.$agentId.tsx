@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { z } from "zod";
 
 import { DirectConversation } from "@/features/conversations/direct-conversation";
 import { useConversationAgentStatus } from "@/features/conversations/conversation-layout";
 import { createConversationReconciler } from "@/features/conversations/conversation-reconciliation";
 import { useConversationRealtime } from "@/features/conversations/conversation-realtime-client";
 import { loadReminderNotices } from "@/features/conversations/reminder-notices.functions";
+import { TaskBoard } from "@/features/tasks/task-board";
+import { useConversationTasks } from "@/features/tasks/use-conversation-tasks";
 import {
   loadConversationAround,
   loadDirectConversation,
@@ -17,6 +20,7 @@ import {
 } from "@/features/conversations/conversations.functions";
 
 export const Route = createFileRoute("/_app/messages/$agentId")({
+  validateSearch: z.object({ view: z.enum(["chat", "tasks"]).optional().catch(undefined) }),
   remountDeps: ({ params }) => params.agentId,
   loader: ({ params }) => loadDirectConversation({ data: { agentId: params.agentId } }),
   component: DirectConversationPage,
@@ -27,6 +31,8 @@ function DirectConversationPage() {
   const [conversation, setConversation] = useState(latestConversation);
   const agentStatus = useConversationAgentStatus();
   const { agentId } = Route.useParams();
+  const { view } = Route.useSearch();
+  const router = useRouter();
   const send = useServerFn(sendDirectConversationMessage);
   const markRead = useServerFn(markDirectThreadRead);
   const loadConversation = useServerFn(loadDirectConversation);
@@ -38,6 +44,7 @@ function DirectConversationPage() {
   const agentIdRef = useRef(agentId);
   const loadUpdatesRef = useRef(loadUpdates);
   const mergeUpdatesRef = useRef<(updates: typeof conversation.messages) => void>(() => {});
+  const taskView = useConversationTasks(latestConversation.conversationId);
   agentIdRef.current = agentId;
   loadUpdatesRef.current = loadUpdates;
   mergeUpdatesRef.current = (updates) => {
@@ -64,7 +71,7 @@ function DirectConversationPage() {
     [latestConversation.conversationId],
   );
   useConversationRealtime(latestConversation.conversationId, async () => {
-    await reconciliation.reconcile();
+    await Promise.all([reconciliation.reconcile(), taskView.refresh()]);
     setReminderRefreshKey((value) => value + 1);
   });
 
@@ -81,6 +88,49 @@ function DirectConversationPage() {
     });
   }, [latestConversation]);
 
+  const showChat = () =>
+    void router.navigate({
+      from: Route.fullPath,
+      search: (previous) => ({ ...previous, view: "chat" }),
+    });
+  const showTasks = () =>
+    void router.navigate({
+      from: Route.fullPath,
+      search: (previous) => ({ ...previous, view: "tasks" }),
+    });
+  const openTask = async (messageId: string) => {
+    if (!conversation.messages.some((message) => message.id === messageId)) {
+      const around = await loadAround({
+        data: { conversationId: conversation.conversationId, messageId },
+      });
+      setConversation((current) => ({ ...current, ...around }));
+    }
+    await router.navigate({
+      from: Route.fullPath,
+      search: (previous) => ({ ...previous, view: "chat" }),
+      hash: `message-${messageId}`,
+    });
+  };
+  if (view === "tasks")
+    return (
+      <TaskBoard
+        tasks={taskView.tasks}
+        currentMemberId={conversation.senderMemberId}
+        canMutate
+        loading={taskView.loading}
+        error={taskView.error}
+        onOpenMessage={openTask}
+        onShowChat={showChat}
+        onCreateTask={async (title, requestId) => {
+          const [task] = await taskView.command({ operation: "create", title, requestId });
+          setConversation(await loadConversation({ data: { agentId } }));
+          return task;
+        }}
+        onCommand={async (command) => {
+          await taskView.command(command);
+        }}
+      />
+    );
   return (
     <DirectConversation
       key={conversation.agent.id}
@@ -94,6 +144,15 @@ function DirectConversationPage() {
           })
         ).notices
       }
+      tasks={taskView.tasks}
+      onShowTasks={showTasks}
+      onConvertToTask={async (messageId) => {
+        await taskView.command({ operation: "convert", messageId });
+      }}
+      onCreateTask={async (title, requestId, attachmentId) => {
+        await taskView.command({ operation: "create", title, requestId, attachmentId });
+        setConversation(await loadConversation({ data: { agentId } }));
+      }}
       onSend={async (body, requestId, attachmentId, threadRootId) => {
         const message = await send({
           data: { agentId, requestId, body, attachmentId, threadRootId },

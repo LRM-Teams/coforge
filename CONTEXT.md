@@ -70,6 +70,15 @@ replying to one target does not consume unread messages in another target. A
 sender identity is not a Message target and does not change when that sender
 replies in a Thread.
 
+**Task**:
+A top-level Message tracked as work in its Conversation, with a conversation-local
+number, status and at most one responsible ConversationMember. Its discussion
+belongs to the Message's Thread; a Task is not an Agent run or a scheduled job.
+
+**Task owner**:
+The User or Agent who has claimed responsibility for a Task, distinct from the
+Task's message author or the User who owns the Agent.
+
 **Agent status**:
 The volatile two-value lease status derived from the local Agent runtime process: `online` while the process is running and `offline` after it exits or is stopped. Lease renewals may replay the same logical status. Records carry daemon instance, client sequence, and the daemon instance start time in `observedAtMs`; same-instance records order by sequence and cross-instance records order by that instance rank. Browser snapshots and live events use the same merge rule.
 _Avoid_: starting, ready, degraded, failed

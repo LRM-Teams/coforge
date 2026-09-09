@@ -4,6 +4,9 @@ import {
   type AgentMessageRecord,
   type AgentReminderOperationResponse,
   type LocalReminderRequest,
+  type TaskCommand,
+  type TaskResult,
+  type TaskStatus,
 } from "@coforge/protocol";
 
 export type MessageCommand = "check" | "read" | "search" | "send";
@@ -46,6 +49,7 @@ export type LocalReminderReceiptResponse = {
   revision: number;
 };
 export type ThreadInvocation = { command: "thread-unfollow"; target: string };
+export type TaskInvocation = { command: "task"; task: Omit<TaskCommand, "requestId"> };
 
 export type MessageTransport = {
   check(): Promise<{ messages: AgentMessageRecord[] }>;
@@ -66,6 +70,7 @@ export type MessageTransport = {
     request: ReminderTransportRequest,
   ): Promise<AgentReminderOperationResponse | LocalReminderReceiptResponse>;
   setThreadFollowed?(target: string, followed: boolean): Promise<unknown>;
+  task?(command: TaskCommand): Promise<TaskResult>;
 };
 
 export function parseArgs(
@@ -76,8 +81,10 @@ export function parseArgs(
   | InboxInvocation
   | ChannelInvocation
   | ReminderInvocation
-  | ThreadInvocation {
+  | ThreadInvocation
+  | TaskInvocation {
   if (args[0] === "reminder") return parseReminderArgs(args.slice(1));
+  if (args[0] === "task") return parseTaskArgs(args.slice(1));
   if (
     args[0] === "channel" &&
     (args[1] === "mute" || args[1] === "unmute") &&
@@ -209,6 +216,31 @@ export async function run(args: readonly string[], transport: MessageTransport):
     if (!transport.reminder) throw new Error("Reminder transport is unavailable");
     const { command: _command, ...request } = invocation;
     return formatReminderResponse(request.operation, await transport.reminder(request));
+  }
+  if (invocation.command === "task") {
+    if (!transport.task) throw new Error("Task transport is unavailable");
+    let command = { ...invocation.task, requestId: crypto.randomUUID() } as TaskCommand;
+    if (
+      (command.operation === "update" || command.operation === "unclaim") &&
+      command.expectedRevision === undefined
+    ) {
+      const listed = await transport.task({
+        operation: "list",
+        requestId: crypto.randomUUID(),
+        target: command.target,
+      });
+      const current = listed.tasks.find((task) => task.number === command.number);
+      if (!current)
+        throw new Error(`Task #${command.number} was not found; read the Task list again`);
+      command = { ...command, expectedRevision: current.revision };
+    }
+    try {
+      return formatTasks(await transport.task(command));
+    } catch (error) {
+      if (error instanceof Error && /revision|conflict|stale/i.test(error.message))
+        throw new Error("Task changed concurrently; read the Task list again before updating");
+      throw error;
+    }
   }
   if (invocation.command === "mute" || invocation.command === "unmute") {
     if (!transport.setChannelMuted) throw new Error("Channel settings transport is unavailable");
@@ -451,4 +483,73 @@ function formatReminderResponse(
       .join("\n");
   }
   return `Accepted reminder ${operation} request.`;
+}
+
+function parseTaskArgs(args: readonly string[]): TaskInvocation {
+  const operation = args[0];
+  if (
+    !operation ||
+    !["list", "create", "convert", "claim", "unclaim", "update"].includes(operation)
+  )
+    throw new Error("Usage:");
+  const values = new Map<string, string>();
+  for (let index = 1; index < args.length; index += 2) {
+    const name = args[index];
+    const value = args[index + 1];
+    if (!name?.startsWith("--") || !value || values.has(name)) throw new Error("Usage:");
+    values.set(name, value);
+  }
+  const allowed: Record<string, string[]> = {
+    list: ["--target", "--status"],
+    create: ["--target", "--title"],
+    convert: ["--target", "--message-id"],
+    claim: ["--target", "--number", "--message-id"],
+    unclaim: ["--target", "--number", "--expected-revision"],
+    update: ["--target", "--number", "--status", "--expected-revision"],
+  };
+  if ([...values.keys()].some((key) => !allowed[operation]!.includes(key)))
+    throw new Error("Usage:");
+  const target = values.get("--target");
+  if (!target || !/^(?:#[a-z0-9][a-z0-9_-]{0,31}|@[a-z0-9][a-z0-9_-]{0,31})$/.test(target))
+    throw new Error("Usage:");
+  const number = integerOption(values.get("--number"), 1);
+  const expectedRevision = integerOption(values.get("--expected-revision"), 0);
+  const status = values.get("--status") as TaskStatus | undefined;
+  if (status && !["todo", "in_progress", "in_review", "done", "closed"].includes(status))
+    throw new Error("Usage:");
+  const task = {
+    operation,
+    target,
+    number,
+    messageId: values.get("--message-id"),
+    title: values.get("--title"),
+    status,
+    expectedRevision,
+  } as Omit<TaskCommand, "requestId">;
+  const valid =
+    operation === "list" ||
+    (operation === "create" && Boolean(task.title)) ||
+    (operation === "convert" && Boolean(task.messageId)) ||
+    (operation === "claim" && (number !== undefined) !== Boolean(task.messageId)) ||
+    (operation === "unclaim" && number !== undefined) ||
+    (operation === "update" && number !== undefined && Boolean(status));
+  if (!valid) throw new Error("Usage:");
+  return { command: "task", task };
+}
+
+function integerOption(value: string | undefined, minimum: number): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum) throw new Error("Usage:");
+  return parsed;
+}
+
+function formatTasks(result: TaskResult): string {
+  if (!result.tasks.length) return "No Tasks.";
+  return result.tasks
+    .map(
+      (task) =>
+        `#${task.number} status=${task.status} owner=${task.owner?.name ?? "unclaimed"} message=${task.messageId} revision=${task.revision} ${task.title}`,
+    )
+    .join("\n");
 }
