@@ -15,6 +15,12 @@
 ## 2. 组件：只用官方
 
 - 组件通过 `npx untitledui@latest add <name>` 安装到 `src/components/base/` 和 `src/components/application/`，**源码不改**。要改外观，在调用处传 `className`；要改行为，改调用方。
+- 例外：`application/app-navigation/sidebar-navigation/` 下的 `sidebar-simple.tsx`、`sidebar-slim.tsx`
+  是官方的**演示模板**（写死 Untitled 自己的 logo、搜索框、假账号卡片、固定像素宽度），不是可参数化的
+  组件。这两个文件允许复制到 `src/components/layout/sidebar/` 后按需修改；复制之后就是 CoForge 自己
+  的代码，不再受"源码不改"约束。复制体内部继续调用的 `app-navigation/base-components/**`
+  （`NavItemBase`、`NavButton`、`NavList`、`MobileNavigationHeader` 等）和 `components/base/**`
+  仍然原样不改。
 - 升级用 `npx untitledui@latest upgrade`，升级后跑 `bun run check` 和 `bun run test`。
 - 允许自写的只有官方没有对应物的原语，放在 `src/components/ui/`：Empty、Skeleton、Toast 包装、RelativeTime、InputOTP、HoverPopover。自写原语只能组合 React Aria 和官方组件，不能复制官方文件再改。
 - `src/components/ui/README.md` 维护"偏离官方组件清单"：每个自写文件一行，写明为什么官方没有。清单之外不允许出现非官方组件。
