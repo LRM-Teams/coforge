@@ -23,6 +23,8 @@ export const Route = createFileRoute("/_app/messages/$agentId")({
   validateSearch: z.object({
     view: z.enum(["chat", "tasks"]).optional().catch(undefined),
     layout: z.enum(["board", "list"]).optional().catch(undefined),
+    message: z.uuid().optional().catch(undefined),
+    threadRootId: z.uuid().optional().catch(undefined),
   }),
   remountDeps: ({ params }) => params.agentId,
   loader: ({ params }) => loadDirectConversation({ data: { agentId: params.agentId } }),

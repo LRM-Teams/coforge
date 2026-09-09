@@ -26,6 +26,8 @@ export const Route = createFileRoute("/_app/messages/channels/$channelId")({
   validateSearch: z.object({
     view: z.enum(["chat", "tasks"]).optional().catch(undefined),
     layout: z.enum(["board", "list"]).optional().catch(undefined),
+    message: z.uuid().optional().catch(undefined),
+    threadRootId: z.uuid().optional().catch(undefined),
   }),
   remountDeps: ({ params }) => params.channelId,
   loader: ({ params }) => loadPublicChannel({ data: { channelId: params.channelId } }),
