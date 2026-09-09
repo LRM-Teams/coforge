@@ -192,6 +192,56 @@ test("offline rollback rejects a missing or corrupted version-local Agent launch
   }
 });
 
+test.each(["latest", "0.1.0-dev.15"])(
+  "upgrade skips consent and activation for the active version: %s",
+  async (selection) => {
+    const input = await fixture({ version: "0.1.0-dev.15" });
+    const manager = updater(input);
+    await manager.install("latest");
+    input.requested.length = 0;
+    const output: string[] = [];
+    let prompted = false;
+    let upgraded = false;
+    const code = await runCli(
+      ["upgrade", "--version", selection],
+      {
+        login: { async run() {} },
+        setup: { async run() {} },
+        updater: {
+          resolveVersion: (selector) => manager.resolveVersion(selector),
+          getCurrentVersion: () => manager.getCurrentVersion(),
+          async install() {},
+          async rollback() {},
+          async upgrade() {
+            upgraded = true;
+          },
+        },
+      },
+      {
+        stdout: (line) => output.push(line),
+        stderr: (line) => output.push(line),
+        prompt: () => {
+          prompted = true;
+          return "y";
+        },
+      },
+    );
+    expect(code).toBe(0);
+    expect(prompted).toBe(false);
+    expect(upgraded).toBe(false);
+    expect(output).toEqual(["Already up to date: 0.1.0-dev.15"]);
+    expect(input.requested).toEqual(selection === "latest" ? ["/latest"] : []);
+  },
+);
+
+test("current version is absent before installation and follows the active installation", async () => {
+  const input = await fixture({ version: "0.1.0-dev.15" });
+  const manager = updater(input);
+  expect(await manager.getCurrentVersion()).toBeNull();
+  await manager.install("latest");
+  expect(await manager.getCurrentVersion()).toBe("0.1.0-dev.15");
+});
+
 test("a self-referencing latest pointer fails before upgrade consent", async () => {
   const input = await fixture({ version: "latest" });
   const manager = updater(input);
@@ -205,6 +255,7 @@ test("a self-referencing latest pointer fails before upgrade consent", async () 
       setup: { async run() {} },
       updater: {
         resolveVersion: (selector) => manager.resolveVersion(selector),
+        getCurrentVersion: () => manager.getCurrentVersion(),
         async install() {},
         async rollback() {},
         async upgrade() {

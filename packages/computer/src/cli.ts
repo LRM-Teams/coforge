@@ -54,6 +54,7 @@ export interface SetupCommand {
 
 export interface UpdateCommand {
   resolveVersion(selector: string): Promise<string>;
+  getCurrentVersion(): Promise<string | null>;
   install(version: string): Promise<void>;
   upgrade(version: string): Promise<void>;
   rollback(): Promise<void>;
@@ -147,6 +148,10 @@ export async function runCli(
         const updater = requireUpdater(dependencies);
         if (operation === "upgrade") {
           const target = await updater.resolveVersion(options.version);
+          if ((await updater.getCurrentVersion()) === target) {
+            io.stdout(`Already up to date: ${target}`);
+            return;
+          }
           const answer = (io.prompt ?? globalThis.prompt)(
             `Upgrade CoForge Computer to ${target}? [y/N] `,
           );
@@ -540,6 +545,7 @@ function createUpdateCommand(io: { stdout: (line: string) => void }): UpdateComm
     });
   return {
     resolveVersion: (selector) => updater.resolveVersion(selector),
+    getCurrentVersion: () => updater.getCurrentVersion(),
     async install(version) {
       const result = (await Bun.file(join(installRoot, "active.json")).exists())
         ? await coordinate("upgrade", version)
