@@ -4,7 +4,12 @@ export function showsActivityMessage(activity: string) {
 
 export function activityDotClass(activity: string, level: string) {
   if (level === "error") return "bg-destructive";
-  if (activity === "starting" || activity === "running_command") return "bg-amber-500";
+  if (
+    activity === "starting" ||
+    activity === "running_command" ||
+    activity === "model_request_started"
+  )
+    return "bg-amber-500";
   if (activity === "stopped") return "bg-muted-foreground";
   if (activity === "turn_completed") return "bg-emerald-500";
   return "bg-blue-500";
@@ -12,6 +17,7 @@ export function activityDotClass(activity: string, level: string) {
 
 export function activityLabel(activity: string, level: string) {
   if (level === "error") return "Error";
+  if (activity === "model_request_started") return "Message received";
   if (activity === "thinking_started") return "Thinking";
   if (activity === "working") return "Working";
   if (activity === "starting") return "Starting";
