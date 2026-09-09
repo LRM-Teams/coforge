@@ -14,6 +14,7 @@ import { Heading, Text } from "react-aria-components";
 
 import { Avatar } from "@/components/base/avatar/avatar";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { RelativeTime } from "@/components/ui/relative-time";
@@ -195,8 +196,8 @@ function Profile({
   const canConfigureCredential =
     detail.ownedByCurrentUser && providerKind === "coforge" && Boolean(providerId);
   const fields = [
-    { label: m.agent_profile_id(), value: detail.id },
-    { label: m.agent_profile_name(), value: detail.name },
+    { label: m.agent_profile_id(), value: detail.id, mono: true },
+    { label: m.agent_profile_name(), value: detail.name, mono: true },
     { label: m.agent_profile_display_name(), value: detail.displayName },
     ...(detail.description
       ? [{ label: m.agent_profile_description(), value: detail.description }]
@@ -209,7 +210,7 @@ function Profile({
   ];
   return (
     <div className="divide-y divide-secondary">
-      <section className="grid gap-5 py-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
+      <section className="py-6">
         <div className="flex items-start justify-between gap-4">
           <h2 className="flex items-center gap-2 text-base font-semibold">
             <Bot className="size-4" /> {m.agent_profile_basic()}
@@ -225,11 +226,18 @@ function Profile({
             </Button>
           )}
         </div>
-        <dl className="grid min-w-0 gap-5">
-          {fields.map(({ label, value }) => (
-            <div key={label} className="grid gap-1.5 md:grid-cols-[10rem_minmax(0,1fr)] md:gap-6">
-              <dt className="text-sm font-medium text-tertiary">{label}</dt>
-              <dd className="min-w-0 whitespace-pre-wrap break-words text-sm leading-6">{value}</dd>
+        <dl className="mt-5 grid gap-x-8 gap-y-6 md:grid-cols-2 xl:grid-cols-3">
+          {fields.map(({ label, value, mono }) => (
+            <div key={label} className="min-w-0">
+              <dt className="text-sm text-tertiary">{label}</dt>
+              <dd
+                className={cn(
+                  "mt-1 min-w-0 text-sm font-medium whitespace-pre-wrap break-words text-primary",
+                  mono && "font-mono",
+                )}
+              >
+                {value}
+              </dd>
             </div>
           ))}
         </dl>
@@ -343,13 +351,13 @@ function Profile({
           </Dialog>
         </Modal>
       </ModalOverlay>
-      <section className="grid gap-5 py-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
+      <section className="py-6">
         <h2 className="flex items-start gap-2 text-base font-semibold">
           <Monitor className="size-4" />
           {m.agent_profile_computer()}
         </h2>
-        <div className="min-w-0">
-          <p className="break-words text-sm font-medium">
+        <div className="mt-5 min-w-0">
+          <p className="text-sm font-medium break-words text-primary">
             {detail.computer?.label ?? m.agent_computer_unnamed()}
           </p>
           <p className="mt-1 text-sm text-tertiary">
@@ -357,7 +365,7 @@ function Profile({
           </p>
         </div>
       </section>
-      <section className="grid gap-5 py-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
+      <section className="py-6">
         <div className="flex items-start justify-between gap-4">
           <h2 className="font-semibold">{m.agent_runtime_config()}</h2>
           {canConfigureCredential && (
@@ -371,7 +379,7 @@ function Profile({
             </Button>
           )}
         </div>
-        <div className="grid min-w-0 gap-5 md:grid-cols-2">
+        <div className="mt-5 grid min-w-0 gap-x-8 gap-y-6 md:grid-cols-2 xl:grid-cols-3">
           <RuntimeField
             label={m.agent_runtime_field()}
             value={providerKind === "coforge" ? m.agent_provider_pi_builtin() : runtime}

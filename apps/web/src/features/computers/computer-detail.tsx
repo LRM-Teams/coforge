@@ -189,10 +189,10 @@ export function ComputerDetail({
           <h2 id="computer-overview" className="text-lg font-semibold tracking-tight">
             {m.computer_overview()}
           </h2>
-          <dl className="mt-4 divide-y divide-secondary border-y border-secondary [&>div]:grid [&>div]:gap-2 [&>div]:py-4 @lg:[&>div]:grid-cols-[minmax(8rem,1fr)_2fr] [&_dt]:text-sm [&_dt]:font-medium [&_dd]:mt-0">
+          <dl className="mt-4 grid gap-x-8 gap-y-6 border-t border-secondary pt-6 md:grid-cols-2 xl:grid-cols-3">
             <div className="min-w-0">
-              <dt className="text-xs text-tertiary">{m.computer_display_name()}</dt>
-              <dd className="mt-1 text-sm">
+              <dt className="text-sm text-tertiary">{m.computer_display_name()}</dt>
+              <dd className="mt-1 text-sm font-medium text-primary">
                 {editingDisplayName ? (
                   <form
                     className="max-w-sm"
@@ -274,28 +274,32 @@ export function ComputerDetail({
               </dd>
             </div>
             <div className="min-w-0">
-              <dt className="text-xs text-tertiary">{m.computer_name()}</dt>
-              <dd className="mt-1 break-words text-sm [overflow-wrap:anywhere]">{computer.name}</dd>
+              <dt className="text-sm text-tertiary">{m.computer_name()}</dt>
+              <dd className="mt-1 font-mono text-sm font-medium break-words text-primary [overflow-wrap:anywhere]">
+                {computer.name}
+              </dd>
             </div>
             <div className="min-w-0">
-              <dt className="text-xs text-tertiary">{m.computer_connected_at()}</dt>
-              <dd className="mt-1 text-sm">
+              <dt className="text-sm text-tertiary">{m.computer_connected_at()}</dt>
+              <dd className="mt-1 text-sm font-medium text-primary">
                 <RelativeTime value={computer.connectedAt} timeZone={timeZone} />
               </dd>
             </div>
             <div className="min-w-0">
-              <dt className="text-xs text-tertiary">{m.computer_version()}</dt>
-              <dd className="mt-1 break-words text-sm">
+              <dt className="text-sm text-tertiary">{m.computer_version()}</dt>
+              <dd className="mt-1 font-mono text-sm font-medium break-words text-primary">
                 {computer.computerVersion || m.computer_metadata_unknown()}
               </dd>
             </div>
             <div className="min-w-0">
-              <dt className="text-xs text-tertiary">{m.computer_os()}</dt>
-              <dd className="mt-1 break-words text-sm">{operatingSystemLabel(computer)}</dd>
+              <dt className="text-sm text-tertiary">{m.computer_os()}</dt>
+              <dd className="mt-1 text-sm font-medium break-words text-primary">
+                {operatingSystemLabel(computer)}
+              </dd>
             </div>
             <div className="min-w-0">
-              <dt className="text-xs text-tertiary">{m.computer_creator()}</dt>
-              <dd className="mt-1 flex min-w-0 items-center gap-2 text-sm">
+              <dt className="text-sm text-tertiary">{m.computer_creator()}</dt>
+              <dd className="mt-1 flex min-w-0 items-center gap-2 text-sm font-medium text-primary">
                 {computer.creator ? (
                   <>
                     <Avatar

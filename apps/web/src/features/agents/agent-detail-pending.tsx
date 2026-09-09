@@ -75,27 +75,24 @@ function ProfilePending() {
   return (
     <div aria-hidden="true" className="divide-y divide-secondary">
       {[Bot, Monitor].map((Icon, index) => (
-        <section
-          key={index}
-          className="grid gap-5 py-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8"
-        >
+        <section key={index} className="py-6">
           <div className="flex items-start gap-2">
             <Icon className="size-4 text-tertiary" />
             <Skeleton className="h-4 w-32" />
           </div>
-          <div className="space-y-5 motion-safe:animate-pulse">
+          <div className="mt-5 grid gap-x-8 gap-y-6 motion-safe:animate-pulse md:grid-cols-2 xl:grid-cols-3">
             {Array.from({ length: index === 0 ? 6 : 1 }, (_, row) => (
-              <div key={row} className="grid gap-1.5 md:grid-cols-[10rem_minmax(0,1fr)] md:gap-6">
-                <Skeleton className="h-5 w-24" />
-                <Skeleton className="h-6 w-3/5" />
+              <div key={row} className="flex flex-col gap-1.5">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-5 w-3/5" />
               </div>
             ))}
           </div>
         </section>
       ))}
-      <section className="grid gap-5 py-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
+      <section className="py-6">
         <Skeleton className="h-4 w-40" />
-        <div className="grid gap-5 md:grid-cols-2 motion-safe:animate-pulse">
+        <div className="mt-5 grid gap-5 motion-safe:animate-pulse md:grid-cols-2 xl:grid-cols-3">
           {[0, 1, 2, 3].map((index) => (
             <Skeleton key={index} className="h-16 w-full" />
           ))}
