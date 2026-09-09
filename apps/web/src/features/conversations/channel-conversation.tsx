@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Bell, BellOff, Hash, ListTodo } from "lucide-react";
+import { Bell, BellOff, Hash } from "lucide-react";
 import type { TaskView } from "@coforge/protocol";
 import { Button } from "@/components/ui/button";
+import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
 import { BackToAgents } from "./conversation-layout";
 import {
   ThreadedConversation,
@@ -116,36 +117,42 @@ export function ChannelConversation({
       }}
       emptyDescription={m.channel_empty()}
       header={
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b px-3 sm:px-5">
-          <BackToAgents />
-          <Hash aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
-          <h1 className="truncate text-base font-medium">#{conversation.name}</h1>
-          <span className="ml-auto hidden text-xs text-muted-foreground sm:block">
-            {m.channel_public()}
-          </span>
-          {conversation.senderMemberId && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              disabled={savingMute}
-              aria-label={conversation.muted ? m.channel_unmute() : m.channel_mute()}
-              onClick={async () => {
-                setSavingMute(true);
-                try {
-                  await onMutedChange(!conversation.muted);
-                } finally {
-                  setSavingMute(false);
-                }
-              }}
-            >
-              {conversation.muted ? <BellOff aria-hidden="true" /> : <Bell aria-hidden="true" />}
-            </Button>
-          )}
+        <header className="shrink-0 border-b px-3 sm:px-5">
+          <div className="flex h-14 items-center gap-3">
+            <BackToAgents />
+            <Hash aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
+            <h1 className="truncate text-base font-medium">#{conversation.name}</h1>
+            <span className="ml-auto hidden text-xs text-muted-foreground sm:block">
+              {m.channel_public()}
+            </span>
+            {conversation.senderMemberId && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                disabled={savingMute}
+                aria-label={conversation.muted ? m.channel_unmute() : m.channel_mute()}
+                onClick={async () => {
+                  setSavingMute(true);
+                  try {
+                    await onMutedChange(!conversation.muted);
+                  } finally {
+                    setSavingMute(false);
+                  }
+                }}
+              >
+                {conversation.muted ? <BellOff aria-hidden="true" /> : <Bell aria-hidden="true" />}
+              </Button>
+            )}
+          </div>
           {onShowTasks && (
-            <Button type="button" variant="ghost" size="sm" onClick={onShowTasks}>
-              <ListTodo aria-hidden="true" /> {m.tasks_tab()}
-            </Button>
+            <div className="pb-2">
+              <ConversationTaskTabs
+                active="chat"
+                taskCount={tasks?.length ?? 0}
+                onShowTasks={onShowTasks}
+              />
+            </div>
           )}
         </header>
       }

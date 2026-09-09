@@ -69,5 +69,11 @@
   "tasks_status_in_progress": "In progress",
   "tasks_status_in_review": "In review",
   "tasks_status_done": "Done",
-  "tasks_status_closed": "Closed"
+  "tasks_status_closed": "Closed",
+  "tasks_overview_status": "Status",
+  "tasks_overview_all": "All",
+  "tasks_overview_owner": "Owner",
+  "tasks_overview_refresh": "Refresh",
+  "tasks_overview_empty": "No tasks in visible conversations",
+  "tasks_overview_filter_empty": "No tasks match this status"
 }

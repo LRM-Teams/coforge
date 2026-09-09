@@ -115,6 +115,7 @@ function DirectConversationPage() {
     return (
       <TaskBoard
         tasks={taskView.tasks}
+        conversationName={conversation.agent.displayName}
         currentMemberId={conversation.senderMemberId}
         canMutate
         loading={taskView.loading}

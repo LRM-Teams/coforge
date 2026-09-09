@@ -17,6 +17,7 @@ import { Route as DotwellKnownOauthAuthorizationServerRouteImport } from './rout
 import { Route as AppComputersRouteImport } from './routes/_app/computers'
 import { Route as AppMessagesRouteImport } from './routes/_app/messages'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppTasksRouteImport } from './routes/_app/tasks'
 import { Route as ApiAgentApiKeysRouteImport } from './routes/api/agent-api-keys'
 import { Route as ApiAgentMessagesRouteImport } from './routes/api/agent-messages'
 import { Route as ApiAttachmentsRouteImport } from './routes/api/attachments'
@@ -87,6 +88,11 @@ const AppMessagesRoute = AppMessagesRouteImport.update({
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTasksRoute = AppTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
   getParentRoute: () => AppRoute,
 } as any)
 const ApiAgentApiKeysRoute = ApiAgentApiKeysRouteImport.update({
@@ -260,6 +266,7 @@ export interface FileRoutesByFullPath {
   '/computers': typeof AppComputersRouteWithChildren
   '/messages': typeof AppMessagesRouteWithChildren
   '/settings': typeof AppSettingsRoute
+  '/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
   '/api/agent-messages': typeof ApiAgentMessagesRoute
   '/api/attachments': typeof ApiAttachmentsRouteWithChildren
@@ -298,6 +305,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
   '/settings': typeof AppSettingsRoute
+  '/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
   '/api/agent-messages': typeof ApiAgentMessagesRoute
   '/api/attachments': typeof ApiAttachmentsRouteWithChildren
@@ -340,6 +348,7 @@ export interface FileRoutesById {
   '/_app/computers': typeof AppComputersRouteWithChildren
   '/_app/messages': typeof AppMessagesRouteWithChildren
   '/_app/settings': typeof AppSettingsRoute
+  '/_app/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
   '/api/agent-messages': typeof ApiAgentMessagesRoute
   '/api/attachments': typeof ApiAttachmentsRouteWithChildren
@@ -382,6 +391,7 @@ export interface FileRouteTypes {
     | '/computers'
     | '/messages'
     | '/settings'
+    | '/tasks'
     | '/api/agent-api-keys'
     | '/api/agent-messages'
     | '/api/attachments'
@@ -420,6 +430,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/.well-known/oauth-authorization-server'
     | '/settings'
+    | '/tasks'
     | '/api/agent-api-keys'
     | '/api/agent-messages'
     | '/api/attachments'
@@ -461,6 +472,7 @@ export interface FileRouteTypes {
     | '/_app/computers'
     | '/_app/messages'
     | '/_app/settings'
+    | '/_app/tasks'
     | '/api/agent-api-keys'
     | '/api/agent-messages'
     | '/api/attachments'
@@ -580,6 +592,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/tasks': {
+      id: '/_app/tasks'
+      path: '/tasks'
+      fullPath: '/tasks'
+      preLoaderRoute: typeof AppTasksRouteImport
       parentRoute: typeof AppRoute
     }
     '/api/agent-api-keys': {
@@ -836,6 +855,7 @@ interface AppRouteChildren {
   AppComputersRoute: typeof AppComputersRouteWithChildren
   AppMessagesRoute: typeof AppMessagesRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRoute
+  AppTasksRoute: typeof AppTasksRoute
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
 }
@@ -844,6 +864,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppComputersRoute: AppComputersRouteWithChildren,
   AppMessagesRoute: AppMessagesRouteWithChildren,
   AppSettingsRoute: AppSettingsRoute,
+  AppTasksRoute: AppTasksRoute,
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
   AppAgentsIndexRoute: AppAgentsIndexRoute,
 }

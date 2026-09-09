@@ -120,6 +120,7 @@ function ChannelPage() {
     return (
       <TaskBoard
         tasks={taskView.tasks}
+        conversationName={`#${conversation.name}`}
         currentMemberId={conversation.senderMemberId}
         canMutate={Boolean(conversation.senderMemberId)}
         loading={taskView.loading}

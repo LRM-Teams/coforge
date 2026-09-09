@@ -102,6 +102,11 @@ instructions for the TanStack Start Web/backend modular monolith.
   `features/tasks/` owns the board and message actions. Agent Task RPC adapters
   under `server/agents/` call the same TaskBoard, never duplicate business rules.
   `packages/protocol/tasks.ts` owns the framework-free shared contract.
+  `TaskBoard.overview(workspaceId, userId)` owns the browser-only Workspace
+  overview query under existing conversation visibility rules;
+  `features/tasks/tasks.functions.ts` exposes `loadTaskOverview` and
+  `features/tasks/task-overview.tsx` renders it. The `/tasks` route owns status
+  search state; overview links reuse the conversation Task boards for actions.
 
 - Browser realtime connection ownership belongs to `features/realtime/`. The
   `_app` layout owns one Centrifuge connection for the selected Workspace;

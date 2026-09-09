@@ -51,6 +51,14 @@ type SelectedTask = {
   } | null;
 };
 
+export type TaskOverview = {
+  tasks: Array<
+    TaskView & {
+      source: { channelName: string | null; agentId: string | null; label: string };
+    }
+  >;
+};
+
 function status(value: string): TaskStatus {
   switch (value) {
     case "todo":
@@ -94,6 +102,61 @@ export class TaskBoard {
     private readonly db: PrismaClient,
     private readonly dependencies: Dependencies = {},
   ) {}
+
+  async overview(workspaceId: string, userId: string): Promise<TaskOverview> {
+    const membership = await this.db.workspaceMembership.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+      select: { userId: true },
+    });
+    if (!membership) throw new AppError("ACCESS_DENIED");
+
+    const tasks = await this.db.task.findMany({
+      where: {
+        workspaceId,
+        conversation: {
+          OR: [
+            { channelName: { not: null } },
+            {
+              directKey: { not: null },
+              members: { some: { userId } },
+              AND: { members: { some: { agentId: { not: null } } } },
+            },
+          ],
+        },
+      },
+      orderBy: { createdAt: "asc" },
+      select: {
+        ...taskSelection,
+        conversation: {
+          select: {
+            channelName: true,
+            members: {
+              where: { agentId: { not: null } },
+              select: { agent: { select: { id: true, name: true, displayName: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    return {
+      tasks: tasks.map((task) => {
+        const channelName = task.conversation.channelName;
+        const agent = task.conversation.members[0]?.agent ?? null;
+        if (channelName === null && agent === null) throw new AppError("INTERNAL_ERROR");
+        return {
+          ...view(task),
+          source: channelName
+            ? { channelName, agentId: null, label: `#${channelName}` }
+            : {
+                channelName: null,
+                agentId: agent!.id,
+                label: agent!.displayName || agent!.name,
+              },
+        };
+      }),
+    };
+  }
 
   async execute(principal: TaskPrincipal, command: TaskCommand): Promise<TaskResult> {
     this.validateCommand(command);

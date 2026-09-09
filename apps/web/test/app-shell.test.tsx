@@ -153,9 +153,11 @@ test("shows the primary navigation with Members selected", () => {
   expect(markup).toContain("<aside");
   expect(markup).toContain("Members");
   expect(markup).toContain("Messages");
+  expect(markup).toContain("Tasks");
   expect(markup).toContain("Computers");
   expect(markup.indexOf("Members")).toBeLessThan(markup.indexOf("Messages"));
-  expect(markup.indexOf("Messages")).toBeLessThan(markup.indexOf("Computers"));
+  expect(markup.indexOf("Messages")).toBeLessThan(markup.indexOf("Tasks"));
+  expect(markup.indexOf("Tasks")).toBeLessThan(markup.indexOf("Computers"));
   expect(markup).toContain('href="/en/messages"');
   expect(markup).toContain('aria-label="Current user"');
   expect(markup).toContain(">F</span>");
@@ -173,6 +175,22 @@ test("keeps Messages selected on a private conversation route", () => {
   );
 
   expect(page().getByRole("link", { name: "Messages" }).getAttribute("aria-current")).toBe("page");
+  window.history.pushState({}, "", "/en");
+});
+
+test("keeps Tasks selected in expanded and collapsed navigation", async () => {
+  window.history.pushState({}, "", "/en/tasks");
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <AppToastProvider>
+        <AppShell user={user}>Tasks</AppShell>
+      </AppToastProvider>
+    </RouterContextProvider>,
+  );
+
+  expect(page().getByRole("link", { name: "Tasks" }).getAttribute("aria-current")).toBe("page");
+  await userEvent.setup().click(page().getByRole("button", { name: "Hide sidebar" }));
+  expect(page().getByRole("link", { name: "Tasks" }).getAttribute("aria-current")).toBe("page");
   window.history.pushState({}, "", "/en");
 });
 

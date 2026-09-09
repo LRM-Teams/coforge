@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { formatForDisplay, useHotkey } from "@tanstack/react-hotkeys";
 import { Link } from "@tanstack/react-router";
-import { CircleUserRound, MessageCircle, Monitor, PanelLeft, Users } from "lucide-react";
+import { CircleUserRound, ListTodo, MessageCircle, Monitor, PanelLeft, Users } from "lucide-react";
 
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -141,6 +141,10 @@ export function AppShell({
               <MessageCircle aria-hidden="true" className="size-4" />
               {m.navigation_messages()}
             </Link>
+            <Link to="/tasks" activeProps={navLinkActiveProps} className={navLinkClassName}>
+              <ListTodo aria-hidden="true" className="size-4" />
+              {m.tasks_tab()}
+            </Link>
             <Link to="/computers" activeProps={navLinkActiveProps} className={navLinkClassName}>
               <Monitor aria-hidden="true" className="size-4" />
               {m.navigation_computers()}
@@ -227,6 +231,21 @@ export function AppShell({
                     }
                   />
                   <TooltipContent side="right">{m.navigation_messages()}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Link
+                        to="/tasks"
+                        aria-label={m.tasks_tab()}
+                        activeProps={railLinkActiveProps}
+                        className={railLinkClassName}
+                      >
+                        <ListTodo aria-hidden="true" className="size-4" />
+                      </Link>
+                    }
+                  />
+                  <TooltipContent side="right">{m.tasks_tab()}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger

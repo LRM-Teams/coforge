@@ -26,6 +26,14 @@ const taskCommand = z
   })
   .strict();
 
+export const loadTaskOverview = createServerFn({ method: "GET" }).handler(async () => {
+  const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  const db = getDatabaseClient();
+  if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
+  const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+  return new TaskBoard(db).overview(workspaceId, user.id);
+});
+
 export const executeTask = createServerFn({ method: "POST" })
   .validator((data: unknown): TaskCommand => taskCommand.parse(data))
   .handler(async ({ data }) => {

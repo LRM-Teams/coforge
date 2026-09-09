@@ -64,12 +64,36 @@ test("read-only task board exposes tasks and threads without mutation controls",
       onOpenMessage={() => {}}
       onCommand={async () => {}}
       onShowChat={() => {}}
+      conversationName="#engineering"
     />,
   );
   const page = within(document.body);
+  expect(page.getByRole("heading", { name: "#engineering" })).toBeTruthy();
   expect(page.getByText("Already underway")).toBeTruthy();
   expect(page.queryByRole("button", { name: "Claim" })).toBeNull();
   expect(page.queryByRole("button", { name: "Create task" })).toBeNull();
+});
+
+test("task board keeps the conversation title, counted tabs, and Chat callback", async () => {
+  const onShowChat = mock(() => {});
+  render(
+    <TaskBoard
+      tasks={[]}
+      currentMemberId=""
+      canMutate={false}
+      conversationName="#empty-channel"
+      onOpenMessage={() => {}}
+      onCommand={async () => {}}
+      onShowChat={onShowChat}
+    />,
+  );
+  const page = within(document.body);
+  expect(page.getByRole("heading", { name: "#empty-channel" })).toBeTruthy();
+  expect(page.getByRole("button", { name: "Tasks 0" }).getAttribute("aria-current")).toBe("page");
+  await userEvent.setup().click(page.getByRole("button", { name: "Chat" }));
+  expect(onShowChat).toHaveBeenCalledTimes(1);
+  expect(page.queryByRole("button", { name: "Create task" })).toBeNull();
+  expect(page.queryByRole("button", { name: "Claim" })).toBeNull();
 });
 
 test("unclaim sends the rendered revision and is hidden for terminal tasks", async () => {

@@ -91,6 +91,46 @@ test("a non-joined Workspace member can read but must join before composing", as
   expect(onJoin).toHaveBeenCalledTimes(1);
 });
 
+test("channel header keeps its title above Chat and counted Tasks tabs", async () => {
+  const onShowTasks = mock(() => {});
+  render(
+    <AppToastProvider>
+      <ChannelConversation
+        conversation={history}
+        tasks={[
+          {
+            messageId: "task-1",
+            conversationId: history.conversationId,
+            number: 1,
+            title: "First task",
+            status: "todo",
+            revision: 1,
+            owner: null,
+          },
+          {
+            messageId: "task-2",
+            conversationId: history.conversationId,
+            number: 2,
+            title: "Second task",
+            status: "done",
+            revision: 1,
+            owner: null,
+          },
+        ]}
+        onSend={async () => {}}
+        onJoin={async () => {}}
+        onMutedChange={async () => {}}
+        onShowTasks={onShowTasks}
+      />
+    </AppToastProvider>,
+  );
+  const page = within(document.body);
+  expect(page.getByRole("heading", { name: "#engineering" })).toBeTruthy();
+  expect(page.getByRole("button", { name: "Chat" }).getAttribute("aria-current")).toBe("page");
+  await userEvent.setup().click(page.getByRole("button", { name: "Tasks 2" }));
+  expect(onShowTasks).toHaveBeenCalledTimes(1);
+});
+
 test("channel threads keep replies out of the main flow and send to the selected root", async () => {
   const user = userEvent.setup();
   const onSend = mock(async () => {});

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
+import { ConversationTaskTabs } from "./conversation-task-tabs";
 import { CreateTaskDialog } from "./create-task-dialog";
 
 const statuses: TaskStatus[] = ["todo", "in_progress", "in_review", "done", "closed"];
@@ -23,6 +24,7 @@ export type TaskBoardProps = {
     expectedRevision?: number;
   }) => Promise<void>;
   onShowChat: () => void;
+  conversationName?: string;
   onCreateTask?: (title: string, requestId: string) => Promise<TaskView | void>;
 };
 
@@ -35,23 +37,26 @@ export function TaskBoard({
   onOpenMessage,
   onCommand,
   onShowChat,
+  conversationName,
   onCreateTask,
 }: TaskBoardProps) {
   const [createOpen, setCreateOpen] = useState(false);
   return (
     <section aria-label={m.tasks_board()} className="flex min-h-0 flex-1 flex-col bg-background">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:px-5">
-        <Button type="button" variant="ghost" size="sm" onClick={onShowChat}>
-          {m.tasks_chat_tab()}
-        </Button>
-        <Button type="button" variant="secondary" size="sm" aria-current="page">
-          {m.tasks_tab()}
-        </Button>
-        {canMutate && onCreateTask && (
-          <Button type="button" size="sm" className="ml-auto" onClick={() => setCreateOpen(true)}>
-            {m.tasks_create()}
-          </Button>
+      <header className="shrink-0 border-b px-3 sm:px-5">
+        {conversationName && (
+          <div className="flex h-14 items-center">
+            <h1 className="truncate text-base font-medium">{conversationName}</h1>
+          </div>
         )}
+        <div className="flex items-center gap-2 pb-2">
+          <ConversationTaskTabs active="tasks" taskCount={tasks.length} onShowChat={onShowChat} />
+          {canMutate && onCreateTask && (
+            <Button type="button" size="sm" className="ml-auto" onClick={() => setCreateOpen(true)}>
+              {m.tasks_create()}
+            </Button>
+          )}
+        </div>
       </header>
       {error && (
         <p role="alert" className="mx-5 mt-4 text-sm text-destructive-text">
