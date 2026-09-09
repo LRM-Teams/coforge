@@ -20,6 +20,26 @@ const codex = {
   displayName: "Custom Codex",
 };
 
+test("Claude offers an explicit first scan without requiring a previous observation", async () => {
+  const user = userEvent.setup();
+  let scans = 0;
+  render(
+    <RuntimeUsage
+      runtime={{ provider: "claude-code", version: "2", displayName: "Claude Code" }}
+      onScan={() => {
+        scans += 1;
+      }}
+    />,
+  );
+  const page = within(document.body);
+  await user.click(page.getByRole("button", { name: "Claude Code · Usage" }));
+  const dialog = await page.findByRole("dialog");
+  expect(within(dialog).getByText("No snapshot yet")).toBeTruthy();
+  expect(scans).toBe(0);
+  await user.click(within(dialog).getByRole("button", { name: "Scan" }));
+  await waitFor(() => expect(scans).toBe(1));
+});
+
 test("keyboard users can open usage, reach Scan, and dismiss it with Escape", async () => {
   const user = userEvent.setup();
   render(<RuntimeUsage runtime={codex} onScan={() => undefined} />);
@@ -94,7 +114,9 @@ test("reads as Chinese rather than English word order in the Chinese catalog", a
   expect(document.body.textContent).toContain("重置于");
 });
 
-test("renders a Claude rate-limit observation without inventing a percentage", async () => {
+test("Claude observations support keyboard refresh without inventing a percentage", async () => {
+  const user = userEvent.setup();
+  let scans = 0;
   render(
     <RuntimeUsage
       runtime={{
@@ -111,15 +133,28 @@ test("renders a Claude rate-limit observation without inventing a percentage", a
           },
         },
       }}
-      onScan={() => undefined}
+      onScan={() => {
+        scans += 1;
+      }}
     />,
   );
 
-  fireEvent.click(within(document.body).getByRole("button", { name: /Claude Code/ }));
-  await within(document.body).findByRole("dialog");
+  const page = within(document.body);
+  await user.tab();
+  await user.keyboard("{Enter}");
+  const dialog = await page.findByRole("dialog");
   expect(document.body.textContent).toContain("Limit reached");
   expect(document.body.textContent).not.toContain("% used");
-  expect(within(document.body).queryByRole("progressbar")).toBeNull();
+  expect(page.queryByRole("progressbar")).toBeNull();
+  await waitFor(() =>
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Refresh" })),
+  );
+  expect(scans).toBe(0);
+  await user.keyboard("{Enter}");
+  await waitFor(() => expect(scans).toBe(1));
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(page.queryByRole("dialog")).toBeNull());
+  expect(document.activeElement).toBe(page.getByRole("button", { name: /Claude Code/ }));
 });
 
 test("names the runtime and offers a first scan when there is no snapshot", async () => {
@@ -153,6 +188,33 @@ test.each(["pi", "coforge"] as const)("%s has no usage controls before any scan"
   expect(page.queryByRole("button")).toBeNull();
   expect(page.queryByRole("dialog")).toBeNull();
 });
+
+test.each(["pi", "coforge"] as const)(
+  "%s stays non-interactive even if supplied a usage snapshot",
+  async (provider) => {
+    const user = userEvent.setup();
+    render(
+      <RuntimeUsage
+        runtime={{ provider, displayName: provider, version: "1.2.3" }}
+        usage={{
+          status: "available",
+          snapshot: { primary: { usedPercent: 42, resetsAt: "2026-09-10T03:00:00Z" } },
+        }}
+        onScan={() => {
+          throw new Error("unsupported runtime must not scan");
+        }}
+      />,
+    );
+    const page = within(document.body);
+    await user.tab();
+    expect(document.activeElement).toBe(document.body);
+    await user.hover(page.getByText(provider));
+    await user.click(page.getByText(provider));
+    expect(document.activeElement).toBe(document.body);
+    expect(page.queryByRole("button")).toBeNull();
+    expect(page.queryByRole("dialog")).toBeNull();
+  },
+);
 
 test("does not offer or describe usage when the Code Agent does not support it", () => {
   let scans = 0;

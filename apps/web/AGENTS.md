@@ -193,6 +193,9 @@ instructions for the TanStack Start Web/backend modular monolith.
   remain in `features/conversations/conversation-layout.tsx`.
 - `features/computers/computer-layout.tsx` owns the analogous Computer
   list/detail selection, return control, list scroll retention, and empty state.
+- `features/computers/runtime-usage.tsx` owns Usage interaction eligibility:
+  Codex and Claude offer on-demand scanning; Pi, CoForge, and runtimes reporting
+  unsupported Usage remain plain, non-focusable identities.
 - `features/agents/agents-content.tsx` owns the Members page's mixed human/Agent
   cards, counted type filters, search recovery, and Agent creation dialog.
   Computer prerequisites appear only after requesting Agent creation; runtime
