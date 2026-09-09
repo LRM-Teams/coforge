@@ -333,7 +333,7 @@ export class ReminderScheduler {
   async #runFire(key: string, receipt: ReminderReceipt, generation: number): Promise<boolean> {
     let response: ReminderFireResponse | undefined;
     try {
-      response = await this.fire({
+      const candidate = await this.fire({
         protocolMajor: 1,
         requestId: receipt.requestId,
         workspaceId: receipt.workspaceId,
@@ -343,7 +343,8 @@ export class ReminderScheduler {
         version: receipt.version,
         firedAtClient: receipt.firedAtClient,
       });
-      this.#correlate(receipt, response);
+      this.#correlate(receipt, candidate);
+      response = candidate;
     } catch (error) {
       logger.error("Reminder fire failed", { error, agent_id: receipt.agentId });
     }

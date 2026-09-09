@@ -126,7 +126,7 @@ export class DaemonRuntime {
   readonly #reminders: ReminderScheduler;
   readonly #agentInboxes = new Map<string, AgentInboxStateMachine>();
   readonly #appInboxes = new Map<string, Promise<AgentAppInbox>>();
-  readonly #notifiedAppItems = new Map<string, Set<string>>();
+  readonly #notifiedAppItems = new Map<string, Map<string, Promise<boolean>>>();
   readonly #runtimeInstanceId = generateRuntimeInstanceId();
   readonly #startedAt = Date.now();
   readonly #agentContexts = new Map<string, string>();
@@ -1704,24 +1704,30 @@ export class DaemonRuntime {
   }
 
   async #notifyAppItem(agentId: string, itemId: string): Promise<boolean> {
-    const notified = this.#notifiedAppItems.get(agentId) ?? new Set<string>();
+    const notified = this.#notifiedAppItems.get(agentId) ?? new Map<string, Promise<boolean>>();
     this.#notifiedAppItems.set(agentId, notified);
-    if (notified.has(itemId)) return true;
-    let session = this.#agentProcessManager.session(agentId);
-    if (!session) {
-      const wakeable = this.#agentProcessManager.restartConfig(agentId);
-      if (!wakeable) return false;
-      session = (await this.startAgent(agentId, wakeable.config, wakeable.sessionId)).session;
-    }
-    if (!session.notify || notified.has(itemId)) return notified.has(itemId);
-    notified.add(itemId);
-    try {
+    const existing = notified.get(itemId);
+    if (existing) return existing;
+    const pending = Promise.resolve().then(async () => {
+      let session = this.#agentProcessManager.session(agentId);
+      if (!session) {
+        const wakeable = this.#agentProcessManager.restartConfig(agentId);
+        if (!wakeable) return false;
+        session = (await this.startAgent(agentId, wakeable.config, wakeable.sessionId)).session;
+      }
+      if (!session.notify) return false;
       await session.notify("New app item available. Run coforge inbox check.");
+      return true;
+    });
+    notified.set(itemId, pending);
+    try {
+      const accepted = await pending;
+      if (!accepted && notified.get(itemId) === pending) notified.delete(itemId);
+      return accepted;
     } catch (error) {
-      notified.delete(itemId);
+      if (notified.get(itemId) === pending) notified.delete(itemId);
       throw error;
     }
-    return true;
   }
 
   #agentIdForContext(context: string): string {

@@ -3148,6 +3148,108 @@ describe("DaemonRuntime", () => {
     }
   });
 
+  test("a reminder-triggered restart waits for the shared notice outcome before becoming terminal", async () => {
+    const stateDirectory = join(tmpdir(), `coforge-reminder-notice-${crypto.randomUUID()}`);
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const notify = Promise.withResolvers<void>();
+    const notifyStarted = Promise.withResolvers<void>();
+    const exits = new Set<() => void>();
+    let sessions = 0;
+    let receiveReminder!: (sync: import("@coforge/protocol").ReminderSync) => void;
+    const reminderId = "123e4567-e89b-42d3-a456-426614174000";
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession() {
+          sessions++;
+          return {
+            ...sessionSpy(),
+            ...(sessions === 2
+              ? {
+                  notify: async () => {
+                    notifyStarted.resolve();
+                    await notify.promise;
+                  },
+                }
+              : {}),
+            onExit(next) {
+              exits.add(next);
+              return () => exits.delete(next);
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          onReminderSync(callback) {
+            receiveReminder = callback;
+            return () => undefined;
+          },
+          async fireReminder(request) {
+            return { ...request, result: "accepted", fired: true, catchup: false } as const;
+          },
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+        }),
+      },
+      undefined,
+      async () => ({ runtimes: [], catalogs: [] }),
+      stateDirectory,
+    );
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+      for (const exit of exits) exit();
+      receiveReminder({
+        protocolMajor: 1,
+        requestId: "reminder-snapshot",
+        workspaceId: connection.workspaceId,
+        computerId: connection.computerId,
+        agentId: "agent-a",
+        operation: "snapshot",
+        messageType: "coforge.rpc.v1.ReminderSync",
+        jobs: [
+          {
+            reminderId,
+            ownerAgentId: "agent-a",
+            version: 1,
+            title: "Retry me",
+            target: "@frank",
+            messageId: "123e4567-e89b-42d3-a456-426614174001",
+            fireAt: new Date(Date.now() - 1_000).toISOString(),
+          },
+        ],
+      });
+      await notifyStarted.promise;
+      const concurrentDrain = runtime.drainAppInboxNotices("agent-a");
+      notify.reject(new Error("notify rejected"));
+      await expect(concurrentDrain).rejects.toThrow("notify rejected");
+
+      const receipts = (await Bun.file(
+        join(
+          stateDirectory,
+          "reminder-receipts",
+          connection.workspaceId,
+          "agent-a",
+          "receipts.json",
+        ),
+      ).json()) as { receipts: Array<{ wakeAccepted: boolean; terminal: boolean }> };
+      expect(receipts.receipts[0]).toMatchObject({ wakeAccepted: false, terminal: false });
+    } finally {
+      notify.resolve();
+      await runtime.stop();
+      await rm(stateDirectory, { recursive: true, force: true });
+    }
+  });
+
   test("projects a long multiline reminder title into the App Inbox without changing its occurrence", async () => {
     const stateDirectory = join(tmpdir(), `coforge-reminder-preview-${crypto.randomUUID()}`);
     const credentials = new InMemoryDaemonCredentialStore();

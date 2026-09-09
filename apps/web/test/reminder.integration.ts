@@ -7,6 +7,7 @@ import {
   encodeAgentReminderOperationRequest,
   encodeReminderFireRequest,
   encodeReminderSnapshotRequest,
+  encodeReminderSync,
   type AgentReminderOperationRequest,
 } from "@coforge/protocol";
 import { PrismaClient } from "../generated/client";
@@ -28,7 +29,7 @@ const published: unknown[] = [];
 const reminders = new Reminders(
   new PrismaReminderRepository(db),
   { supports: async () => true },
-  async (sync) => void published.push(sync),
+  async (sync) => void published.push(decodeReminderSync(encodeReminderSync(sync))),
   () => now,
 );
 const fixture = {} as {
@@ -467,7 +468,7 @@ test("PostgreSQL reminder lifecycle is scoped, idempotent, concurrent, and chron
   expect(advanced.fireAt.toISOString()).toBe("2026-09-08T19:00:00.000Z");
   expect(published.at(-1)).toMatchObject({
     operation: "upsert",
-    jobs: [{ version: 2, fireAt: "2026-09-08T19:00:00.000Z" }],
+    jobs: [{ version: 2, title: "Follow up", fireAt: "2026-09-08T19:00:00.000Z" }],
   });
 
   const timezoneRecurring = (

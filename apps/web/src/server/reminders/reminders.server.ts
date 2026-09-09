@@ -124,7 +124,7 @@ export function nextOccurrence(repeat: string, timezone: string, due: Date, now:
   });
   for (
     let time = Math.floor(now.getTime() / 60_000) * 60_000 + 60_000;
-    time <= now.getTime() + 9 * 86_400_000;
+    time <= now.getTime() + (weekly ? 15 : 9) * 86_400_000;
     time += 60_000
   ) {
     const local = parts(formatter, new Date(time));
@@ -155,6 +155,23 @@ const job = (r: StoredReminder): ReminderJob => ({
   target: r.target,
   messageId: r.messageId,
   fireAt: r.fireAt,
+});
+
+const upsertSync = (
+  scope: Pick<
+    ReminderSync,
+    "protocolMajor" | "requestId" | "workspaceId" | "computerId" | "agentId"
+  >,
+  reminder: StoredReminder,
+): ReminderSync => ({
+  protocolMajor: scope.protocolMajor,
+  requestId: scope.requestId,
+  workspaceId: scope.workspaceId,
+  computerId: scope.computerId,
+  agentId: scope.agentId,
+  operation: "upsert",
+  jobs: [job(reminder)],
+  messageType: REMINDER_SYNC_MESSAGE_TYPE,
 });
 
 export class Reminders {
@@ -213,12 +230,7 @@ export class Reminders {
         ...(request.repeat ? { repeat: request.repeat, timezone: zone } : {}),
       });
       reminders = [created];
-      await this.bestEffort({
-        ...request,
-        operation: "upsert",
-        jobs: [job(created)],
-        messageType: REMINDER_SYNC_MESSAGE_TYPE,
-      });
+      await this.bestEffort(upsertSync(request, created));
     } else if (request.operation === "list")
       reminders = await this.repository.list(scope, request.status, request.all);
     else if (request.operation === "log")
@@ -258,12 +270,7 @@ export class Reminders {
           request.operation === "snooze" ? "snoozed" : "updated",
         );
         reminders = [changed];
-        await this.bestEffort({
-          ...request,
-          operation: "upsert",
-          jobs: [job(changed)],
-          messageType: REMINDER_SYNC_MESSAGE_TYPE,
-        });
+        await this.bestEffort(upsertSync(request, changed));
       }
     }
     return {
@@ -318,13 +325,7 @@ export class Reminders {
     if (!(await this.repository.authorize(scope)))
       throw new Error("reminder fire is not authorized");
     const response = await this.repository.fire(scope, request, this.now());
-    if (response.nextReminder)
-      await this.bestEffort({
-        ...request,
-        operation: "upsert",
-        jobs: [job(response.nextReminder)],
-        messageType: REMINDER_SYNC_MESSAGE_TYPE,
-      });
+    if (response.nextReminder) await this.bestEffort(upsertSync(request, response.nextReminder));
     return encodeReminderFireResponse(response.result);
   }
 

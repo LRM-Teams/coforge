@@ -276,6 +276,44 @@ test("a rejected network request completes and retries the same durable occurren
   expect(store.receipts[0]).toMatchObject({ attempt: 2, terminal: true, serverFired: false });
 });
 
+for (const [field, mismatch] of [
+  ["requestId", "another-request"],
+  ["workspaceId", "another-workspace"],
+  ["computerId", "another-computer"],
+  ["agentId", "another-agent"],
+  ["reminderId", "123e4567-e89b-42d3-a456-426614174099"],
+  ["protocolMajor", 2],
+  ["version", 4],
+] as const) {
+  test(`a fire response with mismatched ${field} is not accepted or woken`, async () => {
+    const clock = new Clock();
+    const store = new MemoryStore();
+    let wakes = 0;
+    const scheduler = new ReminderScheduler(
+      { workspaceId: "workspace-a", computerId: "computer-a" },
+      store,
+      async (request) => ({
+        ...request,
+        result: "accepted",
+        fired: true,
+        catchup: false,
+        [field]: mismatch,
+      }),
+      async () => {
+        wakes++;
+        return true;
+      },
+      clock,
+    );
+    await scheduler.apply(snapshot([job]));
+    await clock.advance(1000);
+    await scheduler.awaitIdle();
+    expect(wakes).toBe(0);
+    expect(store.receipts[0]?.serverResult).toBeUndefined();
+    expect(store.receipts[0]?.terminal).toBe(false);
+  });
+}
+
 test("a newer recurring schedule does not invalidate its pending occurrence", async () => {
   const clock = new Clock();
   let resolve!: (response: ReminderFireResponse) => void;

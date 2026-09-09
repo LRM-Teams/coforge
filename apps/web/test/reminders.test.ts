@@ -3,6 +3,7 @@ import {
   decodeAgentReminderOperationResponse,
   decodeReminderSync,
   encodeAgentReminderOperationRequest,
+  encodeReminderSync,
   type AgentReminderOperationRequest,
   type ReminderSummaryRecord,
 } from "@coforge/protocol";
@@ -68,6 +69,17 @@ describe("wall-clock recurrence DST policy", () => {
         new Date("2026-03-08T05:00:00Z"),
       ).toISOString(),
     ).toBe("2026-03-09T06:30:00.000Z");
+  });
+
+  test("weekly recurrence searches past a skipped DST-gap occurrence", () => {
+    expect(
+      nextOccurrence(
+        "weekly:sun@02:30",
+        "America/New_York",
+        new Date("2026-03-01T07:30:00Z"),
+        new Date("2026-03-01T07:30:00Z"),
+      ).toISOString(),
+    ).toBe("2026-03-15T06:30:00.000Z");
   });
 });
 
@@ -198,6 +210,54 @@ test("snapshot is bounded canonical daemon state", async () => {
   expect(sync.jobs).toHaveLength(50);
 });
 
+test("update and snooze publish encodable upserts without operation-only fields", async () => {
+  const current = {
+    reminderId: "22222222-2222-4222-8222-222222222222",
+    ownerAgentId: "agent",
+    computerId: "computer",
+    version: 1,
+    title: "Before",
+    target: "@alice",
+    messageId: "11111111-1111-4111-8111-111111111111",
+    fireAt: "2026-01-02T01:00:00.000Z",
+    status: "scheduled" as const,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  const published: ReturnType<typeof decodeReminderSync>[] = [];
+  const repository = {
+    authorize: async () => true,
+    get: async () => current,
+    update: async (_scope: unknown, _requestId: string, _fingerprint: string, _id: string) => ({
+      ...current,
+      version: 2,
+      title: "After",
+    }),
+  } as unknown as ReminderRepository;
+  const reminders = new Reminders(repository, { supports: async () => true }, async (sync) => {
+    published.push(decodeReminderSync(encodeReminderSync(sync)));
+  });
+
+  for (const operation of ["update", "snooze"] as const)
+    await reminders.execute(
+      {
+        protocolMajor: 1,
+        requestId: `${operation}-request`,
+        workspaceId: "workspace",
+        computerId: "computer",
+        agentId: "agent",
+        operation,
+        reminderId: current.reminderId,
+        ...(operation === "update" ? { title: "After" } : { delaySeconds: 60 }),
+      },
+      "owner",
+    );
+
+  expect(published.map((sync) => sync.jobs[0])).toEqual([
+    expect.objectContaining({ version: 2, title: "After" }),
+    expect.objectContaining({ version: 2, title: "After" }),
+  ]);
+});
+
 test("successful recurring fire best-effort publishes the canonical advanced job", async () => {
   const advanced = {
     reminderId: "22222222-2222-4222-8222-222222222222",
@@ -213,7 +273,7 @@ test("successful recurring fire best-effort publishes the canonical advanced job
     timezone: "Asia/Shanghai",
     createdAt: "2026-01-01T00:00:00.000Z",
   };
-  const published: Uint8Array[] = [];
+  const published: ReturnType<typeof decodeReminderSync>[] = [];
   const repository = {
     authorize: async () => true,
     fire: async (_scope: unknown, request: any) => ({
@@ -222,9 +282,7 @@ test("successful recurring fire best-effort publishes the canonical advanced job
     }),
   } as unknown as ReminderRepository;
   const reminders = new Reminders(repository, { supports: async () => true }, async (sync) => {
-    published.push(new Uint8Array(JSON.stringify(sync).length));
-    expect(sync.jobs[0]?.version).toBe(2);
-    expect(sync.jobs[0]?.fireAt).toBe(advanced.fireAt);
+    published.push(decodeReminderSync(encodeReminderSync(sync)));
   });
   await reminders.fire(
     {
@@ -240,4 +298,5 @@ test("successful recurring fire best-effort publishes the canonical advanced job
     "owner",
   );
   expect(published).toHaveLength(1);
+  expect(published[0]?.jobs[0]).toMatchObject({ version: 2, title: advanced.title });
 });
