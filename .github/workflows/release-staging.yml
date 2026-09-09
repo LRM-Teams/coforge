@@ -9,8 +9,8 @@ on:
     inputs:
       version:
         description: >-
-          Release version to publish (e.g. 1.2.0 or 0.1.0-rc.1). Leave empty to auto-generate a
-          dev version for this run.
+          Release version to publish (e.g. 0.1.0). Leave empty to auto-generate a
+          0.1.0-dev.<run number> version for this run.
         required: false
         type: string
 
@@ -62,10 +62,9 @@ jobs:
         run: |
           version="$INPUT_VERSION"
           if [ -z "$version" ]; then
-            # "-" not "+": a "+" in a version segment can be reinterpreted as a space by some URL
-            # middleware once it becomes a feed path segment (docs/release.md's version charset
-            # comment makes the same point about a leading "-", for a different reason).
-            version="0.0.0-dev.${RUN_NUMBER}-$(git rev-parse --short=12 HEAD)"
+            # Manual staging builds use the target release plus a unique workflow run number.
+            # Source identity remains in the manifest's commit field.
+            version="0.1.0-dev.${RUN_NUMBER}"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
