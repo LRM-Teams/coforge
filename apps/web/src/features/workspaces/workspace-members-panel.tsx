@@ -186,10 +186,7 @@ export function WorkspaceMembersPanel(props: {
                         );
                       }}
                     >
-                      <SelectTrigger
-                        aria-label={m.workspace_invite_role()}
-                        className="h-8 w-36"
-                      >
+                      <SelectTrigger aria-label={m.workspace_invite_role()} className="h-8 w-36">
                         <SelectValue>{() => roleLabel(member.role)}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
@@ -234,9 +231,7 @@ export function WorkspaceMembersPanel(props: {
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() =>
-                    run(() => revoke({ data: { invitationId: invitation.id } }))
-                  }
+                  onClick={() => run(() => revoke({ data: { invitationId: invitation.id } }))}
                 >
                   {m.workspace_invitation_revoke()}
                 </Button>

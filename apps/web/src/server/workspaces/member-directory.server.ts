@@ -50,10 +50,7 @@ export type WorkspaceMemberDirectoryStore = {
     expiresAt: Date;
   }): Promise<WorkspaceInvitationRecord>;
   getInvitation(invitationId: string): Promise<WorkspaceInvitationRecord | null>;
-  acceptInvitation(input: {
-    invitationId: string;
-    userId: string;
-  }): Promise<WorkspaceMemberRecord>;
+  acceptInvitation(input: { invitationId: string; userId: string }): Promise<WorkspaceMemberRecord>;
   revokeInvitation(invitationId: string): Promise<WorkspaceInvitationRecord>;
   listPendingInvitations(workspaceId: string): Promise<WorkspaceInvitationRecord[]>;
   updateRole(
@@ -150,11 +147,7 @@ export class WorkspaceMemberDirectory {
     return this.store.updateRole(input.workspaceId, input.targetUserId, nextRole);
   }
 
-  async removeMember(input: {
-    workspaceId: string;
-    actorUserId: string;
-    targetUserId: string;
-  }) {
+  async removeMember(input: { workspaceId: string; actorUserId: string; targetUserId: string }) {
     const actor = await this.requireMembership(input.workspaceId, input.actorUserId);
     const target = await this.store.findMembership(input.workspaceId, input.targetUserId);
     if (!target) throw new AppError("NOT_FOUND");

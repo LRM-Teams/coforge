@@ -8,9 +8,7 @@ import { getDatabaseClient } from "../../server/db/client.server";
 import { requireExistingWorkspaceId } from "../../server/workspaces/enrollment.server";
 import { workspaceMemberDirectory } from "../../server/workspaces/member-directory-store.server";
 import { preferredWorkspaceSlugFromRequest } from "../../server/workspaces/selection.server";
-import {
-  INVITABLE_WORKSPACE_ROLES,
-} from "../../server/workspaces/member-role.server";
+import { INVITABLE_WORKSPACE_ROLES } from "../../server/workspaces/member-role.server";
 
 function directory() {
   const db = getDatabaseClient();
