@@ -413,6 +413,7 @@ async function queueHarness(
     notify?: (notice: string) => void | Promise<void>;
     dispose?: () => void | Promise<void>;
     lifecycle?: (event: string) => void;
+    activity?: (activity: import("@coforge/protocol").AgentActivity) => void;
   } = {},
 ) {
   const credentials = new InMemoryDaemonCredentialStore();
@@ -461,9 +462,11 @@ async function queueHarness(
         },
         sendAgentActivity(activity) {
           options.lifecycle?.(`activity:${activity.detailKind}`);
+          options.activity?.(activity);
         },
         async sendAgentDeliveryAck(ack) {
           acknowledgements.push(ack.deliveryId);
+          options.lifecycle?.(`ack:${ack.deliveryId}`);
         },
       }),
     },
@@ -2105,9 +2108,155 @@ describe("DaemonRuntime", () => {
     await runtime.stop();
   });
 
+  test("reports Message received after acceptance and before ACK, once per injection", async () => {
+    const entered = Promise.withResolvers<void>();
+    const gate = Promise.withResolvers<void>();
+    const events: string[] = [];
+    const activities: import("@coforge/protocol").AgentActivity[] = [];
+    const harness = await queueHarness({
+      lifecycle: (event) => events.push(event),
+      activity: (activity) => activities.push(activity),
+      notify: async () => {
+        entered.resolve();
+        await gate.promise;
+        events.push("accepted");
+      },
+    });
+    try {
+      await harness.runtime.startAgent("agent-a", config);
+      events.length = 0;
+      const delivery = harness.delivery(1);
+      await entered.promise;
+      expect(events).toEqual([]);
+      gate.resolve();
+      await delivery;
+      expect(events).toEqual(["accepted", "activity:model_request_started", "ack:delivery-1"]);
+      expect(activities[1]).toMatchObject({
+        agentId: "agent-a",
+        detailKind: "model_request_started",
+        detail: "Message received",
+        level: "info",
+        entries: [],
+        launchId: activities[0]!.launchId,
+        clientSeq: activities[0]!.clientSeq + 1,
+      });
+      await harness.delivery(1);
+      expect(activities).toHaveLength(2);
+      expect(harness.notices).toHaveLength(1);
+    } finally {
+      gate.resolve();
+      await harness.runtime.stop();
+    }
+  });
+
+  test.each(["wake", "resume", "summary"])(
+    "reports accepted %s recovery only for concrete messages",
+    async (kind) => {
+      const entered = Promise.withResolvers<void>();
+      const gate = Promise.withResolvers<void>();
+      const activities: import("@coforge/protocol").AgentActivity[] = [];
+      const harness = await queueHarness({
+        activity: (activity) => activities.push(activity),
+        notify: async () => {
+          entered.resolve();
+          await gate.promise;
+        },
+      });
+      const message = {
+        messageId: "recovery-message",
+        deliveryId: "recovery-delivery",
+        conversationId: "conversation-a",
+        sequence: 1,
+        target: "@ada",
+        latestSender: "@ada",
+        body: "hello",
+      };
+      try {
+        const launch = harness.runtime.startAgent("agent-a", config, undefined, "recovery", {
+          ...(kind === "wake" ? { wakeMessage: message } : {}),
+          resumeMessages: kind === "resume" ? [message] : [],
+          unreadSummary: { "@ada": 3 },
+        });
+        await entered.promise;
+        expect(activities.map((activity) => activity.detailKind)).toEqual(["starting"]);
+        gate.resolve();
+        await launch;
+        expect(activities.map((activity) => activity.detailKind)).toEqual(
+          kind === "summary" ? ["starting"] : ["starting", "model_request_started"],
+        );
+        if (kind !== "summary") {
+          expect(activities[1]).toMatchObject({
+            agentId: "agent-a",
+            detailKind: "model_request_started",
+            detail: "Message received",
+            level: "info",
+            entries: [],
+            launchId: activities[0]!.launchId,
+            clientSeq: activities[0]!.clientSeq + 1,
+          });
+          await harness.runtime.startAgent("agent-a", config, undefined, "duplicate-wake", {
+            wakeMessage: message,
+          });
+          expect(activities).toHaveLength(2);
+          expect(harness.notices).toHaveLength(1);
+        }
+      } finally {
+        gate.resolve();
+        await harness.runtime.stop();
+      }
+    },
+  );
+
+  test("late acceptance while stopping does not report Message received", async () => {
+    const entered = Promise.withResolvers<void>();
+    const gate = Promise.withResolvers<void>();
+    const activities: string[] = [];
+    const harness = await queueHarness({
+      activity: (activity) => activities.push(activity.detailKind),
+      notify: async () => {
+        entered.resolve();
+        await gate.promise;
+      },
+    });
+    try {
+      await harness.runtime.startAgent("agent-a", config);
+      const delivery = harness.delivery(1);
+      await entered.promise;
+      const stopping = harness.runtime.stopAgent("agent-a");
+      gate.resolve();
+      await delivery;
+      await stopping;
+      await harness.runtime.startAgent("agent-a", config);
+      expect(activities).toEqual(["starting", "stopped", "starting"]);
+      expect(harness.acknowledgements).toEqual(["delivery-1"]);
+    } finally {
+      gate.resolve();
+      await harness.runtime.stop();
+    }
+  });
+
+  test("Activity publication failure does not reject accepted delivery", async () => {
+    const harness = await queueHarness({
+      activity: (activity) => {
+        if (activity.detailKind === "model_request_started") throw new Error("offline observer");
+      },
+    });
+    try {
+      await harness.runtime.startAgent("agent-a", config);
+      await harness.delivery(1);
+      await harness.delivery(1);
+      expect(harness.acknowledgements).toEqual(["delivery-1", "delivery-1"]);
+      expect(harness.notices).toHaveLength(1);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
   test("does not ACK rejected notification and accepts redelivery in the same session", async () => {
     let attempts = 0;
+    const activities: string[] = [];
     const harness = await queueHarness({
+      activity: (activity) => activities.push(activity.detailKind),
       notify: () => {
         attempts++;
         if (attempts === 1) throw new Error("code agent request failed");
@@ -2117,8 +2266,10 @@ describe("DaemonRuntime", () => {
       await harness.runtime.startAgent("agent-a", config);
       await expect(harness.delivery(1)).rejects.toThrow("code agent request failed");
       expect(harness.acknowledgements).toEqual([]);
+      expect(activities).toEqual(["starting"]);
       await harness.delivery(1);
       expect(attempts).toBe(2);
+      expect(activities).toEqual(["starting", "model_request_started"]);
       expect(harness.acknowledgements).toEqual(["delivery-1"]);
       expect(harness.sessions()).toBe(1);
     } finally {
@@ -2266,7 +2417,11 @@ describe("DaemonRuntime", () => {
   test("failed launch recovery disposes the runtime and can retry canonical recovery", async () => {
     let notifyAttempts = 0;
     let disposals = 0;
+    const received: string[] = [];
     const harness = await queueHarness({
+      activity(activity) {
+        if (activity.detailKind === "model_request_started") received.push(activity.detail);
+      },
       notify() {
         notifyAttempts++;
         if (notifyAttempts === 1) throw new Error("recovery rejected");
@@ -2295,6 +2450,7 @@ describe("DaemonRuntime", () => {
     ).rejects.toThrow("recovery rejected");
     expect(harness.runningAgentIds()).toEqual([]);
     expect(disposals).toBe(1);
+    expect(received).toEqual([]);
 
     await harness.runtime.startAgent(
       "agent-a",
@@ -2308,6 +2464,7 @@ describe("DaemonRuntime", () => {
     expect(harness.notices.every((notice) => notice.includes("retry this recovery body"))).toBe(
       true,
     );
+    expect(received).toEqual(["Message received"]);
     expect(harness.runningAgentIds()).toEqual(["agent-a"]);
     await harness.runtime.stop();
   });

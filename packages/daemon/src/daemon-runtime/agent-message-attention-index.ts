@@ -39,6 +39,7 @@ export class AgentMessageAttentionIndex {
     workspaceId: string,
     runtimes: Pick<AgentProcessManager, "session">,
     private readonly sendAck: (ack: AgentMessageDeliveryAck) => Promise<void>,
+    private readonly messageReceived: (agentId: string) => void = () => {},
   ) {
     this.#workspaceId = workspaceId;
     this.#runtimes = runtimes;
@@ -221,6 +222,7 @@ export class AgentMessageAttentionIndex {
         this.#pendingSequences.set(agentId, byTarget);
       } else this.recordModelSeen(agentId, message.target, message.sequence);
     }
+    if (recoveredMessages.length) this.messageReceived(agentId);
   }
 
   #notify(message: AgentMessageDelivery, attention?: MessageAttention): Promise<void> {
@@ -244,8 +246,10 @@ Run \`coforge message check\` to read pending messages.]`;
     const notification = Promise.resolve()
       .then(() => session.notify!(notice))
       .then(() => {
-        if (this.#generations.get(message.agentId) === generation)
+        if (this.#generations.get(message.agentId) === generation) {
           generation.notified.add(message.deliveryId);
+          this.messageReceived(message.agentId);
+        }
         logger.info("Agent accepted inbox notice", {
           event: "agent.inbox_notice.accepted",
           request_id: message.requestId,
