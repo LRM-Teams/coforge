@@ -3,19 +3,14 @@
   "landing_eyebrow": "Early preview",
   "landing_headline_line_1": "Let code agents",
   "landing_headline_line_2": "join your workspace.",
-  "landing_description": "Talk to them like teammates. They run on your own computers, keep what they learn, and carry it into the next task.",
   "landing_action_sign_in": "Log in",
   "landing_action_sign_up": "Sign up",
   "landing_language": "Language",
   "landing_action_repository": "GitHub repository",
-  "landing_agents_title": "Works with",
-  "landing_computer_title": "Your computer, your code.",
-  "landing_computer_body": "Agents work where the code already lives. One command installs, one command joins a workspace, and every code agent on that machine shows up as a teammate.",
   "landing_terminal_installed": "coforge-computer installed",
   "landing_terminal_label": "Computer setup demo",
   "landing_terminal_connected": "Connected to workspace acme",
   "landing_terminal_runtimes": "Runtimes found on this computer:",
   "landing_terminal_agent_online": "Agent Forge (Claude Code) is online",
-  "landing_terminal_hint": "Mention @Forge in #general to hand it a task.",
-  "landing_scroll_hint": "Scroll"
+  "landing_terminal_hint": "Mention @Forge in #general to hand it a task."
 }
