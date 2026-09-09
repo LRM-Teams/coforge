@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { formatForDisplay, useHotkey } from "@tanstack/react-hotkeys";
 import { Link } from "@tanstack/react-router";
 import { CircleUserRound, ListTodo, MessageCircle, Monitor, PanelLeft, Users } from "lucide-react";
 
+import { MobileNavigationContext } from "@/components/layout/mobile-navigation";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -63,6 +64,13 @@ export function AppShell({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
+  useEffect(() => {
+    const breakpoint = window.matchMedia("(max-width: 767px)");
+    const closeDrawer = () => setMobileSidebarOpen(false);
+    breakpoint.addEventListener("change", closeDrawer);
+    return () => breakpoint.removeEventListener("change", closeDrawer);
+  }, []);
+
   function toggleSidebar() {
     if (window.matchMedia("(max-width: 767px)").matches) {
       setMobileSidebarOpen((open) => !open);
@@ -72,9 +80,10 @@ export function AppShell({
   }
 
   useHotkey(sidebarShortcut, toggleSidebar);
+  useHotkey("Escape", () => setMobileSidebarOpen(false), { enabled: mobileSidebarOpen });
 
   return (
-    <div className="flex min-h-svh bg-sidebar">
+    <div className="flex min-h-svh bg-background md:bg-sidebar">
       {mobileSidebarOpen && (
         <Button
           type="button"
@@ -86,10 +95,11 @@ export function AppShell({
       )}
       {(!sidebarCollapsed || mobileSidebarOpen) && (
         <aside
+          id="app-sidebar"
           className={cn(
-            "fixed inset-y-0 left-0 z-40 w-[72vw] max-w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-3 pt-2 pb-6 shadow-xl md:border-r-0 md:sticky md:top-0 md:flex md:h-svh md:w-52 md:max-w-none md:shadow-none",
+            "fixed inset-y-0 left-0 z-40 w-[72vw] max-w-72 shrink-0 flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar px-3 pt-2 pb-6 shadow-xl md:border-r-0 md:sticky md:top-0 md:h-svh md:w-52 md:max-w-none md:shadow-none",
             mobileSidebarOpen ? "flex" : "hidden",
-            !sidebarCollapsed && "md:flex",
+            sidebarCollapsed ? "md:hidden" : "md:flex",
           )}
         >
           {/* The 8px gutter plus the 1px card border, so the logo sits on the
@@ -133,19 +143,39 @@ export function AppShell({
           </div>
 
           <nav aria-label={m.navigation_label()} className="mt-5 flex flex-col gap-1 md:gap-2.5">
-            <Link to="/agents" activeProps={navLinkActiveProps} className={navLinkClassName}>
+            <Link
+              to="/agents"
+              activeProps={navLinkActiveProps}
+              className={navLinkClassName}
+              onClick={() => setMobileSidebarOpen(false)}
+            >
               <Users aria-hidden="true" className="size-4" />
               {m.navigation_agents()}
             </Link>
-            <Link to="/messages" activeProps={navLinkActiveProps} className={navLinkClassName}>
+            <Link
+              to="/messages"
+              activeProps={navLinkActiveProps}
+              className={navLinkClassName}
+              onClick={() => setMobileSidebarOpen(false)}
+            >
               <MessageCircle aria-hidden="true" className="size-4" />
               {m.navigation_messages()}
             </Link>
-            <Link to="/tasks" activeProps={navLinkActiveProps} className={navLinkClassName}>
+            <Link
+              to="/tasks"
+              activeProps={navLinkActiveProps}
+              className={navLinkClassName}
+              onClick={() => setMobileSidebarOpen(false)}
+            >
               <ListTodo aria-hidden="true" className="size-4" />
               {m.tasks_tab()}
             </Link>
-            <Link to="/computers" activeProps={navLinkActiveProps} className={navLinkClassName}>
+            <Link
+              to="/computers"
+              activeProps={navLinkActiveProps}
+              className={navLinkClassName}
+              onClick={() => setMobileSidebarOpen(false)}
+            >
               <Monitor aria-hidden="true" className="size-4" />
               {m.navigation_computers()}
             </Link>
@@ -157,10 +187,10 @@ export function AppShell({
         </aside>
       )}
 
-      {(sidebarCollapsed || !mobileSidebarOpen) && (
+      {sidebarCollapsed && (
         <div
           className={cn(
-            "flex w-16 shrink-0 flex-col items-center pb-6 md:sticky md:top-0 md:h-svh",
+            "hidden w-16 shrink-0 flex-col items-center pb-6 md:sticky md:top-0 md:flex md:h-svh",
             !sidebarCollapsed && "md:hidden",
           )}
         >
@@ -271,7 +301,13 @@ export function AppShell({
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <MobileNavigationContext
+          value={{ open: mobileSidebarOpen, toggle: () => setMobileSidebarOpen((open) => !open) }}
+        >
+          {children}
+        </MobileNavigationContext>
+      </div>
     </div>
   );
 }

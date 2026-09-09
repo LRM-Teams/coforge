@@ -8,6 +8,13 @@ instructions for the TanStack Start Web/backend modular monolith.
 - Before designing or changing product UI, read and follow
   [the product design guidance](../../docs/design.md), including progressive
   disclosure, task-led hierarchy, and rendered verification.
+- That document is the maintained source for interaction rules. For similar
+  list/detail pages and empty states, apply sections 2.1–2.2 and 5.1, and run
+  the applicable acceptance checks in section 6. State why a different user
+  task requires an exception before implementing one. Do not duplicate these
+  rules in another design document or treat existing pages as automatic
+  exceptions; adapt the affected flow when changing it, without expanding into
+  unrelated page redesigns.
 - Reuse the existing UI primitives and the color ownership defined in
   [design tokens](../../docs/design-tokens.md). Do not apply marketing-page
   defaults from `design-taste-frontend` to the product workspace.
@@ -172,6 +179,12 @@ instructions for the TanStack Start Web/backend modular monolith.
   `components/ui/skeleton.tsx` owns decorative placeholder styling only.
   Profile save feedback stays in `SettingsContent`; transient notifications
   use the existing `AppToastProvider` rather than a second notification system.
+- `components/ui/empty.tsx` supplies the shadcn Empty presentation primitives;
+  owning features choose their icon, localized copy, and empty-state condition.
+- `components/layout/mobile-navigation.tsx` connects page-owned mobile menu
+  controls to `AppShell`'s global navigation drawer. Pages own their titles
+  and actions; conversation list/detail selection and list scroll retention
+  remain in `features/conversations/conversation-layout.tsx`.
 - `src/features/profiles/profile.functions.ts` owns the authenticated current-user
   profile read and description mutation. Avatar bytes and profile persistence
   stay under `src/server/profiles/` and `src/server/db/repositories/`.

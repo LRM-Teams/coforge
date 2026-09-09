@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Plus, Search, X } from "lucide-react";
 
+import { MobileNavigationButton } from "@/components/layout/mobile-navigation";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -97,17 +98,20 @@ export function AgentsContent({
 
   return (
     <main className="flex-1 p-4 sm:p-5 md:p-6">
-      <div className="flex flex-col items-start gap-4 sm:flex-row sm:justify-between sm:gap-6">
-        <div>
-          <span className="text-sm font-medium">{m.header_agents()}</span>
-          <h1 className="text-xl font-semibold tracking-tight">{m.content_title()}</h1>
-          <p className="mt-2 text-sm text-muted-foreground">{m.content_description()}</p>
+      <header className="flex flex-col items-start gap-4 sm:flex-row sm:justify-between sm:gap-6">
+        <div className="flex items-start gap-2">
+          <MobileNavigationButton />
+          <div>
+            <span className="text-sm font-medium">{m.header_agents()}</span>
+            <h1 className="text-xl font-semibold tracking-tight">{m.content_title()}</h1>
+            <p className="mt-2 text-sm text-muted-foreground">{m.content_description()}</p>
+          </div>
         </div>
         <Button onClick={() => setOpen(true)} disabled={!computers.length}>
           <Plus aria-hidden="true" data-icon="inline-start" />
           {m.header_new_agent()}
         </Button>
-      </div>
+      </header>
       {deferredStart && (
         <p
           role="status"

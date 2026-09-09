@@ -467,6 +467,35 @@ test("collapsing the sidebar keeps navigation and the user menu reachable", () =
   }
 });
 
+test("the page header opens navigation and closes it on selection or breakpoint change", () => {
+  const breakpoint = new EventTarget();
+  const media = jest.spyOn(window, "matchMedia").mockImplementation((query) => ({
+    matches: query === "(max-width: 767px)",
+    media: query,
+    onchange: null,
+    addListener() {},
+    removeListener() {},
+    addEventListener: breakpoint.addEventListener.bind(breakpoint),
+    removeEventListener: breakpoint.removeEventListener.bind(breakpoint),
+    dispatchEvent: () => true,
+  }));
+  try {
+    renderShell();
+    const menu = within(page().getByRole("main")).getByRole("button", { name: "Show sidebar" });
+    expect(menu.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(menu);
+    expect(menu.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(page().getByRole("link", { name: "Computers" }));
+    expect(menu.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(menu);
+    expect(menu.getAttribute("aria-expanded")).toBe("true");
+    act(() => breakpoint.dispatchEvent(new Event("change")));
+    expect(menu.getAttribute("aria-expanded")).toBe("false");
+  } finally {
+    media.mockRestore();
+  }
+});
+
 test("renders the same shell from the Simplified Chinese catalog", () => {
   overwriteGetLocale(() => "zh-CN");
   const markup = renderShell();

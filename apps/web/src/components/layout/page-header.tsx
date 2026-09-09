@@ -1,3 +1,5 @@
+import { MobileNavigationButton } from "./mobile-navigation";
+
 /**
  * The header band a page owns, matching the one the conversation panels carry.
  *
@@ -18,7 +20,7 @@ export function PageHeader({
 }) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b px-4 sm:px-6">
-      {leading}
+      {leading ?? <MobileNavigationButton />}
       <h1 className="truncate text-base font-medium">{heading}</h1>
       {meta}
       {actions && <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div>}

@@ -32,6 +32,13 @@ import {
 import { AgentActivityAvatar, useAgentWorkingLabel } from "@/features/agents/agent-activity-avatar";
 import { Avatar } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  EmptyDescription,
+} from "@/components/ui/empty";
 import { RelativeTime } from "@/components/ui/relative-time";
 import {
   DropdownMenu,
@@ -832,14 +839,21 @@ export function ConversationPane({
             </div>
           )}
           {conversation.messages.length === 0 ? (
-            <div className={cn("grid place-content-center text-center", root ? "py-10" : "h-full")}>
-              <p className="font-medium">{m.conversation_empty_title()}</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {root
-                  ? m.conversation_thread_empty()
-                  : (emptyDescription ?? m.conversation_empty_description())}
-              </p>
-            </div>
+            <Empty className={root ? "py-10" : "h-full"}>
+              <EmptyHeader>
+                <EmptyMedia variant="icon" className="size-12 rounded-2xl text-muted-foreground">
+                  <MessageSquare aria-hidden="true" className="size-6" />
+                </EmptyMedia>
+                <EmptyTitle role="heading" aria-level={2} className="text-base">
+                  {m.conversation_empty_title()}
+                </EmptyTitle>
+                <EmptyDescription>
+                  {root
+                    ? m.conversation_thread_empty()
+                    : (emptyDescription ?? m.conversation_empty_description())}
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <ol
               className={cn(virtualized ? "relative pt-6" : "flex flex-col gap-6 pt-6")}

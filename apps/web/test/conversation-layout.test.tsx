@@ -4,7 +4,10 @@ import { afterEach, expect, test } from "bun:test";
 import { RouterContextProvider } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
 
+import { AppShell } from "@/components/app-shell";
+import { AppToastProvider } from "@/components/ui/toast";
 import {
+  BackToAgents,
   ConversationLayout,
   EmptyConversation,
   useConversationActivity,
@@ -13,6 +16,39 @@ import {
 import { getRouter } from "@/router";
 
 afterEach(cleanup);
+
+test("the conversation list owns the mobile menu and keeps its position when returning", () => {
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <AppToastProvider>
+        <AppShell user={{ name: "Test User", email: "test@example.com" }}>
+          <ConversationLayout agents={[agent]} selectedAgentId={agent.id}>
+            <header>
+              <BackToAgents />
+              <h1>Selected conversation</h1>
+            </header>
+          </ConversationLayout>
+        </AppShell>
+      </AppToastProvider>
+    </RouterContextProvider>,
+  );
+  const page = within(document.body);
+  const list = page.getByRole("navigation", { name: "Agent conversations" });
+  fireEvent.click(page.getByRole("button", { name: "Messages" }));
+  const scroller = within(list).getByRole("list", { name: "Channels" }).parentElement!;
+  scroller.scrollTop = 147;
+  fireEvent.click(within(list).getByRole("link", { name: /Release Helper/ }));
+  fireEvent.click(page.getByRole("button", { name: "Messages" }));
+  expect(within(list).getByRole("list", { name: "Channels" }).parentElement).toBe(scroller);
+  expect(scroller.scrollTop).toBe(147);
+  const menu = within(list).getByRole("button", { name: "Show sidebar" });
+  fireEvent.click(menu);
+  expect(menu.getAttribute("aria-expanded")).toBe("true");
+  expect(page.getByRole("heading", { name: "Selected conversation" })).toBeTruthy();
+  for (const header of document.querySelectorAll("header")) {
+    expect(header.closest("main")).not.toBeNull();
+  }
+});
 
 const agent = {
   id: "agent-1",

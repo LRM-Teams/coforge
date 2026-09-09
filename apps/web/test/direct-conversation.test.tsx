@@ -193,7 +193,7 @@ test("summarizes a thread and previews only its latest three replies", async () 
 });
 
 test("renders the empty private conversation", () => {
-  const { page } = renderConversation();
+  const { page, rerender } = renderConversation();
   expect(page.getByRole("heading", { name: "Release Helper" })).toBeTruthy();
   expect(
     page.getByRole("button", {
@@ -201,8 +201,11 @@ test("renders the empty private conversation", () => {
     }),
   ).toBeTruthy();
   expect(page.getByText("@release-helper")).toBeTruthy();
-  expect(page.getByText("No messages yet")).toBeTruthy();
+  expect(page.getByRole("heading", { name: "No messages yet" })).toBeTruthy();
   expect(page.queryByRole("link", { name: /Back to messages/i })).toBeNull();
+  rerender({ ...base, messages: [firstMessage] });
+  expect(page.queryByRole("heading", { name: "No messages yet" })).toBeNull();
+  expect(page.getByText("Please check")).toBeTruthy();
 });
 
 test("shared chat activity updates header and sidebar, with matching hover dots", async () => {

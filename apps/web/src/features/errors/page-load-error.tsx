@@ -1,5 +1,6 @@
 import { useRouter } from "@tanstack/react-router";
 
+import { MobileNavigationButton } from "@/components/layout/mobile-navigation";
 import { Button } from "@/components/ui/button";
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
@@ -9,6 +10,7 @@ export function PageLoadError({ error }: { error: unknown }) {
   if (isAppError(error) && error.code === "WORKSPACE_REQUIRED") {
     return (
       <main className="flex-1 p-6">
+        <MobileNavigationButton />
         <div role="status" className="mx-auto max-w-lg rounded-xl border bg-card p-6">
           <h1 className="text-xl font-semibold tracking-tight">
             {m.workspace_unavailable_title()}
@@ -22,6 +24,7 @@ export function PageLoadError({ error }: { error: unknown }) {
   }
   return (
     <main className="flex-1 p-6">
+      <MobileNavigationButton />
       <div role="alert" className="rounded-xl border border-destructive/40 bg-card p-5">
         <p className="font-medium text-destructive-text">{m.app_load_error()}</p>
         <p className="mt-2 text-sm text-muted-foreground">{m.app_load_error_description()}</p>
