@@ -30,22 +30,18 @@ export function TaskLayoutToggle({
   onChange: (layout: TaskLayout) => void;
 }) {
   return (
-    <div className="inline-flex -space-x-px rounded-lg shadow-xs" aria-label={m.tasks_layout()}>
+    <div className="inline-flex items-center -space-x-px rounded-lg shadow-xs" aria-label={m.tasks_layout()}>
       {(["board", "list"] as const).map((value) => (
         <Button
           key={value}
           type="button"
-          size="xs"
+          size="sm"
           color={layout === value ? "secondary" : "tertiary"}
-          className="h-9 rounded-none border border-secondary px-3 text-sm font-semibold first:rounded-l-lg last:rounded-r-lg focus-visible:z-10"
+          iconLeading={value === "board" ? Columns3 : List}
+          className="rounded-none border border-secondary first:rounded-l-lg last:rounded-r-lg focus-visible:z-10"
           aria-pressed={layout === value}
           onPress={() => onChange(value)}
         >
-          {value === "board" ? (
-            <Columns3 aria-hidden="true" data-icon="inline-start" />
-          ) : (
-            <List aria-hidden="true" data-icon="inline-start" />
-          )}
           {value === "board" ? m.tasks_layout_board() : m.tasks_layout_list()}
         </Button>
       ))}

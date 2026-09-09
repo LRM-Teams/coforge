@@ -130,8 +130,7 @@ export function AgentsContent({
         <PageHeader
           heading={m.navigation_agents()}
           actions={
-            <Button className="h-11 md:h-10" onPress={() => setOpen(true)}>
-              <Plus aria-hidden="true" data-icon="inline-start" />
+            <Button size="sm" iconLeading={Plus} onPress={() => setOpen(true)}>
               {m.header_new_agent()}
             </Button>
           }
@@ -427,7 +426,7 @@ function MemberCard({
   ownedAgent?: AgentView;
 }) {
   return (
-    <li className="grid min-h-56 min-w-0 grid-cols-[3rem_minmax(0,1fr)_auto] grid-rows-[auto_1fr_auto] items-start gap-x-3 gap-y-5 rounded-xl bg-primary p-5 shadow-xs ring-1 ring-secondary ring-inset">
+    <li className="grid min-w-0 grid-cols-[3rem_minmax(0,1fr)_auto] grid-rows-[auto_auto_auto] items-start gap-x-3 gap-y-3 rounded-xl bg-primary p-5 shadow-xs ring-1 ring-secondary ring-inset">
       <Avatar
         size="xl"
         alt={member.displayName}
