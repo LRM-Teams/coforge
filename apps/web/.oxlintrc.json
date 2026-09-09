@@ -24,12 +24,6 @@
       }
     },
     {
-      "files": ["src/components/ui/relative-time.tsx"],
-      "rules": {
-        "coforge/no-native-title": "off"
-      }
-    },
-    {
       "files": ["test/**/*.{ts,tsx}"],
       "rules": {
         "coforge/no-native-button": "off"
