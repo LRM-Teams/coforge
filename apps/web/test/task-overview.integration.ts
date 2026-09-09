@@ -101,10 +101,12 @@ test("TaskBoard overview returns every visible Workspace task without leaking pr
     ]);
     expect(result.tasks.find(({ title }) => title === "Joined public")).toEqual({
       ...joinedTask.tasks[0],
+      currentMemberId: expect.any(String),
       source: { channelName: joined.channelName, agentId: null, label: `#${joined.channelName}` },
     });
     expect(result.tasks.find(({ title }) => title === "Unjoined public")).toEqual({
       ...unjoinedTask.tasks[0],
+      currentMemberId: null,
       source: {
         channelName: unjoined.channelName,
         agentId: null,
@@ -113,8 +115,19 @@ test("TaskBoard overview returns every visible Workspace task without leaking pr
     });
     expect(result.tasks.find(({ title }) => title === "Own direct")).toEqual({
       ...ownDmTask.tasks[0],
+      currentMemberId: expect.any(String),
       source: { channelName: null, agentId: aliceAgent!.id, label: "Alice Agent" },
     });
+    const memberIds = await db.conversationMember.findMany({
+      where: { userId: alice!.id, conversationId: { in: [joined.id, ownDm.id] } },
+      select: { id: true, conversationId: true },
+    });
+    expect(result.tasks.find(({ title }) => title === "Joined public")?.currentMemberId).toBe(
+      memberIds.find(({ conversationId }) => conversationId === joined.id)?.id,
+    );
+    expect(result.tasks.find(({ title }) => title === "Own direct")?.currentMemberId).toBe(
+      memberIds.find(({ conversationId }) => conversationId === ownDm.id)?.id,
+    );
     expect(joinedTask.tasks[0]!.number).toBe(ownDmTask.tasks[0]!.number);
 
     await expect(board.overview(workspace.id, outsider!.id)).rejects.toThrow("ACCESS_DENIED");

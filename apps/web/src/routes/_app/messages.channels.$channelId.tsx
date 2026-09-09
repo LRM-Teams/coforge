@@ -23,7 +23,10 @@ import {
 } from "@/features/conversations/channels.functions";
 
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
-  validateSearch: z.object({ view: z.enum(["chat", "tasks"]).optional().catch(undefined) }),
+  validateSearch: z.object({
+    view: z.enum(["chat", "tasks"]).optional().catch(undefined),
+    layout: z.enum(["board", "list"]).optional().catch(undefined),
+  }),
   remountDeps: ({ params }) => params.channelId,
   loader: ({ params }) => loadPublicChannel({ data: { channelId: params.channelId } }),
   component: ChannelPage,
@@ -33,7 +36,7 @@ function ChannelPage() {
   const latestConversation = Route.useLoaderData();
   const [conversation, setConversation] = useState(latestConversation);
   const { channelId } = Route.useParams();
-  const { view } = Route.useSearch();
+  const { view, layout } = Route.useSearch();
   const router = useRouter();
   const send = useServerFn(sendPublicChannelMessage);
   const join = useServerFn(joinPublicChannel);
@@ -119,6 +122,13 @@ function ChannelPage() {
   if (view === "tasks")
     return (
       <TaskBoard
+        layout={layout ?? "board"}
+        onLayoutChange={(nextLayout) =>
+          void router.navigate({
+            from: Route.fullPath,
+            search: (previous) => ({ ...previous, layout: nextLayout }),
+          })
+        }
         tasks={taskView.tasks}
         conversationName={`#${conversation.name}`}
         currentMemberId={conversation.senderMemberId}

@@ -4,6 +4,7 @@ import { afterEach, expect, mock, test } from "bun:test";
 import { RouterContextProvider } from "@tanstack/react-router";
 import { cleanup, render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 
 import { TaskOverview } from "@/features/tasks/task-overview";
 import { getRouter } from "@/router";
@@ -86,6 +87,8 @@ test("filters displayed tasks and reports filter changes", async () => {
 
   expect(page.getByText("Confirm private rollout")).toBeTruthy();
   expect(page.queryByText("Prepare channel release")).toBeNull();
+  expect(page.getAllByRole("region")).toHaveLength(1);
+  expect(page.getByRole("region", { name: "To do" })).toBeTruthy();
   const user = userEvent.setup();
   await user.click(page.getByRole("combobox", { name: "Status" }));
   await user.click(page.getByRole("option", { name: "Done" }));
@@ -93,4 +96,36 @@ test("filters displayed tasks and reports filter changes", async () => {
   await user.click(page.getByRole("combobox", { name: "Status" }));
   await user.click(page.getByRole("option", { name: "All" }));
   expect(onStatusChange).toHaveBeenCalledWith(undefined);
+});
+
+test("conflict feedback survives refreshed data removing the last filtered task", async () => {
+  function Overview() {
+    const [items, setItems] = useState([{ ...tasks[0]!, currentMemberId: "member" }]);
+    return (
+      <TaskOverview
+        tasks={items}
+        status="in_review"
+        layout="list"
+        onStatusChange={() => {}}
+        onRefresh={() => {}}
+        onCommand={async () => {
+          setItems([]);
+          throw new Error("CONFLICT");
+        }}
+      />
+    );
+  }
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <Overview />
+    </RouterContextProvider>,
+  );
+  const page = within(document.body);
+  const user = userEvent.setup();
+  await user.click(page.getByRole("combobox", { name: "Change status" }));
+  await user.click(page.getByRole("option", { name: "Done" }));
+  expect(page.getByRole("alert").textContent).toContain("could not be updated");
+  expect(page.getByText("No tasks match this status")).toBeTruthy();
+  expect(page.queryByText("Prepare channel release")).toBeNull();
+  expect(page.queryByRole("region")).toBeNull();
 });

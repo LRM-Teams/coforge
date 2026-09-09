@@ -7,8 +7,7 @@ import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { ConversationTaskTabs } from "./conversation-task-tabs";
 import { CreateTaskDialog } from "./create-task-dialog";
-
-const statuses: TaskStatus[] = ["todo", "in_progress", "in_review", "done", "closed"];
+import { TaskLayoutToggle, TaskWorkflow, statusLabel, type TaskLayout } from "./task-workflow";
 
 export type TaskBoardProps = {
   tasks: TaskView[];
@@ -26,6 +25,8 @@ export type TaskBoardProps = {
   onShowChat: () => void;
   conversationName?: string;
   onCreateTask?: (title: string, requestId: string) => Promise<TaskView | void>;
+  layout?: TaskLayout;
+  onLayoutChange?: (layout: TaskLayout) => void;
 };
 
 export function TaskBoard({
@@ -39,18 +40,21 @@ export function TaskBoard({
   onShowChat,
   conversationName,
   onCreateTask,
+  layout = "board",
+  onLayoutChange = () => {},
 }: TaskBoardProps) {
   const [createOpen, setCreateOpen] = useState(false);
   return (
     <section aria-label={m.tasks_board()} className="flex min-h-0 flex-1 flex-col bg-background">
       <header className="shrink-0 border-b px-3 sm:px-5">
         {conversationName && (
-          <div className="flex h-14 items-center">
+          <div className="-mx-3 flex h-14 items-center border-b px-3 sm:-mx-5 sm:px-5">
             <h1 className="truncate text-base font-medium">{conversationName}</h1>
           </div>
         )}
-        <div className="flex items-center gap-2 pb-2">
+        <div className="flex flex-wrap items-center gap-2 py-2">
           <ConversationTaskTabs active="tasks" taskCount={tasks.length} onShowChat={onShowChat} />
+          <TaskLayoutToggle layout={layout} onChange={onLayoutChange} />
           {canMutate && onCreateTask && (
             <Button type="button" size="sm" className="ml-auto" onClick={() => setCreateOpen(true)}>
               {m.tasks_create()}
@@ -74,32 +78,23 @@ export function TaskBoard({
             <p className="font-medium">{m.tasks_empty()}</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 items-start gap-5 md:grid-cols-2 2xl:grid-cols-5">
-            {statuses.map((status) => {
-              const items = tasks.filter((task) => task.status === status);
-              return (
-                <section key={status} aria-label={statusLabel(status)} className="min-w-0">
-                  <h2 className="mb-3 flex items-center gap-2 text-sm font-medium">
-                    {statusLabel(status)}
-                    <span className="text-xs text-muted-foreground">{items.length}</span>
-                  </h2>
-                  <ol className="flex flex-col gap-2">
-                    {items.map((task) => (
-                      <li key={task.messageId}>
-                        <TaskCard
-                          task={task}
-                          own={task.owner?.memberId === currentMemberId}
-                          canMutate={canMutate}
-                          onOpen={() => onOpenMessage(task.messageId)}
-                          onCommand={onCommand}
-                        />
-                      </li>
-                    ))}
-                  </ol>
-                </section>
-              );
-            })}
-          </div>
+          <TaskWorkflow
+            tasks={tasks}
+            layout={layout}
+            disabled={!canMutate}
+            currentMemberId={() => currentMemberId || null}
+            onMove={(_task, command) => onCommand(command)}
+            renderTask={(task, controls) => (
+              <TaskCard
+                task={task}
+                own={task.owner?.memberId === currentMemberId}
+                canMutate={canMutate}
+                onOpen={() => onOpenMessage(task.messageId)}
+                onCommand={onCommand}
+                moveControls={controls}
+              />
+            )}
+          />
         )}
       </div>
       {onCreateTask && (
@@ -122,24 +117,17 @@ function TaskCard({
   canMutate,
   onOpen,
   onCommand,
+  moveControls,
 }: {
   task: TaskView;
   own: boolean;
   canMutate: boolean;
   onOpen: () => void | Promise<void>;
   onCommand: TaskBoardProps["onCommand"];
+  moveControls: React.ReactNode;
 }) {
   const [pending, setPending] = useState(false);
   const available = task.status === "todo" && !task.owner;
-  const humanStatuses =
-    task.status === "in_review"
-      ? statuses.filter((status) => status === "done" || status === "closed")
-      : task.status === "done" || task.status === "closed"
-        ? statuses.filter((status) => status === "todo" || status === "closed")
-        : statuses.filter((status) => status === "closed");
-  const nextStatuses = own
-    ? statuses.filter((status) => status !== task.status)
-    : humanStatuses.filter((status) => status !== task.status);
   return (
     <article className="rounded-lg border bg-card p-3 shadow-sm">
       <Button
@@ -163,6 +151,7 @@ function TaskCard({
       </div>
       {canMutate && (
         <div className="mt-3 flex flex-wrap gap-1">
+          {moveControls}
           {available && (
             <TaskAction
               label={m.tasks_claim()}
@@ -183,22 +172,6 @@ function TaskCard({
               }
             />
           )}
-          {canMutate &&
-            nextStatuses.map((status) => (
-              <TaskAction
-                key={status}
-                label={statusLabel(status)}
-                disabled={pending}
-                onClick={() =>
-                  runCommand({
-                    operation: "update",
-                    number: task.number,
-                    status,
-                    expectedRevision: task.revision,
-                  })
-                }
-              />
-            ))}
           {!available && !own && task.owner && (
             <Lock aria-label={m.tasks_owned_by_other()} className="size-3.5" />
           )}
@@ -251,14 +224,4 @@ export function TaskBadge({ task }: { task: TaskView }) {
       #{task.number} · {statusLabel(task.status)} · {task.owner?.name ?? m.tasks_unassigned()}
     </span>
   );
-}
-
-function statusLabel(status: TaskStatus) {
-  return {
-    todo: m.tasks_status_todo,
-    in_progress: m.tasks_status_in_progress,
-    in_review: m.tasks_status_in_review,
-    done: m.tasks_status_done,
-    closed: m.tasks_status_closed,
-  }[status]();
 }

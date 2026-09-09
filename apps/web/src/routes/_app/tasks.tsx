@@ -1,14 +1,19 @@
 import { TASK_STATUSES } from "@coforge/protocol";
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
+import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { TaskOverview } from "@/features/tasks/task-overview";
-import { loadTaskOverview } from "@/features/tasks/tasks.functions";
+import { executeTask, loadTaskOverview } from "@/features/tasks/tasks.functions";
 import { m } from "@/paraglide/messages";
 
 export const Route = createFileRoute("/_app/tasks")({
-  validateSearch: z.object({ status: z.enum(TASK_STATUSES).optional().catch(undefined) }),
+  validateSearch: z.object({
+    status: z.enum(TASK_STATUSES).optional().catch(undefined),
+    layout: z.enum(["board", "list"]).optional().catch(undefined),
+  }),
   loader: () => loadTaskOverview(),
   pendingComponent: () => (
     <main className="flex-1 p-6">
@@ -22,16 +27,43 @@ export const Route = createFileRoute("/_app/tasks")({
 });
 
 function TasksPage() {
-  const { tasks } = Route.useLoaderData();
-  const { status } = Route.useSearch();
+  const initial = Route.useLoaderData();
+  const [data, setData] = useState(initial);
+  const scope = useRef(initial);
+  scope.current = initial;
+  useEffect(() => setData(initial), [initial]);
+  const { status, layout } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const router = useRouter();
+  const execute = useServerFn(executeTask);
+  const load = useServerFn(loadTaskOverview);
   return (
     <TaskOverview
-      tasks={tasks}
+      tasks={data.tasks}
       status={status}
-      onStatusChange={(nextStatus) => void navigate({ search: { status: nextStatus } })}
+      layout={layout ?? "board"}
+      onStatusChange={(nextStatus) =>
+        void navigate({ search: (previous) => ({ ...previous, status: nextStatus }) })
+      }
+      onLayoutChange={(nextLayout) =>
+        void navigate({ search: (previous) => ({ ...previous, layout: nextLayout }) })
+      }
       onRefresh={() => void router.invalidate()}
+      onCommand={async (task, command) => {
+        const requestedScope = initial;
+        try {
+          await execute({
+            data: {
+              ...command,
+              requestId: crypto.randomUUID(),
+              conversationId: task.conversationId,
+            },
+          });
+        } finally {
+          const latest = await load();
+          if (scope.current === requestedScope) setData(latest);
+        }
+      }}
     />
   );
 }

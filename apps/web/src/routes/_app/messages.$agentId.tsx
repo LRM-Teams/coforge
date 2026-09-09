@@ -20,7 +20,10 @@ import {
 } from "@/features/conversations/conversations.functions";
 
 export const Route = createFileRoute("/_app/messages/$agentId")({
-  validateSearch: z.object({ view: z.enum(["chat", "tasks"]).optional().catch(undefined) }),
+  validateSearch: z.object({
+    view: z.enum(["chat", "tasks"]).optional().catch(undefined),
+    layout: z.enum(["board", "list"]).optional().catch(undefined),
+  }),
   remountDeps: ({ params }) => params.agentId,
   loader: ({ params }) => loadDirectConversation({ data: { agentId: params.agentId } }),
   component: DirectConversationPage,
@@ -31,7 +34,7 @@ function DirectConversationPage() {
   const [conversation, setConversation] = useState(latestConversation);
   const agentStatus = useConversationAgentStatus();
   const { agentId } = Route.useParams();
-  const { view } = Route.useSearch();
+  const { view, layout } = Route.useSearch();
   const router = useRouter();
   const send = useServerFn(sendDirectConversationMessage);
   const markRead = useServerFn(markDirectThreadRead);
@@ -114,6 +117,13 @@ function DirectConversationPage() {
   if (view === "tasks")
     return (
       <TaskBoard
+        layout={layout ?? "board"}
+        onLayoutChange={(nextLayout) =>
+          void router.navigate({
+            from: Route.fullPath,
+            search: (previous) => ({ ...previous, layout: nextLayout }),
+          })
+        }
         tasks={taskView.tasks}
         conversationName={conversation.agent.displayName}
         currentMemberId={conversation.senderMemberId}

@@ -105,8 +105,12 @@ instructions for the TanStack Start Web/backend modular monolith.
   `TaskBoard.overview(workspaceId, userId)` owns the browser-only Workspace
   overview query under existing conversation visibility rules;
   `features/tasks/tasks.functions.ts` exposes `loadTaskOverview` and
-  `features/tasks/task-overview.tsx` renders it. The `/tasks` route owns status
-  search state; overview links reuse the conversation Task boards for actions.
+  `features/tasks/task-overview.tsx` renders it. Task views share status-grouped
+  Board/List layout and drag interactions under `features/tasks/`; dnd-kit owns
+  pointer/keyboard mechanics, never authorization or persistence. The `/tasks`
+  and conversation routes own validated view search state. All status edits
+  reuse `executeTask`, with claim semantics and revision-checked updates;
+  overview membership metadata only controls available UI actions.
 
 - Browser realtime connection ownership belongs to `features/realtime/`. The
   `_app` layout owns one Centrifuge connection for the selected Workspace;

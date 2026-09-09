@@ -54,6 +54,7 @@ type SelectedTask = {
 export type TaskOverview = {
   tasks: Array<
     TaskView & {
+      currentMemberId: string | null;
       source: { channelName: string | null; agentId: string | null; label: string };
     }
   >;
@@ -131,8 +132,12 @@ export class TaskBoard {
           select: {
             channelName: true,
             members: {
-              where: { agentId: { not: null } },
-              select: { agent: { select: { id: true, name: true, displayName: true } } },
+              where: { OR: [{ userId }, { agentId: { not: null } }] },
+              select: {
+                id: true,
+                userId: true,
+                agent: { select: { id: true, name: true, displayName: true } },
+              },
             },
           },
         },
@@ -142,10 +147,14 @@ export class TaskBoard {
     return {
       tasks: tasks.map((task) => {
         const channelName = task.conversation.channelName;
-        const agent = task.conversation.members[0]?.agent ?? null;
+        const agent =
+          task.conversation.members.find((member) => member.agent !== null)?.agent ?? null;
+        const currentMemberId =
+          task.conversation.members.find((member) => member.userId === userId)?.id ?? null;
         if (channelName === null && agent === null) throw new AppError("INTERNAL_ERROR");
         return {
           ...view(task),
+          currentMemberId,
           source: channelName
             ? { channelName, agentId: null, label: `#${channelName}` }
             : {

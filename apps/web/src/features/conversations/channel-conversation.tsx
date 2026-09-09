@@ -118,7 +118,7 @@ export function ChannelConversation({
       emptyDescription={m.channel_empty()}
       header={
         <header className="shrink-0 border-b px-3 sm:px-5">
-          <div className="flex h-14 items-center gap-3">
+          <div className="-mx-3 flex h-14 items-center gap-3 border-b px-3 sm:-mx-5 sm:px-5">
             <BackToAgents />
             <Hash aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
             <h1 className="truncate text-base font-medium">#{conversation.name}</h1>
@@ -146,7 +146,7 @@ export function ChannelConversation({
             )}
           </div>
           {onShowTasks && (
-            <div className="pb-2">
+            <div className="py-2">
               <ConversationTaskTabs
                 active="chat"
                 taskCount={tasks?.length ?? 0}
