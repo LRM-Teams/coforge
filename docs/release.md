@@ -749,8 +749,12 @@ Computer for a set of release targets, assembles the schema 2 version tree
 signed OSS read-back. Before updating `latest`, it calls the reusable
 `verifyReleaseObject` probe for **every** exact object key: unsigned origin GET
 must return 403, and the anonymous CDN GET must return 200 with the expected
-SHA-256 and no redirect, cookie, or origin disclosure. Requests are bounded and
-probe failures produce sanitized diagnostics. No OSS credentials reach CDN probes.
+SHA-256 and no redirect, cookie, or origin disclosure. Origin and metadata requests
+have a 30-second deadline; gzip CDN downloads have a 120-second deadline covering
+the entire body. A measured 38 MB release download took 31.7 seconds, so metadata's
+budget is not sufficient for binary verification. Deadline expiry still fails
+publication; no hash, TLS, origin, or selector check is bypassed. Probe failures
+produce sanitized diagnostics. No OSS credentials reach CDN probes.
 The existing `latest` bytes are saved and verified before activation. The new
 selector is then checked through OSS and CDN; on failure the previous bytes are
 restored and verified, or a first-publish selector is removed and absence checked.

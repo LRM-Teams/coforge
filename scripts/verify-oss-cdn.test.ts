@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 
 import {
   runAcceptance,
@@ -188,6 +188,48 @@ describe("release object verification", () => {
     cdn_url: "http://cdn.fixture.test/releases/app.tar.gz?token=cdn-credential",
     expected_sha256: sha256("release bytes"),
   };
+
+  test.each([
+    ["computer.gz", 35_000, true],
+    ["computer.gz", 121_000, false],
+    ["manifest.json", 35_000, false],
+  ] as const)(
+    "%s download lasting %d ms has bounded verification",
+    async (file, elapsed, passed) => {
+      const deadlines = new Map<AbortSignal, { controller: AbortController; ms: number }>();
+      const clock = spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+        const controller = new AbortController();
+        deadlines.set(controller.signal, { controller, ms });
+        return controller.signal;
+      });
+      try {
+        const report = await verifyReleaseObject(
+          { ...probe, cdn_url: `https://cdn.fixture.test/${file}` },
+          async (input, init) => {
+            if (String(input) === probe.origin_url) return new Response("denied", { status: 403 });
+            const signal = init!.signal!;
+            const deadline = deadlines.get(signal)!;
+            // Advance the platform deadline clock while the HTTP body is being consumed.
+            return new Response(
+              new ReadableStream({
+                start(controller) {
+                  if (elapsed >= deadline.ms) deadline.controller.abort();
+                  if (signal.aborted) controller.error(new Error("download deadline exceeded"));
+                  else {
+                    controller.enqueue(new TextEncoder().encode("release bytes"));
+                    controller.close();
+                  }
+                },
+              }),
+            );
+          },
+        );
+        expect(report.passed).toBe(passed);
+      } finally {
+        clock.mockRestore();
+      }
+    },
+  );
 
   test("accepts an origin-private, byte-identical CDN object without forwarding credentials", async () => {
     const requests: Array<{ url: string; init: RequestInit | undefined }> = [];
