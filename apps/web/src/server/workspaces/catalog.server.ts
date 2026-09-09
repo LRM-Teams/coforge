@@ -61,7 +61,7 @@ export class PrismaWorkspaceCatalogStore implements WorkspaceCatalogStore {
       data: {
         slug: input.slug,
         name: input.name,
-        members: { create: { userId: input.userId } },
+        members: { create: { userId: input.userId, role: "owner" } },
         conversations: generalChannelForCreator(input.userId),
       },
       select: { id: true, slug: true, name: true },

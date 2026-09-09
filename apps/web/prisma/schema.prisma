@@ -13,6 +13,7 @@ model Workspace {
   slug                String                 @unique
   name                String
   members             WorkspaceMembership[]
+  invitations         WorkspaceInvitation[]
   computers           WorkspaceComputer[]
   computerRuntimes    ComputerRuntime[]
   modelCatalogs       ComputerModelCatalog[]
@@ -45,6 +46,8 @@ model User {
   createdAt                   DateTime              @default(now())
   identities                  UserIdentity[]
   memberships                 WorkspaceMembership[]
+  sentInvitations             WorkspaceInvitation[] @relation("WorkspaceInvitationInviter")
+  receivedInvitations         WorkspaceInvitation[] @relation("WorkspaceInvitationInvitee")
   agents                      Agent[]
   agentApiKeys                AgentApiKey[]
   daemonApiKeys               DaemonApiKey[]
@@ -231,12 +234,35 @@ model DeviceAuthorization {
 model WorkspaceMembership {
   workspaceId String    @db.Uuid
   userId      String    @db.Uuid
+  /// Workspace role: owner | admin | member. Owner is created at Workspace creation and is immutable.
+  role        String    @default("member")
+  createdAt   DateTime  @default(now())
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([workspaceId, userId])
   @@index([userId])
   @@map("workspace_memberships")
+}
+
+/// Pending human invites into a Workspace. Role is admin | member only; owner cannot be invited.
+model WorkspaceInvitation {
+  id              String    @id @default(uuid()) @db.Uuid
+  workspaceId     String    @db.Uuid
+  inviterUserId   String    @db.Uuid
+  inviteeUserId   String    @db.Uuid
+  role            String
+  status          String    @default("pending")
+  expiresAt       DateTime
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  inviter         User      @relation("WorkspaceInvitationInviter", fields: [inviterUserId], references: [id], onDelete: Cascade)
+  invitee         User      @relation("WorkspaceInvitationInvitee", fields: [inviteeUserId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([inviteeUserId, status])
+  @@map("workspace_invitations")
 }
 
 model Computer {

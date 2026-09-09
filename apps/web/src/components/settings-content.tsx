@@ -10,6 +10,7 @@ import {
   SunMoon,
   Upload,
   UserRound,
+  Users,
 } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -23,13 +24,14 @@ import {
   ComboboxTrigger,
   ComboboxValue,
 } from "@/components/ui/combobox";
+import { WorkspaceMembersPanel } from "@/features/workspaces/workspace-members-panel";
 import { cn } from "@/lib/utils";
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
 
 type Locale = "en" | "zh-CN";
 type Theme = "system" | "light" | "dark";
-type SettingsSection = "account" | "preferences" | "notifications";
+type SettingsSection = "account" | "members" | "preferences" | "notifications";
 
 interface SettingsContentProps {
   profile: {
@@ -38,6 +40,27 @@ interface SettingsContentProps {
     username: string;
     description: string;
     avatarUrl: string | null;
+  };
+  members: {
+    actorUserId: string;
+    actorRole: string;
+    members: Array<{
+      userId: string;
+      role: string;
+      username: string;
+      displayName: string | null;
+    }>;
+    pendingInvitations: Array<{
+      id: string;
+      role: string;
+      inviteeUsername: string;
+    }>;
+    incomingInvitations: Array<{
+      id: string;
+      role: string;
+      workspace: { name: string; slug: string };
+      inviterUsername: string;
+    }>;
   };
   locale: Locale;
   theme: Theme;
@@ -120,12 +143,18 @@ export function SettingsContent(props: SettingsContentProps) {
         <div className="hidden md:block">
           <PageHeader heading={m.settings_title()} />
         </div>
-        <div className="grid grid-cols-3 gap-1 p-2 md:block md:space-y-1">
+        <div className="grid grid-cols-2 gap-1 p-2 sm:grid-cols-4 md:block md:space-y-1">
           <SettingsNavigationButton
             active={section === "account"}
             icon={<UserRound aria-hidden="true" />}
             label={m.settings_account()}
             onClick={() => setSection("account")}
+          />
+          <SettingsNavigationButton
+            active={section === "members"}
+            icon={<Users aria-hidden="true" />}
+            label={m.settings_members()}
+            onClick={() => setSection("members")}
           />
           <SettingsNavigationButton
             active={section === "preferences"}
@@ -147,14 +176,24 @@ export function SettingsContent(props: SettingsContentProps) {
           heading={
             section === "account"
               ? m.settings_account()
-              : section === "preferences"
-                ? m.settings_preferences()
-                : m.settings_notifications()
+              : section === "members"
+                ? m.settings_members()
+                : section === "preferences"
+                  ? m.settings_preferences()
+                  : m.settings_notifications()
           }
         />
         <div className="min-h-0 flex-1 overflow-y-auto">
           {section === "account" ? (
             <AccountSettings {...props} />
+          ) : section === "members" ? (
+            <WorkspaceMembersPanel
+              actorUserId={props.members.actorUserId}
+              actorRole={props.members.actorRole}
+              members={props.members.members}
+              pendingInvitations={props.members.pendingInvitations}
+              incomingInvitations={props.members.incomingInvitations}
+            />
           ) : section === "preferences" ? (
             <Preferences {...props} />
           ) : (

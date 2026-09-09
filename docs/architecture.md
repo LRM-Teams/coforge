@@ -752,7 +752,9 @@ runtime 生命周期和单条 WSS。Web 使用会话实时信号与 canonical HT
 
 公开仅指同一 Workspace：现有真人成员可以发现频道、读取完整历史及已发送的附件，
 Workspace 外部用户无权访问。任意现有真人成员可创建频道；创建者自动加入，
-其他成员主动加入后才能发送消息或上传附件。不新增 Workspace 邀请、角色或私有频道。
+其他成员主动加入后才能发送消息或上传附件。Workspace 人类成员分为 owner、admin、member：
+创建者成为不可转让的 owner；owner/admin 可通过用户名邀请 admin/member，被邀请人接受后加入；
+owner 不可离开或被移除。频道层不另建角色体系，也不引入私有频道。
 每个 Workspace 有一个保留名称 `#general`，所有真人成员与 Agent 自动加入；迁移回填旧数据，
 Workspace 创建事务写入默认频道，Agent 创建事务同步加入，频道发现和打开时补齐现有成员。
 

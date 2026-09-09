@@ -17,6 +17,10 @@ import {
   subscribeBrowserPush,
 } from "@/features/notifications/notifications.functions";
 import { getUserPreferences, saveUserTimeZone } from "@/features/settings/settings.functions";
+import {
+  loadMyWorkspaceInvitations,
+  loadWorkspaceMembers,
+} from "@/features/workspaces/members.functions";
 import { getLocale, setLocale } from "@/paraglide/runtime";
 import { m } from "@/paraglide/messages";
 
@@ -25,7 +29,27 @@ type Theme = "system" | "light" | "dark";
 const appRoute = getRouteApi("/_app");
 
 export const Route = createFileRoute("/_app/settings")({
-  loader: () => getUserPreferences(),
+  loader: async () => {
+    const [preferences, members, incomingInvitations] = await Promise.all([
+      getUserPreferences(),
+      loadWorkspaceMembers(),
+      loadMyWorkspaceInvitations(),
+    ]);
+    return {
+      ...preferences,
+      members: {
+        actorUserId: members.actorUserId,
+        actorRole: members.actorRole,
+        members: members.members,
+        pendingInvitations: members.pendingInvitations.map((row) => ({
+          id: row.id,
+          role: row.role,
+          inviteeUsername: row.inviteeUsername,
+        })),
+        incomingInvitations,
+      },
+    };
+  },
   pendingMs: 300,
   pendingMinMs: 0,
   pendingComponent: SettingsPending,
@@ -35,7 +59,7 @@ export const Route = createFileRoute("/_app/settings")({
 
 function SettingsPage() {
   const [theme, setTheme] = useState<Theme>("system");
-  const { timeZone: savedTimeZone } = Route.useLoaderData();
+  const { timeZone: savedTimeZone, members } = Route.useLoaderData();
   const { user: profile, notifications } = appRoute.useLoaderData();
   const [timeZone, setTimeZone] = useState(savedTimeZone);
   const [browserNotificationsEnabled, setBrowserNotificationsEnabled] = useState(
@@ -179,6 +203,7 @@ function SettingsPage() {
   return (
     <SettingsContent
       profile={profile}
+      members={members}
       locale={locale}
       theme={theme}
       timeZone={timeZone}

@@ -16,5 +16,22 @@
   "workspace_select_error": "The workspace could not be selected. Try again.",
   "workspace_slug_invalid": "Only lowercase letters, numbers, and hyphens.",
   "workspace_slug_taken": "That workspace URL is already taken.",
-  "workspace_slug_reserved": "That workspace URL is reserved."
+  "workspace_slug_reserved": "That workspace URL is reserved.",
+  "workspace_members_title": "Members",
+  "workspace_members_you": "you",
+  "workspace_members_remove": "Remove",
+  "workspace_members_leave": "Leave workspace",
+  "workspace_members_action_failed": "That membership action could not be completed.",
+  "workspace_invite_title": "Invite a member",
+  "workspace_invite_username": "Username",
+  "workspace_invite_role": "Role",
+  "workspace_invite_submit": "Send invite",
+  "workspace_role_owner": "Owner",
+  "workspace_role_admin": "Admin",
+  "workspace_role_member": "Member",
+  "workspace_invitations_pending": "Pending invitations",
+  "workspace_invitations_incoming": "Workspace invitations",
+  "workspace_invitation_accept": "Accept",
+  "workspace_invitation_revoke": "Revoke",
+  "workspace_invitation_from": "{inviter} invited you to {workspace} as {role}."
 }
