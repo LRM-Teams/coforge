@@ -84,7 +84,10 @@ instructions for the TanStack Start Web/backend modular monolith.
   PublicChannels owns mute/mention delivery eligibility; the existing conversation
   repository owns Agent target-scoped reads and eligible-notification recovery,
   and the Agent HTTPS functions enforce its authenticated identity. No additional
-  Agent enrollment entrypoint, invitations or roles are introduced.
+  Agent enrollment entrypoint or Channel roles are introduced. Workspace human
+  roles and invitations belong to `server/workspaces/member-role.server.ts`,
+  `member-directory.server.ts`, `features/workspaces/members.functions.ts`, and
+  the Settings Members section.
 
 - Message threads belong to `features/conversations/` (selection, drafts,
   discussion UI, follow controls and authenticated functions),

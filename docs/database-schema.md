@@ -69,7 +69,10 @@ stored in PostgreSQL. Replacing an avatar writes a new immutable object before
 the row points to it, then removes the previous object.
 
 Setup persistence consists of `User`, `UserIdentity`, `Workspace`,
-`WorkspaceMembership`, `Computer`, and `WorkspaceComputer`. `WorkspaceComputer`
+`WorkspaceMembership`, `WorkspaceInvitation`, `Computer`, and `WorkspaceComputer`.
+`WorkspaceMembership.role` is `owner`, `admin`, or `member`. The Workspace creator
+is the immutable owner. `WorkspaceInvitation` stores pending invites by existing
+User id for `admin` or `member` only. `WorkspaceComputer`
 is the durable binding and contains the workspace/computer foreign keys. Its
 database `id` is an internal storage primary key; the business identity is the
 composite `(workspaceId, computerId)` key. That unique constraint makes

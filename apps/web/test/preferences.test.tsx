@@ -30,6 +30,22 @@ const notificationProps = {
   onEnableBrowserNotifications: async () => {},
   onTestBrowserNotification: async () => true,
 };
+const membersProps = {
+  members: {
+    actorUserId: "user-1",
+    actorRole: "owner",
+    members: [
+      {
+        userId: "user-1",
+        role: "owner",
+        username: "frankan",
+        displayName: "Frank An",
+      },
+    ],
+    pendingInvitations: [],
+    incomingInvitations: [],
+  },
+};
 
 overwriteGetLocale(() => "en");
 
@@ -65,6 +81,7 @@ function renderSettings() {
     return (
       <SettingsContent
         {...notificationProps}
+        {...membersProps}
         profile={profile}
         locale="en"
         theme={theme}
@@ -88,6 +105,7 @@ test("searches time zones by city and sends the IANA identifier to persistence",
   const view = render(
     <SettingsContent
       {...notificationProps}
+      {...membersProps}
       profile={profile}
       locale="en"
       theme="system"
@@ -131,6 +149,7 @@ test("shows the global browser notification state and runs a test notification",
   const view = render(
     <SettingsContent
       {...notificationProps}
+      {...membersProps}
       profile={profile}
       locale="en"
       theme="system"
@@ -170,6 +189,7 @@ test("explains how to install the app before enabling notifications on iPhone an
   const view = render(
     <SettingsContent
       {...notificationProps}
+      {...membersProps}
       profile={profile}
       locale="en"
       theme="system"
@@ -204,6 +224,7 @@ test("edits the profile name and description and uploads a profile image on save
   const view = render(
     <SettingsContent
       {...notificationProps}
+      {...membersProps}
       profile={profile}
       locale="en"
       theme="system"
@@ -254,6 +275,7 @@ test("keeps profile drafts and prevents duplicate saves while a failed save is p
   const view = render(
     <SettingsContent
       {...notificationProps}
+      {...membersProps}
       profile={profile}
       locale="en"
       theme="system"
@@ -293,6 +315,7 @@ test("does not repeat a successful avatar update when profile details are retrie
   const view = render(
     <SettingsContent
       {...notificationProps}
+      {...membersProps}
       profile={profile}
       locale="en"
       theme="system"

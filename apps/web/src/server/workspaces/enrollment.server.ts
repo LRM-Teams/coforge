@@ -14,7 +14,7 @@ export type WorkspaceEnrollmentStore = {
   createForUser(input: { slug: string; name: string; userId: string }): Promise<string>;
 };
 
-/** Ensures the authenticated User has a WorkspaceMembership, creating their own Workspace when they have none. */
+/** Ensures the authenticated User has a WorkspaceMembership as owner of their own Workspace when they have none. */
 export class WorkspaceEnrollment {
   constructor(private readonly store: WorkspaceEnrollmentStore) {}
 
@@ -75,7 +75,7 @@ export class PrismaWorkspaceEnrollmentStore implements WorkspaceEnrollmentStore 
       data: {
         slug: input.slug,
         name: input.name,
-        members: { create: { userId: input.userId } },
+        members: { create: { userId: input.userId, role: "owner" } },
         conversations: generalChannelForCreator(input.userId),
       },
       select: { id: true },
