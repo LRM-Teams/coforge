@@ -7,7 +7,6 @@ import { buildReleaseTree, type ReleaseInputs, type ReleaseTree } from "./build-
 import type { ReleaseTarget } from "./compile-targets";
 import {
   assertVersionIsUnpublished,
-  DEFAULT_TARGETS,
   LATEST_OBJECT_KEY,
   manifestObjectKey,
   ossAuthorizationHeader,
@@ -593,8 +592,15 @@ test("--dry-run makes no network calls and reports the objects it would publish"
 /* CLI argument parsing                                                                          */
 /* ------------------------------------------------------------------------------------------- */
 
-test("parseTargets defaults to the four POSIX targets and validates unknown ones", () => {
-  expect(parseTargets(undefined)).toEqual(DEFAULT_TARGETS);
+test("parseTargets defaults to all six release platforms and validates unknown ones", () => {
+  expect(parseTargets(undefined)).toEqual([
+    "linux-x64",
+    "linux-arm64",
+    "darwin-x64",
+    "darwin-arm64",
+    "windows-x64",
+    "windows-arm64",
+  ]);
   expect(parseTargets("linux-x64, darwin-arm64")).toEqual(["linux-x64", "darwin-arm64"]);
   expect(() => parseTargets("linux-x64,bogus")).toThrow(/unsupported release target: bogus/);
 });

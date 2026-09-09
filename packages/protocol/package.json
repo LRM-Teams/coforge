@@ -6,7 +6,7 @@
   "module": "index.ts",
   "scripts": {
     "test": "bun test",
-    "generate": "../../node_modules/.bin/buf generate",
+    "generate": "bun ../../node_modules/@bufbuild/buf/bin/buf generate",
     "check": "../../node_modules/.bin/buf lint && ../../node_modules/.bin/buf format --diff --exit-code && oxfmt --check . && oxlint . && tsc --noEmit",
     "pretest": "bun run generate",
     "precheck": "bun run generate"
