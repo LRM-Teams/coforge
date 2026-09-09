@@ -18,6 +18,7 @@ async function captureDiscovery(mode: string) {
   });
   try {
     const inventory = await discoverCodeAgentInventory({
+      environment: { PATH: Bun.env.PATH },
       probe: {
         which: (name) => (name === "codex" ? "/fixture/codex" : undefined),
         spawn: () => ({
