@@ -52,7 +52,7 @@ function mapBrowserMessage(message: BrowserMessageRow) {
 export class ConversationHistory {
   constructor(private readonly db: PrismaClient) {}
 
-  private async authorize(workspaceId: string, userId: string, conversationId: string) {
+  async authorize(workspaceId: string, userId: string, conversationId: string) {
     const [membership, conversation] = await Promise.all([
       this.db.workspaceMembership.findUnique({
         where: { workspaceId_userId: { workspaceId, userId } },

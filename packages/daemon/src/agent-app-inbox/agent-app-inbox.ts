@@ -29,6 +29,7 @@ export type MintAppItem = Readonly<{
 /** Agent-scoped typed App Inbox. Chat fields and executable actions are not part of its interface. */
 export class AgentAppInbox {
   readonly #items = new Map<string, AgentAppItem>();
+  #mutations: Promise<unknown> = Promise.resolve();
 
   private constructor(private readonly persistence: AgentAppInboxPersistence) {}
 
@@ -53,6 +54,25 @@ export class AgentAppInbox {
   }
 
   async upsert(input: MintAppItem): Promise<AgentAppItem> {
+    return this.#mutate(() => this.#upsert(input));
+  }
+
+  async remove(itemId: string): Promise<boolean> {
+    return this.#mutate(async () => {
+      const previous = this.#items.get(itemId);
+      if (!previous) return false;
+      this.#items.delete(itemId);
+      try {
+        await this.persistence.write(this.list());
+      } catch (error) {
+        this.#items.set(itemId, previous);
+        throw error;
+      }
+      return true;
+    });
+  }
+
+  async #upsert(input: MintAppItem): Promise<AgentAppItem> {
     const definition = appInboxDefinition(input.appId, input.notificationClass);
     const sourceRef = definition.normalizeSourceRef(input.sourceRef);
     const itemId = definition.itemId(sourceRef);
@@ -79,6 +99,12 @@ export class AgentAppInbox {
       throw error;
     }
     return item;
+  }
+
+  #mutate<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.#mutations.then(operation, operation);
+    this.#mutations = next.catch(() => {});
+    return next;
   }
 }
 

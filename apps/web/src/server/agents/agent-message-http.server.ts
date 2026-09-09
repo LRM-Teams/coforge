@@ -4,6 +4,7 @@ import {
   AGENT_MESSAGE_SEND_METHOD,
   AGENT_CHANNEL_MUTE_METHOD,
   AGENT_CHANNEL_UNMUTE_METHOD,
+  AGENT_REMINDER_METHOD,
 } from "@coforge/protocol";
 
 import {
@@ -25,8 +26,14 @@ import {
   CentrifugoRpcAuthenticationError,
   CentrifugoRpcHandler,
   createAgentMessageMethod,
+  createAgentReminderMethod,
 } from "../centrifugo/rpc-handler.server";
 import { bestEffortMessageNotifier } from "../notifications/web-push-composition.server";
+import { PrismaReminderRepository } from "../db/repositories/reminder.repositories.server";
+import { Reminders } from "../reminders/reminders.server";
+import { getReminderCapabilityLease } from "../reminders/reminder-capability.server";
+import { daemonControlChannel } from "../centrifugo/server-api.server";
+import { encodeReminderSync } from "@coforge/protocol";
 
 type DaemonPrincipal = {
   userId: string;
@@ -77,8 +84,18 @@ export function createAgentMessageHttpHandler() {
   const centrifugo = createCentrifugoServerApi();
   const agentApiKeys = new PrismaAgentApiKeyRepository(db);
   const daemonApiKeys = new PrismaDaemonApiKeyRepository(db);
+  const reminders = new Reminders(
+    new PrismaReminderRepository(db),
+    getReminderCapabilityLease(),
+    (sync) =>
+      centrifugo.publish(
+        daemonControlChannel(sync.workspaceId, sync.computerId),
+        encodeReminderSync(sync),
+      ),
+  );
   return new CentrifugoRpcHandler({
     methods: {
+      [AGENT_REMINDER_METHOD]: createAgentReminderMethod(reminders),
       [AGENT_CHANNEL_MUTE_METHOD]: createAgentMessageMethod(
         conversations,
         centrifugo,

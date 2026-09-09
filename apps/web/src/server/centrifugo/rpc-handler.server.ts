@@ -42,8 +42,88 @@ import {
 import type { CentrifugoServerApi } from "./server-api.server";
 import { AgentMessageValidationError } from "../conversations/agent-message-validation-error.server";
 import { isChannelMessageTarget } from "@coforge/protocol";
+import {
+  decodeReminderFireRequest,
+  decodeReminderSnapshotRequest,
+  encodeAgentReminderOperationResponse,
+  decodeAgentReminderOperationRequest,
+} from "@coforge/protocol";
+import type { Reminders } from "../reminders/reminders.server";
 import type { ComputerRestartStore } from "../computers/computer-restart-store.server";
 export { createAgentSessionMethod } from "./agent-session-receiver.server";
+
+export const createAgentReminderMethod =
+  (reminders: Reminders): CentrifugoRpcMethod =>
+  async (payload, metadata) => {
+    let request;
+    try {
+      request = decodeAgentReminderOperationRequest(payload);
+      if (
+        metadata.principal.agentId !== request.agentId ||
+        metadata.principal.workspaceId !== request.workspaceId ||
+        metadata.principal.computerId !== request.computerId
+      )
+        throw new Error("reminder operation principal scope is not authorized");
+      return encodeAgentReminderOperationResponse(
+        await reminders.execute(request, metadata.principal.userId!),
+      );
+    } catch (error) {
+      if (request)
+        return encodeAgentReminderOperationResponse({
+          protocolMajor: 1,
+          requestId: request.requestId,
+          workspaceId: request.workspaceId,
+          computerId: request.computerId,
+          agentId: request.agentId,
+          accepted: false,
+          reason: error instanceof Error ? error.message : "reminder operation rejected",
+          reminders: [],
+          events: [],
+        });
+      return {
+        code: 400,
+        message: "invalid reminder operation request",
+      };
+    }
+  };
+
+export const createReminderFireMethod =
+  (reminders: Reminders): CentrifugoRpcMethod =>
+  async (payload, metadata) => {
+    try {
+      const request = decodeReminderFireRequest(payload);
+      if (
+        metadata.principal.workspaceId !== request.workspaceId ||
+        metadata.principal.computerId !== request.computerId
+      )
+        throw new Error("reminder fire is not authorized");
+      return await reminders.fireFromDaemon(request);
+    } catch (error) {
+      return {
+        code: 403,
+        message: error instanceof Error ? error.message : "reminder fire rejected",
+      };
+    }
+  };
+
+export const createReminderSnapshotMethod =
+  (reminders: Reminders): CentrifugoRpcMethod =>
+  async (payload, metadata) => {
+    try {
+      const request = decodeReminderSnapshotRequest(payload);
+      if (
+        metadata.principal.workspaceId !== request.workspaceId ||
+        metadata.principal.computerId !== request.computerId
+      )
+        throw new Error("reminder snapshot is not authorized");
+      return await reminders.snapshotForDaemon(request);
+    } catch (error) {
+      return {
+        code: 403,
+        message: error instanceof Error ? error.message : "reminder snapshot rejected",
+      };
+    }
+  };
 
 export function createAgentDeliveryAckMethod(repository: {
   receiveDeliveryAck(input: {
@@ -384,6 +464,10 @@ export const createDaemonRuntimeReadyMethod =
       ): Promise<void>;
     },
     restarts?: ComputerRestartStore,
+    capabilities?: {
+      record(workspaceId: string, computerId: string, values: readonly string[]): Promise<unknown>;
+    },
+    reminderRecovery?: { snapshotAssigned(workspaceId: string, computerId: string): Promise<void> },
   ): CentrifugoRpcMethod =>
   async (payload, metadata) => {
     const request = decodeDaemonRuntimeReadyRequest(payload);
@@ -417,6 +501,11 @@ export const createDaemonRuntimeReadyMethod =
         },
         request.recoveredRestartRequestIds,
       );
+      await capabilities?.record(
+        request.workspaceId,
+        request.computerId,
+        request.capabilities ?? [],
+      );
       const current = await restarts?.identity?.({
         workspaceId: request.workspaceId,
         computerId: request.computerId,
@@ -428,6 +517,8 @@ export const createDaemonRuntimeReadyMethod =
         request.computerId,
         request.runningAgentIds,
       );
+      if (request.capabilities?.includes("reminder:v1"))
+        await reminderRecovery?.snapshotAssigned(request.workspaceId, request.computerId);
       return new Uint8Array();
     } catch {
       return { code: 503, message: "Agent start recovery failed" };
@@ -436,6 +527,7 @@ export const createDaemonRuntimeReadyMethod =
 
 export function createDaemonConnectionStatusMethod(
   statusCache?: ComputerStatusCache,
+  reminderCapabilities?: { refresh(workspaceId: string, computerId: string): Promise<void> },
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
     const request = JSON.parse(new TextDecoder().decode(payload)) as {
@@ -453,6 +545,8 @@ export function createDaemonConnectionStatusMethod(
       { workspaceId: request.workspaceId, computerId: request.computerId },
       request.online,
     );
+    if (request.online)
+      await reminderCapabilities?.refresh(request.workspaceId, request.computerId);
     return new Uint8Array();
   };
 }

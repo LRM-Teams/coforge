@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import {
+  createAgentMessageHttpClient,
   DaemonConnection,
-  defaultAgentMessageHttpClient,
   type CentrifugeWorkspaceClient,
 } from "../src/connection/daemon-connection";
 import {
@@ -15,6 +15,7 @@ import {
   encodeAgentStartIntent,
   encodeAgentStopIntent,
   encodeComputerRestartIntent,
+  type AgentReminderOperationRequest,
 } from "@coforge/protocol";
 import { DAEMON_RUNTIME_READY_METHOD } from "@coforge/protocol";
 
@@ -46,33 +47,26 @@ function fakeClient() {
 }
 
 test("Agent message HTTP client rejects an HTTP 200 RPC error envelope", async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = Object.assign(
-    async () =>
-      Response.json({
-        error: { code: 400, message: "ambiguous message prefix; use the full UUID" },
-      }),
-    originalFetch,
+  const client = createAgentMessageHttpClient(async () =>
+    Response.json({
+      error: { code: 400, message: "ambiguous message prefix; use the full UUID" },
+    }),
   );
-  try {
-    await expect(
-      defaultAgentMessageHttpClient.request({
-        url: "https://server.example/api/agent-messages",
-        agentApiKey: `sk_agent_${"a".repeat(43)}`,
-        daemonApiKey: "daemon-token",
-        request: {
-          protocolMajor: 1,
-          requestId: "request-1",
-          workspaceId: "workspace-1",
-          agentId: "agent-1",
-          operation: "read",
-          target: "@ada:aaaaaaaa",
-        },
-      }),
-    ).rejects.toThrow("ambiguous message prefix; use the full UUID");
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  await expect(
+    client.request({
+      url: "https://server.example/api/agent-messages",
+      agentApiKey: `sk_agent_${"a".repeat(43)}`,
+      daemonApiKey: "daemon-token",
+      request: {
+        protocolMajor: 1,
+        requestId: "request-1",
+        workspaceId: "workspace-1",
+        agentId: "agent-1",
+        operation: "read",
+        target: "@ada:aaaaaaaa",
+      },
+    }),
+  ).rejects.toThrow("ambiguous message prefix; use the full UUID");
 });
 
 test("sends delivery ACK through the RPC method, not a publication", async () => {
@@ -326,6 +320,68 @@ const config = {
   computerId: "computer-a",
   workspaceId: "workspace-a",
 };
+
+test("Agent reminder HTTP responses must correlate through the injected HTTP client", async () => {
+  const fake = fakeClient();
+  const request: AgentReminderOperationRequest = {
+    protocolMajor: 1,
+    requestId: "request-reminder",
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    agentId: "agent-a",
+    operation: "list",
+  };
+  const scopes = ["protocolMajor", "requestId", "workspaceId", "computerId", "agentId"] as const;
+  for (const scope of scopes) {
+    const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
+      async request() {
+        throw new Error("not used");
+      },
+      async requestReminder({ request: input }) {
+        return {
+          ...input,
+          [scope]: scope === "protocolMajor" ? 2 : "wrong-scope",
+          accepted: true,
+          reminders: [],
+          events: [],
+        };
+      },
+    });
+    await transport.start("daemon-token", { ...config, serverHttpUrl: "https://server.example" });
+    await expect(transport.agentReminder(request, `sk_agent_${"a".repeat(43)}`)).rejects.toThrow(
+      "uncorrelated Agent reminder response",
+    );
+    await transport.stop();
+  }
+});
+
+test("Agent reminder HTTP transport rejects network and malformed responses without global mocks", async () => {
+  const request: AgentReminderOperationRequest = {
+    protocolMajor: 1,
+    requestId: "request-reminder",
+    workspaceId: config.workspaceId,
+    computerId: config.computerId,
+    agentId: "agent-a",
+    operation: "list",
+  };
+  for (const fetcher of [
+    async () => {
+      throw new Error("secret-token network detail");
+    },
+    async () => new Response("not json", { status: 200 }),
+    async () => Response.json({ result: { b64data: "not protobuf" } }),
+  ]) {
+    const client = createAgentMessageHttpClient(fetcher);
+    await expect(
+      client.requestReminder!({
+        url: "https://server.example/api/agent-messages",
+        agentApiKey: `sk_agent_${"a".repeat(43)}`,
+        daemonApiKey: "daemon-token",
+        request,
+      }),
+    ).rejects.toThrow(/Agent reminder (request failed|response is malformed)/);
+  }
+});
 
 test("waits for connected and does not send a business payload", async () => {
   const fake = fakeClient();

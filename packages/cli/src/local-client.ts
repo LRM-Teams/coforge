@@ -1,4 +1,14 @@
-import { AGENT_MESSAGE_VALIDATION_MESSAGES, decodeAgentMessageResponse } from "@coforge/protocol";
+import {
+  AGENT_MESSAGE_VALIDATION_MESSAGES,
+  decodeAgentMessageResponse,
+  decodeAgentReminderOperationResponse,
+  decodeLocalReminderRequest,
+  encodeAgentReminderOperationResponse,
+  encodeLocalReminderRequest,
+  type AgentReminderOperationResponse,
+  type LocalReminderRequest,
+} from "@coforge/protocol";
+import type { LocalReminderReceiptResponse, ReminderTransportRequest } from "../index";
 
 const SAFE_AGENT_PROXY_VALIDATION_ERRORS = new Set<string>(AGENT_MESSAGE_VALIDATION_MESSAGES);
 
@@ -48,6 +58,7 @@ export function connectLocal(
     return (await response.json()) as ReturnType<typeof decodeAgentMessageResponse>;
   };
   return {
+    reminder: (request: ReminderTransportRequest) => callReminder(request),
     inboxCheck: () => callInbox(),
     setChannelMuted: (target: string, muted: boolean) => call(muted ? "mute" : "unmute", target),
     check: () => call("check"),
@@ -91,5 +102,37 @@ export function connectLocal(
     });
     if (!response.ok) throw new Error(`agent inbox request failed (${response.status})`);
     return response.json();
+  }
+
+  async function callReminder(
+    fields: ReminderTransportRequest,
+  ): Promise<AgentReminderOperationResponse | LocalReminderReceiptResponse> {
+    if (!context || !/^sfp_[A-Za-z0-9_-]{43}$/.test(context))
+      throw new Error("coforge agent context is invalid");
+    if (!proxyUrl) throw new Error("coforge agent proxy is not configured");
+    const requestId = crypto.randomUUID();
+    const validated = decodeLocalReminderRequest(
+      encodeLocalReminderRequest({ ...fields, requestId, context } as LocalReminderRequest),
+    );
+    const { context: _implicitContext, ...body } = validated;
+    let response: Response;
+    try {
+      response = await fetch(proxyUrl.replace(/\/agent\/message$/, "/agent/reminder"), {
+        method: "POST",
+        headers: { authorization: `Bearer ${context}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      throw new Error("agent reminder request failed (network or timeout)");
+    }
+    if (!response.ok) throw new Error(`agent reminder request failed (${response.status})`);
+    const result = (await response.json()) as
+      | AgentReminderOperationResponse
+      | LocalReminderReceiptResponse;
+    if (fields.operation === "ack" || fields.operation === "dismiss") return result;
+    return decodeAgentReminderOperationResponse(
+      encodeAgentReminderOperationResponse(result as AgentReminderOperationResponse),
+    );
   }
 }

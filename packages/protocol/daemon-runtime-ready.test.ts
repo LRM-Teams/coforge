@@ -25,6 +25,13 @@ test("round-trips fresh process identity, version, and restart recovery evidence
   });
 });
 
+test("additively round-trips daemon capabilities", () => {
+  const capable = { ...ready, capabilities: ["reminder:v1"] };
+  expect(decodeDaemonRuntimeReadyRequest(encodeDaemonRuntimeReadyRequest(capable))).toEqual(
+    capable,
+  );
+});
+
 test("round-trips a Workspace-scoped Computer restart intent", async () => {
   const { decodeComputerRestartIntent, encodeComputerRestartIntent } = await import("./codec");
   const intent = {

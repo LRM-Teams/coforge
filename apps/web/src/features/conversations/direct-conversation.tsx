@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAppToast } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ReminderNotice, type ReminderNoticeView } from "./reminder-notice";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
@@ -104,6 +105,8 @@ type ConversationProps = {
   onLoadMessageAround?: (messageId: string) => Promise<void>;
   onShowLatest?: () => Promise<void>;
   onReadThread?: (rootMessageId: string, throughSequence: number) => Promise<void>;
+  onLoadReminderNotices?: (threadRootId?: string) => Promise<ReminderNoticeView[]>;
+  reminderRefreshKey?: number;
 };
 
 export function DirectConversation(props: ConversationProps) {
@@ -348,6 +351,8 @@ export function ConversationPane({
   onLoadOwnMessages,
   onLoadMessageAround,
   onShowLatest,
+  onLoadReminderNotices,
+  reminderRefreshKey,
 }: Omit<ConversationProps, "conversation" | "agentStatus"> & {
   conversation: Omit<DirectConversationView, "agent">;
   header?: React.ReactNode;
@@ -370,6 +375,7 @@ export function ConversationPane({
   const [ownMessageIndex, setOwnMessageIndex] = useState<OwnMessageIndexEntry[]>([]);
   const [hasOlderOwnMessages, setHasOlderOwnMessages] = useState(false);
   const [loadingOwnMessages, setLoadingOwnMessages] = useState(false);
+  const [reminderNotices, setReminderNotices] = useState<ReminderNoticeView[]>([]);
   const historyRef = useRef<HTMLDivElement>(null);
   const ownMessagesMenuRef = useRef<HTMLDivElement>(null);
   const followingLatestRef = useRef(true);
@@ -384,6 +390,8 @@ export function ConversationPane({
   const scrollOwnMenuToLatestRef = useRef(false);
   const pendingMessageIdRef = useRef<string | undefined>(undefined);
   const pendingLatestRef = useRef(false);
+  const loadReminderNoticesRef = useRef(onLoadReminderNotices);
+  loadReminderNoticesRef.current = onLoadReminderNotices;
   const lastSequence = conversation.messages.at(-1)?.sequence;
   const firstSequence = conversation.messages[0]?.sequence;
   const isOwn = (message: DirectConversationView["messages"][number]) =>
@@ -500,6 +508,20 @@ export function ConversationPane({
     ownMenuScrollAnchorRef.current = undefined;
     if (!root && onLoadOwnMessages) void loadOwnMessages(undefined, false);
   }, [conversation.conversationId]);
+
+  useEffect(() => {
+    if (!loadReminderNoticesRef.current || document.visibilityState === "hidden") return;
+    let active = true;
+    void loadReminderNoticesRef
+      .current(root?.id)
+      .then((notices) => {
+        if (active) setReminderNotices(notices);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [conversation.conversationId, reminderRefreshKey, root?.id]);
 
   function scrollToLatest(behavior: ScrollBehavior) {
     const history = historyRef.current;
@@ -859,6 +881,13 @@ export function ConversationPane({
                   </li>
                 );
               })}
+            </ol>
+          )}
+          {reminderNotices.length > 0 && (
+            <ol aria-label="Reminder events" className="flex flex-col gap-2 pt-6">
+              {reminderNotices.map((notice) => (
+                <ReminderNotice key={notice.id} notice={notice} />
+              ))}
             </ol>
           )}
         </div>

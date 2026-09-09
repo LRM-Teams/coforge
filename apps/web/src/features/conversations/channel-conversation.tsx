@@ -8,6 +8,7 @@ import {
   type OwnMessageIndexEntry,
 } from "./direct-conversation";
 import { m } from "@/paraglide/messages";
+import type { ReminderNoticeView } from "./reminder-notice";
 
 export type ChannelConversationView = Omit<DirectConversationView, "agent" | "messages"> & {
   name: string;
@@ -26,6 +27,8 @@ export function ChannelConversation({
   onLoadOwnMessages,
   onLoadMessageAround,
   onShowLatest,
+  onLoadReminderNotices,
+  reminderRefreshKey,
 }: {
   conversation: ChannelConversationView;
   onSend: (
@@ -48,6 +51,8 @@ export function ChannelConversation({
   }>;
   onLoadMessageAround?: (messageId: string) => Promise<void>;
   onShowLatest?: () => Promise<void>;
+  onLoadReminderNotices?: (threadRootId?: string) => Promise<ReminderNoticeView[]>;
+  reminderRefreshKey?: number;
 }) {
   const [joining, setJoining] = useState(false);
   const [savingMute, setSavingMute] = useState(false);
@@ -71,6 +76,8 @@ export function ChannelConversation({
       onLoadOwnMessages={onLoadOwnMessages}
       onLoadMessageAround={onLoadMessageAround}
       onShowLatest={onShowLatest}
+      onLoadReminderNotices={onLoadReminderNotices}
+      reminderRefreshKey={reminderRefreshKey}
       emptyDescription={m.channel_empty()}
       header={
         <header className="flex h-14 shrink-0 items-center gap-3 border-b px-3 sm:px-5">

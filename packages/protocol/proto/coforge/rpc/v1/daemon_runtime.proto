@@ -33,6 +33,7 @@ message DaemonRuntimeReadyRequest {
   repeated string running_agent_ids = 7;
   string daemon_version = 8;
   repeated string recovered_restart_request_ids = 9;
+  repeated string capabilities = 10;
 }
 
 message ComputerRestartIntent {

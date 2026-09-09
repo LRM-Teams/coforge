@@ -157,6 +157,13 @@ instructions for the TanStack Start Web/backend modular monolith.
 
 ## Agent status and activity UI
 
+- Cloud Agent reminders belong to `server/reminders/reminders.server.ts`, whose
+  public `Reminders` interface owns authorization, recurrence, fire idempotence,
+  and snapshot behavior. `server/db/repositories/reminder.repositories.server.ts`
+  owns PostgreSQL locking and persistence. The existing authenticated Agent
+  HTTPS and Daemon WSS compositions are adapters only; Daemon capability leases
+  remain volatile and reminder timer state remains Daemon-owned.
+
 - `server/agents/agent-sessions.server.ts` owns cloud-selected provider session
   references and start/daemon/launch fencing. `AgentSession` is the sole persisted
   owner of native ID/state, scoped by Agent/Workspace/Computer/provider;
@@ -178,6 +185,9 @@ instructions for the TanStack Start Web/backend modular monolith.
 - `src/features/agents/agents.functions.ts` owns the authenticated Agent list/create seam;
   server-side Agent persistence, start publication, and ready recovery remain under
   `src/server/agents/` and `src/server/db/repositories/`.
+- `features/agents/agent-reminders.functions.ts` and `server/agents/agent-reminders.server.ts`
+  own the owner-only, Workspace-scoped browser read model for bounded Reminder lists and
+  recent history. Reminder lifecycle behavior remains in `server/reminders/`.
 - `server/agents/agent-control.server.ts` owns owner-authorized control operations:
   fixed command chains for Restart, Reset Session and Full Reset, receipt-driven
   state transitions, and request/epoch fences. It clears the Session binding at

@@ -143,6 +143,7 @@ export function decodeDaemonRuntimeReadyRequest(bytes: Uint8Array): DaemonRuntim
     startedAt: Number(value.startedAt),
     runningAgentIds: [...value.runningAgentIds],
     recoveredRestartRequestIds: [...value.recoveredRestartRequestIds],
+    ...(value.capabilities.length ? { capabilities: [...value.capabilities] } : {}),
   };
 }
 

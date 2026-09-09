@@ -3,6 +3,10 @@ import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useMemo } from "react";
 
 import { AgentDetail } from "@/features/agents/agent-detail";
+import {
+  getAgentReminderHistory,
+  listAgentReminders,
+} from "@/features/agents/agent-reminders.functions";
 import { getAgentSkills } from "@/features/agents/agent-skills.functions";
 import { executeAgentControl } from "@/features/agents/agent-control.functions";
 import { useAgentStatuses } from "@/features/agents/agent-status-realtime";
@@ -19,8 +23,9 @@ import { getUserPreferences } from "@/features/settings/settings.functions";
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
 
-function detailTab(value: unknown): "profile" | "activity" {
+function detailTab(value: unknown): "profile" | "activity" | "reminders" {
   if (value === "activity") return "activity";
+  if (value === "reminders") return "reminders";
   return "profile";
 }
 
@@ -51,6 +56,8 @@ function AgentDetailPage() {
   const loadDetail = useServerFn(getAgentDetail);
   const loadSkills = useServerFn(getAgentSkills);
   const executeControl = useServerFn(executeAgentControl);
+  const loadReminders = useServerFn(listAgentReminders);
+  const loadReminderHistory = useServerFn(getAgentReminderHistory);
   const agents = useMemo(() => [detail], [detail]);
   const refresh = useCallback(
     async () => [await loadDetail({ data: detail.id })],
@@ -77,6 +84,15 @@ function AgentDetailPage() {
     () => loadSkills({ data: detail.id }),
     [loadSkills, detail.id],
   );
+  const loadAgentReminders = useCallback(
+    (cursor?: { id: string }) =>
+      loadReminders({ data: { agentId: detail.id, ...(cursor ? { cursor } : {}) } }),
+    [detail.id, loadReminders],
+  );
+  const loadAgentReminderHistory = useCallback(
+    (reminderId: string) => loadReminderHistory({ data: { agentId: detail.id, reminderId } }),
+    [detail.id, loadReminderHistory],
+  );
   return (
     <AgentDetail
       activity={activity}
@@ -85,6 +101,8 @@ function AgentDetailPage() {
       tab={Route.useSearch().tab}
       onLoadSkills={loadAgentSkills}
       onExecuteControl={(request) => executeControl({ data: request })}
+      onLoadReminders={loadAgentReminders}
+      onLoadReminderHistory={loadAgentReminderHistory}
       onLoadRuntimeOptions={async (computerId) => {
         const [computers, catalogs] = await Promise.all([
           loadComputers(),

@@ -1,0 +1,130 @@
+syntax = "proto3";
+
+package coforge.rpc.v1;
+
+message AgentReminderOperationRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  string operation = 6;
+  optional string reminder_id = 7;
+  optional string title = 8;
+  optional string message_id = 9;
+  optional string target = 10;
+  optional string fire_at = 11;
+  optional uint32 delay_seconds = 12;
+  optional string repeat = 13;
+  optional string timezone = 14;
+  optional string status = 15;
+  optional bool all = 16;
+}
+
+message ReminderSummaryRecord {
+  string reminder_id = 1;
+  string owner_agent_id = 2;
+  uint32 version = 3;
+  string title = 4;
+  string target = 5;
+  string message_id = 6;
+  string fire_at = 7;
+  string status = 8;
+  optional string repeat = 9;
+  optional string timezone = 10;
+  string created_at = 11;
+  optional string fired_at = 12;
+}
+
+message ReminderLogEvent {
+  string event_id = 1;
+  string type = 2;
+  string time = 3;
+  optional string next_fire_at = 4;
+}
+
+message AgentReminderOperationResponse {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  bool accepted = 6;
+  optional string reason = 7;
+  repeated ReminderSummaryRecord reminders = 8;
+  repeated ReminderLogEvent events = 9;
+}
+
+message ReminderJob {
+  string reminder_id = 1;
+  string owner_agent_id = 2;
+  uint32 version = 3;
+  string title = 4;
+  string target = 5;
+  string message_id = 6;
+  string fire_at = 7;
+}
+
+message ReminderSync {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  string operation = 6;
+  repeated ReminderJob jobs = 7;
+  optional string reminder_id = 8;
+  optional uint32 version = 9;
+  string message_type = 10;
+}
+
+message ReminderFireRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  string reminder_id = 6;
+  uint32 version = 7;
+  string fired_at_client = 8;
+}
+
+message ReminderFireResponse {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  string reminder_id = 6;
+  uint32 version = 7;
+  string result = 8;
+  bool fired = 9;
+  bool catchup = 10;
+  optional uint32 retry_after_ms = 11;
+  optional string reason = 12;
+}
+
+message ReminderSnapshotRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+}
+
+message LocalReminderRequest {
+  string request_id = 1;
+  string context = 2;
+  string operation = 3;
+  optional string reminder_id = 4;
+  optional string title = 5;
+  optional string message_id = 6;
+  optional string target = 7;
+  optional string fire_at = 8;
+  optional uint32 delay_seconds = 9;
+  optional string repeat = 10;
+  optional string timezone = 11;
+  optional string status = 12;
+  optional bool all = 13;
+  optional uint32 revision = 14;
+}
