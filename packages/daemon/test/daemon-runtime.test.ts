@@ -50,6 +50,44 @@ const config: AgentRuntimeConfig = {
   reasoning: "balanced",
 };
 
+test("ready and reconnect snapshots report the executable version and observed OS", async () => {
+  const credentials = new InMemoryDaemonCredentialStore();
+  await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+  let snapshot: (() => import("@coforge/protocol").DaemonRuntimeReadyRequest) | undefined;
+  const runtime = new DaemonRuntime(
+    connection,
+    () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
+    credentials,
+    {
+      create: () => ({
+        async start() {},
+        async stop() {},
+        async ready(get) {
+          snapshot = get;
+        },
+      }),
+    },
+    undefined,
+    async () => ({ runtimes: [], catalogs: [] }),
+    workspaceRoot,
+    {},
+    "9.8.7",
+  );
+  try {
+    await runtime.start(connection);
+    const first = snapshot!();
+    expect(first.computerVersion).toBe("9.8.7");
+    expect(first.platform).toBe(process.platform);
+    expect(first.osVersion).toBeTruthy();
+    const reconnect = snapshot!();
+    expect(reconnect.computerVersion).toBe("9.8.7");
+    expect(reconnect.osVersion).toBe(first.osVersion);
+    expect(reconnect.requestId).not.toBe(first.requestId);
+  } finally {
+    await runtime.stop();
+  }
+});
+
 test("a duplicate fenced start wakes the managed runtime without replaying recovery context", async () => {
   const stateDirectory = join(tmpdir(), `coforge-managed-wake-${crypto.randomUUID()}`);
   const credentials = new InMemoryDaemonCredentialStore();

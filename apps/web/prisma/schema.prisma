@@ -239,23 +239,27 @@ model WorkspaceMembership {
 }
 
 model Computer {
-  id            String                 @id @default(uuid()) @db.Uuid
-  ownerId       String                 @db.Uuid
-  machineId     String
-  name          String                 @default("")
-  displayName   String                 @default("")
+  id                String                 @id @default(uuid()) @db.Uuid
+  ownerId           String                 @db.Uuid
+  machineId         String
+  name              String                 @default("")
+  displayName       String                 @default("")
+  computerVersion   String?
+  platform          String?
+  osVersion         String?
+  metadataStartedAt BigInt?
   /// Where this Computer runs: "local" on a machine the User controls,
   /// "cloud" on a CoForge-hosted sandbox node.
-  kind          String                 @default("local")
-  workspaces    WorkspaceComputer[]
-  runtimes      ComputerRuntime[]
-  modelCatalogs ComputerModelCatalog[]
-  agents        Agent[]
-  agentApiKeys  AgentApiKey[]
-  daemonApiKeys DaemonApiKey[]
-  agentActivity AgentActivity[]
-  reminders     Reminder[]
-  owner         User                   @relation(fields: [ownerId], references: [id])
+  kind              String                 @default("local")
+  workspaces        WorkspaceComputer[]
+  runtimes          ComputerRuntime[]
+  modelCatalogs     ComputerModelCatalog[]
+  agents            Agent[]
+  agentApiKeys      AgentApiKey[]
+  daemonApiKeys     DaemonApiKey[]
+  agentActivity     AgentActivity[]
+  reminders         Reminder[]
+  owner             User                   @relation(fields: [ownerId], references: [id])
 
   @@unique([ownerId, machineId])
   @@map("computers")

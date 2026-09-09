@@ -17,6 +17,13 @@ test("round-trips running Agent IDs in daemon ready", () => {
   expect(decodeDaemonRuntimeReadyRequest(encodeDaemonRuntimeReadyRequest(ready))).toEqual(ready);
 });
 
+test("round-trips optional Computer executable and OS metadata independently of Daemon version", () => {
+  const request = { ...ready, computerVersion: "4.5.6", platform: "darwin", osVersion: "26.1" };
+  expect(decodeDaemonRuntimeReadyRequest(encodeDaemonRuntimeReadyRequest(request))).toEqual(
+    request,
+  );
+});
+
 test("round-trips fresh process identity, version, and restart recovery evidence", () => {
   expect(decodeDaemonRuntimeReadyRequest(encodeDaemonRuntimeReadyRequest(ready))).toMatchObject({
     workerInstanceId: "worker-1",

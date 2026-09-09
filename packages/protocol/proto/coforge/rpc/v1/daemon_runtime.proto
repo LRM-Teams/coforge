@@ -34,6 +34,9 @@ message DaemonRuntimeReadyRequest {
   string daemon_version = 8;
   repeated string recovered_restart_request_ids = 9;
   repeated string capabilities = 10;
+  optional string computer_version = 11;
+  optional string platform = 12;
+  optional string os_version = 13;
 }
 
 message ComputerRestartIntent {

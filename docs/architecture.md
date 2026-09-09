@@ -417,6 +417,30 @@ Agent 1 ──执行于──> 1 CoForge SDK session 或外部 runtime process
 
 Computer 的云端在线状态由 daemon 的单条 Workspace WSS 连接实时派生；`online` 与 `last_seen_at` 不作为持久化真相。
 
+2026-09-09 用户批准 Computer 详情的 OS、Computer Version 与 Creator 元数据。
+每次 Workspace Daemon startup/reconnect ready 通过既有 `DaemonRuntimeReadyRequest`
+加法可选字段 `computer_version` (11)、`platform` (12)、`os_version` (13) 报告。
+Computer executable 入口把自身 build version 传入 Daemon runtime；不得以 Bun/Node 的
+`process.version`、外部 Code Agent 或 Daemon package fallback 冒充 Computer Version。
+OS 观测由 Daemon platform 模块共享：macOS 使用 `/usr/bin/sw_vers -productVersion`，
+Linux 使用 kernel release，Windows 使用 OS release；读取失败保留未知，不把 Darwin kernel
+标成 macOS 产品版本。依据：[Apple sw_vers](https://github.com/apple-oss-distributions/DarwinTools/blob/DarwinTools-1/sw_vers.1)、
+[Bun os.release](https://bun.com/reference/node/os/release)。
+
+Web 在认证 Workspace–Computer scope 和 ready identity 后，将最后非空观测保存到
+PostgreSQL Computer 的 nullable `computerVersion`、`platform`、`osVersion`；
+`metadataStartedAt` 沿用 ready 的进程启动时间作条件写入，旧进程不得覆盖新观测。
+此值不是在线状态、审计时间或可信硬件证明。缺失/空字段不清空已有值，离线保留最后观测，
+旧设备没有观测时显示 Unknown。旧注册客户端曾把 runtime version 当成 OS version，
+因此注册字段不作为此快照来源；新注册客户端也修正采集，持久快照仍由 Daemon ready 更新。
+迁移仅加可空字段，无猜测回填；先部署兼容 Web/迁移再升级 executable，回滚保留字段即可。
+
+Creator 始终来自 Computer 首次注册时的不可变 `ownerId` 关联 User，显示其当前头像、
+displayName（缺失回退 username）和 @username；Daemon 不上传或修改 Creator。
+头像下载限定 `/api/computers/$computerId/creator-avatar?workspaceId=...`，每次请求验证
+登录 User 是该 Computer 所属 Workspace 的成员后，再读取原 owner 的既有头像存储；
+返回 no-store，不使用只代表当前用户的 `/api/me/avatar`，不开放任意 User ID 头像查询。
+
 ### daemon-owned Agent runtime 与 code-agent driver
 
 Provider identity 的唯一来源是 shared protocol/domain 的 `RUNTIME_PROVIDER`

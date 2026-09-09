@@ -15,7 +15,8 @@ if (Bun.argv[2] === "__agent-cli") {
   await runLaunchdAgent(Bun.argv[3]!);
 } else if (Bun.argv[2] === "__workspace-daemon") {
   const { runDaemon } = await import("@coforge/daemon");
-  await runDaemon(Bun.argv.slice(3));
+  const { COFORGE_COMPUTER_VERSION } = await import("./version");
+  await runDaemon(Bun.argv.slice(3), COFORGE_COMPUTER_VERSION);
 } else if (Bun.argv[2] === "__upgrade") {
   const { runUpgradeCoordinator } = await import("./release/upgrade-coordinator");
   await runUpgradeCoordinator(Bun.argv.slice(3));

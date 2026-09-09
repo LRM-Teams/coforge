@@ -182,6 +182,11 @@ instructions for the TanStack Start Web/backend modular monolith.
   model catalogs are keyed and queried by the trusted `(workspaceId, computerId)` connection;
   a Computer shared with another Workspace must not share publication state or catalog rows.
 
+- `server/computers/computer-metadata.server.ts` owns last-observed OS/executable
+  metadata persistence. Ready supplies observations, never creator identity.
+  Computer-scoped creator avatar downloads authorize Workspace membership before
+  resolving the original Computer owner and reading the existing User avatar store.
+
 - `src/features/agents/agents.functions.ts` owns the authenticated Agent list/create seam;
   server-side Agent persistence, start publication, and ready recovery remain under
   `src/server/agents/` and `src/server/db/repositories/`.

@@ -31,6 +31,7 @@ import {
 import { ComputerRegistrationClient } from "@coforge/protocol";
 import {
   createDaemonHost,
+  readOperatingSystem,
   resolveDaemonExecutablePath,
   runMachineSupervisor,
 } from "@coforge/daemon";
@@ -41,9 +42,7 @@ import { writeSetupResult } from "./cli/setup-output";
 import { createCommand as createClientCommand } from "./daemon-client";
 import { configureComputerLogger } from "./logging/computer-logger";
 import { followComputerLogs } from "./logging/computer-logs";
-import computerPackage from "../package.json";
-
-const VERSION = Bun.env.COFORGE_COMPUTER_VERSION ?? computerPackage.version;
+import { COFORGE_COMPUTER_VERSION as VERSION } from "./version";
 
 export interface LoginCommand {
   run(serverUrl: string, options: { json: boolean }): Promise<void>;
@@ -354,7 +353,7 @@ export function createSetupCommand(
         return {
           ...computerNames,
           platform: platform.os,
-          osVersion: process.version,
+          osVersion: readOperatingSystem({ platform: platform.os }).osVersion,
           computerVersion: VERSION,
           machineId: await resolveMachineId({
             platform: platform.os,

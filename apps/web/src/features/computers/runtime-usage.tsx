@@ -1,5 +1,9 @@
 import { RefreshCw } from "lucide-react";
 import { useState } from "react";
+import { Popover } from "@base-ui/react/popover";
+import claudeCodeMark from "@lobehub/icons-static-svg/icons/claudecode-color.svg";
+import codexMark from "@lobehub/icons-static-svg/icons/codex.svg";
+import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
 
 import type { RuntimeProvider } from "@coforge/protocol";
 import { Button } from "@/components/ui/button";
@@ -30,6 +34,35 @@ export type Runtime = {
   displayName: string;
 };
 
+const runtimeMarks = {
+  "claude-code": claudeCodeMark,
+  codex: codexMark,
+  pi: piMark,
+  coforge: "/logo.svg",
+} satisfies Record<RuntimeProvider, string>;
+
+export function RuntimeIdentity({ runtime }: { runtime: Runtime }) {
+  return (
+    <span className="flex min-w-0 items-center gap-3">
+      {runtime.provider === "claude-code" || runtime.provider === "coforge" ? (
+        <img src={runtimeMarks[runtime.provider]} alt="" className="size-6 shrink-0" />
+      ) : (
+        <span
+          aria-hidden="true"
+          className="size-6 shrink-0 bg-foreground mask-contain mask-center mask-no-repeat"
+          style={{ maskImage: `url("${runtimeMarks[runtime.provider]}")` }}
+        />
+      )}
+      <span className="min-w-0">
+        <span className="block truncate font-medium">{runtime.displayName}</span>
+        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+          {m.computer_runtime_version({ version: runtime.version })}
+        </span>
+      </span>
+    </span>
+  );
+}
+
 /** One Code Agent on a Computer, and the usage snapshot a scan brings back. */
 export function RuntimeUsage({
   runtime,
@@ -43,7 +76,8 @@ export function RuntimeUsage({
   onScan: () => void;
 }) {
   const [scanning, setScanning] = useState(false);
-  const unsupported = usage?.status === "unsupported";
+  const unsupported =
+    runtime.provider === "pi" || runtime.provider === "coforge" || usage?.status === "unsupported";
   const scan = async () => {
     setScanning(true);
     try {
@@ -53,73 +87,95 @@ export function RuntimeUsage({
     }
   };
 
+  if (unsupported) return <RuntimeIdentity runtime={runtime} />;
+
   return (
-    <div>
-      <div className="flex items-start justify-between gap-4 border-b pb-3">
-        <div className="min-w-0">
-          <p className="truncate font-medium">{runtime.displayName}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {m.computer_runtime_version({ version: runtime.version })}
-            {!unsupported && ` · ${m.computer_usage_title()}`}
-          </p>
-        </div>
-        {!unsupported && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void scan()}
-            disabled={scanning}
-          >
-            <RefreshCw aria-hidden="true" className={scanning ? "size-3 animate-spin" : "size-3"} />
-            {scanning
-              ? m.computer_usage_scanning()
-              : usage?.snapshot
-                ? m.computer_usage_refresh()
-                : m.computer_usage_scan()}
-          </Button>
-        )}
-      </div>
-      {unsupported ? null : !usage ? (
-        <div className="mt-3 rounded-md bg-muted/50 px-3 py-4 text-center">
-          <p className="font-medium">{m.computer_usage_empty()}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {m.computer_usage_empty_description()}
-          </p>
-        </div>
-      ) : usage.status !== "available" ? (
-        <div className="mt-3 rounded-md border border-dashed px-3 py-3">
-          <p className="font-medium">{m.computer_usage_unavailable()}</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {usageStatusDescription(usage.status)}
-          </p>
-        </div>
-      ) : (
-        <div className="mt-3">
-          {usage.snapshot?.planType && (
-            <span className="inline-flex rounded-md bg-muted px-2 py-1 text-xs font-medium">
-              {m.computer_usage_plan_name({
-                plan: formatPlan(usage.snapshot.planType),
-              })}
-            </span>
-          )}
-          <div className={usage.snapshot?.planType ? "mt-3 grid gap-2" : "grid gap-2"}>
-            {(["primary", "secondary"] as const).map((key) => {
-              const window = usage.snapshot?.[key];
-              if (!window) return null;
-              return (
-                <UsageWindow
-                  key={key}
-                  label={key === "primary" ? m.computer_usage_session() : m.computer_usage_weekly()}
-                  window={window}
-                  timeZone={timeZone}
+    <Popover.Root>
+      <Popover.Trigger
+        openOnHover
+        delay={250}
+        closeDelay={200}
+        aria-label={`${runtime.displayName} · ${m.computer_usage_title()}`}
+        className="-m-1 min-w-0 rounded-lg p-1 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <RuntimeIdentity runtime={runtime} />
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner
+          side="bottom"
+          align="start"
+          sideOffset={12}
+          collisionPadding={12}
+          className="z-50"
+        >
+          <Popover.Popup className="max-h-(--available-height) w-80 max-w-[calc(100vw-24px)] overflow-y-auto rounded-xl border bg-popover p-4 text-sm text-popover-foreground shadow-lg outline-none">
+            <div className="flex items-center justify-between gap-3 border-b pb-3">
+              <Popover.Title className="min-w-0 font-medium">
+                {runtime.displayName} · {m.computer_usage_title()}
+              </Popover.Title>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void scan()}
+                disabled={scanning}
+              >
+                <RefreshCw
+                  aria-hidden="true"
+                  className={scanning ? "size-3 animate-spin" : "size-3"}
                 />
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
+                {scanning
+                  ? m.computer_usage_scanning()
+                  : usage?.snapshot
+                    ? m.computer_usage_refresh()
+                    : m.computer_usage_scan()}
+              </Button>
+            </div>
+            {!usage ? (
+              <div className="mt-3 rounded-md bg-muted/50 px-3 py-4 text-center">
+                <p className="font-medium">{m.computer_usage_empty()}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {m.computer_usage_empty_description()}
+                </p>
+              </div>
+            ) : usage.status !== "available" ? (
+              <div className="mt-3 rounded-md border border-dashed px-3 py-3">
+                <p className="font-medium">{m.computer_usage_unavailable()}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {usageStatusDescription(usage.status)}
+                </p>
+              </div>
+            ) : (
+              <div className="mt-3">
+                {usage.snapshot?.planType && (
+                  <span className="inline-flex rounded-md bg-muted px-2 py-1 text-xs font-medium">
+                    {m.computer_usage_plan_name({
+                      plan: formatPlan(usage.snapshot.planType),
+                    })}
+                  </span>
+                )}
+                <div className={usage.snapshot?.planType ? "mt-3 grid gap-2" : "grid gap-2"}>
+                  {(["primary", "secondary"] as const).map((key) => {
+                    const window = usage.snapshot?.[key];
+                    if (!window) return null;
+                    return (
+                      <UsageWindow
+                        key={key}
+                        label={
+                          key === "primary" ? m.computer_usage_session() : m.computer_usage_weekly()
+                        }
+                        window={window}
+                        timeZone={timeZone}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 

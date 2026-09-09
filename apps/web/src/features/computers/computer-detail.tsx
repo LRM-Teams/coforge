@@ -4,13 +4,14 @@ import type { RuntimeProvider } from "@coforge/protocol";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
+import { Avatar } from "@/components/ui/avatar";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { BackToComputers } from "./computer-layout";
 import { computerLabel, type ComputerIdentity } from "./computer-identity";
 import { ComputerTile } from "./computer-tile";
-import { RuntimeUsage, type UsageView } from "./runtime-usage";
+import { RuntimeIdentity, RuntimeUsage, type UsageView } from "./runtime-usage";
 import type { ComputerRestartStatus } from "./computer.schemas";
 
 export const RESTART_POLL_INTERVAL_MS = 2_000;
@@ -21,6 +22,10 @@ export type ComputerDetailView = ComputerIdentity & {
   ownedByCurrentUser: boolean;
   online: boolean;
   connectedAt: Date | string;
+  computerVersion?: string | null;
+  platform?: string | null;
+  osVersion?: string | null;
+  creator?: { displayName: string | null; username: string; avatarUrl: string | null };
   runtimes: {
     id: string;
     provider: RuntimeProvider;
@@ -131,7 +136,7 @@ export function ComputerDetail({
         }
       />
 
-      <div className="flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
+      <div className="@container flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
         {restartState === "accepted" && (
           <p role="status" className="rounded-lg border border-success/40 p-3 text-sm">
             {m.computer_restart_accepted()}
@@ -154,7 +159,7 @@ export function ComputerDetail({
           <h2 id="computer-overview" className="text-sm font-semibold">
             {m.computer_overview()}
           </h2>
-          <dl className="mt-3 grid gap-4 sm:grid-cols-2">
+          <dl className="mt-3 grid gap-4 sm:grid-cols-3">
             <div className="min-w-0">
               <dt className="text-xs text-muted-foreground">{m.computer_display_name()}</dt>
               <dd className="mt-1 text-sm">
@@ -247,6 +252,44 @@ export function ComputerDetail({
                 <RelativeTime value={computer.connectedAt} timeZone={timeZone} />
               </dd>
             </div>
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground">{m.computer_version()}</dt>
+              <dd className="mt-1 break-words text-sm">
+                {computer.computerVersion || m.computer_metadata_unknown()}
+              </dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground">{m.computer_os()}</dt>
+              <dd className="mt-1 break-words text-sm">{operatingSystemLabel(computer)}</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground">{m.computer_creator()}</dt>
+              <dd className="mt-1 flex min-w-0 items-center gap-2 text-sm">
+                {computer.creator ? (
+                  <>
+                    <Avatar
+                      size="sm"
+                      people={[
+                        {
+                          name: computer.creator.displayName || computer.creator.username,
+                          src: computer.creator.avatarUrl,
+                        },
+                      ]}
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate">
+                        {computer.creator.displayName || computer.creator.username}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        @{computer.creator.username}
+                      </span>
+                    </span>
+                  </>
+                ) : (
+                  m.computer_metadata_unknown()
+                )}
+              </dd>
+            </div>
           </dl>
         </section>
 
@@ -255,9 +298,12 @@ export function ComputerDetail({
             {m.computer_code_agents()}
           </h2>
           {computer.runtimes.length ? (
-            <ul className="mt-3 grid gap-3">
+            <ul className="mt-3 grid items-start gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3">
               {computer.runtimes.map((runtime) => (
-                <li key={runtime.provider} className="rounded-xl border p-4 text-sm">
+                <li
+                  key={runtime.provider}
+                  className="flex min-w-0 items-center justify-between gap-3 rounded-xl border p-4 text-sm"
+                >
                   {computer.ownedByCurrentUser ? (
                     <RuntimeUsage
                       runtime={runtime}
@@ -266,17 +312,10 @@ export function ComputerDetail({
                       onScan={() => onScanUsage(runtime.provider)}
                     />
                   ) : (
-                    <div className="border-b pb-3">
-                      <p className="truncate font-medium">{runtime.displayName}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {m.computer_runtime_version({
-                          version: runtime.version,
-                        })}
-                      </p>
-                    </div>
+                    <RuntimeIdentity runtime={runtime} />
                   )}
                   {computer.ownedByCurrentUser && (
-                    <div className="mt-3 flex justify-end">
+                    <div className="shrink-0">
                       <Button
                         type="button"
                         size="sm"
@@ -312,6 +351,20 @@ export function ComputerDetail({
       </div>
     </>
   );
+}
+
+function operatingSystemLabel(computer: ComputerDetailView) {
+  const name =
+    computer.platform === "darwin"
+      ? "macOS"
+      : computer.platform === "linux"
+        ? "Linux"
+        : computer.platform === "win32"
+          ? "Windows"
+          : undefined;
+  return name
+    ? `${name} ${computer.osVersion || m.computer_metadata_unknown()}`
+    : m.computer_metadata_unknown();
 }
 
 function StatusPill({ online }: { online: boolean }) {
