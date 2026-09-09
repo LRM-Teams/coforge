@@ -999,6 +999,7 @@ reviewer isolation 或结构化子任务/依赖调度。子任务首版只是各
 - 凭据不得进入仓库、日志、命令行参数或生成物；
 - Unix socket 使用最小文件权限并验证对端身份；
 - Agent 只能在声明的 Agent workspace 目录中运行；
+- 外部 Agent 启动与 runtime inventory 共用 `agentEnvironment()` 的环境白名单，继承 Daemon 进程的 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 及各自小写形式，使其沿用本机代理；显式声明的同名变量（包括空值）优先，不继承其他未列入白名单的宿主环境变量。
 - Caddy、Centrifugo、backend 和本地进程都需要结构化日志和关联 id，但日志不得包含 secret；Computer、Daemon、daemon 和 Agent runtime process 的本地分类、滚动、保留、脱敏与失败契约见 [本地日志契约](local-logging.md)。Computer 与 Workspace Daemon 已写入各自 state directory 下的滚动 JSONL；连接、Connect Proxy control-stream binding、ready/reconnect、Agent session/start 及 runtime inventory 探测失败记录稳定关联字段，不记录 credential、消息正文或原始 provider 输出；
 - 开发与 validation 阶段先使用 Docker PostgreSQL 与托管 PostgreSQL，不引入 Kubernetes。
 - WebSocket 依附于 TCP，所属 Centrifugo 进程死亡时一定会断开；保证目标是 committed message 不丢、自动重连、按序 replay 与重复抑制，而不是宣称连接永不断。
