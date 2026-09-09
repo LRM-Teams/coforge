@@ -292,7 +292,7 @@ function SettingsNavigationButton({
         onPress={onClick}
         className={cn(
           "h-11 w-full min-w-0 justify-start rounded-lg px-3 text-sm font-medium",
-          active && "bg-brand-primary text-brand-secondary",
+          active && "bg-active text-brand-secondary",
         )}
       >
         <span className="truncate">{label}</span>
@@ -523,7 +523,7 @@ function AccountSettings({
             </div>
             <dl className="grid gap-x-8 gap-y-6 border-t border-secondary pt-6 md:grid-cols-2 xl:grid-cols-3">
               <ProfileValue label={m.settings_name()} value={profile.name} />
-              <ProfileValue label={m.settings_email()} value={profile.email} mono />
+              <ProfileValue label={m.settings_email()} value={profile.email} />
               <ProfileValue label={m.settings_username()} value={`@${profile.username}`} mono />
               <ProfileValue
                 label={m.settings_user_description()}
@@ -546,7 +546,8 @@ function ProfileValue({
 }: {
   label: string;
   value: string;
-  /** Identifiers (email, username) render in the mono font. */
+  /** Identifiers (usernames, hostnames, versions, IDs, paths) render in the mono
+   * font; prose like an email address doesn't. */
   mono?: boolean;
   /** Long values (the description) span the full row. */
   full?: boolean;
@@ -861,7 +862,7 @@ function PreferenceButton({
       onPress={onClick}
       className={cn(
         "min-h-12 min-w-0 w-full justify-start gap-3 bg-primary px-4 text-left whitespace-normal shadow-xs",
-        selected && "border-brand bg-brand-primary text-primary ring-1 ring-brand",
+        selected && "border-brand bg-active text-brand-secondary ring-1 ring-brand",
       )}
     >
       {label}

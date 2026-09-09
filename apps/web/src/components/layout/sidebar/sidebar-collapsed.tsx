@@ -1,4 +1,4 @@
-import type { CSSProperties, FC, ReactNode } from "react";
+import type { FC, ReactNode } from "react";
 import { LayoutLeft as PanelLeft } from "@untitledui/icons";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { MobileNavigationHeader } from "@/components/application/app-navigation/base-components/mobile-header";
@@ -36,20 +36,14 @@ export const SidebarCollapsed = ({
   footer,
   onExpand,
 }: SidebarCollapsedProps) => {
-  // See sidebar-expanded.tsx for why this is an inline style override rather
-  // than editing NavButton's bg-primary/bg-secondary classes directly.
-  const tintVars = {
-    "--color-bg-primary": "var(--color-sidebar)",
-    "--color-bg-primary_hover": "var(--color-sidebar-accent)",
-    "--color-bg-secondary": "var(--color-sidebar-accent)",
-    "--color-bg-secondary_hover": "var(--color-sidebar-accent)",
-    "--color-text-secondary_hover": "var(--color-sidebar-accent-fg)",
-    "--color-fg-quaternary_hover": "var(--color-sidebar-accent-fg)",
-  } as CSSProperties;
-
   const mainSidebar = (
+    // data-sidebar retints NavButton's bg-primary/bg-secondary/text-secondary_hover/
+    // text-fg-quaternary utilities via the [data-sidebar] rule in
+    // src/styles/coforge-theme.css — see sidebar-expanded.tsx and that file's
+    // comment for why this can't be an inline `--color-bg-*` override.
     <aside
-      style={{ width: SIDEBAR_RAIL_WIDTH, ...tintVars }}
+      data-sidebar
+      style={{ width: SIDEBAR_RAIL_WIDTH }}
       className="flex h-full max-h-full flex-col justify-between overflow-y-auto border-r border-secondary bg-sidebar py-4"
     >
       <div className="flex flex-col items-center gap-3">
@@ -109,7 +103,10 @@ export const SidebarCollapsed = ({
           Untitled's own logo). On mobile there's no separate "collapsed"
           state, so this shows the same full nav as the expanded sidebar. */}
       <MobileNavigationHeader>
-        <aside className="flex h-full max-h-full w-full max-w-full flex-col justify-between overflow-y-auto bg-sidebar pt-4">
+        <aside
+          data-sidebar
+          className="flex h-full max-h-full w-full max-w-full flex-col justify-between overflow-y-auto bg-sidebar pt-4"
+        >
           <div className="flex items-center gap-2 px-4">
             <img src="/logo.svg" alt="" className="size-6 shrink-0" />
             <span className="text-sm font-semibold text-primary">CoForge</span>

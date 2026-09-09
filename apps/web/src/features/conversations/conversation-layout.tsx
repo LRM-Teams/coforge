@@ -114,7 +114,7 @@ export function ConversationLayout({
                   onClick={() => setShowMobileAgents(false)}
                   className={cn(
                     "flex min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors outline-focus-ring hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2",
-                    channel.id === selectedChannelId && "bg-brand-primary text-brand-secondary",
+                    channel.id === selectedChannelId && "bg-active text-brand-secondary",
                   )}
                 >
                   <Hash aria-hidden="true" className="size-5 shrink-0" />
@@ -139,7 +139,7 @@ export function ConversationLayout({
                   key={agent.id}
                   className={cn(
                     "flex min-w-0 items-center gap-3 rounded-lg px-3 py-3 transition-colors hover:bg-secondary",
-                    selected && "bg-brand-primary",
+                    selected && "bg-active",
                   )}
                 >
                   <AgentActivityAvatar

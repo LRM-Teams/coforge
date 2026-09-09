@@ -56,6 +56,48 @@
 }
 
 @layer base {
+  /* Sidebar retint for the official NavItemBase / NavButton components (used
+   * unmodified by src/components/layout/sidebar/{sidebar-expanded,sidebar-collapsed}.tsx).
+   * Their `bg-primary` / `bg-secondary` / `text-secondary` / `text-fg-quaternary` utilities
+   * do NOT read `--color-bg-primary` etc. directly: Untitled's theme.css routes them through
+   * a second, utility-scoped namespace declared once on `:root` — e.g.
+   * `--background-color-primary: var(--color-bg-primary)`. Custom-property inheritance
+   * freezes that indirection's *computed* value at `:root` and hands descendants the
+   * already-resolved color, so overriding `--color-bg-primary` on a descendant (as an
+   * earlier version of this file did, via an inline style on the <aside>) has no effect —
+   * confirmed via `getComputedStyle(navItem).backgroundColor` still returning white.
+   * The fix is to override the second-namespace variables directly on the sidebar root,
+   * via `[data-sidebar]` (set on every sidebar <aside>, desktop and mobile, expanded and
+   * collapsed), so nothing downstream needs to change. See docs/design-tokens.md.
+   */
+  [data-sidebar] {
+    --background-color-primary: var(--color-sidebar);
+    --background-color-primary_hover: var(--color-sidebar-accent);
+    --background-color-secondary: var(--color-sidebar-accent);
+    --background-color-secondary_hover: var(--color-sidebar-accent);
+    --background-color-active: var(--color-sidebar-accent);
+    --text-color-secondary: var(--color-sidebar-fg);
+    --text-color-secondary_hover: var(--color-sidebar-accent-fg);
+    --color-fg-quaternary: var(--color-sidebar-fg);
+    --color-fg-quaternary_hover: var(--color-sidebar-accent-fg);
+  }
+
+  /* `--color-sidebar*` are already theme-aware (redefined below under `.dark-mode`), so
+   * the mapping above re-resolves correctly per theme with no changes needed here. This
+   * block exists anyway, matching Untitled's own light-block/`.dark-mode`-block pattern,
+   * so a future token that isn't purely var()-indirected has an obvious place to diverge. */
+  .dark-mode [data-sidebar] {
+    --background-color-primary: var(--color-sidebar);
+    --background-color-primary_hover: var(--color-sidebar-accent);
+    --background-color-secondary: var(--color-sidebar-accent);
+    --background-color-secondary_hover: var(--color-sidebar-accent);
+    --background-color-active: var(--color-sidebar-accent);
+    --text-color-secondary: var(--color-sidebar-fg);
+    --text-color-secondary_hover: var(--color-sidebar-accent-fg);
+    --color-fg-quaternary: var(--color-sidebar-fg);
+    --color-fg-quaternary_hover: var(--color-sidebar-accent-fg);
+  }
+
   .dark-mode {
     /* Re-point ramp-based semantic tokens at a lighter step, matching Untitled's own
        dark-mode pattern of remapping rather than redefining the ramp (see theme.css). */

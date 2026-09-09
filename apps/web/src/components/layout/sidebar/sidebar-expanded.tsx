@@ -65,24 +65,16 @@ export const SidebarExpanded = ({
     event.currentTarget.releasePointerCapture(event.pointerId);
   }, []);
 
-  // Retint the official NavItemBase's tokens (bg-primary at rest,
-  // bg-primary_hover / bg-secondary(_hover) on hover/current, plus the
-  // matching text/icon colors) to the CoForge sidebar tint instead of
-  // editing that base-component file — an inline style, not a Tailwind
-  // arbitrary-value class, so there's no JIT-escaping ambiguity around the
-  // nested var() call.
-  const tintVars = {
-    "--color-bg-primary": "var(--color-sidebar)",
-    "--color-bg-primary_hover": "var(--color-sidebar-accent)",
-    "--color-bg-secondary": "var(--color-sidebar-accent)",
-    "--color-bg-secondary_hover": "var(--color-sidebar-accent)",
-    "--color-text-secondary_hover": "var(--color-sidebar-accent-fg)",
-    "--color-fg-quaternary_hover": "var(--color-sidebar-accent-fg)",
-  } as CSSProperties;
-
   const content = (
+    // data-sidebar retints the official NavItemBase's bg-primary/bg-secondary/
+    // text-secondary/text-fg-quaternary utilities via the [data-sidebar] rule
+    // in src/styles/coforge-theme.css, rather than editing that base-component
+    // file. See the comment there for why this has to target the
+    // second-namespace `--background-color-*`/`--text-color-*` variables and
+    // not `--color-bg-*` directly.
     <aside
-      style={{ ...tintVars, "--width": `${width}px` } as CSSProperties}
+      data-sidebar
+      style={{ "--width": `${width}px` } as CSSProperties}
       className="relative flex h-full w-full max-w-full flex-col justify-between overflow-auto bg-sidebar pt-4 lg:w-(--width) lg:border-r lg:border-secondary lg:pt-5"
     >
       <div className="flex items-center gap-2 px-4 lg:px-5">
