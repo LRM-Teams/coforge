@@ -1,9 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ComputerUpdater } from "../src/updater";
+import { runCli } from "../src/cli";
 
 const temporaryDirectories: string[] = [];
 const servers: Array<ReturnType<typeof Bun.serve>> = [];
@@ -189,6 +190,61 @@ test("offline rollback rejects a missing or corrupted version-local Agent launch
       "3.0.0",
     );
   }
+});
+
+test("a self-referencing latest pointer fails before upgrade consent", async () => {
+  const input = await fixture({ version: "latest" });
+  const manager = updater(input);
+  let prompted = false;
+  let upgraded = false;
+  const errors: string[] = [];
+  const code = await runCli(
+    ["upgrade"],
+    {
+      login: { async run() {} },
+      setup: { async run() {} },
+      updater: {
+        resolveVersion: (selector) => manager.resolveVersion(selector),
+        async install() {},
+        async rollback() {},
+        async upgrade() {
+          upgraded = true;
+        },
+      },
+    },
+    {
+      stdout: () => {},
+      stderr: (line) => errors.push(line),
+      prompt: () => {
+        prompted = true;
+        return "y";
+      },
+    },
+  );
+  expect(code).toBe(1);
+  expect(errors.join("\n")).toContain("UPDATE_FEED_INVALID");
+  expect(prompted).toBe(false);
+  expect(upgraded).toBe(false);
+  expect(input.requested).toEqual(["/latest"]);
+});
+
+test("resolving latest is read-only and preparation keeps the confirmed version after pointer changes", async () => {
+  const input = await fixture({ version: "2.0.0" });
+  const manager = updater(input);
+  const version = await manager.resolveVersion("latest");
+  expect(version).toBe("2.0.0");
+  expect(input.requested).toEqual(["/latest"]);
+  expect(await readdir(input.directory)).toEqual([]);
+
+  input.files.set("/latest", Buffer.from("3.0.0\n"));
+  const prepared = await manager.prepare(version);
+  expect(prepared.version).toBe("2.0.0");
+  expect(input.requested).toEqual([
+    "/latest",
+    "/2.0.0/manifest.json",
+    `/2.0.0/${input.target}/coforge-computer.gz`,
+  ]);
+  expect(await Bun.file(join(input.directory, "active.json")).exists()).toBe(false);
 });
 
 test("latest and an exact version selector resolve to the same install", async () => {

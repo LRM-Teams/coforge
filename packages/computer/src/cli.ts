@@ -53,6 +53,7 @@ export interface SetupCommand {
 }
 
 export interface UpdateCommand {
+  resolveVersion(selector: string): Promise<string>;
   install(version: string): Promise<void>;
   upgrade(version: string): Promise<void>;
   rollback(): Promise<void>;
@@ -84,7 +85,11 @@ interface CliDependencies {
 export async function runCli(
   args: readonly string[],
   dependencies: CliDependencies,
-  io: { stdout: (line: string) => void; stderr: (line: string) => void } = {
+  io: {
+    stdout: (line: string) => void;
+    stderr: (line: string) => void;
+    prompt?: (question: string) => string | null;
+  } = {
     stdout: (line) => console.log(line),
     stderr: (line) => console.error(line),
   },
@@ -138,8 +143,19 @@ export async function runCli(
           : "Atomically upgrade to one verified Computer version.",
       )
       .option("--version <selector>", "latest|<version>", "latest")
-      .action((options: { version: string }) => {
+      .action(async (options: { version: string }) => {
         const updater = requireUpdater(dependencies);
+        if (operation === "upgrade") {
+          const target = await updater.resolveVersion(options.version);
+          const answer = (io.prompt ?? globalThis.prompt)(
+            `Upgrade CoForge Computer to ${target}? [y/N] `,
+          );
+          if (!/^(y|yes)$/i.test(answer?.trim() ?? "")) {
+            io.stdout("Upgrade cancelled.");
+            return;
+          }
+          return updater.upgrade(target);
+        }
         return updater[operation](options.version);
       });
   }
@@ -523,6 +539,7 @@ function createUpdateCommand(io: { stdout: (line: string) => void }): UpdateComm
       }),
     });
   return {
+    resolveVersion: (selector) => updater.resolveVersion(selector),
     async install(version) {
       const result = (await Bun.file(join(installRoot, "active.json")).exists())
         ? await coordinate("upgrade", version)

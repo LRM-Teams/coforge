@@ -103,7 +103,7 @@ export class ComputerUpdater {
 
   async install(selection: string): Promise<{ version: string; previous: string | null }> {
     return this.withExclusiveOperation(async () => {
-      const version = await this.#resolveSelection(selection);
+      const version = await this.resolveVersion(selection);
       const manifest = this.#parseManifest(
         await this.#download(`${version}/manifest.json`),
         version,
@@ -137,7 +137,7 @@ export class ComputerUpdater {
   }
 
   async #prepare(selection: string): Promise<PreparedUpdate> {
-    const version = await this.#resolveSelection(selection);
+    const version = await this.resolveVersion(selection);
     const manifest = this.#parseManifest(await this.#download(`${version}/manifest.json`), version);
     const platform = manifest.platforms[this.#target];
     if (!platform) {
@@ -230,11 +230,14 @@ export class ComputerUpdater {
   /** "latest" (or an omitted CLI selection, which the CLI defaults to "latest") resolves
    * through the feed's pointer file. Anything else must already be a well-formed version
    * string; there is no "test" or "sha256:" selection mode any more. */
-  async #resolveSelection(selection: string): Promise<string> {
+  async resolveVersion(selection: string): Promise<string> {
     if (selection === "latest" || selection === "") {
       const bytes = await this.#download("latest");
       const version = new TextDecoder().decode(bytes).trim();
       this.#assertVersion(version, "latest pointer does not contain a valid version");
+      if (version === "latest") {
+        throw new UpdateError("UPDATE_FEED_INVALID", "latest pointer must name a concrete version");
+      }
       return version;
     }
     this.#assertVersion(selection, "version must be latest or a valid version string");
