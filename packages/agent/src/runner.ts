@@ -14,7 +14,7 @@ import {
 import { join, resolve } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { getCoforgeAgentDir, getCoforgeSessionDir, prepareAgentSessionDirectory } from "./paths";
-import { withRuntimeEnvironment } from "./runtime-provider";
+import { COFORGE_MODEL_PROVIDER_API_KEY_ENV, withRuntimeEnvironment } from "./runtime-provider";
 
 export const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   cwd,
@@ -50,60 +50,94 @@ export async function createSession(options: {
   modelProvider?: string;
   model?: string;
   reasoning?: string;
-  apiKey: string;
+  apiKey?: string;
   instructions: string;
   environment?: Readonly<Record<string, string>>;
+  sessionKind?: "coforge" | "pi";
 }) {
   const cwd = options.cwd;
   const agentDir = options.agentDir ?? getCoforgeAgentDir(cwd);
   const sessionDir = options.sessionDir ?? getCoforgeSessionDir(cwd);
-  if (resolve(sessionDir) !== resolve(getCoforgeSessionDir(cwd)))
-    throw new Error("CoForge sessions must use .builtin-sessions");
-  if (!options.apiKey) throw new Error("CoForge runtime provider API key is required");
+  const sessionKind = options.sessionKind ?? "coforge";
+  const expectedSessionDir = join(
+    cwd,
+    sessionKind === "coforge" ? ".builtin-sessions" : ".pi-sessions",
+  );
+  if (resolve(sessionDir) !== resolve(expectedSessionDir))
+    throw new Error(
+      `${sessionKind === "coforge" ? "CoForge" : "Pi"} sessions must use ${sessionKind === "coforge" ? ".builtin-sessions" : ".pi-sessions"}`,
+    );
+  if (sessionKind === "coforge" && !options.apiKey)
+    throw new Error("CoForge runtime provider API key is required");
   const { sessionManager, replacedSessionId } = await sessionManagerFor(
     cwd,
     sessionDir,
     options.sessionId ?? options.agentId,
     options.sessionMode ?? (options.sessionId ? "resume" : "create"),
   );
+  const initialize = async () => {
+    const modelRuntime =
+      sessionKind === "pi"
+        ? await createPiModelRuntime(agentDir, options.environment)
+        : await ModelRuntime.create({
+            authPath: join(agentDir, "auth.json"),
+            modelsPath: join(agentDir, "models.json"),
+          });
+    if (options.modelProvider && options.apiKey)
+      await modelRuntime.setRuntimeApiKey(options.modelProvider, options.apiKey);
+    const services = await createAgentSessionServices({
+      cwd,
+      agentDir,
+      modelRuntime,
+      resourceLoaderOptions: { systemPromptOverride: () => options.instructions },
+    });
+    return { modelRuntime, services };
+  };
   const { modelRuntime, services } = await withRuntimeEnvironment(
     options.environment ?? {},
-    async () => {
-      const modelRuntime = await ModelRuntime.create({
-        authPath: join(agentDir, "auth.json"),
-        modelsPath: join(agentDir, "models.json"),
-      });
-      if (options.modelProvider)
-        await modelRuntime.setRuntimeApiKey(options.modelProvider, options.apiKey);
-      const services = await createAgentSessionServices({
-        cwd,
-        agentDir,
-        modelRuntime,
-        resourceLoaderOptions: { systemPromptOverride: () => options.instructions },
-      });
-      return { modelRuntime, services };
-    },
+    initialize,
+    sessionKind === "pi",
   );
-  const skillDiagnostics = services.resourceLoader.getSkills().diagnostics;
-  if (skillDiagnostics.length > 0)
-    throw new Error(`Cannot start with ${skillDiagnostics.length} skill diagnostic(s)`);
+  if (sessionKind === "coforge") {
+    const skillDiagnostics = services.resourceLoader.getSkills().diagnostics;
+    if (skillDiagnostics.length > 0)
+      throw new Error(`Cannot start with ${skillDiagnostics.length} skill diagnostic(s)`);
+  }
   const model =
     options.modelProvider && options.model
       ? modelRuntime.getModel(options.modelProvider, options.model)
       : undefined;
   if (options.model && !model) throw new Error("Pi model is unavailable");
+  const extensionDefinesBash = services.resourceLoader
+    .getExtensions()
+    .extensions.some((extension) => extension.tools.has("bash"));
   const created = await createAgentSessionFromServices({
     services,
     sessionManager,
     ...(model ? { model } : {}),
     ...(options.reasoning ? { thinkingLevel: options.reasoning as never } : {}),
-    ...(options.environment
+    ...(options.environment && !extensionDefinesBash
       ? {
           customTools: [
             createBashTool(cwd, {
+              shellPath: services.settingsManager.getShellPath(),
+              commandPrefix: services.settingsManager.getShellCommandPrefix(),
               spawnHook: ({ env, ...context }) => ({
                 ...context,
-                env: { ...env, ...options.environment },
+                env: {
+                  ...options.environment,
+                  ...Object.fromEntries(
+                    Object.entries(env).filter(([name]) =>
+                      [
+                        "PI_SESSION_ID",
+                        "PI_SESSION_FILE",
+                        "PI_PROVIDER",
+                        "PI_MODEL",
+                        "PI_REASONING_LEVEL",
+                      ].includes(name),
+                    ),
+                  ),
+                },
               }),
             }),
           ],
@@ -117,7 +151,12 @@ export async function createSession(options: {
     get sessionId() {
       return sessionManager.getSessionId();
     },
-    dispose: async () => created.session.dispose(),
+    dispose: async () => {
+      created.session.clearQueue();
+      await created.session.abort();
+      await created.session.waitForIdle();
+      created.session.dispose();
+    },
   };
 }
 
@@ -200,6 +239,46 @@ export async function discoverModels(cwd: string) {
     resourceLoaderOptions: { systemPromptOverride: () => "" },
   });
   return services.modelRuntime.getAvailableSnapshot();
+}
+
+export async function discoverPiModels(
+  cwd: string,
+  options: { agentDir: string; environment?: Readonly<Record<string, string>> },
+) {
+  return withRuntimeEnvironment(
+    options.environment ?? {},
+    async () => {
+      const modelRuntime = await createPiModelRuntime(options.agentDir, options.environment);
+      const services = await createAgentSessionServices({
+        cwd,
+        agentDir: options.agentDir,
+        modelRuntime,
+        resourceLoaderOptions: { systemPromptOverride: () => "" },
+      });
+      return services.modelRuntime.getAvailableSnapshot();
+    },
+    true,
+  );
+}
+
+async function createPiModelRuntime(
+  agentDir: string,
+  environment: Readonly<Record<string, string>> = {},
+) {
+  const modelRuntime = await ModelRuntime.create({
+    authPath: join(agentDir, "auth.json"),
+    modelsPath: join(agentDir, "models.json"),
+  });
+  // Resolve native environment credentials through Pi so stored auth retains
+  // priority. Snapshot single-key auth per session, without patching process.env.
+  // OAuth remains SDK-owned so token refresh is not replaced by a static key.
+  for (const [provider, variable] of Object.entries(COFORGE_MODEL_PROVIDER_API_KEY_ENV)) {
+    if (!(environment[variable] ?? Bun.env[variable]) || modelRuntime.isUsingOAuth(provider))
+      continue;
+    const resolved = await modelRuntime.getAuth(provider, { env: { ...environment } });
+    if (resolved?.auth.apiKey) await modelRuntime.setRuntimeApiKey(provider, resolved.auth.apiKey);
+  }
+  return modelRuntime;
 }
 
 if (import.meta.main) {

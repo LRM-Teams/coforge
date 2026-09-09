@@ -48,25 +48,11 @@ export class AgentRuntimeCredentials {
     const runtimeConfig = await this.#ownedConfig(principal, agentId);
     if (runtimeConfig.provider.kind !== "coforge")
       throw new Error("Agent runtime provider does not accept an API key");
-    const apiKey = validateApiKey(apiKeyInput);
-    const nonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES));
-    const encrypted = new Uint8Array(
-      await crypto.subtle.encrypt(
-        {
-          name: "AES-GCM",
-          iv: nonce,
-          additionalData: associatedData(agentId, runtimeConfig.provider.providerId),
-        },
-        await this.#key(["encrypt"]),
-        new TextEncoder().encode(apiKey),
-      ),
+    const encryptedApiKey = await this.encrypt(
+      agentId,
+      runtimeConfig.provider.providerId,
+      apiKeyInput,
     );
-    const encryptedApiKey = {
-      keyId: KEY_ID,
-      ciphertext: Buffer.from(encrypted).toString("base64"),
-      nonce: Buffer.from(nonce).toString("base64"),
-      hint: `••••${apiKey.slice(-4)}`,
-    };
     await this.repository.updateRuntimeConfig(agentId, {
       ...runtimeConfig,
       provider: { ...runtimeConfig.provider, apiKey: encryptedApiKey },
@@ -74,6 +60,28 @@ export class AgentRuntimeCredentials {
     return {
       providerId: runtimeConfig.provider.providerId,
       hint: encryptedApiKey.hint,
+    };
+  }
+
+  async encrypt(agentId: string, providerId: string, apiKeyInput: string) {
+    const apiKey = validateApiKey(apiKeyInput);
+    const nonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES));
+    const encrypted = new Uint8Array(
+      await crypto.subtle.encrypt(
+        {
+          name: "AES-GCM",
+          iv: nonce,
+          additionalData: associatedData(agentId, providerId),
+        },
+        await this.#key(["encrypt"]),
+        new TextEncoder().encode(apiKey),
+      ),
+    );
+    return {
+      keyId: KEY_ID,
+      ciphertext: Buffer.from(encrypted).toString("base64"),
+      nonce: Buffer.from(nonce).toString("base64"),
+      hint: `••••${apiKey.slice(-4)}`,
     };
   }
 

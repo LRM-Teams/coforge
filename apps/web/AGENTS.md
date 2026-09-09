@@ -278,6 +278,10 @@ instructions for the TanStack Start Web/backend modular monolith.
 - `src/features/agents/agents.functions.ts` owns the authenticated Agent list/create seam;
   server-side Agent persistence, start publication, and ready recovery remain under
   `src/server/agents/` and `src/server/db/repositories/`.
+- `server/agents/manage-agents.server.ts` owns Agent create/edit orchestration, including
+  runtime selection, credential-aware restart decisions, and public response redaction.
+  `AgentRuntimeCredentials` owns Agent/provider-bound encryption; repositories only persist
+  the completed runtime config, and Server Function composition supplies encryption lazily.
 - `features/agents/agent-reminders.functions.ts` and `server/agents/agent-reminders.server.ts`
   own the owner-only, Workspace-scoped browser read model for bounded Reminder lists and
   expose scheduled Reminders only. Reminder lifecycle and history persistence remain in

@@ -56,7 +56,7 @@ export interface AgentRepository {
   listInWorkspace(workspaceId: string): Promise<AgentRecord[]>;
   listForComputer(workspaceId: string, computerId: string): Promise<AgentRecord[]>;
   listOwnedInWorkspace(workspaceId: string, ownerId: string): Promise<AgentRecord[]>;
-  create(input: Omit<AgentRecord, "id" | "createdAt">): Promise<AgentRecord>;
+  create(input: Omit<AgentRecord, "id" | "createdAt"> & { id?: string }): Promise<AgentRecord>;
   update(
     id: string,
     input: Pick<AgentRecord, "name" | "displayName" | "description"> &
@@ -96,7 +96,7 @@ export class PrismaAgentRepository implements AgentRepository {
     return agents.map(mapAgent);
   }
 
-  async create(input: Omit<AgentRecord, "id" | "createdAt">) {
+  async create(input: Omit<AgentRecord, "id" | "createdAt"> & { id?: string }) {
     return this.db.$transaction(async (tx) => {
       const agent = mapAgent(await tx.agent.create({ data: input }));
       await enrollGeneralChannel(tx, input.workspaceId);

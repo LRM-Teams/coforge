@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
 import { ChangeAgentRuntimeCredential } from "../src/server/agents/change-agent-runtime-credential.server";
+import { AgentRuntimeCredentials } from "../src/server/agents/agent-runtime-credentials.server";
 import type { AgentRecord } from "../src/server/db/repositories/agent.repositories.server";
 
 const principal = { workspaceId: "workspace-1", userId: "user-1" };
@@ -67,6 +68,62 @@ function fixture(options?: { stopFails?: boolean; mutationFails?: boolean; start
 }
 
 describe("ChangeAgentRuntimeCredential", () => {
+  test("deleting a Pi key actually removes its encrypted credential before restart", async () => {
+    let config: AgentRecord["runtimeConfig"] = {
+      runtime: "pi",
+      model: "gpt-4o",
+      modelProvider: "openai",
+      reasoning: "",
+      provider: { kind: "coforge", providerId: "openai" },
+    };
+    const credentials = new AgentRuntimeCredentials(
+      {
+        findOwnedAgent: async () => ({ runtimeConfig: config }),
+        updateRuntimeConfig: async (_id, value) => {
+          config = value;
+        },
+      },
+      new Uint8Array(32).fill(1),
+    );
+    await credentials.save(principal, "agent-1", "fixture-pi-key");
+    expect(await credentials.launchProviderConfig("agent-1", config)).toHaveProperty(
+      "apiKey",
+      "fixture-pi-key",
+    );
+    let restarted = false;
+    const change = new ChangeAgentRuntimeCredential(
+      {
+        getById: async () => ({
+          id: "agent-1",
+          workspaceId: principal.workspaceId,
+          ownerId: principal.userId,
+          computerId: "computer-1",
+          name: "pi",
+          displayName: "Pi",
+          createdAt: new Date(),
+          runtimeConfig: config,
+        }),
+      },
+      credentials,
+      {
+        stop: async () => {},
+        start: async (intent) => {
+          expect(intent.provider).toBe("pi");
+          expect(intent.providerConfig).toEqual({ kind: "coforge", providerId: "openai" });
+          expect(await credentials.launchProviderConfig("agent-1", config)).toEqual({
+            kind: "coforge",
+            providerId: "openai",
+          });
+          restarted = true;
+        },
+      },
+      { run: async (_id, fn) => fn() },
+    );
+    await change.delete(principal, "agent-1");
+    expect(await credentials.summary(principal, "agent-1")).toBeNull();
+    expect(restarted).toBe(true);
+  });
+
   test("stops, saves the credential, then starts with the updated runtime configuration", async () => {
     const { credentialChange, events, starts } = fixture();
 

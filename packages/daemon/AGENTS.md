@@ -140,17 +140,24 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   replays deletion after that request has completed clearing. `persistence/`
   owns atomic records and guarded workspace clearing. This is not a jobs queue,
   Message outbox, or provider parser.
-- `code-agent/` adapts installed provider processes into the provider-neutral
+- `code-agent/` adapts provider runtimes into the provider-neutral
   contract. Higher layers must consume normalized status and activity messages and
   must not parse Claude, Codex, or Pi output. This module inventories external
-  Pi, Codex, and Claude Code installations from Daemon's effective PATH at startup
-  and after reconnect. Built-in CoForge Agent is reported from its embedded version
-  rather than scanned from PATH. It also discovers the model catalogs available to the current Pi,
+  Codex and Claude Code installations from Daemon's effective PATH at startup
+  and after reconnect. Pi and built-in CoForge Agent are reported from their embedded SDK/version
+  rather than scanned from PATH. It also discovers the model catalog available to embedded Pi
+  from the user's Pi resources,
   and Codex accounts, reports the maintained Claude Code model catalog when
   Claude Code is installed, and translates persisted model/reasoning selections
   into each provider's native startup configuration. Claude Code model
   inventory must not launch the CLI to infer a dynamic catalog because its
   machine-readable initialization does not provide a dependable list.
+  Pi's driver embeds the bundled Pi SDK and retains the user's Pi models, settings,
+  packages, extensions, skills, and authentication. An explicit Agent key overrides
+  host authentication only in that session's in-memory model runtime; it is never
+  written or passed in process arguments. Session files remain in the Agent's
+  `.pi-sessions` directory. CoForge uses its isolated bundled resources and
+  `.builtin-sessions` as before.
 - `code-agent/agent-skills.ts` owns bounded, read-only Global/Workspace Skills
   metadata discovery at provider-native roots. `daemon-runtime/` resolves the
   stable Agent directory and routes query/results; it does not parse skill files.

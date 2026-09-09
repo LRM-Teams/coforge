@@ -187,6 +187,7 @@ function Profile({
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [runtimeApiKey, setRuntimeApiKey] = useState("");
   const savingRef = useRef(false);
   const [editError, setEditError] = useState("");
   const [runtimeError, setRuntimeError] = useState("");
@@ -260,6 +261,7 @@ function Profile({
                     modelProvider: String(form.get("modelProvider") ?? ""),
                     model: String(form.get("model") ?? ""),
                     reasoning: String(form.get("reasoning") ?? ""),
+                    apiKey: String(form.get("apiKey") ?? "").trim() || undefined,
                   });
                   setEditOpen(false);
                 } catch {
@@ -310,6 +312,11 @@ function Profile({
                     model: configValue(detail.runtimeConfig, "model"),
                     reasoning: configValue(detail.runtimeConfig, "reasoning"),
                   }}
+                  credentialConfigured={
+                    Boolean(detail.runtimeCredential) &&
+                    (runtime === "pi" || runtime === "coforge") &&
+                    Boolean(providerId)
+                  }
                   onLoad={onLoadRuntimeOptions}
                 />
                 {editError && (
@@ -362,7 +369,7 @@ function Profile({
         <div className="grid min-w-0 gap-5 md:grid-cols-2">
           <RuntimeField
             label={m.agent_runtime_field()}
-            value={providerKind === "coforge" ? m.agent_provider_pi_builtin() : runtime}
+            value={runtime === "coforge" ? m.agent_provider_pi_builtin() : providerLabel(runtime)}
           />
           {providerKind === "coforge" && (
             <>
@@ -413,6 +420,7 @@ function Profile({
         onOpenChange={(open) => {
           if (savingRef.current) return;
           setRuntimeDialogOpen(open);
+          if (!open) setRuntimeApiKey("");
           if (open) setRuntimeError("");
         }}
       >
@@ -429,6 +437,7 @@ function Profile({
                 try {
                   const apiKey = String(new FormData(event.currentTarget).get("apiKey") ?? "");
                   await onSaveRuntimeCredential(apiKey);
+                  setRuntimeApiKey("");
                   setRuntimeDialogOpen(false);
                 } catch {
                   setRuntimeError(m.agent_runtime_save_error());
@@ -461,7 +470,9 @@ function Profile({
               <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
                 <RuntimeField
                   label={m.agent_runtime_field()}
-                  value={providerKind === "coforge" ? m.agent_provider_pi_builtin() : runtime}
+                  value={
+                    runtime === "coforge" ? m.agent_provider_pi_builtin() : providerLabel(runtime)
+                  }
                 />
                 {runtimeError && (
                   <p role="alert" className="text-sm text-destructive-text sm:col-span-2">
@@ -476,6 +487,8 @@ function Profile({
                       <input
                         name="apiKey"
                         type="password"
+                        value={runtimeApiKey}
+                        onChange={(event) => setRuntimeApiKey(event.target.value)}
                         required
                         minLength={8}
                         autoComplete="new-password"
@@ -520,6 +533,7 @@ function Profile({
                         setSaving(true);
                         try {
                           await onDeleteRuntimeCredential();
+                          setRuntimeApiKey("");
                           setRuntimeDialogOpen(false);
                         } catch {
                           setRuntimeError(m.agent_runtime_delete_error());
@@ -538,7 +552,10 @@ function Profile({
                     type="button"
                     variant="outline"
                     disabled={saving}
-                    onClick={() => setRuntimeDialogOpen(false)}
+                    onClick={() => {
+                      setRuntimeApiKey("");
+                      setRuntimeDialogOpen(false);
+                    }}
                   >
                     {m.controls_cancel()}
                   </Button>
@@ -572,6 +589,13 @@ function nestedConfigValue(config: unknown, field: string, nestedField: string) 
   if (!nested || typeof nested !== "object" || Array.isArray(nested)) return "";
   const value = Reflect.get(nested, nestedField);
   return typeof value === "string" ? value : "";
+}
+
+function providerLabel(provider: string) {
+  if (provider === "pi") return "Pi";
+  if (provider === "codex") return "Codex";
+  if (provider === "claude-code") return "Claude Code";
+  return provider;
 }
 
 function RuntimeField({ label, value }: { label: string; value: string }) {

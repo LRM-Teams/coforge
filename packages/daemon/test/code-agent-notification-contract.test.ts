@@ -5,7 +5,6 @@ import { join } from "node:path";
 import type { AgentRuntimeEvent } from "../src/code-agent/contract";
 import { CodexDriver } from "../src/code-agent/codex/driver";
 import { ClaudeCodeDriver } from "../src/code-agent/claude-code/driver";
-import { PiDriver } from "../src/code-agent/pi/driver";
 
 const command = (fixture: string) => [
   process.execPath,
@@ -14,7 +13,6 @@ const command = (fixture: string) => [
 const drivers = [
   new CodexDriver({ command: command("codex-app-server.ts") }),
   new ClaudeCodeDriver({ command: command("claude-stream-json.ts") }),
-  new PiDriver({ command: command("pi-rpc.ts") }),
 ];
 
 for (const driver of drivers) {
