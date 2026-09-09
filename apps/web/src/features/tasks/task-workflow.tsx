@@ -10,7 +10,7 @@ import {
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { Columns3, GripVertical, List } from "lucide-react";
+import { Columns03 as Columns3, DotsGrid as GripVertical, List } from "@untitledui/icons";
 import { useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -35,13 +35,14 @@ export function TaskLayoutToggle({
   onChange: (layout: TaskLayout) => void;
 }) {
   return (
-    <div className="flex rounded-md bg-muted p-0.5" aria-label={m.tasks_layout()}>
+    <div className="inline-flex -space-x-px rounded-lg shadow-xs" aria-label={m.tasks_layout()}>
       {(["board", "list"] as const).map((value) => (
         <Button
           key={value}
           type="button"
           size="xs"
           variant={layout === value ? "secondary" : "ghost"}
+          className="h-9 rounded-none border px-3 text-sm font-semibold first:rounded-l-lg last:rounded-r-lg focus-visible:z-10"
           aria-pressed={layout === value}
           onClick={() => onChange(value)}
         >
@@ -113,7 +114,10 @@ export function TaskWorkflow<T extends TaskView>({
               if (nextStatus) void move(task, nextStatus);
             }}
           >
-            <SelectTrigger aria-label={m.tasks_change_status()} className="h-7 max-w-32 text-xs">
+            <SelectTrigger
+              aria-label={m.tasks_change_status()}
+              className="h-8 max-w-36 rounded-lg text-xs font-medium shadow-xs"
+            >
               <SelectValue>{() => statusLabel(task.status)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -147,10 +151,10 @@ export function TaskWorkflow<T extends TaskView>({
       <div
         className={
           layout === "board" && groups.length > 1
-            ? "grid grid-cols-1 items-start gap-4 md:grid-cols-[repeat(5,minmax(16rem,1fr))]"
+            ? "grid grid-cols-1 items-start gap-6 md:grid-cols-[repeat(5,minmax(17rem,1fr))]"
             : layout === "board"
               ? "grid max-w-sm gap-4"
-              : "flex flex-col gap-5"
+              : "flex flex-col gap-6"
         }
       >
         {groups.map((group) => (
@@ -176,9 +180,9 @@ export function TaskWorkflow<T extends TaskView>({
       </div>
       <DragOverlay dropAnimation={null}>
         {active ? (
-          <div className="w-64 rounded-lg border bg-card p-3 shadow-lg">
+          <div className="w-64 rounded-xl border bg-card p-4 shadow-lg">
             <span className="text-xs text-muted-foreground">#{active.number}</span>
-            <p className="text-sm font-medium">{active.title}</p>
+            <p className="mt-1 text-sm font-semibold">{active.title}</p>
           </div>
         ) : null}
       </DragOverlay>
@@ -250,25 +254,37 @@ function TaskGroup({
       className={
         board
           ? `min-w-0 rounded-xl bg-muted/40 p-3 ${drop.isOver ? "ring-2 ring-ring" : ""}`
-          : "min-w-0"
+          : "min-w-0 overflow-hidden rounded-xl border bg-card shadow-xs"
       }
     >
       <h2
         aria-label={`${statusLabel(status)} ${count}`}
-        className="mb-3 flex items-center gap-2 text-sm font-medium"
+        className={
+          board
+            ? "mb-4 flex items-center gap-2 px-1 text-sm font-semibold"
+            : "flex items-center gap-2 border-b bg-muted/30 px-5 py-4 text-base font-semibold"
+        }
       >
-        <span
-          className={`inline-flex items-center gap-2 rounded-md px-2 py-1 ${statusAppearance[status].background}`}
-        >
+        <span className="inline-flex items-center gap-2">
           <span
-            className={`inline-flex min-h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1 text-xs tabular-nums ${statusAppearance[status].badge}`}
+            aria-hidden="true"
+            className={`size-2 shrink-0 rounded-full ${statusAppearance[status].background}`}
+          />
+          {statusLabel(status)}
+          <span
+            className={`inline-flex min-h-5 min-w-6 shrink-0 items-center justify-center rounded-md px-1.5 text-xs font-medium tabular-nums ring-1 ring-inset ring-border ${statusAppearance[status].badge}`}
           >
             {count}
           </span>
-          {statusLabel(status)}
         </span>
       </h2>
-      <div className={board ? "flex min-h-24 flex-col gap-3" : "flex flex-col gap-2"}>
+      <div
+        className={
+          board
+            ? "flex min-h-24 flex-col gap-3"
+            : "flex flex-col divide-y [&_article]:rounded-none [&_article]:border-0 [&_article]:shadow-none"
+        }
+      >
         {children}
       </div>
     </section>
@@ -286,11 +302,11 @@ export function statusLabel(status: TaskStatus) {
 }
 
 const statusAppearance = {
-  todo: { background: "bg-muted", badge: "bg-muted-foreground/15" },
-  in_progress: { background: "bg-info/10", badge: "bg-info/20" },
-  in_review: { background: "bg-brand/10", badge: "bg-brand/20" },
-  done: { background: "bg-success/10", badge: "bg-success/20" },
-  closed: { background: "bg-offline/15", badge: "bg-offline/25" },
+  todo: { background: "bg-muted-foreground", badge: "bg-card" },
+  in_progress: { background: "bg-info", badge: "bg-card" },
+  in_review: { background: "bg-brand", badge: "bg-card" },
+  done: { background: "bg-success", badge: "bg-card" },
+  closed: { background: "bg-offline", badge: "bg-card" },
 } satisfies Record<TaskStatus, { background: string; badge: string }>;
 
 function parseTaskStatus(value: string | null): TaskStatus | undefined {

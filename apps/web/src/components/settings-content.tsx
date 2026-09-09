@@ -1,29 +1,25 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
-  BellRing,
+  BellRinging01 as BellRing,
   Check,
-  Clock3,
-  Languages,
-  Moon,
-  SlidersHorizontal,
+  ChevronLeft,
+  Clock as Clock3,
+  Translate01 as Languages,
+  Moon01 as Moon,
+  Sliders01 as SlidersHorizontal,
   Sun,
-  SunMoon,
-  Upload,
-  UserRound,
-  Users,
-} from "lucide-react";
+  SunSetting01 as SunMoon,
+  Upload01 as Upload,
+  UserCircle as UserRound,
+  Users01 as Users,
+} from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Avatar } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxItem,
-  ComboboxTrigger,
-  ComboboxValue,
-} from "@/components/ui/combobox";
+import { ComboBox } from "@/components/base/select/combobox";
+import { SelectItem } from "@/components/base/select/select-item";
 import { WorkspaceMembersPanel } from "@/features/workspaces/workspace-members-panel";
 import { cn } from "@/lib/utils";
 import { isAppError } from "@/lib/app-error";
@@ -82,39 +78,44 @@ interface SettingsContentProps {
 
 export function SettingsPending() {
   return (
-    <main aria-busy="true" className="flex h-svh min-w-0 flex-col gap-2 p-2 md:flex-row">
+    <main aria-busy="true" className="flex h-svh min-w-0 md:gap-2 md:p-2">
       <p role="status" className="sr-only">
         {m.settings_loading()}
       </p>
-      <nav className="shrink-0 overflow-hidden rounded-xl border bg-card md:flex md:w-64 md:flex-col">
-        <div className="hidden md:block">
-          <PageHeader heading={m.settings_title()} />
-        </div>
-        <div className="grid grid-cols-3 gap-1 p-2 md:block md:space-y-1">
-          {[m.settings_account(), m.settings_preferences(), m.settings_notifications()].map(
-            (label) => (
-              <div key={label} className="flex h-10 items-center gap-2.5 px-3 text-sm">
-                <Skeleton className="hidden size-4 shrink-0 sm:block" />
-                <span className="truncate">{label}</span>
-              </div>
-            ),
-          )}
+      <nav className="flex w-full min-w-0 flex-col overflow-hidden bg-card md:w-60 md:shrink-0 md:rounded-xl md:border">
+        <PageHeader heading={m.settings_title()} />
+        <div className="space-y-5 overflow-y-auto p-3">
+          {[
+            {
+              label: m.settings_personal_group(),
+              items: [m.settings_account(), m.settings_preferences(), m.settings_notifications()],
+            },
+            { label: m.settings_workspace_group(), items: [m.settings_members()] },
+          ].map((group) => (
+            <SettingsNavigationGroup key={group.label} label={group.label}>
+              {group.items.map((label) => (
+                <li key={label} className="flex h-11 items-center gap-3 px-3 text-sm font-medium">
+                  <span>{label}</span>
+                </li>
+              ))}
+            </SettingsNavigationGroup>
+          ))}
         </div>
       </nav>
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card">
+      <section className="@container/settings hidden min-w-0 flex-1 flex-col overflow-hidden bg-card md:flex md:rounded-xl md:border">
         <PageHeader heading={m.settings_account()} />
-        <div className="mx-auto w-full max-w-4xl p-4 sm:p-6 lg:p-8">
-          <section className="overflow-hidden rounded-xl border bg-background">
-            <header className="flex min-h-16 items-center px-5 py-3 sm:px-6">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6">
+          <section>
+            <header className="flex min-h-16 items-center pb-5">
               <h2 className="text-lg font-semibold">{m.settings_profile()}</h2>
             </header>
-            <div
-              aria-hidden="true"
-              className="grid items-center gap-5 border-t p-5 motion-safe:animate-pulse sm:p-6 md:grid-cols-[auto_repeat(3,minmax(0,1fr))] md:gap-8"
-            >
+            <div aria-hidden="true" className="space-y-6 border-t py-6 motion-safe:animate-pulse">
               <Skeleton className="size-20 rounded-full" />
               {["w-3/5", "w-4/5", "w-2/3"].map((width) => (
-                <div key={width} className="space-y-2">
+                <div
+                  key={width}
+                  className="grid gap-2 border-t pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8"
+                >
                   <Skeleton className="h-3 w-16" />
                   <Skeleton className={`h-4 ${width}`} />
                 </div>
@@ -122,7 +123,7 @@ export function SettingsPending() {
             </div>
             <div
               aria-hidden="true"
-              className="space-y-2 border-t px-5 py-4 motion-safe:animate-pulse sm:px-6"
+              className="grid gap-2 border-t py-5 motion-safe:animate-pulse @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8"
             >
               <Skeleton className="h-3 w-20" />
               <Skeleton className="h-4 w-3/5" />
@@ -136,44 +137,85 @@ export function SettingsPending() {
 
 export function SettingsContent(props: SettingsContentProps) {
   const [section, setSection] = useState<SettingsSection>("account");
+  const [showList, setShowList] = useState(true);
+  const sectionLabel =
+    section === "account"
+      ? m.settings_account()
+      : section === "members"
+        ? m.settings_members()
+        : section === "preferences"
+          ? m.settings_preferences()
+          : m.settings_notifications();
+
+  function selectSection(next: SettingsSection) {
+    setSection(next);
+    setShowList(false);
+  }
 
   return (
-    <main className="flex h-svh min-w-0 flex-col gap-2 p-2 md:flex-row">
-      <nav className="shrink-0 overflow-hidden rounded-xl border bg-card md:flex md:w-64 md:flex-col">
-        <div className="hidden md:block">
-          <PageHeader heading={m.settings_title()} />
-        </div>
-        <div className="grid grid-cols-2 gap-1 p-2 sm:grid-cols-4 md:block md:space-y-1">
-          <SettingsNavigationButton
-            active={section === "account"}
-            icon={<UserRound aria-hidden="true" />}
-            label={m.settings_account()}
-            onClick={() => setSection("account")}
-          />
-          <SettingsNavigationButton
-            active={section === "members"}
-            icon={<Users aria-hidden="true" />}
-            label={m.settings_members()}
-            onClick={() => setSection("members")}
-          />
-          <SettingsNavigationButton
-            active={section === "preferences"}
-            icon={<SlidersHorizontal aria-hidden="true" />}
-            label={m.settings_preferences()}
-            onClick={() => setSection("preferences")}
-          />
-          <SettingsNavigationButton
-            active={section === "notifications"}
-            icon={<BellRing aria-hidden="true" />}
-            label={m.settings_notifications()}
-            onClick={() => setSection("notifications")}
-          />
+    <main className="flex h-svh min-w-0 md:gap-2 md:p-2">
+      <nav
+        aria-label={m.settings_title()}
+        className={cn(
+          "min-w-0 flex-col overflow-hidden bg-card md:flex md:w-60 md:shrink-0 md:rounded-xl md:border",
+          showList ? "flex w-full" : "hidden",
+        )}
+      >
+        <PageHeader heading={m.settings_title()} />
+        <div className="space-y-5 overflow-y-auto p-3">
+          <SettingsNavigationGroup label={m.settings_personal_group()}>
+            <SettingsNavigationButton
+              active={section === "account"}
+              icon={<UserRound aria-hidden="true" />}
+              label={m.settings_account()}
+              onClick={() => selectSection("account")}
+            />
+            <SettingsNavigationButton
+              active={section === "preferences"}
+              icon={<SlidersHorizontal aria-hidden="true" />}
+              label={m.settings_preferences()}
+              onClick={() => selectSection("preferences")}
+            />
+            <SettingsNavigationButton
+              active={section === "notifications"}
+              icon={<BellRing aria-hidden="true" />}
+              label={m.settings_notifications()}
+              onClick={() => selectSection("notifications")}
+            />
+          </SettingsNavigationGroup>
+          <SettingsNavigationGroup label={m.settings_workspace_group()}>
+            <SettingsNavigationButton
+              active={section === "members"}
+              icon={<Users aria-hidden="true" />}
+              label={m.settings_members()}
+              onClick={() => selectSection("members")}
+            />
+          </SettingsNavigationGroup>
         </div>
       </nav>
-
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card">
+      <section
+        className={cn(
+          "@container/settings min-w-0 flex-1 flex-col overflow-hidden bg-card md:flex md:rounded-xl md:border",
+          showList ? "hidden" : "flex",
+        )}
+      >
         <PageHeader
-          heading={
+          heading={sectionLabel}
+          leading={
+            <Button
+              variant="ghost"
+              size="icon"
+              className="-ml-2 size-11 md:hidden"
+              aria-label={m.settings_title()}
+              onClick={() => setShowList(true)}
+            >
+              <ChevronLeft aria-hidden="true" className="size-5" />
+            </Button>
+          }
+        />
+
+        <section
+          aria-label={
             section === "account"
               ? m.settings_account()
               : section === "members"
@@ -182,26 +224,45 @@ export function SettingsContent(props: SettingsContentProps) {
                   ? m.settings_preferences()
                   : m.settings_notifications()
           }
-        />
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {section === "account" ? (
-            <AccountSettings {...props} />
-          ) : section === "members" ? (
-            <WorkspaceMembersPanel
-              actorUserId={props.members.actorUserId}
-              actorRole={props.members.actorRole}
-              members={props.members.members}
-              pendingInvitations={props.members.pendingInvitations}
-              incomingInvitations={props.members.incomingInvitations}
-            />
-          ) : section === "preferences" ? (
-            <Preferences {...props} />
-          ) : (
-            <NotificationSettings {...props} />
-          )}
-        </div>
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
+        >
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {section === "account" ? (
+              <AccountSettings {...props} />
+            ) : section === "members" ? (
+              <WorkspaceMembersPanel
+                actorUserId={props.members.actorUserId}
+                actorRole={props.members.actorRole}
+                members={props.members.members}
+                pendingInvitations={props.members.pendingInvitations}
+                incomingInvitations={props.members.incomingInvitations}
+              />
+            ) : section === "preferences" ? (
+              <Preferences {...props} />
+            ) : (
+              <NotificationSettings {...props} />
+            )}
+          </div>
+        </section>
       </section>
     </main>
+  );
+}
+
+function SettingsNavigationGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <h2 className="px-3 pt-2 pb-2 text-xs font-semibold text-muted-foreground">{label}</h2>
+      <ul aria-label={label} className="space-y-1">
+        {children}
+      </ul>
+    </div>
   );
 }
 
@@ -217,20 +278,21 @@ function SettingsNavigationButton({
   onClick: () => void;
 }) {
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      aria-current={active ? "page" : undefined}
-      onClick={onClick}
-      className={cn(
-        "flex h-10 w-full items-center gap-1.5 rounded-lg px-2 text-left text-xs hover:bg-muted sm:gap-2.5 sm:px-3 sm:text-sm",
-        "h-10 w-full justify-start gap-2.5 px-3 text-left",
-        active && "bg-muted font-medium text-accent-foreground",
-      )}
-    >
-      <span className="hidden sm:inline-flex [&_svg]:size-4">{icon}</span>
-      <span className="truncate">{label}</span>
-    </Button>
+    <li>
+      <Button
+        type="button"
+        variant="ghost"
+        aria-current={active ? "page" : undefined}
+        onClick={onClick}
+        className={cn(
+          "h-11 w-full min-w-0 justify-start gap-3 rounded-lg px-3 text-sm font-medium",
+          active && "bg-brand/10 text-brand",
+        )}
+      >
+        <span className="inline-flex shrink-0 [&_svg]:size-4">{icon}</span>
+        <span className="truncate">{label}</span>
+      </Button>
+    </li>
   );
 }
 
@@ -324,9 +386,9 @@ function AccountSettings({
   const changed = avatarChanged || name !== profile.name || description !== profile.description;
 
   return (
-    <div className="mx-auto w-full max-w-4xl p-4 sm:p-6 lg:p-8">
-      <section className="overflow-hidden rounded-xl border bg-background">
-        <header className="flex min-h-16 items-center justify-between gap-4 px-5 py-3 sm:px-6">
+    <div className="w-full px-4 pb-8 sm:px-6">
+      <section>
+        <header className="flex min-h-16 items-center justify-between gap-4 py-5">
           <h2 className="text-lg font-semibold">{m.settings_profile()}</h2>
           {!editing && (
             <Button type="button" variant="outline" onClick={startEditing}>
@@ -337,7 +399,7 @@ function AccountSettings({
 
         {editing ? (
           <>
-            <div className="border-t p-5 sm:p-6">
+            <div className="border-t py-6">
               <div className="flex flex-wrap items-center gap-4">
                 <Avatar
                   people={[
@@ -350,7 +412,12 @@ function AccountSettings({
                   className="size-20 rounded-full text-xl"
                 />
                 <div className="flex flex-wrap items-center gap-2">
-                  <label className={buttonVariants({ variant: "outline" })}>
+                  <label
+                    className={cn(
+                      buttonVariants({ variant: "outline" }),
+                      "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
+                    )}
+                  >
                     <Upload aria-hidden="true" />
                     {m.settings_avatar_change()}
                     <input
@@ -379,8 +446,8 @@ function AccountSettings({
               </div>
               <p className="mt-2 text-xs text-muted-foreground">{m.settings_avatar_help()}</p>
 
-              <div className="mt-7">
-                <label htmlFor="profile-name" className="text-sm font-medium">
+              <div className="mt-6 grid gap-3 border-t pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
+                <label htmlFor="profile-name" className="text-sm font-semibold @2xl/settings:pt-2">
                   {m.settings_name()}
                 </label>
                 <input
@@ -389,31 +456,36 @@ function AccountSettings({
                   maxLength={80}
                   disabled={saving}
                   onChange={(event) => setName(event.target.value)}
-                  className="mt-2 h-10 w-full rounded-lg border bg-card px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                  className="h-10 w-full max-w-xl rounded-lg border bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-50"
                 />
               </div>
 
-              <div className="mt-5">
-                <label htmlFor="profile-description" className="text-sm font-medium">
+              <div className="mt-5 grid gap-3 border-t pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
+                <label
+                  htmlFor="profile-description"
+                  className="text-sm font-semibold @2xl/settings:pt-2"
+                >
                   {m.settings_user_description()}
                 </label>
-                <textarea
-                  id="profile-description"
-                  value={description}
-                  maxLength={280}
-                  rows={4}
-                  placeholder={m.settings_user_description_placeholder()}
-                  disabled={saving}
-                  onChange={(event) => setDescription(event.target.value)}
-                  className="mt-2 w-full resize-none rounded-lg border bg-card px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                />
-                <p className="mt-2 text-right font-mono text-xs tracking-tight text-muted-foreground tabular-nums">
-                  {description.length}/280
-                </p>
+                <div className="min-w-0 max-w-xl">
+                  <textarea
+                    id="profile-description"
+                    value={description}
+                    maxLength={280}
+                    rows={4}
+                    placeholder={m.settings_user_description_placeholder()}
+                    disabled={saving}
+                    onChange={(event) => setDescription(event.target.value)}
+                    className="w-full resize-none rounded-lg border bg-background px-3 py-2 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-50"
+                  />
+                  <p className="mt-2 text-right text-sm text-muted-foreground tabular-nums">
+                    {description.length}/280
+                  </p>
+                </div>
               </div>
             </div>
 
-            <footer className="flex flex-wrap items-center justify-end gap-2 border-t px-5 py-4 sm:px-6">
+            <footer className="flex flex-wrap items-center justify-end gap-3 border-t py-4">
               {saveError && (
                 <p role="alert" className="mr-auto text-sm text-destructive-text">
                   {saveError}
@@ -430,27 +502,31 @@ function AccountSettings({
         ) : (
           <>
             {saveSuccess && (
-              <p role="status" className="border-t px-5 py-3 text-sm text-muted-foreground sm:px-6">
+              <p role="status" className="border-t py-3 text-sm text-muted-foreground">
                 <Check aria-hidden="true" className="mr-2 inline size-4 text-primary" />
                 {m.settings_profile_save_success()}
               </p>
             )}
-            <div className="grid items-center gap-5 border-t p-5 sm:p-6 md:grid-cols-[auto_repeat(3,minmax(0,1fr))] md:gap-8">
+            <div className="flex min-w-0 items-center gap-4 border-t py-6">
               <Avatar
                 people={[{ name: profile.name, src: profile.avatarUrl }]}
                 size="xl"
                 className="size-20 rounded-full text-xl"
               />
+              <div className="min-w-0">
+                <p className="break-words text-lg font-semibold">{profile.name}</p>
+                <p className="break-words text-sm text-muted-foreground">@{profile.username}</p>
+              </div>
+            </div>
+            <dl className="divide-y border-y">
               <ProfileValue label={m.settings_name()} value={profile.name} />
               <ProfileValue label={m.settings_email()} value={profile.email} />
               <ProfileValue label={m.settings_username()} value={`@${profile.username}`} />
-            </div>
-            <div className="border-t px-5 py-4 sm:px-6">
-              <p className="text-xs text-muted-foreground">{m.settings_user_description()}</p>
-              <p className={cn("mt-1 text-sm", !profile.description && "text-muted-foreground")}>
-                {profile.description || "-"}
-              </p>
-            </div>
+              <ProfileValue
+                label={m.settings_user_description()}
+                value={profile.description || "-"}
+              />
+            </dl>
           </>
         )}
       </section>
@@ -460,9 +536,11 @@ function AccountSettings({
 
 function ProfileValue({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="mt-1 truncate text-sm font-medium">{value}</dd>
+    <div className="grid min-w-0 gap-2 py-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
+      <dt className="text-sm font-semibold">{label}</dt>
+      <dd className="min-w-0 max-w-xl text-sm break-words whitespace-pre-wrap text-muted-foreground">
+        {value}
+      </dd>
     </div>
   );
 }
@@ -476,16 +554,15 @@ function Preferences({
   onTimeZoneChange,
 }: SettingsContentProps) {
   const timeZoneOptions = getTimeZoneOptions(m.preferences_system());
-  const selectedTimeZone = timeZoneOptions.find((option) => option.value === (timeZone ?? ""));
 
   return (
-    <div className="mx-auto w-full max-w-3xl p-4 sm:p-6 lg:p-8">
-      <div className="space-y-4">
+    <div className="w-full px-4 pb-8 sm:px-6">
+      <div className="divide-y border-b">
         <PreferenceSection
           icon={<Languages aria-hidden="true" />}
           heading={m.preferences_language()}
         >
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 @lg/settings:grid-cols-2">
             <PreferenceButton
               selected={locale === "en"}
               label={m.preferences_english()}
@@ -500,28 +577,20 @@ function Preferences({
         </PreferenceSection>
 
         <PreferenceSection icon={<Clock3 aria-hidden="true" />} heading={m.preferences_time_zone()}>
-          <Combobox
+          <ComboBox
+            aria-label={m.preferences_time_zone()}
+            className="untitled-ui"
+            popoverClassName="untitled-ui"
+            placeholder={m.preferences_time_zone_search_placeholder()}
+            shortcut={false}
             items={timeZoneOptions}
-            value={selectedTimeZone}
-            isItemEqualToValue={(option, value) => option.value === value.value}
-            filter={(option, query) => option.searchText.includes(query.trim().toLocaleLowerCase())}
-            onValueChange={(option) => option && onTimeZoneChange(option.value)}
+            selectedKey={timeZone || "system"}
+            onSelectionChange={(key) => {
+              if (key !== null) onTimeZoneChange(key === "system" ? "" : String(key));
+            }}
           >
-            <ComboboxTrigger aria-label={m.preferences_time_zone()}>
-              <ComboboxValue placeholder={m.preferences_system()} />
-            </ComboboxTrigger>
-            <ComboboxContent
-              searchLabel={m.preferences_time_zone_search()}
-              searchPlaceholder={m.preferences_time_zone_search_placeholder()}
-              emptyLabel={m.preferences_time_zone_no_results()}
-            >
-              {(option: TimeZoneOption) => (
-                <ComboboxItem key={option.value || "system"} value={option}>
-                  {option.label}
-                </ComboboxItem>
-              )}
-            </ComboboxContent>
-          </Combobox>
+            {(option) => <SelectItem id={option.id} label={option.label} />}
+          </ComboBox>
         </PreferenceSection>
 
         <PreferenceSection
@@ -536,7 +605,7 @@ function Preferences({
           }
           heading={m.preferences_appearance()}
         >
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-2 @lg/settings:grid-cols-3">
             <PreferenceButton
               selected={theme === "system"}
               label={m.preferences_system()}
@@ -582,9 +651,9 @@ function NotificationSettings({
           : m.preferences_browser_notifications_off();
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 p-4 sm:p-6 lg:p-8">
-      <section className="overflow-hidden rounded-xl border bg-background">
-        <div className="flex items-start justify-between gap-5 p-5 sm:p-6">
+    <div className="w-full space-y-6 px-4 pb-8 sm:px-6">
+      <section className="border-b">
+        <div className="flex items-start justify-between gap-5 py-5">
           <div className="min-w-0">
             <h2 className="font-semibold">{m.notifications_push_title()}</h2>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -613,19 +682,19 @@ function NotificationSettings({
               }
             }}
             className={cn(
-              "relative mt-0.5 h-6 w-11 shrink-0 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-              browserNotificationsEnabled ? "border-brand bg-brand" : "bg-muted",
+              "relative mt-0.5 h-6 w-11 shrink-0 rounded-full p-0.5 ring-1 ring-border ring-inset transition-colors disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none",
+              browserNotificationsEnabled ? "bg-brand hover:bg-brand" : "bg-muted hover:bg-muted",
             )}
           >
             <span
               className={cn(
-                "absolute top-0.5 left-0 size-4.5 rounded-full bg-background shadow-sm transition-transform",
-                browserNotificationsEnabled ? "translate-x-5" : "translate-x-0.5",
+                "absolute top-0.5 left-0.5 size-5 rounded-full bg-brand-foreground shadow-sm transition-transform motion-reduce:transition-none",
+                browserNotificationsEnabled ? "translate-x-5" : "translate-x-0",
               )}
             />
           </Button>
         </div>
-        <div className="flex flex-wrap items-center gap-2 border-t px-5 py-4 sm:px-6">
+        <div className="flex flex-wrap items-center gap-3 border-t py-4">
           <span className="mr-auto text-sm text-muted-foreground">{status}</span>
           {browserNotificationsEnabled &&
             browserNotificationsConfigured &&
@@ -676,7 +745,7 @@ function NotificationSettings({
         </div>
       </section>
       {showAddToHomeScreenGuide && (
-        <section className="rounded-xl border bg-background p-5 sm:p-6">
+        <section className="rounded-xl border bg-muted/30 p-5 sm:p-6">
           <h2 className="font-semibold">{m.notifications_home_screen_title()}</h2>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             {m.notifications_home_screen_description()}
@@ -702,20 +771,19 @@ function PreferenceSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border bg-background p-4 sm:p-5">
+    <section className="grid gap-4 py-6 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
       <div className="flex items-start gap-3">
         <span className="mt-0.5 text-muted-foreground [&_svg]:size-4">{icon}</span>
         <h3 className="text-sm font-semibold">{heading}</h3>
       </div>
-      <div className="mt-5">{children}</div>
+      <div className="min-w-0 max-w-xl">{children}</div>
     </section>
   );
 }
 
 interface TimeZoneOption {
-  value: string;
+  id: string;
   label: string;
-  searchText: string;
   offsetMinutes: number;
 }
 
@@ -729,9 +797,8 @@ const TIME_ZONES = Array.from(
 function getTimeZoneOptions(systemLabel: string): TimeZoneOption[] {
   return [
     {
-      value: "",
+      id: "system",
       label: systemLabel,
-      searchText: systemLabel.toLocaleLowerCase(),
       offsetMinutes: 0,
     },
     ...TIME_ZONE_OPTIONS,
@@ -744,9 +811,8 @@ const TIME_ZONE_OPTIONS = TIME_ZONES.map((timeZone) => {
   const label = `(${offset.label}) ${city} - ${timeZone}`;
 
   return {
-    value: timeZone,
+    id: timeZone,
     label,
-    searchText: `${label} ${timeZone.replaceAll("_", " ")}`.toLocaleLowerCase(),
     offsetMinutes: offset.minutes,
   };
 }).sort(
@@ -790,8 +856,8 @@ function PreferenceButton({
       aria-pressed={selected}
       onClick={onClick}
       className={cn(
-        "h-10 w-full justify-start bg-card px-3 text-left",
-        selected && "border-brand bg-accent text-accent-foreground",
+        "min-h-12 min-w-0 w-full justify-start gap-3 bg-background px-4 text-left whitespace-normal shadow-xs",
+        selected && "border-brand bg-brand/5 text-accent-foreground ring-1 ring-brand",
       )}
     >
       {label}

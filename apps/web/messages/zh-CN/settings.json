@@ -8,6 +8,8 @@
   "preferences_light": "浅色",
   "preferences_dark": "深色",
   "settings_title": "设置",
+  "settings_personal_group": "个人",
+  "settings_workspace_group": "工作区",
   "settings_loading": "正在加载设置…",
   "settings_account": "账户",
   "settings_members": "成员",

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -136,27 +137,31 @@ function Face({
   initials?: string;
   className?: string;
 }) {
-  if (person.src) {
-    return (
-      <img
-        src={person.src}
-        alt=""
-        className={cn("shrink-0 object-cover", sizeClassName[size], className)}
-      />
-    );
-  }
+  const [imageFailed, setImageFailed] = useState(false);
+  const imageSource = imageFailed ? null : person.src;
 
   return (
     <span
+      data-avatar
       aria-hidden="true"
       className={cn(
-        "flex shrink-0 items-center justify-center font-semibold text-white",
+        "relative flex shrink-0 items-center justify-center overflow-hidden font-semibold text-white outline-[0.5px] -outline-offset-[0.5px] outline-black/16",
         sizeClassName[size],
         toneClassName[toneOf(person)],
         className,
       )}
     >
-      {initials ?? initialOf(person.name)}
+      {imageSource ? (
+        <img
+          data-avatar-img
+          src={imageSource}
+          alt=""
+          className="size-full object-cover"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        (initials ?? initialOf(person.name))
+      )}
     </span>
   );
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertCircle, RotateCcw, X } from "lucide-react";
+import { AlertCircle, RefreshCcw01 as RotateCcw, XClose as X } from "@untitledui/icons";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -64,7 +64,7 @@ export function AgentControl({
   }
 
   return (
-    <section className="rounded-xl border bg-card p-5 lg:col-span-2" data-agent-control>
+    <section className="py-6" data-agent-control>
       <div className="flex items-center justify-between gap-4">
         <h2 className="font-semibold">{m.agent_control_title()}</h2>
         <Button

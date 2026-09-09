@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Cloud, Monitor, X } from "lucide-react";
+import { Cloud01 as Cloud, Monitor01 as Monitor, XClose as X } from "@untitledui/icons";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -45,7 +45,10 @@ export function AddComputerDialog({
           <div className="flex items-start justify-between gap-6 px-6 pt-6 sm:px-8 sm:pt-8">
             <div>
               <DialogTitle>{m.computer_add_title()}</DialogTitle>
-              <DialogDescription id="add-computer-description" className="mt-2 max-w-xl text-base">
+              <DialogDescription
+                id="add-computer-description"
+                className="mt-1 max-w-xl text-sm leading-6"
+              >
                 {step === "choose"
                   ? m.computer_add_description()
                   : m.computer_install_description()}
@@ -61,7 +64,7 @@ export function AddComputerDialog({
           </div>
 
           {step === "choose" ? (
-            <div className="grid gap-4 px-6 py-8 sm:grid-cols-2 sm:px-8">
+            <div className="grid gap-3 px-6 py-6 sm:grid-cols-2 sm:px-8">
               <ComputerTypeOption
                 icon={Monitor}
                 label={m.computer_your_computer()}

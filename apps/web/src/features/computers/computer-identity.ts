@@ -1,4 +1,4 @@
-import { Cloud, Monitor, type LucideIcon } from "lucide-react";
+import { Cloud01 as Cloud, Monitor01 as Monitor } from "@untitledui/icons";
 
 import { m } from "@/paraglide/messages";
 
@@ -31,7 +31,7 @@ export function computerLabel(computer: ComputerIdentity): string {
   );
 }
 
-export function computerIcon(computer: ComputerIdentity): LucideIcon {
+export function computerIcon(computer: ComputerIdentity): typeof Cloud | typeof Monitor {
   if (computerKind(computer.kind) === "cloud") return Cloud;
   return Monitor;
 }

@@ -1,5 +1,5 @@
 import { useMatch, useRouter } from "@tanstack/react-router";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle } from "@untitledui/icons";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,20 +8,20 @@ import { BackToComputers } from "./computer-layout";
 
 export function ComputersPending() {
   return (
-    <main aria-busy="true" className="flex h-svh min-w-0 gap-2 p-2">
+    <main aria-busy="true" className="flex h-svh min-w-0 md:gap-2 md:p-2">
       <p role="status" className="sr-only">
         {m.computer_loading()}
       </p>
       <nav
         aria-label={m.computer_connected_list()}
-        className="hidden w-72 shrink-0 flex-col overflow-hidden rounded-xl border bg-card md:flex"
+        className="hidden w-80 shrink-0 flex-col overflow-hidden rounded-xl border bg-card md:flex"
       >
         <div className="flex h-14 shrink-0 items-center border-b px-5">
           <h1 className="text-base font-medium">{m.computer_page_title()}</h1>
         </div>
-        <div aria-hidden="true" className="space-y-1 p-2 motion-safe:animate-pulse">
+        <div aria-hidden="true" className="space-y-1 p-3 motion-safe:animate-pulse">
           {["w-3/5", "w-2/5", "w-1/2"].map((width) => (
-            <div key={width} className="flex h-14 items-center gap-3 px-2.5">
+            <div key={width} className="flex h-18 items-center gap-3 px-3">
               <Skeleton className="size-8 shrink-0 rounded-lg" />
               <div className="min-w-0 flex-1 space-y-2">
                 <Skeleton className={`h-3 ${width}`} />
@@ -31,7 +31,7 @@ export function ComputersPending() {
           ))}
         </div>
       </nav>
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card">
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card md:rounded-xl md:border">
         <ComputerDetailSkeleton announce={false} />
       </section>
     </main>
@@ -55,12 +55,15 @@ function ComputerDetailSkeleton({ announce }: { announce: boolean }) {
         <Skeleton className="size-8 shrink-0 rounded-lg" />
         <Skeleton className="h-4 w-36" />
       </header>
-      <div aria-hidden="true" className="space-y-8 p-4 motion-safe:animate-pulse sm:p-6">
+      <div
+        aria-hidden="true"
+        className="@container space-y-8 overflow-y-auto p-4 motion-safe:animate-pulse sm:p-6 lg:p-8"
+      >
         <div className="space-y-3">
           <Skeleton className="h-4 w-20" />
-          <div className="grid gap-4 sm:grid-cols-2">
-            {["w-32", "w-40", "w-28"].map((width) => (
-              <div key={width} className="space-y-2">
+          <div className="divide-y border-y">
+            {["w-32", "w-40", "w-28", "w-20", "w-36", "w-24"].map((width) => (
+              <div key={width} className="grid gap-2 py-4 @lg:grid-cols-[minmax(8rem,1fr)_2fr]">
                 <Skeleton className="h-3 w-24" />
                 <Skeleton className={`h-4 ${width}`} />
               </div>

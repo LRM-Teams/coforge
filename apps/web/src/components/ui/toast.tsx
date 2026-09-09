@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { AlertCircle, CheckCircle } from "@untitledui/icons";
 import { Toaster, toast } from "sonner";
 
 import { isAppError } from "@/lib/app-error";
@@ -40,7 +40,7 @@ export function AppToastProvider({ children }: { children: React.ReactNode }) {
         mobileOffset={offset}
         style={toastStyle}
         icons={{
-          success: <CheckCircle2 aria-hidden="true" className="size-4 text-primary" />,
+          success: <CheckCircle aria-hidden="true" className="size-4 text-primary" />,
           error: <AlertCircle aria-hidden="true" className="size-4 text-destructive" />,
         }}
         toastOptions={{

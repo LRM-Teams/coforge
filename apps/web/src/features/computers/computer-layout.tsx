@@ -1,6 +1,11 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { Cable, ChevronLeft, LaptopMinimal, Plus } from "lucide-react";
+import {
+  Dataflow03 as Cable,
+  ChevronLeft,
+  Laptop01 as LaptopMinimal,
+  Plus,
+} from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
@@ -68,13 +73,13 @@ export function ComputerLayout({
       <nav
         aria-label={m.computer_connected_list()}
         className={cn(
-          "min-w-0 flex-col overflow-hidden bg-card md:flex md:w-72 md:shrink-0 md:rounded-xl md:border",
+          "min-w-0 flex-col overflow-hidden bg-card md:flex md:w-80 md:shrink-0 md:rounded-xl md:border",
           listHidden ? "hidden" : "flex w-full",
         )}
       >
         <PageHeader heading={m.computer_page_title()} actions={<AddComputer onAdd={onAdd} />} />
 
-        <ul className="flex-1 space-y-1 overflow-y-auto p-2">
+        <ul className="flex-1 space-y-1 overflow-y-auto p-3">
           {computers.map((computer) => {
             const selected = computer.id === selectedComputerId;
             return (
@@ -86,15 +91,17 @@ export function ComputerLayout({
                   resetScroll={false}
                   onClick={() => setShowMobileList(false)}
                   className={cn(
-                    "flex min-h-14 min-w-0 items-center gap-3 rounded-lg px-3 py-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                    "group flex min-h-18 min-w-0 items-center gap-3 rounded-lg px-3 py-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                     selected
-                      ? "bg-accent/50 text-accent-foreground hover:bg-accent/70"
+                      ? "bg-secondary text-brand hover:bg-secondary-hover"
                       : "hover:bg-muted",
                   )}
                 >
                   <ComputerTile computer={computer} online={computer.online} />
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="truncate text-sm font-medium">{computerLabel(computer)}</span>
+                  <span className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="truncate text-sm font-semibold">
+                      {computerLabel(computer)}
+                    </span>
                     {computer.computerVersion && (
                       <span
                         className="truncate text-xs text-muted-foreground"
@@ -127,7 +134,7 @@ export function ComputerLayout({
 
 function AddComputer({ onAdd }: { onAdd: () => void }) {
   return (
-    <Button size="sm" onClick={onAdd}>
+    <Button size="sm" variant="outline" onClick={onAdd}>
       <Plus aria-hidden="true" data-icon="inline-start" />
       {m.computer_add_title()}
     </Button>

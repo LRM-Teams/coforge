@@ -125,8 +125,7 @@ test("thread replies stay out of main history and preserve separate drafts and m
   );
   const history = page.getByLabelText("Message history");
   expect(history.className).toContain("overflow-y-auto");
-  expect(history.className).toContain("[scrollbar-width:none]");
-  expect(history.className).toContain("[&::-webkit-scrollbar]:hidden");
+  expect(history.className).toContain("[scrollbar-width:thin]");
   expect(history.querySelectorAll("[data-message]")).toHaveLength(1);
   history.scrollTop = 123;
   const mainComposer = page.getByLabelText("Message") as HTMLTextAreaElement;
@@ -140,8 +139,7 @@ test("thread replies stay out of main history and preserve separate drafts and m
   const discussion = within(page.getByRole("region", { name: "Thread" }));
   const threadHistory = discussion.getByLabelText("Thread");
   expect(threadHistory.className).toContain("overflow-y-auto");
-  expect(threadHistory.className).toContain("[scrollbar-width:none]");
-  expect(threadHistory.className).toContain("[&::-webkit-scrollbar]:hidden");
+  expect(threadHistory.className).toContain("[scrollbar-width:thin]");
   expect(discussion.queryByText(/Original message/)).toBeNull();
   expect(discussion.getByText("Only in discussion")).toBeTruthy();
   expect(discussion.queryByRole("button", { name: "Reply in thread" })).toBeNull();
@@ -301,8 +299,13 @@ test("renders persisted messages in sequence order with distinct senders", () =>
   expect(messages[0]?.querySelector(":scope > [aria-hidden]")).toBeNull();
   expect(messages[1]?.querySelector(":scope > [aria-hidden]")).toBeTruthy();
   expect(messages[1]?.textContent).toContain("Release Helper");
-  expect(page.getByText("Please check").className).toContain("max-w-[85%]");
-  expect(page.getByText("Checked").className).not.toContain("max-w-[85%]");
+  for (const body of ["Please check", "Checked"]) {
+    const bubble = page.getByText(body);
+    expect(bubble.className).toContain("w-fit");
+    expect(bubble.className).toContain("max-w-full");
+    expect(bubble.className).not.toMatch(/max-w-\[\d+%\]/);
+  }
+  expect(page.getByText("Please check").parentElement?.className).toContain("w-full");
 });
 
 test("wraps an unbroken message inside its bubble", () => {
@@ -592,7 +595,9 @@ test("prefetches the own-message index on entry and prepends older cursor pages"
   expect(page.queryByRole("status", { name: "Loading your messages…" })).toBeNull();
   expect(onLoadOwnMessages).toHaveBeenCalledTimes(1);
 
-  fireEvent.scroll(page.getByRole("menu"), { target: { scrollTop: 0 } });
+  const scrollContainer = page.getByRole("menu").parentElement;
+  expect(scrollContainer).toBeTruthy();
+  fireEvent.scroll(scrollContainer!, { target: { scrollTop: 0 } });
 
   await waitFor(() => expect(menu.getAllByRole("menuitem")).toHaveLength(4));
   expect(onLoadOwnMessages).toHaveBeenLastCalledWith(50);

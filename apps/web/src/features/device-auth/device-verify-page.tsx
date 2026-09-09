@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { Check, Laptop, ShieldAlert, X } from "lucide-react";
+import {
+  Check,
+  Laptop01 as Laptop,
+  ShieldZap as ShieldAlert,
+  XClose as X,
+} from "@untitledui/icons";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -76,39 +81,40 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
   }
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-background px-4 py-10">
-      <div className="w-full max-w-md rounded-xl border bg-card p-6 shadow-sm sm:p-8">
+    <main className="flex min-h-svh items-center justify-center bg-background px-4 py-16 sm:px-6">
+      <div className="w-full max-w-md">
         {stage.name === "approved" || stage.name === "denied" ? (
           <Settled approved={stage.name === "approved"} />
         ) : (
           <>
             <div
-              className={`mb-6 flex size-10 items-center justify-center rounded-lg ${
+              className={`mx-auto mb-6 flex size-14 items-center justify-center rounded-xl border shadow-xs ${
                 stage.name === "confirm"
-                  ? "bg-secondary text-brand"
-                  : "bg-primary text-primary-foreground"
+                  ? "border-brand/20 bg-brand/5 text-brand"
+                  : "border-border bg-card text-foreground"
               }`}
             >
               {stage.name === "confirm" ? (
-                <ShieldAlert className="size-5" aria-hidden="true" />
+                <ShieldAlert className="size-7" aria-hidden="true" />
               ) : (
-                <Laptop className="size-5" aria-hidden="true" />
+                <Laptop className="size-7" aria-hidden="true" />
               )}
             </div>
 
-            <h1 className="text-xl font-semibold tracking-tight">
+            <h1 className="text-center text-2xl font-semibold tracking-tight sm:text-3xl">
               {stage.name === "confirm" ? m.device_verify_confirm_title() : m.device_verify_title()}
             </h1>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            <p className="mt-3 text-center text-base leading-6 text-muted-foreground">
               {stage.name === "confirm"
                 ? m.device_verify_confirm_description({ code: formatUserCode(stage.code) })
                 : m.device_verify_description()}
             </p>
 
             {stage.name === "entry" ? (
-              <div className="mt-7">
+              <div className="mt-8">
                 <div className="flex justify-center">
                   <InputOTP
+                    containerClassName="gap-2"
                     maxLength={USER_CODE_LENGTH}
                     value={code}
                     pattern={CODE_PATTERN}
@@ -129,27 +135,38 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
                     aria-invalid={problem !== null || undefined}
                     autoFocus
                   >
-                    <InputOTPGroup>
+                    <InputOTPGroup className="gap-1 sm:gap-2">
                       {[0, 1, 2, 3].map((index) => (
-                        <InputOTPSlot key={index} index={index} className="size-11 text-base" />
+                        <InputOTPSlot
+                          key={index}
+                          index={index}
+                          className="h-12 w-7 rounded-lg border text-lg shadow-xs sm:h-14 sm:w-10 sm:text-xl"
+                        />
                       ))}
                     </InputOTPGroup>
                     <InputOTPSeparator />
-                    <InputOTPGroup>
+                    <InputOTPGroup className="gap-1 sm:gap-2">
                       {[4, 5, 6, 7].map((index) => (
-                        <InputOTPSlot key={index} index={index} className="size-11 text-base" />
+                        <InputOTPSlot
+                          key={index}
+                          index={index}
+                          className="h-12 w-7 rounded-lg border text-lg shadow-xs sm:h-14 sm:w-10 sm:text-xl"
+                        />
                       ))}
                     </InputOTPGroup>
                   </InputOTP>
                 </div>
                 {problem ? (
-                  <p role="alert" className="mt-4 text-center text-sm text-destructive-text">
+                  <p
+                    role="alert"
+                    className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm leading-5 text-destructive-text"
+                  >
                     {problem}
                   </p>
                 ) : null}
                 <Button
                   type="button"
-                  className="mt-6 h-10 w-full"
+                  className="mt-6 h-11 w-full rounded-lg text-base font-semibold"
                   disabled={busy || !complete}
                   onClick={() => submitCode()}
                 >
@@ -157,11 +174,11 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
                 </Button>
               </div>
             ) : (
-              <div className="mt-7 flex gap-3">
+              <div className="mt-8 flex gap-3">
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-10 flex-1"
+                  className="h-11 flex-1 rounded-lg text-base font-semibold"
                   disabled={busy}
                   onClick={() => settle(false)}
                 >
@@ -169,7 +186,7 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
                 </Button>
                 <Button
                   type="button"
-                  className="h-10 flex-1"
+                  className="h-11 flex-1 rounded-lg text-base font-semibold"
                   disabled={busy}
                   onClick={() => settle(true)}
                 >
@@ -178,7 +195,7 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
               </div>
             )}
 
-            <p className="mt-6 border-t pt-4 text-center text-xs text-muted-foreground">
+            <p className="mt-8 text-center text-sm leading-5 break-words text-muted-foreground">
               {m.device_verify_signed_in_as({ email })}
             </p>
           </>
@@ -192,20 +209,22 @@ function Settled({ approved }: { approved: boolean }) {
   return (
     <div className="py-2 text-center">
       <div
-        className={`mx-auto flex size-11 items-center justify-center rounded-full ${
-          approved ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"
+        className={`mx-auto flex size-14 items-center justify-center rounded-full ring-8 ${
+          approved
+            ? "bg-success/10 text-success ring-success/5"
+            : "bg-muted text-muted-foreground ring-muted/50"
         }`}
       >
         {approved ? (
-          <Check className="size-5" aria-hidden="true" />
+          <Check className="size-7" aria-hidden="true" />
         ) : (
-          <X className="size-5" aria-hidden="true" />
+          <X className="size-7" aria-hidden="true" />
         )}
       </div>
-      <h1 className="mt-5 text-xl font-semibold tracking-tight">
+      <h1 className="mt-8 text-2xl font-semibold tracking-tight sm:text-3xl">
         {approved ? m.device_verify_approved_title() : m.device_verify_denied_title()}
       </h1>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+      <p className="mt-3 text-base leading-6 text-muted-foreground">
         {approved ? m.device_verify_approved_description() : m.device_verify_denied_description()}
       </p>
     </div>

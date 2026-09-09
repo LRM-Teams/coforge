@@ -1,5 +1,11 @@
 import { useRef, useState, type FormEvent } from "react";
-import { Check, ChevronDown, Plus, X } from "lucide-react";
+import {
+  Building07 as Building,
+  Check,
+  ChevronSelectorVertical,
+  Plus,
+  XClose as X,
+} from "@untitledui/icons";
 
 import { Button } from "@/components/ui/button";
 import { useAppToast } from "@/components/ui/toast";
@@ -21,7 +27,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
 import {
@@ -60,11 +65,16 @@ export function WorkspaceSwitcher({
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger
           aria-label={m.workspace_switcher()}
-          className="flex h-10 w-full items-center gap-2 rounded-lg border bg-background px-2 text-left text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          className="flex h-12 w-full items-center gap-2 bg-transparent px-2 text-left outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         >
-          <WorkspaceMark name={label} />
-          <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
-          <ChevronDown aria-hidden="true" className="size-3 text-muted-foreground" />
+          <WorkspaceMark />
+          <span data-workspace-name className="min-w-0 flex-1 truncate text-[13px] font-semibold">
+            {label}
+          </span>
+          <ChevronSelectorVertical
+            aria-hidden="true"
+            className="size-4 shrink-0 text-muted-foreground"
+          />
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="start"
@@ -80,8 +90,8 @@ export function WorkspaceSwitcher({
                 className="h-9 gap-2 px-2"
                 onClick={() => void select(workspace.slug)}
               >
-                <WorkspaceMark name={workspace.name} />
-                <span className="min-w-0 flex-1 truncate">{workspace.name}</span>
+                <WorkspaceMark />
+                <span className="min-w-0 flex-1 truncate font-medium">{workspace.name}</span>
                 {workspace.id === current?.id && (
                   <Check aria-hidden="true" className="size-3.5 text-foreground" />
                 )}
@@ -106,16 +116,14 @@ export function WorkspaceSwitcher({
   );
 }
 
-function WorkspaceMark({ name }: { name: string }) {
-  const initial = name.trim().charAt(0).toUpperCase() || "W";
+function WorkspaceMark() {
   return (
     <span
+      data-workspace-mark
       aria-hidden="true"
-      className={cn(
-        "flex size-6 shrink-0 items-center justify-center rounded-full bg-neutral-950 text-[11px] font-medium text-white",
-      )}
+      className="flex size-6 shrink-0 items-center justify-center text-brand"
     >
-      {initial}
+      <Building className="size-5" />
     </span>
   );
 }

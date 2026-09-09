@@ -1,17 +1,17 @@
 import claudeCodeMark from "@lobehub/icons-static-svg/icons/claudecode-color.svg";
 import codexMark from "@lobehub/icons-static-svg/icons/codex.svg";
 import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
-import { Check, ChevronDown, Languages } from "lucide-react";
+import { Check, ChevronDown, Translate01 as Languages } from "@untitledui/icons";
 import { MotionConfig, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 
-import { buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/features/landing/controls/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "@/features/landing/controls/dropdown-menu";
 import { AnimatedSpan, Terminal, TypingAnimation } from "@/components/magicui/terminal";
 import AnimatedGradient from "@/components/spell/animated-gradient";
 import { BlurReveal } from "@/components/spell/blur-reveal";
@@ -138,7 +138,7 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
     <MotionConfig reducedMotion="user">
       {/* The document itself goes dark too, so overscroll and rounded window corners never show white. */}
       <style>{`html,body{background:#0a0912;color-scheme:dark}`}</style>
-      <div className="relative isolate flex min-h-dvh flex-col overflow-x-clip bg-[#0a0912] font-display text-white antialiased">
+      <div className="landing-page relative isolate flex min-h-dvh flex-col overflow-x-clip bg-[#0a0912] font-display text-white antialiased">
         {/* The animated gradient is the whole picture; the type sits on it like a poster. */}
         {gradientReady && (
           <AnimatedGradient config={heroGradient} theme="dark" paused={reducedMotion} />

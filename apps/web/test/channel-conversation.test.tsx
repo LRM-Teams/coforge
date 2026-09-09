@@ -159,6 +159,11 @@ test("channel header keeps its title above Chat and counted Tasks tabs", async (
   );
   const page = within(document.body);
   expect(page.getByRole("heading", { name: "#engineering" })).toBeTruthy();
+  expect(
+    page
+      .getByRole("heading", { name: "#engineering" })
+      .previousElementSibling?.querySelector("svg") ?? null,
+  ).toBeNull();
   expect(page.getByRole("button", { name: "Chat" }).getAttribute("aria-current")).toBe("page");
   await userEvent.setup().click(page.getByRole("button", { name: "Tasks 2" }));
   expect(onShowTasks).toHaveBeenCalledTimes(1);

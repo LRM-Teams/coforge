@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bell, BellOff, Hash } from "lucide-react";
+import { Bell01 as Bell, BellOff01 as BellOff, Hash01 as Hash } from "@untitledui/icons";
 import type { TaskView } from "@coforge/protocol";
 import { Button } from "@/components/ui/button";
 import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
@@ -20,6 +20,64 @@ export type ChannelConversationView = Omit<DirectConversationView, "agent" | "me
     senderMemberId: string;
   })[];
 };
+
+export function ChannelConversationHeader({
+  conversation,
+  tasks,
+  active,
+  onShowChat,
+  onShowTasks,
+  onMutedChange,
+}: {
+  conversation: ChannelConversationView;
+  tasks?: TaskView[];
+  active: "chat" | "tasks";
+  onShowChat?: () => void;
+  onShowTasks?: () => void;
+  onMutedChange: (muted: boolean) => Promise<void>;
+}) {
+  const [savingMute, setSavingMute] = useState(false);
+  return (
+    <header className="shrink-0 border-b px-3 sm:px-5">
+      <div className="-mx-3 flex h-14 items-center gap-3 border-b px-3 sm:-mx-5 sm:px-5">
+        <BackToAgents />
+        <h1 className="truncate text-base font-semibold">#{conversation.name}</h1>
+        <span className="ml-auto hidden rounded-md border px-2 py-0.5 text-xs font-medium text-muted-foreground sm:block">
+          {m.channel_public()}
+        </span>
+        {conversation.senderMemberId && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            disabled={savingMute}
+            aria-label={conversation.muted ? m.channel_unmute() : m.channel_mute()}
+            onClick={async () => {
+              setSavingMute(true);
+              try {
+                await onMutedChange(!conversation.muted);
+              } finally {
+                setSavingMute(false);
+              }
+            }}
+          >
+            {conversation.muted ? <BellOff aria-hidden="true" /> : <Bell aria-hidden="true" />}
+          </Button>
+        )}
+      </div>
+      {(onShowChat || onShowTasks) && (
+        <div className="-mx-3 px-3 py-2 sm:-mx-5 sm:px-5">
+          <ConversationTaskTabs
+            active={active}
+            taskCount={tasks?.length ?? 0}
+            onShowChat={onShowChat}
+            onShowTasks={onShowTasks}
+          />
+        </div>
+      )}
+    </header>
+  );
+}
 
 export function ChannelConversation({
   conversation,
@@ -69,7 +127,6 @@ export function ChannelConversation({
   onShowTasks?: () => void;
 }) {
   const [joining, setJoining] = useState(false);
-  const [savingMute, setSavingMute] = useState(false);
   const [error, setError] = useState(false);
   async function join() {
     setJoining(true);
@@ -120,48 +177,17 @@ export function ChannelConversation({
         ),
       }}
       header={
-        <header className="shrink-0 border-b px-3 sm:px-5">
-          <div className="-mx-3 flex h-14 items-center gap-3 border-b px-3 sm:-mx-5 sm:px-5">
-            <BackToAgents />
-            <Hash aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
-            <h1 className="truncate text-base font-medium">#{conversation.name}</h1>
-            <span className="ml-auto hidden text-xs text-muted-foreground sm:block">
-              {m.channel_public()}
-            </span>
-            {conversation.senderMemberId && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                disabled={savingMute}
-                aria-label={conversation.muted ? m.channel_unmute() : m.channel_mute()}
-                onClick={async () => {
-                  setSavingMute(true);
-                  try {
-                    await onMutedChange(!conversation.muted);
-                  } finally {
-                    setSavingMute(false);
-                  }
-                }}
-              >
-                {conversation.muted ? <BellOff aria-hidden="true" /> : <Bell aria-hidden="true" />}
-              </Button>
-            )}
-          </div>
-          {onShowTasks && (
-            <div className="py-2">
-              <ConversationTaskTabs
-                active="chat"
-                taskCount={tasks?.length ?? 0}
-                onShowTasks={onShowTasks}
-              />
-            </div>
-          )}
-        </header>
+        <ChannelConversationHeader
+          conversation={conversation}
+          tasks={tasks}
+          active="chat"
+          onShowTasks={onShowTasks}
+          onMutedChange={onMutedChange}
+        />
       }
       readOnlyNotice={
         !conversation.senderMemberId ? (
-          <div className="m-5 flex flex-col items-start gap-3 rounded-xl border bg-muted/30 p-4">
+          <div className="mx-4 mb-4 flex flex-col items-start gap-3 rounded-lg border bg-muted/30 p-4 md:mx-6 md:mb-6">
             <p className="text-sm text-muted-foreground">{m.channel_public_description()}</p>
             {error && (
               <p role="alert" className="text-sm text-destructive-text">

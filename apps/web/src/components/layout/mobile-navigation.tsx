@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import { PanelLeft } from "lucide-react";
+import { LayoutLeft as PanelLeft } from "@untitledui/icons";
 
 import { Button } from "@/components/ui/button";
 import { m } from "@/paraglide/messages";

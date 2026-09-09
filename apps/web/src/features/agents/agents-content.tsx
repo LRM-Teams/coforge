@@ -1,6 +1,13 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Link } from "@tanstack/react-router";
-import { MessageCircle, Monitor, Plus, Search, UsersRound, X } from "lucide-react";
+import {
+  MessageCircle01 as MessageCircle,
+  Monitor01 as Monitor,
+  Plus,
+  SearchLg as Search,
+  Users01 as UsersRound,
+  XClose as X,
+} from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Avatar } from "@/components/ui/avatar";
@@ -135,13 +142,13 @@ export function AgentsContent({
         <PageHeader
           heading={m.navigation_agents()}
           actions={
-            <Button className="h-11 md:h-8" onClick={() => setOpen(true)}>
+            <Button className="h-11 md:h-10" onClick={() => setOpen(true)}>
               <Plus aria-hidden="true" data-icon="inline-start" />
               {m.header_new_agent()}
             </Button>
           }
         />
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6 sm:px-6">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6">
           {deferredStart && (
             <p
               role="status"
@@ -151,11 +158,11 @@ export function AgentsContent({
             </p>
           )}
           {memberCount > 0 && (
-            <div className="mt-5 flex flex-wrap items-center gap-3">
+            <div className="mt-6 flex flex-wrap items-center gap-4">
               <div
                 role="group"
                 aria-label={m.member_type_filter()}
-                className="flex gap-1 rounded-lg bg-muted p-1"
+                className="flex max-w-full gap-0.5 rounded-lg bg-muted p-1 ring-1 ring-border ring-inset"
               >
                 {(["all", "human", "agent"] as const).map((type) => (
                   <Button
@@ -168,7 +175,7 @@ export function AgentsContent({
                           : m.member_agent()
                     }
                     variant={memberType === type ? "outline" : "ghost"}
-                    className="h-11 px-4 md:h-8"
+                    className="h-11 gap-2 px-3 font-semibold md:h-9 aria-pressed:text-foreground"
                     aria-pressed={memberType === type}
                     onClick={() => onMemberTypeChange(type)}
                   >
@@ -177,7 +184,7 @@ export function AgentsContent({
                       : type === "human"
                         ? m.member_person()
                         : m.member_agent()}
-                    <span className="text-xs tabular-nums text-muted-foreground">
+                    <span className="rounded-full bg-card px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground ring-1 ring-border ring-inset">
                       {type === "all"
                         ? memberCount
                         : type === "human"
@@ -187,8 +194,8 @@ export function AgentsContent({
                   </Button>
                 ))}
               </div>
-              <label className="flex h-11 w-full items-center gap-2 rounded-md border bg-background px-3 text-sm focus-within:ring-2 focus-within:ring-ring/30 sm:ml-auto sm:w-64 md:h-9">
-                <Search aria-hidden="true" className="size-4 text-muted-foreground" />
+              <label className="flex h-11 w-full items-center gap-2 rounded-lg bg-background px-3 text-sm shadow-xs ring-1 ring-border ring-inset transition-shadow focus-within:ring-2 focus-within:ring-ring sm:ml-auto sm:w-72">
+                <Search aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
                 <input
                   type="search"
                   aria-label={m.filters_search()}
@@ -203,7 +210,7 @@ export function AgentsContent({
           {filteredPeople.length + filteredAgents.length ? (
             <ul
               aria-label={m.navigation_agents()}
-              className="mt-5 grid gap-4 md:grid-cols-[repeat(auto-fill,minmax(16rem,19rem))]"
+              className="mt-6 grid gap-5 md:grid-cols-[repeat(auto-fill,minmax(17rem,1fr))]"
             >
               {filteredPeople.map((person) => (
                 <MemberCard key={`person:${person.id}`} member={person} label={m.member_person()} />
@@ -289,7 +296,7 @@ export function AgentsContent({
       >
         <DialogPortal keepMounted>
           <DialogBackdrop />
-          <DialogPopup>
+          <DialogPopup className="rounded-2xl">
             {computers.length ? (
               <form onSubmit={submit}>
                 <div className="flex items-start justify-between gap-6 px-6 pt-6">
@@ -312,7 +319,7 @@ export function AgentsContent({
                     }
                   />
                 </div>
-                <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
+                <div className="grid gap-5 px-6 py-6 sm:grid-cols-2">
                   <div className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
                     <span>{m.agent_form_computer()}</span>
                     <Select
@@ -325,7 +332,10 @@ export function AgentsContent({
                         }
                       }}
                     >
-                      <SelectTrigger aria-label={m.agent_form_computer()} className="h-9 min-w-0">
+                      <SelectTrigger
+                        aria-label={m.agent_form_computer()}
+                        className="h-11 min-w-0 rounded-lg shadow-xs"
+                      >
                         <SelectValue>{() => selectedComputer?.displayName}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
@@ -352,7 +362,7 @@ export function AgentsContent({
                       required
                       pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
                       placeholder="release-fix"
-                      className="h-9 min-w-0 rounded-md border bg-background px-3 outline-none focus:ring-2 focus:ring-ring/30"
+                      className="h-11 min-w-0 rounded-lg bg-background px-3 shadow-xs ring-1 ring-border ring-inset outline-none transition-shadow focus:ring-2 focus:ring-ring"
                     />
                   </label>
                   <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
@@ -362,7 +372,7 @@ export function AgentsContent({
                       required
                       rows={3}
                       placeholder={m.agent_form_description_placeholder()}
-                      className="min-w-0 resize-y rounded-md border bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-ring/30"
+                      className="min-w-0 resize-y rounded-lg bg-background px-3 py-2.5 shadow-xs ring-1 ring-border ring-inset outline-none transition-shadow focus:ring-2 focus:ring-ring"
                     />
                   </label>
                   <AgentRuntimeFields
@@ -383,22 +393,29 @@ export function AgentsContent({
                     </p>
                   )}
                 </div>
-                <div className="flex justify-end gap-3 border-t px-6 py-4">
+                <div className="grid grid-cols-2 gap-3 border-t px-6 py-4 sm:flex sm:justify-end">
                   <Button
                     type="button"
                     variant="outline"
+                    className="h-11"
                     disabled={submitting}
                     onClick={() => setOpen(false)}
                   >
                     {m.controls_cancel()}
                   </Button>
-                  <Button type="submit" disabled={submitting}>
+                  <Button type="submit" className="h-11" disabled={submitting}>
                     {submitting ? m.agent_form_submitting() : m.agent_form_submit()}
                   </Button>
                 </div>
               </form>
             ) : (
               <div className="p-6">
+                <div
+                  aria-hidden="true"
+                  className="mb-5 flex size-12 items-center justify-center rounded-xl bg-card text-muted-foreground shadow-xs ring-1 ring-border ring-inset"
+                >
+                  <Monitor className="size-6" />
+                </div>
                 <DialogTitle>{m.agent_form_title()}</DialogTitle>
                 <DialogDescription className="mt-3">
                   {m.agent_empty_computer_description()}
@@ -436,9 +453,10 @@ function MemberCard({
   ownedAgent?: AgentView;
 }) {
   return (
-    <li className="grid h-52 min-w-0 grid-cols-[2.25rem_minmax(0,1fr)_auto] grid-rows-[auto_auto_1fr] items-start gap-x-3 gap-y-2 rounded-xl border bg-card p-4 md:h-48 md:p-3">
+    <li className="grid min-h-56 min-w-0 grid-cols-[3rem_minmax(0,1fr)_auto] grid-rows-[auto_1fr_auto] items-start gap-x-3 gap-y-5 rounded-xl bg-card p-5 shadow-xs ring-1 ring-border ring-inset">
       <Avatar
         people={[{ name: member.displayName }]}
+        size="xl"
         online={ownedAgent ? ownedAgent.status.value === "active" : undefined}
         statusLabel={
           ownedAgent
@@ -449,13 +467,13 @@ function MemberCard({
         }
       />
       <div className="min-w-0">
-        <h2 className="line-clamp-2 break-words text-sm font-semibold">
+        <h2 className="line-clamp-2 break-words text-base font-semibold">
           {ownedAgent ? (
             <Link
               to="/agents/$agentId"
               params={{ agentId: member.id }}
               search={{ tab: "profile" }}
-              className="inline-flex min-h-11 items-center hover:underline sm:min-h-0"
+              className="inline-flex min-h-11 items-center rounded-sm outline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring sm:min-h-0"
             >
               {member.displayName}
             </Link>
@@ -463,42 +481,45 @@ function MemberCard({
             member.displayName
           )}
         </h2>
-        <p className="truncate text-xs text-muted-foreground">@{member.name}</p>
+        <p className="mt-0.5 truncate text-sm text-muted-foreground">@{member.name}</p>
+      </div>
+      <div className="col-span-3 row-start-2 min-w-0">
         {member.description && (
-          <p className="mt-2 line-clamp-1 break-words text-xs text-muted-foreground">
+          <p className="line-clamp-2 break-words text-sm leading-6 text-muted-foreground">
             {member.description}
           </p>
         )}
       </div>
-      <div className="col-start-2 text-xs text-muted-foreground">
-        <span>{label}</span>
+      <div className="col-span-3 row-start-3 flex min-w-0 items-center gap-3 self-end">
+        <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-foreground ring-1 ring-border ring-inset">
+          {label}
+        </span>
+        {computerName !== undefined && (
+          <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <Monitor aria-hidden="true" className="size-4 shrink-0" />
+            <span className="min-w-0 line-clamp-2 break-words">
+              {computerName === null
+                ? m.member_no_computer()
+                : computerName || m.agent_computer_unnamed()}
+            </span>
+          </p>
+        )}
       </div>
-      {computerName !== undefined && (
-        <p className="col-span-3 row-start-3 mt-3 flex min-w-0 items-start gap-2 self-end text-xs text-muted-foreground">
-          <Monitor aria-hidden="true" className="size-3.5 shrink-0" />
-          <span className="min-w-0 line-clamp-2 break-words">
-            {computerName === null
-              ? m.member_no_computer()
-              : computerName || m.agent_computer_unnamed()}
-          </span>
-        </p>
-      )}
       {ownedAgent && (
         <Tooltip>
           <TooltipTrigger
             render={
-              <Link
-                to="/messages/$agentId"
-                params={{ agentId: member.id }}
+              <Button
+                variant="outline"
+                size="icon"
+                className="col-start-3 row-start-1 size-11 rounded-lg sm:size-9"
                 aria-label={m.agent_private_chat()}
-                className={buttonVariants({
-                  variant: "outline",
-                  size: "icon",
-                  className: "col-start-3 row-start-1 size-11 sm:size-8",
-                })}
-              >
-                <MessageCircle aria-hidden="true" />
-              </Link>
+                render={
+                  <Link to="/messages/$agentId" params={{ agentId: member.id }}>
+                    <MessageCircle aria-hidden="true" />
+                  </Link>
+                }
+              />
             }
           />
           <TooltipContent>{m.agent_private_chat()}</TooltipContent>

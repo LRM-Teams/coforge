@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw01 as RefreshCw } from "@untitledui/icons";
 import type { AgentSkillsListResult, AgentSkillsScope } from "@coforge/protocol";
 
 import { Button } from "@/components/ui/button";
@@ -44,11 +44,11 @@ export function AgentSkills({
   }, [load, resetKey]);
 
   return (
-    <section className="min-w-0 rounded-xl border bg-card p-5 lg:col-span-2">
+    <section className="min-w-0 py-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-semibold">{m.agent_skills_title()}</h2>
-          <p className="mt-1 text-xs text-muted-foreground">{m.agent_skills_caveat()}</p>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">{m.agent_skills_caveat()}</p>
         </div>
         <Button
           size="sm"
@@ -102,9 +102,9 @@ function SkillScope({ heading, scope }: { heading: string; scope: AgentSkillsSco
         )}
       </div>
       {scope.entries.length ? (
-        <div className="mt-3 overflow-x-auto">
+        <div className="mt-3 overflow-x-auto rounded-xl border">
           <table className="w-full min-w-xl text-left text-sm">
-            <thead className="border-b text-xs text-muted-foreground">
+            <thead className="border-b bg-muted/50 text-xs text-muted-foreground [&_th]:px-4 [&_th]:py-3">
               <tr>
                 <th scope="col" className="py-2 pr-4 font-medium">
                   {m.agent_skills_name()}
@@ -117,7 +117,7 @@ function SkillScope({ heading, scope }: { heading: string; scope: AgentSkillsSco
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y [&_td]:px-4 [&_td]:py-4">
               {scope.entries.map((entry) => (
                 <tr key={`${entry.sourcePath}:${entry.name}`}>
                   <td className="py-2 pr-4 font-medium">{entry.name}</td>

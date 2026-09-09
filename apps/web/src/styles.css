@@ -1,17 +1,24 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
-/* Self-hosted so the fonts also load where Google Fonts does not; only the landing page uses them
-   until the design spec settles typography for the workbench. */
+/* Untitled UI uses Inter for body and display text. Keep all fonts self-hosted;
+   the protected marketing page continues to use its own Geist families. */
+@import "@fontsource-variable/inter";
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
 
 @custom-variant dark (&:is(.dark *));
+/* Base UI state variants remain only for the isolated homepage controls. */
+@custom-variant data-open (&:where([data-open]:not([data-open="false"])));
+@custom-variant data-closed (&:where([data-closed]:not([data-closed="false"])));
+@custom-variant data-disabled (&:where([data-disabled]:not([data-disabled="false"])));
 
 @theme inline {
-  /* Resolve ordinary glyphs through the platform UI font before emoji fallback,
-     including on Linux where the named Western fonts may not be installed. */
+  /* Inter has no CJK glyphs; use installed Chinese UI fonts before emoji. */
   --font-sans:
+    "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans", Arial, sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji", "Noto Color Emoji";
+  --font-legacy:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial,
     system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
     "Noto Color Emoji";
@@ -72,7 +79,7 @@
   --card-foreground: #101319;
   --popover: #ffffff;
   --popover-foreground: #101319;
-  --primary: #101319;
+  --primary: #5d36dc;
   --primary-foreground: #ffffff;
   --secondary: #f4f6fa;
   --secondary-foreground: #101319;
@@ -118,7 +125,7 @@
   --card-foreground: #f4f6fb;
   --popover: #171b23;
   --popover-foreground: #f4f6fb;
-  --primary: #f4f6fb;
+  --primary: #a993ff;
   --primary-foreground: #101319;
   --secondary: #20262d;
   --secondary-foreground: #f4f6fb;
@@ -146,6 +153,14 @@
   --sidebar-border: #303743;
 }
 
+/* The public homepage intentionally keeps its established neutral CTA while product primary
+   actions use the brand palette. Descendant `.dark` controls otherwise redeclare these tokens. */
+.landing-page,
+.landing-page .dark {
+  --primary: #f4f6fb;
+  --primary-foreground: #101319;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -160,4 +175,86 @@
     position: relative;
     margin: 0;
   }
+}
+
+/* Untitled UI's semantic utility names overlap CoForge's brand-oriented
+   `primary` token. Keep the compatibility mapping opt-in so existing product
+   UI and the protected landing page retain their current meanings. */
+.untitled-ui {
+  --color-primary: var(--background);
+  font-family: var(--font-sans);
+}
+
+.untitled-ui.bg-primary,
+.untitled-ui .bg-primary {
+  background-color: var(--background);
+}
+
+.untitled-ui.bg-primary_hover,
+.untitled-ui .bg-primary_hover,
+.untitled-ui.bg-tertiary,
+.untitled-ui .bg-tertiary {
+  background-color: var(--muted);
+}
+
+.untitled-ui.bg-brand-solid,
+.untitled-ui .bg-brand-solid {
+  background-color: var(--brand);
+}
+
+.untitled-ui.text-primary,
+.untitled-ui .text-primary,
+.untitled-ui.text-secondary,
+.untitled-ui .text-secondary {
+  color: var(--foreground);
+}
+
+.untitled-ui.text-tertiary,
+.untitled-ui .text-tertiary,
+.untitled-ui.text-quaternary,
+.untitled-ui .text-quaternary,
+.untitled-ui.text-placeholder,
+.untitled-ui .text-placeholder,
+.untitled-ui.text-fg-quaternary,
+.untitled-ui .text-fg-quaternary {
+  color: var(--muted-foreground);
+}
+
+.untitled-ui.text-fg-brand-primary,
+.untitled-ui .text-fg-brand-primary {
+  color: var(--brand);
+}
+
+.untitled-ui.text-fg-white,
+.untitled-ui .text-fg-white {
+  color: var(--brand-foreground);
+}
+
+.untitled-ui.text-error-primary,
+.untitled-ui .text-error-primary {
+  color: var(--destructive-text);
+}
+
+.untitled-ui.ring-primary,
+.untitled-ui .ring-primary,
+.untitled-ui.ring-secondary,
+.untitled-ui .ring-secondary,
+.untitled-ui.ring-secondary_alt,
+.untitled-ui .ring-secondary_alt {
+  --tw-ring-color: var(--border);
+}
+
+.untitled-ui.ring-brand,
+.untitled-ui .ring-brand,
+.untitled-ui.ring-brand-solid,
+.untitled-ui .ring-brand-solid,
+.untitled-ui.ring-focus-ring,
+.untitled-ui .ring-focus-ring {
+  --tw-ring-color: var(--ring);
+}
+
+.untitled-ui.text-md,
+.untitled-ui .text-md {
+  font-size: 1rem;
+  line-height: 1.5rem;
 }

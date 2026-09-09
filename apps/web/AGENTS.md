@@ -172,6 +172,17 @@ instructions for the TanStack Start Web/backend modular monolith.
 - Keep `components/layout` limited to layout concerns and `components/ui`
   limited to reusable UI primitives. Do not turn either directory into a
   catch-all for feature behavior.
+- `components/base` holds official MIT Untitled UI source installed via its CLI
+  for ComboBox and its dependencies. Preserve upstream APIs and interaction logic;
+  adapt feature callers instead. `components/ui` still contains compatibility
+  adaptations and product-specific primitives, not unmodified official components.
+  CoForge color tokens remain authoritative; `.untitled-ui` scopes the official
+  components' semantic theme mapping, including their portaled popovers.
+  Native button leaves are allowed only in the shared Button/Select/Tooltip
+  adapters that implement React Aria render semantics; feature code must use
+  components. Official Tooltip `title` props are not native HTML title attributes.
+  `features/landing` retains its existing presentation and isolated legacy
+  controls; product changes must not alter the public homepage.
 - Loading placeholders belong to the feature whose content they represent:
   `features/agents/agents-pending.tsx` owns the Agent list;
   `features/agents/agent-detail-pending.tsx` owns Profile/Activity placeholders;
@@ -182,7 +193,7 @@ instructions for the TanStack Start Web/backend modular monolith.
   `components/ui/skeleton.tsx` owns decorative placeholder styling only.
   Profile save feedback stays in `SettingsContent`; transient notifications
   use the existing `AppToastProvider` rather than a second notification system.
-- `components/ui/empty.tsx` supplies the shadcn Empty presentation primitives;
+- `components/ui/empty.tsx` supplies the shared Empty presentation primitives;
   owning features choose their icon, localized copy, and empty-state condition.
 - `features/conversations/direct-conversation.tsx` owns the shared conversation
   empty-state layout and compact thread prompt. Direct and channel views supply

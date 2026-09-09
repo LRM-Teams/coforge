@@ -2,7 +2,13 @@ const noNativeTitle = {
   create(context) {
     return {
       JSXAttribute(node) {
-        if (node.name.type === "JSXIdentifier" && node.name.name === "title") {
+        const element = node.parent.name;
+        if (
+          node.name.type === "JSXIdentifier" &&
+          node.name.name === "title" &&
+          element.type === "JSXIdentifier" &&
+          /^[a-z]/.test(element.name)
+        ) {
           context.report({
             node,
             message: "Do not use the native title attribute; use the shared Tooltip component.",

@@ -15,14 +15,14 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronRight,
-  FileText,
+  File02 as FileText,
   List,
-  LoaderCircle,
-  MessageSquare,
+  Loading01 as LoaderCircle,
+  MessageSquare01 as MessageSquare,
   Paperclip,
-  Quote,
-  ListTodo,
-} from "lucide-react";
+  MessageTextSquare01 as Quote,
+  CheckSquare as ListTodo,
+} from "@untitledui/icons";
 import type { TaskView } from "@coforge/protocol";
 
 import {
@@ -56,7 +56,7 @@ import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
 
 const messageBubbleClassName =
-  "relative w-fit max-w-full rounded-lg bg-muted px-4 py-2.5 text-sm leading-5 font-medium whitespace-pre-wrap [overflow-wrap:anywhere]";
+  "relative w-fit max-w-full rounded-xl bg-muted px-4 py-3 text-sm leading-6 whitespace-pre-wrap [overflow-wrap:anywhere]";
 
 const observeConversationRect: typeof observeElementRect = (instance, callback) =>
   observeElementRect(instance, (rect) =>
@@ -148,14 +148,14 @@ export function DirectConversation(props: ConversationProps) {
         {...activity}
       />
       <div className="min-w-0">
-        <h1 className="truncate text-base font-medium">{conversation.agent.displayName}</h1>
+        <h1 className="truncate text-base font-semibold">{conversation.agent.displayName}</h1>
         {workingLabel && (
           <p role="status" className="truncate text-xs text-muted-foreground">
             {workingLabel}…
           </p>
         )}
       </div>
-      <span className="hidden shrink-0 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground sm:block">
+      <span className="hidden shrink-0 text-sm text-muted-foreground sm:block">
         @{conversation.agent.name}
       </span>
       {props.onShowTasks && (
@@ -182,7 +182,7 @@ export function DirectConversation(props: ConversationProps) {
           <Avatar
             people={[{ name: conversation.agent.displayName }]}
             size="xl"
-            className="size-16 rounded-2xl text-xl"
+            className="size-16 rounded-full text-xl ring-1 ring-border"
           />
         ),
       }}
@@ -789,7 +789,7 @@ export function ConversationPane({
           >
             <ArrowLeft aria-hidden="true" />
           </Button>
-          <h2 className="text-base font-medium">{m.conversation_thread()}</h2>
+          <h2 className="text-base font-semibold">{m.conversation_thread()}</h2>
           {threadHeaderAction}
         </header>
       ) : (
@@ -801,7 +801,7 @@ export function ConversationPane({
           ref={historyRef}
           aria-label={root ? m.conversation_thread() : m.conversation_history()}
           onScroll={trackReadingPosition}
-          className="h-full overflow-y-auto px-5 pb-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="h-full overflow-y-auto px-4 pb-6 md:px-6 [scrollbar-width:thin]"
         >
           {root && (
             <details
@@ -931,11 +931,11 @@ export function ConversationPane({
                         className={cn(
                           "flex min-w-0 max-w-full flex-col gap-2",
                           threadEntry && "gap-5",
-                          own ? "items-end" : "flex-1 items-start",
+                          own ? "w-full items-end" : "flex-1 items-start",
                         )}
                       >
                         <p className="flex items-baseline gap-2">
-                          <span className="text-sm font-medium">
+                          <span className="text-sm font-semibold">
                             {own ? m.conversation_you() : message.senderName}
                           </span>
                           <RelativeTime
@@ -947,7 +947,7 @@ export function ConversationPane({
                           className={cn(
                             "group/message",
                             messageBubbleClassName,
-                            own && "max-w-[85%] sm:max-w-[75%]",
+                            own ? "rounded-tr-sm bg-accent" : "rounded-tl-sm",
                           )}
                         >
                           {message.body}
@@ -957,17 +957,17 @@ export function ConversationPane({
                               href={`/api/attachments/${message.attachment.id}`}
                               target="_blank"
                               rel="noreferrer"
-                              className="mt-3 flex max-w-full min-w-0 items-center gap-2 rounded-lg border bg-card px-2.5 py-2 hover:bg-muted"
+                              className="mt-3 flex max-w-full min-w-0 items-center gap-3 rounded-lg border bg-card px-3 py-2.5 text-foreground shadow-xs hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
                             >
                               <FileText
                                 aria-hidden="true"
                                 className="size-5 shrink-0 text-muted-foreground"
                               />
                               <span className="flex min-w-0 flex-col">
-                                <span className="truncate text-xs">
+                                <span className="truncate text-sm font-medium">
                                   {message.attachment.fileName}
                                 </span>
-                                <span className="text-[10px] text-muted-foreground">
+                                <span className="text-xs text-muted-foreground">
                                   {Math.ceil(message.attachment.sizeBytes / 1024)} KB
                                 </span>
                               </span>
@@ -1031,7 +1031,7 @@ export function ConversationPane({
                   align="start"
                   alignOffset={-4}
                   sideOffset={8}
-                  className="max-h-[228px] w-[min(24rem,calc(100vw-2.5rem))] rounded-xl bg-popover/35 px-1.5 pt-1.5 pb-3 shadow-lg backdrop-blur-sm [scrollbar-width:none] supports-[backdrop-filter]:ring-foreground/15 [&::-webkit-scrollbar]:hidden"
+                  className="max-h-[228px] w-[min(24rem,calc(100vw-2.5rem))] rounded-lg bg-popover p-1.5 shadow-lg [scrollbar-width:thin]"
                   onScroll={(event) => {
                     if (event.currentTarget.scrollTop <= 16) {
                       void loadOwnMessages(ownMessages[0]?.sequence);
@@ -1044,9 +1044,7 @@ export function ConversationPane({
                       aria-label={m.conversation_loading_your_messages()}
                       className={cn(
                         "flex items-center justify-center text-muted-foreground",
-                        ownMessages.length
-                          ? "sticky top-0 z-10 h-7 rounded-md bg-popover/60 backdrop-blur-md"
-                          : "h-14",
+                        ownMessages.length ? "sticky top-0 z-10 h-7 rounded-md bg-popover" : "h-14",
                       )}
                     >
                       <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
@@ -1107,7 +1105,7 @@ export function ConversationPane({
       {readOnlyNotice ?? (
         <form
           onSubmit={submit}
-          className="mx-5 mb-5 flex shrink-0 flex-col gap-1 rounded-2xl border bg-card px-3 py-2.5 focus-within:border-ring/40"
+          className="mx-4 mb-4 flex shrink-0 flex-col gap-2 rounded-lg border bg-card px-3 py-3 shadow-xs focus-within:border-ring focus-within:ring-1 focus-within:ring-ring md:mx-6 md:mb-6"
         >
           <label htmlFor={composerId} className="sr-only">
             {m.conversation_message_label()}
@@ -1124,7 +1122,7 @@ export function ConversationPane({
             }}
             onKeyDown={keyDown}
             placeholder={m.conversation_message_placeholder()}
-            className="w-full resize-none bg-transparent px-1 py-1 text-sm outline-none placeholder:text-muted-foreground"
+            className="w-full resize-none bg-transparent px-1 py-1 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-50"
           />
           {file && (
             <p className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
@@ -1149,7 +1147,7 @@ export function ConversationPane({
           <div className="flex items-center">
             <label
               className={cn(
-                "flex size-7 cursor-pointer items-center justify-center rounded-lg hover:bg-muted",
+                "flex size-9 cursor-pointer items-center justify-center rounded-lg text-muted-foreground hover:bg-muted focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring",
                 sending && "pointer-events-none opacity-50",
               )}
             >
@@ -1175,10 +1173,10 @@ export function ConversationPane({
             )}
             <Button
               type="submit"
-              size="icon"
+              size="icon-sm"
               disabled={sending || (!body.trim() && !file)}
               aria-label={sending ? m.conversation_sending() : m.conversation_send()}
-              className="ml-auto rounded-full bg-brand text-brand-foreground hover:bg-brand/85"
+              className="ml-auto rounded-full before:rounded-full"
             >
               <ArrowUp aria-hidden="true" />
             </Button>

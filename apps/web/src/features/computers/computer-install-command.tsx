@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy01 as Copy } from "@untitledui/icons";
 
 import { Button } from "@/components/ui/button";
 import { installCommands, loginCommand, setupCommand } from "@/features/install/install-commands";
