@@ -6,9 +6,9 @@ import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
 
 const toastStyle: CSSProperties & Record<`--${string}`, string> = {
-  "--normal-bg": "var(--popover)",
-  "--normal-text": "var(--popover-foreground)",
-  "--normal-border": "var(--border)",
+  "--normal-bg": "var(--color-bg-primary)",
+  "--normal-text": "var(--color-text-primary)",
+  "--normal-border": "var(--color-border-secondary)",
 };
 
 const offset = {
@@ -40,14 +40,14 @@ export function AppToastProvider({ children }: { children: React.ReactNode }) {
         mobileOffset={offset}
         style={toastStyle}
         icons={{
-          success: <CheckCircle aria-hidden="true" className="size-4 text-primary" />,
-          error: <AlertCircle aria-hidden="true" className="size-4 text-destructive" />,
+          success: <CheckCircle aria-hidden="true" className="size-4 text-success-primary" />,
+          error: <AlertCircle aria-hidden="true" className="size-4 text-error-primary" />,
         }}
         toastOptions={{
           classNames: {
             toast: "rounded-xl!",
             title: "text-sm! font-medium!",
-            description: "text-xs! text-muted-foreground!",
+            description: "text-xs! text-tertiary!",
           },
         }}
       />

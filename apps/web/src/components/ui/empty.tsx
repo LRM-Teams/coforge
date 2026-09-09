@@ -35,7 +35,7 @@ function EmptyMedia({
       className={cn(
         "relative mb-4 flex shrink-0 items-center justify-center [&_svg]:pointer-events-none [&_svg]:shrink-0",
         variant === "icon" &&
-          "size-10 rounded-lg bg-background text-foreground shadow-xs ring-1 ring-border [&_svg:not([class*='size-'])]:size-5",
+          "size-10 rounded-lg bg-primary text-primary shadow-xs ring-1 ring-secondary [&_svg:not([class*='size-'])]:size-5",
         className,
       )}
       {...props}
@@ -47,7 +47,7 @@ function EmptyTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="empty-title"
-      className={cn("text-base font-semibold text-foreground", className)}
+      className={cn("text-base font-semibold text-primary", className)}
       {...props}
     />
   );
@@ -58,7 +58,7 @@ function EmptyDescription({ className, ...props }: React.ComponentProps<"p">) {
     <p
       data-slot="empty-description"
       className={cn(
-        "text-center text-sm text-muted-foreground [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
+        "text-center text-sm text-tertiary [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-brand-secondary",
         className,
       )}
       {...props}

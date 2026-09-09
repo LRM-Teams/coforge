@@ -6,16 +6,22 @@ instructions for the TanStack Start Web/backend modular monolith.
 ## Product design
 
 - Before designing or changing product UI, read and follow
-  [the product design guidance](../../docs/design.md), including progressive
-  disclosure, task-led hierarchy, and rendered verification.
-- That document is the maintained source for interaction rules. For similar
-  list/detail pages and empty states, apply sections 2.1–2.2 and 5.1, and run
-  the applicable acceptance checks in section 6. State why a different user
-  task requires an exception before implementing one. Do not duplicate these
-  rules in another design document or treat existing pages as automatic
-  exceptions; adapt the affected flow when changing it, without expanding into
-  unrelated page redesigns.
-- Reuse the existing UI primitives and the color ownership defined in
+  [the UI guidelines](../../docs/ui-guidelines.md). That is the authoritative
+  rulebook for page skeleton, field layout, information hierarchy, density,
+  color, and dark mode. It ranks Untitled UI's official components and
+  `theme.css` first, itself second; nothing else (Tailwind UI examples,
+  shadcn habits, personal preference) is a source of truth. Run its §12
+  checklist before calling a page done.
+- Components come only from `npx untitledui@latest add <name>`, installed
+  unmodified into `src/components/base/` and `src/components/application/`.
+  Change appearance via `className` at the call site, not by editing the
+  installed source. The only hand-written UI primitives are the ones listed
+  in [`src/components/ui/README.md`](src/components/ui/README.md), for cases
+  Untitled has no equivalent for (Empty, Skeleton, a Toast wrapper,
+  RelativeTime, InputOTP, HoverPopover) — keep that list in sync.
+- Color tokens are Untitled's semantic names (`bg-primary`, `text-tertiary`,
+  `border-secondary`, `bg-brand-solid`, …) plus the small CoForge brand/extra
+  token set in `src/styles/coforge-theme.css`; see the mapping in
   [design tokens](../../docs/design-tokens.md). Do not apply marketing-page
   defaults from `design-taste-frontend` to the product workspace.
 - Keep supplemental explanations behind accessible, on-demand help when

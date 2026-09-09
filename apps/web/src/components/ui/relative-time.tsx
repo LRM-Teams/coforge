@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { formatDateForDisplay, formatRelativeTime } from "@/lib/dates";
 import { getLocale } from "@/paraglide/runtime";
 
@@ -26,14 +26,13 @@ export function RelativeTime({
   const locale = getLocale();
   const exactTime = formatDateForDisplay(instant, timeZone, locale);
   return (
-    <Tooltip>
+    <Tooltip title={exactTime}>
       <TooltipTrigger className={className} aria-label={exactTime}>
         <time dateTime={instant.toISOString()} suppressHydrationWarning>
           {formatRelativeTime(instant, now, locale)}
           {showExact && <span className="ml-1.5">· {exactTime}</span>}
         </time>
       </TooltipTrigger>
-      <TooltipContent>{exactTime}</TooltipContent>
     </Tooltip>
   );
 }

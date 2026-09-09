@@ -49,8 +49,8 @@ function InputOTPSlot({
       data-active={isActive}
       aria-invalid={props["aria-invalid"]}
       className={cn(
-        "relative flex size-9 items-center justify-center rounded-lg bg-background text-sm font-medium text-muted-foreground shadow-xs ring-1 ring-input transition-[box-shadow,background-color] ring-inset aria-invalid:text-destructive aria-invalid:ring-destructive data-[active=true]:ring-2 data-[active=true]:ring-primary data-[active=true]:outline-2 data-[active=true]:outline-offset-2 data-[active=true]:outline-primary",
-        char && "text-primary ring-2 ring-primary",
+        "relative flex size-9 items-center justify-center rounded-lg bg-primary text-sm font-medium text-tertiary shadow-xs ring-1 ring-secondary transition-[box-shadow,background-color] ring-inset aria-invalid:text-error-primary aria-invalid:ring-error data-[active=true]:ring-2 data-[active=true]:ring-brand data-[active=true]:outline-2 data-[active=true]:outline-offset-2 data-[active=true]:outline-brand",
+        char && "text-primary ring-2 ring-brand",
         className,
       )}
       {...props}
@@ -58,7 +58,7 @@ function InputOTPSlot({
       {char}
       {hasFakeCaret && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="h-4 w-px animate-caret-blink bg-foreground duration-1000" />
+          <div className="h-4 w-px animate-caret-blink bg-primary duration-1000" />
         </div>
       )}
     </div>
@@ -69,7 +69,7 @@ function InputOTPSeparator({ className, ...props }: React.ComponentProps<"div">)
   return (
     <div
       data-slot="input-otp-separator"
-      className={cn("text-center text-xl font-medium text-muted-foreground", className)}
+      className={cn("text-center text-xl font-medium text-tertiary", className)}
       role="separator"
       {...props}
     >

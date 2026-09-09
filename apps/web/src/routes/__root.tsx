@@ -1,7 +1,6 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
 
 import { AppToastProvider } from "@/components/ui/toast";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { getLocale } from "@/paraglide/runtime";
 
 import appCss from "../styles.css?url";
@@ -58,9 +57,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <AppToastProvider>
-          <TooltipProvider>
-            <div className="isolate">{children}</div>
-          </TooltipProvider>
+          <div className="isolate">{children}</div>
         </AppToastProvider>
         <Scripts />
       </body>
