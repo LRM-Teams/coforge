@@ -88,7 +88,10 @@ function dependencies() {
                 modelCatalogs: {
                   where: {
                     workspaceId,
-                    provider: config.provider,
+                    provider:
+                      config.provider === RUNTIME_PROVIDER.PI && config.hasApiKey
+                        ? { in: [RUNTIME_PROVIDER.PI, RUNTIME_PROVIDER.COFORGE] }
+                        : config.provider,
                   },
                   select: { models: true },
                 },
@@ -103,8 +106,9 @@ function dependencies() {
           return false;
         if (!config.model) return !config.modelProvider && !config.reasoning;
         if (config.provider === RUNTIME_PROVIDER.COFORGE && config.modelProvider) return true;
-        const models = connection.computer.modelCatalogs[0]?.models;
-        if (!Array.isArray(models)) return false;
+        const models = connection.computer.modelCatalogs.flatMap((catalog) =>
+          Array.isArray(catalog.models) ? catalog.models : [],
+        );
         return models.some((value) => {
           if (!value || typeof value !== "object" || Array.isArray(value)) return false;
           const id = Reflect.get(value, "id");
@@ -119,6 +123,7 @@ function dependencies() {
       },
     },
     runtimeLock,
+    () => runtimeCredentials(db, true),
   );
   return { agentManagement, db };
 }

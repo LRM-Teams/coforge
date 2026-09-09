@@ -18,10 +18,10 @@ import {
   DaemonConnection,
   DaemonRuntime,
   InMemoryDaemonCredentialStore,
-  PiDriver,
   defaultCentrifugeWorkspaceClientFactory,
   startAgentProxy,
 } from "../../../packages/daemon";
+import { PiJsonlFixtureDriver } from "../../../packages/daemon/test/fixtures/pi-jsonl-fixture-driver";
 
 const databaseUrl = requireEnvironment("DATABASE_URL");
 const workspaceRoot = join(import.meta.dir, `../../../.amp/e2e/channel-${crypto.randomUUID()}`);
@@ -95,12 +95,10 @@ test("channel threads cross real WSS and Agent HTTP transport without notificati
         serverHttpUrl: "http://127.0.0.1:8789",
       },
       () =>
-        new PiDriver({
-          command: [
-            process.execPath,
-            join(import.meta.dir, "fixtures/channel-thread-e2e-runtime.ts"),
-          ],
-        }),
+        new PiJsonlFixtureDriver([
+          process.execPath,
+          join(import.meta.dir, "fixtures/channel-thread-e2e-runtime.ts"),
+        ]),
       credentials,
       {
         create: () =>

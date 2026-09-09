@@ -7,10 +7,16 @@ import type {
   AgentRepository,
 } from "../src/server/db/repositories/agent.repositories.server";
 
-function fixture(options?: { publishFails?: boolean; stopFails?: boolean; unavailable?: boolean }) {
+function fixture(options?: {
+  publishFails?: boolean;
+  stopFails?: boolean;
+  unavailable?: boolean;
+  encryptionFails?: boolean;
+}) {
   const records: AgentRecord[] = [];
   const starts: unknown[] = [];
   const controls: string[] = [];
+  const selections: Array<{ hasApiKey?: boolean }> = [];
   const updates: Array<Parameters<AgentRepository["update"]>[1]> = [];
   const repository: AgentRepository = {
     getById: async (id) => records.find((agent) => agent.id === id),
@@ -25,7 +31,7 @@ function fixture(options?: { publishFails?: boolean; stopFails?: boolean; unavai
     create: async (input) => {
       const record = {
         ...input,
-        id: `agent-${records.length + 1}`,
+        id: input.id ?? `agent-${records.length + 1}`,
         createdAt: new Date("2026-08-29T00:00:00Z"),
       };
       records.push(record);
@@ -52,10 +58,21 @@ function fixture(options?: { publishFails?: boolean; stopFails?: boolean; unavai
         if (options?.stopFails) throw new Error("stop unavailable");
       },
     },
-    { canRun: async () => !options?.unavailable },
+    {
+      canRun: async (_workspaceId, _userId, _computerId, selection) => {
+        selections.push(selection);
+        return !options?.unavailable;
+      },
+    },
     { run: async (_agentId, callback) => callback() },
+    () => ({
+      encrypt: async (_agentId, _providerId, apiKey) => {
+        if (options?.encryptionFails) throw new Error("encryption unavailable");
+        return { keyId: "v1", ciphertext: `encrypted:${apiKey}`, nonce: "nonce", hint: "••••1234" };
+      },
+    }),
   );
-  return { agentManagement, records, starts, controls, updates };
+  return { agentManagement, records, starts, controls, updates, selections };
 }
 
 describe("ManageAgents", () => {
@@ -87,6 +104,7 @@ describe("ManageAgents", () => {
         model: " model-a ",
         modelProvider: " anthropic ",
         reasoning: " high ",
+        apiKey: "secret-key-1234",
       },
     );
 
@@ -113,7 +131,26 @@ describe("ManageAgents", () => {
     expect(starts).toHaveLength(1);
   });
 
-  test("keeps an external Pi model provider as the default provider config", async () => {
+  test("encrypts before creating and never starts when encryption fails", async () => {
+    const { agentManagement, records, starts } = fixture({ encryptionFails: true });
+    await expect(
+      agentManagement.create(
+        { userId: "user-1", workspaceId: "workspace-1" },
+        {
+          name: "secure",
+          description: "",
+          provider: RUNTIME_PROVIDER.COFORGE,
+          computerId: "computer-1",
+          modelProvider: "openai",
+          apiKey: "secret-key-1234",
+        },
+      ),
+    ).rejects.toThrow("encryption unavailable");
+    expect(records).toEqual([]);
+    expect(starts).toEqual([]);
+  });
+
+  test("stores an external Pi API key in managed provider config and strips it from results", async () => {
     const { agentManagement, starts } = fixture();
 
     const result = await agentManagement.create(
@@ -124,12 +161,13 @@ describe("ManageAgents", () => {
         provider: RUNTIME_PROVIDER.PI,
         computerId: "computer-1",
         modelProvider: "anthropic",
+        apiKey: "secret-key-1234",
       },
     );
 
     expect(result.agent.runtimeConfig).toMatchObject({
       runtime: RUNTIME_PROVIDER.PI,
-      provider: { kind: "default" },
+      provider: { kind: "coforge", providerId: "anthropic" },
       modelProvider: "anthropic",
     });
     expect(starts[0]).toMatchObject({ intent: { modelProvider: "anthropic" } });
@@ -146,6 +184,7 @@ describe("ManageAgents", () => {
         computerId: "computer-1",
         modelProvider: "deepseek",
         model: "future-model",
+        apiKey: "secret-key-1234",
       },
     );
     expect(result.agent.runtimeConfig).toMatchObject({
@@ -154,6 +193,33 @@ describe("ManageAgents", () => {
       modelProvider: "deepseek",
       model: "future-model",
     });
+  });
+
+  test("requires a key for CoForge creation but permits Pi local auth", async () => {
+    const { agentManagement } = fixture();
+    await expect(
+      agentManagement.create(
+        { userId: "user-1", workspaceId: "workspace-1" },
+        {
+          name: "missing-key",
+          description: "",
+          provider: RUNTIME_PROVIDER.COFORGE,
+          computerId: "computer-1",
+          modelProvider: "openai",
+        },
+      ),
+    ).rejects.toThrow("API key is required");
+    const pi = await agentManagement.create(
+      { userId: "user-1", workspaceId: "workspace-1" },
+      {
+        name: "local-pi",
+        description: "",
+        provider: RUNTIME_PROVIDER.PI,
+        computerId: "computer-1",
+        modelProvider: "openai",
+      },
+    );
+    expect(pi.agent.runtimeConfig.provider).toEqual({ kind: "default" });
   });
 
   test("defaults modelProvider for persisted runtime configs created before the field", () => {
@@ -314,6 +380,18 @@ describe("ManageAgents", () => {
       apiKey: { ciphertext: "c" },
     });
     controls.length = 0;
+    await expect(
+      agentManagement.update(
+        { userId: "user-1", workspaceId: "workspace-1" },
+        {
+          agentId: "agent-1",
+          name: "builder",
+          description: "",
+          provider: RUNTIME_PROVIDER.COFORGE,
+          modelProvider: "anthropic",
+        },
+      ),
+    ).rejects.toThrow("API key is required");
     await agentManagement.update(
       { userId: "user-1", workspaceId: "workspace-1" },
       {
@@ -322,9 +400,79 @@ describe("ManageAgents", () => {
         description: "",
         provider: RUNTIME_PROVIDER.COFORGE,
         modelProvider: "anthropic",
+        apiKey: "replacement-key-1234",
       },
     );
-    expect(records[0]!.runtimeConfig.provider).not.toHaveProperty("apiKey");
+    expect(records[0]!.runtimeConfig.provider).toMatchObject({
+      providerId: "anthropic",
+      apiKey: { ciphertext: "encrypted:replacement-key-1234" },
+    });
+  });
+
+  test("restarts for a key-only update and never returns ciphertext", async () => {
+    const { agentManagement, records, controls } = fixture();
+    records.push({
+      id: "agent-1",
+      workspaceId: "workspace-1",
+      ownerId: "user-1",
+      computerId: "computer-1",
+      name: "pi",
+      displayName: "pi",
+      createdAt: new Date(),
+      runtimeConfig: {
+        runtime: RUNTIME_PROVIDER.PI,
+        provider: {
+          kind: "coforge",
+          providerId: "openai",
+          apiKey: { keyId: "v1", ciphertext: "old", nonce: "nonce", hint: "••••old1" },
+        },
+        model: "gpt",
+        modelProvider: "openai",
+        reasoning: "",
+      },
+    });
+    const result = await agentManagement.update(
+      { userId: "user-1", workspaceId: "workspace-1" },
+      {
+        agentId: "agent-1",
+        name: "pi",
+        description: "",
+        provider: RUNTIME_PROVIDER.PI,
+        model: "gpt",
+        modelProvider: "openai",
+        apiKey: "new-secret-1234",
+      },
+    );
+    expect(controls).toEqual(["stop", "persist", "start"]);
+    expect(result.agent.runtimeConfig.provider).not.toHaveProperty("apiKey");
+    expect(JSON.stringify(result)).not.toContain("encrypted:new-secret-1234");
+  });
+
+  test("Pi model edits advertise the preserved key without disclosing it to catalog checks", async () => {
+    const { agentManagement, selections } = fixture();
+    const principal = { userId: "user-1", workspaceId: "workspace-1" };
+    const input = {
+      name: "pi",
+      description: "",
+      provider: RUNTIME_PROVIDER.PI,
+      computerId: "computer-1",
+      modelProvider: "openai",
+      model: "gpt-5",
+    };
+    const created = await agentManagement.create(principal, {
+      ...input,
+      apiKey: "secret-key-1234",
+    });
+    await agentManagement.update(principal, {
+      ...input,
+      agentId: created.agent.id,
+      model: "gpt-5-mini",
+    });
+    expect(selections).toHaveLength(2);
+    for (const selection of selections) {
+      expect(selection.hasApiKey).toBe(true);
+      expect(selection).not.toHaveProperty("apiKey");
+    }
   });
 
   test("does not persist after stop failure and reports a deferred start failure", async () => {

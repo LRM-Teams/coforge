@@ -39,10 +39,10 @@ import {
   DaemonConnection,
   DaemonRuntime,
   InMemoryDaemonCredentialStore,
-  PiDriver,
   defaultCentrifugeWorkspaceClientFactory,
   startAgentProxy,
 } from "../../../packages/daemon";
+import { PiJsonlFixtureDriver } from "../../../packages/daemon/test/fixtures/pi-jsonl-fixture-driver";
 
 const databaseUrl = requireEnvironment("DATABASE_URL");
 if (requireEnvironment("COFORGE_E2E_ALLOW_RESET") !== "1")
@@ -170,15 +170,13 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       serverHttpUrl: "http://127.0.0.1:8789",
     },
     () =>
-      new PiDriver({
-        command: [
-          process.execPath,
-          join(
-            import.meta.dir,
-            "../../../packages/daemon/test/fixtures/agent-message-e2e-runtime.ts",
-          ),
-        ],
-      }),
+      new PiJsonlFixtureDriver([
+        process.execPath,
+        join(
+          import.meta.dir,
+          "../../../packages/daemon/test/fixtures/agent-message-e2e-runtime.ts",
+        ),
+      ]),
     credentials,
     {
       create: () =>

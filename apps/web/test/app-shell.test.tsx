@@ -539,6 +539,9 @@ test("selects a CoForge model provider before its model", async () => {
   await browserUser.click(page().getByRole("option", { name: "anthropic" }));
   await browserUser.click(page().getByRole("button", { name: "Model Optional" }));
   await browserUser.click(page().getByRole("option", { name: "anthropic / Claude Sonnet" }));
+  fireEvent.change(page().getByLabelText("API key"), {
+    target: { value: "fixture-provider-key" },
+  });
   fireEvent.click(page().getByRole("button", { name: "Create agent" }));
   await waitFor(() =>
     expect(onCreate).toHaveBeenCalledWith(
@@ -546,6 +549,7 @@ test("selects a CoForge model provider before its model", async () => {
         provider: "coforge",
         modelProvider: "anthropic",
         model: "claude-sonnet",
+        apiKey: "fixture-provider-key",
       }),
     ),
   );

@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { m } from "@/paraglide/messages";
+import { KEYED_MODEL_PROVIDERS } from "./agent.schemas";
 
 export type RuntimeCatalog = {
   provider: string;
@@ -31,11 +32,13 @@ export function AgentRuntimeFields({
   open,
   computerId,
   initial,
+  credentialConfigured = false,
   onLoad,
 }: {
   open: boolean;
   computerId: string;
   initial?: RuntimeSelection;
+  credentialConfigured?: boolean;
   onLoad: (computerId: string) => Promise<RuntimeOptions>;
 }) {
   const [provider, setProvider] = useState(initial?.provider ?? "coforge");
@@ -45,14 +48,25 @@ export function AgentRuntimeFields({
     : "";
   const [modelKey, setModelKey] = useState(initialModelKey);
   const [reasoning, setReasoning] = useState(initial?.reasoning ?? "");
+  const [apiKey, setApiKey] = useState("");
   const [optionsByComputer, setOptionsByComputer] = useState<
     Record<string, RuntimeOptions | undefined>
   >({});
   const [failedComputerId, setFailedComputerId] = useState<string>();
   const [retry, setRetry] = useState(0);
   const loading = useRef(new Set<string>());
+  const previousComputerId = useRef(computerId);
   const options = optionsByComputer[computerId];
   const failed = failedComputerId === computerId;
+
+  useEffect(() => {
+    if (!open) setApiKey("");
+  }, [open]);
+
+  useEffect(() => {
+    if (previousComputerId.current !== computerId) setApiKey("");
+    previousComputerId.current = computerId;
+  }, [computerId]);
 
   useEffect(() => {
     if (!open || !computerId || options || failed || loading.current.has(computerId)) return;
@@ -79,15 +93,16 @@ export function AgentRuntimeFields({
   }, [computerId, failed, initial, onLoad, open, options, retry]);
 
   const providers = new Set(["coforge", initial?.provider, ...(options?.providers ?? [])]);
-  const catalog = options?.catalogs.find((item) => item.provider === provider);
+  const catalogModels =
+    provider === "pi" ? piCatalogModels(options) : runtimeModels(options, provider);
   const modelProviders = [
     ...new Set(
-      (catalog?.models ?? [])
+      catalogModels
         .map((model) => model.modelProvider)
         .filter((value): value is string => Boolean(value)),
     ),
   ];
-  const selectedModel = catalog?.models.find(
+  const selectedModel = catalogModels.find(
     (model) =>
       modelOptionValue(model) === modelKey &&
       (provider !== "coforge" || model.modelProvider === modelProvider),
@@ -103,6 +118,15 @@ export function AgentRuntimeFields({
       ? modelProvider
       : (selectedModel?.modelProvider ??
         (modelKey === initialModelKey ? (initial?.modelProvider ?? "") : ""));
+  const matchingConfiguredCredential =
+    credentialConfigured &&
+    initial?.provider === provider &&
+    initial.modelProvider === modelProvider;
+  const visibleModels = catalogModels.filter((model) => {
+    if (provider === "coforge") return model.modelProvider === modelProvider;
+    if (provider === "pi" && modelProvider) return model.modelProvider === modelProvider;
+    return true;
+  });
 
   return (
     <>
@@ -117,6 +141,7 @@ export function AgentRuntimeFields({
             setModelProvider("");
             setModelKey("");
             setReasoning("");
+            setApiKey("");
           }}
         >
           <SelectTrigger aria-label={m.agent_form_provider()} className="h-9 min-w-0">
@@ -139,12 +164,16 @@ export function AgentRuntimeFields({
             name="modelProvider"
             required={provider === "coforge"}
             maxLength={100}
-            defaultValue={modelProvider}
+            value={modelProvider}
+            onChange={(event) => {
+              setModelProvider(event.target.value);
+              setApiKey("");
+            }}
             className="h-9 min-w-0 rounded-md border bg-background px-3"
           />
         </label>
       ) : (
-        provider === "coforge" && (
+        (provider === "coforge" || provider === "pi") && (
           <div className="grid min-w-0 gap-1.5 text-sm">
             <span>{m.agent_form_model_provider()}</span>
             <input type="hidden" name="modelProvider" value={modelProvider} />
@@ -156,6 +185,7 @@ export function AgentRuntimeFields({
                 setModelProvider(value);
                 setModelKey("");
                 setReasoning("");
+                setApiKey("");
               }}
             >
               <SelectTrigger aria-label={m.agent_form_model_provider()} className="h-9 min-w-0">
@@ -173,7 +203,7 @@ export function AgentRuntimeFields({
           </div>
         )
       )}
-      {!failed && provider !== "coforge" && (
+      {!failed && provider !== "coforge" && provider !== "pi" && (
         <input type="hidden" name="modelProvider" value={submittedModelProvider} />
       )}
       {failed ? (
@@ -193,7 +223,9 @@ export function AgentRuntimeFields({
           <input
             type="hidden"
             name="model"
-            value={selectedModel?.id ?? (modelKey === initialModelKey ? initial?.model : "")}
+            value={
+              selectedModel?.id ?? (modelKey === initialModelKey ? (initial?.model ?? "") : "")
+            }
           />
           <Select
             disabled={!options}
@@ -201,7 +233,9 @@ export function AgentRuntimeFields({
             onValueChange={(value) => {
               if (value === null) return;
               setModelKey(value);
-              const model = catalog?.models.find((item) => modelOptionValue(item) === value);
+              const model = catalogModels.find((item) => modelOptionValue(item) === value);
+              if (model?.modelProvider !== modelProvider) setApiKey("");
+              setModelProvider(model?.modelProvider ?? "");
               setReasoning(model?.defaultReasoning ?? "");
             }}
           >
@@ -222,19 +256,43 @@ export function AgentRuntimeFields({
               {configuredModelSelected && !selectedModel && (
                 <SelectItem value={initialModelKey}>{configuredModelLabel}</SelectItem>
               )}
-              {catalog?.models
-                .filter((model) => provider !== "coforge" || model.modelProvider === modelProvider)
-                .map((model) => (
-                  <SelectItem key={modelOptionValue(model)} value={modelOptionValue(model)}>
-                    {model.modelProvider
-                      ? `${model.modelProvider} / ${model.displayName}`
-                      : model.displayName}
-                  </SelectItem>
-                ))}
+              {visibleModels.map((model) => (
+                <SelectItem key={modelOptionValue(model)} value={modelOptionValue(model)}>
+                  {model.modelProvider
+                    ? `${model.modelProvider} / ${model.displayName}`
+                    : model.displayName}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
       )}
+      {(provider === "coforge" || provider === "pi") &&
+        KEYED_MODEL_PROVIDERS.has(modelProvider) && (
+          <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
+            {m.agent_runtime_api_key()}
+            <input
+              name="apiKey"
+              type="password"
+              aria-label={m.agent_runtime_api_key()}
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              required={provider === "coforge" && !matchingConfiguredCredential}
+              minLength={8}
+              maxLength={4096}
+              autoComplete="new-password"
+              placeholder={m.agent_runtime_api_key_placeholder()}
+              className="h-10 rounded-lg border bg-background px-3 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <span className="text-xs font-normal text-muted-foreground">
+              {matchingConfiguredCredential
+                ? m.agent_form_api_key_preserve_help()
+                : provider === "pi"
+                  ? m.agent_form_pi_api_key_help()
+                  : m.agent_form_coforge_api_key_help()}
+            </span>
+          </label>
+        )}
       {failed && (
         <div role="alert" className="grid gap-2 text-sm text-destructive-text sm:col-span-2">
           <span>{m.agent_form_catalog_manual_help()}</span>
@@ -298,4 +356,18 @@ function providerLabel(provider: RuntimeProvider) {
 
 function modelOptionValue(model: CodeAgentModelMetadata) {
   return JSON.stringify([model.modelProvider, model.id]);
+}
+
+function runtimeModels(options: RuntimeOptions | undefined, provider: RuntimeProvider) {
+  return options?.catalogs.find((item) => item.provider === provider)?.models ?? [];
+}
+
+function piCatalogModels(options: RuntimeOptions | undefined) {
+  const models = [...runtimeModels(options, "pi"), ...runtimeModels(options, "coforge")];
+  const unique = new Map<string, CodeAgentModelMetadata>();
+  for (const model of models) {
+    const key = modelOptionValue(model);
+    if (!unique.has(key)) unique.set(key, model);
+  }
+  return [...unique.values()];
 }

@@ -10,7 +10,12 @@ import { JsonlProcess, JsonlRequestError } from "./jsonl-process";
 import { probeClaudeCodeVersion, resolveClaudeCodeExecutable } from "./claude-code/runtime";
 import { COFORGE_DAEMON_VERSION } from "../version";
 import { codeAgentExecutableSearchPath } from "../platform/code-agent-path";
-import { COFORGE_PROVIDER_MODELS_GENERATED } from "@coforge/agent";
+import {
+  COFORGE_PROVIDER_MODELS_GENERATED,
+  discoverPiModels,
+  getAgentDir,
+  PI_SDK_VERSION,
+} from "@coforge/agent";
 import { COFORGE_AGENT_RUNTIME_METADATA } from "./pi/metadata";
 import { getLogger } from "@logtape/logtape";
 
@@ -71,7 +76,6 @@ const bunProbe: ExternalCodeAgentProbe = {
 };
 
 const externalCodeAgents = [
-  { provider: RUNTIME_PROVIDER.PI, executable: "pi" },
   { provider: RUNTIME_PROVIDER.CODEX, executable: "codex" },
   { provider: RUNTIME_PROVIDER.CLAUDE_CODE, executable: "claude" },
 ] as const;
@@ -104,12 +108,7 @@ export async function discoverExternalCodeAgents(
           runtimes.push({
             provider,
             version,
-            displayName:
-              provider === RUNTIME_PROVIDER.PI
-                ? "Pi"
-                : provider === RUNTIME_PROVIDER.CODEX
-                  ? "Codex"
-                  : "Claude Code",
+            displayName: provider === RUNTIME_PROVIDER.CODEX ? "Codex" : "Claude Code",
           });
         continue;
       }
@@ -143,12 +142,7 @@ export async function discoverExternalCodeAgents(
         runtimes.push({
           provider,
           version,
-          displayName:
-            provider === RUNTIME_PROVIDER.PI
-              ? "Pi"
-              : provider === RUNTIME_PROVIDER.CODEX
-                ? "Codex"
-                : "Claude Code",
+          displayName: provider === RUNTIME_PROVIDER.CODEX ? "Codex" : "Claude Code",
         });
     } catch (error) {
       logger.warning("Code Agent runtime probe failed", {
@@ -170,7 +164,6 @@ export type CodeAgentInventory = {
 };
 
 type CatalogCommands = {
-  pi?: readonly string[];
   codex?: readonly string[];
 };
 
@@ -188,17 +181,14 @@ export async function discoverCodeAgentInventory(
   const searchPath = codeAgentExecutableSearchPath(environment, options.platform);
   const runtimes = [
     COFORGE_AGENT_RUNTIME_METADATA,
+    { provider: RUNTIME_PROVIDER.PI, version: PI_SDK_VERSION, displayName: "Pi" },
     ...(await discoverExternalCodeAgents(probe, environment, options.platform)),
   ];
   const cwd = options.cwd ?? process.cwd();
   const commands = options.commands ?? {};
   const discoveries: Array<Promise<CodeAgentModelCatalog | undefined>> = [];
   discoveries.push(Promise.resolve(discoverCoforgeCatalog()));
-  if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.PI)) {
-    const executable = probe.which("pi", searchPath);
-    if (executable)
-      discoveries.push(discoverPiCatalogFromProcess(commands.pi ?? [executable], cwd));
-  }
+  discoveries.push(discoverPiCatalog(cwd, environment));
   if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.CODEX)) {
     const executable = probe.which("codex", searchPath);
     if (executable)
@@ -431,21 +421,33 @@ function catalogErrorMessage(error: unknown): string {
   return "model catalog discovery failed; untrusted error detail omitted";
 }
 
-async function discoverPiCatalogFromProcess(
-  command: readonly string[],
+async function discoverPiCatalog(
   cwd: string,
+  environment: Readonly<Record<string, string | undefined>>,
 ): Promise<CodeAgentModelCatalog | undefined> {
-  return withJsonlProcess(RUNTIME_PROVIDER.PI, command, cwd, async (process, progress) => {
-    progress.stage = "get_available_models";
-    const response = await within(process.request({ type: "get_available_models" }));
-    const models = asRecord(response.data)?.models;
-    progress.stage = "decode_catalog";
-    if (!Array.isArray(models)) throw new CatalogDiscoveryError("Pi model catalog is unavailable");
+  try {
+    const home = environment.HOME ?? environment.USERPROFILE;
+    const agentDir =
+      environment.PI_CODING_AGENT_DIR ?? (home ? join(home, ".pi", "agent") : getAgentDir());
+    const models = await discoverPiModels(cwd, {
+      agentDir,
+      environment: definedEnvironment(environment),
+    });
     return {
       provider: RUNTIME_PROVIDER.PI,
       models: models.map(piModel).filter(isModel),
     };
-  });
+  } catch {
+    return undefined;
+  }
+}
+
+function definedEnvironment(environment: Readonly<Record<string, string | undefined>>) {
+  return Object.fromEntries(
+    Object.entries(environment).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  );
 }
 
 function within<T>(promise: Promise<T>): Promise<T> {
