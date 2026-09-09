@@ -541,7 +541,31 @@ symlink 只删除链接。缺失/损坏防护记录、未确认清理或硬崩�
 
 Daemon 转发 Activity 的 error 文本时保留 adapter 上报原文，不做内容脱敏；Codex 的 `error` 通知直接使用其 `message`。继续遵守现有 512 字符长度限制。界面只显示 `Error` 和错误文本，不添加重试前缀或展示内部错误分类。此显示策略不改变本地结构化日志的 secret 脱敏规则。
 
-一台 Computer 始终随 Daemon 交付内置 CoForge Agent runtime；此外允许存在零个或多个用户安装的 code-agent runtime。内置 runtime 不通过本机扫描发现，其版本来自当前 Daemon build；用户安装的 Pi、Codex 与 Claude Code 通过各自真实 `--version`/native handshake 检测可执行文件和版本。Daemon 在启动完成及每次 WSS 重连 ready 后扫描有效 executable search path；除服务进程继承的 `PATH` 外追加各平台常用的用户安装目录、mise/asdf/Volta shim，以及 macOS Homebrew 目录，避免依赖 interactive shell 初始化；同一搜索路径用于后续启动，不能出现“检测到但无法启动”。Daemon 通过 Pi RPC 与 Codex app-server `model/list` 尽力读取当前账号可用的模型目录。Claude Code 的初始化输出不提供可靠的模型目录，因此已安装 Claude Code 时直接上报维护中的静态模型与 reasoning 目录；当前静态目录包含 `opus`、`fable`、`sonnet`、`haiku` 及 8 个版本化 Claude ID，不设置推荐模型。该目录是 CoForge 的可维护支持列表，不声称是当前账号权限或 Raft 内部实现的完整镜像。`daemon_runtime:code_agents_update` 同时上报完整 runtime 快照和模型目录；模型项包含 code-agent provider、模型 ID、显示名称、Pi 的底层 model provider，以及该模型支持的 reasoning 值。Backend 校验外部输入大小和字段后，对可信 Workspace–Computer scope 事务性更新 PostgreSQL 快照；已有 runtime 的公开状态在库存更新时保留，新探测到的 runtime 默认仅 Computer 所有者可见。所有者始终可以选择自己的外部 runtime，并可逐个向当前 Workspace 公开或再次设为私有；其他 Workspace 成员只能查看和选择已公开项，公开不允许跨 Workspace 访问。Computer 页面只向请求者显示其可见的 Provider 与版本；Agent 创建页面按所选 Computer 展示请求者可见的已安装 Provider 的模型和 reasoning 选项。安装新 Provider 或账号模型权限变化后只需重启或重连 Daemon，不需要重新注册 Computer。未选择模型或 reasoning 时使用 provider 默认值；选择值时 Backend 必须按该 Computer 最近上报的目录和公开状态校验，Daemon driver 必须把选择转换成对应 provider 的原生启动配置。静态 Claude Code 目录不保证当前账号拥有每个模型；实际不可用时由 Claude Code 返回明确错误。Agent 对产品和 Web 只暴露 `online`、`offline` 两种业务状态：Agent runtime process 存在且由 AgentProcessManager 持有时为 `online`，进程退出或被停止后为 `offline`。该状态从本地进程生命周期派生，不单独维护或持久化。daemon 使用两个上报通道提供 Agent 信息：`agent:status` 只携带 `online` 或 `offline`，`agent:activity` 携带 starting、stopping、turn、工具、错误和警告明细；activity 不新增 Agent 状态。Activity 是观测数据：Daemon 通过 WSS 向专用 `activity:<workspace_id>` namespace 发起 best-effort publication，不等待业务确认、不重试、不写本地 spool，失败也不影响 Agent 生命周期或消息处理。Centrifugo publish proxy 校验可信 connection metadata、Workspace、Computer、Agent 与 payload scope；Backend 把成功接收的 observation 幂等写入 PostgreSQL，供 Agent Profile 和 Activity tab 查询，并从可信 connection metadata 记录 Computer。observer 失败仍允许丢弃，因此持久历史可能缺项，不承担 Agent 状态、审计或业务事实。没有可用的用户 runtime 不阻止 Computer 或 Daemon 启动，安装并配置合适 runtime 前不能执行对应 Agent。
+一台 Computer 始终随 Daemon 交付内置 CoForge Agent runtime；此外允许存在零个或多个用户安装的 code-agent runtime。内置 runtime 不通过本机扫描发现，其版本来自当前 Daemon build；用户安装的 Pi、Codex 与 Claude Code 通过各自真实 `--version`/native handshake 检测可执行文件和版本。Daemon 在启动完成及每次 WSS 重连 ready 后扫描有效 executable search path；除服务进程继承的 `PATH` 外追加各平台常用的用户安装目录、mise/asdf/Volta shim，以及 macOS Homebrew 目录，避免依赖 interactive shell 初始化；同一搜索路径用于后续启动，不能出现“检测到但无法启动”。Daemon 通过 Pi RPC 与 Codex app-server `model/list` 尽力读取当前账号可用的模型目录。Claude Code 的初始化输出不提供可靠的模型目录，因此已安装 Claude Code 时直接上报维护中的静态模型与 reasoning 目录；当前静态目录包含 `opus`、`fable`、`sonnet`、`haiku` 及 8 个版本化 Claude ID，不设置推荐模型。该目录是 CoForge 的可维护支持列表，不声称是当前账号权限或 Raft 内部实现的完整镜像。`daemon_runtime:code_agents_update` 同时上报完整 runtime 快照和模型目录；模型项包含 code-agent provider、模型 ID、显示名称、Pi 的底层 model provider，以及该模型支持的 reasoning 值。Backend 校验外部输入大小和字段后，对可信 Workspace–Computer scope 事务性更新 PostgreSQL 快照；已有 runtime 的公开状态在库存更新时保留，新探测到的 runtime 默认仅 Computer 所有者可见。所有者始终可以选择自己的外部 runtime，并可逐个向当前 Workspace 公开或再次设为私有；其他 Workspace 成员只能查看和选择已公开项，公开不允许跨 Workspace 访问。Computer 页面只向请求者显示其可见的 Provider 与版本；Agent 创建页面按所选 Computer 展示请求者可见的已安装 Provider 的模型和 reasoning 选项。安装新 Provider 或账号模型权限变化后只需重启或重连 Daemon，不需要重新注册 Computer。未选择模型或 reasoning 时使用 provider 默认值；选择值时 Backend 必须按该 Computer 最近上报的目录和公开状态校验，Daemon driver 必须把选择转换成对应 provider 的原生启动配置。静态 Claude Code 目录不保证当前账号拥有每个模型；实际不可用时由 Claude Code 返回明确错误。
+
+Daemon 的事实保持原始分工：`agent:status` 只报告 Agent runtime process 的 `active` 或
+`inactive`，由 `AgentProcessManager` 持有进程与否决定；`agent:activity` 独立报告
+starting、turn、工具、thinking、错误和警告等 detail/entries，不在 Daemon 中归并成产品状态。
+Web/backend 则为浏览器维护加法的统一 Agent display 投影
+`online | working | thinking | error | offline`。它在
+`agent-display.server.ts` 中用单次 Redis Lua 操作串行接收有序 process 与已授权 Activity，
+由 backend 的 `activity_kind` 映射覆盖任何 Daemon 提供的分类。`active` heartbeat 将 process
+lease 续至服务端接收时间后 90 秒；`working`/`thinking` 从服务端接收时间起最多显示 60 秒，
+届时若 process 仍有效回到 `online`；`error` 保持到下一条可识别 Activity 或 process reset，
+process lease 到期则为 `offline`。当前 Activity 的 `runtimeSession` launch fence 是在处理时读取的
+best-effort current-launch 检查，并非与 Redis 投影提交组成的跨存储事务，不能宣称完全阻挡该窗口内
+的 stale Activity。界面责任与呈现依据来自核查
+[Raft 1.0.17 官方 tarball](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)
+及 [Raft app](https://app.raft.build/)；这里只对齐可观察的责任和样式，不声称知道其隐藏 cloud
+reducer 的精确算法。
+
+Redis display state 是 24 小时易失投影，不是事实存储；revision counter 单独持续保存，并以
+Redis server time 作为单调下限。PostgreSQL Activity history 不变、无 schema migration，仍是
+best-effort observation：Daemon publication 不等待业务确认、不重试、不写本地 spool，observer
+失败可丢失，因此历史不可靠且不承担审计或业务事实。Centrifugo publish proxy 仍校验可信
+connection metadata、Workspace、Computer、Agent 与 payload scope，成功接收的原始 Activity
+照常幂等写入 PostgreSQL。没有可用的用户 runtime 不阻止 Computer 或 Daemon 启动，安装并配置
+合适 runtime 前不能执行对应 Agent。
 
 PostgreSQL 中的 Code Agent installation 与 model catalog 快照以可信的
 `(workspace_id, computer_id, provider)` 为复合身份；同一 Computer 的不同 Workspace 各自保存
@@ -551,7 +575,10 @@ Workspace connection，迁移必须 fail closed 并停止；不得猜测、复�
 全局库存当作 scoped catalog。迁移成功后所有 runtime 与 model catalog 读写都使用该复合 scope。
 
 浏览器先加载最近 100 条 Activity 历史，再以当前 Workspace 成员专属 token 订阅
-`activity:<workspace_id>` 的 protobuf 连接；此连接与 JSON status 连接分离。
+`activity:<workspace_id>` 的 protobuf 连接；与 display snapshot/realtime 共用既有 browser
+server connection，但 channel 与数据契约分离。浏览器只按 revision 接受 backend snapshot，
+不自行重放 reduction 规则；到 `expiresAt` 时刷新 backend，并在失败后保留最后 snapshot 且重试。
+首次 snapshot 不可用且没有旧值时显示 `unknown`，不能猜测 offline。
 历史与实时事件按 launch ID/client sequence 去重，重连补取 best-effort 历史，不承诺完整回放。
 Idle 仅表示正常 turn 结束，不表示用户任务成功。后续恢复会移除 Profile 上的旧失败提示，
 但 Activity 历史保留失败记录。Profile/Activity tabs 固定在独立滚动内容区之外。
@@ -565,7 +592,7 @@ Computer 的共享凭据。同一 User 的两个 Agent 可以配置不同 key。
 的 provider 使用 `kind = coforge`、`providerId` 和加密的 `apiKey`。Agent detail 只返回
 不含 `apiKey` 的 Runtime Config 和 owner 可见的末四位提示。
 
-`agent:status` 是 volatile lease state，协议携带 `daemon_instance_id`、`client_seq`、`observed_at_ms`。`observed_at_ms` 在一个 daemon instance 内固定为该 instance 的启动时间；同一 instance 按 sequence 排序，不同 instance 按该启动时间排序，避免旧 instance 的延迟状态覆盖替代它的新 instance。lease renewal 可以重放同一逻辑状态记录。浏览器 live event 与 reconnect snapshot 使用同一排序合并规则，equal active lease refresh 只延长、不缩短 expiry。
+`agent:status` 是 volatile process lease fact，协议携带 `daemon_instance_id`、`client_seq`、`observed_at_ms`。`observed_at_ms` 在一个 daemon instance 内固定为该 instance 的启动时间；同一 instance 按 sequence 排序，不同 instance 按该启动时间排序，避免旧 instance 的延迟状态覆盖替代它的新 instance。lease renewal 可以重放同一逻辑状态记录。Backend display reducer 使用这些排序字段并发布 versioned snapshot；浏览器不再合并 process 与 Activity。
 
 Agent 启动时，Daemon 使用绑定到 Agent owner 与 Computer 的启动授权 HTTPS 请求取得
 Agent API Key；Web/backend 在同一个响应中解密并返回 provider config。Daemon ready

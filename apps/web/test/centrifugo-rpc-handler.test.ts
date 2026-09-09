@@ -113,6 +113,7 @@ describe("CentrifugoRpcHandler", () => {
   test("accepts a scoped Agent status from its assigned Computer", async () => {
     const statuses: unknown[] = [];
     const publications: unknown[] = [];
+    const displayObservations: unknown[] = [];
     const method = createAgentStatusMethod(
       {
         getById: async () => ({
@@ -139,6 +140,28 @@ describe("CentrifugoRpcHandler", () => {
         },
       },
       () => 1_000,
+      {
+        observeStatus: async (status) => {
+          displayObservations.push(status);
+          return {
+            protocolMajor: 1,
+            workspaceId: "workspace-1",
+            computerId: "computer-1",
+            agentId: "agent-1",
+            revision: 1,
+            activityKind: "online",
+            detailKind: "",
+            detail: "",
+            entries: [],
+            expiresAt: 91_000,
+          };
+        },
+      },
+      {
+        publishJson: async (channel, data) => {
+          publications.push({ channel, data });
+        },
+      },
     );
     const payload = encodeAgentStatus({
       protocolMajor: 1,
@@ -166,6 +189,7 @@ describe("CentrifugoRpcHandler", () => {
         observedAtMs: 1_000,
       },
     ]);
+    expect(displayObservations).toHaveLength(1);
     expect(publications).toEqual([
       {
         channel: "status:workspace-1",
@@ -176,6 +200,22 @@ describe("CentrifugoRpcHandler", () => {
           daemonInstanceId: "daemon-1",
           clientSeq: 1,
           observedAtMs: 1_000,
+        },
+      },
+      {
+        channel: "status:workspace-1",
+        data: {
+          type: "agent:display",
+          protocolMajor: 1,
+          workspaceId: "workspace-1",
+          computerId: "computer-1",
+          agentId: "agent-1",
+          revision: 1,
+          activityKind: "online",
+          detailKind: "",
+          detail: "",
+          entries: [],
+          expiresAt: 91_000,
         },
       },
     ]);

@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import type { AgentStatusView } from "@/features/agents/agent-status-realtime";
+import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
 import { CreateChannelDialog } from "./create-channel-dialog";
 
 export type ConversationAgent = {
@@ -24,6 +25,7 @@ export type ConversationAgent = {
   name: string;
   displayName: string;
   status: AgentStatusView;
+  display?: AgentDisplaySnapshot;
 };
 
 /**
@@ -41,7 +43,12 @@ const defaultActivity: WorkspaceActivityView = {
   error: false,
 };
 const ConversationActivityContext = createContext(defaultActivity);
+const ConversationDisplayContext = createContext<AgentDisplaySnapshot | undefined>(undefined);
 const ConversationTimeZoneContext = createContext<string | undefined>(undefined);
+
+export function useConversationDisplay() {
+  return useContext(ConversationDisplayContext);
+}
 
 export function useConversationActivity(agentId: string) {
   const view = useContext(ConversationActivityContext);
@@ -147,7 +154,7 @@ export function ConversationLayout({
                   <AgentActivityAvatar
                     agent={agent}
                     size="lg"
-                    status={agent.status.value}
+                    display={agent.display}
                     {...activityForAgent(activityView, agent.id)}
                     timeZone={timeZone}
                   />
@@ -181,9 +188,15 @@ export function ConversationLayout({
       >
         <BackToAgentsContext value={() => setShowMobileAgents(true)}>
           <ConversationAgentStatusContext value={selectedAgentStatus}>
-            <ConversationActivityContext value={activityView}>
-              <ConversationTimeZoneContext value={timeZone}>{children}</ConversationTimeZoneContext>
-            </ConversationActivityContext>
+            <ConversationDisplayContext
+              value={agents.find((agent) => agent.id === selectedAgentId)?.display}
+            >
+              <ConversationActivityContext value={activityView}>
+                <ConversationTimeZoneContext value={timeZone}>
+                  {children}
+                </ConversationTimeZoneContext>
+              </ConversationActivityContext>
+            </ConversationDisplayContext>
           </ConversationAgentStatusContext>
         </BackToAgentsContext>
       </section>

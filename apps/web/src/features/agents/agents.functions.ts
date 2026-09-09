@@ -38,6 +38,7 @@ import {
 import { getAgentStatusCache } from "../../server/agents/agent-status.server";
 import { issueBrowserRealtimeToken } from "../../server/auth/browser-realtime-token.server";
 import { createAgentSessions } from "../../server/db/repositories/agent-session.repositories.server";
+import { getAgentDisplay } from "../../server/agents/agent-display.server";
 
 function dependencies() {
   const db = getDatabaseClient();
@@ -172,8 +173,21 @@ export const listAgents = createServerFn({ method: "GET" }).handler(async () => 
             agentId: agent.id,
           })
         : undefined;
+      let displaySnapshot;
+      if (agent.computerId) {
+        try {
+          displaySnapshot = await getAgentDisplay().snapshot({
+            workspaceId,
+            computerId: agent.computerId,
+            agentId: agent.id,
+          });
+        } catch {
+          // An unavailable display read model must not hide an Agent profile.
+        }
+      }
       return {
         ...agent,
+        ...(displaySnapshot ? { display: displaySnapshot } : {}),
         status: {
           value: status?.status ?? ("inactive" as const),
           expiresAt: status?.expiresAt ?? null,
@@ -271,6 +285,9 @@ export const getAgentDetail = createServerFn({ method: "GET" })
       },
       {
         snapshot: (scope) => getAgentStatusCache().snapshot(scope),
+      },
+      {
+        snapshot: (scope) => getAgentDisplay().snapshot(scope),
       },
     );
     const result = await query.get(workspaceId, agentId, user.id);

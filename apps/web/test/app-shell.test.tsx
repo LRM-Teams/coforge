@@ -265,13 +265,40 @@ test("renders persisted Agent fields without fabricated details", () => {
 
 test("shows Agent status on the avatar", () => {
   renderShell([
-    { ...agent, status: { value: "active", expiresAt: Date.now() + 60_000 } },
+    {
+      ...agent,
+      status: { value: "active", expiresAt: Date.now() + 60_000 },
+      display: {
+        protocolMajor: 1 as const,
+        workspaceId: "workspace-1",
+        computerId: "computer-1",
+        agentId: "agent-1",
+        revision: 1,
+        activityKind: "online" as const,
+        detailKind: "online",
+        detail: "",
+        entries: [],
+        expiresAt: Date.now() + 60_000,
+      },
+    },
     {
       ...agent,
       id: "agent-2",
       name: "research-helper",
       displayName: "Research Helper",
       status: { value: "inactive", expiresAt: null },
+      display: {
+        protocolMajor: 1 as const,
+        workspaceId: "workspace-1",
+        computerId: "computer-1",
+        agentId: "agent-2",
+        revision: 1,
+        activityKind: "offline" as const,
+        detailKind: "stopped",
+        detail: "",
+        entries: [],
+        expiresAt: null,
+      },
     },
   ]);
 
@@ -279,8 +306,6 @@ test("shows Agent status on the avatar", () => {
   const inactiveCard = page().getByText("Research Helper").closest("li");
   if (!(activeCard instanceof HTMLElement) || !(inactiveCard instanceof HTMLElement))
     throw new Error("Agent cards were not rendered");
-  expect(activeCard.querySelector("span.relative.flex.shrink-0 > span.bg-success")).toBeTruthy();
-  expect(inactiveCard.querySelector("span.relative.flex.shrink-0 > span.bg-offline")).toBeTruthy();
   expect(activeCard.textContent).not.toContain("Online");
   expect(inactiveCard.textContent).not.toContain("Offline");
   expect(within(activeCard).getByRole("img", { name: "Release Helper, Online" })).toBeTruthy();

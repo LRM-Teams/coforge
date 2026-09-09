@@ -40,6 +40,7 @@ import {
   encodeAgentStatusEvent,
 } from "../../features/agents/agent-status-realtime";
 import type { CentrifugoServerApi } from "./server-api.server";
+import type { AgentDisplay } from "../agents/agent-display.server";
 import { AgentMessageValidationError } from "../conversations/agent-message-validation-error.server";
 import { isChannelMessageTarget, isChannelTarget } from "@coforge/protocol";
 import {
@@ -184,6 +185,8 @@ export function createAgentStatusMethod(
   statuses?: AgentStatusCache,
   events?: Pick<CentrifugoServerApi, "publish">,
   now = Date.now,
+  display?: Pick<AgentDisplay, "observeStatus">,
+  displayEvents?: Pick<CentrifugoServerApi, "publishJson">,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
     const status = decodeAgentStatus(payload);
@@ -210,6 +213,18 @@ export function createAgentStatusMethod(
           observedAtMs: status.observedAtMs,
         }),
       );
+    }
+    if (display) {
+      try {
+        const snapshot = await display.observeStatus(status);
+        if (snapshot && displayEvents)
+          await displayEvents.publishJson(agentStatusChannel(status.workspaceId), {
+            type: "agent:display",
+            ...snapshot,
+          });
+      } catch {
+        // The optional display read model cannot reject an accepted process fact.
+      }
     }
     return new Uint8Array();
   };

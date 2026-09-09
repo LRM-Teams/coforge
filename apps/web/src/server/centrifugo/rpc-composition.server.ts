@@ -87,6 +87,7 @@ import { Reminders } from "../reminders/reminders.server";
 import { getReminderCapabilityLease } from "../reminders/reminder-capability.server";
 import { daemonControlChannel } from "./server-api.server";
 import { encodeReminderSync } from "@coforge/protocol";
+import { getAgentDisplay } from "../agents/agent-display.server";
 
 const unavailable: CentrifugoRpcError = {
   code: 503,
@@ -261,7 +262,14 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
             control,
           ),
         ),
-        [AGENT_STATUS_METHOD]: createAgentStatusMethod(agentRepository, undefined, centrifugo),
+        [AGENT_STATUS_METHOD]: createAgentStatusMethod(
+          agentRepository,
+          undefined,
+          centrifugo,
+          Date.now,
+          getAgentDisplay(),
+          centrifugo,
+        ),
         [AGENT_MESSAGE_ACK_METHOD]: createAgentDeliveryAckMethod(
           new PrismaDirectConversationRepository(db),
         ),

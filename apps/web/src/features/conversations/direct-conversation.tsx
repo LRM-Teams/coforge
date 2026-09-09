@@ -28,8 +28,10 @@ import type { TaskView } from "@coforge/protocol";
 import {
   BackToAgents,
   useConversationActivity,
+  useConversationDisplay,
 } from "@/features/conversations/conversation-layout";
-import { AgentActivityAvatar, useAgentWorkingLabel } from "@/features/agents/agent-activity-avatar";
+import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
+import { agentDisplay } from "@/features/agents/agent-activity-presentation";
 import { Avatar } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -132,28 +134,18 @@ export type ThreadedConversationProps = Omit<ConversationProps, "conversation" |
 
 export function DirectConversation(props: ConversationProps) {
   const { conversation } = props;
-  const { agentStatus } = props;
   const activity = useConversationActivity(conversation.agent.id);
-  const workingLabel = useAgentWorkingLabel({
-    ...activity,
-    status: agentStatus,
-  });
+  const display = useConversationDisplay();
+  const displayLabel = agentDisplay(display).label;
   const header = (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-5">
       <BackToAgents />
-      <AgentActivityAvatar
-        agent={conversation.agent}
-        size="sm"
-        status={agentStatus}
-        {...activity}
-      />
+      <AgentActivityAvatar agent={conversation.agent} size="sm" display={display} {...activity} />
       <div className="min-w-0">
         <h1 className="truncate text-base font-semibold">{conversation.agent.displayName}</h1>
-        {workingLabel && (
-          <p role="status" className="truncate text-xs text-muted-foreground">
-            {workingLabel}…
-          </p>
-        )}
+        <p role="status" className="truncate text-xs text-muted-foreground">
+          {displayLabel}
+        </p>
       </div>
       <span className="hidden shrink-0 text-sm text-muted-foreground sm:block">
         @{conversation.agent.name}

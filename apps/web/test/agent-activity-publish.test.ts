@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { encodeAgentActivity } from "@coforge/protocol";
+import { decodeAgentActivity, encodeAgentActivity } from "@coforge/protocol";
 
 import { handleAgentActivityPublication } from "../src/server/agents/agent-activity-publish.server";
 
@@ -51,9 +51,70 @@ describe("Agent activity publication", () => {
       },
     });
 
-    expect(await response.json()).toEqual({ result: { skip_history: true } });
+    const result = (await response.json()) as {
+      result: { skip_history: boolean; b64data: string };
+    };
+    expect(result.result.skip_history).toBe(true);
+    expect(
+      decodeAgentActivity(
+        Uint8Array.from(atob(result.result.b64data), (character) => character.charCodeAt(0)),
+      ).activityKind,
+    ).toBe("working");
     expect(received).toHaveLength(1);
-    expect(received[0]).toEqual({ ...activity, computerId: "computer-1" });
+    expect(received[0]).toEqual({
+      ...activity,
+      activityKind: "working",
+      computerId: "computer-1",
+    });
+  });
+
+  test("overrides forged display kinds and isolates display failures from history", async () => {
+    const forged = encodeAgentActivity({ ...activity, activityKind: "error" });
+    let binary = "";
+    for (const byte of forged) binary += String.fromCharCode(byte);
+    const history: unknown[] = [];
+    const response = await handleAgentActivityPublication(request({ b64data: btoa(binary) }), {
+      proxySecret: "test-secret",
+      agentBelongsToWorkspace: async () => true,
+      agentBelongsToComputer: async () => true,
+      computerBelongsToWorkspace: async () => true,
+      observe: async (value) => {
+        history.push(value);
+      },
+      currentRuntimeFence: async () => ({ daemonInstanceId: "daemon-1", launchId: "launch-1" }),
+      display: {
+        observeActivity: async () => {
+          throw new Error("Redis unavailable");
+        },
+      },
+    });
+    const result = (await response.json()) as { result: { b64data: string } };
+    const published = decodeAgentActivity(
+      Uint8Array.from(atob(result.result.b64data), (character) => character.charCodeAt(0)),
+    );
+    expect(published.activityKind).toBe("working");
+    expect(history).toHaveLength(1);
+  });
+
+  test("does not reduce an authorized observation without a current launch fence", async () => {
+    let reduced = false;
+    await handleAgentActivityPublication(request(), {
+      proxySecret: "test-secret",
+      agentBelongsToWorkspace: async () => true,
+      agentBelongsToComputer: async () => true,
+      computerBelongsToWorkspace: async () => true,
+      observe: async () => {
+        throw new Error("history unavailable");
+      },
+      currentRuntimeFence: async () => undefined,
+      display: {
+        observeActivity: async () => {
+          reduced = true;
+          return undefined;
+        },
+      },
+    });
+    expect(reduced).toBe(false);
   });
 
   test("rejects an untrusted proxy or mismatched connection scope", async () => {

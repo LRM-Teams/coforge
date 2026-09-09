@@ -12,7 +12,6 @@ import {
 import { Link } from "@tanstack/react-router";
 
 import { MobileNavigationButton } from "@/components/layout/mobile-navigation";
-import { Avatar } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { RelativeTime } from "@/components/ui/relative-time";
 import {
@@ -28,11 +27,9 @@ import { m } from "@/paraglide/messages";
 import { AgentRuntimeFields, type RuntimeOptions } from "./agent-runtime-fields";
 import type { UpdateAgentInput } from "./agent.schemas";
 import { latestActivityError, type ActivityEntry } from "./agent-activity";
-import {
-  activityLabel,
-  activityDotClass,
-  showsActivityMessage,
-} from "./agent-activity-presentation";
+import { agentDisplay } from "./agent-activity-presentation";
+import { AgentActivityTimeline } from "./agent-activity-timeline";
+import { AgentActivityAvatar } from "./agent-activity-avatar";
 import { AgentSkills, type AgentSkillsLoadResult } from "./agent-skills";
 import { AgentControl } from "./agent-control";
 import { AgentReminders } from "./agent-reminders";
@@ -64,24 +61,19 @@ export function AgentDetail({
   onExecuteControl?: Parameters<typeof AgentControl>[0]["onExecute"];
   onLoadReminders?: Parameters<typeof AgentReminders>[0]["onLoad"];
 }) {
-  const online = detail.status.value === "unknown" ? undefined : detail.status.value === "active";
-  const statusLabel =
-    detail.status.value === "unknown"
-      ? m.agent_status_unknown()
-      : online
-        ? m.agent_status_online()
-        : m.agent_status_offline();
+  const statusLabel = agentDisplay(detail.display).label;
   const latestError = latestActivityError(activity);
   return (
     <main className="flex h-svh max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background px-4 pt-5 md:px-8 md:pt-8">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-4 pb-6">
         <div className="flex min-w-0 items-center gap-3">
           <MobileNavigationButton />
-          <Avatar
-            people={[{ name: detail.displayName }]}
+          <AgentActivityAvatar
+            agent={detail}
             size="lg"
-            online={online}
-            statusLabel={statusLabel}
+            display={detail.display}
+            activity={activity}
+            timeZone={timeZone}
           />
           <div className="min-w-0">
             <h1 className="break-words text-2xl font-semibold md:text-3xl">{detail.displayName}</h1>
@@ -159,7 +151,7 @@ export function AgentDetail({
             onExecuteControl={onExecuteControl}
           />
         ) : tab === "activity" ? (
-          <Activity activity={activity} timeZone={timeZone} />
+          <AgentActivityTimeline activity={activity} timeZone={timeZone} />
         ) : (
           <AgentReminders
             agentId={detail.id}
@@ -592,59 +584,5 @@ function RuntimeField({ label, value }: { label: string; value: string }) {
         className="h-10 min-w-0 rounded-lg border bg-muted/50 px-3 font-normal text-muted-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
     </label>
-  );
-}
-
-function Activity({ activity, timeZone }: { activity: ActivityEntry[]; timeZone: string | null }) {
-  if (!activity.length)
-    return (
-      <div className="my-8 flex flex-col items-center rounded-xl border px-6 py-12 text-center">
-        <span className="mb-4 rounded-xl border p-3 shadow-xs">
-          <ActivityIcon aria-hidden="true" className="size-6 text-muted-foreground" />
-        </span>
-        <p className="font-medium">{m.agent_activity_empty()}</p>
-        <p className="mt-1 max-w-md text-sm leading-6 text-muted-foreground">
-          {m.agent_activity_empty_description()}
-        </p>
-      </div>
-    );
-  return (
-    <ol className="mt-6 list-none divide-y rounded-xl border px-4 md:px-6">
-      {activity.map((entry) => (
-        <li
-          key={`${entry.launchId}:${entry.clientSeq}`}
-          className="grid gap-2 py-4 md:grid-cols-[7rem_10rem_minmax(0,1fr)] md:items-start md:gap-5"
-        >
-          <RelativeTime
-            value={new Date(entry.observedAtMs)}
-            timeZone={timeZone}
-            className="whitespace-nowrap text-xs tabular-nums text-muted-foreground sm:pt-0.5"
-          />
-          <span className="flex items-center gap-2 text-sm font-semibold">
-            <span
-              aria-hidden="true"
-              className={`size-1.5 shrink-0 rounded-full ${activityDotClass(entry.detailKind, entry.level)}`}
-            />
-            <span className={entry.level === "error" ? "text-destructive-text" : undefined}>
-              {activityLabel(entry.detailKind, entry.level)}
-            </span>
-          </span>
-          {showsActivityMessage(entry.detailKind) && (
-            <p
-              className={`whitespace-pre-wrap break-words text-sm ${["running_command", "tool_started"].includes(entry.detailKind) ? "select-text font-mono" : ""} ${entry.level === "error" ? "text-destructive-text" : "text-muted-foreground"}`}
-            >
-              {entry.detail}
-              {entry.entries?.map((item, index) =>
-                item.kind !== "tool_start" ? (
-                  <span key={index} className="block">
-                    {item.text}
-                  </span>
-                ) : null,
-              )}
-            </p>
-          )}
-        </li>
-      ))}
-    </ol>
   );
 }

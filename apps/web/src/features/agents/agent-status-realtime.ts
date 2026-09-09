@@ -1,4 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  parseAgentDisplaySnapshot,
+  type AgentDisplaySnapshot,
+} from "@coforge/protocol/agent-display";
 
 import { useBrowserRealtime } from "../realtime/browser-realtime";
 
@@ -14,6 +18,10 @@ export type AgentStatusEvent = {
 type StatusTrackedAgent = {
   id: string;
   status: AgentStatusView | UnknownAgentStatusView;
+  computerId?: string | null;
+  workspaceId?: string;
+  display?: AgentDisplaySnapshot;
+  displayRevisionHighWater?: number;
 };
 export type AgentStatusView = {
   value: "active" | "inactive";
@@ -108,6 +116,27 @@ export function applyAgentStatusEvent<T extends StatusTrackedAgent>(
   );
 }
 
+export function applyAgentDisplaySnapshot<T extends StatusTrackedAgent>(
+  agents: T[],
+  snapshot: AgentDisplaySnapshot,
+  workspaceId?: string,
+): T[] {
+  if (workspaceId && snapshot.workspaceId !== workspaceId) return agents;
+  return agents.map((agent) => {
+    if (
+      agent.id !== snapshot.agentId ||
+      (agent.workspaceId && agent.workspaceId !== snapshot.workspaceId) ||
+      (agent.computerId && agent.computerId !== snapshot.computerId)
+    )
+      return agent;
+    const highWater = Math.max(agent.displayRevisionHighWater ?? 0, agent.display?.revision ?? 0);
+    if (snapshot.revision < highWater || (!agent.display && snapshot.revision === highWater))
+      return agent;
+    if (agent.display?.revision === snapshot.revision) return agent;
+    return { ...agent, display: snapshot, displayRevisionHighWater: snapshot.revision };
+  });
+}
+
 export function mergeAgentStatusSnapshot<T extends StatusTrackedAgent>(
   current: T[],
   snapshot: T[],
@@ -115,10 +144,24 @@ export function mergeAgentStatusSnapshot<T extends StatusTrackedAgent>(
   return snapshot.map((agent) => {
     const existing = current.find((value) => value.id === agent.id);
     if (!existing) return agent;
+    const displaySnapshot = agent.display ?? existing.display;
+    const withDisplay = displaySnapshot
+      ? applyAgentDisplaySnapshot(
+          [
+            {
+              ...agent,
+              display: existing.display,
+              displayRevisionHighWater: existing.displayRevisionHighWater,
+            },
+          ],
+          displaySnapshot,
+          agent.workspaceId,
+        )[0]!
+      : { ...agent, displayRevisionHighWater: existing.displayRevisionHighWater };
     const ordering = agent.status.ordering;
-    if (!ordering) return { ...agent, status: existing.status };
-    if (agent.status.value === "unknown") return { ...agent, status: existing.status };
-    return applyAgentStatusEvent([{ ...agent, status: existing.status }], {
+    if (!ordering) return { ...withDisplay, status: existing.status };
+    if (agent.status.value === "unknown") return { ...withDisplay, status: existing.status };
+    return applyAgentStatusEvent([{ ...withDisplay, status: existing.status }], {
       agentId: agent.id,
       status: agent.status.value,
       expiresAt: agent.status.expiresAt,
@@ -155,22 +198,36 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
 }) {
   const client = useBrowserRealtime();
   const [visibleAgents, setVisibleAgents] = useState(() => expireAgentStatuses(agents, Date.now()));
-
-  useEffect(
-    () =>
-      setVisibleAgents((current) =>
-        expireAgentStatuses(mergeAgentStatusSnapshot(current, agents), Date.now()),
-      ),
-    [agents],
-  );
+  const mounted = useRef(true);
+  const currentWorkspaceId = useRef(workspaceId);
+  const visibleWorkspaceId = useRef(workspaceId);
+  currentWorkspaceId.current = workspaceId;
 
   useEffect(() => {
-    const expiresAt = Math.min(
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (visibleWorkspaceId.current !== workspaceId) {
+      visibleWorkspaceId.current = workspaceId;
+      setVisibleAgents(expireAgentStatuses(agents, Date.now()));
+      return;
+    }
+    setVisibleAgents((current) =>
+      expireAgentStatuses(mergeAgentStatusSnapshot(current, agents), Date.now()),
+    );
+  }, [agents, workspaceId]);
+
+  useEffect(() => {
+    const statusExpiresAt = Math.min(
       ...visibleAgents.flatMap((agent) =>
         agent.status.value === "active" && agent.status.expiresAt ? [agent.status.expiresAt] : [],
       ),
     );
-    if (!Number.isFinite(expiresAt)) return;
+    if (!Number.isFinite(statusExpiresAt)) return;
     const timer = window.setTimeout(
       () =>
         setVisibleAgents((current) =>
@@ -189,10 +246,42 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
               : agent,
           ),
         ),
-      Math.max(0, expiresAt - Date.now()) + 10,
+      Math.max(0, statusExpiresAt - Date.now()) + 10,
     );
     return () => window.clearTimeout(timer);
   }, [visibleAgents]);
+
+  useEffect(() => {
+    const expiresAt = Math.min(
+      ...visibleAgents.flatMap((agent) =>
+        typeof agent.display?.expiresAt === "number" ? [agent.display.expiresAt] : [],
+      ),
+    );
+    if (!Number.isFinite(expiresAt)) return;
+    const refreshWorkspaceId = workspaceId;
+    let disposed = false;
+    let timer: number;
+    const requestRefresh = (delay: number) => {
+      timer = window.setTimeout(runRefresh, delay);
+    };
+    const runRefresh = () => {
+      void refresh()
+        .then((refreshed) => {
+          if (disposed || !mounted.current || currentWorkspaceId.current !== refreshWorkspaceId)
+            return;
+          setVisibleAgents((current) => mergeAgentStatusSnapshot(current, refreshed));
+        })
+        .catch(() => {
+          if (!disposed && mounted.current && currentWorkspaceId.current === refreshWorkspaceId)
+            requestRefresh(1_000);
+        });
+    };
+    requestRefresh(expiresAt <= Date.now() ? 1_000 : expiresAt - Date.now() + 10);
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+    };
+  }, [refresh, visibleAgents, workspaceId]);
 
   useEffect(() => {
     if (!workspaceId || !client) return;
@@ -211,8 +300,17 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
     const onPublication = (publication: { channel: string; data: unknown }) => {
       if (publication.channel !== channel) return;
       try {
-        const event = decodeAgentStatusEvent(publication.data);
-        setVisibleAgents((current) => applyAgentStatusEvent(current, event));
+        const value =
+          publication.data instanceof Uint8Array
+            ? (JSON.parse(new TextDecoder().decode(publication.data)) as unknown)
+            : publication.data;
+        if (Reflect.get(value as object, "type") === "agent:display") {
+          const snapshot = parseAgentDisplaySnapshot(value);
+          setVisibleAgents((current) => applyAgentDisplaySnapshot(current, snapshot, workspaceId));
+        } else {
+          const event = decodeAgentStatusEvent(value);
+          setVisibleAgents((current) => applyAgentStatusEvent(current, event));
+        }
       } catch {}
     };
     client.on("connected", onConnected);

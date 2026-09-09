@@ -13,6 +13,7 @@ const activity: AgentActivity = {
   observedAtMs: Date.parse("2026-08-29T00:00:00.000Z"),
   launchId: "launch-1",
   clientSeq: 1,
+  activityKind: "working",
   runtimeError: {
     errorClass: "CodexAuthError",
     errorReason: "turn_failed",
