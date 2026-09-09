@@ -9,9 +9,12 @@ import { LocalDaemonLauncher } from "../daemon-host/launcher";
 import { acquireProcessLock } from "../platform/process-lock";
 import { MachineSupervisor, WorkspaceRecoveryError, type BindingStore } from "./machine-supervisor";
 import { FileBindingStore } from "./binding-store";
-import { getLogger } from "@logtape/logtape";
+import { dispose, getLogger, withContext } from "@logtape/logtape";
+import { configureDaemonLogging } from "../platform/daemon-logging";
 import { COFORGE_DAEMON_VERSION } from "../version";
 import { SystemdWorkspaceInstance } from "./systemd-workspace-instance";
+import { LaunchdWorkspaceInstance } from "./launchd-workspace-instance";
+import type { WorkspaceInstance } from "./workspace-instance";
 import { COFORGE_DAEMON_SERVER_URL } from "../connection/built-server";
 
 export async function runMachineSupervisor(
@@ -25,11 +28,29 @@ export async function runMachineSupervisor(
     ? args[args.indexOf("--state-directory") + 1]!
     : dirname(socketPath);
   await mkdir(stateDirectory, { recursive: true, mode: 0o700 });
-  const lock = acquireProcessLock(join(stateDirectory, "supervisor-lock.sqlite"));
+  await configureDaemonLogging(stateDirectory);
   try {
-    await runWithSupervisorLock(socketPath, stateDirectory, createBindings(stateDirectory));
+    await withContext(
+      {
+        service: "coforge-daemon",
+        version: COFORGE_DAEMON_VERSION,
+        process_role: "coordinator",
+        pid: process.pid,
+      },
+      async () => {
+        const lock = acquireProcessLock(join(stateDirectory, "supervisor-lock.sqlite"));
+        const logger = getLogger(["coforge", "daemon", "supervisor"]);
+        try {
+          logger.info("Coordinator process started", { event: "coordinator:started" });
+          await runWithSupervisorLock(socketPath, stateDirectory, createBindings(stateDirectory));
+        } finally {
+          lock.release();
+          logger.info("Coordinator process stopped", { event: "coordinator:stopped" });
+        }
+      },
+    );
   } finally {
-    lock.release();
+    await dispose();
   }
 }
 
@@ -46,7 +67,7 @@ async function runWithSupervisorLock(
     join(stateDirectory, "workspaces", Buffer.from(id).toString("base64url"));
   const children = new Map<
     string,
-    { instance: SystemdWorkspaceInstance; identity: ManagedRuntimeIdentity; osInstanceId: string }
+    { instance: WorkspaceInstance; identity: ManagedRuntimeIdentity; osInstanceId: string }
   >();
   const childClient = (workspaceId: string) =>
     new LocalDaemonLauncher({
@@ -54,33 +75,36 @@ async function runWithSupervisorLock(
       socketPath: join(workspaceDirectory(workspaceId), "daemon.sock"),
       spawn: () => {},
     });
-  const workspaceInstance = (workspaceId: string) =>
-    new SystemdWorkspaceInstance(
-      {
-        stateRoot: stateDirectory,
-        workspaceId,
-        executablePath: process.execPath,
-        socketPath: join(workspaceDirectory(workspaceId), "daemon.sock"),
-        stateDirectory: workspaceDirectory(workspaceId),
-        unitDirectory: join(homedir(), ".config", "systemd", "user"),
-        supervisorSocketPath: socketPath,
-        daemonConnectionEndpoint: Bun.env.COFORGE_DAEMON_CONNECTION_ENDPOINT,
-      },
-      async (args) => {
-        const command = Bun.spawn(["systemctl", "--user", ...args], {
-          stdin: "ignore",
-          stdout: "ignore",
-          stderr: "ignore",
-        });
-        return await command.exited;
-      },
-    );
+  const workspaceInstance = (workspaceId: string): WorkspaceInstance => {
+    const config = {
+      stateRoot: stateDirectory,
+      workspaceId,
+      executablePath: process.execPath,
+      socketPath: join(workspaceDirectory(workspaceId), "daemon.sock"),
+      stateDirectory: workspaceDirectory(workspaceId),
+      unitDirectory:
+        process.platform === "darwin"
+          ? join(stateDirectory, "launchd-workspaces")
+          : join(homedir(), ".config", "systemd", "user"),
+      supervisorSocketPath: socketPath,
+      daemonConnectionEndpoint: Bun.env.COFORGE_DAEMON_CONNECTION_ENDPOINT,
+    };
+    if (process.platform === "darwin") return new LaunchdWorkspaceInstance(config);
+    if (process.platform !== "linux")
+      throw new Error("per-Workspace OS containment is not implemented on this platform");
+    return new SystemdWorkspaceInstance(config, async (args) => {
+      const command = Bun.spawn(["systemctl", "--user", ...args], {
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      return await command.exited;
+    });
+  };
   // Stable OS units own processes even if the Coordinator died before readiness.
   // Recovery adopts them through MainPID + the daemon handshake, never by killing PIDs.
   const supervisor = new MachineSupervisor(bindings, {
     async start(binding) {
-      if (process.platform !== "linux")
-        throw new Error("per-Workspace OS containment is not implemented on this platform");
       const directory = workspaceDirectory(binding.workspaceId);
       // Only the replacement receives the pending request as a cloud ready hint.
       // Local completion still requires the application handshake and durable result.

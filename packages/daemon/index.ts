@@ -1,16 +1,7 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { LocalInboxRequest } from "@coforge/protocol";
-import { getRotatingFileSink } from "@logtape/file";
-import {
-  configure,
-  dispose,
-  getJsonLinesFormatter,
-  getLogger,
-  withContext,
-} from "@logtape/logtape";
-import { DEFAULT_REDACT_FIELDS, redactByField } from "@logtape/redaction";
+import { dispose, getLogger, withContext } from "@logtape/logtape";
 import { startDaemonLocalRpcServer } from "./src/local-rpc";
 import { startAgentProxy } from "./src/agent-proxy";
 import { createAgentDriver } from "./src/code-agent/registry";
@@ -25,8 +16,10 @@ import {
 import { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "./src/connection/built-server";
 import { COFORGE_DAEMON_VERSION } from "./src/version";
 import { LocalDaemonLauncher } from "./src/daemon-host/launcher";
-import { prepareDaemonLogFile } from "./src/platform/daemon-log-file";
+import { configureDaemonLogging } from "./src/platform/daemon-logging";
+import { stopLaunchdJobs } from "./src/platform/launchd-job";
 export { runMachineSupervisor } from "./src/supervisor/run-supervisor";
+export { runLaunchdAgent } from "./src/platform/launchd-process";
 
 export type {
   AgentRuntimeConfig,
@@ -109,42 +102,16 @@ export async function runDaemon(args: string[]): Promise<void> {
   const socketPath = socketIndex >= 0 ? args[socketIndex + 1] : undefined;
   const stateIndex = args.indexOf("--state-directory");
   const stateDirectory = stateIndex >= 0 ? args[stateIndex + 1] : undefined;
-  if (!socketPath) {
-    console.error("coforge-daemon requires --socket");
-    process.exit(2);
-  }
   const daemonStateDirectory = stateDirectory ?? join(homedir(), ".coforge", "daemon");
-  const logPath = await prepareDaemonLogFile(daemonStateDirectory);
-  await configure({
-    reset: true,
-    sinks: {
-      daemon: redactByField(
-        getRotatingFileSink(logPath, {
-          maxSize: 10 * 1024 * 1024,
-          maxFiles: 5,
-          bufferSize: 8192,
-          flushInterval: 1000,
-          formatter: getJsonLinesFormatter({ properties: "flatten" }),
-        }),
-        {
-          fieldPatterns: [
-            ...DEFAULT_REDACT_FIELDS,
-            /^authorization$/i,
-            /^body$/i,
-            /^cookie$/i,
-            /^message_body$/i,
-            /^prompt$/i,
-            /^secret$/i,
-          ],
-        },
-      ),
-    },
-    loggers: [
-      { category: DAEMON_CATEGORY, lowestLevel: "info", sinks: ["daemon"] },
-      { category: ["logtape", "meta"], lowestLevel: "error" },
-    ],
-    contextLocalStorage: new AsyncLocalStorage<Record<string, unknown>>(),
-  });
+  await configureDaemonLogging(daemonStateDirectory);
+  if (!socketPath) {
+    getLogger(DAEMON_CATEGORY).error("Daemon requires --socket", {
+      event: "daemon:invalid_arguments",
+    });
+    await dispose();
+    process.exitCode = 2;
+    return;
+  }
   return withContext(
     {
       service: "coforge-daemon",
@@ -155,6 +122,11 @@ export async function runDaemon(args: string[]): Promise<void> {
     async () => {
       const logger = getLogger(DAEMON_CATEGORY);
       logger.info("Daemon process started", { event: "daemon:started", outcome: "ok" });
+      if (process.platform === "darwin" && Bun.env.COFORGE_WORKSPACE_AGENT_PREFIX) {
+        const directory = Bun.env.COFORGE_WORKSPACE_JOB_DIRECTORY;
+        if (!directory) throw new Error("Workspace Agent job directory is missing");
+        await stopLaunchdJobs(Bun.env.COFORGE_WORKSPACE_AGENT_PREFIX, directory);
+      }
       const credentials = new FileDaemonCredentialStore();
       const configStore = new DaemonConfigStore(daemonStateDirectory, {
         serverHttpUrl: COFORGE_DAEMON_SERVER_URL,

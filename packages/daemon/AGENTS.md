@@ -68,12 +68,21 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   not provider sessions. `supervisor/binding-store.ts` is the sole Coordinator
   adapter for validating and atomically persisting `bindings.json`; Workspace
   Daemons never write that registry. `run-supervisor.ts` composes this seam with
-  systemd and local RPC, retaining application handshake identity separately from
+  platform Workspace instances and local RPC, retaining application handshake identity separately from
   the OS invocation identity used for crash recovery.
   Workspace systemd units restart on failure after cgroup cleanup; recovery adopts
   an already-replaced invocation through the same readiness validation. Explicit
   disabled state still wins. Session create/resume selection belongs to cloud and
   the Workspace runtime, never to the machine registry.
+- `supervisor/launchd-workspace-instance.ts` implements the macOS instance seam;
+  `platform/launchd-job.ts` owns user-job registration and native observations.
+  `platform/launchd-process.ts` adapts external Agent stdio and cleanup to a
+  separate launchd job through the existing process-tree interface. Its internal
+  runner is embedded in Computer, never another installed product. Workspace
+  startup reconciles only its own Agent job prefix before accepting new work.
+- `platform/daemon-logging.ts` configures the shared LogTape sinks once per
+  Daemon-role process. Entrypoints own logging context and disposal; modules use
+  LogTape category loggers directly, without a logger facade.
 - `daemon-host/` owns login-session startup behavior (launchd, systemd user,
   and Windows task integration). It never falls back to a detached process when
   the manager is unavailable; Computer exposes foreground supervision explicitly.

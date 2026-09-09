@@ -362,6 +362,21 @@ Coordinator 不再停止它，仍通过相同 stable unit 的 PID、版本与本
 官方依据：[systemd kill](https://github.com/systemd/systemd/blob/main/man/systemd.kill.xml)、
 [systemd service](https://github.com/systemd/systemd/blob/main/man/systemd.service.xml)。
 
+2026-09-09 用户批准 macOS 对齐同一 Workspace 生命周期状态机：每个 Workspace 使用独立的
+per-user launchd job，失败重启由 `KeepAlive.SuccessfulExit=false` 托管。每个外部 Agent root
+另由独立的 scoped launchd job 托管，同一个 Computer executable 的内部 `__managed-agent` 模式
+通过权限为 0600 的私有 Unix Socket 转发 provider-neutral stdio；命令与 Agent 环境只通过该
+通道传递，不写入 plist。Workspace 启动前清理自身 scope 的旧 Agent jobs，显式停止先 bootout
+Workspace，再清理该 scope 的 Agent jobs；其他 Workspace 不受影响。Coordinator 崩溃恢复
+仍复用 persisted restart receipts、enabled 状态与 daemon handshake，不按旧 PID 发信号。
+macOS 原生观测使用有文档的 `launchctl list` PID 和 `ps` 启动时间，并在握手前后复核；不解析
+明确不属于 API 的 `launchctl print` 输出，也不把秒精度的启动时间当作 Linux InvocationID。
+`AbandonProcessGroup=false` 清理 job 的残留进程组。它不是 cgroup 或敌对代码 sandbox：主动
+脱离进程组的后代不在此保证内。仅机器级 Coordinator 的 LaunchAgent 在登录时注册，Workspace
+与 Agent plist 位于私有状态目录，由 Coordinator 恢复；不新增产品组件或系统级服务。
+官方依据：[Apple launchd.plist](https://github.com/apple-oss-distributions/launchd/blob/main/man/launchd.plist.5)、
+[Apple launchd jobs](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html)。
+
 显式 stop 先持久化 `enabled=false` 并将 pending restart 记录为 `cancelled`，再停止 OS unit；
 恢复后仍保持停止，取消请求重放失败。完成/取消 receipts 最多保留最近 128 条，幂等保证限定于
 该保留窗口；旧 `restartRequestIds` 只作为历史 cloud hint，不作为本地完成证据。registry 使用

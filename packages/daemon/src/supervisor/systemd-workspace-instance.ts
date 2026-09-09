@@ -2,16 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-export type WorkspaceInstanceConfig = {
-  stateRoot: string;
-  workspaceId: string;
-  executablePath: string;
-  socketPath: string;
-  stateDirectory: string;
-  unitDirectory: string;
-  supervisorSocketPath?: string;
-  daemonConnectionEndpoint?: string;
-};
+import { validateWorkspaceEndpoint, type WorkspaceInstanceConfig } from "./workspace-instance";
+export type { WorkspaceInstanceConfig } from "./workspace-instance";
 
 export type SystemdUserCommand = (args: string[]) => Promise<number>;
 export type SystemdUserCapture = (args: string[]) => Promise<{ code: number; stdout: string }>;
@@ -132,17 +124,7 @@ export class SystemdWorkspaceInstance {
 }
 
 export function workspaceUnit(config: WorkspaceInstanceConfig): string {
-  if (config.daemonConnectionEndpoint) {
-    const endpoint = new URL(config.daemonConnectionEndpoint);
-    if (
-      !["ws:", "wss:"].includes(endpoint.protocol) ||
-      endpoint.username ||
-      endpoint.password ||
-      endpoint.search ||
-      endpoint.hash
-    )
-      throw new Error("Workspace endpoint must be a credential-free WebSocket URL");
-  }
+  validateWorkspaceEndpoint(config.daemonConnectionEndpoint);
   return `[Unit]
 Description=CoForge Workspace ${escapeUnit(config.workspaceId)}
 
