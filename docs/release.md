@@ -2,7 +2,7 @@
 
 Status: approved workflow contract; the cloud staging deployment workflow and a local Computer distribution staging publish workflow are implemented; production stays disabled behind the human approval gate
 
-Updated: 2026-09-05
+Updated: 2026-09-09
 
 This document is the canonical release specification for CoForge. It defines
 which artifact may move between environments, who authorizes that movement,
@@ -588,7 +588,19 @@ verification. Capture failure diagnostics without secrets.
 
 ### Local Computer distribution
 
-A local Computer release version is healthy only when:
+Staging development publication and production readiness are separate gates.
+Following the 2026-09-09 user direction to fix the release process and include
+Windows, routine staging development versions publish all six targets. They
+require repository gates (including native Windows x64/arm64 release identity
+and environment-binding smoke tests), plus checks 1–3 below for every published
+object. Missing install/upgrade/lifecycle evidence must be reported explicitly;
+it is not silently counted as passing and does not prevent publishing a
+development candidate for testing. No partial platform publication is allowed.
+Stable-version production promotion additionally requires checks 4–8 for every
+target; publishing Windows bytes does not lift the architecture's fail-closed
+restriction on external Agent processes pending Job Object supervision.
+
+A local Computer release version is production-ready only when:
 
 1. the feed's `latest` pointer resolves the requested version and no other;
 2. the version's schema 2 manifest and every downloaded platform Computer executable match their
@@ -752,16 +764,17 @@ consumer URL without cache-busting query parameters; it does not change CDN
 configuration or issue purge requests. A stale response fails publication rather
 than bypassing the cache to manufacture a pass.
 
-The remaining known platform gap is not silently papered over:
+Platform coverage and remaining acceptance gaps are explicit:
 
-- **Platform matrix**: `publish.ts --targets` defaults to the four POSIX
-  targets (`linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`), not the
-  "complete Windows, Linux, and macOS platform matrix" step 2 requires, and
-  `release-staging.yml` does not override that default. A real staging
-  publish through the current workflow therefore does not yet ship
-  `windows-x64`/`windows-arm64` binaries; Windows unified-executable behavior has
-  not been verified end to end. Passing `--targets` with all six is possible
-  today, but nothing has proven the Windows binaries actually work first.
+- **Platform matrix**: `publish.ts --targets` defaults to all six targets:
+  Linux, macOS, and Windows, each x64 and arm64. `release-staging.yml` uses
+  this default and its reusable CI gates execute the existing compiled release
+  identity/environment-binding tests on `windows-latest` and `windows-11-arm`.
+  These are native executable smoke checks, not installer or upgrade tests.
+- **Windows lifecycle acceptance**: clean bootstrap, upgrade, Supervisor and
+  Workspace readiness, retained identity, and offline rollback still require
+  end-to-end evidence before production promotion. External Agent process-tree
+  supervision remains fail-closed as specified in `docs/architecture.md`.
 - **macOS lifecycle runtime verification**: launchd unit generation and adapter
   behavior have automated coverage, but the complete install, manager-owned
   Coordinator, upgrade, health-identity, and rollback flow has not yet run on a
@@ -770,9 +783,9 @@ The remaining known platform gap is not silently papered over:
 Distribution credentials (`ALIYUN_OSS_ACCESS_KEY_ID`/`ALIYUN_OSS_ACCESS_KEY_SECRET`,
 see `infra/staging/README.md`) and updater commands (`packages/computer/src/
 updater.ts`, `install.sh`, `install.ps1`) were already implemented before this
-publish workflow. The release Skill may still inspect and prepare evidence for
-the platform gap above, but must not invent a Windows release claim this
-workflow does not yet produce. CDN verification is implemented; a successful
+publish workflow. The release Skill may publish development candidates through
+this workflow, but must distinguish published targets and native smoke checks
+from complete platform lifecycle acceptance. CDN verification is implemented; a successful
 live workflow run, not unit tests alone, is its publication evidence.
 
 ## Official references

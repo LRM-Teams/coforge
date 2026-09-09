@@ -203,6 +203,29 @@ jobs:
       - name: Build
         run: mise run build:web
 
+  windows-release:
+    name: Windows release (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Install pinned Bun
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: "2026.9.2"
+          install_args: bun
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Generate protocol
+        run: bun run --cwd packages/protocol generate
+      - name: Verify native release identity and environment binding
+        run: bun test scripts/release/compile-targets.test.ts --test-name-pattern "published Computer"
+
   # install.sh is gated by shellcheck in the Computer job; install.ps1 had no machine gate at all,
   # which is how a top-level `exit` - fatal under the documented `irm ... | iex` entry point,
   # because it terminates the user's own session - survived in it unnoticed. This job is that

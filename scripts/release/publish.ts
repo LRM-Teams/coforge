@@ -272,7 +272,7 @@ export async function uploadReleaseTree(
 
   // The manifest is pinned last explicitly rather than relying on `tree.files` being sorted:
   // `build-release.ts` sorts the whole list, so "manifest.json" only happens to sort after the
-  // current four POSIX targets. Adding a `windows-*` target would move it and silently break the
+  // POSIX targets, but before Windows. Relying on that order would silently break the
   // completion marker `assertVersionIsUnpublished` depends on.
   const manifestKey = manifestObjectKey(tree.version);
   const manifestFiles = tree.files.filter((file) => file === manifestKey);
@@ -434,19 +434,15 @@ export async function uploadReleaseTree(
 export const DEFAULT_BUCKET = "coforge-releases-staging";
 export const DEFAULT_ENDPOINT = "oss-cn-beijing.aliyuncs.com";
 
-/** The default `--targets` value when the flag is omitted: the four POSIX targets. This is a
- * fixed part of this script's specification, not derived from docs/release.md, whose "Main to
- * staging" step 2 requires "the complete Windows, Linux, and macOS platform matrix" (six
- * targets, including `windows-x64`/`windows-arm64`). `.github/workflows/release-staging.yml`
- * uses this same default rather than overriding it, so a real staging publish through that
- * workflow does not yet ship Windows binaries. This is flagged as an open docs/spec mismatch in
- * the CR description, not silently resolved here - packages/daemon's control channel is a Unix
- * domain socket and its win32 behavior has not been verified in this change. */
+/** Routine publications include every supported OS/architecture. Explicit --targets remains
+ * available for local build fixtures; the staging workflow uses this complete default. */
 export const DEFAULT_TARGETS: ReleaseTarget[] = [
   "linux-x64",
   "linux-arm64",
   "darwin-x64",
   "darwin-arm64",
+  "windows-x64",
+  "windows-arm64",
 ];
 
 export type CompileFn = typeof compileTargetArtifacts;
