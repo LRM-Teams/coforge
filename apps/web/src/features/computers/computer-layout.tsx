@@ -1,9 +1,17 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { Monitor, Plus } from "lucide-react";
+import { ChevronLeft, Monitor, Plus } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { computerLabel, type ComputerIdentity } from "./computer-identity";
@@ -44,8 +52,8 @@ export function ComputerLayout({
 
   if (!computers.length) {
     return (
-      <main className="flex h-svh min-w-0 p-2">
-        <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card">
+      <main className="flex h-svh min-w-0 md:p-2">
+        <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card md:rounded-xl md:border">
           <PageHeader heading={m.computer_page_title()} actions={<AddComputer onAdd={onAdd} />} />
           <NoComputers onAdd={onAdd} />
         </section>
@@ -54,11 +62,11 @@ export function ComputerLayout({
   }
 
   return (
-    <main className="flex h-svh min-w-0 gap-2 p-2">
+    <main className="flex h-svh min-w-0 md:gap-2 md:p-2">
       <nav
         aria-label={m.computer_connected_list()}
         className={cn(
-          "min-w-0 flex-col overflow-hidden rounded-xl border bg-card md:flex md:w-72 md:shrink-0",
+          "min-w-0 flex-col overflow-hidden bg-card md:flex md:w-72 md:shrink-0 md:rounded-xl md:border",
           listHidden ? "hidden" : "flex w-full",
         )}
       >
@@ -73,6 +81,7 @@ export function ComputerLayout({
                   to="/computers/$computerId"
                   params={{ computerId: computer.id }}
                   aria-current={selected ? "page" : undefined}
+                  resetScroll={false}
                   onClick={() => setShowMobileList(false)}
                   className={cn(
                     "flex min-h-14 min-w-0 items-center gap-3 rounded-lg px-3 py-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
@@ -102,8 +111,8 @@ export function ComputerLayout({
 
       <section
         className={cn(
-          "min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card md:flex",
-          showMobileList ? "hidden" : "flex",
+          "min-w-0 flex-1 flex-col overflow-hidden bg-card md:flex md:rounded-xl md:border",
+          listHidden ? "flex" : "hidden",
         )}
       >
         <BackToComputersContext value={() => setShowMobileList(true)}>
@@ -137,24 +146,30 @@ export function BackToComputers() {
       size="icon"
       onClick={back}
       aria-label={m.computer_back_to_list()}
-      className="-ml-1 md:hidden"
+      className="-ml-2 size-11 shrink-0 md:hidden"
     >
-      <Monitor aria-hidden="true" className="size-4" />
+      <ChevronLeft aria-hidden="true" className="size-5" />
     </Button>
   );
 }
 
 function NoComputers({ onAdd }: { onAdd: () => void }) {
   return (
-    <div className="grid h-full place-content-center px-6 text-center">
-      <Monitor aria-hidden="true" className="mx-auto size-6 text-muted-foreground" />
-      <p className="mt-3 font-medium">{m.computer_empty_title()}</p>
-      <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-        {m.computer_empty_description()}
-      </p>
-      <Button className="mx-auto mt-5" variant="outline" onClick={onAdd}>
-        {m.computer_add_title()}
-      </Button>
-    </div>
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon" className="size-12 rounded-2xl text-muted-foreground">
+          <Monitor aria-hidden="true" className="size-6" />
+        </EmptyMedia>
+        <EmptyTitle role="heading" aria-level={2} className="text-base">
+          {m.computer_empty_title()}
+        </EmptyTitle>
+        <EmptyDescription>{m.computer_empty_description()}</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button variant="outline" onClick={onAdd}>
+          {m.computer_add_title()}
+        </Button>
+      </EmptyContent>
+    </Empty>
   );
 }

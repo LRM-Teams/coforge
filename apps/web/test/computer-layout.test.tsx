@@ -2,9 +2,9 @@ import "./dom-setup";
 
 import { afterEach, expect, test } from "bun:test";
 import { RouterContextProvider } from "@tanstack/react-router";
-import { cleanup, render, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, within } from "@testing-library/react";
 
-import { ComputerLayout } from "@/features/computers/computer-layout";
+import { BackToComputers, ComputerLayout } from "@/features/computers/computer-layout";
 import { ComputerDetailPending, ComputersPending } from "@/features/computers/computers-pending";
 import { ComputerNotFound } from "@/features/computers/computer-not-found";
 import { getRouter } from "@/router";
@@ -95,7 +95,7 @@ test("says a computer is not in this workspace instead of a bare Not Found", () 
 test("offers the install path instead of a detail panel when no Computer is connected", () => {
   const page = renderLayout([]);
 
-  expect(page.getByText("No computers connected")).toBeTruthy();
+  expect(page.getByRole("heading", { name: "No computers connected" })).toBeTruthy();
   expect(page.getAllByRole("button", { name: "Add computer" }).length).toBe(2);
   expect(page.queryByText("Computer detail")).toBeNull();
   expect(page.queryByRole("link")).toBeNull();
@@ -125,4 +125,26 @@ test("keeps the real narrow-screen back control in the pending detail panel", ()
     </RouterContextProvider>,
   );
   expect(within(document.body).getByRole("button", { name: "Back to computers" })).toBeTruthy();
+});
+
+test("returning from Computer detail preserves the list position and selection", () => {
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <ComputerLayout computers={[computer]} selectedComputerId={computer.id} onAdd={() => {}}>
+        <BackToComputers />
+      </ComputerLayout>
+    </RouterContextProvider>,
+  );
+  const page = within(document.body);
+  const list = within(page.getByRole("navigation", { name: "Connected computers" }));
+  const scroller = list.getByRole("list");
+  fireEvent.click(page.getByRole("button", { name: "Back to computers" }));
+  scroller.scrollTop = 147;
+  fireEvent.click(list.getByRole("link", { name: /Frank’s MacBook Pro/ }));
+  fireEvent.click(page.getByRole("button", { name: "Back to computers" }));
+  expect(list.getByRole("list")).toBe(scroller);
+  expect(scroller.scrollTop).toBe(147);
+  expect(list.getByRole("link", { name: /Frank’s MacBook Pro/ }).getAttribute("aria-current")).toBe(
+    "page",
+  );
 });

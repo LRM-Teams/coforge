@@ -182,7 +182,11 @@ export function AppShell({
           </nav>
 
           <div className="mt-auto">
-            <UserMenu user={user} onSignOut={onSignOut} />
+            <UserMenu
+              user={user}
+              onSignOut={onSignOut}
+              onNavigate={() => setMobileSidebarOpen(false)}
+            />
           </div>
         </aside>
       )}
@@ -312,7 +316,15 @@ export function AppShell({
   );
 }
 
-function UserMenu({ user, onSignOut }: { user: AppUser; onSignOut?: () => Promise<void> | void }) {
+function UserMenu({
+  user,
+  onSignOut,
+  onNavigate,
+}: {
+  user: AppUser;
+  onSignOut?: () => Promise<void> | void;
+  onNavigate?: () => void;
+}) {
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger
@@ -341,7 +353,7 @@ function UserMenu({ user, onSignOut }: { user: AppUser; onSignOut?: () => Promis
         <DropdownMenuItem
           className="h-11 gap-2 px-2 md:h-10"
           render={
-            <Link to="/settings" activeProps={{ "aria-current": "page" }}>
+            <Link to="/settings" activeProps={{ "aria-current": "page" }} onClick={onNavigate}>
               <CircleUserRound aria-hidden="true" />
               {m.navigation_personal_settings()}
             </Link>

@@ -185,6 +185,8 @@ instructions for the TanStack Start Web/backend modular monolith.
   controls to `AppShell`'s global navigation drawer. Pages own their titles
   and actions; conversation list/detail selection and list scroll retention
   remain in `features/conversations/conversation-layout.tsx`.
+- `features/computers/computer-layout.tsx` owns the analogous Computer
+  list/detail selection, return control, list scroll retention, and empty state.
 - `src/features/profiles/profile.functions.ts` owns the authenticated current-user
   profile read and description mutation. Avatar bytes and profile persistence
   stay under `src/server/profiles/` and `src/server/db/repositories/`.

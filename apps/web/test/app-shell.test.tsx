@@ -496,6 +496,17 @@ test("the page header opens navigation and closes it on selection or breakpoint 
   }
 });
 
+test("choosing Personal Settings closes the mobile navigation drawer", async () => {
+  renderShell();
+  const browserUser = userEvent.setup({ document });
+  const menu = within(page().getByRole("main")).getByRole("button", { name: "Show sidebar" });
+  await browserUser.click(menu);
+  expect(menu.getAttribute("aria-expanded")).toBe("true");
+  await browserUser.click(page().getByRole("button", { name: "Current user" }));
+  await browserUser.click(await page().findByRole("menuitem", { name: "Personal Settings" }));
+  expect(menu.getAttribute("aria-expanded")).toBe("false");
+});
+
 test("renders the same shell from the Simplified Chinese catalog", () => {
   overwriteGetLocale(() => "zh-CN");
   const markup = renderShell();
