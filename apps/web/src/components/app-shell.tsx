@@ -140,7 +140,16 @@ export function AppShell({
   );
 
   return (
-    <div className="min-h-svh bg-primary font-body antialiased">
+    <div className="min-h-svh bg-primary font-body antialiased lg:flex">
+      {/*
+        SidebarNavigationSimple/Slim render their real sidebar `position: fixed`
+        and rely on an invisible sibling "spacer" div (padding-left equal to the
+        sidebar's width) to reserve room for it in normal flow — but that only
+        works when the spacer's parent is a flex row, which is why this shell is
+        `lg:flex` rather than plain block. The `contents` wrapper keeps the
+        sidebar's own fragment (mobile header + fixed sidebar + spacer) as direct
+        flex items here instead of being boxed inside an extra div.
+      */}
       <div onClickCapture={onSidebarClickCapture} className="contents">
         {sidebarCollapsed ? (
           // Untitled's official SidebarNavigationSlim (unmodified) always renders its own
@@ -194,7 +203,7 @@ export function AppShell({
         </div>
       )}
 
-      {children}
+      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
     </div>
   );
 }

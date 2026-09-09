@@ -61,6 +61,16 @@ body {
   font-kerning: normal;
 }
 
+@layer base {
+  body {
+    /* Without an explicit default, unset text falls back to the browser's
+       own dark-color-scheme default (a dim gray), not Untitled's own
+       --color-text-primary — visible as low-contrast text anywhere a
+       component doesn't set its own text-* color explicitly. */
+    @apply bg-primary text-primary;
+  }
+}
+
 /* Hide the default expand arrow on Safari.  */
 details summary::-webkit-details-marker {
   display: none;
