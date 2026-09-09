@@ -10,6 +10,9 @@ if (Bun.argv[2] === "__agent-cli") {
 } else if (Bun.argv[2] === "__daemon") {
   const { runMachineSupervisor } = await import("@coforge/daemon");
   await runMachineSupervisor(Bun.argv.slice(3));
+} else if (Bun.argv[2] === "__managed-agent") {
+  const { runLaunchdAgent } = await import("@coforge/daemon");
+  await runLaunchdAgent(Bun.argv[3]!);
 } else if (Bun.argv[2] === "__workspace-daemon") {
   const { runDaemon } = await import("@coforge/daemon");
   await runDaemon(Bun.argv.slice(3));

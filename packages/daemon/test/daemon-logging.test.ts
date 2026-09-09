@@ -5,36 +5,39 @@ import { join } from "node:path";
 
 import { daemonLogPath, prepareDaemonLogFile } from "../src/platform/daemon-log-file";
 
-test("Daemon writes child-category diagnostics with process metadata", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "coforge-daemon-logs-"));
-  const socketPath = join(directory, "daemon.sock");
-  const child = spawnDaemon(socketPath, directory);
-  try {
-    await waitFor(() => pathExists(socketPath));
-    await sendInvalidFrame(socketPath);
-    child.kill("SIGTERM");
-    expect(await child.exited).toBe(0);
+test.each(["daemon", "coordinator"])(
+  "%s writes child-category diagnostics with process metadata",
+  async (role) => {
+    const directory = await mkdtemp(join(tmpdir(), "coforge-daemon-logs-"));
+    const socketPath = join(directory, "daemon.sock");
+    const child = spawnDaemon(socketPath, directory, role);
+    try {
+      await waitFor(() => pathExists(socketPath));
+      await sendInvalidFrame(socketPath);
+      child.kill("SIGTERM");
+      expect(await child.exited).toBe(0);
 
-    const output = await readFile(daemonLogPath(directory), "utf8");
-    const records = output
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line) as Record<string, unknown> & { logger: string });
-    const record = records.find(({ logger }) => logger === "coforge.daemon.local-rpc");
-    expect(record).toMatchObject({
-      service: "coforge-daemon",
-      process_role: "daemon",
-      pid: child.pid,
-      event: "daemon.local_rpc.failed",
-      outcome: "error",
-    });
-    expect(record?.version).toEqual(expect.any(String));
-  } finally {
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
-    await child.exited;
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+      const output = await readFile(daemonLogPath(directory), "utf8");
+      const records = output
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown> & { logger: string });
+      const record = records.find(({ logger }) => logger === "coforge.daemon.local-rpc");
+      expect(record).toMatchObject({
+        service: "coforge-daemon",
+        process_role: role,
+        pid: child.pid,
+        event: "daemon.local_rpc.failed",
+        outcome: "error",
+      });
+      expect(record?.version).toEqual(expect.any(String));
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      await child.exited;
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 test.skipIf(process.platform === "win32")("Daemon refuses a symlinked log root", async () => {
   const directory = await mkdtemp(join(tmpdir(), "coforge-daemon-logs-"));
@@ -104,11 +107,14 @@ test.skipIf(process.platform === "win32")(
   },
 );
 
-function spawnDaemon(socketPath: string, stateDirectory: string): Bun.Subprocess {
+function spawnDaemon(socketPath: string, stateDirectory: string, role = "daemon"): Bun.Subprocess {
   return Bun.spawn(
     [
       process.execPath,
-      join(import.meta.dir, "../index.ts"),
+      join(
+        import.meta.dir,
+        role === "coordinator" ? "fixtures/logging-supervisor.ts" : "../index.ts",
+      ),
       "--socket",
       socketPath,
       "--state-directory",

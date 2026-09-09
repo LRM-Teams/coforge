@@ -1,3 +1,5 @@
+import { LaunchdProcessOwner } from "./launchd-process";
+
 type ProcessSignal = "SIGINT" | "SIGKILL" | "SIGTERM";
 
 export interface OwnedChildProcess {
@@ -51,6 +53,15 @@ export class ProcessTreeOwner implements ProcessTreeSpawner {
   ): OwnedProcessTree {
     if (this.platform === "win32") {
       throw new Error("Windows Agent process isolation is unavailable");
+    }
+    if (this.platform === "darwin" && Bun.env.COFORGE_WORKSPACE_AGENT_PREFIX) {
+      const directory = Bun.env.COFORGE_WORKSPACE_JOB_DIRECTORY;
+      if (!directory) throw new Error("Workspace Agent job directory is missing");
+      return new LaunchdProcessOwner({
+        directory,
+        prefix: Bun.env.COFORGE_WORKSPACE_AGENT_PREFIX,
+        runner: [process.execPath, "__managed-agent"],
+      }).spawn(command, cwd, environment);
     }
     const spawned = Bun.spawn({
       cmd: [...command],
