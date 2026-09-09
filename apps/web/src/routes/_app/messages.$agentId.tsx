@@ -3,6 +3,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
 import { DirectConversation } from "@/features/conversations/direct-conversation";
+import {
+  ConversationLoadError,
+  ConversationPending,
+} from "@/features/conversations/conversation-pending";
 import { useConversationAgentStatus } from "@/features/conversations/conversation-layout";
 import { createConversationReconciler } from "@/features/conversations/conversation-reconciliation";
 import { useConversationRealtime } from "@/features/conversations/conversation-realtime-client";
@@ -19,6 +23,10 @@ import {
 export const Route = createFileRoute("/_app/messages/$agentId")({
   remountDeps: ({ params }) => params.agentId,
   loader: ({ params }) => loadDirectConversation({ data: { agentId: params.agentId } }),
+  pendingMs: 300,
+  pendingMinMs: 0,
+  pendingComponent: ConversationPending,
+  errorComponent: ConversationLoadError,
   component: DirectConversationPage,
 });
 

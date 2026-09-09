@@ -1,6 +1,7 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { afterEach } from "bun:test";
 import { cleanup } from "@testing-library/react";
+import { toast } from "sonner";
 import { baseLocale, overwriteGetLocale } from "@/paraglide/runtime";
 
 const nativeFetch = globalThis.fetch;
@@ -18,6 +19,7 @@ Object.assign(globalThis, {
 });
 
 afterEach(() => {
+  toast.dismiss();
   cleanup();
   overwriteGetLocale(() => baseLocale);
   window.history.replaceState({}, "", `/${baseLocale}`);

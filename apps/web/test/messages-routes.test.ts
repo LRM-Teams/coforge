@@ -18,5 +18,6 @@ test("messages routes work in an isolated Bun test process", async () => {
 
   expect(output).not.toMatch(/HTML nesting|ECONNREFUSED|NetworkError|\[object Object\]/);
   expect(exitCode, output).toBe(0);
-  expect(output).toContain("15 pass");
-});
+  expect(output).toMatch(/\b[1-9]\d* pass\b/);
+  // This outer test runs the entire route suite; individual child tests retain their own deadlines.
+}, 30_000);

@@ -3,6 +3,7 @@ import { Outlet, createFileRoute, getRouteApi, useParams } from "@tanstack/react
 
 import { AddComputerDialog } from "@/features/computers/add-computer-dialog";
 import { ComputerLayout } from "@/features/computers/computer-layout";
+import { ComputersPending } from "@/features/computers/computers-pending";
 import { listComputers } from "@/features/computers/computers.functions";
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { getInstallOrigin } from "@/features/install/install.functions";
@@ -19,6 +20,9 @@ export const Route = createFileRoute("/_app/computers")({
     ]);
     return { computers, timeZone: preferences.timeZone, installOrigin };
   },
+  pendingMs: 300,
+  pendingMinMs: 0,
+  pendingComponent: ComputersPending,
   errorComponent: PageLoadError,
   component: ComputersPage,
 });

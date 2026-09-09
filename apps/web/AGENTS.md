@@ -142,6 +142,16 @@ instructions for the TanStack Start Web/backend modular monolith.
 - Keep `components/layout` limited to layout concerns and `components/ui`
   limited to reusable UI primitives. Do not turn either directory into a
   catch-all for feature behavior.
+- Loading placeholders belong to the feature whose content they represent:
+  `features/agents/agents-pending.tsx` owns the Agent list;
+  `features/agents/agent-detail-pending.tsx` owns Profile/Activity placeholders;
+  `features/computers/computers-pending.tsx` owns Computer loading and local errors;
+  `SettingsPending` in `components/settings-content.tsx` owns settings placeholders;
+  `features/conversations/conversation-pending.tsx` owns message loading and
+  local load errors. Routes select these pending/error views; the shared
+  `components/ui/skeleton.tsx` owns decorative placeholder styling only.
+  Profile save feedback stays in `SettingsContent`; transient notifications
+  use the existing `AppToastProvider` rather than a second notification system.
 - `src/features/profiles/profile.functions.ts` owns the authenticated current-user
   profile read and description mutation. Avatar bytes and profile persistence
   stay under `src/server/profiles/` and `src/server/db/repositories/`.

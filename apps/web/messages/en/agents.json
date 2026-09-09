@@ -1,5 +1,6 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
+  "agents_loading": "Loading Agents…",
   "agent_avatar_recent": "Recent activity",
   "agent_avatar_working": "Working",
   "agent_avatar_loading": "Loading activity…",

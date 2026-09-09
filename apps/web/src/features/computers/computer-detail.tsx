@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Pencil, RotateCw } from "lucide-react";
 import type { RuntimeProvider } from "@coforge/protocol";
 
@@ -61,7 +61,11 @@ export function ComputerDetail({
   restartPollIntervalMs?: number;
   restartMaxPolls?: number;
 }) {
-  const [updatingRuntimeId, setUpdatingRuntimeId] = useState<string>();
+  const [updatingRuntimeIdsState, setUpdatingRuntimeIdsState] = useState(() => new Set<string>());
+  const updatingRuntimeIds = useRef(new Set<string>());
+  const [runtimeVisibilityErrorIds, setRuntimeVisibilityErrorIds] = useState(
+    () => new Set<string>(),
+  );
   const [editingDisplayName, setEditingDisplayName] = useState(false);
   const [displayNameDraft, setDisplayNameDraft] = useState(computer.displayName);
   const [savingDisplayName, setSavingDisplayName] = useState(false);
@@ -71,11 +75,25 @@ export function ComputerDetail({
   >("idle");
   const [restartResult, setRestartResult] = useState<ComputerRestartStatus>();
   const setRuntimePublic = async (runtimeId: string, isPublic: boolean) => {
-    setUpdatingRuntimeId(runtimeId);
+    if (updatingRuntimeIds.current.has(runtimeId)) return;
+    updatingRuntimeIds.current.add(runtimeId);
+    setUpdatingRuntimeIdsState((current) => new Set(current).add(runtimeId));
+    setRuntimeVisibilityErrorIds((current) => {
+      const next = new Set(current);
+      next.delete(runtimeId);
+      return next;
+    });
     try {
       await onSetRuntimePublic(runtimeId, isPublic);
+    } catch {
+      setRuntimeVisibilityErrorIds((current) => new Set(current).add(runtimeId));
     } finally {
-      setUpdatingRuntimeId(undefined);
+      updatingRuntimeIds.current.delete(runtimeId);
+      setUpdatingRuntimeIdsState((current) => {
+        const next = new Set(current);
+        next.delete(runtimeId);
+        return next;
+      });
     }
   };
 
@@ -302,7 +320,7 @@ export function ComputerDetail({
               {computer.runtimes.map((runtime) => (
                 <li
                   key={runtime.provider}
-                  className="flex min-w-0 items-center justify-between gap-3 rounded-xl border p-4 text-sm"
+                  className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border p-4 text-sm"
                 >
                   {computer.ownedByCurrentUser ? (
                     <RuntimeUsage
@@ -330,7 +348,7 @@ export function ComputerDetail({
                                 runtime: runtime.displayName,
                               })
                         }
-                        disabled={updatingRuntimeId === runtime.id}
+                        disabled={updatingRuntimeIdsState.has(runtime.id)}
                         onClick={() => void setRuntimePublic(runtime.id, !runtime.isPublic)}
                       >
                         {runtime.isPublic
@@ -338,6 +356,11 @@ export function ComputerDetail({
                           : m.computer_runtime_private()}
                       </Button>
                     </div>
+                  )}
+                  {computer.ownedByCurrentUser && runtimeVisibilityErrorIds.has(runtime.id) && (
+                    <p role="alert" className="basis-full text-xs text-destructive-text">
+                      {m.computer_runtime_visibility_error()}
+                    </p>
                   )}
                 </li>
               ))}

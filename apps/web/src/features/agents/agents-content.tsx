@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Plus, Search, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,7 @@ export function AgentsContent({
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(defaultCreateDialogOpen);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [error, setError] = useState("");
   const [deferredStart, setDeferredStart] = useState(false);
   const [computerId, setComputerId] = useState(computers[0]?.id ?? "");
@@ -61,6 +62,7 @@ export function AgentsContent({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submittingRef.current) return;
     setError("");
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
@@ -70,6 +72,7 @@ export function AgentsContent({
       setError(m.agent_form_required_error());
       return;
     }
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       const result = await onCreate({
@@ -87,6 +90,7 @@ export function AgentsContent({
     } catch {
       setError(m.agent_form_server_error());
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
@@ -145,7 +149,12 @@ export function AgentsContent({
         </div>
       )}
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (!submittingRef.current) setOpen(nextOpen);
+        }}
+      >
         <DialogPortal keepMounted>
           <DialogBackdrop />
           <DialogPopup>
@@ -242,7 +251,12 @@ export function AgentsContent({
                 )}
               </div>
               <div className="flex justify-end gap-3 border-t px-6 py-4">
-                <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={submitting}
+                  onClick={() => setOpen(false)}
+                >
                   {m.controls_cancel()}
                 </Button>
                 <Button type="submit" disabled={submitting}>

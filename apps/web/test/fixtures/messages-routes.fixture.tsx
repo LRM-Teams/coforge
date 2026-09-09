@@ -112,6 +112,13 @@ const sendDirectConversationMessage = mock(
   }),
 );
 const loadPublicChannelUpdates = mock(async () => []);
+const loadPublicChannel = mock(async () => ({
+  conversationId: "channel-1",
+  name: "general",
+  senderMemberId: "member-1",
+  muted: false,
+  messages: [],
+}));
 const sendPublicChannelMessage = mock(async ({ data }: { data: { body: string } }) => ({
   id: "sent-channel-message",
   sequence: 1,
@@ -194,13 +201,7 @@ mock.module("@/features/conversations/conversations.functions", () => ({
 }));
 mock.module("@/features/conversations/channels.functions", () => ({
   listPublicChannels: mock(async () => [{ id: "channel-1", name: "general", joined: true }]),
-  loadPublicChannel: mock(async () => ({
-    conversationId: "channel-1",
-    name: "general",
-    senderMemberId: "member-1",
-    muted: false,
-    messages: [],
-  })),
+  loadPublicChannel,
   loadPublicChannelUpdates,
   createPublicChannel: mock(async () => ({ id: "channel-1" })),
   joinPublicChannel: mock(async () => {}),
@@ -210,6 +211,16 @@ mock.module("@/features/conversations/channels.functions", () => ({
 mock.module("@/features/settings/settings.functions", () => ({
   getUserPreferences: mock(async () => ({ timeZone: null })),
   saveUserTimeZone: mock(async () => ({ timeZone: null })),
+}));
+mock.module("@/features/computers/computers.functions", () => ({
+  listComputers: mock(async () => []),
+  getComputerRuntimeCatalog: mock(async () => []),
+  restartComputer: mock(async () => {}),
+  readComputerRestartStatus: mock(async () => null),
+  scanUsage: mock(async () => {}),
+  readUsage: mock(async () => null),
+  setRuntimeVisibility: mock(async () => {}),
+  updateComputerDisplayName: mock(async () => {}),
 }));
 mock.module("@/features/notifications/notifications.functions", () => ({
   getBrowserNotificationSettings: mock(async () => ({
@@ -281,6 +292,91 @@ mock.module("centrifuge/build/protobuf", () => ({
 
 const { getRouter } = await import("@/router");
 
+test("settings first load uses placeholders and refresh preserves the active edit", async () => {
+  const { router, page } = await renderRoute("/agents");
+  const route = router.routesById["/_app/settings"];
+  const loader = route.options.loader;
+  const first = Promise.withResolvers<{ timeZone: null }>();
+  route.options.loader = () => first.promise;
+  let navigation: Promise<void> | undefined;
+  try {
+    await act(async () => {
+      navigation = router.navigate({ to: "/settings" });
+    });
+    await waitFor(() => expect(page.getByRole("status").textContent).toBe("Loading settings…"));
+    expect(page.queryByRole("button", { name: "Edit" })).toBeNull();
+    await act(async () => {
+      first.resolve({ timeZone: null });
+      await navigation;
+    });
+    await userEvent.setup().click(page.getByRole("button", { name: "Edit" }));
+    const draft = page.getByRole("textbox", { name: "Description" });
+    await userEvent.setup().type(draft, "Unsaved settings draft");
+    const refresh = Promise.withResolvers<{ timeZone: null }>();
+    route.options.loader = () => refresh.promise;
+    let refreshed: Promise<void> | undefined;
+    try {
+      await act(async () => {
+        refreshed = router.invalidate();
+      });
+      expect(page.getByRole("textbox", { name: "Description" })).toBe(draft);
+      expect(page.queryByRole("status")).toBeNull();
+    } finally {
+      await act(async () => {
+        refresh.resolve({ timeZone: null });
+        await refreshed;
+      });
+    }
+    expect(page.getByRole("textbox", { name: "Description" })).toBe(draft);
+    expect(page.getByDisplayValue("Unsaved settings draft")).toBe(draft);
+    expect(draft.getAttribute("disabled")).toBeNull();
+  } finally {
+    first.resolve({ timeZone: null });
+    await navigation;
+    route.options.loader = loader;
+  }
+});
+
+test("switching conversations keeps navigation while showing only the target loading state", async () => {
+  const { router, page } = await renderRoute("/messages/agent-1");
+  const navigation = page.getByRole("navigation", { name: "Agent conversations" });
+  const gate = Promise.withResolvers<DirectConversationView>();
+  loadDirectConversation.mockImplementationOnce(() => gate.promise);
+  let navigationDone: Promise<void> | undefined;
+  try {
+    await act(async () => {
+      navigationDone = router.navigate({
+        to: "/messages/$agentId",
+        params: { agentId: "agent-2" },
+      });
+    });
+    await waitFor(() => expect(page.getByRole("status").textContent).toContain("Loading messages"));
+    expect(page.getByRole("navigation", { name: "Agent conversations" })).toBe(navigation);
+    expect(page.getByRole("link", { name: /First Agent/ })).toBeTruthy();
+    expect(page.queryByRole("heading", { name: "First Agent" })).toBeNull();
+    expect(page.queryByRole("textbox", { name: "Message" })).toBeNull();
+    await act(async () => {
+      gate.resolve({
+        conversationId: "conversation-agent-2",
+        senderMemberId: "member-1",
+        agent: agents[1],
+        messages: [],
+      });
+      await navigationDone;
+    });
+    expect(page.getByRole("heading", { name: "Second Agent" })).toBeTruthy();
+    expect(page.queryByText("Loading messages…")).toBeNull();
+  } finally {
+    gate.resolve({
+      conversationId: "conversation-agent-2",
+      senderMemberId: "member-1",
+      agent: agents[1],
+      messages: [],
+    });
+    await navigationDone;
+  }
+});
+
 afterEach(() => {
   cleanup();
   detailOnline = false;
@@ -297,6 +393,43 @@ afterEach(() => {
   sendPublicChannelMessage.mockClear();
   getUserProfile.mockClear();
   loadWorkspaceSwitcher.mockClear();
+});
+
+test("a channel load failure stays inside the conversation and retries in place", async () => {
+  const { router, page } = await renderRoute("/messages/agent-1");
+  const gate = Promise.withResolvers<Awaited<ReturnType<typeof loadPublicChannel>>>();
+  loadPublicChannel.mockImplementationOnce(() => gate.promise);
+  let navigationDone: Promise<void> | undefined;
+  try {
+    await act(async () => {
+      navigationDone = router.navigate({
+        to: "/messages/channels/$channelId",
+        params: { channelId: "channel-1" },
+      });
+    });
+    await waitFor(() => expect(page.getByRole("status").textContent).toContain("Loading messages"));
+    await act(async () => {
+      gate.reject(new Error("Unavailable"));
+      await navigationDone;
+    });
+    expect(page.getByRole("alert").textContent).toContain("Messages could not be loaded");
+    expect(page.getByRole("link", { name: /First Agent/ })).toBeTruthy();
+    expect(page.queryByRole("textbox", { name: "Message" })).toBeNull();
+    const agentLink = page.getByRole("link", { name: /First Agent/ });
+    await userEvent.setup().click(page.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(page.getByRole("heading", { name: "#general" })).toBeTruthy());
+    expect(page.queryByRole("alert")).toBeNull();
+    expect(page.getByRole("link", { name: /First Agent/ })).toBe(agentLink);
+  } finally {
+    gate.resolve({
+      conversationId: "channel-1",
+      name: "general",
+      senderMemberId: "member-1",
+      muted: false,
+      messages: [],
+    });
+    await navigationDone;
+  }
 });
 
 async function renderRoute(path: string) {
@@ -316,6 +449,49 @@ async function renderRoute(path: string) {
   return { router, page: within(document.body) };
 }
 
+test("Agent list loads in place then keeps its cards and filter during refresh", async () => {
+  const { router, page } = await renderRoute("/messages/agent-1");
+  const firstLoad = Promise.withResolvers<typeof agents>();
+  listAgents.mockImplementationOnce(() => firstLoad.promise);
+  let navigationDone: Promise<void> | undefined;
+  try {
+    await act(async () => {
+      navigationDone = router.navigate({ to: "/agents" });
+    });
+    await waitFor(() => expect(page.getByRole("status").textContent).toContain("Loading Agents"));
+    expect(page.getByRole("heading", { name: "Agent overview" })).toBeTruthy();
+    expect(page.queryByText("No agents yet")).toBeNull();
+    await act(async () => {
+      firstLoad.resolve(agents);
+      await navigationDone;
+    });
+    const search = page.getByRole("searchbox", { name: "Search agents" });
+    await userEvent.setup().type(search, "Second");
+    const refresh = Promise.withResolvers<typeof agents>();
+    listAgents.mockImplementationOnce(() => refresh.promise);
+    let refreshed: Promise<void> | undefined;
+    try {
+      await act(async () => {
+        refreshed = router.invalidate({ sync: true });
+      });
+      expect(page.getByRole("heading", { name: "Second Agent" })).toBeTruthy();
+      expect(page.queryByText("Loading Agents…")).toBeNull();
+      expect(page.getByRole("searchbox", { name: "Search agents" })).toBe(search);
+    } finally {
+      await act(async () => {
+        refresh.resolve(agents);
+        await refreshed;
+      });
+    }
+    expect(page.getByRole("searchbox", { name: "Search agents" }).getAttribute("value")).toBe(
+      "Second",
+    );
+  } finally {
+    firstLoad.resolve(agents);
+    await navigationDone;
+  }
+});
+
 test("the messages index selects the first Agent", async () => {
   const { router, page } = await renderRoute("/messages");
   await waitFor(() => expect(router.state.location.pathname).toBe("/messages/agent-1"));
@@ -323,6 +499,32 @@ test("the messages index selects the first Agent", async () => {
   expect(loadDirectConversation).toHaveBeenCalledWith({
     data: { agentId: "agent-1" },
   });
+});
+
+test("entering messages shows its layout while the conversation list is loading", async () => {
+  const { router, page } = await renderRoute("/agents");
+  const gate = Promise.withResolvers<typeof agents>();
+  listAgents.mockImplementationOnce(() => gate.promise);
+  let navigationDone: Promise<void> | undefined;
+  try {
+    await act(async () => {
+      navigationDone = router.navigate({
+        to: "/messages/$agentId",
+        params: { agentId: "agent-1" },
+      });
+    });
+    await waitFor(() => expect(page.getByRole("heading", { name: "Messages" })).toBeTruthy());
+    expect(page.getByRole("status").textContent).toContain("Loading messages");
+    expect(
+      page.getByRole("navigation", { name: "Agent conversations" }).getAttribute("aria-busy"),
+    ).toBe("true");
+  } finally {
+    await act(async () => {
+      gate.resolve(agents);
+      await navigationDone;
+    });
+  }
+  expect(page.getByRole("heading", { name: "First Agent" })).toBeTruthy();
 });
 
 test("a direct URL renders the second Agent through the Outlet and highlights it", async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
   BellRing,
   Check,
@@ -15,6 +15,7 @@ import {
 import { PageHeader } from "@/components/layout/page-header";
 import { Avatar } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Combobox,
   ComboboxContent,
@@ -23,6 +24,7 @@ import {
   ComboboxValue,
 } from "@/components/ui/combobox";
 import { cn } from "@/lib/utils";
+import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
 
 type Locale = "en" | "zh-CN";
@@ -53,6 +55,60 @@ interface SettingsContentProps {
   onBrowserNotificationsChange: (enabled: boolean) => Promise<void>;
   onEnableBrowserNotifications: () => Promise<void>;
   onTestBrowserNotification: () => Promise<boolean>;
+}
+
+export function SettingsPending() {
+  return (
+    <main aria-busy="true" className="flex h-svh min-w-0 flex-col gap-2 p-2 md:flex-row">
+      <p role="status" className="sr-only">
+        {m.settings_loading()}
+      </p>
+      <nav className="shrink-0 overflow-hidden rounded-xl border bg-card md:flex md:w-64 md:flex-col">
+        <div className="hidden md:block">
+          <PageHeader heading={m.settings_title()} />
+        </div>
+        <div className="grid grid-cols-3 gap-1 p-2 md:block md:space-y-1">
+          {[m.settings_account(), m.settings_preferences(), m.settings_notifications()].map(
+            (label) => (
+              <div key={label} className="flex h-10 items-center gap-2.5 px-3 text-sm">
+                <Skeleton className="hidden size-4 shrink-0 sm:block" />
+                <span className="truncate">{label}</span>
+              </div>
+            ),
+          )}
+        </div>
+      </nav>
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card">
+        <PageHeader heading={m.settings_account()} />
+        <div className="mx-auto w-full max-w-4xl p-4 sm:p-6 lg:p-8">
+          <section className="overflow-hidden rounded-xl border bg-background">
+            <header className="flex min-h-16 items-center px-5 py-3 sm:px-6">
+              <h2 className="text-lg font-semibold">{m.settings_profile()}</h2>
+            </header>
+            <div
+              aria-hidden="true"
+              className="grid items-center gap-5 border-t p-5 motion-safe:animate-pulse sm:p-6 md:grid-cols-[auto_repeat(3,minmax(0,1fr))] md:gap-8"
+            >
+              <Skeleton className="size-20 rounded-full" />
+              {["w-3/5", "w-4/5", "w-2/3"].map((width) => (
+                <div key={width} className="space-y-2">
+                  <Skeleton className="h-3 w-16" />
+                  <Skeleton className={`h-4 ${width}`} />
+                </div>
+              ))}
+            </div>
+            <div
+              aria-hidden="true"
+              className="space-y-2 border-t px-5 py-4 motion-safe:animate-pulse sm:px-6"
+            >
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-4 w-3/5" />
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  );
 }
 
 export function SettingsContent(props: SettingsContentProps) {
@@ -149,19 +205,26 @@ function AccountSettings({
   const [name, setName] = useState(profile.name);
   const [description, setDescription] = useState(profile.description);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [pendingAvatar, setPendingAvatar] = useState<File | null>(null);
   const [removeAvatar, setRemoveAvatar] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   useEffect(() => {
-    setName(profile.name);
-    setDescription(profile.description);
-  }, [profile.name, profile.description]);
+    if (!editing) {
+      setName(profile.name);
+      setDescription(profile.description);
+    }
+  }, [editing, profile.name, profile.description]);
 
   function startEditing() {
     setName(profile.name);
     setDescription(profile.description);
     setPendingAvatar(null);
     setRemoveAvatar(false);
+    setSaveError(null);
+    setSaveSuccess(false);
     setEditing(true);
   }
 
@@ -174,14 +237,38 @@ function AccountSettings({
   }
 
   async function save() {
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
+    setSaveError(null);
+    let avatarSaved = false;
     try {
-      if (pendingAvatar) await onAvatarUpload(pendingAvatar);
-      else if (removeAvatar) await onAvatarRemove();
+      if (pendingAvatar) {
+        await onAvatarUpload(pendingAvatar);
+        avatarSaved = true;
+        setPendingAvatar(null);
+      } else if (removeAvatar) {
+        await onAvatarRemove();
+        avatarSaved = true;
+        setRemoveAvatar(false);
+      }
       if (name !== profile.name || description !== profile.description)
         await onProfileSave({ name, description });
+      setSaveSuccess(true);
       setEditing(false);
+    } catch (cause) {
+      const message = avatarSaved
+        ? m.settings_profile_save_partial_error()
+        : avatarChanged
+          ? m.settings_avatar_save_error()
+          : m.settings_profile_save_error();
+      const reference =
+        isAppError(cause) && cause.errorId
+          ? ` ${m.error_reference({ errorId: cause.errorId })}`
+          : "";
+      setSaveError(`${message}${reference}`);
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -287,17 +374,28 @@ function AccountSettings({
               </div>
             </div>
 
-            <footer className="flex justify-end gap-2 border-t px-5 py-4 sm:px-6">
+            <footer className="flex flex-wrap items-center justify-end gap-2 border-t px-5 py-4 sm:px-6">
+              {saveError && (
+                <p role="alert" className="mr-auto text-sm text-destructive-text">
+                  {saveError}
+                </p>
+              )}
               <Button type="button" variant="outline" disabled={saving} onClick={cancelEditing}>
                 {m.settings_profile_cancel()}
               </Button>
               <Button type="button" disabled={saving || !changed} onClick={save}>
-                {m.settings_profile_save()}
+                {saving ? m.settings_profile_saving() : m.settings_profile_save()}
               </Button>
             </footer>
           </>
         ) : (
           <>
+            {saveSuccess && (
+              <p role="status" className="border-t px-5 py-3 text-sm text-muted-foreground sm:px-6">
+                <Check aria-hidden="true" className="mr-2 inline size-4 text-primary" />
+                {m.settings_profile_save_success()}
+              </p>
+            )}
             <div className="grid items-center gap-5 border-t p-5 sm:p-6 md:grid-cols-[auto_repeat(3,minmax(0,1fr))] md:gap-8">
               <Avatar
                 people={[{ name: profile.name, src: profile.avatarUrl }]}

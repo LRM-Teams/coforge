@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ChannelConversation } from "@/features/conversations/channel-conversation";
+import {
+  ConversationLoadError,
+  ConversationPending,
+} from "@/features/conversations/conversation-pending";
 import { createConversationReconciler } from "@/features/conversations/conversation-reconciliation";
 import { useConversationRealtime } from "@/features/conversations/conversation-realtime-client";
 import { loadReminderNotices } from "@/features/conversations/reminder-notices.functions";
@@ -20,6 +24,10 @@ import {
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
   remountDeps: ({ params }) => params.channelId,
   loader: ({ params }) => loadPublicChannel({ data: { channelId: params.channelId } }),
+  pendingMs: 300,
+  pendingMinMs: 0,
+  pendingComponent: ConversationPending,
+  errorComponent: ConversationLoadError,
   component: ChannelPage,
 });
 
