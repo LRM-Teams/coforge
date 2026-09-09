@@ -105,6 +105,21 @@ afterAll(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 
+test.each(["n\n", "\n", ""])("compiled upgrade cancels safely with stdin %j", (input) => {
+  const result = Bun.spawnSync({
+    cmd: [executable, "upgrade", "--version", "1.0.18"],
+    env: { ...process.env, HOME: join(directory, "upgrade-home") },
+    stdin: Buffer.from(input),
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: 5000,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout.toString()).toContain("Upgrade CoForge Computer to 1.0.18? [y/N]");
+  expect(result.stdout.toString()).toContain("Upgrade cancelled.");
+  expect(result.stderr.toString()).toBe("");
+});
+
 test("local test build strips terminal controls from device authorization instructions", async () => {
   const requests: string[] = [];
   const server = Bun.serve({

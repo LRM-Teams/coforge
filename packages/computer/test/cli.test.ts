@@ -331,48 +331,104 @@ test("unexpected setup failures are normalized without exposing diagnostics", as
   expect(stderr.join("\n")).not.toContain("access-secret");
 });
 
-test("install and upgrade preserve the three release-set selection modes", async () => {
-  const calls: Array<{ operation: string; version?: string }> = [];
-  const dependencies = {
-    login: { async run() {} },
-    setup: { async run() {} },
-    updater: {
-      async install(version: string) {
-        calls.push({ operation: "install", version });
+test.each(["", "n", "no", "maybe", null])(
+  "upgrade cancels without explicit consent: %s",
+  async (answer) => {
+    let upgrades = 0;
+    const output: string[] = [];
+    const questions: string[] = [];
+    const exitCode = await runCli(
+      ["upgrade"],
+      {
+        login: { async run() {} },
+        setup: { async run() {} },
+        updater: {
+          async resolveVersion() {
+            return "1.0.18";
+          },
+          async install() {},
+          async upgrade() {
+            upgrades += 1;
+          },
+          async rollback() {},
+        },
       },
-      async upgrade(version: string) {
-        calls.push({ operation: "upgrade", version });
+      {
+        stdout: (line) => output.push(line),
+        stderr: (line) => output.push(line),
+        prompt: (question) => {
+          questions.push(question);
+          return answer;
+        },
       },
-      async rollback() {
-        calls.push({ operation: "rollback" });
-      },
-    },
-  };
+    );
+    expect(exitCode).toBe(0);
+    expect(upgrades).toBe(0);
+    expect(questions).toEqual(["Upgrade CoForge Computer to 1.0.18? [y/N] "]);
+    expect(output).toEqual(["Upgrade cancelled."]);
+  },
+);
 
-  await expect(runCli(["install"], dependencies)).resolves.toBe(0);
-  await expect(runCli(["upgrade", "--version", "test"], dependencies)).resolves.toBe(0);
-  await expect(
-    runCli(
-      [
-        "install",
-        "--version",
-        "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-      ],
-      dependencies,
-    ),
-  ).resolves.toBe(0);
-  await expect(runCli(["rollback"], dependencies)).resolves.toBe(0);
+test.each(["y", " YES "])(
+  "install and rollback remain unchanged; upgrade requires consent: %s",
+  async (answer) => {
+    const calls: Array<{ operation: string; version?: string }> = [];
+    const dependencies = {
+      login: { async run() {} },
+      setup: { async run() {} },
+      updater: {
+        async resolveVersion(selector: string) {
+          expect(selector).toBe("latest");
+          return "1.0.18";
+        },
+        async install(version: string) {
+          calls.push({ operation: "install", version });
+        },
+        async upgrade(version: string) {
+          calls.push({ operation: "upgrade", version });
+        },
+        async rollback() {
+          calls.push({ operation: "rollback" });
+        },
+      },
+    };
 
-  expect(calls).toEqual([
-    { operation: "install", version: "latest" },
-    { operation: "upgrade", version: "test" },
-    {
-      operation: "install",
-      version: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-    },
-    { operation: "rollback" },
-  ]);
-});
+    await expect(runCli(["install"], dependencies)).resolves.toBe(0);
+    const questions: string[] = [];
+    await expect(
+      runCli(["upgrade"], dependencies, {
+        stdout: () => {},
+        stderr: () => {},
+        prompt: (question) => {
+          questions.push(question);
+          return answer;
+        },
+      }),
+    ).resolves.toBe(0);
+    expect(questions).toEqual(["Upgrade CoForge Computer to 1.0.18? [y/N] "]);
+    await expect(
+      runCli(
+        [
+          "install",
+          "--version",
+          "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        ],
+        dependencies,
+      ),
+    ).resolves.toBe(0);
+    await expect(runCli(["rollback"], dependencies)).resolves.toBe(0);
+
+    expect(calls).toEqual([
+      { operation: "install", version: "latest" },
+      { operation: "upgrade", version: "1.0.18" },
+      {
+        operation: "install",
+        version: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      },
+      { operation: "rollback" },
+    ]);
+  },
+);
 
 test("foreground runs the supervisor in the current process for external supervision", async () => {
   let calls = 0;
