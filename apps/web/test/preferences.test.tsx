@@ -7,6 +7,7 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { AppShell } from "@/components/app-shell";
+import { PageHeader } from "@/components/layout/page-header";
 import { SettingsContent } from "@/components/settings-content";
 import { AppToastProvider } from "@/components/ui/toast";
 import { overwriteGetLocale } from "@/paraglide/runtime";
@@ -45,7 +46,7 @@ function renderShell() {
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
         <AppShell user={signedInUser}>
-          <div />
+          <PageHeader heading="Messages" />
         </AppShell>
       </AppToastProvider>
     </RouterContextProvider>,
@@ -343,7 +344,8 @@ test("collapses and restores the sidebar with the Mod-B shortcut", () => {
   fireEvent.keyDown(document, { key: "b", code: "KeyB", ctrlKey: true });
   fireEvent.keyUp(document, { key: "b", code: "KeyB", ctrlKey: true });
   expect(view.queryByRole("complementary")).toBeNull();
-  expect(view.getByRole("button", { name: "Show sidebar" })).toBeTruthy();
+  expect(view.getByRole("link", { name: "Messages" }).getAttribute("href")).toBe("/en/messages");
+  expect(view.getByRole("button", { name: "Current user" })).toBeTruthy();
 
   fireEvent.keyDown(document, { key: "b", code: "KeyB", ctrlKey: true });
   fireEvent.keyUp(document, { key: "b", code: "KeyB", ctrlKey: true });

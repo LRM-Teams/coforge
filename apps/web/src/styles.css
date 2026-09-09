@@ -9,6 +9,12 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* Resolve ordinary glyphs through the platform UI font before emoji fallback,
+     including on Linux where the named Western fonts may not be installed. */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial,
+    system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+    "Noto Color Emoji";
   --font-display: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
   --font-display-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
   --color-background: var(--background);

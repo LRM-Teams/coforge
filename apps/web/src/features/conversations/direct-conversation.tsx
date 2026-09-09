@@ -32,6 +32,13 @@ import {
 import { AgentActivityAvatar, useAgentWorkingLabel } from "@/features/agents/agent-activity-avatar";
 import { Avatar } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  EmptyDescription,
+} from "@/components/ui/empty";
 import { RelativeTime } from "@/components/ui/relative-time";
 import {
   DropdownMenu,
@@ -120,7 +127,7 @@ export type ThreadedConversationProps = Omit<ConversationProps, "conversation" |
   conversation: Omit<DirectConversationView, "agent">;
   header: React.ReactNode;
   readOnlyNotice?: React.ReactNode;
-  emptyDescription?: string;
+  emptyState: { title: string; description: string; media: React.ReactNode };
   threadHeaderAction?: (rootMessageId: string) => React.ReactNode;
 };
 
@@ -165,7 +172,23 @@ export function DirectConversation(props: ConversationProps) {
       )}
     </header>
   );
-  return <ThreadedConversation {...props} header={header} />;
+  return (
+    <ThreadedConversation
+      {...props}
+      header={header}
+      emptyState={{
+        title: m.conversation_empty_title({ name: conversation.agent.displayName }),
+        description: m.conversation_empty_description(),
+        media: (
+          <Avatar
+            people={[{ name: conversation.agent.displayName }]}
+            size="xl"
+            className="size-16 rounded-2xl text-xl"
+          />
+        ),
+      }}
+    />
+  );
 }
 
 export function ThreadedConversation(props: ThreadedConversationProps) {
@@ -367,6 +390,13 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
               {...conversationProps}
               root={root}
               onClose={() => setSelected(undefined)}
+              emptyState={{
+                title: m.conversation_thread_empty_title(),
+                description: m.conversation_thread_empty(),
+                media: (
+                  <MessageSquare aria-hidden="true" className="size-6 text-muted-foreground" />
+                ),
+              }}
               conversation={{
                 ...conversation,
                 messages: conversation.messages.filter(
@@ -396,7 +426,7 @@ export function ConversationPane({
   conversation,
   header,
   readOnlyNotice,
-  emptyDescription,
+  emptyState,
   onSend,
   root,
   onClose,
@@ -415,7 +445,7 @@ export function ConversationPane({
   conversation: Omit<DirectConversationView, "agent">;
   header?: React.ReactNode;
   readOnlyNotice?: React.ReactNode;
-  emptyDescription?: string;
+  emptyState: { title: string; description: string; media: React.ReactNode };
   root?: DirectConversationView["messages"][number];
   onClose?: () => void;
   threadEntry?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
@@ -832,14 +862,28 @@ export function ConversationPane({
             </div>
           )}
           {conversation.messages.length === 0 ? (
-            <div className={cn("grid place-content-center text-center", root ? "py-10" : "h-full")}>
-              <p className="font-medium">{m.conversation_empty_title()}</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {root
-                  ? m.conversation_thread_empty()
-                  : (emptyDescription ?? m.conversation_empty_description())}
-              </p>
-            </div>
+            <Empty
+              className={
+                root
+                  ? "px-0 py-8"
+                  : "items-start px-1 pt-[clamp(2rem,10svh,5rem)] pb-8 text-left sm:px-3"
+              }
+            >
+              <EmptyHeader className={root ? "gap-2" : "w-full max-w-sm items-start gap-3"}>
+                <EmptyMedia className="mb-1">{emptyState.media}</EmptyMedia>
+                <EmptyTitle
+                  role="heading"
+                  aria-level={root ? 3 : 2}
+                  className={cn(
+                    "max-w-full [overflow-wrap:anywhere]",
+                    root ? "text-sm" : "text-xl font-semibold",
+                  )}
+                >
+                  {emptyState.title}
+                </EmptyTitle>
+                <EmptyDescription>{emptyState.description}</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           ) : (
             <ol
               className={cn(virtualized ? "relative pt-6" : "flex flex-col gap-6 pt-6")}

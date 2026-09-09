@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { Hash, MessagesSquare, Plus } from "lucide-react";
+import { ChevronLeft, Hash, MessagesSquare, Plus } from "lucide-react";
 
+import { PageHeader } from "@/components/layout/page-header";
 import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
 import {
   activityForAgent,
@@ -22,8 +23,8 @@ export type ConversationAgent = {
 
 /**
  * Lets the conversation put the "back to the list" control in its own header
- * band. `/messages` redirects to the first agent, so the panes cannot be driven
- * by the URL; the layout owns the state and shares the way back.
+ * band. The layout keeps both panels mounted so returning to the list retains
+ * its scroll position and the selected conversation's draft.
  */
 const BackToAgentsContext = createContext<(() => void) | undefined>(undefined);
 const ConversationAgentStatusContext = createContext<"active" | "inactive" | undefined | null>(
@@ -74,17 +75,15 @@ export function ConversationLayout({
   const selectedAgentStatus = agents.find((agent) => agent.id === selectedAgentId)?.status.value;
 
   return (
-    <main className="flex h-svh min-w-0 gap-2 p-2">
+    <main className="flex h-svh min-w-0 md:gap-2 md:p-2">
       <nav
         aria-label={m.messages_agent_list_label()}
         className={cn(
-          "min-w-0 flex-col overflow-hidden rounded-xl border bg-card md:flex md:w-72 md:shrink-0",
+          "min-w-0 flex-col overflow-hidden bg-card md:flex md:w-72 md:shrink-0 md:rounded-xl md:border",
           listHidden ? "hidden" : "flex w-full",
         )}
       >
-        <div className="flex h-14 shrink-0 items-center border-b px-5">
-          <h1 className="text-base font-medium">{m.messages_title()}</h1>
-        </div>
+        <PageHeader heading={m.messages_title()} />
 
         <div className="flex-1 overflow-y-auto p-2">
           <div className="mb-1 flex h-9 items-center justify-between px-2.5">
@@ -108,6 +107,7 @@ export function ConversationLayout({
                   to="/messages/channels/$channelId"
                   params={{ channelId: channel.id }}
                   aria-current={channel.id === selectedChannelId ? "page" : undefined}
+                  resetScroll={false}
                   onClick={() => setShowMobileAgents(false)}
                   className={cn(
                     "flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-2.5 text-sm hover:bg-muted",
@@ -150,6 +150,7 @@ export function ConversationLayout({
                     to="/messages/$agentId"
                     params={{ agentId: agent.id }}
                     aria-current={selected ? "page" : undefined}
+                    resetScroll={false}
                     onClick={() => setShowMobileAgents(false)}
                     className="flex min-w-0 flex-1 flex-col gap-1 py-1"
                   >
@@ -165,8 +166,8 @@ export function ConversationLayout({
 
       <section
         className={cn(
-          "min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card md:flex",
-          showMobileAgents ? "hidden" : "flex",
+          "min-w-0 flex-1 flex-col overflow-hidden bg-card md:flex md:rounded-xl md:border",
+          listHidden ? "flex" : "hidden",
         )}
       >
         <BackToAgentsContext value={() => setShowMobileAgents(true)}>
@@ -211,9 +212,9 @@ export function BackToAgents() {
       size="icon"
       onClick={back}
       aria-label={m.messages_title()}
-      className="-ml-1 md:hidden"
+      className="-ml-2 size-11 shrink-0 md:hidden"
     >
-      <MessagesSquare aria-hidden="true" className="size-4" />
+      <ChevronLeft aria-hidden="true" className="size-5" />
     </Button>
   );
 }

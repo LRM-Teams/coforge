@@ -1,17 +1,27 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { useEffect } from "react";
+import { createFileRoute, getRouteApi } from "@tanstack/react-router";
+
+const computersRoute = getRouteApi("/_app/computers");
 
 export const Route = createFileRoute("/_app/computers/")({
-  loader: async ({ parentMatchPromise }) => {
-    const { loaderData } = await parentMatchPromise;
-    const first = loaderData?.computers[0];
-    if (first) {
-      throw redirect({
-        to: "/computers/$computerId",
-        params: { computerId: first.id },
-      });
-    }
-  },
-  // With no Computers the layout carries the empty state; there is nothing to
-  // select and nothing to detail.
-  component: () => null,
+  component: ComputersIndexPage,
 });
+
+function ComputersIndexPage() {
+  const { computers } = computersRoute.useLoaderData();
+  const navigate = Route.useNavigate();
+  const computerId = computers[0]?.id;
+  useEffect(() => {
+    // Mobile starts with the list. Desktop retains its initial selection.
+    const desktop = window.matchMedia("(min-width: 768px)");
+    const selectFirst = () => {
+      if (!desktop.matches || !computerId) return;
+      void navigate({ to: "/computers/$computerId", params: { computerId }, replace: true });
+    };
+    selectFirst();
+    desktop.addEventListener("change", selectFirst);
+    return () => desktop.removeEventListener("change", selectFirst);
+  }, [computerId, navigate]);
+  // The layout owns the list and the no-Computers state.
+  return null;
+}

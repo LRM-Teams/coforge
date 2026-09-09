@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
+import { MobileNavigationButton } from "@/components/layout/mobile-navigation";
 import { Avatar } from "@/components/ui/avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { RelativeTime } from "@/components/ui/relative-time";
@@ -75,6 +76,7 @@ export function AgentDetail({
     <main className="flex h-svh max-h-svh min-h-0 flex-1 flex-col overflow-hidden p-4 sm:p-5 md:p-6">
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-center gap-3">
+          <MobileNavigationButton />
           <Avatar
             people={[{ name: detail.displayName }]}
             size="lg"
