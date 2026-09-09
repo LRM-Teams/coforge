@@ -10,21 +10,16 @@ import {
   XClose as X,
 } from "@untitledui/icons";
 import { Link } from "@tanstack/react-router";
+import { Heading, Text } from "react-aria-components";
 
-import { MobileNavigationButton } from "@/components/layout/mobile-navigation";
-import { Avatar } from "@/components/ui/avatar";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Avatar } from "@/components/base/avatar/avatar";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { RelativeTime } from "@/components/ui/relative-time";
-import {
-  Dialog,
-  DialogBackdrop,
-  DialogClose,
-  DialogDescription,
-  DialogPopup,
-  DialogPortal,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { m } from "@/paraglide/messages";
+import { localizeHref } from "@/paraglide/runtime";
 import { AgentRuntimeFields, type RuntimeOptions } from "./agent-runtime-fields";
 import type { UpdateAgentInput } from "./agent.schemas";
 import { latestActivityError, type ActivityEntry } from "./agent-activity";
@@ -73,34 +68,30 @@ export function AgentDetail({
         : m.agent_status_offline();
   const latestError = latestActivityError(activity);
   return (
-    <main className="flex h-svh max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background px-4 pt-5 md:px-8 md:pt-8">
+    <main className="flex h-svh max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-primary px-4 pt-5 md:px-8 md:pt-8">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-4 pb-6">
         <div className="flex min-w-0 items-center gap-3">
-          <MobileNavigationButton />
           <Avatar
-            people={[{ name: detail.displayName }]}
             size="lg"
-            online={online}
-            statusLabel={statusLabel}
+            alt={detail.displayName}
+            initials={avatarInitial(detail.displayName)}
+            contentClassName={avatarToneClassName(detail.displayName)}
+            status={online === undefined ? undefined : online ? "online" : "offline"}
           />
           <div className="min-w-0">
             <h1 className="break-words text-2xl font-semibold md:text-3xl">{detail.displayName}</h1>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-tertiary">
               <p className="break-all">@{detail.name}</p>
-              <p className="border-l pl-3">{statusLabel}</p>
+              <p className="border-l border-secondary pl-3">{statusLabel}</p>
             </div>
           </div>
         </div>
-        <Link
-          to="/messages/$agentId"
-          params={{ agentId: detail.id }}
-          className={buttonVariants({ variant: "outline" })}
-        >
+        <Button href={localizeHref(`/messages/${detail.id}`)} size="md" color="secondary">
           {m.agent_private_chat()}
-        </Link>
+        </Button>
       </div>
       <nav
-        className="flex shrink-0 gap-5 overflow-x-auto border-b md:gap-6"
+        className="flex shrink-0 gap-5 overflow-x-auto border-b border-secondary md:gap-6"
         aria-label={m.agent_detail_tabs()}
       >
         {(["profile", "activity", "reminders"] as const).map((value) => (
@@ -110,7 +101,7 @@ export function AgentDetail({
             params={{ agentId: detail.id }}
             search={{ tab: value }}
             aria-current={tab === value ? "page" : undefined}
-            className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-0.5 pb-3 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${tab === value ? "border-brand text-brand" : "border-transparent text-muted-foreground hover:border-brand hover:text-brand"}`}
+            className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-0.5 pb-3 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand ${tab === value ? "border-brand text-brand-secondary" : "border-transparent text-tertiary hover:border-brand hover:text-brand-secondary"}`}
           >
             {value === "profile" && <UserRound className="size-4 shrink-0" aria-hidden="true" />}
             {value === "activity" && (
@@ -138,12 +129,12 @@ export function AgentDetail({
         {tab === "profile" && latestError && (
           <div
             role="alert"
-            className="mt-6 flex items-start gap-3 rounded-xl border border-destructive/50 bg-destructive/5 p-4 text-sm"
+            className="mt-6 flex items-start gap-3 rounded-xl border border-error_subtle bg-error-primary p-4 text-sm"
           >
-            <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
+            <AlertCircle className="mt-0.5 size-4 shrink-0 text-error-primary" />
             <div>
-              <p className="font-medium text-destructive-text">{m.agent_latest_error()}</p>
-              <p className="mt-1 text-muted-foreground">{latestError.detail}</p>
+              <p className="font-medium text-error-primary">{m.agent_latest_error()}</p>
+              <p className="mt-1 text-tertiary">{latestError.detail}</p>
             </div>
           </div>
         )}
@@ -217,15 +208,19 @@ function Profile({
     },
   ];
   return (
-    <div className="divide-y">
+    <div className="divide-y divide-secondary">
       <section className="grid gap-5 py-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
         <div className="flex items-start justify-between gap-4">
           <h2 className="flex items-center gap-2 text-base font-semibold">
             <Bot className="size-4" /> {m.agent_profile_basic()}
           </h2>
           {detail.ownedByCurrentUser && (
-            <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
-              <Pencil />
+            <Button
+              size="sm"
+              color="secondary"
+              iconLeading={Pencil}
+              onPress={() => setEditOpen(true)}
+            >
               {m.agent_edit()}
             </Button>
           )}
@@ -233,24 +228,23 @@ function Profile({
         <dl className="grid min-w-0 gap-5">
           {fields.map(({ label, value }) => (
             <div key={label} className="grid gap-1.5 md:grid-cols-[10rem_minmax(0,1fr)] md:gap-6">
-              <dt className="text-sm font-medium text-muted-foreground">{label}</dt>
+              <dt className="text-sm font-medium text-tertiary">{label}</dt>
               <dd className="min-w-0 whitespace-pre-wrap break-words text-sm leading-6">{value}</dd>
             </div>
           ))}
         </dl>
       </section>
 
-      <Dialog
-        open={editOpen}
-        onOpenChange={(open) => {
+      <ModalOverlay
+        isOpen={editOpen}
+        onOpenChange={(open: boolean) => {
           if (savingRef.current) return;
           setEditOpen(open);
           if (open) setEditError("");
         }}
       >
-        <DialogPortal keepMounted>
-          <DialogBackdrop />
-          <DialogPopup>
+        <Modal className="w-[calc(100vw-2rem)] max-w-lg">
+          <Dialog>
             <form
               onSubmit={async (event) => {
                 event.preventDefault();
@@ -279,8 +273,12 @@ function Profile({
               }}
             >
               <div className="px-6 pt-6">
-                <DialogTitle>{m.agent_edit_title()}</DialogTitle>
-                <DialogDescription>{m.agent_edit_description()}</DialogDescription>
+                <Heading slot="title" className="text-lg font-semibold text-primary">
+                  {m.agent_edit_title()}
+                </Heading>
+                <Text slot="description" className="mt-2 text-sm text-tertiary">
+                  {m.agent_edit_description()}
+                </Text>
               </div>
               <div className="grid gap-5 px-6 py-6 text-sm font-medium">
                 <label>
@@ -289,7 +287,7 @@ function Profile({
                     name="name"
                     required
                     defaultValue={detail.name}
-                    className="mt-1.5 h-10 w-full rounded-lg border bg-background px-3 font-normal shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="mt-1.5 h-10 w-full rounded-lg border border-secondary bg-primary px-3 font-normal shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-brand"
                   />
                 </label>
                 <label>
@@ -299,7 +297,7 @@ function Profile({
                     required
                     rows={4}
                     defaultValue={detail.description}
-                    className="mt-1.5 w-full rounded-lg border bg-background p-3 font-normal leading-6 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="mt-1.5 w-full rounded-lg border border-secondary bg-primary p-3 font-normal leading-6 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-brand"
                   />
                 </label>
                 <label className="sm:col-span-2">
@@ -307,7 +305,7 @@ function Profile({
                   <input
                     readOnly
                     value={detail.computer?.label ?? detail.computerId ?? ""}
-                    className="mt-1.5 h-10 w-full rounded-lg border bg-muted/50 px-3 font-normal shadow-xs"
+                    className="mt-1.5 h-10 w-full rounded-lg border border-secondary bg-secondary px-3 font-normal shadow-xs"
                   />
                 </label>
                 <AgentRuntimeFields
@@ -322,28 +320,29 @@ function Profile({
                   onLoad={onLoadRuntimeOptions}
                 />
                 {editError && (
-                  <p role="alert" className="text-sm text-destructive-text sm:col-span-2">
+                  <p role="alert" className="text-sm text-error-primary sm:col-span-2">
                     {editError}
                   </p>
                 )}
               </div>
-              <div className="flex justify-end gap-3 border-t px-6 py-4">
+              <div className="flex justify-end gap-3 border-t border-secondary px-6 py-4">
                 <Button
                   type="button"
-                  variant="outline"
-                  disabled={saving}
-                  onClick={() => setEditOpen(false)}
+                  size="md"
+                  color="secondary"
+                  isDisabled={saving}
+                  onPress={() => setEditOpen(false)}
                 >
                   {m.controls_cancel()}
                 </Button>
-                <Button type="submit" disabled={saving}>
+                <Button type="submit" size="md" isDisabled={saving}>
                   {m.agent_runtime_save()}
                 </Button>
               </div>
             </form>
-          </DialogPopup>
-        </DialogPortal>
-      </Dialog>
+          </Dialog>
+        </Modal>
+      </ModalOverlay>
       <section className="grid gap-5 py-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
         <h2 className="flex items-start gap-2 text-base font-semibold">
           <Monitor className="size-4" />
@@ -353,7 +352,7 @@ function Profile({
           <p className="break-words text-sm font-medium">
             {detail.computer?.label ?? m.agent_computer_unnamed()}
           </p>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-sm text-tertiary">
             {detail.computer ? m.agent_computer_observed() : m.agent_computer_not_observed()}
           </p>
         </div>
@@ -362,8 +361,12 @@ function Profile({
         <div className="flex items-start justify-between gap-4">
           <h2 className="font-semibold">{m.agent_runtime_config()}</h2>
           {canConfigureCredential && (
-            <Button size="sm" variant="outline" onClick={() => setRuntimeDialogOpen(true)}>
-              <Pencil aria-hidden="true" />
+            <Button
+              size="sm"
+              color="secondary"
+              iconLeading={Pencil}
+              onPress={() => setRuntimeDialogOpen(true)}
+            >
               {m.agent_runtime_edit()}
             </Button>
           )}
@@ -417,149 +420,150 @@ function Profile({
         />
       )}
 
-      <Dialog
-        open={runtimeDialogOpen}
-        onOpenChange={(open) => {
+      <ModalOverlay
+        isOpen={runtimeDialogOpen}
+        onOpenChange={(open: boolean) => {
           if (savingRef.current) return;
           setRuntimeDialogOpen(open);
           if (open) setRuntimeError("");
         }}
       >
-        <DialogPortal keepMounted>
-          <DialogBackdrop />
-          <DialogPopup>
-            <form
-              onSubmit={async (event: FormEvent<HTMLFormElement>) => {
-                event.preventDefault();
-                if (savingRef.current) return;
-                savingRef.current = true;
-                setRuntimeError("");
-                setSaving(true);
-                try {
-                  const apiKey = String(new FormData(event.currentTarget).get("apiKey") ?? "");
-                  await onSaveRuntimeCredential(apiKey);
-                  setRuntimeDialogOpen(false);
-                } catch {
-                  setRuntimeError(m.agent_runtime_save_error());
-                } finally {
-                  savingRef.current = false;
-                  setSaving(false);
-                }
-              }}
-            >
-              <div className="flex items-start justify-between gap-6 px-6 pt-6">
-                <div>
-                  <DialogTitle>{m.agent_runtime_edit_title()}</DialogTitle>
-                  <DialogDescription className="mt-2">
-                    {m.agent_runtime_edit_description()}
-                  </DialogDescription>
-                </div>
-                <DialogClose
-                  render={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={m.controls_close()}
-                    >
-                      <X aria-hidden="true" />
-                    </Button>
+        <Modal className="w-[calc(100vw-2rem)] max-w-lg">
+          <Dialog>
+            {({ close }) => (
+              <form
+                onSubmit={async (event: FormEvent<HTMLFormElement>) => {
+                  event.preventDefault();
+                  if (savingRef.current) return;
+                  savingRef.current = true;
+                  setRuntimeError("");
+                  setSaving(true);
+                  try {
+                    const apiKey = String(new FormData(event.currentTarget).get("apiKey") ?? "");
+                    await onSaveRuntimeCredential(apiKey);
+                    setRuntimeDialogOpen(false);
+                  } catch {
+                    setRuntimeError(m.agent_runtime_save_error());
+                  } finally {
+                    savingRef.current = false;
+                    setSaving(false);
                   }
-                />
-              </div>
-              <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
-                <RuntimeField
-                  label={m.agent_runtime_field()}
-                  value={providerKind === "coforge" ? m.agent_provider_pi_builtin() : runtime}
-                />
-                {runtimeError && (
-                  <p role="alert" className="text-sm text-destructive-text sm:col-span-2">
-                    {runtimeError}
-                  </p>
-                )}
-                {providerKind === "coforge" && providerId && (
-                  <>
-                    <RuntimeField label={m.agent_runtime_provider_field()} value={providerId} />
-                    <label className="grid gap-1.5 text-sm sm:col-span-2">
-                      {m.agent_runtime_api_key()}
-                      <input
-                        name="apiKey"
-                        type="password"
-                        required
-                        minLength={8}
-                        autoComplete="new-password"
-                        placeholder={m.agent_runtime_api_key_placeholder()}
-                        className="h-10 rounded-lg border bg-background px-3 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      />
-                      {detail.runtimeCredential && (
-                        <span className="text-xs text-muted-foreground">
-                          {m.agent_runtime_api_key_configured({
-                            hint: detail.runtimeCredential.hint,
-                          })}
-                        </span>
-                      )}
-                    </label>
-                  </>
-                )}
-                <RuntimeField
-                  label={m.agent_form_model()}
-                  value={
-                    configValue(detail.runtimeConfig, "model") || m.agent_form_provider_default()
-                  }
-                />
-                <RuntimeField
-                  label={m.agent_form_reasoning()}
-                  value={
-                    configValue(detail.runtimeConfig, "reasoning") ||
-                    m.agent_form_provider_default()
-                  }
-                />
-              </div>
-              <div className="flex justify-between gap-3 border-t px-6 py-4">
-                <div>
-                  {detail.runtimeCredential && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      disabled={saving}
-                      onClick={async () => {
-                        if (savingRef.current) return;
-                        savingRef.current = true;
-                        setRuntimeError("");
-                        setSaving(true);
-                        try {
-                          await onDeleteRuntimeCredential();
-                          setRuntimeDialogOpen(false);
-                        } catch {
-                          setRuntimeError(m.agent_runtime_delete_error());
-                        } finally {
-                          savingRef.current = false;
-                          setSaving(false);
-                        }
-                      }}
-                    >
-                      {m.agent_runtime_delete_key()}
-                    </Button>
-                  )}
-                </div>
-                <div className="flex gap-3">
-                  <Button
+                }}
+              >
+                <div className="flex items-start justify-between gap-6 px-6 pt-6">
+                  <div>
+                    <Heading slot="title" className="text-lg font-semibold text-primary">
+                      {m.agent_runtime_edit_title()}
+                    </Heading>
+                    <Text slot="description" className="mt-2 text-sm text-tertiary">
+                      {m.agent_runtime_edit_description()}
+                    </Text>
+                  </div>
+                  <ButtonUtility
                     type="button"
-                    variant="outline"
-                    disabled={saving}
-                    onClick={() => setRuntimeDialogOpen(false)}
-                  >
-                    {m.controls_cancel()}
-                  </Button>
-                  <Button type="submit" disabled={saving}>
-                    {saving ? m.agent_runtime_saving() : m.agent_runtime_save()}
-                  </Button>
+                    aria-label={m.controls_close()}
+                    icon={X}
+                    size="sm"
+                    color="tertiary"
+                    onClick={close}
+                  />
                 </div>
-              </div>
-            </form>
-          </DialogPopup>
-        </DialogPortal>
-      </Dialog>
+                <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
+                  <RuntimeField
+                    label={m.agent_runtime_field()}
+                    value={providerKind === "coforge" ? m.agent_provider_pi_builtin() : runtime}
+                  />
+                  {runtimeError && (
+                    <p role="alert" className="text-sm text-error-primary sm:col-span-2">
+                      {runtimeError}
+                    </p>
+                  )}
+                  {providerKind === "coforge" && providerId && (
+                    <>
+                      <RuntimeField label={m.agent_runtime_provider_field()} value={providerId} />
+                      <label className="grid gap-1.5 text-sm sm:col-span-2">
+                        {m.agent_runtime_api_key()}
+                        <input
+                          name="apiKey"
+                          type="password"
+                          required
+                          minLength={8}
+                          autoComplete="new-password"
+                          placeholder={m.agent_runtime_api_key_placeholder()}
+                          className="h-10 rounded-lg border border-secondary bg-primary px-3 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-brand"
+                        />
+                        {detail.runtimeCredential && (
+                          <span className="text-xs text-tertiary">
+                            {m.agent_runtime_api_key_configured({
+                              hint: detail.runtimeCredential.hint,
+                            })}
+                          </span>
+                        )}
+                      </label>
+                    </>
+                  )}
+                  <RuntimeField
+                    label={m.agent_form_model()}
+                    value={
+                      configValue(detail.runtimeConfig, "model") || m.agent_form_provider_default()
+                    }
+                  />
+                  <RuntimeField
+                    label={m.agent_form_reasoning()}
+                    value={
+                      configValue(detail.runtimeConfig, "reasoning") ||
+                      m.agent_form_provider_default()
+                    }
+                  />
+                </div>
+                <div className="flex justify-between gap-3 border-t border-secondary px-6 py-4">
+                  <div>
+                    {detail.runtimeCredential && (
+                      <Button
+                        type="button"
+                        size="md"
+                        color="tertiary"
+                        isDisabled={saving}
+                        onPress={async () => {
+                          if (savingRef.current) return;
+                          savingRef.current = true;
+                          setRuntimeError("");
+                          setSaving(true);
+                          try {
+                            await onDeleteRuntimeCredential();
+                            setRuntimeDialogOpen(false);
+                          } catch {
+                            setRuntimeError(m.agent_runtime_delete_error());
+                          } finally {
+                            savingRef.current = false;
+                            setSaving(false);
+                          }
+                        }}
+                      >
+                        {m.agent_runtime_delete_key()}
+                      </Button>
+                    )}
+                  </div>
+                  <div className="flex gap-3">
+                    <Button
+                      type="button"
+                      size="md"
+                      color="secondary"
+                      isDisabled={saving}
+                      onPress={() => setRuntimeDialogOpen(false)}
+                    >
+                      {m.controls_cancel()}
+                    </Button>
+                    <Button type="submit" size="md" isDisabled={saving}>
+                      {saving ? m.agent_runtime_saving() : m.agent_runtime_save()}
+                    </Button>
+                  </div>
+                </div>
+              </form>
+            )}
+          </Dialog>
+        </Modal>
+      </ModalOverlay>
     </div>
   );
 }
@@ -590,7 +594,7 @@ function RuntimeField({ label, value }: { label: string; value: string }) {
       <input
         value={value}
         readOnly
-        className="h-10 min-w-0 rounded-lg border bg-muted/50 px-3 font-normal text-muted-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="h-10 min-w-0 rounded-lg border border-secondary bg-secondary px-3 font-normal text-tertiary shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-brand"
       />
     </label>
   );
@@ -599,18 +603,18 @@ function RuntimeField({ label, value }: { label: string; value: string }) {
 function Activity({ activity, timeZone }: { activity: ActivityEntry[]; timeZone: string | null }) {
   if (!activity.length)
     return (
-      <div className="my-8 flex flex-col items-center rounded-xl border px-6 py-12 text-center">
-        <span className="mb-4 rounded-xl border p-3 shadow-xs">
-          <ActivityIcon aria-hidden="true" className="size-6 text-muted-foreground" />
+      <div className="my-8 flex flex-col items-center rounded-xl border border-secondary px-6 py-12 text-center">
+        <span className="mb-4 rounded-xl border border-secondary p-3 shadow-xs">
+          <ActivityIcon aria-hidden="true" className="size-6 text-tertiary" />
         </span>
         <p className="font-medium">{m.agent_activity_empty()}</p>
-        <p className="mt-1 max-w-md text-sm leading-6 text-muted-foreground">
+        <p className="mt-1 max-w-md text-sm leading-6 text-tertiary">
           {m.agent_activity_empty_description()}
         </p>
       </div>
     );
   return (
-    <ol className="mt-6 list-none divide-y rounded-xl border px-4 md:px-6">
+    <ol className="mt-6 list-none divide-y divide-secondary rounded-xl border border-secondary px-4 md:px-6">
       {activity.map((entry) => (
         <li
           key={`${entry.launchId}:${entry.clientSeq}`}
@@ -619,20 +623,20 @@ function Activity({ activity, timeZone }: { activity: ActivityEntry[]; timeZone:
           <RelativeTime
             value={new Date(entry.observedAtMs)}
             timeZone={timeZone}
-            className="whitespace-nowrap text-xs tabular-nums text-muted-foreground sm:pt-0.5"
+            className="whitespace-nowrap text-xs tabular-nums text-tertiary sm:pt-0.5"
           />
           <span className="flex items-center gap-2 text-sm font-semibold">
             <span
               aria-hidden="true"
               className={`size-1.5 shrink-0 rounded-full ${activityDotClass(entry.detailKind, entry.level)}`}
             />
-            <span className={entry.level === "error" ? "text-destructive-text" : undefined}>
+            <span className={entry.level === "error" ? "text-error-primary" : undefined}>
               {activityLabel(entry.detailKind, entry.level)}
             </span>
           </span>
           {showsActivityMessage(entry.detailKind) && (
             <p
-              className={`whitespace-pre-wrap break-words text-sm ${["running_command", "tool_started"].includes(entry.detailKind) ? "select-text font-mono" : ""} ${entry.level === "error" ? "text-destructive-text" : "text-muted-foreground"}`}
+              className={`whitespace-pre-wrap break-words text-sm ${["running_command", "tool_started"].includes(entry.detailKind) ? "select-text font-mono" : ""} ${entry.level === "error" ? "text-error-primary" : "text-tertiary"}`}
             >
               {entry.detail}
               {entry.entries?.map((item, index) =>

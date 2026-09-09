@@ -80,11 +80,11 @@ export function ConversationLayout({
   const selectedAgentStatus = agents.find((agent) => agent.id === selectedAgentId)?.status.value;
 
   return (
-    <main className="flex h-svh min-w-0 md:gap-2 md:p-2">
+    <main className="flex h-svh min-w-0">
       <nav
         aria-label={m.messages_agent_list_label()}
         className={cn(
-          "min-w-0 flex-col overflow-hidden bg-primary md:flex md:w-72 md:shrink-0 md:rounded-xl md:border md:border-secondary xl:w-80",
+          "min-w-0 flex-col overflow-hidden bg-primary md:flex md:w-72 md:shrink-0 md:border-r md:border-secondary xl:w-80",
           listHidden ? "hidden" : "flex w-full",
         )}
       >
@@ -176,7 +176,7 @@ export function ConversationLayout({
 
       <section
         className={cn(
-          "min-w-0 flex-1 flex-col overflow-hidden bg-primary md:flex md:rounded-xl md:border md:border-secondary",
+          "min-w-0 flex-1 flex-col overflow-hidden bg-primary md:flex",
           listHidden ? "flex" : "hidden",
         )}
       >

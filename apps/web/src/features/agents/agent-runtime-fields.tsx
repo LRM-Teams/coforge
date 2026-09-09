@@ -35,7 +35,7 @@ export function AgentRuntimeFields({
   const [provider, setProvider] = useState(initial?.provider ?? "coforge");
   const [modelProvider, setModelProvider] = useState(initial?.modelProvider ?? "");
   const initialModelKey = initial?.model
-    ? JSON.stringify([initial.modelProvider, initial.model])
+    ? `${encodeURIComponent(initial.modelProvider ?? "")}--${encodeURIComponent(initial.model)}`
     : "";
   const [modelKey, setModelKey] = useState(initialModelKey);
   const [reasoning, setReasoning] = useState(initial?.reasoning ?? "");
@@ -263,5 +263,11 @@ function runtimeProvider(value: string): RuntimeProvider {
 }
 
 function modelOptionValue(model: CodeAgentModelMetadata) {
-  return JSON.stringify([model.modelProvider, model.id]);
+  // Used as both a React `key` and a Select.Item `id`. The official Select
+  // (react-aria-components) uses the raw id in an internal CSS selector for
+  // its collection, so it must stay free of CSS-selector special characters
+  // (JSON.stringify's brackets/quotes/commas broke that). Only ever compared
+  // for equality here, never parsed back apart, so any collision-free,
+  // selector-safe encoding works.
+  return `${encodeURIComponent(model.modelProvider)}--${encodeURIComponent(model.id)}`;
 }

@@ -23,6 +23,7 @@ import { WorkspaceSwitcher, type WorkspaceOption } from "@/features/workspaces/w
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cx } from "@/utils/cx";
 import { m } from "@/paraglide/messages";
+import { localizeHref } from "@/paraglide/runtime";
 
 const sidebarShortcut = "Mod+B" as const;
 
@@ -32,12 +33,27 @@ export type AppUser = {
   avatarUrl?: string | null;
 };
 
-function useNavItems(): (NavItemType & { icon: FC<{ className?: string }> })[] {
+function useNavItems(): (NavItemType & { icon: FC<{ className?: string }>; bareHref: string })[] {
   return [
-    { label: m.navigation_agents(), href: "/agents", icon: Users },
-    { label: m.navigation_messages(), href: "/messages", icon: MessageCircle },
-    { label: m.tasks_tab(), href: "/tasks", icon: ListTodo },
-    { label: m.navigation_computers(), href: "/computers", icon: Monitor },
+    {
+      label: m.navigation_agents(),
+      bareHref: "/agents",
+      href: localizeHref("/agents"),
+      icon: Users,
+    },
+    {
+      label: m.navigation_messages(),
+      bareHref: "/messages",
+      href: localizeHref("/messages"),
+      icon: MessageCircle,
+    },
+    { label: m.tasks_tab(), bareHref: "/tasks", href: localizeHref("/tasks"), icon: ListTodo },
+    {
+      label: m.navigation_computers(),
+      bareHref: "/computers",
+      href: localizeHref("/computers"),
+      icon: Monitor,
+    },
   ];
 }
 
@@ -87,8 +103,19 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const activeUrl = useRouterState({ select: (state) => state.location.pathname });
+  // The router's own `location.pathname` is de-localized (see the `rewrite.input`
+  // hook in src/router.tsx, which strips the locale prefix for internal route
+  // matching) while each nav item's `href` is the localized, user-facing string
+  // (see `bareHref` below). Match against the de-localized pathname, but hand
+  // NavList back the item's own (localized) href — NavItemBase/NavList (official,
+  // unmodified) mark an item current via a plain `item.href === activeUrl` string
+  // equality, with no prefix matching for sub-routes (e.g. /messages/agent-1
+  // under the Messages item), so resolve the matching item ourselves.
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
   const navItems = useNavItems();
+  const activeUrl = navItems.find(
+    (item) => pathname === item.bareHref || pathname.startsWith(`${item.bareHref}/`),
+  )?.href;
   const onSidebarClickCapture = useSpaNavigation();
 
   useHotkey(sidebarShortcut, () => setSidebarCollapsed((collapsed) => !collapsed));
@@ -106,7 +133,7 @@ export function AppShell({
         icon={PanelLeft}
         size="sm"
         color="tertiary"
-        tooltip={`${m.controls_hide_sidebar()} (${sidebarShortcut})`}
+        tooltip={m.controls_hide_sidebar()}
         onClick={() => setSidebarCollapsed(true)}
       />
     </div>
@@ -130,7 +157,11 @@ export function AppShell({
             activeUrl={activeUrl}
             items={navItems}
             footerItems={[
-              { label: m.navigation_personal_settings(), href: "/settings", icon: Settings01 },
+              {
+                label: m.navigation_personal_settings(),
+                href: localizeHref("/settings"),
+                icon: Settings01,
+              },
             ]}
           />
         ) : (
@@ -157,7 +188,7 @@ export function AppShell({
             icon={PanelLeft}
             size="sm"
             color="secondary"
-            tooltip={`${m.controls_show_sidebar()} (${sidebarShortcut})`}
+            tooltip={m.controls_show_sidebar()}
             onClick={() => setSidebarCollapsed(false)}
           />
         </div>
@@ -177,7 +208,10 @@ function UserMenuCard({
 }) {
   return (
     <Dropdown.Root>
-      <AriaButton className="relative flex w-full items-center gap-3 rounded-xl p-3 text-left outline-focus-ring ring-1 ring-secondary transition duration-100 ease-linear ring-inset hover:bg-primary_hover focus-visible:outline-2 focus-visible:outline-offset-2">
+      <AriaButton
+        aria-label={m.controls_current_user()}
+        className="relative flex w-full items-center gap-3 rounded-xl p-3 text-left outline-focus-ring ring-1 ring-secondary transition duration-100 ease-linear ring-inset hover:bg-primary_hover focus-visible:outline-2 focus-visible:outline-offset-2"
+      >
         <Avatar
           size="md"
           src={user.avatarUrl}
@@ -203,7 +237,7 @@ function UserMenuCard({
           <Dropdown.Item
             id="settings"
             label={m.navigation_personal_settings()}
-            href="/settings"
+            href={localizeHref("/settings")}
             icon={Settings01}
           />
           <Dropdown.Separator />

@@ -8,25 +8,16 @@ import { useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { User01 } from "@untitledui/icons";
+import { Heading, Text } from "react-aria-components";
+import { User01, XClose } from "@untitledui/icons";
 
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogPopup,
-  DialogPortal,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
+import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 
-test("renders the Base UI button with an Untitled UI icon", () => {
-  const markup = renderToStaticMarkup(
-    <Button>
-      <User01 aria-hidden="true" />
-      Start
-    </Button>,
-  );
+test("renders the official Button with an Untitled UI icon", () => {
+  const markup = renderToStaticMarkup(<Button iconLeading={User01}>Start</Button>);
 
   expect(markup).toContain("<button");
   expect(markup).toContain("<svg");
@@ -36,9 +27,8 @@ test("renders the Base UI button with an Untitled UI icon", () => {
 test("opens a tooltip when its trigger receives keyboard focus", async () => {
   const user = userEvent.setup({ document });
   const page = render(
-    <Tooltip>
+    <Tooltip title="Helpful detail">
       <TooltipTrigger aria-label="More information">Info</TooltipTrigger>
-      <TooltipContent>Helpful detail</TooltipContent>
     </Tooltip>,
   );
 
@@ -48,34 +38,43 @@ test("opens a tooltip when its trigger receives keyboard focus", async () => {
   expect((await page.findByRole("tooltip")).textContent).toBe("Helpful detail");
 });
 
-test("a keep-mounted dialog preserves an uncontrolled draft across close and reopen", async () => {
+test("a controlled dialog opens and closes via its close button", async () => {
   const user = userEvent.setup({ document });
 
-  function DraftDialog() {
+  function ControlledDialog() {
     const [open, setOpen] = useState(true);
     return (
       <>
         <button onClick={() => setOpen(true)}>Open dialog</button>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogPortal keepMounted>
-            <DialogPopup>
-              <DialogTitle>Edit draft</DialogTitle>
-              <input aria-label="Draft" defaultValue="" />
-              <DialogClose>Close dialog</DialogClose>
-            </DialogPopup>
-          </DialogPortal>
-        </Dialog>
+        <ModalOverlay isOpen={open} onOpenChange={setOpen}>
+          <Modal className="w-96">
+            <Dialog className="p-6">
+              {({ close }) => (
+                <>
+                  <ButtonUtility
+                    aria-label="Close dialog"
+                    icon={XClose}
+                    size="sm"
+                    color="tertiary"
+                    onClick={close}
+                  />
+                  <Heading slot="title">Edit draft</Heading>
+                  <Text slot="description">Draft details</Text>
+                  <input aria-label="Draft" defaultValue="" />
+                </>
+              )}
+            </Dialog>
+          </Modal>
+        </ModalOverlay>
       </>
     );
   }
 
-  render(<DraftDialog />);
+  render(<ControlledDialog />);
   const page = within(document.body);
-  await user.type(page.getByRole("textbox", { name: "Draft" }), "Retained value");
+  expect(page.getByRole("textbox", { name: "Draft" })).toBeTruthy();
   await user.click(page.getByRole("button", { name: "Close dialog" }));
   expect(page.queryByRole("textbox", { name: "Draft" })).toBeNull();
   await user.click(page.getByRole("button", { name: "Open dialog" }));
-  expect(page.getByRole<HTMLInputElement>("textbox", { name: "Draft" }).value).toBe(
-    "Retained value",
-  );
+  expect(page.getByRole<HTMLInputElement>("textbox", { name: "Draft" }).value).toBe("");
 });

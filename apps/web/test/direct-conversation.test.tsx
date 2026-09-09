@@ -296,8 +296,10 @@ test("renders persisted messages in sequence order with distinct senders", () =>
   expect(messages[0]?.getAttribute("data-message")).toBe("own");
   expect(messages[1]?.getAttribute("data-message")).toBe("other");
   expect(messages[0]?.textContent).toContain("You");
-  expect(messages[0]?.querySelector(":scope > [aria-hidden]")).toBeNull();
-  expect(messages[1]?.querySelector(":scope > [aria-hidden]")).toBeTruthy();
+  // The official Avatar's root is marked with `data-avatar` rather than
+  // `aria-hidden` directly (base/avatar/avatar.tsx, unmodified).
+  expect(messages[0]?.querySelector(":scope > [data-avatar]")).toBeNull();
+  expect(messages[1]?.querySelector(":scope > [data-avatar]")).toBeTruthy();
   expect(messages[1]?.textContent).toContain("Release Helper");
   for (const body of ["Please check", "Checked"]) {
     const bubble = page.getByText(body);

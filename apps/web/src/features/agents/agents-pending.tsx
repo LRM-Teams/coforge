@@ -6,8 +6,8 @@ import { m } from "@/paraglide/messages";
 
 export function AgentsPending() {
   return (
-    <main className="flex h-svh min-w-0 md:p-2">
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-primary md:rounded-xl md:border md:border-secondary">
+    <main className="flex h-svh min-w-0">
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-primary">
         <PageHeader
           heading={m.navigation_agents()}
           actions={

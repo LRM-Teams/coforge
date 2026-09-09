@@ -8,13 +8,13 @@ import { BackToComputers } from "./computer-layout";
 
 export function ComputersPending() {
   return (
-    <main aria-busy="true" className="flex h-svh min-w-0 md:gap-2 md:p-2">
+    <main aria-busy="true" className="flex h-svh min-w-0">
       <p role="status" className="sr-only">
         {m.computer_loading()}
       </p>
       <nav
         aria-label={m.computer_connected_list()}
-        className="hidden w-80 shrink-0 flex-col overflow-hidden rounded-xl border border-secondary bg-primary md:flex"
+        className="hidden w-80 shrink-0 flex-col overflow-hidden border-r border-secondary bg-primary md:flex"
       >
         <div className="flex h-14 shrink-0 items-center border-b border-secondary px-5">
           <h1 className="text-base font-medium">{m.computer_page_title()}</h1>
@@ -31,7 +31,7 @@ export function ComputersPending() {
           ))}
         </div>
       </nav>
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-primary md:rounded-xl md:border md:border-secondary">
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-primary">
         <ComputerDetailSkeleton announce={false} />
       </section>
     </main>

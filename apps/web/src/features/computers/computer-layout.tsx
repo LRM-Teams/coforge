@@ -58,8 +58,8 @@ export function ComputerLayout({
 
   if (!computers.length) {
     return (
-      <main className="flex h-svh min-w-0 md:p-2">
-        <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-primary md:rounded-xl md:border md:border-secondary">
+      <main className="flex h-svh min-w-0">
+        <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-primary">
           <PageHeader heading={m.computer_page_title()} />
           <div className="min-h-0 flex-1 overflow-y-auto">
             <NoComputers onAdd={onAdd} />
@@ -70,11 +70,11 @@ export function ComputerLayout({
   }
 
   return (
-    <main className="flex h-svh min-w-0 md:gap-2 md:p-2">
+    <main className="flex h-svh min-w-0">
       <nav
         aria-label={m.computer_connected_list()}
         className={cn(
-          "min-w-0 flex-col overflow-hidden bg-primary md:flex md:w-80 md:shrink-0 md:rounded-xl md:border md:border-secondary",
+          "min-w-0 flex-col overflow-hidden bg-primary md:flex md:w-80 md:shrink-0 md:border-r md:border-secondary",
           listHidden ? "hidden" : "flex w-full",
         )}
       >
@@ -121,7 +121,7 @@ export function ComputerLayout({
 
       <section
         className={cn(
-          "min-w-0 flex-1 flex-col overflow-hidden bg-primary md:flex md:rounded-xl md:border md:border-secondary",
+          "min-w-0 flex-1 flex-col overflow-hidden bg-primary md:flex",
           listHidden ? "flex" : "hidden",
         )}
       >

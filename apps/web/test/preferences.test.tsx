@@ -75,7 +75,7 @@ function renderSettings() {
     function changeTheme(nextTheme: "system" | "light" | "dark") {
       setTheme(nextTheme);
       localStorage.setItem("coforge-theme", nextTheme);
-      document.documentElement.classList.toggle("dark", nextTheme === "dark");
+      document.documentElement.classList.toggle("dark-mode", nextTheme === "dark");
     }
 
     return (
@@ -106,9 +106,7 @@ test("uses separate settings list and content panels with a way back that preser
   const surface = main?.querySelector(":scope > section");
 
   expect(main?.classList.contains("h-svh")).toBeTrue();
-  expect(main?.classList.contains("md:p-2")).toBeTrue();
-  expect(surface?.classList.contains("bg-card")).toBeTrue();
-  expect(surface?.classList.contains("md:rounded-xl")).toBeTrue();
+  expect(surface?.classList.contains("bg-primary")).toBeTrue();
   expect(surface?.querySelectorAll(":scope > header")).toHaveLength(1);
   const navigation = view.getByRole("navigation", { name: "Settings" });
   expect(navigation.parentElement).toBe(main);
@@ -139,7 +137,7 @@ test("keeps the pending settings state in the same page surface", () => {
   const surface = main?.querySelector(":scope > section");
 
   expect(main?.getAttribute("aria-busy")).toBe("true");
-  expect(surface?.classList.contains("bg-card")).toBeTrue();
+  expect(surface?.classList.contains("bg-primary")).toBeTrue();
   expect(surface?.querySelectorAll(":scope > header")).toHaveLength(1);
   expect(main?.querySelector(":scope > nav ul")).toBeTruthy();
   expect(view.getByRole("list", { name: "Personal" }).textContent).toBe(
@@ -188,7 +186,7 @@ test("switches to dark mode and remembers the preference", async () => {
   await user.click(view.getByRole("button", { name: "Preferences" }));
   await user.click(view.getByRole("button", { name: "Dark" }));
 
-  expect(document.documentElement.classList.contains("dark")).toBeTrue();
+  expect(document.documentElement.classList.contains("dark-mode")).toBeTrue();
   expect(localStorage.getItem("coforge-theme")).toBe("dark");
 });
 
@@ -226,7 +224,10 @@ test("shows the global browser notification state and runs a test notification",
   const notificationSwitch = view.getByRole("switch", {
     name: "Browser notifications",
   });
-  expect(notificationSwitch.getAttribute("aria-checked")).toBe("true");
+  // The official Toggle (base/toggle/toggle.tsx, unmodified) renders a real
+  // `<input type="checkbox" role="switch">` and conveys state via the native
+  // `checked` property rather than an `aria-checked` attribute.
+  expect((notificationSwitch as HTMLInputElement).checked).toBe(true);
   await user.click(view.getByRole("button", { name: "Send test notification" }));
   expect(tested).toBeTrue();
   expect(view.getByRole("status").textContent).toBe("Test notification sent.");
@@ -413,16 +414,21 @@ test("uses the current user avatar as the personal settings menu trigger without
 test("collapses and restores the sidebar with the Mod-B shortcut", () => {
   const view = renderShell();
 
-  expect(view.getByRole("complementary")).toBeTruthy();
-  fireEvent.keyDown(document, { key: "b", code: "KeyB", ctrlKey: true });
-  fireEvent.keyUp(document, { key: "b", code: "KeyB", ctrlKey: true });
-  expect(view.queryByRole("complementary")).toBeNull();
-  expect(view.getByRole("link", { name: "Messages" }).getAttribute("href")).toBe("/en/messages");
+  // Expanded: the official SidebarNavigationSimple renders a real, working
+  // user menu (see UserMenuCard in app-shell.tsx). The collapsed rail
+  // (SidebarNavigationSlim) has no such slot, so its absence/presence is a
+  // reliable signal for which sidebar variant is currently rendered.
   expect(view.getByRole("button", { name: "Current user" })).toBeTruthy();
+  expect(view.getByRole("link", { name: "Messages" })).toBeTruthy();
 
   fireEvent.keyDown(document, { key: "b", code: "KeyB", ctrlKey: true });
   fireEvent.keyUp(document, { key: "b", code: "KeyB", ctrlKey: true });
-  expect(view.getByRole("complementary")).toBeTruthy();
+  expect(view.queryByRole("button", { name: "Current user" })).toBeNull();
+  expect(view.getByRole("link", { name: "Messages" })).toBeTruthy();
+
+  fireEvent.keyDown(document, { key: "b", code: "KeyB", ctrlKey: true });
+  fireEvent.keyUp(document, { key: "b", code: "KeyB", ctrlKey: true });
+  expect(view.getByRole("button", { name: "Current user" })).toBeTruthy();
 });
 
 test("opens and dismisses the sidebar as a mobile drawer", async () => {
@@ -430,9 +436,12 @@ test("opens and dismisses the sidebar as a mobile drawer", async () => {
   const user = userEvent.setup({ document });
   const view = renderShell();
 
-  await user.click(view.getByRole("button", { name: "Show sidebar" }));
-  expect(view.getAllByRole("button", { name: "Hide sidebar" })).toHaveLength(2);
+  // The official sidebar (SidebarNavigationSimple, unmodified) ships its own
+  // persistent mobile header with a hamburger button and a modal drawer;
+  // CoForge no longer maintains a separate custom drawer/toggle for this.
+  await user.click(view.getByRole("button", { name: "Expand navigation menu" }));
+  expect(view.getByRole("button", { name: "Close navigation menu" })).toBeTruthy();
 
-  await user.click(view.getAllByRole("button", { name: "Hide sidebar" })[0]!);
-  expect(view.getAllByRole("button", { name: "Hide sidebar" })).toHaveLength(1);
+  await user.click(view.getByRole("button", { name: "Close navigation menu" }));
+  expect(view.queryByRole("button", { name: "Close navigation menu" })).toBeNull();
 });

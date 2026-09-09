@@ -15,12 +15,15 @@ import {
 } from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { Avatar } from "@/components/ui/avatar";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Avatar } from "@/components/base/avatar/avatar";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ComboBox } from "@/components/base/select/combobox";
 import { SelectItem } from "@/components/base/select/select-item";
+import { Toggle } from "@/components/base/toggle/toggle";
 import { WorkspaceMembersPanel } from "@/features/workspaces/workspace-members-panel";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
@@ -82,7 +85,7 @@ export function SettingsPending() {
       <p role="status" className="sr-only">
         {m.settings_loading()}
       </p>
-      <nav className="flex w-full min-w-0 flex-col overflow-hidden bg-card md:w-60 md:shrink-0 md:rounded-xl md:border">
+      <nav className="flex w-full min-w-0 flex-col overflow-hidden border-r border-secondary bg-primary md:w-60 md:shrink-0">
         <PageHeader heading={m.settings_title()} />
         <div className="space-y-5 overflow-y-auto p-3">
           {[
@@ -102,19 +105,22 @@ export function SettingsPending() {
           ))}
         </div>
       </nav>
-      <section className="@container/settings hidden min-w-0 flex-1 flex-col overflow-hidden bg-card md:flex md:rounded-xl md:border">
+      <section className="@container/settings hidden min-w-0 flex-1 flex-col overflow-hidden bg-primary md:flex">
         <PageHeader heading={m.settings_account()} />
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6">
           <section>
             <header className="flex min-h-16 items-center pb-5">
               <h2 className="text-lg font-semibold">{m.settings_profile()}</h2>
             </header>
-            <div aria-hidden="true" className="space-y-6 border-t py-6 motion-safe:animate-pulse">
+            <div
+              aria-hidden="true"
+              className="space-y-6 border-t border-secondary py-6 motion-safe:animate-pulse"
+            >
               <Skeleton className="size-20 rounded-full" />
               {["w-3/5", "w-4/5", "w-2/3"].map((width) => (
                 <div
                   key={width}
-                  className="grid gap-2 border-t pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8"
+                  className="grid gap-2 border-t border-secondary pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8"
                 >
                   <Skeleton className="h-3 w-16" />
                   <Skeleton className={`h-4 ${width}`} />
@@ -123,7 +129,7 @@ export function SettingsPending() {
             </div>
             <div
               aria-hidden="true"
-              className="grid gap-2 border-t py-5 motion-safe:animate-pulse @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8"
+              className="grid gap-2 border-t border-secondary py-5 motion-safe:animate-pulse @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8"
             >
               <Skeleton className="h-3 w-20" />
               <Skeleton className="h-4 w-3/5" />
@@ -157,7 +163,7 @@ export function SettingsContent(props: SettingsContentProps) {
       <nav
         aria-label={m.settings_title()}
         className={cn(
-          "min-w-0 flex-col overflow-hidden bg-card md:flex md:w-60 md:shrink-0 md:rounded-xl md:border",
+          "min-w-0 flex-col overflow-hidden border-secondary bg-primary md:flex md:w-60 md:shrink-0 md:border-r",
           showList ? "flex w-full" : "hidden",
         )}
       >
@@ -195,22 +201,21 @@ export function SettingsContent(props: SettingsContentProps) {
       </nav>
       <section
         className={cn(
-          "@container/settings min-w-0 flex-1 flex-col overflow-hidden bg-card md:flex md:rounded-xl md:border",
+          "@container/settings min-w-0 flex-1 flex-col overflow-hidden bg-primary md:flex",
           showList ? "hidden" : "flex",
         )}
       >
         <PageHeader
           heading={sectionLabel}
           leading={
-            <Button
-              variant="ghost"
-              size="icon"
+            <ButtonUtility
+              icon={ChevronLeft}
+              color="tertiary"
+              size="sm"
               className="-ml-2 size-11 md:hidden"
-              aria-label={m.settings_title()}
+              tooltip={m.settings_title()}
               onClick={() => setShowList(true)}
-            >
-              <ChevronLeft aria-hidden="true" className="size-5" />
-            </Button>
+            />
           }
         />
 
@@ -258,7 +263,7 @@ function SettingsNavigationGroup({
 }) {
   return (
     <div>
-      <h2 className="px-3 pt-2 pb-2 text-xs font-semibold text-muted-foreground">{label}</h2>
+      <h2 className="px-3 pt-2 pb-2 text-xs font-semibold text-tertiary">{label}</h2>
       <ul aria-label={label} className="space-y-1">
         {children}
       </ul>
@@ -281,12 +286,12 @@ function SettingsNavigationButton({
     <li>
       <Button
         type="button"
-        variant="ghost"
+        color="tertiary"
         aria-current={active ? "page" : undefined}
-        onClick={onClick}
+        onPress={onClick}
         className={cn(
           "h-11 w-full min-w-0 justify-start gap-3 rounded-lg px-3 text-sm font-medium",
-          active && "bg-brand/10 text-brand",
+          active && "bg-brand-primary text-brand-secondary",
         )}
       >
         <span className="inline-flex shrink-0 [&_svg]:size-4">{icon}</span>
@@ -311,6 +316,7 @@ function AccountSettings({
   const [removeAvatar, setRemoveAvatar] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!editing) {
@@ -391,7 +397,7 @@ function AccountSettings({
         <header className="flex min-h-16 items-center justify-between gap-4 py-5">
           <h2 className="text-lg font-semibold">{m.settings_profile()}</h2>
           {!editing && (
-            <Button type="button" variant="outline" onClick={startEditing}>
+            <Button type="button" color="secondary" onPress={startEditing}>
               {m.settings_profile_edit()}
             </Button>
           )}
@@ -399,42 +405,40 @@ function AccountSettings({
 
         {editing ? (
           <>
-            <div className="border-t py-6">
+            <div className="border-t border-secondary py-6">
               <div className="flex flex-wrap items-center gap-4">
                 <Avatar
-                  people={[
-                    {
-                      name: profile.name,
-                      src: removeAvatar ? null : profile.avatarUrl,
-                    },
-                  ]}
-                  size="xl"
-                  className="size-20 rounded-full text-xl"
+                  size="2xl"
+                  src={removeAvatar ? null : profile.avatarUrl}
+                  alt={profile.name}
+                  initials={avatarInitial(profile.name)}
+                  contentClassName={avatarToneClassName(profile.name)}
                 />
                 <div className="flex flex-wrap items-center gap-2">
-                  <label
-                    className={cn(
-                      buttonVariants({ variant: "outline" }),
-                      "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
-                    )}
+                  <Button
+                    type="button"
+                    color="secondary"
+                    iconLeading={Upload}
+                    isDisabled={saving}
+                    onPress={() => avatarInputRef.current?.click()}
                   >
-                    <Upload aria-hidden="true" />
                     {m.settings_avatar_change()}
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      aria-label={m.settings_avatar_change()}
-                      disabled={saving}
-                      className="sr-only"
-                      onChange={upload}
-                    />
-                  </label>
+                  </Button>
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    aria-label={m.settings_avatar_change()}
+                    disabled={saving}
+                    className="sr-only"
+                    onChange={upload}
+                  />
                   {profile.avatarUrl && !removeAvatar && (
                     <Button
                       type="button"
-                      variant="ghost"
-                      disabled={saving}
-                      onClick={() => {
+                      color="tertiary"
+                      isDisabled={saving}
+                      onPress={() => {
                         setPendingAvatar(null);
                         setRemoveAvatar(true);
                       }}
@@ -444,9 +448,9 @@ function AccountSettings({
                   )}
                 </div>
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">{m.settings_avatar_help()}</p>
+              <p className="mt-2 text-xs text-tertiary">{m.settings_avatar_help()}</p>
 
-              <div className="mt-6 grid gap-3 border-t pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
+              <div className="mt-6 grid gap-3 border-t border-secondary pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
                 <label htmlFor="profile-name" className="text-sm font-semibold @2xl/settings:pt-2">
                   {m.settings_name()}
                 </label>
@@ -456,11 +460,11 @@ function AccountSettings({
                   maxLength={80}
                   disabled={saving}
                   onChange={(event) => setName(event.target.value)}
-                  className="h-10 w-full max-w-xl rounded-lg border bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-50"
+                  className="h-10 w-full max-w-xl rounded-lg bg-primary px-3 text-sm shadow-xs ring-1 ring-primary ring-inset outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
                 />
               </div>
 
-              <div className="mt-5 grid gap-3 border-t pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
+              <div className="mt-5 grid gap-3 border-t border-secondary pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
                 <label
                   htmlFor="profile-description"
                   className="text-sm font-semibold @2xl/settings:pt-2"
@@ -476,25 +480,25 @@ function AccountSettings({
                     placeholder={m.settings_user_description_placeholder()}
                     disabled={saving}
                     onChange={(event) => setDescription(event.target.value)}
-                    className="w-full resize-none rounded-lg border bg-background px-3 py-2 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-50"
+                    className="w-full resize-none rounded-lg bg-primary px-3 py-2 text-sm shadow-xs ring-1 ring-primary ring-inset outline-none placeholder:text-quaternary focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
                   />
-                  <p className="mt-2 text-right text-sm text-muted-foreground tabular-nums">
+                  <p className="mt-2 text-right text-sm text-tertiary tabular-nums">
                     {description.length}/280
                   </p>
                 </div>
               </div>
             </div>
 
-            <footer className="flex flex-wrap items-center justify-end gap-3 border-t py-4">
+            <footer className="flex flex-wrap items-center justify-end gap-3 border-t border-secondary py-4">
               {saveError && (
-                <p role="alert" className="mr-auto text-sm text-destructive-text">
+                <p role="alert" className="mr-auto text-sm text-error-primary">
                   {saveError}
                 </p>
               )}
-              <Button type="button" variant="outline" disabled={saving} onClick={cancelEditing}>
+              <Button type="button" color="secondary" isDisabled={saving} onPress={cancelEditing}>
                 {m.settings_profile_cancel()}
               </Button>
-              <Button type="button" disabled={saving || !changed} onClick={save}>
+              <Button type="button" isDisabled={saving || !changed} onPress={save}>
                 {saving ? m.settings_profile_saving() : m.settings_profile_save()}
               </Button>
             </footer>
@@ -502,23 +506,25 @@ function AccountSettings({
         ) : (
           <>
             {saveSuccess && (
-              <p role="status" className="border-t py-3 text-sm text-muted-foreground">
+              <p role="status" className="border-t border-secondary py-3 text-sm text-tertiary">
                 <Check aria-hidden="true" className="mr-2 inline size-4 text-primary" />
                 {m.settings_profile_save_success()}
               </p>
             )}
-            <div className="flex min-w-0 items-center gap-4 border-t py-6">
+            <div className="flex min-w-0 items-center gap-4 border-t border-secondary py-6">
               <Avatar
-                people={[{ name: profile.name, src: profile.avatarUrl }]}
-                size="xl"
-                className="size-20 rounded-full text-xl"
+                size="2xl"
+                src={profile.avatarUrl}
+                alt={profile.name}
+                initials={avatarInitial(profile.name)}
+                contentClassName={avatarToneClassName(profile.name)}
               />
               <div className="min-w-0">
                 <p className="break-words text-lg font-semibold">{profile.name}</p>
-                <p className="break-words text-sm text-muted-foreground">@{profile.username}</p>
+                <p className="break-words text-sm text-tertiary">@{profile.username}</p>
               </div>
             </div>
-            <dl className="divide-y border-y">
+            <dl className="divide-y border-y border-secondary">
               <ProfileValue label={m.settings_name()} value={profile.name} />
               <ProfileValue label={m.settings_email()} value={profile.email} />
               <ProfileValue label={m.settings_username()} value={`@${profile.username}`} />
@@ -538,7 +544,7 @@ function ProfileValue({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid min-w-0 gap-2 py-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
       <dt className="text-sm font-semibold">{label}</dt>
-      <dd className="min-w-0 max-w-xl text-sm break-words whitespace-pre-wrap text-muted-foreground">
+      <dd className="min-w-0 max-w-xl text-sm break-words whitespace-pre-wrap text-tertiary">
         {value}
       </dd>
     </div>
@@ -557,7 +563,7 @@ function Preferences({
 
   return (
     <div className="w-full px-4 pb-8 sm:px-6">
-      <div className="divide-y border-b">
+      <div className="divide-y border-b border-secondary">
         <PreferenceSection
           icon={<Languages aria-hidden="true" />}
           heading={m.preferences_language()}
@@ -650,59 +656,44 @@ function NotificationSettings({
 
   return (
     <div className="w-full space-y-6 px-4 pb-8 sm:px-6">
-      <section className="border-b">
+      <section className="border-b border-secondary">
         <div className="flex items-start justify-between gap-5 py-5">
           <div className="min-w-0">
             <h2 className="font-semibold">{m.notifications_push_title()}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {m.notifications_push_description()}
-            </p>
+            <p className="mt-1 text-sm text-tertiary">{m.notifications_push_description()}</p>
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            role="switch"
+          <Toggle
+            size="md"
+            className="mt-0.5"
             aria-label={m.preferences_browser_notifications()}
-            aria-checked={browserNotificationsEnabled}
-            disabled={
+            isSelected={browserNotificationsEnabled}
+            isDisabled={
               saving ||
               !browserNotificationsConfigured ||
               browserNotificationPermission === "unsupported"
             }
-            onClick={async () => {
+            onChange={async (isSelected) => {
               setSaving(true);
               setTestSent(false);
               try {
-                await onBrowserNotificationsChange(!browserNotificationsEnabled);
+                await onBrowserNotificationsChange(isSelected);
               } finally {
                 setSaving(false);
               }
             }}
-            className={cn(
-              "relative mt-0.5 h-6 w-11 shrink-0 rounded-full p-0.5 ring-1 ring-border ring-inset transition-colors disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none",
-              browserNotificationsEnabled ? "bg-brand hover:bg-brand" : "bg-muted hover:bg-muted",
-            )}
-          >
-            <span
-              className={cn(
-                "absolute top-0.5 left-0.5 size-5 rounded-full bg-brand-foreground shadow-sm transition-transform motion-reduce:transition-none",
-                browserNotificationsEnabled ? "translate-x-5" : "translate-x-0",
-              )}
-            />
-          </Button>
+          />
         </div>
-        <div className="flex flex-wrap items-center gap-3 border-t py-4">
-          <span className="mr-auto text-sm text-muted-foreground">{status}</span>
+        <div className="flex flex-wrap items-center gap-3 border-t border-secondary py-4">
+          <span className="mr-auto text-sm text-tertiary">{status}</span>
           {browserNotificationsEnabled &&
             browserNotificationsConfigured &&
             browserNotificationPermission === "default" && (
               <Button
                 type="button"
-                variant="outline"
+                color="secondary"
                 size="sm"
-                disabled={saving}
-                onClick={async () => {
+                isDisabled={saving}
+                onPress={async () => {
                   setSaving(true);
                   try {
                     await onEnableBrowserNotifications();
@@ -717,10 +708,10 @@ function NotificationSettings({
           {browserNotificationsEnabled && browserNotificationsConfigured && (
             <Button
               type="button"
-              variant="outline"
+              color="secondary"
               size="sm"
-              disabled={browserNotificationPermission !== "granted" || testing}
-              onClick={async () => {
+              isDisabled={browserNotificationPermission !== "granted" || testing}
+              onPress={async () => {
                 setTesting(true);
                 setTestSent(false);
                 try {
@@ -736,16 +727,16 @@ function NotificationSettings({
             </Button>
           )}
           {testSent && (
-            <span role="status" className="text-xs text-muted-foreground">
+            <span role="status" className="text-xs text-tertiary">
               {m.preferences_browser_notifications_test_sent()}
             </span>
           )}
         </div>
       </section>
       {showAddToHomeScreenGuide && (
-        <section className="rounded-xl border bg-muted/30 p-5 sm:p-6">
+        <section className="rounded-xl border border-secondary bg-secondary p-5 sm:p-6">
           <h2 className="font-semibold">{m.notifications_home_screen_title()}</h2>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+          <p className="mt-1 max-w-2xl text-sm text-tertiary">
             {m.notifications_home_screen_description()}
           </p>
           <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm">
@@ -771,7 +762,7 @@ function PreferenceSection({
   return (
     <section className="grid gap-4 py-6 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
       <div className="flex items-start gap-3">
-        <span className="mt-0.5 text-muted-foreground [&_svg]:size-4">{icon}</span>
+        <span className="mt-0.5 text-tertiary [&_svg]:size-4">{icon}</span>
         <h3 className="text-sm font-semibold">{heading}</h3>
       </div>
       <div className="min-w-0 max-w-xl">{children}</div>
@@ -850,12 +841,12 @@ function PreferenceButton({
   return (
     <Button
       type="button"
-      variant="outline"
+      color="secondary"
       aria-pressed={selected}
-      onClick={onClick}
+      onPress={onClick}
       className={cn(
-        "min-h-12 min-w-0 w-full justify-start gap-3 bg-background px-4 text-left whitespace-normal shadow-xs",
-        selected && "border-brand bg-brand/5 text-accent-foreground ring-1 ring-brand",
+        "min-h-12 min-w-0 w-full justify-start gap-3 bg-primary px-4 text-left whitespace-normal shadow-xs",
+        selected && "border-brand bg-brand-primary text-primary ring-1 ring-brand",
       )}
     >
       {label}

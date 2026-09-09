@@ -13,6 +13,7 @@ import {
 import { PageHeader } from "@/components/layout/page-header";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
+import { localizeHref } from "@/paraglide/runtime";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import {
@@ -124,8 +125,8 @@ export function AgentsContent({
   }
 
   return (
-    <main className="flex h-svh min-w-0 md:p-2">
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-primary md:rounded-xl md:border md:border-secondary">
+    <main className="flex h-svh min-w-0">
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-primary">
         <PageHeader
           heading={m.navigation_agents()}
           actions={
@@ -396,7 +397,11 @@ export function AgentsContent({
                     <Button color="secondary" onPress={() => setOpen(false)}>
                       {m.controls_cancel()}
                     </Button>
-                    <Button href="/computers" className="h-11" onPress={() => setOpen(false)}>
+                    <Button
+                      href={localizeHref("/computers")}
+                      className="h-11"
+                      onPress={() => setOpen(false)}
+                    >
                       {m.agent_connect_computer()}
                     </Button>
                   </div>
@@ -485,7 +490,7 @@ function MemberCard({
           color="secondary"
           tooltip={m.agent_private_chat()}
           className="col-start-3 row-start-1"
-          href={`/messages/${member.id}`}
+          href={localizeHref(`/messages/${member.id}`)}
         />
       )}
     </li>

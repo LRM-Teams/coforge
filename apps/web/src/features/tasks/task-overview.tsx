@@ -37,7 +37,7 @@ export function TaskOverview({
   onLayoutChange ??= () => {};
   const visible = status ? tasks.filter((task) => task.status === status) : tasks;
   return (
-    <main className="flex max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-primary md:m-2 md:max-h-[calc(100svh-1rem)] md:rounded-xl md:border md:border-secondary">
+    <main className="flex h-svh max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-primary">
       <PageHeader
         heading={m.tasks_tab()}
         actions={<TaskLayoutToggle layout={layout} onChange={onLayoutChange} />}

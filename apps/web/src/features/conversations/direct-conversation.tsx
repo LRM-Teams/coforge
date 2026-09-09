@@ -24,14 +24,17 @@ import {
   CheckSquare as ListTodo,
 } from "@untitledui/icons";
 import type { TaskView } from "@coforge/protocol";
+import { MenuItem as AriaMenuItem, Popover as AriaPopover } from "react-aria-components";
 
 import {
   BackToAgents,
   useConversationActivity,
 } from "@/features/conversations/conversation-layout";
 import { AgentActivityAvatar, useAgentWorkingLabel } from "@/features/agents/agent-activity-avatar";
-import { Avatar } from "@/components/ui/avatar";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Avatar } from "@/components/base/avatar/avatar";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import {
   Empty,
   EmptyHeader,
@@ -40,15 +43,9 @@ import {
   EmptyDescription,
 } from "@/components/ui/empty";
 import { RelativeTime } from "@/components/ui/relative-time";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { useAppToast } from "@/components/ui/toast";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { ReminderNotice, type ReminderNoticeView } from "./reminder-notice";
 import { cn } from "@/lib/utils";
 import { TaskBadge } from "@/features/tasks/task-board";
@@ -56,7 +53,7 @@ import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
 
 const messageBubbleClassName =
-  "relative w-fit max-w-full rounded-xl bg-muted px-4 py-3 text-sm leading-6 whitespace-pre-wrap [overflow-wrap:anywhere]";
+  "relative w-fit max-w-full rounded-xl bg-secondary px-4 py-3 text-sm leading-6 whitespace-pre-wrap [overflow-wrap:anywhere]";
 
 const observeConversationRect: typeof observeElementRect = (instance, callback) =>
   observeElementRect(instance, (rect) =>
@@ -139,7 +136,7 @@ export function DirectConversation(props: ConversationProps) {
     status: agentStatus,
   });
   const header = (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-5">
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-secondary px-3 sm:gap-3 sm:px-5">
       <BackToAgents />
       <AgentActivityAvatar
         agent={conversation.agent}
@@ -150,23 +147,23 @@ export function DirectConversation(props: ConversationProps) {
       <div className="min-w-0">
         <h1 className="truncate text-base font-semibold">{conversation.agent.displayName}</h1>
         {workingLabel && (
-          <p role="status" className="truncate text-xs text-muted-foreground">
+          <p role="status" className="truncate text-xs text-tertiary">
             {workingLabel}…
           </p>
         )}
       </div>
-      <span className="hidden shrink-0 text-sm text-muted-foreground sm:block">
+      <span className="hidden shrink-0 text-sm text-tertiary sm:block">
         @{conversation.agent.name}
       </span>
       {props.onShowTasks && (
         <Button
-          type="button"
-          variant="ghost"
+          color="tertiary"
           size="sm"
           className="ml-auto"
-          onClick={props.onShowTasks}
+          onPress={props.onShowTasks}
+          iconLeading={ListTodo}
         >
-          <ListTodo aria-hidden="true" /> {m.tasks_tab()}
+          {m.tasks_tab()}
         </Button>
       )}
     </header>
@@ -180,9 +177,11 @@ export function DirectConversation(props: ConversationProps) {
         description: m.conversation_empty_description(),
         media: (
           <Avatar
-            people={[{ name: conversation.agent.displayName }]}
-            size="xl"
-            className="size-16 rounded-full text-xl ring-1 ring-border"
+            size="2xl"
+            alt={conversation.agent.displayName}
+            initials={avatarInitial(conversation.agent.displayName)}
+            contentClassName={avatarToneClassName(conversation.agent.displayName)}
+            className="ring-1 ring-secondary"
           />
         ),
       }}
@@ -271,23 +270,21 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
               : label;
             if (replies.length) return null;
             return (
-              <Tooltip>
+              <Tooltip title={accessibleLabel}>
                 <TooltipTrigger
-                  type="button"
-                  onClick={() => openThread(message.id)}
+                  onPress={() => openThread(message.id)}
                   aria-label={accessibleLabel}
-                  className="absolute -top-4 right-1 flex h-6 min-w-6 items-center justify-center gap-1 rounded-md border bg-card px-1.5 text-xs text-muted-foreground opacity-0 shadow-sm transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 hover:text-brand focus-visible:outline-2 focus-visible:outline-brand [@media(hover:none)]:opacity-100"
+                  className="absolute -top-4 right-1 flex h-6 min-w-6 items-center justify-center gap-1 rounded-md border border-secondary bg-primary px-1.5 text-xs text-tertiary opacity-0 shadow-sm transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 hover:text-brand-secondary focus-visible:outline-2 focus-visible:outline-brand [@media(hover:none)]:opacity-100"
                 >
                   <MessageSquare aria-hidden="true" className="size-3.5" />
                   {replies.length > 0 && <span aria-hidden="true">{replies.length}</span>}
                   {unread > 0 && (
                     <span
                       aria-hidden="true"
-                      className="absolute top-1 right-1 size-1.5 rounded-full bg-brand"
+                      className="absolute top-1 right-1 size-1.5 rounded-full bg-brand-solid"
                     />
                   )}
                 </TooltipTrigger>
-                <TooltipContent>{accessibleLabel}</TooltipContent>
               </Tooltip>
             );
           }}
@@ -307,46 +304,55 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
               <div
                 role="group"
                 aria-label={m.conversation_thread()}
-                className="min-w-0 self-stretch rounded-lg bg-muted/60 p-3"
+                className="min-w-0 self-stretch rounded-lg bg-secondary p-3"
               >
                 <Button
-                  type="button"
-                  variant="ghost"
+                  color="tertiary"
                   size="sm"
-                  onClick={() => openThread(message.id)}
-                  className="h-auto w-full justify-start px-0 py-0 text-left font-semibold whitespace-normal text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:outline-2 focus-visible:outline-brand"
+                  onPress={() => openThread(message.id)}
+                  iconTrailing={ChevronRight}
+                  noTextPadding
+                  className="h-auto w-full justify-start px-0 py-0 text-left font-semibold whitespace-normal text-tertiary hover:bg-transparent hover:text-primary focus-visible:outline-2 focus-visible:outline-brand"
                 >
                   {label}
-                  <ChevronRight aria-hidden="true" className="size-4" />
                 </Button>
                 <ol className="mt-2 flex flex-col gap-1">
                   {replies.map((reply) => (
                     <li key={reply.id}>
                       <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => openThread(message.id)}
-                        className="grid h-auto w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-1 py-1 text-left whitespace-normal hover:bg-background/60 focus-visible:outline-2 focus-visible:outline-brand"
+                        color="tertiary"
+                        size="sm"
+                        onPress={() => openThread(message.id)}
+                        noTextPadding
+                        className="h-auto w-full min-w-0 justify-start px-1 py-1 text-left whitespace-normal hover:bg-primary_hover focus-visible:outline-2 focus-visible:outline-brand"
                       >
-                        <Avatar people={[{ name: reply.senderName }]} size="sm" />
-                        <span className="flex min-w-0 items-baseline gap-2 text-sm">
-                          <span className="max-w-[40%] shrink-0 truncate font-medium">
-                            {(
-                              reply.senderMemberId !== undefined
-                                ? reply.senderMemberId === conversation.senderMemberId
-                                : reply.senderKind === "user"
-                            )
-                              ? m.conversation_you()
-                              : reply.senderName}
+                        <span className="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
+                          <Avatar
+                            size="sm"
+                            alt={reply.senderName}
+                            initials={avatarInitial(reply.senderName)}
+                            contentClassName={avatarToneClassName(reply.senderName)}
+                          />
+                          <span className="flex min-w-0 items-baseline gap-2 text-sm">
+                            <span className="max-w-[40%] shrink-0 truncate font-medium">
+                              {(
+                                reply.senderMemberId !== undefined
+                                  ? reply.senderMemberId === conversation.senderMemberId
+                                  : reply.senderKind === "user"
+                              )
+                                ? m.conversation_you()
+                                : reply.senderName}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-tertiary">
+                              {reply.body || reply.attachment?.fileName}
+                            </span>
                           </span>
-                          <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                            {reply.body || reply.attachment?.fileName}
-                          </span>
+                          <RelativeTime
+                            value={reply.createdAt}
+                            plain
+                            className="text-xs whitespace-nowrap text-tertiary"
+                          />
                         </span>
-                        <RelativeTime
-                          value={reply.createdAt}
-                          className="text-xs whitespace-nowrap text-muted-foreground"
-                        />
                       </Button>
                     </li>
                   ))}
@@ -380,9 +386,7 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
               emptyState={{
                 title: m.conversation_thread_empty_title(),
                 description: m.conversation_thread_empty(),
-                media: (
-                  <MessageSquare aria-hidden="true" className="size-6 text-muted-foreground" />
-                ),
+                media: <MessageSquare aria-hidden="true" className="size-6 text-tertiary" />,
               }}
               conversation={{
                 ...conversation,
@@ -779,16 +783,14 @@ export function ConversationPane({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {root ? (
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-secondary px-3">
+          <ButtonUtility
+            icon={ArrowLeft}
+            size="sm"
+            color="tertiary"
             onClick={onClose}
             aria-label={m.conversation_thread_back()}
-          >
-            <ArrowLeft aria-hidden="true" />
-          </Button>
+          />
           <h2 className="text-base font-semibold">{m.conversation_thread()}</h2>
           {threadHeaderAction}
         </header>
@@ -806,28 +808,28 @@ export function ConversationPane({
           {root && (
             <details
               open={root.body.length < 400}
-              className="group mt-5 rounded-lg border bg-muted/40 p-3 text-sm"
+              className="group mt-5 rounded-lg border border-secondary bg-secondary p-3 text-sm"
             >
               <summary
                 aria-label={m.conversation_thread_root()}
                 className="flex cursor-pointer list-none items-center gap-2 font-medium [&::-webkit-details-marker]:hidden"
               >
-                <Quote aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+                <Quote aria-hidden="true" className="size-3.5 shrink-0 text-tertiary" />
                 <span className="shrink-0">
                   {isOwn(root) ? m.conversation_you() : root.senderName}
                 </span>
-                <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground group-open:hidden">
+                <span className="min-w-0 flex-1 truncate font-normal text-tertiary group-open:hidden">
                   {root.body}
                 </span>
                 <ChevronDown
                   aria-hidden="true"
-                  className="ml-auto size-4 shrink-0 text-muted-foreground group-open:rotate-180"
+                  className="ml-auto size-4 shrink-0 text-tertiary group-open:rotate-180"
                 />
               </summary>
               <p className="mt-3 whitespace-pre-wrap [overflow-wrap:anywhere]">{root.body}</p>
               {root.attachment && (
                 <a
-                  className="mt-2 block text-brand underline"
+                  className="mt-2 block text-brand-secondary underline"
                   href={`/api/attachments/${root.attachment.id}`}
                   target="_blank"
                   rel="noreferrer"
@@ -840,11 +842,10 @@ export function ConversationPane({
           {!root && conversation.hasOlder && onLoadOlder && (
             <div className="flex justify-center pt-4">
               <Button
-                type="button"
-                variant="ghost"
+                color="tertiary"
                 size="sm"
-                disabled={loadingOlder}
-                onClick={() => void loadOlder()}
+                isDisabled={loadingOlder}
+                onPress={() => void loadOlder()}
               >
                 {loadingOlder ? m.conversation_loading_older() : m.conversation_load_older()}
               </Button>
@@ -913,20 +914,27 @@ export function ConversationPane({
                   >
                     {(!previous || dayLabel(previous.createdAt) !== day) && (
                       <div className="flex items-center gap-3">
-                        <span aria-hidden="true" className="h-px flex-1 bg-border" />
+                        <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
                         <DaySeparator value={message.createdAt} />
-                        <span aria-hidden="true" className="h-px flex-1 bg-border" />
+                        <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
                       </div>
                     )}
                     <div
                       id={`message-${message.id}`}
                       data-message={own ? "own" : "other"}
                       className={cn(
-                        "flex scroll-m-6 gap-3 rounded-xl transition-[background-color,box-shadow] duration-500 target:bg-brand/10 target:ring-2 target:ring-brand/50 target:ring-offset-4 target:ring-offset-background",
+                        "flex scroll-m-6 gap-3 rounded-xl transition-[background-color,box-shadow] duration-500 target:bg-brand-primary target:ring-2 target:ring-brand/50 target:ring-offset-4 target:ring-offset-primary",
                         own ? "flex-col items-end" : "items-start",
                       )}
                     >
-                      {!own && <Avatar people={[{ name: message.senderName }]} size="md" />}
+                      {!own && (
+                        <Avatar
+                          size="md"
+                          alt={message.senderName}
+                          initials={avatarInitial(message.senderName)}
+                          contentClassName={avatarToneClassName(message.senderName)}
+                        />
+                      )}
                       <div
                         className={cn(
                           "flex min-w-0 max-w-full flex-col gap-2",
@@ -940,14 +948,14 @@ export function ConversationPane({
                           </span>
                           <RelativeTime
                             value={message.createdAt}
-                            className="text-xs text-muted-foreground"
+                            className="text-xs text-tertiary"
                           />
                         </p>
                         <div
                           className={cn(
                             "group/message",
                             messageBubbleClassName,
-                            own ? "rounded-tr-sm bg-accent" : "rounded-tl-sm",
+                            own ? "rounded-tr-sm bg-brand-secondary" : "rounded-tl-sm",
                           )}
                         >
                           {message.body}
@@ -957,17 +965,17 @@ export function ConversationPane({
                               href={`/api/attachments/${message.attachment.id}`}
                               target="_blank"
                               rel="noreferrer"
-                              className="mt-3 flex max-w-full min-w-0 items-center gap-3 rounded-lg border bg-card px-3 py-2.5 text-foreground shadow-xs hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
+                              className="mt-3 flex max-w-full min-w-0 items-center gap-3 rounded-lg border border-secondary bg-primary px-3 py-2.5 text-primary shadow-xs hover:bg-secondary focus-visible:outline-2 focus-visible:outline-focus-ring"
                             >
                               <FileText
                                 aria-hidden="true"
-                                className="size-5 shrink-0 text-muted-foreground"
+                                className="size-5 shrink-0 text-tertiary"
                               />
                               <span className="flex min-w-0 flex-col">
                                 <span className="truncate text-sm font-medium">
                                   {message.attachment.fileName}
                                 </span>
-                                <span className="text-xs text-muted-foreground">
+                                <span className="text-xs text-tertiary">
                                   {Math.ceil(message.attachment.sizeBytes / 1024)} KB
                                 </span>
                               </span>
@@ -996,16 +1004,15 @@ export function ConversationPane({
             role="group"
             aria-label={m.conversation_message_navigation()}
             className={cn(
-              "absolute right-5 bottom-2 z-10 flex items-center rounded-full border bg-card p-0.5 shadow-md transition-opacity",
+              "absolute right-5 bottom-2 z-10 flex items-center rounded-full border border-secondary bg-primary p-0.5 shadow-md transition-opacity",
               followingLatest &&
                 !ownMessagesOpen &&
                 "pointer-events-none opacity-0 group-hover/history:pointer-events-auto group-hover/history:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
             )}
           >
             {ownMessages.length > 0 && (
-              <DropdownMenu
-                modal={false}
-                open={ownMessagesOpen}
+              <Dropdown.Root
+                isOpen={ownMessagesOpen}
                 onOpenChange={(open) => {
                   setOwnMessagesOpen(open);
                   if (!open) return;
@@ -1015,23 +1022,35 @@ export function ConversationPane({
                   });
                 }}
               >
-                <DropdownMenuTrigger
+                <ButtonUtility
+                  icon={List}
+                  size="xs"
+                  color="tertiary"
+                  className="rounded-full"
                   aria-label={m.conversation_your_messages()}
-                  className={buttonVariants({
-                    variant: "ghost",
-                    size: "icon-xs",
-                    className: "rounded-full",
-                  })}
-                >
-                  <List aria-hidden="true" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
+                />
+                {/*
+                  Dropdown.Popover isn't typed to accept a ref (the vendored wrapper
+                  doesn't forward one), and this menu needs to read/set scrollTop for
+                  infinite-loading-older-messages + scroll-to-latest-on-open. Render
+                  the underlying react-aria-components Popover directly instead,
+                  mirroring Dropdown.Popover's own default classes.
+                */}
+                <AriaPopover
                   ref={ownMessagesMenuRef}
-                  side="top"
-                  align="start"
-                  alignOffset={-4}
-                  sideOffset={8}
-                  className="max-h-[228px] w-[min(24rem,calc(100vw-2.5rem))] rounded-lg bg-popover p-1.5 shadow-lg [scrollbar-width:thin]"
+                  placement="top start"
+                  offset={8}
+                  crossOffset={-4}
+                  className={(state) =>
+                    cn(
+                      "origin-(--trigger-anchor-point) overflow-auto rounded-lg bg-primary shadow-lg ring-1 ring-secondary_alt will-change-transform",
+                      state.isEntering &&
+                        "duration-150 ease-out animate-in fade-in placement-right:slide-in-from-left-0.5 placement-top:slide-in-from-bottom-0.5 placement-bottom:slide-in-from-top-0.5",
+                      state.isExiting &&
+                        "duration-100 ease-in animate-out fade-out placement-right:slide-out-to-left-0.5 placement-top:slide-out-to-bottom-0.5 placement-bottom:slide-out-to-top-0.5",
+                      "max-h-[228px] w-[min(24rem,calc(100vw-2.5rem))] p-1.5 [scrollbar-width:thin]",
+                    )
+                  }
                   onScroll={(event) => {
                     if (event.currentTarget.scrollTop <= 16) {
                       void loadOwnMessages(ownMessages[0]?.sequence);
@@ -1043,60 +1062,75 @@ export function ConversationPane({
                       role="status"
                       aria-label={m.conversation_loading_your_messages()}
                       className={cn(
-                        "flex items-center justify-center text-muted-foreground",
-                        ownMessages.length ? "sticky top-0 z-10 h-7 rounded-md bg-popover" : "h-14",
+                        "flex items-center justify-center text-tertiary",
+                        ownMessages.length ? "sticky top-0 z-10 h-7 rounded-md bg-primary" : "h-14",
                       )}
                     >
                       <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
                       <span className="sr-only">{m.conversation_loading_your_messages()}</span>
                     </div>
                   )}
-                  <DropdownMenuGroup>
+                  <Dropdown.Menu
+                    aria-label={m.conversation_your_messages()}
+                    onAction={(key) => void showMessage(String(key))}
+                  >
                     {ownMessages.map((message) => (
-                      <DropdownMenuItem
+                      <AriaMenuItem
                         key={message.id}
-                        className="grid min-h-9 cursor-pointer grid-cols-[minmax(0,1fr)_auto] gap-3 px-2.5 py-1.5"
-                        onClick={() => void showMessage(message.id)}
+                        id={message.id}
+                        textValue={message.body || message.attachmentFileName}
+                        className="group block cursor-pointer px-1.5 py-px outline-hidden"
                       >
-                        <span className="truncate font-medium">
-                          {message.body || message.attachmentFileName}
-                        </span>
-                        <RelativeTime
-                          value={message.createdAt}
-                          className="text-xs whitespace-nowrap text-muted-foreground"
-                        />
-                      </DropdownMenuItem>
+                        {(state) => (
+                          <div
+                            className={cn(
+                              "flex min-h-9 items-center gap-3 rounded-md px-2.5 py-1.5 outline-focus-ring transition duration-100 ease-linear",
+                              "group-hover:bg-primary_hover",
+                              state.isFocused && "bg-primary_hover",
+                              state.isFocusVisible && "outline-2 -outline-offset-2",
+                            )}
+                          >
+                            <span className="min-w-0 flex-1 truncate font-medium text-secondary">
+                              {message.body || message.attachmentFileName}
+                            </span>
+                            <RelativeTime
+                              value={message.createdAt}
+                              className="shrink-0 text-xs whitespace-nowrap text-tertiary"
+                            />
+                          </div>
+                        )}
+                      </AriaMenuItem>
                     ))}
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                  </Dropdown.Menu>
+                </AriaPopover>
+              </Dropdown.Root>
             )}
             {ownMessages.length > 0 && !followingLatest && (
-              <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-border" />
+              <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-secondary" />
             )}
             {!followingLatest && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => void showLatestMessages()}
-                aria-label={
-                  newMessageCount === 1
-                    ? m.conversation_one_new_message()
-                    : newMessageCount > 1
-                      ? m.conversation_new_messages({ count: newMessageCount })
-                      : m.conversation_back_to_bottom()
-                }
-                className="relative rounded-full"
-              >
-                <ArrowDown aria-hidden="true" />
+              <span className="relative">
+                <ButtonUtility
+                  icon={ArrowDown}
+                  size="xs"
+                  color="tertiary"
+                  onClick={() => void showLatestMessages()}
+                  aria-label={
+                    newMessageCount === 1
+                      ? m.conversation_one_new_message()
+                      : newMessageCount > 1
+                        ? m.conversation_new_messages({ count: newMessageCount })
+                        : m.conversation_back_to_bottom()
+                  }
+                  className="rounded-full"
+                />
                 {newMessageCount > 0 && (
                   <span
                     aria-hidden="true"
-                    className="absolute -top-0.5 -right-0.5 size-2 rounded-full border border-card bg-brand"
+                    className="absolute -top-0.5 -right-0.5 size-2 rounded-full border border-primary bg-brand-solid"
                   />
                 )}
-              </Button>
+              </span>
             )}
           </div>
         )}
@@ -1105,7 +1139,7 @@ export function ConversationPane({
       {readOnlyNotice ?? (
         <form
           onSubmit={submit}
-          className="mx-4 mb-4 flex shrink-0 flex-col gap-2 rounded-lg border bg-card px-3 py-3 shadow-xs focus-within:border-ring focus-within:ring-1 focus-within:ring-ring md:mx-6 md:mb-6"
+          className="mx-4 mb-4 flex shrink-0 flex-col gap-2 rounded-lg border border-secondary bg-primary px-3 py-3 shadow-xs focus-within:border-focus-ring focus-within:ring-1 focus-within:ring-focus-ring md:mx-6 md:mb-6"
         >
           <label htmlFor={composerId} className="sr-only">
             {m.conversation_message_label()}
@@ -1122,32 +1156,32 @@ export function ConversationPane({
             }}
             onKeyDown={keyDown}
             placeholder={m.conversation_message_placeholder()}
-            className="w-full resize-none bg-transparent px-1 py-1 text-sm leading-6 outline-none placeholder:text-muted-foreground disabled:opacity-50"
+            className="w-full resize-none bg-transparent px-1 py-1 text-sm leading-6 outline-none placeholder:text-quaternary disabled:opacity-50"
           />
           {file && (
-            <p className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+            <p className="flex items-center gap-2 px-1 text-xs text-tertiary">
               <FileText aria-hidden="true" className="size-3.5" />
               <span className="truncate">{file.name}</span>
               <Button
-                type="button"
-                variant="ghost"
+                color="tertiary"
                 size="xs"
-                onClick={() => setFile(undefined)}
-                className="h-auto px-0 py-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                onPress={() => setFile(undefined)}
+                noTextPadding
+                className="h-auto px-0 py-0 text-tertiary hover:bg-transparent hover:text-primary"
               >
                 {m.controls_close()}
               </Button>
             </p>
           )}
           {error && (
-            <p role="alert" className="px-1 text-sm text-destructive-text">
+            <p role="alert" className="px-1 text-sm text-error-primary">
               {error}
             </p>
           )}
           <div className="flex items-center">
             <label
               className={cn(
-                "flex size-9 cursor-pointer items-center justify-center rounded-lg text-muted-foreground hover:bg-muted focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring",
+                "flex size-9 cursor-pointer items-center justify-center rounded-lg text-tertiary hover:bg-secondary focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus-ring",
                 sending && "pointer-events-none opacity-50",
               )}
             >
@@ -1162,24 +1196,24 @@ export function ConversationPane({
             </label>
             {!root && onCreateTask && (
               <Button
-                type="button"
-                variant={asTask ? "secondary" : "ghost"}
+                color={asTask ? "secondary" : "tertiary"}
                 size="xs"
                 aria-pressed={asTask}
-                onClick={() => setAsTask((current) => !current)}
+                onPress={() => setAsTask((current) => !current)}
+                iconLeading={ListTodo}
               >
-                <ListTodo aria-hidden="true" /> {m.tasks_as_task()}
+                {m.tasks_as_task()}
               </Button>
             )}
             <Button
               type="submit"
-              size="icon-sm"
-              disabled={sending || (!body.trim() && !file)}
+              color="primary"
+              size="sm"
+              isDisabled={sending || (!body.trim() && !file)}
               aria-label={sending ? m.conversation_sending() : m.conversation_send()}
+              iconLeading={ArrowUp}
               className="ml-auto rounded-full before:rounded-full"
-            >
-              <ArrowUp aria-hidden="true" />
-            </Button>
+            />
           </div>
         </form>
       )}
@@ -1199,18 +1233,20 @@ function DaySeparator({ value }: { value: Date | string }) {
     : new Intl.DateTimeFormat(getLocale(), { weekday: "long" }).format(date);
   return (
     <Button
-      type="button"
-      variant="ghost"
+      color="tertiary"
       size="xs"
       aria-expanded={expanded}
-      onClick={() => setExpanded((current) => !current)}
-      className="h-auto shrink-0 cursor-pointer rounded bg-muted px-2 py-1 text-xs font-normal text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+      onPress={() => setExpanded((current) => !current)}
+      noTextPadding
+      iconTrailing={
+        <ChevronDown
+          aria-hidden="true"
+          className={cn("size-3 transition-transform", expanded && "rotate-180")}
+        />
+      }
+      className="h-auto shrink-0 cursor-pointer rounded bg-secondary px-2 py-1 text-xs font-normal text-tertiary hover:bg-secondary_hover hover:text-primary"
     >
       {label}
-      <ChevronDown
-        aria-hidden="true"
-        className={cn("size-3 transition-transform", expanded && "rotate-180")}
-      />
     </Button>
   );
 }
