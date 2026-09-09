@@ -8,6 +8,8 @@
   "preferences_light": "Light",
   "preferences_dark": "Dark",
   "settings_title": "Settings",
+  "settings_personal_group": "Personal",
+  "settings_workspace_group": "Workspace",
   "settings_loading": "Loading settings…",
   "settings_account": "Account",
   "settings_members": "Members",

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
   BellRinging01 as BellRing,
   Check,
+  ChevronLeft,
   Clock as Clock3,
   Translate01 as Languages,
   Moon01 as Moon,
@@ -77,29 +78,32 @@ interface SettingsContentProps {
 
 export function SettingsPending() {
   return (
-    <main aria-busy="true" className="flex h-svh min-w-0 md:p-2">
+    <main aria-busy="true" className="flex h-svh min-w-0 md:gap-2 md:p-2">
       <p role="status" className="sr-only">
         {m.settings_loading()}
       </p>
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card md:rounded-xl md:border">
+      <nav className="flex w-full min-w-0 flex-col overflow-hidden bg-card md:w-60 md:shrink-0 md:rounded-xl md:border">
         <PageHeader heading={m.settings_title()} />
-        <nav className="shrink-0 overflow-x-auto border-b px-4 sm:px-6">
-          <div className="flex gap-4 py-3">
-            {[
-              m.settings_account(),
-              m.settings_members(),
-              m.settings_preferences(),
-              m.settings_notifications(),
-            ].map((label) => (
-              <div
-                key={label}
-                className="flex h-8 shrink-0 items-center gap-2 text-sm font-semibold"
-              >
-                <span>{label}</span>
-              </div>
-            ))}
-          </div>
-        </nav>
+        <div className="space-y-5 overflow-y-auto p-3">
+          {[
+            {
+              label: m.settings_personal_group(),
+              items: [m.settings_account(), m.settings_preferences(), m.settings_notifications()],
+            },
+            { label: m.settings_workspace_group(), items: [m.settings_members()] },
+          ].map((group) => (
+            <SettingsNavigationGroup key={group.label} label={group.label}>
+              {group.items.map((label) => (
+                <li key={label} className="flex h-11 items-center gap-3 px-3 text-sm font-medium">
+                  <span>{label}</span>
+                </li>
+              ))}
+            </SettingsNavigationGroup>
+          ))}
+        </div>
+      </nav>
+      <section className="@container/settings hidden min-w-0 flex-1 flex-col overflow-hidden bg-card md:flex md:rounded-xl md:border">
+        <PageHeader heading={m.settings_account()} />
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6">
           <section>
             <header className="flex min-h-16 items-center pb-5">
@@ -110,7 +114,7 @@ export function SettingsPending() {
               {["w-3/5", "w-4/5", "w-2/3"].map((width) => (
                 <div
                   key={width}
-                  className="grid gap-2 border-t pt-5 md:grid-cols-[240px_1fr] md:gap-8"
+                  className="grid gap-2 border-t pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8"
                 >
                   <Skeleton className="h-3 w-16" />
                   <Skeleton className={`h-4 ${width}`} />
@@ -119,7 +123,7 @@ export function SettingsPending() {
             </div>
             <div
               aria-hidden="true"
-              className="grid gap-2 border-t py-5 motion-safe:animate-pulse md:grid-cols-[240px_1fr] md:gap-8"
+              className="grid gap-2 border-t py-5 motion-safe:animate-pulse @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8"
             >
               <Skeleton className="h-3 w-20" />
               <Skeleton className="h-4 w-3/5" />
@@ -133,43 +137,82 @@ export function SettingsPending() {
 
 export function SettingsContent(props: SettingsContentProps) {
   const [section, setSection] = useState<SettingsSection>("account");
+  const [showList, setShowList] = useState(true);
+  const sectionLabel =
+    section === "account"
+      ? m.settings_account()
+      : section === "members"
+        ? m.settings_members()
+        : section === "preferences"
+          ? m.settings_preferences()
+          : m.settings_notifications();
+
+  function selectSection(next: SettingsSection) {
+    setSection(next);
+    setShowList(false);
+  }
 
   return (
-    <main className="flex h-svh min-w-0 md:p-2">
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card md:rounded-xl md:border">
+    <main className="flex h-svh min-w-0 md:gap-2 md:p-2">
+      <nav
+        aria-label={m.settings_title()}
+        className={cn(
+          "min-w-0 flex-col overflow-hidden bg-card md:flex md:w-60 md:shrink-0 md:rounded-xl md:border",
+          showList ? "flex w-full" : "hidden",
+        )}
+      >
         <PageHeader heading={m.settings_title()} />
-        {/* Untitled UI's open-source underline navigation, using the shared control API. */}
-        <nav
-          aria-label={m.settings_title()}
-          className="shrink-0 overflow-x-auto border-b px-4 sm:px-6"
-        >
-          <div className="flex w-max min-w-full gap-4 pt-4 sm:gap-6">
+        <div className="space-y-5 overflow-y-auto p-3">
+          <SettingsNavigationGroup label={m.settings_personal_group()}>
             <SettingsNavigationButton
               active={section === "account"}
               icon={<UserRound aria-hidden="true" />}
               label={m.settings_account()}
-              onClick={() => setSection("account")}
-            />
-            <SettingsNavigationButton
-              active={section === "members"}
-              icon={<Users aria-hidden="true" />}
-              label={m.settings_members()}
-              onClick={() => setSection("members")}
+              onClick={() => selectSection("account")}
             />
             <SettingsNavigationButton
               active={section === "preferences"}
               icon={<SlidersHorizontal aria-hidden="true" />}
               label={m.settings_preferences()}
-              onClick={() => setSection("preferences")}
+              onClick={() => selectSection("preferences")}
             />
             <SettingsNavigationButton
               active={section === "notifications"}
               icon={<BellRing aria-hidden="true" />}
               label={m.settings_notifications()}
-              onClick={() => setSection("notifications")}
+              onClick={() => selectSection("notifications")}
             />
-          </div>
-        </nav>
+          </SettingsNavigationGroup>
+          <SettingsNavigationGroup label={m.settings_workspace_group()}>
+            <SettingsNavigationButton
+              active={section === "members"}
+              icon={<Users aria-hidden="true" />}
+              label={m.settings_members()}
+              onClick={() => selectSection("members")}
+            />
+          </SettingsNavigationGroup>
+        </div>
+      </nav>
+      <section
+        className={cn(
+          "@container/settings min-w-0 flex-1 flex-col overflow-hidden bg-card md:flex md:rounded-xl md:border",
+          showList ? "hidden" : "flex",
+        )}
+      >
+        <PageHeader
+          heading={sectionLabel}
+          leading={
+            <Button
+              variant="ghost"
+              size="icon"
+              className="-ml-2 size-11 md:hidden"
+              aria-label={m.settings_title()}
+              onClick={() => setShowList(true)}
+            >
+              <ChevronLeft aria-hidden="true" className="size-5" />
+            </Button>
+          }
+        />
 
         <section
           aria-label={
@@ -206,6 +249,23 @@ export function SettingsContent(props: SettingsContentProps) {
   );
 }
 
+function SettingsNavigationGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <h2 className="px-3 pt-2 pb-2 text-xs font-semibold text-muted-foreground">{label}</h2>
+      <ul aria-label={label} className="space-y-1">
+        {children}
+      </ul>
+    </div>
+  );
+}
+
 function SettingsNavigationButton({
   active,
   icon,
@@ -218,19 +278,21 @@ function SettingsNavigationButton({
   onClick: () => void;
 }) {
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      aria-current={active ? "page" : undefined}
-      onClick={onClick}
-      className={cn(
-        "h-auto shrink-0 justify-start gap-2 rounded-none border-b-2 border-transparent px-0.5 pt-0 pb-3 text-sm font-semibold text-muted-foreground hover:bg-transparent hover:text-accent-foreground",
-        active && "border-brand text-accent-foreground",
-      )}
-    >
-      <span className="hidden sm:inline-flex [&_svg]:size-4">{icon}</span>
-      <span className="truncate">{label}</span>
-    </Button>
+    <li>
+      <Button
+        type="button"
+        variant="ghost"
+        aria-current={active ? "page" : undefined}
+        onClick={onClick}
+        className={cn(
+          "h-11 w-full min-w-0 justify-start gap-3 rounded-lg px-3 text-sm font-medium",
+          active && "bg-brand/10 text-brand",
+        )}
+      >
+        <span className="inline-flex shrink-0 [&_svg]:size-4">{icon}</span>
+        <span className="truncate">{label}</span>
+      </Button>
+    </li>
   );
 }
 
@@ -326,7 +388,7 @@ function AccountSettings({
   return (
     <div className="w-full px-4 pb-8 sm:px-6">
       <section>
-        <header className="flex min-h-16 items-center justify-between gap-4 pb-5">
+        <header className="flex min-h-16 items-center justify-between gap-4 py-5">
           <h2 className="text-lg font-semibold">{m.settings_profile()}</h2>
           {!editing && (
             <Button type="button" variant="outline" onClick={startEditing}>
@@ -384,8 +446,8 @@ function AccountSettings({
               </div>
               <p className="mt-2 text-xs text-muted-foreground">{m.settings_avatar_help()}</p>
 
-              <div className="mt-6 grid gap-3 border-t pt-5 md:grid-cols-[240px_1fr] md:gap-8">
-                <label htmlFor="profile-name" className="text-sm font-semibold md:pt-2">
+              <div className="mt-6 grid gap-3 border-t pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
+                <label htmlFor="profile-name" className="text-sm font-semibold @2xl/settings:pt-2">
                   {m.settings_name()}
                 </label>
                 <input
@@ -398,11 +460,14 @@ function AccountSettings({
                 />
               </div>
 
-              <div className="mt-5 grid gap-3 border-t pt-5 md:grid-cols-[240px_1fr] md:gap-8">
-                <label htmlFor="profile-description" className="text-sm font-semibold md:pt-2">
+              <div className="mt-5 grid gap-3 border-t pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
+                <label
+                  htmlFor="profile-description"
+                  className="text-sm font-semibold @2xl/settings:pt-2"
+                >
                   {m.settings_user_description()}
                 </label>
-                <div className="max-w-xl">
+                <div className="min-w-0 max-w-xl">
                   <textarea
                     id="profile-description"
                     value={description}
@@ -442,12 +507,16 @@ function AccountSettings({
                 {m.settings_profile_save_success()}
               </p>
             )}
-            <div className="border-t py-6">
+            <div className="flex min-w-0 items-center gap-4 border-t py-6">
               <Avatar
                 people={[{ name: profile.name, src: profile.avatarUrl }]}
                 size="xl"
                 className="size-20 rounded-full text-xl"
               />
+              <div className="min-w-0">
+                <p className="break-words text-lg font-semibold">{profile.name}</p>
+                <p className="break-words text-sm text-muted-foreground">@{profile.username}</p>
+              </div>
             </div>
             <dl className="divide-y border-y">
               <ProfileValue label={m.settings_name()} value={profile.name} />
@@ -467,7 +536,7 @@ function AccountSettings({
 
 function ProfileValue({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid min-w-0 gap-2 py-5 md:grid-cols-[240px_1fr] md:gap-8">
+    <div className="grid min-w-0 gap-2 py-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
       <dt className="text-sm font-semibold">{label}</dt>
       <dd className="min-w-0 max-w-xl text-sm break-words whitespace-pre-wrap text-muted-foreground">
         {value}
@@ -493,7 +562,7 @@ function Preferences({
           icon={<Languages aria-hidden="true" />}
           heading={m.preferences_language()}
         >
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 @lg/settings:grid-cols-2">
             <PreferenceButton
               selected={locale === "en"}
               label={m.preferences_english()}
@@ -536,7 +605,7 @@ function Preferences({
           }
           heading={m.preferences_appearance()}
         >
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-2 @lg/settings:grid-cols-3">
             <PreferenceButton
               selected={theme === "system"}
               label={m.preferences_system()}
@@ -702,7 +771,7 @@ function PreferenceSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="grid gap-4 py-6 xl:grid-cols-[240px_1fr] xl:gap-8">
+    <section className="grid gap-4 py-6 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
       <div className="flex items-start gap-3">
         <span className="mt-0.5 text-muted-foreground [&_svg]:size-4">{icon}</span>
         <h3 className="text-sm font-semibold">{heading}</h3>

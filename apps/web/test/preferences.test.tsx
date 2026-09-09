@@ -99,7 +99,8 @@ function renderSettings() {
   return render(<SettingsTestPage />);
 }
 
-test("uses one full-height settings surface for the header, navigation, and content", () => {
+test("uses separate settings list and content panels with a way back that preserves drafts", async () => {
+  const user = userEvent.setup({ document });
   const view = renderSettings();
   const main = view.container.querySelector("main");
   const surface = main?.querySelector(":scope > section");
@@ -109,9 +110,26 @@ test("uses one full-height settings surface for the header, navigation, and cont
   expect(surface?.classList.contains("bg-card")).toBeTrue();
   expect(surface?.classList.contains("md:rounded-xl")).toBeTrue();
   expect(surface?.querySelectorAll(":scope > header")).toHaveLength(1);
-  expect(surface?.querySelectorAll(":scope > nav")).toHaveLength(1);
+  const navigation = view.getByRole("navigation", { name: "Settings" });
+  expect(navigation.parentElement).toBe(main);
+  expect(navigation.querySelector("ul")?.classList.contains("space-y-1")).toBeTrue();
+  expect(view.getByRole("list", { name: "Personal" }).textContent).toBe(
+    "AccountPreferencesNotifications",
+  );
+  expect(view.getByRole("list", { name: "Workspace" }).textContent).toBe("Members");
   expect(view.getAllByRole("heading", { name: "Settings" })).toHaveLength(1);
-  expect(view.getByRole("navigation", { name: "Settings" })).toBeTruthy();
+  await user.click(view.getByRole("button", { name: "Account" }));
+  expect(navigation.classList.contains("hidden")).toBeTrue();
+  expect(surface?.classList.contains("hidden")).toBeFalse();
+  await user.click(view.getByRole("button", { name: /Edit/ }));
+  const nameInput = view.getByLabelText("Name");
+  await user.clear(nameInput);
+  await user.type(nameInput, "Unsaved name");
+  await user.click(view.getByRole("button", { name: "Settings" }));
+  expect(navigation.classList.contains("hidden")).toBeFalse();
+  expect(surface?.classList.contains("hidden")).toBeTrue();
+  await user.click(view.getByRole("button", { name: "Account" }));
+  expect((view.getByLabelText("Name") as HTMLInputElement).value).toBe("Unsaved name");
   expect(view.container.querySelector(".max-w-6xl")).toBeNull();
 });
 
@@ -123,7 +141,11 @@ test("keeps the pending settings state in the same page surface", () => {
   expect(main?.getAttribute("aria-busy")).toBe("true");
   expect(surface?.classList.contains("bg-card")).toBeTrue();
   expect(surface?.querySelectorAll(":scope > header")).toHaveLength(1);
-  expect(surface?.querySelectorAll(":scope > nav")).toHaveLength(1);
+  expect(main?.querySelector(":scope > nav ul")).toBeTruthy();
+  expect(view.getByRole("list", { name: "Personal" }).textContent).toBe(
+    "AccountPreferencesNotifications",
+  );
+  expect(view.getByRole("list", { name: "Workspace" }).textContent).toBe("Members");
 });
 
 test("searches time zones by city and sends the IANA identifier to persistence", async () => {
@@ -271,7 +293,7 @@ test("edits the profile name and description and uploads a profile image on save
     />,
   );
 
-  expect(view.getByText("@frankan")).toBeTruthy();
+  expect(view.getByText("@frankan", { selector: "dd" })).toBeTruthy();
   expect(view.queryByRole("textbox", { name: "Description" })).toBeNull();
   await user.click(view.getByRole("button", { name: "Edit" }));
   const name = view.getByRole("textbox", { name: "Name" });
