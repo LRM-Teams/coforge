@@ -61,3 +61,41 @@ test("rejects legacy cf_proxy_ tokens without contacting the proxy", async () =>
   ).rejects.toThrow("coforge agent context is invalid");
   expect(fetch).not.toHaveBeenCalled();
 });
+
+test("posts validated reminders to the derived endpoint with implicit bearer context", async () => {
+  const fetch = spyOn(globalThis, "fetch").mockResolvedValue(
+    Response.json({
+      protocolMajor: 1,
+      requestId: "request",
+      workspaceId: "workspace",
+      computerId: "computer",
+      agentId: "agent",
+      accepted: true,
+      reminders: [],
+      events: [],
+    }),
+  );
+  await connectLocal("", `sfp_${"a".repeat(43)}`, "http://proxy.test/agent/message").reminder({
+    operation: "schedule",
+    title: "Check release",
+    target: "#general",
+    messageId: "deadbeef",
+    repeat: "daily@09:30",
+    timezone: "Asia/Shanghai",
+  });
+  const [url, init] = fetch.mock.calls[0]!;
+  expect(url).toBe("http://proxy.test/agent/reminder");
+  expect(init?.headers).toEqual({
+    authorization: `Bearer sfp_${"a".repeat(43)}`,
+    "content-type": "application/json",
+  });
+  const body = JSON.parse(String(init?.body));
+  expect(body).toMatchObject({
+    operation: "schedule",
+    title: "Check release",
+    repeat: "daily@09:30",
+    timezone: "Asia/Shanghai",
+  });
+  expect(body.requestId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(body.context).toBeUndefined();
+});

@@ -763,6 +763,73 @@ mute 变更与消息创建使用同一 conversation 行锁串行化，仅影响�
 主动加入发送、附件权限、稳定发送者、并发消息顺序及 Agent mute/mention/恢复资格；
 不属于普通无数据库测试发现范围。
 
+### 6.5 Agent Reminder
+
+用户在本次 Reminder 实现中批准参考 Raft 1.0.17 的分工：Web/backend 保存权威计划，
+Workspace Daemon 本地计时，到期先请求服务端裁决，再进入 Agent App Inbox。
+这不是云端 cron，也不是通用 jobs/command mailbox。只借鉴
+[官方发布包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)
+可核实的行为，不复制其代码或推断私有服务端实现；发布包 SHA-1 为
+`374ad1f8b99b0f19d3110b9ea2caeb4aa808f942`。
+
+Agent 通过 `coforge reminder schedule|list|update|snooze|cancel|log` 调用已有
+Credential Proxy，再以独立 Agent＋Daemon 凭据调用 HTTPS `agent:reminder`。
+身份来自凭据绑定，不接受调用者声明其他 Agent 身份。真人浏览器沿用自己的登录会话，
+Agent Profile 的 Reminders 标签页只向 Agent owner 提供待触发提醒的只读列表，不展示历史；Workspace
+中其他 Profile 查看者不能据此读取私人提醒。聊天里的 created/fired 系统提醒则按
+原会话的可见范围展示，并隔离主聊天与具体 Thread，不伪造 User/Agent Message sender，
+不产生普通 Message attention，不唤醒其他 Agent。
+
+Reminder 的 `title` 是完整提醒正文，不是短标题；创建、更新、同步、持久化和列表
+保留长文本及换行、制表符，不施加 Inbox 的 120 字预览限制。仅在生成 Agent App
+Inbox item 时归一化控制字符和空白，并截取最多 120 个 UTF-16 code unit（不拆开
+代理对）的单行预览；原始正文和 occurrence receipt 不被截断。仍拒绝空白正文和
+除 tab、CR、LF 外的 C0/DEL 控制字符。此处对齐 Raft 1.0.17 发布包的正文与预览
+分离，不据客户端 schema 推断其私有服务端长度上限。协议字段及数据库结构不变，
+但旧版 Daemon 的 120 字校验无法接收长正文，发布时须配套更新 Web 与本地客户端。
+
+PostgreSQL 的 Reminder 保存 owner、Workspace、Computer、canonical Message 锚点、
+完整 target、版本、计划时间及周期；ReminderEvent 保存创建、更新、推迟、取消、触发
+历史，并快照当时标题和计划时间。数据库事务内的 Agent 行锁串行化计划修改、容量检查
+和到期裁决；ReminderOperationReceipt 与 ReminderFireReceipt 保留幂等请求结果。
+它们不是待执行命令。相同请求身份重放结果，跨 owner/Workspace/Computer 或不同输入
+不得复用。PostgreSQL 锁与隔离采用现有 Prisma 事务，不新增队列服务；依据为
+[Prisma transactions](https://www.prisma.io/docs/orm/prisma-client/queries/transactions)
+及 [PostgreSQL row locks](https://www.postgresql.org/docs/current/explicit-locking.html#LOCKING-ROWS)。
+
+计划通过既有单条 WSS 上的 typed `ReminderSync` snapshot/upsert/cancel 同步；Daemon
+ready 声明 `reminder:v1`，能力租约随连接状态续租。未具备该能力时创建明确失败。
+Daemon 第一次收到当前 Agent 的权威 snapshot 后才计时；重启不根据本地旧计划自启动。
+到期先原子保存 occurrence-bound receipt，再通过 `reminder:fire` 发送稳定 request ID。
+服务端使用自身时间，返回 accepted（含 fired）、premature（含重计时延迟）或 obsolete；
+premature 不是永久幂等结果，不能让未来的重试永远停在“尚未到期”。
+
+只有 accepted 且 fired=true 才创建 `system.reminder/due` App item，其稳定身份为
+`reminder:<id>:<revision>`，然后调用 provider-neutral Inbox 唤醒。版本更新只替代计划，
+不能抹掉此前已提交但未完成的 occurrence。Daemon 私有 receipt 位于 state directory，
+不位于 Agent workspace；保存本次请求、到期 payload、服务端裁决、唤醒及消费进度。
+它是本次明确批准的 reminder 专用恢复状态，不扩展为 chat Message durable inbox/outbox。
+重试从 1 秒指数退避、单次上限 60 秒，最多 8 次尝试且受 15 分钟截止限制；不承诺无限
+补投或 exactly-once Agent 执行。`coforge reminder ack|dismiss --id <UUID> --revision <n>`
+精确确认一个到期项，先持久化消费再移除 Inbox item；不取消周期，也不证明任务完成。
+
+单次支持明确时区的绝对时间或正整数相对秒数；周期支持 `every:<n>m|h|d`、
+`daily@HH:mm` 与 `weekly:mon,fri@HH:mm`。默认周期时区为 Asia/Shanghai，可用 `--tz`
+覆盖。错过多个周期只处理当前一次待确认 occurrence，下一时间严格晚于服务端当前时间；
+interval 保持原 cadence，日历周期的 DST 重叠取第一次、缺失时刻跳过该日。这些是
+CoForge 明确选择，不声称是 Raft 私有 recurrence 算法。每 Agent 最多 50 个 scheduled
+reminder；CLI 列表超过当前有界返回能力明确报错而不静默丢项，Profile 使用分页。
+会话提醒通过现有可见页面 30 秒 reconciliation 更新，不声称即时 push；Profile 按需读取。
+
+迁移随 Web 交付，旧 Daemon 不会被当作支持 reminder。回滚应用前停止新计划创建并保留
+提醒/回执表及本地状态，不删除已提交数据；部署和生产迁移仍须单独授权。本实现不增加
+依赖或服务，代价是本地回执恢复与云端版本裁决的维护成本。未确认完成的工作必须由 Agent
+根据提醒日志和实际输出核对，不能把 fired 当作 ran。
+
+数据库集成检查使用显式的隔离 PostgreSQL：
+`REMINDER_TEST_DATABASE_URL=... mise exec -- bun test ./apps/web/test/reminder.integration.ts`。
+普通 `mise run test` 不运行这个 `.integration.ts` 专项；执行前应在隔离库应用当前迁移。
+
 ## 7. 端到端链路
 
 ```text

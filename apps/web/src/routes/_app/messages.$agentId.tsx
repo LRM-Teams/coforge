@@ -6,6 +6,7 @@ import { DirectConversation } from "@/features/conversations/direct-conversation
 import { useConversationAgentStatus } from "@/features/conversations/conversation-layout";
 import { createConversationReconciler } from "@/features/conversations/conversation-reconciliation";
 import { useConversationRealtime } from "@/features/conversations/conversation-realtime-client";
+import { loadReminderNotices } from "@/features/conversations/reminder-notices.functions";
 import {
   loadConversationAround,
   loadDirectConversation,
@@ -32,6 +33,8 @@ function DirectConversationPage() {
   const loadAround = useServerFn(loadConversationAround);
   const loadOwnMessages = useServerFn(loadOwnConversationMessages);
   const loadUpdates = useServerFn(loadDirectConversationUpdates);
+  const loadNotices = useServerFn(loadReminderNotices);
+  const [reminderRefreshKey, setReminderRefreshKey] = useState(0);
   const agentIdRef = useRef(agentId);
   const loadUpdatesRef = useRef(loadUpdates);
   const mergeUpdatesRef = useRef<(updates: typeof conversation.messages) => void>(() => {});
@@ -60,7 +63,10 @@ function DirectConversationPage() {
       ),
     [latestConversation.conversationId],
   );
-  useConversationRealtime(latestConversation.conversationId, reconciliation.reconcile);
+  useConversationRealtime(latestConversation.conversationId, async () => {
+    await reconciliation.reconcile();
+    setReminderRefreshKey((value) => value + 1);
+  });
 
   useEffect(() => {
     setConversation((current) => {
@@ -80,6 +86,14 @@ function DirectConversationPage() {
       key={conversation.agent.id}
       conversation={conversation}
       agentStatus={agentStatus}
+      reminderRefreshKey={reminderRefreshKey}
+      onLoadReminderNotices={async (threadRootId) =>
+        (
+          await loadNotices({
+            data: { conversationId: conversation.conversationId, threadRootId },
+          })
+        ).notices
+      }
       onSend={async (body, requestId, attachmentId, threadRootId) => {
         const message = await send({
           data: { agentId, requestId, body, attachmentId, threadRootId },

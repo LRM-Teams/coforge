@@ -23,6 +23,8 @@ model Workspace {
   conversationMembers ConversationMember[]
   messageDeliveries   AgentMessageDelivery[]
   agentActivity       AgentActivity[]
+  reminders           Reminder[]
+  reminderEvents      ReminderEvent[]
   attachments         Attachment[]
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
@@ -82,29 +84,31 @@ model UserIdentity {
 }
 
 model Agent {
-  id               String                 @id @default(uuid()) @db.Uuid
-  workspaceId      String                 @db.Uuid
-  name             String
-  displayName      String
-  description      String                 @default("")
-  createdAt        DateTime               @default(now())
-  ownerId          String                 @db.Uuid
-  computerId       String?                @db.Uuid
-  runtimeConfig    Json
+  id                        String                     @id @default(uuid()) @db.Uuid
+  workspaceId               String                     @db.Uuid
+  name                      String
+  displayName               String
+  description               String                     @default("")
+  createdAt                 DateTime                   @default(now())
+  ownerId                   String                     @db.Uuid
+  computerId                String?                    @db.Uuid
+  runtimeConfig             Json
   /// Runtime launch fencing only; provider-native identity lives in AgentSession.
-  runtimeSession   Json?
+  runtimeSession            Json?
   /// Current control request and fencing only, not Session history or a job queue.
-  controlState     Json?
-  currentSessionId String?                @db.Uuid
-  currentSession   AgentSession?          @relation("CurrentAgentSession", fields: [currentSessionId], references: [id], onDelete: SetNull)
-  sessions         AgentSession[]         @relation("AgentSessions")
-  workspace        Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  owner            User                   @relation(fields: [ownerId], references: [id])
-  computer         Computer?              @relation(fields: [computerId], references: [id], onDelete: SetNull)
-  conversations    ConversationMember[]
-  deliveries       AgentMessageDelivery[]
-  apiKeys          AgentApiKey[]
-  activity         AgentActivity[]
+  controlState              Json?
+  currentSessionId          String?                    @db.Uuid
+  currentSession            AgentSession?              @relation("CurrentAgentSession", fields: [currentSessionId], references: [id], onDelete: SetNull)
+  sessions                  AgentSession[]             @relation("AgentSessions")
+  workspace                 Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner                     User                       @relation(fields: [ownerId], references: [id])
+  computer                  Computer?                  @relation(fields: [computerId], references: [id], onDelete: SetNull)
+  conversations             ConversationMember[]
+  deliveries                AgentMessageDelivery[]
+  apiKeys                   AgentApiKey[]
+  activity                  AgentActivity[]
+  reminders                 Reminder[]
+  reminderOperationReceipts ReminderOperationReceipt[]
 
   @@unique([workspaceId, name])
   @@unique([id, workspaceId])
@@ -250,6 +254,7 @@ model Computer {
   agentApiKeys  AgentApiKey[]
   daemonApiKeys DaemonApiKey[]
   agentActivity AgentActivity[]
+  reminders     Reminder[]
   owner         User                   @relation(fields: [ownerId], references: [id])
 
   @@unique([ownerId, machineId])
@@ -289,12 +294,13 @@ model ComputerModelCatalog {
 }
 
 model WorkspaceComputer {
-  id          String    @id @default(uuid()) @db.Uuid
-  workspaceId String    @db.Uuid
-  computerId  String    @db.Uuid
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  computer    Computer  @relation(fields: [computerId], references: [id], onDelete: Cascade)
-  createdAt   DateTime  @default(now())
+  id          String     @id @default(uuid()) @db.Uuid
+  workspaceId String     @db.Uuid
+  computerId  String     @db.Uuid
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  computer    Computer   @relation(fields: [computerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime   @default(now())
+  reminders   Reminder[]
 
   @@unique([workspaceId, computerId])
   @@map("workspace_computers")
@@ -418,4 +424,83 @@ model AgentMessageDelivery {
   @@unique([deliveryId, workspaceId])
   @@index([workspaceId, agentId, receivedAt])
   @@map("agent_message_deliveries")
+}
+
+/// Canonical cloud scheduling state. Daemons only own volatile timers for these records.
+model Reminder {
+  id                String                     @id @default(uuid()) @db.Uuid
+  workspaceId       String                     @db.Uuid
+  ownerAgentId      String                     @db.Uuid
+  computerId        String                     @db.Uuid
+  title             String
+  target            String
+  messageId         String                     @db.Uuid
+  fireAt            DateTime
+  repeat            String?
+  timezone          String?
+  status            String                     @default("scheduled")
+  version           Int                        @default(1)
+  firedAt           DateTime?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+  workspace         Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  ownerAgent        Agent                      @relation(fields: [ownerAgentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  computer          Computer                   @relation(fields: [computerId], references: [id], onDelete: Cascade)
+  workspaceComputer WorkspaceComputer          @relation(fields: [workspaceId, computerId], references: [workspaceId, computerId], onDelete: Cascade)
+  events            ReminderEvent[]
+  fireReceipts      ReminderFireReceipt[]
+  operationReceipts ReminderOperationReceipt[]
+
+  @@unique([id, workspaceId])
+  @@index([workspaceId, ownerAgentId, status, fireAt])
+  @@map("reminders")
+}
+
+/// Stable Agent CRUD request replay. This is reminder-specific, not a general mailbox.
+model ReminderOperationReceipt {
+  workspaceId String   @db.Uuid
+  agentId     String   @db.Uuid
+  requestId   String   @db.VarChar(128)
+  fingerprint String
+  response    Bytes
+  reminderId  String   @db.Uuid
+  createdAt   DateTime @default(now())
+  agent       Agent    @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  reminder    Reminder @relation(fields: [reminderId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+
+  @@id([agentId, requestId])
+  @@index([reminderId])
+  @@map("reminder_operation_receipts")
+}
+
+model ReminderEvent {
+  id           String    @id @default(uuid()) @db.Uuid
+  reminderId   String    @db.Uuid
+  workspaceId  String    @db.Uuid
+  type         String
+  title        String
+  time         DateTime  @default(now())
+  scheduledFor DateTime
+  nextFireAt   DateTime?
+  reminder     Reminder  @relation(fields: [reminderId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([reminderId, time(sort: Desc)])
+  @@map("reminder_events")
+}
+
+/// Exact response bytes are retained so a request replay is identical after recurring advancement.
+model ReminderFireReceipt {
+  requestId   String   @db.VarChar(128)
+  reminderId  String   @db.Uuid
+  workspaceId String   @db.Uuid
+  computerId  String   @db.Uuid
+  agentId     String   @db.Uuid
+  version     Int
+  response    Bytes
+  createdAt   DateTime @default(now())
+  reminder    Reminder @relation(fields: [reminderId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+
+  @@id([reminderId, requestId])
+  @@map("reminder_fire_receipts")
 }

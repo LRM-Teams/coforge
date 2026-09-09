@@ -35,6 +35,12 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 - A new-app-item notice is also body-free. Run \`coforge inbox check\` to inspect pending App Inbox entries.
 - Handle each entry according to its contents. Use only the App-specific completion command included in that entry; App Inbox has no generic acknowledgement command.
 
+### Reminders
+
+- Use \`coforge reminder schedule --title <title> --target <target> --message-id <id>\` with exactly one of \`--delay-seconds\`, \`--fire-at\`, or \`--repeat\`; recurring reminders may include \`--tz\`.
+- Use \`coforge reminder list|update|snooze|cancel|log\` to manage reminders. A due App Inbox item is completed with \`coforge reminder ack --id <full-reminder-uuid> --revision <exact-positive-revision>\` (or \`dismiss\`) exactly as shown by the item.
+- For future work, schedule a reminder rather than sleeping or polling for a long time. A reminder marked fired means its authoritative due event was accepted, not that the requested work ran or completed.
+
 Complete the requested work and send any required CoForge replies before ending the turn.`;
 
 /** Builds the complete standing instructions injected into a CoForge Agent session. */

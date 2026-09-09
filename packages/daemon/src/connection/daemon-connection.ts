@@ -48,6 +48,22 @@ import {
   AGENT_MESSAGE_SEND_METHOD,
   AGENT_CHANNEL_MUTE_METHOD,
   AGENT_CHANNEL_UNMUTE_METHOD,
+  AGENT_REMINDER_METHOD,
+  REMINDER_FIRE_METHOD,
+  REMINDER_SNAPSHOT_METHOD,
+  REMINDER_SYNC_MESSAGE_TYPE,
+  decodeAgentReminderOperationResponse,
+  decodeReminderFireResponse,
+  decodeReminderSync,
+  encodeAgentReminderOperationRequest,
+  encodeReminderFireRequest,
+  encodeReminderSnapshotRequest,
+  type AgentReminderOperationRequest,
+  type AgentReminderOperationResponse,
+  type ReminderFireRequest,
+  type ReminderFireResponse,
+  type ReminderSnapshotRequest,
+  type ReminderSync,
 } from "@coforge/protocol";
 import { isAgentApiKey } from "../credentials/agent-api-key";
 import type { AgentRuntimeProviderConfig } from "../code-agent/contract";
@@ -99,7 +115,15 @@ export interface AgentMessageHttpClient {
     daemonApiKey: string;
     request: AgentMessageRequest;
   }): Promise<CloudAgentMessageResponse>;
+  requestReminder?(input: {
+    url: string;
+    agentApiKey: string;
+    daemonApiKey: string;
+    request: AgentReminderOperationRequest;
+  }): Promise<AgentReminderOperationResponse>;
 }
+
+type HttpFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 /** Provider-neutral client contract for the daemon's Workspace connection. */
 export interface DaemonConnectionClient {
@@ -119,6 +143,13 @@ export interface DaemonConnectionClient {
   onAgentStart?(callback: (intent: AgentStartIntent) => void): () => void;
   onAgentStop?(callback: (intent: AgentStopIntent) => void): () => void;
   onAgentMessage?(callback: (message: AgentMessageDelivery) => void): () => void;
+  onReminderSync?(callback: (sync: ReminderSync) => void): () => void;
+  requestSnapshot?(request: ReminderSnapshotRequest): Promise<ReminderSync>;
+  fireReminder?(request: ReminderFireRequest): Promise<ReminderFireResponse>;
+  agentReminder?(
+    request: AgentReminderOperationRequest,
+    agentApiKey: string,
+  ): Promise<AgentReminderOperationResponse>;
   sendAgentActivity?(activity: AgentActivity): void;
   sendAgentStatus?(status: AgentStatus): void;
   reportAgentSession?(report: AgentSessionReport): Promise<void>;
@@ -174,9 +205,11 @@ export const defaultCentrifugeWorkspaceClientFactory: CentrifugeWorkspaceClientF
     websocket: globalThis.WebSocket,
   }) as unknown as CentrifugeWorkspaceClient;
 
-export const defaultAgentMessageHttpClient: AgentMessageHttpClient = {
+export const createAgentMessageHttpClient = (
+  fetcher: HttpFetch = globalThis.fetch,
+): AgentMessageHttpClient => ({
   async request({ url, agentApiKey, daemonApiKey, request }) {
-    const response = await fetch(url, {
+    const response = await fetcher(url, {
       method: "POST",
       headers: {
         authorization: `Bearer ${daemonApiKey}`,
@@ -204,7 +237,42 @@ export const defaultAgentMessageHttpClient: AgentMessageHttpClient = {
     const bytes = Uint8Array.from(atob(envelope.result?.b64data ?? ""), (c) => c.charCodeAt(0));
     return decodeCloudAgentMessageResponse(bytes);
   },
-};
+  async requestReminder({ url, agentApiKey, daemonApiKey, request }) {
+    let response: Response;
+    try {
+      response = await fetcher(url, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${daemonApiKey}`,
+          "x-coforge-agent-api-key": `Bearer ${agentApiKey}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          method: AGENT_REMINDER_METHOD,
+          b64data: bytesToBase64(encodeAgentReminderOperationRequest(request)),
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      throw new Error("Agent reminder request failed");
+    }
+    if (!response.ok) throw new Error(`Agent reminder request failed (${response.status})`);
+    let envelope: { result?: { b64data?: string }; error?: unknown };
+    try {
+      envelope = (await response.json()) as typeof envelope;
+    } catch {
+      throw new Error("Agent reminder response is malformed");
+    }
+    if (envelope.error) throw new Error("Agent reminder RPC failed");
+    try {
+      return decodeAgentReminderOperationResponse(base64ToBytes(envelope.result?.b64data));
+    } catch {
+      throw new Error("Agent reminder response is malformed");
+    }
+  },
+});
+
+export const defaultAgentMessageHttpClient = createAgentMessageHttpClient();
 
 /** The Daemon's single connection for its configured Workspace. */
 export class DaemonConnection implements DaemonConnectionClient {
@@ -215,12 +283,14 @@ export class DaemonConnection implements DaemonConnectionClient {
   #agentStopListener: ((intent: AgentStopIntent) => void) | undefined;
   #agentWorkspaceResetListener: ((intent: AgentWorkspaceResetRequest) => void) | undefined;
   #agentMessageListener: ((message: AgentMessageDelivery) => void) | undefined;
+  #reminderSyncListener: ((sync: ReminderSync) => void) | undefined;
   #readyPublications:
     | Array<
         | { kind: "start"; value: AgentStartIntent }
         | { kind: "stop"; value: AgentStopIntent }
         | { kind: "workspace-reset"; value: AgentWorkspaceResetRequest }
         | { kind: "message"; value: AgentMessageDelivery }
+        | { kind: "reminder"; value: ReminderSync }
       >
     | undefined;
   #token = "";
@@ -456,6 +526,40 @@ export class DaemonConnection implements DaemonConnectionClient {
     });
   }
 
+  async agentReminder(request: AgentReminderOperationRequest, agentApiKey: string) {
+    if (!this.#connected || !this.#serverHttpUrl)
+      throw new Error("daemon connection is not connected");
+    if (!this.agentMessageHttpClient.requestReminder)
+      throw new Error("Agent reminder HTTP client is unavailable");
+    const response = await this.agentMessageHttpClient.requestReminder({
+      url: `${new URL(this.#serverHttpUrl).origin}/api/agent-messages`,
+      agentApiKey,
+      daemonApiKey: this.#token,
+      request,
+    });
+    for (const field of ["requestId", "workspaceId", "computerId", "agentId"] as const)
+      if (response[field] !== request[field])
+        throw new Error("uncorrelated Agent reminder response");
+    if (response.protocolMajor !== request.protocolMajor)
+      throw new Error("uncorrelated Agent reminder response");
+    return response;
+  }
+
+  async fireReminder(request: ReminderFireRequest): Promise<ReminderFireResponse> {
+    if (!this.#connected || !this.#client) throw new Error("daemon connection is not connected");
+    const reply = await this.#client.rpc(REMINDER_FIRE_METHOD, encodeReminderFireRequest(request));
+    return decodeReminderFireResponse(rpcData(reply));
+  }
+
+  async requestSnapshot(request: ReminderSnapshotRequest): Promise<ReminderSync> {
+    if (!this.#connected || !this.#client) throw new Error("daemon connection is not connected");
+    const reply = await this.#client.rpc(
+      REMINDER_SNAPSHOT_METHOD,
+      encodeReminderSnapshotRequest(request),
+    );
+    return decodeReminderSync(rpcData(reply));
+  }
+
   async agentAttachment(attachmentId: string, agentApiKey?: string): Promise<Response> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     if (!this.#serverHttpUrl) throw new Error("Agent attachment endpoint is not configured");
@@ -530,6 +634,18 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   #handleAgentPublication(data: Uint8Array, config: DaemonConnectionConfig): void {
     const workspaceId = config.workspaceId;
+    try {
+      const sync = decodeReminderSync(data);
+      if (
+        sync.messageType !== REMINDER_SYNC_MESSAGE_TYPE ||
+        sync.workspaceId !== workspaceId ||
+        sync.computerId !== config.computerId
+      )
+        throw new Error("reminder sync targets another daemon");
+      if (this.#readyPublications) this.#readyPublications.push({ kind: "reminder", value: sync });
+      else this.#reminderSyncListener?.(sync);
+      return;
+    } catch {}
     try {
       const restart = decodeComputerRestartIntent(data);
       if (
@@ -618,6 +734,12 @@ export class DaemonConnection implements DaemonConnectionClient {
     return () => {
       if (this.#agentWorkspaceResetListener === callback)
         this.#agentWorkspaceResetListener = undefined;
+    };
+  }
+  onReminderSync(callback: (sync: ReminderSync) => void): () => void {
+    this.#reminderSyncListener = callback;
+    return () => {
+      if (this.#reminderSyncListener === callback) this.#reminderSyncListener = undefined;
     };
   }
   async sendAgentControlResult(result: AgentControlResult) {
@@ -773,6 +895,7 @@ export class DaemonConnection implements DaemonConnectionClient {
       else if (publication.kind === "stop") this.#agentStopListener?.(publication.value);
       else if (publication.kind === "workspace-reset")
         this.#agentWorkspaceResetListener?.(publication.value);
+      else if (publication.kind === "reminder") this.#reminderSyncListener?.(publication.value);
       else this.#agentMessageListener?.(publication.value);
     }
   }
@@ -796,6 +919,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#agentStopListener = undefined;
     this.#agentWorkspaceResetListener = undefined;
     this.#agentMessageListener = undefined;
+    this.#reminderSyncListener = undefined;
     this.#readyPublications = undefined;
     this.#readyRequestFactory = undefined;
     this.#reconnectListener = undefined;
@@ -811,6 +935,23 @@ export class DaemonConnection implements DaemonConnectionClient {
 function diagnosticErrorCode(error: unknown): string {
   if (error && typeof error === "object" && "code" in error) return String(error.code);
   return error instanceof Error ? error.name : "UnknownError";
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes));
+}
+
+function base64ToBytes(value: string | undefined): Uint8Array {
+  if (!value) throw new Error("missing RPC response payload");
+  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+}
+
+function rpcData(reply: unknown): Uint8Array {
+  if (!reply || typeof reply !== "object" || !("data" in reply))
+    throw new Error("missing RPC response payload");
+  const data = (reply as { data?: unknown }).data;
+  if (!(data instanceof Uint8Array)) throw new Error("invalid RPC response payload");
+  return data;
 }
 
 function parseAgentRuntimeProviderConfig(value: unknown): AgentRuntimeProviderConfig | undefined {

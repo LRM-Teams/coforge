@@ -1,4 +1,10 @@
-import type { AgentMessageRecord } from "@coforge/protocol";
+import {
+  decodeLocalReminderRequest,
+  encodeLocalReminderRequest,
+  type AgentMessageRecord,
+  type AgentReminderOperationResponse,
+  type LocalReminderRequest,
+} from "@coforge/protocol";
 
 export type MessageCommand = "check" | "read" | "search" | "send";
 export type MessageSearchOptions = {
@@ -30,6 +36,15 @@ export type AttachmentInvocation = {
 };
 export type InboxInvocation = { command: "inbox-check" };
 export type ChannelInvocation = { command: "mute" | "unmute"; target: string };
+export type ReminderInvocation = Omit<LocalReminderRequest, "context" | "requestId"> & {
+  command: "reminder";
+};
+export type ReminderTransportRequest = Omit<LocalReminderRequest, "context" | "requestId">;
+export type LocalReminderReceiptResponse = {
+  accepted: boolean;
+  reminderId: string;
+  revision: number;
+};
 
 export type MessageTransport = {
   check(): Promise<{ messages: AgentMessageRecord[] }>;
@@ -46,11 +61,20 @@ export type MessageTransport = {
   view(attachmentId: string): Promise<{ bytes: Uint8Array; fileName?: string }>;
   inboxCheck?(): Promise<unknown>;
   setChannelMuted?(target: string, muted: boolean): Promise<unknown>;
+  reminder?(
+    request: ReminderTransportRequest,
+  ): Promise<AgentReminderOperationResponse | LocalReminderReceiptResponse>;
 };
 
 export function parseArgs(
   args: readonly string[],
-): MessageInvocation | AttachmentInvocation | InboxInvocation | ChannelInvocation {
+):
+  | MessageInvocation
+  | AttachmentInvocation
+  | InboxInvocation
+  | ChannelInvocation
+  | ReminderInvocation {
+  if (args[0] === "reminder") return parseReminderArgs(args.slice(1));
   if (
     args[0] === "channel" &&
     (args[1] === "mute" || args[1] === "unmute") &&
@@ -168,6 +192,11 @@ export function parseArgs(
 
 export async function run(args: readonly string[], transport: MessageTransport): Promise<unknown> {
   const invocation = parseArgs(args);
+  if (invocation.command === "reminder") {
+    if (!transport.reminder) throw new Error("Reminder transport is unavailable");
+    const { command: _command, ...request } = invocation;
+    return formatReminderResponse(request.operation, await transport.reminder(request));
+  }
   if (invocation.command === "mute" || invocation.command === "unmute") {
     if (!transport.setChannelMuted) throw new Error("Channel settings transport is unavailable");
     return transport.setChannelMuted(invocation.target, invocation.command === "mute");
@@ -267,4 +296,142 @@ function formatInboxCheck(result: unknown): string {
 
 function isMessageCommand(value: string | undefined): value is MessageCommand {
   return value === "check" || value === "read" || value === "search" || value === "send";
+}
+
+const REMINDER_USAGE =
+  "Usage: coforge reminder schedule --title <title> --target <target> --message-id <full UUID|8hex> (--delay-seconds <n> | --fire-at <timestamp> | --repeat <rule>) [--repeat <rule>] [--tz <timezone>] | coforge reminder list (--all | --status scheduled|fired|canceled) | coforge reminder update --id <full UUID> [--title <title>] [--fire-at <timestamp>] [--repeat <rule|none>] [--tz <timezone>] | coforge reminder snooze --id <full UUID> (--delay-seconds <n> | --fire-at <timestamp>) | coforge reminder cancel|log --id <full UUID> | coforge reminder ack|dismiss --id <full UUID> --revision <n>";
+
+function parseReminderArgs(args: readonly string[]): ReminderInvocation {
+  const operation = args[0];
+  if (
+    !operation ||
+    !["schedule", "list", "update", "snooze", "cancel", "log", "ack", "dismiss"].includes(operation)
+  )
+    throw new Error(REMINDER_USAGE);
+  const names: Record<string, keyof ReminderTransportRequest> = {
+    "--id": "reminderId",
+    "--title": "title",
+    "--target": "target",
+    "--message-id": "messageId",
+    "--delay-seconds": "delaySeconds",
+    "--fire-at": "fireAt",
+    "--repeat": "repeat",
+    "--tz": "timezone",
+    "--status": "status",
+    "--revision": "revision",
+  };
+  const request: Record<string, unknown> = { command: "reminder", operation };
+  const seen = new Set<string>();
+  for (let index = 1; index < args.length; index++) {
+    const flag = args[index]!;
+    if (seen.has(flag)) throw new Error(`Duplicate reminder flag: ${flag}\n${REMINDER_USAGE}`);
+    seen.add(flag);
+    if (flag === "--all") {
+      request.all = true;
+      continue;
+    }
+    const field = names[flag];
+    const value = args[++index];
+    if (!field || value === undefined || value.startsWith("--"))
+      throw new Error(`Unknown or incomplete reminder flag: ${flag}\n${REMINDER_USAGE}`);
+    if (field === "delaySeconds" || field === "revision") {
+      const number = Number(value);
+      if (!Number.isSafeInteger(number) || number < 1) throw new Error(REMINDER_USAGE);
+      request[field] = number;
+    } else request[field] = value;
+  }
+  if (
+    typeof request.repeat === "string" &&
+    request.repeat !== "none" &&
+    request.timezone === undefined
+  )
+    request.timezone = "Asia/Shanghai";
+  validateReminderShape(request as ReminderInvocation);
+  decodeLocalReminderRequest(
+    encodeLocalReminderRequest({
+      ...request,
+      requestId: "cli-validation",
+      context: "cli-validation",
+    } as LocalReminderRequest),
+  );
+  return request as ReminderInvocation;
+}
+
+function validateReminderShape(value: ReminderInvocation): void {
+  const present = (field: keyof ReminderTransportRequest) => value[field] !== undefined;
+  const allowed: Record<string, readonly (keyof ReminderTransportRequest)[]> = {
+    schedule: ["title", "target", "messageId", "delaySeconds", "fireAt", "repeat", "timezone"],
+    list: ["all", "status"],
+    update: ["reminderId", "title", "fireAt", "repeat", "timezone"],
+    snooze: ["reminderId", "delaySeconds", "fireAt"],
+    cancel: ["reminderId"],
+    log: ["reminderId"],
+    ack: ["reminderId", "revision"],
+    dismiss: ["reminderId", "revision"],
+  };
+  const fields = Object.keys(value).filter(
+    (key) => key !== "command" && key !== "operation",
+  ) as (keyof ReminderTransportRequest)[];
+  if (fields.some((field) => !allowed[value.operation]!.includes(field)))
+    throw new Error(REMINDER_USAGE);
+  const id = value.reminderId;
+  if (
+    id !== undefined &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
+  )
+    throw new Error(`Invalid reminder ID; full UUID required.\n${REMINDER_USAGE}`);
+  const timed = Number(present("delaySeconds")) + Number(present("fireAt"));
+  if (
+    value.operation === "schedule" &&
+    (!value.title ||
+      !value.target ||
+      !value.messageId ||
+      timed > 1 ||
+      (!value.repeat && timed !== 1) ||
+      value.repeat === "none")
+  )
+    throw new Error(REMINDER_USAGE);
+  if (value.operation === "list" && Number(present("all")) + Number(present("status")) !== 1)
+    throw new Error(REMINDER_USAGE);
+  if (["cancel", "log"].includes(value.operation) && !id) throw new Error(REMINDER_USAGE);
+  if (value.operation === "snooze" && (!id || timed !== 1)) throw new Error(REMINDER_USAGE);
+  if (
+    value.operation === "update" &&
+    (!id ||
+      ![value.title, value.fireAt, value.repeat, value.timezone].some((item) => item !== undefined))
+  )
+    throw new Error(REMINDER_USAGE);
+  if (["ack", "dismiss"].includes(value.operation) && (!id || !value.revision))
+    throw new Error(REMINDER_USAGE);
+}
+
+function formatReminderResponse(
+  operation: string,
+  result: AgentReminderOperationResponse | LocalReminderReceiptResponse,
+): string {
+  if (!result.accepted) return "Reminder request was not accepted.";
+  if (operation === "ack" || operation === "dismiss") {
+    const receipt = result as LocalReminderReceiptResponse;
+    return `Accepted reminder ${operation} request: id=${receipt.reminderId} revision=${receipt.revision}.`;
+  }
+  const cloud = result as AgentReminderOperationResponse;
+  if (operation === "list") {
+    if (!cloud.reminders.length) return "No reminders found.";
+    return cloud.reminders
+      .map(
+        (item) =>
+          `id=${item.reminderId} revision=${item.version} status=${item.status} title=${JSON.stringify(item.title)} next=${item.fireAt} fired=${item.firedAt ?? "-"} time=${item.createdAt} repeat=${item.repeat ?? "none"} tz=${item.timezone ?? "-"} anchor=${item.messageId} target=${item.target}`,
+      )
+      .join("\n");
+  }
+  if (operation === "log") {
+    if (!cloud.events.length) return "No reminder events found.";
+    return cloud.events
+      .map(
+        (event) =>
+          `event=${event.eventId} type=${event.type} time=${event.time} next=${event.nextFireAt ?? "-"}`,
+      )
+      .join("\n");
+  }
+  return `Accepted reminder ${operation} request.`;
 }

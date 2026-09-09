@@ -40,6 +40,11 @@ import {
   type LocalInboxRequest,
   type RuntimeProvider,
   type UsageScanResponse,
+  REMINDER_CAPABILITY,
+  type AgentReminderOperationRequest,
+  type LocalReminderRequest,
+  type ReminderJob,
+  type ReminderSync,
 } from "@coforge/protocol";
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentControl } from "../agent-runtime/agent-control";
@@ -58,6 +63,8 @@ import {
 } from "../code-agent/runtime-inventory";
 import { getLogger } from "@logtape/logtape";
 import { COFORGE_DAEMON_VERSION } from "../version";
+import { ReminderScheduler, reminderAppInboxPreview } from "../agent-reminder/reminder-scheduler";
+import { FileReminderReceiptStore } from "../persistence/reminder-receipt-store";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
 const FULL_THREAD_TARGET =
@@ -113,11 +120,13 @@ export class DaemonRuntime {
   #unsubscribeReconnect: (() => void) | undefined;
   #unsubscribeUsageScan: (() => void) | undefined;
   #unsubscribeSkillsList: (() => void) | undefined;
+  #unsubscribeReminderSync: (() => void) | undefined;
   #skillsScanning = false;
   readonly #messageAttention: AgentMessageAttentionIndex;
+  readonly #reminders: ReminderScheduler;
   readonly #agentInboxes = new Map<string, AgentInboxStateMachine>();
   readonly #appInboxes = new Map<string, Promise<AgentAppInbox>>();
-  readonly #notifiedAppItems = new Map<string, Set<string>>();
+  readonly #notifiedAppItems = new Map<string, Map<string, Promise<boolean>>>();
   readonly #runtimeInstanceId = generateRuntimeInstanceId();
   readonly #startedAt = Date.now();
   readonly #agentContexts = new Map<string, string>();
@@ -178,6 +187,15 @@ export class DaemonRuntime {
       connection.workspaceId,
       this.#agentProcessManager,
       (ack) => this.#transport.sendAgentDeliveryAck?.(ack) ?? Promise.resolve(),
+    );
+    this.#reminders = new ReminderScheduler(
+      { workspaceId: connection.workspaceId, computerId: connection.computerId },
+      new FileReminderReceiptStore(stateDirectory, connection.workspaceId, connection.computerId),
+      (request) => {
+        if (!this.#transport.fireReminder) throw new Error("reminder fire is unavailable");
+        return this.#transport.fireReminder(request);
+      },
+      (job) => this.#acceptReminderDue(job),
     );
     const state = new AgentRuntimeState(
       new FileAgentRuntimeStateStore(
@@ -383,6 +401,8 @@ export class DaemonRuntime {
     try {
       this.#unsubscribeReconnect = this.#transport.onReconnect?.(() => {
         void this.#reportCodeAgents(connection).catch(() => {});
+        for (const agentId of this.#readyRunningAgentIds())
+          void this.#requestReminderSnapshot(agentId).catch(() => {});
         void this.#agentControl
           .replay()
           .then(() => this.#agentSessions.replay())
@@ -454,6 +474,9 @@ export class DaemonRuntime {
         receiveAgentWorkspaceReset,
       );
       this.#unsubscribeAgentMessage = this.#transport.onAgentMessage?.(receiveAgentMessage);
+      this.#unsubscribeReminderSync = this.#transport.onReminderSync?.((sync) => {
+        void this.#reminders.apply(sync).catch(() => {});
+      });
       await this.#transport.start(token, {
         workspaceId: connection.workspaceId,
         computerId: connection.computerId,
@@ -474,7 +497,11 @@ export class DaemonRuntime {
         runningAgentIds: this.#readyRunningAgentIds(),
         daemonVersion: COFORGE_DAEMON_VERSION,
         recoveredRestartRequestIds: this.lifecycle.recoveredRestartRequestIds ?? [],
+        capabilities: [REMINDER_CAPABILITY],
       }));
+      await Promise.all(
+        this.#readyRunningAgentIds().map((agentId) => this.#requestReminderSnapshot(agentId)),
+      );
       await this.#reportCodeAgents(connection).catch(() => {});
       if (this.#stopping) {
         pending.length = 0;
@@ -522,6 +549,8 @@ export class DaemonRuntime {
       this.#unsubscribeAgentWorkspaceReset = undefined;
       this.#unsubscribeAgentMessage?.();
       this.#unsubscribeAgentMessage = undefined;
+      this.#unsubscribeReminderSync?.();
+      this.#unsubscribeReminderSync = undefined;
       this.#unsubscribeUsageScan?.();
       this.#unsubscribeUsageScan = undefined;
       this.#unsubscribeSkillsList?.();
@@ -1580,6 +1609,62 @@ export class DaemonRuntime {
     return item;
   }
 
+  async reminder(context: string, request: LocalReminderRequest, agentApiKey: string) {
+    if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
+    const agentId = this.#agentIdForContext(context);
+    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    if (request.operation === "ack" || request.operation === "dismiss") {
+      const accepted = await this.#reminders.acknowledge(
+        agentId,
+        request.reminderId!,
+        request.revision!,
+      );
+      if (!accepted)
+        return { accepted: false, reason: "reminder receipt not found for exact revision" };
+      await (
+        await this.#appInbox(agentId)
+      ).remove(`reminder:${request.reminderId}:${request.revision}`);
+      return { accepted: true, reminderId: request.reminderId, revision: request.revision };
+    }
+    if (!this.#transport.agentReminder) throw new Error("Agent reminder transport is unavailable");
+    const { context: _context, revision: _revision, ...fields } = request;
+    return this.#transport.agentReminder(
+      {
+        ...fields,
+        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+        workspaceId: this.#connection.workspaceId,
+        computerId: this.#connection.computerId,
+        agentId,
+      } as AgentReminderOperationRequest,
+      agentApiKey,
+    );
+  }
+
+  async #acceptReminderDue(job: ReminderJob): Promise<boolean> {
+    const item = await (
+      await this.#appInbox(job.ownerAgentId)
+    ).upsert({
+      appId: "system.reminder",
+      notificationClass: "due",
+      sourceRef: { kind: "reminder", id: job.reminderId, revision: String(job.version) },
+      title: reminderAppInboxPreview(job.title),
+      summary: "Reminder due",
+    });
+    return this.#notifyAppItem(job.ownerAgentId, item.itemId);
+  }
+
+  async #requestReminderSnapshot(agentId: string): Promise<void> {
+    if (!this.#transport.requestSnapshot) return;
+    const sync: ReminderSync = await this.#transport.requestSnapshot({
+      protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+      requestId: crypto.randomUUID(),
+      workspaceId: this.#connection.workspaceId,
+      computerId: this.#connection.computerId,
+      agentId,
+    });
+    await this.#reminders.apply(sync);
+  }
+
   async inbox(context: string, request: LocalInboxRequest): Promise<InboxResponse> {
     if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
     const agentId = this.#agentIdForContext(context);
@@ -1618,22 +1703,29 @@ export class DaemonRuntime {
     return inbox;
   }
 
-  async #notifyAppItem(agentId: string, itemId: string): Promise<void> {
-    const notified = this.#notifiedAppItems.get(agentId) ?? new Set<string>();
+  async #notifyAppItem(agentId: string, itemId: string): Promise<boolean> {
+    const notified = this.#notifiedAppItems.get(agentId) ?? new Map<string, Promise<boolean>>();
     this.#notifiedAppItems.set(agentId, notified);
-    if (notified.has(itemId)) return;
-    let session = this.#agentProcessManager.session(agentId);
-    if (!session) {
-      const wakeable = this.#agentProcessManager.restartConfig(agentId);
-      if (!wakeable) return;
-      session = (await this.startAgent(agentId, wakeable.config, wakeable.sessionId)).session;
-    }
-    if (!session.notify || notified.has(itemId)) return;
-    notified.add(itemId);
-    try {
+    const existing = notified.get(itemId);
+    if (existing) return existing;
+    const pending = Promise.resolve().then(async () => {
+      let session = this.#agentProcessManager.session(agentId);
+      if (!session) {
+        const wakeable = this.#agentProcessManager.restartConfig(agentId);
+        if (!wakeable) return false;
+        session = (await this.startAgent(agentId, wakeable.config, wakeable.sessionId)).session;
+      }
+      if (!session.notify) return false;
       await session.notify("New app item available. Run coforge inbox check.");
+      return true;
+    });
+    notified.set(itemId, pending);
+    try {
+      const accepted = await pending;
+      if (!accepted && notified.get(itemId) === pending) notified.delete(itemId);
+      return accepted;
     } catch (error) {
-      notified.delete(itemId);
+      if (notified.get(itemId) === pending) notified.delete(itemId);
       throw error;
     }
   }
@@ -1666,6 +1758,7 @@ export class DaemonRuntime {
   issueAgentContext(agentId: string, context: string = crypto.randomUUID()): string {
     if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
     this.#agentContexts.set(agentId, context);
+    void this.#requestReminderSnapshot(agentId).catch(() => {});
     return context;
   }
 
@@ -1685,6 +1778,9 @@ export class DaemonRuntime {
     this.#unsubscribeAgentWorkspaceReset = undefined;
     this.#unsubscribeAgentMessage?.();
     this.#unsubscribeAgentMessage = undefined;
+    this.#unsubscribeReminderSync?.();
+    this.#unsubscribeReminderSync = undefined;
+    this.#reminders.stop();
     this.#unsubscribeUsageScan?.();
     this.#unsubscribeUsageScan = undefined;
     this.#unsubscribeSkillsList?.();

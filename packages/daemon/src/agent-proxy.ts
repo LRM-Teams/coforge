@@ -1,5 +1,10 @@
 import { randomBytes } from "node:crypto";
-import type { LocalAgentMessageRequest, LocalInboxRequest } from "@coforge/protocol";
+import {
+  encodeLocalReminderRequest,
+  type LocalAgentMessageRequest,
+  type LocalInboxRequest,
+  type LocalReminderRequest,
+} from "@coforge/protocol";
 import { isAgentApiKey } from "./credentials/agent-api-key";
 import { AgentMessageRequestError } from "./connection/agent-message-request-error";
 
@@ -22,6 +27,11 @@ export function startAgentProxy(input: {
     ): Promise<unknown>;
     agentAttachment?(context: string, attachmentId: string, agentApiKey: string): Promise<Response>;
     inbox?(context: string, request: LocalInboxRequest): Promise<unknown>;
+    reminder?(
+      context: string,
+      request: LocalReminderRequest,
+      agentApiKey: string,
+    ): Promise<unknown>;
     issueAgentContext?: (agentId: string, context?: string) => string;
   };
   port?: number;
@@ -40,6 +50,7 @@ export function startAgentProxy(input: {
       if (
         (request.method !== "POST" || requestUrl.pathname !== "/agent/message") &&
         (request.method !== "POST" || requestUrl.pathname !== "/agent/inbox") &&
+        (request.method !== "POST" || requestUrl.pathname !== "/agent/reminder") &&
         (request.method !== "GET" || requestUrl.pathname !== "/agent/attachment")
       )
         return new Response("not found", { status: 404 });
@@ -79,6 +90,14 @@ export function startAgentProxy(input: {
         if (!body || typeof body !== "object" || Array.isArray(body))
           return new Response("bad request", { status: 400 });
         const payload = body as Record<string, unknown>;
+        if (requestUrl.pathname === "/agent/reminder") {
+          if (!input.runtime.reminder) return new Response("not found", { status: 404 });
+          const local = { ...payload, context: binding.context } as LocalReminderRequest;
+          encodeLocalReminderRequest(local);
+          return Response.json(
+            await input.runtime.reminder(binding.context, local, binding.agentApiKey),
+          );
+        }
         if (requestUrl.pathname === "/agent/inbox") {
           if (!input.runtime.inbox) return new Response("not found", { status: 404 });
           if (typeof payload.requestId !== "string" || payload.operation !== "check")

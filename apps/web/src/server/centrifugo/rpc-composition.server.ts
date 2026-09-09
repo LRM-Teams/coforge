@@ -5,6 +5,8 @@ import {
   WORKSPACE_LIST_METHOD,
   AGENT_SKILLS_LIST_RESULT_METHOD,
   AGENT_CONTROL_RESULT_METHOD,
+  REMINDER_FIRE_METHOD,
+  REMINDER_SNAPSHOT_METHOD,
 } from "@coforge/protocol";
 import { createAgentSkillsListResultMethod } from "./agent-skills-cache.server";
 
@@ -30,6 +32,8 @@ import {
   createDaemonRuntimeUsageScanResultMethod,
   createDaemonConnectionStatusMethod,
   createAgentStatusMethod,
+  createReminderFireMethod,
+  createReminderSnapshotMethod,
 } from "./rpc-handler.server";
 import {
   DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD,
@@ -77,6 +81,11 @@ import { bestEffortMessageNotifier } from "../notifications/web-push-composition
 import { createAgentSessions } from "../db/repositories/agent-session.repositories.server";
 import { AgentSessionReceiver } from "../agents/agent-session.server";
 import { createAgentControlResultMethod } from "./agent-control-receiver.server";
+import { PrismaReminderRepository } from "../db/repositories/reminder.repositories.server";
+import { Reminders } from "../reminders/reminders.server";
+import { getReminderCapabilityLease } from "../reminders/reminder-capability.server";
+import { daemonControlChannel } from "./server-api.server";
+import { encodeReminderSync } from "@coforge/protocol";
 
 const unavailable: CentrifugoRpcError = {
   code: 503,
@@ -184,6 +193,14 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       sessions,
     );
     const sessionReceiver = new AgentSessionReceiver(controlStore);
+    const reminderRepository = new PrismaReminderRepository(db);
+    const reminderLease = getReminderCapabilityLease();
+    const reminders = new Reminders(reminderRepository, reminderLease, (sync) =>
+      centrifugo.publish(
+        daemonControlChannel(sync.workspaceId, sync.computerId),
+        encodeReminderSync(sync),
+      ),
+    );
     return new CentrifugoRpcHandler({
       methods: {
         [AGENT_SESSION_METHOD]: createAgentSessionMethod(sessions, sessionReceiver),
@@ -200,8 +217,33 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
             control,
           ),
           getComputerRestartStore(),
+          reminderLease,
+          {
+            snapshotAssigned: async (workspaceId, computerId) => {
+              const agents = await db.agent.findMany({
+                where: { workspaceId, computerId },
+                select: { id: true, ownerId: true },
+              });
+              for (const agent of agents) {
+                const bytes = await reminders.snapshot({
+                  protocolMajor: 1,
+                  requestId: crypto.randomUUID(),
+                  workspaceId,
+                  computerId,
+                  agentId: agent.id,
+                  userId: agent.ownerId,
+                });
+                await centrifugo.publish(daemonControlChannel(workspaceId, computerId), bytes);
+              }
+            },
+          },
         ),
-        [DAEMON_CONNECTION_STATUS_METHOD]: createDaemonConnectionStatusMethod(),
+        [REMINDER_FIRE_METHOD]: createReminderFireMethod(reminders),
+        [REMINDER_SNAPSHOT_METHOD]: createReminderSnapshotMethod(reminders),
+        [DAEMON_CONNECTION_STATUS_METHOD]: createDaemonConnectionStatusMethod(
+          undefined,
+          reminderLease,
+        ),
         [DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD]: createDaemonRuntimeCodeAgentsUpdateMethod(
           new PrismaComputerRuntimeRepository(db),
         ),
@@ -259,6 +301,8 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       [AGENT_MESSAGE_ACK_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_READ_METHOD]: unavailableMethod,
       [AGENT_MESSAGE_SEND_METHOD]: unavailableMethod,
+      [REMINDER_FIRE_METHOD]: unavailableMethod,
+      [REMINDER_SNAPSHOT_METHOD]: unavailableMethod,
     },
     authenticateEnvelope: (request, context) =>
       requireAuthenticatedCentrifugoUser(request, context, {

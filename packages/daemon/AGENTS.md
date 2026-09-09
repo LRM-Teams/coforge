@@ -24,6 +24,7 @@ src/
 ├── local-rpc/                      # Computer↔Daemon IPC server and handlers
 ├── daemon-runtime/                 # child-owned one-Workspace runtime
 ├── agent-app-inbox/                # typed Agent-scoped App items and registry
+├── agent-reminder/                 # authoritative reminder mirror, timers, and durable fire receipts
 ├── connection/                    # Daemon WSS connection and reconnect loop
 ├── protocol/                       # daemon-side protocol ports/codecs
 ├── agent-runtime/                  # Agent state, activity, and process control
@@ -163,6 +164,9 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   all canonical history.
 - `agent-app-inbox/` owns typed App-item identity, validation, retention, and
   acknowledgement. It is separate from canonical chat Message attention.
+- `agent-reminder/` owns the authenticated cloud schedule mirror, version-fenced
+  timers, bounded durable fire receipts, and exact-revision acknowledgement. It
+  never persists the schedule mirror or wakes an Agent before cloud acceptance.
 - `persistence/` owns durable local state and atomic App Inbox storage. A
   connection outbox is not durable storage.
 - `platform/` contains OS-specific details only. Do not leak platform APIs

@@ -126,6 +126,7 @@ export type DaemonRuntimeReadyRequest = {
   startedAt: number;
   runningAgentIds: string[];
   recoveredRestartRequestIds?: string[];
+  capabilities?: string[];
 };
 export type ComputerRestartIntent = {
   protocolMajor: number;
@@ -414,3 +415,4 @@ export {
 } from "./codec";
 export * from "./agent-skills";
 export * from "./agent-control";
+export * from "./reminder";

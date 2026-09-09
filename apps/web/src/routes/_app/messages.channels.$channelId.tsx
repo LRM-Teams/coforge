@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { ChannelConversation } from "@/features/conversations/channel-conversation";
 import { createConversationReconciler } from "@/features/conversations/conversation-reconciliation";
 import { useConversationRealtime } from "@/features/conversations/conversation-realtime-client";
+import { loadReminderNotices } from "@/features/conversations/reminder-notices.functions";
 import {
   loadConversationAround,
   loadOwnConversationMessages,
@@ -34,6 +35,8 @@ function ChannelPage() {
   const loadAround = useServerFn(loadConversationAround);
   const loadOwnMessages = useServerFn(loadOwnConversationMessages);
   const loadUpdates = useServerFn(loadPublicChannelUpdates);
+  const loadNotices = useServerFn(loadReminderNotices);
+  const [reminderRefreshKey, setReminderRefreshKey] = useState(0);
   const channelIdRef = useRef(channelId);
   const loadUpdatesRef = useRef(loadUpdates);
   const mergeUpdatesRef = useRef<(updates: typeof conversation.messages) => void>(() => {});
@@ -62,7 +65,10 @@ function ChannelPage() {
       ),
     [latestConversation.conversationId],
   );
-  useConversationRealtime(latestConversation.conversationId, reconciliation.reconcile);
+  useConversationRealtime(latestConversation.conversationId, async () => {
+    await reconciliation.reconcile();
+    setReminderRefreshKey((value) => value + 1);
+  });
 
   useEffect(() => {
     setConversation((current) => {
@@ -81,6 +87,10 @@ function ChannelPage() {
     <ChannelConversation
       key={channelId}
       conversation={conversation}
+      reminderRefreshKey={reminderRefreshKey}
+      onLoadReminderNotices={async () =>
+        (await loadNotices({ data: { conversationId: conversation.conversationId } })).notices
+      }
       onSend={async (body, requestId, attachmentId) => {
         const message = await send({
           data: { channelId, body, requestId, attachmentId },

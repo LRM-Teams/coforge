@@ -1,6 +1,162 @@
 import { expect, test } from "bun:test";
 import { parseArgs, run } from "../index";
 
+const reminderId = "12345678-1234-4123-8123-123456789abc";
+
+test("parses recurring reminders with an explicit default timezone and dispatches them", async () => {
+  const invocation = parseArgs([
+    "reminder",
+    "schedule",
+    "--title",
+    "Daily standup",
+    "--target",
+    "@ada:abcdef12",
+    "--message-id",
+    "deadbeef",
+    "--repeat",
+    "daily@09:30",
+  ]);
+  expect(invocation).toEqual({
+    command: "reminder",
+    operation: "schedule",
+    title: "Daily standup",
+    target: "@ada:abcdef12",
+    messageId: "deadbeef",
+    repeat: "daily@09:30",
+    timezone: "Asia/Shanghai",
+  });
+  const calls: unknown[] = [];
+  const output = await run(
+    [
+      "reminder",
+      "schedule",
+      "--title",
+      "Daily standup",
+      "--target",
+      "#general",
+      "--message-id",
+      "deadbeef",
+      "--fire-at",
+      "2026-09-09T09:30:00+08:00",
+      "--repeat",
+      "weekly:mon,fri@09:30",
+      "--tz",
+      "Asia/Shanghai",
+    ],
+    {
+      check: async () => ({ messages: [] }),
+      read: async () => undefined,
+      send: async () => undefined,
+      view: async () => ({ bytes: new Uint8Array() }),
+      reminder: async (request) => {
+        calls.push(request);
+        return {
+          protocolMajor: 1,
+          requestId: "request",
+          workspaceId: "workspace",
+          computerId: "computer",
+          agentId: "agent",
+          accepted: true,
+          reminders: [],
+          events: [],
+        };
+      },
+    },
+  );
+  expect(calls).toEqual([
+    {
+      operation: "schedule",
+      title: "Daily standup",
+      target: "#general",
+      messageId: "deadbeef",
+      fireAt: "2026-09-09T09:30:00+08:00",
+      repeat: "weekly:mon,fri@09:30",
+      timezone: "Asia/Shanghai",
+    },
+  ]);
+  expect(output).toBe("Accepted reminder schedule request.");
+});
+
+test("rejects malformed and ambiguous reminder commands", () => {
+  expect(() => parseArgs(["reminder", "cancel", "--id", "12345678"])).toThrow("full UUID");
+  expect(() => parseArgs(["reminder", "list", "--all", "--status", "scheduled"])).toThrow("Usage:");
+  expect(() =>
+    parseArgs([
+      "reminder",
+      "snooze",
+      "--id",
+      reminderId,
+      "--delay-seconds",
+      "2",
+      "--fire-at",
+      "2026-09-09T00:00:00Z",
+    ]),
+  ).toThrow("Usage:");
+  expect(() => parseArgs(["reminder", "schedule", "--title", "a", "--title", "b"])).toThrow(
+    "Duplicate",
+  );
+  expect(() => parseArgs(["reminder", "log", "--wat", "x"])).toThrow("Unknown");
+});
+
+test("formats usable reminder lists, empty logs, and receipt acknowledgements", async () => {
+  const base = {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+  };
+  const output = await run(["reminder", "list", "--all"], {
+    ...base,
+    reminder: async () => ({
+      protocolMajor: 1,
+      requestId: "request",
+      workspaceId: "workspace",
+      computerId: "computer",
+      agentId: "agent",
+      accepted: true,
+      events: [],
+      reminders: [
+        {
+          reminderId,
+          ownerAgentId: "agent",
+          version: 3,
+          title: "Deploy",
+          target: "#release",
+          messageId: "deadbeef",
+          fireAt: "2026-09-09T01:00:00Z",
+          status: "scheduled",
+          repeat: "every:1d",
+          timezone: "Asia/Shanghai",
+          createdAt: "2026-09-08T01:00:00Z",
+        },
+      ],
+    }),
+  });
+  expect(output).toContain(`id=${reminderId} revision=3 status=scheduled`);
+  expect(output).toContain("anchor=deadbeef target=#release");
+  expect(
+    await run(["reminder", "log", "--id", reminderId], {
+      ...base,
+      reminder: async () => ({
+        protocolMajor: 1,
+        requestId: "request",
+        workspaceId: "workspace",
+        computerId: "computer",
+        agentId: "agent",
+        accepted: true,
+        reminders: [],
+        events: [],
+      }),
+    }),
+  ).toBe("No reminder events found.");
+  expect(
+    await run(["reminder", "ack", "--id", reminderId, "--revision", "3"], {
+      ...base,
+      reminder: async () => ({ accepted: true, reminderId, revision: 3 }),
+    }),
+  ).toContain(`id=${reminderId} revision=3`);
+});
+
 test("Agent channel mute and unmute change its own setting without sending a message", async () => {
   const calls: unknown[] = [];
   for (const command of ["mute", "unmute"] as const) {

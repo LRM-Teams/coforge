@@ -1,5 +1,14 @@
 import { useState, type FormEvent } from "react";
-import { AlertCircle, Bot, Monitor, Pencil, X } from "lucide-react";
+import {
+  Activity as ActivityIcon,
+  AlertCircle,
+  Bell,
+  Bot,
+  Monitor,
+  Pencil,
+  UserRound,
+  X,
+} from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
 import { Avatar } from "@/components/ui/avatar";
@@ -26,6 +35,7 @@ import {
 } from "./agent-activity-presentation";
 import { AgentSkills, type AgentSkillsLoadResult } from "./agent-skills";
 import { AgentControl } from "./agent-control";
+import { AgentReminders } from "./agent-reminders";
 
 type Detail = Awaited<ReturnType<typeof import("./agents.functions").getAgentDetail>>;
 
@@ -40,10 +50,11 @@ export function AgentDetail({
   onLoadRuntimeOptions,
   onLoadSkills,
   onExecuteControl,
+  onLoadReminders = async () => ({ status: "unauthorized" }),
 }: {
   detail: Detail;
   activity?: ActivityEntry[];
-  tab: "profile" | "activity";
+  tab: "profile" | "activity" | "reminders";
   timeZone: string | null;
   onSaveRuntimeCredential: (apiKey: string) => Promise<void>;
   onDeleteRuntimeCredential: () => Promise<void>;
@@ -51,6 +62,7 @@ export function AgentDetail({
   onLoadRuntimeOptions: (computerId: string) => Promise<RuntimeOptions>;
   onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
   onExecuteControl?: Parameters<typeof AgentControl>[0]["onExecute"];
+  onLoadReminders?: Parameters<typeof AgentReminders>[0]["onLoad"];
 }) {
   const online = detail.status.value === "unknown" ? undefined : detail.status.value === "active";
   const statusLabel =
@@ -87,20 +99,35 @@ export function AgentDetail({
         </Link>
       </div>
       <nav className="mt-6 flex shrink-0 gap-1 border-b" aria-label={m.agent_detail_tabs()}>
-        {(["profile", "activity"] as const).map((value) => (
+        {(["profile", "activity", "reminders"] as const).map((value) => (
           <Link
             key={value}
             to="/agents/$agentId"
             params={{ agentId: detail.id }}
             search={{ tab: value }}
-            className={`border-b-2 px-4 py-2 text-sm font-medium ${tab === value ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}
+            className={`inline-flex items-center gap-1 border-b-2 px-2 py-2 text-sm font-medium sm:gap-2 sm:px-4 ${tab === value ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}
           >
-            {value === "profile" ? m.agent_profile_tab() : m.agent_activity_tab()}
+            {value === "profile" && <UserRound className="size-4 shrink-0" aria-hidden="true" />}
+            {value === "activity" && (
+              <ActivityIcon className="size-4 shrink-0" aria-hidden="true" />
+            )}
+            {value === "reminders" && <Bell className="size-4 shrink-0" aria-hidden="true" />}
+            {value === "profile"
+              ? m.agent_profile_tab()
+              : value === "activity"
+                ? m.agent_activity_tab()
+                : m.agent_reminders_tab()}
           </Link>
         ))}
       </nav>
       <section
-        aria-label={tab === "profile" ? m.agent_profile_tab() : m.agent_activity_tab()}
+        aria-label={
+          tab === "profile"
+            ? m.agent_profile_tab()
+            : tab === "activity"
+              ? m.agent_activity_tab()
+              : m.agent_reminders_tab()
+        }
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
       >
         {tab === "profile" && latestError && (
@@ -126,8 +153,15 @@ export function AgentDetail({
             onLoadSkills={onLoadSkills}
             onExecuteControl={onExecuteControl}
           />
-        ) : (
+        ) : tab === "activity" ? (
           <Activity activity={activity} timeZone={timeZone} />
+        ) : (
+          <AgentReminders
+            agentId={detail.id}
+            owned={detail.ownedByCurrentUser}
+            timeZone={timeZone}
+            onLoad={onLoadReminders}
+          />
         )}
       </section>
     </main>
