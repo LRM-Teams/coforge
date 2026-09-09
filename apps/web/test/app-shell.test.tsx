@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { useState, type ComponentProps } from "react";
 
 import { AppShell } from "@/components/app-shell";
+import { MobileNavigationButton } from "@/components/layout/mobile-navigation";
 import { AppToastProvider } from "@/components/ui/toast";
 import type { AgentView } from "@/features/agents/agents-content";
 import { AgentsContent as MembersContent } from "@/features/agents/agents-content";
@@ -151,7 +152,7 @@ function renderAgents(
   );
 }
 
-test("shows the current Workspace below the logo", () => {
+test("shows the icon-only CoForge brand and current Workspace", () => {
   render(
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
@@ -166,10 +167,26 @@ test("shows the current Workspace below the logo", () => {
     </RouterContextProvider>,
   );
 
-  expect(page().getByAltText("CoForge")).toBeTruthy();
+  const brand = page().getByAltText("CoForge");
+  expect(brand.parentElement?.textContent).toBe("");
   expect(page().getByRole("button", { name: "Current workspace" }).textContent).toContain(
     "LRM-Team",
   );
+});
+
+test("shows an icon with the Sign out action", async () => {
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <AppToastProvider>
+        <AppShell user={user}>Page</AppShell>
+      </AppToastProvider>
+    </RouterContextProvider>,
+  );
+
+  await userEvent.setup({ document }).click(page().getByRole("button", { name: "Current user" }));
+  expect(
+    (await page().findByRole("menuitem", { name: "Sign out" })).querySelector("svg"),
+  ).toBeTruthy();
 });
 
 test("shows the primary navigation with Members selected", () => {
@@ -215,7 +232,11 @@ test("keeps Tasks selected in expanded and collapsed navigation", async () => {
 
   expect(page().getByRole("link", { name: "Tasks" }).getAttribute("aria-current")).toBe("page");
   await userEvent.setup().click(page().getByRole("button", { name: "Hide sidebar" }));
-  expect(page().getByRole("link", { name: "Tasks" }).getAttribute("aria-current")).toBe("page");
+  const collapsedTask = page().getByRole("link", { name: "Tasks" });
+  expect(collapsedTask.getAttribute("aria-current")).toBe("page");
+  expect(collapsedTask.className).toContain("size-10");
+  expect(collapsedTask.closest("[data-sidebar-rail]")?.className).toContain("bg-transparent");
+  expect(collapsedTask.closest("[data-sidebar-rail]")?.className).not.toContain("border-r");
   window.history.pushState({}, "", "/en");
 });
 
@@ -442,11 +463,11 @@ test("submits the public creation form callback", async () => {
   fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
     target: { value: "Build and release helper" },
   });
-  await browserUser.click(page().getByRole("combobox", { name: "Runtime provider" }));
+  await browserUser.click(page().getByRole("button", { name: "Runtime provider" }));
   await browserUser.click(page().getByRole("option", { name: "Claude Code" }));
-  await browserUser.click(page().getByRole("combobox", { name: /Model/ }));
+  await browserUser.click(page().getByRole("button", { name: /Model/ }));
   await browserUser.click(page().getByRole("option", { name: "Sonnet" }));
-  await browserUser.click(page().getByRole("combobox", { name: /Reasoning/ }));
+  await browserUser.click(page().getByRole("button", { name: /Reasoning/ }));
   await browserUser.click(page().getByRole("option", { name: "high" }));
   fireEvent.click(page().getByRole("button", { name: "Create agent" }));
   await waitFor(() =>
@@ -471,9 +492,9 @@ test("selects a CoForge model provider before its model", async () => {
   fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
     target: { value: "Uses a selected model provider" },
   });
-  await browserUser.click(page().getByRole("combobox", { name: "Model provider" }));
+  await browserUser.click(page().getByRole("button", { name: "Model provider" }));
   await browserUser.click(page().getByRole("option", { name: "anthropic" }));
-  await browserUser.click(page().getByRole("combobox", { name: "Model Optional" }));
+  await browserUser.click(page().getByRole("button", { name: "Model Optional" }));
   await browserUser.click(page().getByRole("option", { name: "anthropic / Claude Sonnet" }));
   fireEvent.click(page().getByRole("button", { name: "Create agent" }));
   await waitFor(() =>
@@ -526,6 +547,70 @@ test("collapsing the sidebar keeps navigation and the user menu reachable", () =
   expect(page().getAllByLabelText("Current user").length).toBe(1);
   for (const name of ["Members", "Messages", "Computers"]) {
     expect(page().getByRole("link", { name }).getAttribute("href")).toBeTruthy();
+  }
+});
+
+test("keeps main content state across desktop collapse and the mobile drawer", () => {
+  let mobile = false;
+  const media = jest.spyOn(window, "matchMedia").mockImplementation((query) => ({
+    matches: query === "(max-width: 767px)" && mobile,
+    media: query,
+    onchange: null,
+    addListener() {},
+    removeListener() {},
+    addEventListener() {},
+    removeEventListener() {},
+    dispatchEvent: () => true,
+  }));
+
+  function StatefulPage() {
+    const [value, setValue] = useState("");
+    return (
+      <main>
+        <MobileNavigationButton />
+        <input
+          aria-label="Page state"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        />
+      </main>
+    );
+  }
+
+  try {
+    render(
+      <RouterContextProvider router={getRouter()}>
+        <AppToastProvider>
+          <AppShell user={user}>
+            <StatefulPage />
+          </AppShell>
+        </AppToastProvider>
+      </RouterContextProvider>,
+    );
+
+    const state = page().getByRole("textbox", { name: "Page state" });
+    fireEvent.input(state, { target: { value: "preserved" } });
+    const separator = page().getByRole("separator", { name: "Resize sidebar" });
+    expect(separator.getAttribute("aria-orientation")).toBe("vertical");
+    expect(separator.getAttribute("tabindex")).toBe("0");
+    fireEvent.click(page().getByRole("button", { name: "Hide sidebar" }));
+    const rail = document.querySelector("[data-sidebar-rail]");
+    if (!(rail instanceof HTMLElement)) throw new Error("Collapsed sidebar was not rendered");
+    fireEvent.click(within(rail).getByRole("button", { name: "Show sidebar" }));
+
+    mobile = true;
+    const mainPanel = state.closest("#app-main-panel");
+    if (!(mainPanel instanceof HTMLElement)) throw new Error("Main panel was not rendered");
+    const mobileMenu = mainPanel.querySelector<HTMLButtonElement>(
+      'button[aria-controls="app-sidebar"]',
+    );
+    if (!mobileMenu) throw new Error("Mobile navigation button was not rendered");
+    fireEvent.click(mobileMenu);
+    expect(mobileMenu.getAttribute("aria-expanded")).toBe("true");
+    expect(page().getByRole("textbox", { name: "Page state" })).toBe(state);
+    expect((state as HTMLInputElement).value).toBe("preserved");
+  } finally {
+    media.mockRestore();
   }
 });
 

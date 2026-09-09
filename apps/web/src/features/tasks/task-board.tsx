@@ -1,5 +1,10 @@
 import type { TaskStatus, TaskView } from "@coforge/protocol";
-import { CircleDot, ListTodo, Lock, UserRound } from "lucide-react";
+import {
+  Circle as CircleDot,
+  CheckSquare as ListTodo,
+  Lock01 as Lock,
+  UserCircle as UserRound,
+} from "@untitledui/icons";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -27,6 +32,7 @@ export type TaskBoardProps = {
   onCreateTask?: (title: string, requestId: string) => Promise<TaskView | void>;
   layout?: TaskLayout;
   onLayoutChange?: (layout: TaskLayout) => void;
+  header?: React.ReactNode;
 };
 
 export function TaskBoard({
@@ -42,18 +48,34 @@ export function TaskBoard({
   onCreateTask,
   layout = "board",
   onLayoutChange = () => {},
+  header,
 }: TaskBoardProps) {
   const [createOpen, setCreateOpen] = useState(false);
   return (
     <section aria-label={m.tasks_board()} className="flex min-h-0 flex-1 flex-col bg-background">
+      {header}
       <header className="shrink-0 border-b px-3 sm:px-5">
-        {conversationName && (
-          <div className="-mx-3 flex h-14 items-center border-b px-3 sm:-mx-5 sm:px-5">
-            <h1 className="truncate text-base font-medium">{conversationName}</h1>
-          </div>
+        {!header && (
+          <>
+            {conversationName && (
+              <div className="-mx-3 flex h-14 items-center border-b px-3 sm:-mx-5 sm:px-5">
+                <h1 className="truncate text-base font-medium">{conversationName}</h1>
+              </div>
+            )}
+            <div className="border-t py-2">
+              <ConversationTaskTabs
+                active="tasks"
+                taskCount={tasks.length}
+                onShowChat={onShowChat}
+              />
+            </div>
+          </>
         )}
-        <div className="flex flex-wrap items-center gap-2 py-2">
-          <ConversationTaskTabs active="tasks" taskCount={tasks.length} onShowChat={onShowChat} />
+        <div
+          role="toolbar"
+          aria-label={m.tasks_layout()}
+          className="flex flex-wrap items-center gap-2 border-t py-2"
+        >
           <TaskLayoutToggle layout={layout} onChange={onLayoutChange} />
           {canMutate && onCreateTask && (
             <Button type="button" size="sm" className="ml-auto" onClick={() => setCreateOpen(true)}>

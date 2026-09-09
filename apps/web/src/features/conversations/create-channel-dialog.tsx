@@ -1,5 +1,5 @@
 import { useId, useRef, useState, type FormEvent } from "react";
-import { X } from "lucide-react";
+import { XClose as X } from "@untitledui/icons";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -55,18 +55,18 @@ export function CreateChannelDialog({
     >
       <DialogPortal>
         <DialogBackdrop />
-        <DialogPopup className="w-[calc(100vw-2rem)] max-w-md rounded-2xl border bg-card p-6 shadow-xl">
+        <DialogPopup className="w-[calc(100vw-2rem)] max-w-md rounded-xl border bg-card p-6 shadow-xl">
           <DialogClose
             aria-label={m.controls_close()}
-            className="absolute top-4 right-4 rounded-md p-1 hover:bg-muted"
+            className="absolute top-4 right-4 rounded-lg p-2 text-muted-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
             <X className="size-4" />
           </DialogClose>
-          <DialogTitle className="text-base font-semibold">{m.channel_create()}</DialogTitle>
+          <DialogTitle className="pr-8 text-lg font-semibold">{m.channel_create()}</DialogTitle>
           <DialogDescription className="mt-2 text-sm text-muted-foreground">
             {m.channel_public_description()}
           </DialogDescription>
-          <form onSubmit={(event) => void submit(event)} className="mt-5 flex flex-col gap-3">
+          <form onSubmit={(event) => void submit(event)} className="mt-5 flex flex-col gap-2">
             <label htmlFor={id} className="text-sm font-medium">
               {m.channel_name()}
             </label>
@@ -80,7 +80,7 @@ export function CreateChannelDialog({
               placeholder="engineering"
               disabled={saving}
               aria-describedby={`${id}-hint`}
-              className="h-10 rounded-lg border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+              className="h-10 rounded-lg border bg-background px-3 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-50"
             />
             <p id={`${id}-hint`} className="text-xs text-muted-foreground">
               {m.channel_name_hint()}
@@ -93,7 +93,7 @@ export function CreateChannelDialog({
             <Button
               type="submit"
               disabled={saving || !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(name.trim())}
-              className="mt-2 self-end"
+              className="mt-4 w-full"
             >
               {m.channel_create()}
             </Button>

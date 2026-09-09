@@ -1,12 +1,12 @@
-import { RefreshCw } from "lucide-react";
-import { useState } from "react";
-import { Popover } from "@base-ui/react/popover";
+import { RefreshCw01 as RefreshCw } from "@untitledui/icons";
+import { useEffect, useRef, useState } from "react";
 import claudeCodeMark from "@lobehub/icons-static-svg/icons/claudecode-color.svg";
 import codexMark from "@lobehub/icons-static-svg/icons/codex.svg";
 import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
 
 import type { RuntimeProvider } from "@coforge/protocol";
 import { Button } from "@/components/ui/button";
+import { HoverPopover } from "@/components/ui/hover-popover";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { m } from "@/paraglide/messages";
 
@@ -76,6 +76,11 @@ export function RuntimeUsage({
   onScan: () => void;
 }) {
   const [scanning, setScanning] = useState(false);
+  const [openCount, setOpenCount] = useState(0);
+  const scanButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (openCount > 0) scanButtonRef.current?.focus();
+  }, [openCount]);
   const unsupported =
     runtime.provider === "pi" || runtime.provider === "coforge" || usage?.status === "unsupported";
   const scan = async () => {
@@ -90,92 +95,74 @@ export function RuntimeUsage({
   if (unsupported) return <RuntimeIdentity runtime={runtime} />;
 
   return (
-    <Popover.Root>
-      <Popover.Trigger
-        openOnHover
-        delay={250}
-        closeDelay={200}
-        aria-label={`${runtime.displayName} · ${m.computer_usage_title()}`}
-        className="-m-1 min-w-0 rounded-lg p-1 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <RuntimeIdentity runtime={runtime} />
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Positioner
-          side="bottom"
-          align="start"
-          sideOffset={12}
-          collisionPadding={12}
-          className="z-50"
+    <HoverPopover
+      label={`${runtime.displayName} · ${m.computer_usage_title()}`}
+      trigger={<RuntimeIdentity runtime={runtime} />}
+      triggerClassName="-m-1 min-w-0 rounded-lg p-1 text-left outline-none hover:bg-muted data-focus-visible:ring-2 data-focus-visible:ring-ring"
+      className="p-4 text-sm"
+      working={scanning}
+      onOpen={() => setOpenCount((count) => count + 1)}
+    >
+      <div className="flex items-center justify-between gap-3 border-b pb-3">
+        <h2 className="min-w-0 font-medium">
+          {runtime.displayName} · {m.computer_usage_title()}
+        </h2>
+        <Button
+          ref={scanButtonRef}
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void scan()}
+          disabled={scanning}
         >
-          <Popover.Popup className="max-h-(--available-height) w-80 max-w-[calc(100vw-24px)] overflow-y-auto rounded-xl border bg-popover p-4 text-sm text-popover-foreground shadow-lg outline-none">
-            <div className="flex items-center justify-between gap-3 border-b pb-3">
-              <Popover.Title className="min-w-0 font-medium">
-                {runtime.displayName} · {m.computer_usage_title()}
-              </Popover.Title>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void scan()}
-                disabled={scanning}
-              >
-                <RefreshCw
-                  aria-hidden="true"
-                  className={scanning ? "size-3 animate-spin" : "size-3"}
+          <RefreshCw aria-hidden="true" className={scanning ? "size-3 animate-spin" : "size-3"} />
+          {scanning
+            ? m.computer_usage_scanning()
+            : usage?.snapshot
+              ? m.computer_usage_refresh()
+              : m.computer_usage_scan()}
+        </Button>
+      </div>
+      {!usage ? (
+        <div className="mt-3 rounded-md bg-muted/50 px-3 py-4 text-center">
+          <p className="font-medium">{m.computer_usage_empty()}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {m.computer_usage_empty_description()}
+          </p>
+        </div>
+      ) : usage.status !== "available" ? (
+        <div className="mt-3 rounded-md border border-dashed px-3 py-3">
+          <p className="font-medium">{m.computer_usage_unavailable()}</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {usageStatusDescription(usage.status)}
+          </p>
+        </div>
+      ) : (
+        <div className="mt-3">
+          {usage.snapshot?.planType && (
+            <span className="inline-flex rounded-md bg-muted px-2 py-1 text-xs font-medium">
+              {m.computer_usage_plan_name({
+                plan: formatPlan(usage.snapshot.planType),
+              })}
+            </span>
+          )}
+          <div className={usage.snapshot?.planType ? "mt-3 grid gap-2" : "grid gap-2"}>
+            {(["primary", "secondary"] as const).map((key) => {
+              const window = usage.snapshot?.[key];
+              if (!window) return null;
+              return (
+                <UsageWindow
+                  key={key}
+                  label={key === "primary" ? m.computer_usage_session() : m.computer_usage_weekly()}
+                  window={window}
+                  timeZone={timeZone}
                 />
-                {scanning
-                  ? m.computer_usage_scanning()
-                  : usage?.snapshot
-                    ? m.computer_usage_refresh()
-                    : m.computer_usage_scan()}
-              </Button>
-            </div>
-            {!usage ? (
-              <div className="mt-3 rounded-md bg-muted/50 px-3 py-4 text-center">
-                <p className="font-medium">{m.computer_usage_empty()}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {m.computer_usage_empty_description()}
-                </p>
-              </div>
-            ) : usage.status !== "available" ? (
-              <div className="mt-3 rounded-md border border-dashed px-3 py-3">
-                <p className="font-medium">{m.computer_usage_unavailable()}</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {usageStatusDescription(usage.status)}
-                </p>
-              </div>
-            ) : (
-              <div className="mt-3">
-                {usage.snapshot?.planType && (
-                  <span className="inline-flex rounded-md bg-muted px-2 py-1 text-xs font-medium">
-                    {m.computer_usage_plan_name({
-                      plan: formatPlan(usage.snapshot.planType),
-                    })}
-                  </span>
-                )}
-                <div className={usage.snapshot?.planType ? "mt-3 grid gap-2" : "grid gap-2"}>
-                  {(["primary", "secondary"] as const).map((key) => {
-                    const window = usage.snapshot?.[key];
-                    if (!window) return null;
-                    return (
-                      <UsageWindow
-                        key={key}
-                        label={
-                          key === "primary" ? m.computer_usage_session() : m.computer_usage_weekly()
-                        }
-                        window={window}
-                        timeZone={timeZone}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </HoverPopover>
   );
 }
 

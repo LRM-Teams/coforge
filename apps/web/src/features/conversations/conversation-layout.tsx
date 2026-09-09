@@ -1,6 +1,11 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { ChevronLeft, Hash, MessagesSquare, Plus } from "lucide-react";
+import {
+  ChevronLeft,
+  Hash01 as Hash,
+  MessageSquare01 as MessagesSquare,
+  Plus,
+} from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
@@ -79,15 +84,15 @@ export function ConversationLayout({
       <nav
         aria-label={m.messages_agent_list_label()}
         className={cn(
-          "min-w-0 flex-col overflow-hidden bg-card md:flex md:w-72 md:shrink-0 md:rounded-xl md:border",
+          "min-w-0 flex-col overflow-hidden bg-card md:flex md:w-72 md:shrink-0 md:rounded-xl md:border xl:w-80",
           listHidden ? "hidden" : "flex w-full",
         )}
       >
         <PageHeader heading={m.messages_title()} />
 
-        <div className="flex-1 overflow-y-auto p-2">
-          <div className="mb-1 flex h-9 items-center justify-between px-2.5">
-            <h2 className="text-xs font-medium text-muted-foreground">{m.channels_title()}</h2>
+        <div className="flex-1 overflow-y-auto px-3 py-4">
+          <div className="mb-2 flex h-8 items-center justify-between px-3">
+            <h2 className="text-xs font-semibold text-muted-foreground">{m.channels_title()}</h2>
             {onCreateChannel && (
               <Button
                 type="button"
@@ -100,7 +105,7 @@ export function ConversationLayout({
               </Button>
             )}
           </div>
-          <ul aria-label={m.channels_title()} className="mb-4">
+          <ul aria-label={m.channels_title()} className="mb-6 space-y-1">
             {channels.map((channel) => (
               <li key={channel.id}>
                 <Link
@@ -110,14 +115,14 @@ export function ConversationLayout({
                   resetScroll={false}
                   onClick={() => setShowMobileAgents(false)}
                   className={cn(
-                    "flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-2.5 text-sm hover:bg-muted",
-                    channel.id === selectedChannelId && "bg-muted",
+                    "flex min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                    channel.id === selectedChannelId && "bg-brand/10 text-brand",
                   )}
                 >
-                  <Hash aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+                  <Hash aria-hidden="true" className="size-5 shrink-0" />
                   <span className="truncate">{channel.name}</span>
                   {channel.joined && (
-                    <span className="ml-auto text-[10px] text-muted-foreground">
+                    <span className="ml-auto rounded-md border bg-card px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
                       {m.channel_joined()}
                     </span>
                   )}
@@ -125,18 +130,18 @@ export function ConversationLayout({
               </li>
             ))}
           </ul>
-          <h2 className="px-2.5 py-2 text-xs font-medium text-muted-foreground">
+          <h2 className="px-3 pb-2 text-xs font-semibold text-muted-foreground">
             {m.messages_agents_action()}
           </h2>
-          <ul>
+          <ul className="space-y-1">
             {agents.map((agent) => {
               const selected = agent.id === selectedAgentId;
               return (
                 <li
                   key={agent.id}
                   className={cn(
-                    "flex min-w-0 items-center gap-3 rounded-lg px-2.5 py-2.5 hover:bg-muted",
-                    selected && "bg-muted",
+                    "flex min-w-0 items-center gap-3 rounded-lg px-3 py-3 transition-colors hover:bg-muted",
+                    selected && "bg-brand/10",
                   )}
                 >
                   <AgentActivityAvatar
@@ -152,10 +157,14 @@ export function ConversationLayout({
                     aria-current={selected ? "page" : undefined}
                     resetScroll={false}
                     onClick={() => setShowMobileAgents(false)}
-                    className="flex min-w-0 flex-1 flex-col gap-1 py-1"
+                    className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-md py-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                   >
-                    <span className="truncate text-xs font-medium">{agent.displayName}</span>
-                    <span className="truncate text-xs text-muted-foreground">@{agent.name}</span>
+                    <span
+                      className={cn("truncate text-sm font-semibold", selected && "text-brand")}
+                    >
+                      {agent.displayName}
+                    </span>
+                    <span className="truncate text-sm text-muted-foreground">@{agent.name}</span>
                   </Link>
                 </li>
               );
@@ -221,10 +230,14 @@ export function BackToAgents() {
 
 export function EmptyConversation() {
   return (
-    <div className="grid h-full place-content-center px-6 text-center">
-      <MessagesSquare aria-hidden="true" className="mx-auto size-6 text-muted-foreground" />
-      <p className="mt-3 font-medium">{m.messages_empty_title()}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{m.messages_empty_description()}</p>
+    <div className="grid h-full place-content-center justify-items-center px-6 text-center">
+      <div className="mb-5 flex size-12 items-center justify-center rounded-xl border bg-card shadow-xs">
+        <MessagesSquare aria-hidden="true" className="size-6 text-muted-foreground" />
+      </div>
+      <p className="text-lg font-semibold">{m.messages_empty_title()}</p>
+      <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
+        {m.messages_empty_description()}
+      </p>
     </div>
   );
 }

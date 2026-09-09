@@ -1,4 +1,4 @@
-import { MonitorX } from "lucide-react";
+import { Monitor03 as MonitorX } from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { m } from "@/paraglide/messages";

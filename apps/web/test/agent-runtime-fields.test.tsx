@@ -29,8 +29,8 @@ test("loads on demand and only offers installed or currently configured runtimes
 
   view.rerender(<AgentRuntimeFields open computerId="computer-1" onLoad={load} />);
   await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
-  await user.click(within(document.body).getByRole("combobox", { name: "Runtime provider" }));
-  expect(within(document.body).getByText("Codex")).toBeTruthy();
+  await user.click(within(document.body).getByRole("button", { name: "Runtime provider" }));
+  expect(within(document.body).getByRole("option", { name: "Codex" })).toBeTruthy();
   expect(within(document.body).queryByText("Claude Code")).toBeNull();
 });
 
@@ -97,7 +97,7 @@ test("keeps a configured model visible when it is absent from the latest catalog
 
   await waitFor(() =>
     expect(
-      within(document.body).getByRole("combobox", { name: /Model Optional/ }).textContent,
+      within(document.body).getByRole("button", { name: /Model Optional/ }).textContent,
     ).toContain("legacy-provider / legacy-model"),
   );
   fireEvent.click(within(document.body).getByRole("button", { name: "Save" }));
@@ -139,11 +139,11 @@ test("submits the model provider selected through an external runtime catalog", 
   );
   await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
 
-  await user.click(within(document.body).getByRole("combobox", { name: /Model Optional/ }));
+  await user.click(within(document.body).getByRole("button", { name: /Model Optional/ }));
   await user.click(within(document.body).getByRole("option", { name: "openai / GPT 5" }));
   await waitFor(() =>
     expect(
-      within(document.body).getByRole("combobox", { name: /Model Optional/ }).textContent,
+      within(document.body).getByRole("button", { name: /Model Optional/ }).textContent,
     ).toContain("openai / GPT 5"),
   );
   await user.click(within(document.body).getByRole("button", { name: "Save" }));

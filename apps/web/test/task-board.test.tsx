@@ -96,6 +96,27 @@ test("task board keeps the conversation title, counted tabs, and Chat callback",
   expect(page.queryByRole("button", { name: "Claim" })).toBeNull();
 });
 
+test("task layout controls use a third operation row below the primary tabs", () => {
+  render(
+    <TaskBoard
+      tasks={tasks}
+      currentMemberId="me"
+      canMutate
+      conversationName="#engineering"
+      onOpenMessage={() => {}}
+      onCommand={async () => {}}
+      onShowChat={() => {}}
+    />,
+  );
+  const page = within(document.body);
+  const tabs = page.getByRole("navigation", { name: "Chat / Tasks" });
+  const operations = page.getByRole("toolbar", { name: "Task layout" });
+  expect(tabs.parentElement?.nextElementSibling).toBe(operations);
+  expect(within(tabs).queryByRole("button", { name: "Board" })).toBeNull();
+  expect(within(operations).getByRole("button", { name: "Board" })).toBeTruthy();
+  expect(within(operations).getByRole("button", { name: "List" })).toBeTruthy();
+});
+
 test("unclaim sends the rendered revision and is hidden for terminal tasks", async () => {
   const onCommand = mock(async () => {});
   render(
@@ -173,10 +194,11 @@ test("create task dialog retries one logical submission with the same request id
   );
   const user = userEvent.setup();
   await user.click(within(document.body).getByRole("button", { name: "Create task" }));
-  await user.type(within(document.body).getByRole("textbox", { name: "Title" }), "Ship release");
-  await user.click(within(document.body).getByRole("button", { name: "Create task" }));
-  expect(await within(document.body).findByRole("alert")).toBeTruthy();
-  await user.click(within(document.body).getByRole("button", { name: "Create task" }));
+  const dialog = within(within(document.body).getByRole("dialog"));
+  await user.type(dialog.getByRole("textbox", { name: "Title" }), "Ship release");
+  await user.click(dialog.getByRole("button", { name: "Create task" }));
+  expect(await dialog.findByRole("alert")).toBeTruthy();
+  await user.click(dialog.getByRole("button", { name: "Create task" }));
   expect(requestIds).toHaveLength(2);
   expect(requestIds[1]).toBe(requestIds[0]);
 });

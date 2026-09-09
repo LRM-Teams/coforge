@@ -14,6 +14,61 @@ const workspaces = [
   { id: "ws-2", slug: "test-team", name: "Test-Team" },
 ];
 
+test("presents the current Workspace as navigation context rather than a select control", () => {
+  const current = {
+    id: "ws-long",
+    slug: "development",
+    name: "Dev User’s Workspace with a very long descriptive name",
+  };
+  render(
+    <AppToastProvider>
+      <WorkspaceSwitcher workspaces={[current]} current={current} />
+    </AppToastProvider>,
+  );
+
+  const trigger = within(document.body).getByRole("button", { name: "Current workspace" });
+  expect(trigger.textContent).toBe(current.name);
+  expect(trigger.querySelectorAll("svg")).toHaveLength(2);
+  expect(trigger.querySelector("[data-workspace-name]")?.className).toContain("truncate");
+  expect(trigger.className).toContain("bg-transparent");
+  expect(trigger.className).not.toContain("aria-expanded:bg-muted");
+  expect(trigger.className).not.toContain("shadow-xs");
+  expect(trigger.className).not.toContain("border");
+  expect(trigger.querySelector("[data-workspace-mark]")?.className).not.toContain("bg-brand");
+  cleanup();
+});
+
+test("dismisses the workspace menu by repeated trigger click, outside click, and Escape", async () => {
+  const user = userEvent.setup({ document });
+  render(
+    <AppToastProvider>
+      <div>
+        <WorkspaceSwitcher workspaces={workspaces} current={workspaces[0]!} />
+        <button type="button">Outside</button>
+      </div>
+    </AppToastProvider>,
+  );
+  const page = within(document.body);
+  const trigger = page.getByRole("button", { name: "Current workspace" });
+
+  await user.click(trigger);
+  expect(page.getByRole("menu")).toBeTruthy();
+  await user.click(trigger);
+  expect(page.queryByRole("menu")).toBeNull();
+
+  await user.click(trigger);
+  await user.click(page.getByRole("button", { name: "Outside" }));
+  expect(page.queryByRole("menu")).toBeNull();
+
+  trigger.focus();
+  await user.keyboard("{Enter}");
+  expect(page.getByRole("menu")).toBeTruthy();
+  await user.keyboard("{Escape}");
+  expect(page.queryByRole("menu")).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+  cleanup();
+});
+
 test("the workspace switcher lists memberships and can create a Workspace", async () => {
   const user = userEvent.setup({ document });
   const onSelect = mock(async () => {});

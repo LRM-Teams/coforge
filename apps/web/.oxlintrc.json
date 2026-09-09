@@ -9,6 +9,16 @@
   },
   "overrides": [
     {
+      "files": [
+        "src/components/ui/button.tsx",
+        "src/components/ui/select.tsx",
+        "src/components/ui/tooltip.tsx"
+      ],
+      "rules": {
+        "coforge/no-native-button": "off"
+      }
+    },
+    {
       "files": ["test/**/*.{ts,tsx}"],
       "rules": {
         "coforge/no-native-button": "off"

@@ -466,7 +466,7 @@ test("Agent list loads in place then keeps its cards and filter during refresh",
       navigationDone = router.navigate({ to: "/agents" });
     });
     await waitFor(() => expect(page.getByRole("status").textContent).toContain("Loading Agents"));
-    expect(page.getByRole("heading", { name: "Agent overview" })).toBeTruthy();
+    expect(page.getByRole("heading", { name: "Members" })).toBeTruthy();
     expect(page.queryByText("No agents yet")).toBeNull();
     await act(async () => {
       firstLoad.resolve(agents);
@@ -630,6 +630,23 @@ test("channel URL uses the shared messages layout and selects the channel", asyn
   expect(page.getByRole("heading", { name: "#general", level: 1 })).toBeTruthy();
   expect(page.getByRole("link", { name: /general/ }).getAttribute("aria-current")).toBe("page");
   expect(page.getByRole("button", { name: "Create channel" })).toBeTruthy();
+  expect(page.getByRole("textbox", { name: "Message" })).toBeTruthy();
+});
+
+test("channel Tasks keeps channel operations and can return to Chat", async () => {
+  const user = userEvent.setup();
+  const { page } = await renderRoute("/messages/channels/channel-1");
+
+  await user.click(page.getByRole("button", { name: "Tasks 0" }));
+
+  await waitFor(() =>
+    expect(page.getByRole("button", { name: "Tasks 0" }).getAttribute("aria-current")).toBe("page"),
+  );
+  expect(page.getByRole("heading", { name: "#general", level: 1 })).toBeTruthy();
+  expect(page.getByText("Workspace public")).toBeTruthy();
+  expect(page.getByRole("button", { name: "Messages" })).toBeTruthy();
+  expect(page.getByRole("button", { name: "Mute channel notifications" })).toBeTruthy();
+  await user.click(page.getByRole("button", { name: "Chat" }));
   expect(page.getByRole("textbox", { name: "Message" })).toBeTruthy();
 });
 

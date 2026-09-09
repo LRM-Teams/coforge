@@ -1,4 +1,4 @@
-import { BellRing } from "lucide-react";
+import { BellRinging01 as BellRing } from "@untitledui/icons";
 import { RelativeTime } from "@/components/ui/relative-time";
 
 export type ReminderNoticeView = {

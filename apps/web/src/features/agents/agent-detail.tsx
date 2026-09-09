@@ -2,13 +2,13 @@ import { useRef, useState, type FormEvent } from "react";
 import {
   Activity as ActivityIcon,
   AlertCircle,
-  Bell,
-  Bot,
-  Monitor,
-  Pencil,
-  UserRound,
-  X,
-} from "lucide-react";
+  Bell01 as Bell,
+  CpuChip01 as Bot,
+  Monitor01 as Monitor,
+  Edit01 as Pencil,
+  UserCircle as UserRound,
+  XClose as X,
+} from "@untitledui/icons";
 import { Link } from "@tanstack/react-router";
 
 import { MobileNavigationButton } from "@/components/layout/mobile-navigation";
@@ -73,8 +73,8 @@ export function AgentDetail({
         : m.agent_status_offline();
   const latestError = latestActivityError(activity);
   return (
-    <main className="flex h-svh max-h-svh min-h-0 flex-1 flex-col overflow-hidden p-4 sm:p-5 md:p-6">
-      <div className="flex shrink-0 flex-wrap items-start justify-between gap-4">
+    <main className="flex h-svh max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background px-4 pt-5 md:px-8 md:pt-8">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-4 pb-6">
         <div className="flex min-w-0 items-center gap-3">
           <MobileNavigationButton />
           <Avatar
@@ -84,11 +84,11 @@ export function AgentDetail({
             statusLabel={statusLabel}
           />
           <div className="min-w-0">
-            <h1 className="break-words text-2xl font-semibold tracking-tight">
-              {detail.displayName}
-            </h1>
-            <p className="text-sm text-muted-foreground">@{detail.name}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{statusLabel}</p>
+            <h1 className="break-words text-2xl font-semibold md:text-3xl">{detail.displayName}</h1>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+              <p className="break-all">@{detail.name}</p>
+              <p className="border-l pl-3">{statusLabel}</p>
+            </div>
           </div>
         </div>
         <Link
@@ -99,14 +99,18 @@ export function AgentDetail({
           {m.agent_private_chat()}
         </Link>
       </div>
-      <nav className="mt-6 flex shrink-0 gap-1 border-b" aria-label={m.agent_detail_tabs()}>
+      <nav
+        className="flex shrink-0 gap-5 overflow-x-auto border-b md:gap-6"
+        aria-label={m.agent_detail_tabs()}
+      >
         {(["profile", "activity", "reminders"] as const).map((value) => (
           <Link
             key={value}
             to="/agents/$agentId"
             params={{ agentId: detail.id }}
             search={{ tab: value }}
-            className={`inline-flex items-center gap-1 border-b-2 px-2 py-2 text-sm font-medium sm:gap-2 sm:px-4 ${tab === value ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}
+            aria-current={tab === value ? "page" : undefined}
+            className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-0.5 pb-3 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${tab === value ? "border-brand text-brand" : "border-transparent text-muted-foreground hover:border-brand hover:text-brand"}`}
           >
             {value === "profile" && <UserRound className="size-4 shrink-0" aria-hidden="true" />}
             {value === "activity" && (
@@ -129,7 +133,7 @@ export function AgentDetail({
               ? m.agent_activity_tab()
               : m.agent_reminders_tab()
         }
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-8"
       >
         {tab === "profile" && latestError && (
           <div
@@ -213,10 +217,10 @@ function Profile({
     },
   ];
   return (
-    <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-2">
-      <section className="rounded-xl border bg-card p-5">
-        <div className="flex items-center justify-between">
-          <h2 className="flex items-center gap-2 font-semibold">
+    <div className="divide-y">
+      <section className="grid gap-5 py-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
+        <div className="flex items-start justify-between gap-4">
+          <h2 className="flex items-center gap-2 text-base font-semibold">
             <Bot className="size-4" /> {m.agent_profile_basic()}
           </h2>
           {detail.ownedByCurrentUser && (
@@ -226,11 +230,11 @@ function Profile({
             </Button>
           )}
         </div>
-        <dl className="mt-4 grid gap-4">
+        <dl className="grid min-w-0 gap-5">
           {fields.map(({ label, value }) => (
-            <div key={label}>
-              <dt className="text-xs text-muted-foreground">{label}</dt>
-              <dd className="mt-1 break-words text-sm">{value}</dd>
+            <div key={label} className="grid gap-1.5 md:grid-cols-[10rem_minmax(0,1fr)] md:gap-6">
+              <dt className="text-sm font-medium text-muted-foreground">{label}</dt>
+              <dd className="min-w-0 whitespace-pre-wrap break-words text-sm leading-6">{value}</dd>
             </div>
           ))}
         </dl>
@@ -278,14 +282,14 @@ function Profile({
                 <DialogTitle>{m.agent_edit_title()}</DialogTitle>
                 <DialogDescription>{m.agent_edit_description()}</DialogDescription>
               </div>
-              <div className="grid gap-3 px-6 py-6">
+              <div className="grid gap-5 px-6 py-6 text-sm font-medium">
                 <label>
                   {m.agent_form_name()}
                   <input
                     name="name"
                     required
                     defaultValue={detail.name}
-                    className="mt-1 h-9 w-full rounded-md border px-3"
+                    className="mt-1.5 h-10 w-full rounded-lg border bg-background px-3 font-normal shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   />
                 </label>
                 <label>
@@ -293,8 +297,9 @@ function Profile({
                   <textarea
                     name="description"
                     required
+                    rows={4}
                     defaultValue={detail.description}
-                    className="mt-1 w-full rounded-md border p-3"
+                    className="mt-1.5 w-full rounded-lg border bg-background p-3 font-normal leading-6 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   />
                 </label>
                 <label className="sm:col-span-2">
@@ -302,7 +307,7 @@ function Profile({
                   <input
                     readOnly
                     value={detail.computer?.label ?? detail.computerId ?? ""}
-                    className="mt-1 h-9 w-full rounded-md border bg-muted px-3"
+                    className="mt-1.5 h-10 w-full rounded-lg border bg-muted/50 px-3 font-normal shadow-xs"
                   />
                 </label>
                 <AgentRuntimeFields
@@ -339,18 +344,22 @@ function Profile({
           </DialogPopup>
         </DialogPortal>
       </Dialog>
-      <section className="rounded-xl border bg-card p-5">
-        <h2 className="flex items-center gap-2 font-semibold">
+      <section className="grid gap-5 py-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
+        <h2 className="flex items-start gap-2 text-base font-semibold">
           <Monitor className="size-4" />
           {m.agent_profile_computer()}
         </h2>
-        <p className="mt-4 text-sm">{detail.computer?.label ?? m.agent_computer_unnamed()}</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {detail.computer ? m.agent_computer_observed() : m.agent_computer_not_observed()}
-        </p>
+        <div className="min-w-0">
+          <p className="break-words text-sm font-medium">
+            {detail.computer?.label ?? m.agent_computer_unnamed()}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {detail.computer ? m.agent_computer_observed() : m.agent_computer_not_observed()}
+          </p>
+        </div>
       </section>
-      <section className="rounded-xl border bg-card p-5 lg:col-span-2">
-        <div className="flex items-center justify-between gap-4">
+      <section className="grid gap-5 py-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
+        <div className="flex items-start justify-between gap-4">
           <h2 className="font-semibold">{m.agent_runtime_config()}</h2>
           {canConfigureCredential && (
             <Button size="sm" variant="outline" onClick={() => setRuntimeDialogOpen(true)}>
@@ -359,7 +368,7 @@ function Profile({
             </Button>
           )}
         </div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div className="grid min-w-0 gap-5 md:grid-cols-2">
           <RuntimeField
             label={m.agent_runtime_field()}
             value={providerKind === "coforge" ? m.agent_provider_pi_builtin() : runtime}
@@ -480,7 +489,7 @@ function Profile({
                         minLength={8}
                         autoComplete="new-password"
                         placeholder={m.agent_runtime_api_key_placeholder()}
-                        className="h-9 rounded-md border bg-background px-3 outline-none focus:ring-2 focus:ring-ring/30"
+                        className="h-10 rounded-lg border bg-background px-3 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       />
                       {detail.runtimeCredential && (
                         <span className="text-xs text-muted-foreground">
@@ -576,12 +585,12 @@ function nestedConfigValue(config: unknown, field: string, nestedField: string) 
 
 function RuntimeField({ label, value }: { label: string; value: string }) {
   return (
-    <label className="grid min-w-0 gap-1.5 text-sm">
+    <label className="grid min-w-0 gap-1.5 text-sm font-medium">
       {label}
       <input
         value={value}
         readOnly
-        className="h-9 min-w-0 rounded-md border bg-muted px-3 text-muted-foreground outline-none"
+        className="h-10 min-w-0 rounded-lg border bg-muted/50 px-3 font-normal text-muted-foreground shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
     </label>
   );
@@ -590,24 +599,29 @@ function RuntimeField({ label, value }: { label: string; value: string }) {
 function Activity({ activity, timeZone }: { activity: ActivityEntry[]; timeZone: string | null }) {
   if (!activity.length)
     return (
-      <div className="mt-6 rounded-xl border border-dashed p-10 text-center">
+      <div className="my-8 flex flex-col items-center rounded-xl border px-6 py-12 text-center">
+        <span className="mb-4 rounded-xl border p-3 shadow-xs">
+          <ActivityIcon aria-hidden="true" className="size-6 text-muted-foreground" />
+        </span>
         <p className="font-medium">{m.agent_activity_empty()}</p>
-        <p className="mt-1 text-sm text-muted-foreground">{m.agent_activity_empty_description()}</p>
+        <p className="mt-1 max-w-md text-sm leading-6 text-muted-foreground">
+          {m.agent_activity_empty_description()}
+        </p>
       </div>
     );
   return (
-    <ol className="mt-6 list-none divide-y">
+    <ol className="mt-6 list-none divide-y rounded-xl border px-4 md:px-6">
       {activity.map((entry) => (
         <li
           key={`${entry.launchId}:${entry.clientSeq}`}
-          className="grid gap-1 py-2 sm:grid-cols-[max-content_max-content_minmax(0,1fr)] sm:items-start sm:gap-3"
+          className="grid gap-2 py-4 md:grid-cols-[7rem_10rem_minmax(0,1fr)] md:items-start md:gap-5"
         >
           <RelativeTime
             value={new Date(entry.observedAtMs)}
             timeZone={timeZone}
             className="whitespace-nowrap text-xs tabular-nums text-muted-foreground sm:pt-0.5"
           />
-          <span className="flex items-center gap-2 font-medium">
+          <span className="flex items-center gap-2 text-sm font-semibold">
             <span
               aria-hidden="true"
               className={`size-1.5 shrink-0 rounded-full ${activityDotClass(entry.detailKind, entry.level)}`}

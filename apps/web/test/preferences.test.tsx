@@ -8,7 +8,7 @@ import userEvent from "@testing-library/user-event";
 
 import { AppShell } from "@/components/app-shell";
 import { PageHeader } from "@/components/layout/page-header";
-import { SettingsContent } from "@/components/settings-content";
+import { SettingsContent, SettingsPending } from "@/components/settings-content";
 import { AppToastProvider } from "@/components/ui/toast";
 import { overwriteGetLocale } from "@/paraglide/runtime";
 import { getRouter } from "@/router";
@@ -99,6 +99,33 @@ function renderSettings() {
   return render(<SettingsTestPage />);
 }
 
+test("uses one full-height settings surface for the header, navigation, and content", () => {
+  const view = renderSettings();
+  const main = view.container.querySelector("main");
+  const surface = main?.querySelector(":scope > section");
+
+  expect(main?.classList.contains("h-svh")).toBeTrue();
+  expect(main?.classList.contains("md:p-2")).toBeTrue();
+  expect(surface?.classList.contains("bg-card")).toBeTrue();
+  expect(surface?.classList.contains("md:rounded-xl")).toBeTrue();
+  expect(surface?.querySelectorAll(":scope > header")).toHaveLength(1);
+  expect(surface?.querySelectorAll(":scope > nav")).toHaveLength(1);
+  expect(view.getAllByRole("heading", { name: "Settings" })).toHaveLength(1);
+  expect(view.getByRole("navigation", { name: "Settings" })).toBeTruthy();
+  expect(view.container.querySelector(".max-w-6xl")).toBeNull();
+});
+
+test("keeps the pending settings state in the same page surface", () => {
+  const view = render(<SettingsPending />);
+  const main = view.container.querySelector("main");
+  const surface = main?.querySelector(":scope > section");
+
+  expect(main?.getAttribute("aria-busy")).toBe("true");
+  expect(surface?.classList.contains("bg-card")).toBeTrue();
+  expect(surface?.querySelectorAll(":scope > header")).toHaveLength(1);
+  expect(surface?.querySelectorAll(":scope > nav")).toHaveLength(1);
+});
+
 test("searches time zones by city and sends the IANA identifier to persistence", async () => {
   const user = userEvent.setup({ document });
   let selected = "";
@@ -122,9 +149,10 @@ test("searches time zones by city and sends the IANA identifier to persistence",
   );
 
   await user.click(view.getByRole("button", { name: "Preferences" }));
-  await user.click(view.getByRole("combobox", { name: "Time zone" }));
-  expect(view.getByRole("status").classList.contains("empty:py-0")).toBeTrue();
-  await user.type(view.getByRole("combobox", { name: "Search time zones" }), "Tokyo");
+  const input = view.getByRole("combobox", { name: "Time zone" });
+  await user.click(input);
+  await user.clear(input);
+  await user.type(input, "Tokyo");
   expect(view.queryByRole("option", { name: /Asia\/Shanghai/ })).toBeNull();
   await user.click(view.getByRole("option", { name: /Asia\/Tokyo/ }));
   expect(selected).toBe("Asia/Tokyo");
@@ -355,9 +383,9 @@ test("uses the current user avatar as the personal settings menu trigger without
   const view = renderShell();
   const trigger = view.getByRole("button", { name: "Current user" });
 
-  expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+  expect(trigger.getAttribute("aria-haspopup")).toBe("true");
   expect(trigger.hasAttribute("data-base-ui-tooltip-trigger")).toBeFalse();
-  expect(trigger.textContent).toBe("F");
+  expect(trigger.querySelector("[data-avatar]")?.textContent).toBe("F");
 });
 
 test("collapses and restores the sidebar with the Mod-B shortcut", () => {

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
+import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -80,17 +81,17 @@ export function WorkspaceMembersPanel(props: {
   }
 
   return (
-    <div className="space-y-8 p-4 md:p-6">
+    <div className="mx-auto w-full max-w-6xl space-y-8 p-4 sm:p-6 lg:p-8">
       {props.incomingInvitations.length > 0 ? (
         <section className="space-y-3">
-          <h3 className="text-sm font-medium">{m.workspace_invitations_incoming()}</h3>
-          <ul className="space-y-2">
+          <h3 className="text-lg font-semibold">{m.workspace_invitations_incoming()}</h3>
+          <ul className="divide-y overflow-hidden rounded-xl border bg-background shadow-xs">
             {props.incomingInvitations.map((invitation) => (
               <li
                 key={invitation.id}
-                className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 py-2"
+                className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6"
               >
-                <p className="text-sm">
+                <p className="min-w-0 text-sm break-words">
                   {m.workspace_invitation_from({
                     inviter: invitation.inviterUsername,
                     workspace: invitation.workspace.name,
@@ -110,10 +111,10 @@ export function WorkspaceMembersPanel(props: {
       ) : null}
 
       {canManage ? (
-        <section className="space-y-3">
-          <h3 className="text-sm font-medium">{m.workspace_invite_title()}</h3>
+        <section className="grid gap-4 border-b pb-6 lg:grid-cols-[240px_1fr] lg:gap-8">
+          <h3 className="text-lg font-semibold">{m.workspace_invite_title()}</h3>
           <form
-            className="flex flex-wrap items-end gap-2"
+            className="flex min-w-0 flex-wrap items-end gap-3"
             onSubmit={(event) => {
               event.preventDefault();
               void run(async () => {
@@ -122,24 +123,27 @@ export function WorkspaceMembersPanel(props: {
               });
             }}
           >
-            <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">{m.workspace_invite_username()}</span>
+            <label className="min-w-0 flex-1 basis-48 space-y-1.5 text-sm">
+              <span className="font-medium">{m.workspace_invite_username()}</span>
               <input
-                className="block w-48 rounded-md border bg-background px-2 py-1.5"
+                className="block h-10 w-full rounded-lg border bg-background px-3 py-2 shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
                 placeholder="@username"
               />
             </label>
-            <div className="space-y-1 text-sm">
-              <span className="text-muted-foreground">{m.workspace_invite_role()}</span>
+            <div className="space-y-1.5 text-sm">
+              <span className="font-medium">{m.workspace_invite_role()}</span>
               <Select
                 value={role}
                 onValueChange={(value) => {
                   if (value === "admin" || value === "member") setRole(value);
                 }}
               >
-                <SelectTrigger aria-label={m.workspace_invite_role()} className="h-8 w-36">
+                <SelectTrigger
+                  aria-label={m.workspace_invite_role()}
+                  className="h-10 w-36 shadow-xs"
+                >
                   <SelectValue>{() => roleLabel(role)}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -148,7 +152,7 @@ export function WorkspaceMembersPanel(props: {
                 </SelectContent>
               </Select>
             </div>
-            <Button type="submit" size="sm">
+            <Button type="submit" className="h-10">
               {m.workspace_invite_submit()}
             </Button>
           </form>
@@ -156,22 +160,29 @@ export function WorkspaceMembersPanel(props: {
       ) : null}
 
       <section className="space-y-3">
-        <h3 className="text-sm font-medium">{m.workspace_members_title()}</h3>
-        <ul className="space-y-2">
+        <h3 className="text-lg font-semibold">{m.workspace_members_title()}</h3>
+        <ul className="divide-y overflow-hidden rounded-xl border bg-background shadow-xs">
           {props.members.map((member) => {
             const isSelf = member.userId === props.actorUserId;
             const canEditRole = canManage && member.role !== "owner";
             return (
               <li
                 key={member.userId}
-                className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 py-2"
+                className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6"
               >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">
-                    @{member.username}
-                    {isSelf ? ` (${m.workspace_members_you()})` : ""}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{roleLabel(member.role)}</p>
+                <div className="flex min-w-0 items-center gap-3">
+                  <Avatar
+                    people={[{ name: member.displayName || member.username }]}
+                    size="md"
+                    className="shrink-0 rounded-full"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold break-words">
+                      @{member.username}
+                      {isSelf ? ` (${m.workspace_members_you()})` : ""}
+                    </p>
+                    <p className="mt-0.5 text-sm text-muted-foreground">{roleLabel(member.role)}</p>
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {canEditRole ? (
@@ -186,7 +197,10 @@ export function WorkspaceMembersPanel(props: {
                         );
                       }}
                     >
-                      <SelectTrigger aria-label={m.workspace_invite_role()} className="h-8 w-36">
+                      <SelectTrigger
+                        aria-label={m.workspace_invite_role()}
+                        className="h-9 w-36 shadow-xs"
+                      >
                         <SelectValue>{() => roleLabel(member.role)}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
@@ -199,13 +213,19 @@ export function WorkspaceMembersPanel(props: {
                     <Button
                       size="sm"
                       variant="ghost"
+                      className="text-destructive-text"
                       onClick={() => run(() => remove({ data: { userId: member.userId } }))}
                     >
                       {m.workspace_members_remove()}
                     </Button>
                   ) : null}
                   {isSelf && member.role !== "owner" ? (
-                    <Button size="sm" variant="ghost" onClick={() => run(() => leave())}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive-text"
+                      onClick={() => run(() => leave())}
+                    >
                       {m.workspace_members_leave()}
                     </Button>
                   ) : null}
@@ -218,19 +238,20 @@ export function WorkspaceMembersPanel(props: {
 
       {canManage && props.pendingInvitations.length > 0 ? (
         <section className="space-y-3">
-          <h3 className="text-sm font-medium">{m.workspace_invitations_pending()}</h3>
-          <ul className="space-y-2">
+          <h3 className="text-lg font-semibold">{m.workspace_invitations_pending()}</h3>
+          <ul className="divide-y overflow-hidden rounded-xl border bg-background shadow-xs">
             {props.pendingInvitations.map((invitation) => (
               <li
                 key={invitation.id}
-                className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 py-2"
+                className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6"
               >
-                <p className="text-sm">
+                <p className="min-w-0 text-sm break-words">
                   @{invitation.inviteeUsername} · {roleLabel(invitation.role)}
                 </p>
                 <Button
                   size="sm"
                   variant="ghost"
+                  className="text-destructive-text"
                   onClick={() => run(() => revoke({ data: { invitationId: invitation.id } }))}
                 >
                   {m.workspace_invitation_revoke()}

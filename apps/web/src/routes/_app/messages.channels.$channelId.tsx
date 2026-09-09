@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { ChannelConversation } from "@/features/conversations/channel-conversation";
+import {
+  ChannelConversation,
+  ChannelConversationHeader,
+} from "@/features/conversations/channel-conversation";
 import {
   ConversationLoadError,
   ConversationPending,
@@ -116,6 +119,10 @@ function ChannelPage() {
       from: Route.fullPath,
       search: (previous) => ({ ...previous, view: "tasks" }),
     });
+  const changeMuted = async (muted: boolean) => {
+    await setMuted({ data: { channelId, muted } });
+    await router.invalidate({ sync: true });
+  };
   const openTask = async (messageId: string) => {
     if (!conversation.messages.some((message) => message.id === messageId)) {
       const around = await loadAround({
@@ -132,6 +139,15 @@ function ChannelPage() {
   if (view === "tasks")
     return (
       <TaskBoard
+        header={
+          <ChannelConversationHeader
+            conversation={conversation}
+            tasks={taskView.tasks}
+            active="tasks"
+            onShowChat={showChat}
+            onMutedChange={changeMuted}
+          />
+        }
         layout={layout ?? "board"}
         onLayoutChange={(nextLayout) =>
           void router.navigate({
@@ -195,10 +211,7 @@ function ChannelPage() {
         await join({ data: { channelId } });
         await router.invalidate({ sync: true });
       }}
-      onMutedChange={async (muted) => {
-        await setMuted({ data: { channelId, muted } });
-        await router.invalidate({ sync: true });
-      }}
+      onMutedChange={changeMuted}
       onReadThread={(threadRootId, throughSequence) =>
         markRead({ data: { channelId, threadRootId, throughSequence } })
       }

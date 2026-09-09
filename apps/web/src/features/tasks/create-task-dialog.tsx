@@ -1,5 +1,5 @@
 import { useId, useRef, useState, type FormEvent } from "react";
-import { X } from "lucide-react";
+import { XClose as X } from "@untitledui/icons";
 
 import { Button } from "@/components/ui/button";
 import {

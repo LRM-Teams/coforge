@@ -27,19 +27,12 @@ export function RelativeTime({
   const exactTime = formatDateForDisplay(instant, timeZone, locale);
   return (
     <Tooltip>
-      <TooltipTrigger
-        render={
-          <time
-            className={className}
-            dateTime={instant.toISOString()}
-            aria-label={exactTime}
-            suppressHydrationWarning
-          >
-            {formatRelativeTime(instant, now, locale)}
-            {showExact && <span className="ml-1.5">· {exactTime}</span>}
-          </time>
-        }
-      />
+      <TooltipTrigger className={className} aria-label={exactTime}>
+        <time dateTime={instant.toISOString()} suppressHydrationWarning>
+          {formatRelativeTime(instant, now, locale)}
+          {showExact && <span className="ml-1.5">· {exactTime}</span>}
+        </time>
+      </TooltipTrigger>
       <TooltipContent>{exactTime}</TooltipContent>
     </Tooltip>
   );

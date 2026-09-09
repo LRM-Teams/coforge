@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Pencil, RotateCw } from "lucide-react";
+import { Edit01 as Pencil, RefreshCw01 as RotateCw } from "@untitledui/icons";
 import type { RuntimeProvider } from "@coforge/protocol";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -154,7 +154,7 @@ export function ComputerDetail({
         }
       />
 
-      <div className="@container flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
+      <div className="@container min-h-0 flex-1 space-y-8 overflow-y-auto p-4 sm:p-6 lg:p-8">
         {restartState === "accepted" && (
           <p role="status" className="rounded-lg border border-success/40 p-3 text-sm">
             {m.computer_restart_accepted()}
@@ -174,10 +174,10 @@ export function ComputerDetail({
           </p>
         )}
         <section aria-labelledby="computer-overview">
-          <h2 id="computer-overview" className="text-sm font-semibold">
+          <h2 id="computer-overview" className="text-lg font-semibold tracking-tight">
             {m.computer_overview()}
           </h2>
-          <dl className="mt-3 grid gap-4 sm:grid-cols-3">
+          <dl className="mt-4 divide-y border-y [&>div]:grid [&>div]:gap-2 [&>div]:py-4 @lg:[&>div]:grid-cols-[minmax(8rem,1fr)_2fr] [&_dt]:text-sm [&_dt]:font-medium [&_dd]:mt-0">
             <div className="min-w-0">
               <dt className="text-xs text-muted-foreground">{m.computer_display_name()}</dt>
               <dd className="mt-1 text-sm">
@@ -233,14 +233,16 @@ export function ComputerDetail({
                       </Button>
                     </div>
                     {displayNameError && (
-                      <p role="alert" className="mt-2 text-xs text-destructive">
+                      <p role="alert" className="mt-2 text-sm text-destructive-text">
                         {m.computer_display_name_error()}
                       </p>
                     )}
                   </form>
                 ) : (
                   <span className="flex min-w-0 items-center gap-2">
-                    <span className="truncate">{computer.displayName}</span>
+                    <span className="break-words [overflow-wrap:anywhere]">
+                      {computer.displayName}
+                    </span>
                     {computer.ownedByCurrentUser && onUpdateDisplayName && (
                       <Button
                         type="button"
@@ -262,7 +264,7 @@ export function ComputerDetail({
             </div>
             <div className="min-w-0">
               <dt className="text-xs text-muted-foreground">{m.computer_name()}</dt>
-              <dd className="mt-1 truncate text-sm">{computer.name}</dd>
+              <dd className="mt-1 break-words text-sm [overflow-wrap:anywhere]">{computer.name}</dd>
             </div>
             <div className="min-w-0">
               <dt className="text-xs text-muted-foreground">{m.computer_connected_at()}</dt>
@@ -312,15 +314,15 @@ export function ComputerDetail({
         </section>
 
         <section aria-labelledby="computer-code-agents">
-          <h2 id="computer-code-agents" className="text-sm font-semibold">
+          <h2 id="computer-code-agents" className="text-lg font-semibold tracking-tight">
             {m.computer_code_agents()}
           </h2>
           {computer.runtimes.length ? (
-            <ul className="mt-3 grid items-start gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3">
+            <ul className="mt-4 divide-y overflow-hidden rounded-xl border shadow-xs">
               {computer.runtimes.map((runtime) => (
                 <li
                   key={runtime.provider}
-                  className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border p-4 text-sm"
+                  className="flex min-w-0 flex-wrap items-center justify-between gap-4 p-4 text-sm @lg:px-5"
                 >
                   {computer.ownedByCurrentUser ? (
                     <RuntimeUsage
@@ -392,7 +394,7 @@ function operatingSystemLabel(computer: ComputerDetailView) {
 
 function StatusPill({ online }: { online: boolean }) {
   return (
-    <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+    <span className="flex shrink-0 items-center gap-1.5 rounded-md border bg-card px-2 py-0.5 text-xs font-medium text-foreground shadow-xs">
       <span
         aria-hidden="true"
         className={cn("size-2 rounded-full", online ? "bg-success" : "bg-offline")}
