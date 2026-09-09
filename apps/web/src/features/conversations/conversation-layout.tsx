@@ -13,7 +13,7 @@ import {
   activityForAgent,
   type WorkspaceActivityView,
 } from "@/features/agents/workspace-activity-realtime";
-import { Button } from "@/components/ui/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import type { AgentStatusView } from "@/features/agents/agent-status-realtime";
@@ -84,7 +84,7 @@ export function ConversationLayout({
       <nav
         aria-label={m.messages_agent_list_label()}
         className={cn(
-          "min-w-0 flex-col overflow-hidden bg-card md:flex md:w-72 md:shrink-0 md:rounded-xl md:border xl:w-80",
+          "min-w-0 flex-col overflow-hidden bg-primary md:flex md:w-72 md:shrink-0 md:rounded-xl md:border md:border-secondary xl:w-80",
           listHidden ? "hidden" : "flex w-full",
         )}
       >
@@ -92,17 +92,15 @@ export function ConversationLayout({
 
         <div className="flex-1 overflow-y-auto px-3 py-4">
           <div className="mb-2 flex h-8 items-center justify-between px-3">
-            <h2 className="text-xs font-semibold text-muted-foreground">{m.channels_title()}</h2>
+            <h2 className="text-xs font-semibold text-tertiary">{m.channels_title()}</h2>
             {onCreateChannel && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                aria-label={m.channel_create()}
+              <ButtonUtility
+                icon={Plus}
+                size="xs"
+                color="tertiary"
+                tooltip={m.channel_create()}
                 onClick={() => setCreateOpen(true)}
-              >
-                <Plus aria-hidden="true" className="size-4" />
-              </Button>
+              />
             )}
           </div>
           <ul aria-label={m.channels_title()} className="mb-6 space-y-1">
@@ -115,14 +113,14 @@ export function ConversationLayout({
                   resetScroll={false}
                   onClick={() => setShowMobileAgents(false)}
                   className={cn(
-                    "flex min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                    channel.id === selectedChannelId && "bg-brand/10 text-brand",
+                    "flex min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors outline-focus-ring hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2",
+                    channel.id === selectedChannelId && "bg-brand-primary text-brand-secondary",
                   )}
                 >
                   <Hash aria-hidden="true" className="size-5 shrink-0" />
                   <span className="truncate">{channel.name}</span>
                   {channel.joined && (
-                    <span className="ml-auto rounded-md border bg-card px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+                    <span className="ml-auto rounded-md border border-secondary bg-primary px-1.5 py-0.5 text-xs font-medium text-tertiary">
                       {m.channel_joined()}
                     </span>
                   )}
@@ -130,7 +128,7 @@ export function ConversationLayout({
               </li>
             ))}
           </ul>
-          <h2 className="px-3 pb-2 text-xs font-semibold text-muted-foreground">
+          <h2 className="px-3 pb-2 text-xs font-semibold text-tertiary">
             {m.messages_agents_action()}
           </h2>
           <ul className="space-y-1">
@@ -140,8 +138,8 @@ export function ConversationLayout({
                 <li
                   key={agent.id}
                   className={cn(
-                    "flex min-w-0 items-center gap-3 rounded-lg px-3 py-3 transition-colors hover:bg-muted",
-                    selected && "bg-brand/10",
+                    "flex min-w-0 items-center gap-3 rounded-lg px-3 py-3 transition-colors hover:bg-secondary",
+                    selected && "bg-brand-primary",
                   )}
                 >
                   <AgentActivityAvatar
@@ -157,14 +155,17 @@ export function ConversationLayout({
                     aria-current={selected ? "page" : undefined}
                     resetScroll={false}
                     onClick={() => setShowMobileAgents(false)}
-                    className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-md py-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-md py-1 outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
                   >
                     <span
-                      className={cn("truncate text-sm font-semibold", selected && "text-brand")}
+                      className={cn(
+                        "truncate text-sm font-semibold",
+                        selected && "text-brand-secondary",
+                      )}
                     >
                       {agent.displayName}
                     </span>
-                    <span className="truncate text-sm text-muted-foreground">@{agent.name}</span>
+                    <span className="truncate text-sm text-tertiary">@{agent.name}</span>
                   </Link>
                 </li>
               );
@@ -175,7 +176,7 @@ export function ConversationLayout({
 
       <section
         className={cn(
-          "min-w-0 flex-1 flex-col overflow-hidden bg-card md:flex md:rounded-xl md:border",
+          "min-w-0 flex-1 flex-col overflow-hidden bg-primary md:flex md:rounded-xl md:border md:border-secondary",
           listHidden ? "flex" : "hidden",
         )}
       >
@@ -215,27 +216,25 @@ export function BackToAgents() {
   }
 
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
+    <ButtonUtility
+      icon={ChevronLeft}
+      size="sm"
+      color="tertiary"
       onClick={back}
       aria-label={m.messages_title()}
       className="-ml-2 size-11 shrink-0 md:hidden"
-    >
-      <ChevronLeft aria-hidden="true" className="size-5" />
-    </Button>
+    />
   );
 }
 
 export function EmptyConversation() {
   return (
     <div className="grid h-full place-content-center justify-items-center px-6 text-center">
-      <div className="mb-5 flex size-12 items-center justify-center rounded-xl border bg-card shadow-xs">
-        <MessagesSquare aria-hidden="true" className="size-6 text-muted-foreground" />
+      <div className="mb-5 flex size-12 items-center justify-center rounded-xl border border-secondary bg-primary shadow-xs">
+        <MessagesSquare aria-hidden="true" className="size-6 text-tertiary" />
       </div>
       <p className="text-lg font-semibold">{m.messages_empty_title()}</p>
-      <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
+      <p className="mt-2 max-w-sm text-sm leading-6 text-tertiary">
         {m.messages_empty_description()}
       </p>
     </div>

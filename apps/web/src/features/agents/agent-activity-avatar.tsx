@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Heading } from "react-aria-components";
 
-import { Avatar } from "@/components/ui/avatar";
+import { Avatar } from "@/components/base/avatar/avatar";
 import { HoverPopover } from "@/components/ui/hover-popover";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { resolveTimeZone } from "@/lib/dates";
 import { m } from "@/paraglide/messages";
@@ -96,6 +97,7 @@ export function AgentActivityAvatar({
     hourCycle: "h23",
     timeZone: resolveTimeZone(timeZone, Intl.DateTimeFormat().resolvedOptions().timeZone),
   });
+  const avatarSize = size === "sm" ? "sm" : "lg";
 
   return (
     <HoverPopover
@@ -104,25 +106,27 @@ export function AgentActivityAvatar({
         .filter(Boolean)
         .join(", ")}
       working={Boolean(workingLabel)}
-      triggerClassName={cn(
-        "relative shrink-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4",
-        size === "sm" && "rounded-lg",
-      )}
+      triggerClassName="relative shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-4"
       trigger={
         <span className="relative block rounded-[inherit]">
-          <Avatar people={[{ name: agent.displayName }]} size={size} />
+          <Avatar
+            size={avatarSize}
+            alt={agent.displayName}
+            initials={avatarInitial(agent.displayName)}
+            contentClassName={avatarToneClassName(agent.displayName)}
+          />
           {status ? (
             <span
               aria-hidden="true"
               className={cn(
-                "absolute -right-1 -bottom-1 size-3 rounded-full border-2 border-card",
+                "absolute -right-1 -bottom-1 size-3 rounded-full border-2 border-primary",
                 workingLabel && activity[0]?.detailKind === "running_command"
                   ? cn(
                       activityDotClass(activity[0].detailKind, activity[0].level),
                       "motion-safe:animate-pulse",
                     )
                   : status === "active"
-                    ? "bg-success"
+                    ? "bg-online"
                     : "bg-offline",
               )}
             />
@@ -131,20 +135,25 @@ export function AgentActivityAvatar({
       }
     >
       <div className="flex items-center gap-3 px-4 pt-4">
-        <Avatar people={[{ name: agent.displayName }]} size="lg" />
+        <Avatar
+          size="lg"
+          alt={agent.displayName}
+          initials={avatarInitial(agent.displayName)}
+          contentClassName={avatarToneClassName(agent.displayName)}
+        />
         <div className="min-w-0 flex-1">
-          <Heading slot="title" className="truncate text-sm font-semibold">
+          <Heading slot="title" className="truncate text-sm font-semibold text-primary">
             {agent.displayName}
           </Heading>
-          <p className="truncate text-xs text-muted-foreground">@{agent.name}</p>
+          <p className="truncate text-xs text-tertiary">@{agent.name}</p>
         </div>
         {presence && (
-          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5 text-xs text-tertiary">
             <span
               aria-hidden="true"
               className={cn(
                 "size-1.5 rounded-full",
-                status === "active" ? "bg-success" : "bg-offline",
+                status === "active" ? "bg-online" : "bg-offline",
               )}
             />
             {presence}
@@ -152,20 +161,18 @@ export function AgentActivityAvatar({
         )}
       </div>
       {agent.description && (
-        <p className="px-4 pt-3 text-xs leading-5 text-muted-foreground">{agent.description}</p>
+        <p className="px-4 pt-3 text-xs leading-5 text-tertiary">{agent.description}</p>
       )}
-      <div className="mt-4 border-t px-4 pt-3 pb-2">
-        <h3 className="mb-3 text-xs font-medium text-muted-foreground">
-          {m.agent_avatar_recent()}
-        </h3>
+      <div className="mt-4 border-t border-secondary px-4 pt-3 pb-2">
+        <h3 className="mb-3 text-xs font-medium text-tertiary">{m.agent_avatar_recent()}</h3>
         {loading ? (
-          <p className="pb-3 text-xs text-muted-foreground">{m.agent_avatar_loading()}</p>
+          <p className="pb-3 text-xs text-tertiary">{m.agent_avatar_loading()}</p>
         ) : error ? (
-          <p role="status" className="pb-3 text-xs text-muted-foreground">
+          <p role="status" className="pb-3 text-xs text-tertiary">
             {m.agent_avatar_error()}
           </p>
         ) : !activity.length ? (
-          <p className="pb-3 text-xs text-muted-foreground">{m.agent_activity_empty()}</p>
+          <p className="pb-3 text-xs text-tertiary">{m.agent_activity_empty()}</p>
         ) : (
           <ol className="space-y-3 pb-2">
             {activity.slice(0, 5).map((entry, index) => {
@@ -176,7 +183,7 @@ export function AgentActivityAvatar({
                     aria-label={new Date(entry.observedAtMs).toLocaleString(getLocale(), {
                       timeZone: time.resolvedOptions().timeZone,
                     })}
-                    className="shrink-0 font-mono text-muted-foreground tabular-nums"
+                    className="shrink-0 font-mono text-tertiary tabular-nums"
                   >
                     {time.format(new Date(entry.observedAtMs))}
                   </time>
@@ -187,7 +194,9 @@ export function AgentActivityAvatar({
                       activityDotClass(entry.detailKind, entry.level),
                     )}
                   />
-                  <span className="min-w-0">{activityLabel(entry.detailKind, entry.level)}</span>
+                  <span className="min-w-0 text-primary">
+                    {activityLabel(entry.detailKind, entry.level)}
+                  </span>
                 </li>
               );
             })}

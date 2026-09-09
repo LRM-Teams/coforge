@@ -2,16 +2,11 @@ import { useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 
-import { Avatar } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Avatar } from "@/components/base/avatar/avatar";
+import { Button } from "@/components/base/buttons/button";
+import { Select } from "@/components/base/select/select";
 import { useAppToast } from "@/components/ui/toast";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { m } from "@/paraglide/messages";
 import {
   acceptWorkspaceInvitation,
@@ -85,7 +80,7 @@ export function WorkspaceMembersPanel(props: {
       {props.incomingInvitations.length > 0 ? (
         <section className="space-y-3">
           <h3 className="text-lg font-semibold">{m.workspace_invitations_incoming()}</h3>
-          <ul className="divide-y overflow-hidden rounded-xl border bg-background shadow-xs">
+          <ul className="divide-y overflow-hidden rounded-xl border border-secondary bg-primary shadow-xs">
             {props.incomingInvitations.map((invitation) => (
               <li
                 key={invitation.id}
@@ -100,7 +95,7 @@ export function WorkspaceMembersPanel(props: {
                 </p>
                 <Button
                   size="sm"
-                  onClick={() => run(() => accept({ data: { invitationId: invitation.id } }))}
+                  onPress={() => run(() => accept({ data: { invitationId: invitation.id } }))}
                 >
                   {m.workspace_invitation_accept()}
                 </Button>
@@ -111,7 +106,7 @@ export function WorkspaceMembersPanel(props: {
       ) : null}
 
       {canManage ? (
-        <section className="grid gap-4 border-b pb-6 lg:grid-cols-[240px_1fr] lg:gap-8">
+        <section className="grid gap-4 border-b border-secondary pb-6 lg:grid-cols-[240px_1fr] lg:gap-8">
           <h3 className="text-lg font-semibold">{m.workspace_invite_title()}</h3>
           <form
             className="flex min-w-0 flex-wrap items-end gap-3"
@@ -126,7 +121,7 @@ export function WorkspaceMembersPanel(props: {
             <label className="min-w-0 flex-1 basis-48 space-y-1.5 text-sm">
               <span className="font-medium">{m.workspace_invite_username()}</span>
               <input
-                className="block h-10 w-full rounded-lg border bg-background px-3 py-2 shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20"
+                className="block h-10 w-full rounded-lg border border-secondary bg-primary px-3 py-2 shadow-xs outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/20"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
                 placeholder="@username"
@@ -135,36 +130,31 @@ export function WorkspaceMembersPanel(props: {
             <div className="space-y-1.5 text-sm">
               <span className="font-medium">{m.workspace_invite_role()}</span>
               <Select
-                value={role}
-                onValueChange={(value) => {
+                aria-label={m.workspace_invite_role()}
+                size="sm"
+                className="w-36"
+                selectedKey={role}
+                onSelectionChange={(key) => {
+                  const value = String(key);
                   if (value === "admin" || value === "member") setRole(value);
                 }}
               >
-                <SelectTrigger
-                  aria-label={m.workspace_invite_role()}
-                  className="h-10 w-36 shadow-xs"
-                >
-                  <SelectValue>{() => roleLabel(role)}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="member">{m.workspace_role_member()}</SelectItem>
-                  <SelectItem value="admin">{m.workspace_role_admin()}</SelectItem>
-                </SelectContent>
+                <Select.Item id="member" label={m.workspace_role_member()} />
+                <Select.Item id="admin" label={m.workspace_role_admin()} />
               </Select>
             </div>
-            <Button type="submit" className="h-10">
-              {m.workspace_invite_submit()}
-            </Button>
+            <Button type="submit">{m.workspace_invite_submit()}</Button>
           </form>
         </section>
       ) : null}
 
       <section className="space-y-3">
         <h3 className="text-lg font-semibold">{m.workspace_members_title()}</h3>
-        <ul className="divide-y overflow-hidden rounded-xl border bg-background shadow-xs">
+        <ul className="divide-y overflow-hidden rounded-xl border border-secondary bg-primary shadow-xs">
           {props.members.map((member) => {
             const isSelf = member.userId === props.actorUserId;
             const canEditRole = canManage && member.role !== "owner";
+            const displayName = member.displayName || member.username;
             return (
               <li
                 key={member.userId}
@@ -172,23 +162,29 @@ export function WorkspaceMembersPanel(props: {
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <Avatar
-                    people={[{ name: member.displayName || member.username }]}
                     size="md"
-                    className="shrink-0 rounded-full"
+                    alt={displayName}
+                    initials={avatarInitial(displayName)}
+                    contentClassName={avatarToneClassName(displayName)}
+                    className="shrink-0"
                   />
                   <div className="min-w-0">
                     <p className="text-sm font-semibold break-words">
                       @{member.username}
                       {isSelf ? ` (${m.workspace_members_you()})` : ""}
                     </p>
-                    <p className="mt-0.5 text-sm text-muted-foreground">{roleLabel(member.role)}</p>
+                    <p className="mt-0.5 text-sm text-tertiary">{roleLabel(member.role)}</p>
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {canEditRole ? (
                     <Select
-                      value={member.role}
-                      onValueChange={(value) => {
+                      aria-label={m.workspace_invite_role()}
+                      size="sm"
+                      className="w-36"
+                      selectedKey={member.role}
+                      onSelectionChange={(key) => {
+                        const value = String(key);
                         if (value !== "admin" && value !== "member") return;
                         void run(() =>
                           updateRole({
@@ -197,24 +193,15 @@ export function WorkspaceMembersPanel(props: {
                         );
                       }}
                     >
-                      <SelectTrigger
-                        aria-label={m.workspace_invite_role()}
-                        className="h-9 w-36 shadow-xs"
-                      >
-                        <SelectValue>{() => roleLabel(member.role)}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="member">{m.workspace_role_member()}</SelectItem>
-                        <SelectItem value="admin">{m.workspace_role_admin()}</SelectItem>
-                      </SelectContent>
+                      <Select.Item id="member" label={m.workspace_role_member()} />
+                      <Select.Item id="admin" label={m.workspace_role_admin()} />
                     </Select>
                   ) : null}
                   {canManage && member.role !== "owner" && !isSelf ? (
                     <Button
                       size="sm"
-                      variant="ghost"
-                      className="text-destructive-text"
-                      onClick={() => run(() => remove({ data: { userId: member.userId } }))}
+                      color="tertiary-destructive"
+                      onPress={() => run(() => remove({ data: { userId: member.userId } }))}
                     >
                       {m.workspace_members_remove()}
                     </Button>
@@ -222,9 +209,8 @@ export function WorkspaceMembersPanel(props: {
                   {isSelf && member.role !== "owner" ? (
                     <Button
                       size="sm"
-                      variant="ghost"
-                      className="text-destructive-text"
-                      onClick={() => run(() => leave())}
+                      color="tertiary-destructive"
+                      onPress={() => run(() => leave())}
                     >
                       {m.workspace_members_leave()}
                     </Button>
@@ -239,7 +225,7 @@ export function WorkspaceMembersPanel(props: {
       {canManage && props.pendingInvitations.length > 0 ? (
         <section className="space-y-3">
           <h3 className="text-lg font-semibold">{m.workspace_invitations_pending()}</h3>
-          <ul className="divide-y overflow-hidden rounded-xl border bg-background shadow-xs">
+          <ul className="divide-y overflow-hidden rounded-xl border border-secondary bg-primary shadow-xs">
             {props.pendingInvitations.map((invitation) => (
               <li
                 key={invitation.id}
@@ -250,9 +236,8 @@ export function WorkspaceMembersPanel(props: {
                 </p>
                 <Button
                   size="sm"
-                  variant="ghost"
-                  className="text-destructive-text"
-                  onClick={() => run(() => revoke({ data: { invitationId: invitation.id } }))}
+                  color="tertiary-destructive"
+                  onPress={() => run(() => revoke({ data: { invitationId: invitation.id } }))}
                 >
                   {m.workspace_invitation_revoke()}
                 </Button>

@@ -3,13 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { FilterLines as ListFilter } from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
 import {
   TaskLayoutToggle,
@@ -43,39 +37,30 @@ export function TaskOverview({
   onLayoutChange ??= () => {};
   const visible = status ? tasks.filter((task) => task.status === status) : tasks;
   return (
-    <main className="flex max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background md:m-2 md:max-h-[calc(100svh-1rem)] md:rounded-xl md:border">
+    <main className="flex max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-primary md:m-2 md:max-h-[calc(100svh-1rem)] md:rounded-xl md:border md:border-secondary">
       <PageHeader
         heading={m.tasks_tab()}
         actions={<TaskLayoutToggle layout={layout} onChange={onLayoutChange} />}
       />
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-4 md:px-6">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-secondary px-4 py-4 md:px-6">
         <Select
-          value={status ?? "all"}
-          onValueChange={(value) => onStatusChange(parseStatus(value))}
+          aria-label={m.tasks_overview_status()}
+          size="sm"
+          icon={ListFilter}
+          selectedKey={status ?? "all"}
+          onSelectionChange={(key) =>
+            onStatusChange(parseStatus(key === null ? null : String(key)))
+          }
         >
-          <SelectTrigger
-            aria-label={m.tasks_overview_status()}
-            className={`h-9 w-auto gap-2 rounded-lg px-3 text-sm font-medium shadow-xs ${status ? "border-brand/30 bg-brand/5" : "bg-card hover:bg-muted"}`}
-          >
-            <ListFilter aria-hidden="true" className="size-3.5 text-muted-foreground" />
-            <span className="text-muted-foreground">{m.tasks_overview_status()}</span>
-            <SelectValue>
-              {() => (status ? statusLabel(status) : m.tasks_overview_all())}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{m.tasks_overview_all()}</SelectItem>
-            {TASK_STATUSES.map((value) => (
-              <SelectItem key={value} value={value}>
-                {statusLabel(value)}
-              </SelectItem>
-            ))}
-          </SelectContent>
+          <Select.Item id="all" label={m.tasks_overview_all()} />
+          {TASK_STATUSES.map((value) => (
+            <Select.Item key={value} id={value} label={statusLabel(value)} />
+          ))}
         </Select>
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
         {visible.length === 0 && (
-          <p className="py-16 text-center text-sm text-muted-foreground">
+          <p className="py-16 text-center text-sm text-tertiary">
             {status ? m.tasks_overview_filter_empty() : m.tasks_overview_empty()}
           </p>
         )}
@@ -108,20 +93,18 @@ function TaskOverviewLink({
 }) {
   const content = (
     <div className="min-w-0 flex-1">
-      <div className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
-        {task.source.label}
-      </div>
+      <div className="text-xs text-tertiary [overflow-wrap:anywhere]">{task.source.label}</div>
       <h3 className="mt-2 text-sm leading-6 font-semibold [overflow-wrap:anywhere]">
-        <span className="mr-2 text-muted-foreground">#{task.number}</span>
+        <span className="mr-2 text-tertiary">#{task.number}</span>
         {task.title}
       </h3>
-      <p className="mt-3 text-sm text-muted-foreground [overflow-wrap:anywhere]">
+      <p className="mt-3 text-sm text-tertiary [overflow-wrap:anywhere]">
         {m.tasks_overview_owner()}: {task.owner?.name ?? m.tasks_unassigned()}
       </p>
     </div>
   );
   const linkClass =
-    "min-w-0 flex-1 rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50";
+    "min-w-0 flex-1 rounded-md outline-none focus-visible:ring-3 focus-visible:ring-brand/50";
   const search = { view: "tasks" as const, layout: list ? ("list" as const) : undefined };
   const link = task.source.agentId ? (
     <Link
@@ -144,7 +127,7 @@ function TaskOverviewLink({
   );
   return (
     <article
-      className={`flex gap-4 rounded-xl border bg-card p-4 shadow-xs transition-colors hover:bg-muted/30 ${list ? "flex-col sm:flex-row sm:items-center sm:px-5" : "flex-col"}`}
+      className={`flex gap-4 rounded-xl border border-secondary bg-primary p-4 shadow-xs transition-colors hover:bg-secondary ${list ? "flex-col sm:flex-row sm:items-center sm:px-5" : "flex-col"}`}
     >
       {link}
       {controls}

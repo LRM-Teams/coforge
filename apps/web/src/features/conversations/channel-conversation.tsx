@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Bell01 as Bell, BellOff01 as BellOff, Hash01 as Hash } from "@untitledui/icons";
 import type { TaskView } from "@coforge/protocol";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
 import { BackToAgents } from "./conversation-layout";
 import {
@@ -38,20 +39,20 @@ export function ChannelConversationHeader({
 }) {
   const [savingMute, setSavingMute] = useState(false);
   return (
-    <header className="shrink-0 border-b px-3 sm:px-5">
-      <div className="-mx-3 flex h-14 items-center gap-3 border-b px-3 sm:-mx-5 sm:px-5">
+    <header className="shrink-0 border-b border-secondary px-3 sm:px-5">
+      <div className="-mx-3 flex h-14 items-center gap-3 border-b border-secondary px-3 sm:-mx-5 sm:px-5">
         <BackToAgents />
         <h1 className="truncate text-base font-semibold">#{conversation.name}</h1>
-        <span className="ml-auto hidden rounded-md border px-2 py-0.5 text-xs font-medium text-muted-foreground sm:block">
+        <span className="ml-auto hidden rounded-md border border-secondary px-2 py-0.5 text-xs font-medium text-tertiary sm:block">
           {m.channel_public()}
         </span>
         {conversation.senderMemberId && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            disabled={savingMute}
-            aria-label={conversation.muted ? m.channel_unmute() : m.channel_mute()}
+          <ButtonUtility
+            icon={conversation.muted ? BellOff : Bell}
+            size="sm"
+            color="tertiary"
+            isDisabled={savingMute}
+            tooltip={conversation.muted ? m.channel_unmute() : m.channel_mute()}
             onClick={async () => {
               setSavingMute(true);
               try {
@@ -60,9 +61,7 @@ export function ChannelConversationHeader({
                 setSavingMute(false);
               }
             }}
-          >
-            {conversation.muted ? <BellOff aria-hidden="true" /> : <Bell aria-hidden="true" />}
-          </Button>
+          />
         )}
       </div>
       {(onShowChat || onShowTasks) && (
@@ -155,26 +154,20 @@ export function ChannelConversation({
       threadHeaderAction={(rootMessageId) => {
         const followed = conversation.followedThreadRootIds?.includes(rootMessageId) ?? false;
         return conversation.senderMemberId ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
+          <ButtonUtility
+            icon={followed ? BellOff : Bell}
+            size="sm"
+            color="tertiary"
             className="ml-auto"
-            aria-label={
-              followed ? m.conversation_thread_unfollow() : m.conversation_thread_follow()
-            }
+            tooltip={followed ? m.conversation_thread_unfollow() : m.conversation_thread_follow()}
             onClick={() => void onThreadFollowedChange?.(rootMessageId, !followed)}
-          >
-            {followed ? <BellOff aria-hidden="true" /> : <Bell aria-hidden="true" />}
-          </Button>
+          />
         ) : undefined;
       }}
       emptyState={{
         title: `#${conversation.name}`,
         description: conversation.senderMemberId ? m.channel_empty() : m.channel_empty_preview(),
-        media: (
-          <Hash aria-hidden="true" className="size-12 text-muted-foreground" strokeWidth={1.5} />
-        ),
+        media: <Hash aria-hidden="true" className="size-12 text-tertiary" strokeWidth={1.5} />,
       }}
       header={
         <ChannelConversationHeader
@@ -187,14 +180,14 @@ export function ChannelConversation({
       }
       readOnlyNotice={
         !conversation.senderMemberId ? (
-          <div className="mx-4 mb-4 flex flex-col items-start gap-3 rounded-lg border bg-muted/30 p-4 md:mx-6 md:mb-6">
-            <p className="text-sm text-muted-foreground">{m.channel_public_description()}</p>
+          <div className="mx-4 mb-4 flex flex-col items-start gap-3 rounded-lg border border-secondary bg-secondary p-4 md:mx-6 md:mb-6">
+            <p className="text-sm text-tertiary">{m.channel_public_description()}</p>
             {error && (
-              <p role="alert" className="text-sm text-destructive-text">
+              <p role="alert" className="text-sm text-error-primary">
                 {m.channel_error()}
               </p>
             )}
-            <Button disabled={joining} onClick={() => void join()}>
+            <Button isDisabled={joining} onPress={() => void join()}>
               {joining ? m.channel_joining() : m.channel_join()}
             </Button>
           </div>

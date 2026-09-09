@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Clock, Link01 as LinkIcon, Repeat01 as Repeat } from "@untitledui/icons";
 import { Link } from "@tanstack/react-router";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/base/buttons/button";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { m } from "@/paraglide/messages";
 import type { AgentReminderListItem } from "../../server/agents/agent-reminders.server";
@@ -47,8 +47,8 @@ export function AgentReminders({
         action={
           <Button
             size="sm"
-            variant="outline"
-            onClick={() => {
+            color="secondary"
+            onPress={() => {
               setError(false);
               setResult(undefined);
               void onLoad()
@@ -64,13 +64,13 @@ export function AgentReminders({
   if (!result)
     return (
       <div className="mt-6 animate-pulse space-y-3" aria-label={m.agent_reminders_loading()}>
-        <div className="flex items-center justify-between gap-6 rounded-xl border bg-card p-4">
-          <div className="h-4 w-52 max-w-2/3 rounded bg-muted" />
-          <div className="h-4 w-20 rounded bg-muted" />
+        <div className="flex items-center justify-between gap-6 rounded-xl border border-secondary bg-primary p-4">
+          <div className="h-4 w-52 max-w-2/3 rounded bg-secondary" />
+          <div className="h-4 w-20 rounded bg-secondary" />
         </div>
-        <div className="flex items-center justify-between gap-6 rounded-xl border bg-card p-4">
-          <div className="h-4 w-64 max-w-2/3 rounded bg-muted" />
-          <div className="h-4 w-16 rounded bg-muted" />
+        <div className="flex items-center justify-between gap-6 rounded-xl border border-secondary bg-primary p-4">
+          <div className="h-4 w-64 max-w-2/3 rounded bg-secondary" />
+          <div className="h-4 w-16 rounded bg-secondary" />
         </div>
       </div>
     );
@@ -85,9 +85,9 @@ export function AgentReminders({
       </ol>
       {result.hasMore && result.cursor && (
         <Button
-          variant="outline"
-          disabled={loadingMore}
-          onClick={async () => {
+          color="secondary"
+          isDisabled={loadingMore}
+          onPress={async () => {
             setLoadingMore(true);
             try {
               const next = await onLoad(result.cursor ?? undefined);
@@ -115,9 +115,9 @@ function ReminderRow({
   timeZone: string | null;
 }) {
   return (
-    <li className="min-w-0 rounded-xl border bg-card p-4 text-card-foreground">
+    <li className="min-w-0 rounded-xl border border-secondary bg-primary p-4 text-primary">
       <p className="whitespace-pre-wrap break-words font-medium">{reminder.title}</p>
-      <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+      <div className="mt-3 space-y-2 text-xs text-tertiary">
         <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
           <span className="inline-flex min-w-0 items-center gap-1.5">
             <Clock className="size-3.5 shrink-0" aria-hidden="true" />
@@ -193,7 +193,7 @@ function Source({ reminder }: { reminder: AgentReminderListItem }) {
   return reminder.anchor ? (
     <AnchorLink
       anchor={reminder.anchor}
-      className={`${className} rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring`}
+      className={`${className} rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-brand`}
     >
       {content}
     </AnchorLink>
@@ -212,7 +212,7 @@ function AnchorLink({
   className?: string;
 }) {
   className ??=
-    "min-w-0 rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring";
+    "min-w-0 rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-brand";
   return anchor.kind === "channel" ? (
     <Link
       className={className}
@@ -247,7 +247,7 @@ function State({
 }) {
   return (
     <div
-      className="mt-6 flex min-h-10 items-center gap-3 text-sm text-muted-foreground"
+      className="mt-6 flex min-h-10 items-center gap-3 text-sm text-tertiary"
       role={alert ? "alert" : undefined}
     >
       <p>{message}</p>

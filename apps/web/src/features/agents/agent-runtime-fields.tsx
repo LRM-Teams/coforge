@@ -1,14 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { CodeAgentModelMetadata, RuntimeProvider } from "@coforge/protocol";
 
-import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Button } from "@/components/base/buttons/button";
+import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
 
 export type RuntimeCatalog = {
@@ -110,26 +104,22 @@ export function AgentRuntimeFields({
         <span>{m.agent_form_provider()}</span>
         <input type="hidden" name="provider" value={provider} />
         <Select
-          value={provider}
-          onValueChange={(value) => {
-            if (value === null) return;
-            setProvider(runtimeProvider(value));
+          aria-label={m.agent_form_provider()}
+          size="sm"
+          className="min-w-0"
+          selectedKey={provider}
+          onSelectionChange={(key) => {
+            if (key === null) return;
+            setProvider(runtimeProvider(String(key)));
             setModelProvider("");
             setModelKey("");
             setReasoning("");
           }}
         >
-          <SelectTrigger aria-label={m.agent_form_provider()} className="h-9 min-w-0">
-            <SelectValue>{() => providerLabel(provider)}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="coforge">{m.agent_provider_pi_builtin()}</SelectItem>
-            {providers.has("pi") && <SelectItem value="pi">Pi</SelectItem>}
-            {providers.has("codex") && <SelectItem value="codex">Codex</SelectItem>}
-            {providers.has("claude-code") && (
-              <SelectItem value="claude-code">Claude Code</SelectItem>
-            )}
-          </SelectContent>
+          <Select.Item id="coforge" label={m.agent_provider_pi_builtin()} />
+          {providers.has("pi") && <Select.Item id="pi" label="Pi" />}
+          {providers.has("codex") && <Select.Item id="codex" label="Codex" />}
+          {providers.has("claude-code") && <Select.Item id="claude-code" label="Claude Code" />}
         </Select>
       </div>
       {failed ? (
@@ -140,7 +130,7 @@ export function AgentRuntimeFields({
             required={provider === "coforge"}
             maxLength={100}
             defaultValue={modelProvider}
-            className="h-9 min-w-0 rounded-md border bg-background px-3"
+            className="h-9 min-w-0 rounded-md border border-secondary bg-primary px-3"
           />
         </label>
       ) : (
@@ -149,26 +139,22 @@ export function AgentRuntimeFields({
             <span>{m.agent_form_model_provider()}</span>
             <input type="hidden" name="modelProvider" value={modelProvider} />
             <Select
-              disabled={!options}
-              value={modelProvider}
-              onValueChange={(value) => {
-                if (value === null) return;
-                setModelProvider(value);
+              aria-label={m.agent_form_model_provider()}
+              size="sm"
+              className="min-w-0"
+              isDisabled={!options}
+              selectedKey={modelProvider}
+              onSelectionChange={(key) => {
+                if (key === null) return;
+                setModelProvider(String(key));
                 setModelKey("");
                 setReasoning("");
               }}
             >
-              <SelectTrigger aria-label={m.agent_form_model_provider()} className="h-9 min-w-0">
-                <SelectValue>{() => modelProvider || m.agent_form_provider_default()}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">{m.agent_form_provider_default()}</SelectItem>
-                {modelProviders.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {value}
-                  </SelectItem>
-                ))}
-              </SelectContent>
+              <Select.Item id="" label={m.agent_form_provider_default()} />
+              {modelProviders.map((value) => (
+                <Select.Item key={value} id={value} label={value} />
+              ))}
             </Select>
           </div>
         )
@@ -184,7 +170,7 @@ export function AgentRuntimeFields({
             required
             maxLength={200}
             defaultValue={initial?.model}
-            className="h-9 min-w-0 rounded-md border bg-background px-3"
+            className="h-9 min-w-0 rounded-md border border-secondary bg-primary px-3"
           />
         </label>
       ) : (
@@ -196,54 +182,48 @@ export function AgentRuntimeFields({
             value={selectedModel?.id ?? (modelKey === initialModelKey ? initial?.model : "")}
           />
           <Select
-            disabled={!options}
-            value={modelKey}
-            onValueChange={(value) => {
-              if (value === null) return;
+            aria-label={`${m.agent_form_model()} ${m.agent_optional()}`}
+            size="sm"
+            className="min-w-0"
+            isDisabled={!options}
+            selectedKey={modelKey}
+            onSelectionChange={(key) => {
+              if (key === null) return;
+              const value = String(key);
               setModelKey(value);
               const model = catalog?.models.find((item) => modelOptionValue(item) === value);
               setReasoning(model?.defaultReasoning ?? "");
             }}
           >
-            <SelectTrigger
-              aria-label={`${m.agent_form_model()} ${m.agent_optional()}`}
-              className="h-9 min-w-0"
-            >
-              <SelectValue>
-                {() =>
-                  selectedModel
-                    ? `${selectedModel.modelProvider} / ${selectedModel.displayName}`
-                    : (configuredModelLabel ?? m.agent_form_provider_default())
-                }
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="">{m.agent_form_provider_default()}</SelectItem>
-              {configuredModelSelected && !selectedModel && (
-                <SelectItem value={initialModelKey}>{configuredModelLabel}</SelectItem>
-              )}
-              {catalog?.models
-                .filter((model) => provider !== "coforge" || model.modelProvider === modelProvider)
-                .map((model) => (
-                  <SelectItem key={modelOptionValue(model)} value={modelOptionValue(model)}>
-                    {model.modelProvider
+            <Select.Item id="" label={m.agent_form_provider_default()} />
+            {configuredModelSelected && !selectedModel && (
+              <Select.Item id={initialModelKey} label={configuredModelLabel} />
+            )}
+            {catalog?.models
+              .filter((model) => provider !== "coforge" || model.modelProvider === modelProvider)
+              .map((model) => (
+                <Select.Item
+                  key={modelOptionValue(model)}
+                  id={modelOptionValue(model)}
+                  label={
+                    model.modelProvider
                       ? `${model.modelProvider} / ${model.displayName}`
-                      : model.displayName}
-                  </SelectItem>
-                ))}
-            </SelectContent>
+                      : model.displayName
+                  }
+                />
+              ))}
           </Select>
         </div>
       )}
       {failed && (
-        <div role="alert" className="grid gap-2 text-sm text-destructive-text sm:col-span-2">
+        <div role="alert" className="grid gap-2 text-sm text-error-primary sm:col-span-2">
           <span>{m.agent_form_catalog_manual_help()}</span>
           <Button
             type="button"
-            variant="outline"
+            color="secondary"
             size="sm"
             className="justify-self-start"
-            onClick={() => {
+            onPress={() => {
               setFailedComputerId(undefined);
               setOptionsByComputer((current) => ({
                 ...current,
@@ -260,24 +240,17 @@ export function AgentRuntimeFields({
         <span>{m.agent_form_reasoning()}</span>
         <input type="hidden" name="reasoning" value={reasoning} />
         <Select
-          disabled={!selectedModel?.reasoningEfforts.length}
-          value={reasoning}
-          onValueChange={(value) => value !== null && setReasoning(value)}
+          aria-label={`${m.agent_form_reasoning()} ${m.agent_optional()}`}
+          size="sm"
+          className="min-w-0"
+          isDisabled={!selectedModel?.reasoningEfforts.length}
+          selectedKey={reasoning}
+          onSelectionChange={(key) => key !== null && setReasoning(String(key))}
         >
-          <SelectTrigger
-            aria-label={`${m.agent_form_reasoning()} ${m.agent_optional()}`}
-            className="h-9 min-w-0"
-          >
-            <SelectValue>{() => reasoning || m.agent_form_provider_default()}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">{m.agent_form_provider_default()}</SelectItem>
-            {selectedModel?.reasoningEfforts.map((effort) => (
-              <SelectItem key={effort} value={effort}>
-                {effort}
-              </SelectItem>
-            ))}
-          </SelectContent>
+          <Select.Item id="" label={m.agent_form_provider_default()} />
+          {selectedModel?.reasoningEfforts.map((effort) => (
+            <Select.Item key={effort} id={effort} label={effort} />
+          ))}
         </Select>
       </div>
     </>
@@ -287,13 +260,6 @@ export function AgentRuntimeFields({
 function runtimeProvider(value: string): RuntimeProvider {
   if (value === "pi" || value === "codex" || value === "claude-code") return value;
   return "coforge";
-}
-
-function providerLabel(provider: RuntimeProvider) {
-  if (provider === "coforge") return m.agent_provider_pi_builtin();
-  if (provider === "pi") return "Pi";
-  if (provider === "codex") return "Codex";
-  return "Claude Code";
 }
 
 function modelOptionValue(model: CodeAgentModelMetadata) {

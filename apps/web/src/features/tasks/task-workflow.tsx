@@ -13,14 +13,9 @@ import {
 import { Columns03 as Columns3, DotsGrid as GripVertical, List } from "@untitledui/icons";
 import { useRef, useState, type ReactNode } from "react";
 
-import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
 import { getTaskMoveCommand } from "./task-move";
 
@@ -41,10 +36,10 @@ export function TaskLayoutToggle({
           key={value}
           type="button"
           size="xs"
-          variant={layout === value ? "secondary" : "ghost"}
-          className="h-9 rounded-none border px-3 text-sm font-semibold first:rounded-l-lg last:rounded-r-lg focus-visible:z-10"
+          color={layout === value ? "secondary" : "tertiary"}
+          className="h-9 rounded-none border border-secondary px-3 text-sm font-semibold first:rounded-l-lg last:rounded-r-lg focus-visible:z-10"
           aria-pressed={layout === value}
-          onClick={() => onChange(value)}
+          onPress={() => onChange(value)}
         >
           {value === "board" ? (
             <Columns3 aria-hidden="true" data-icon="inline-start" />
@@ -107,27 +102,19 @@ export function TaskWorkflow<T extends TaskView>({
         {!disabled && available.length > 0 && <DragHandle task={task} disabled={isPending} />}
         {!disabled && available.length > 0 && (
           <Select
-            value={task.status}
-            disabled={isPending}
-            onValueChange={(status) => {
-              const nextStatus = parseTaskStatus(status);
+            aria-label={m.tasks_change_status()}
+            size="sm"
+            selectedKey={task.status}
+            isDisabled={isPending}
+            onSelectionChange={(key) => {
+              const nextStatus = parseTaskStatus(key === null ? null : String(key));
               if (nextStatus) void move(task, nextStatus);
             }}
           >
-            <SelectTrigger
-              aria-label={m.tasks_change_status()}
-              className="h-8 max-w-36 rounded-lg text-xs font-medium shadow-xs"
-            >
-              <SelectValue>{() => statusLabel(task.status)}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={task.status}>{statusLabel(task.status)}</SelectItem>
-              {available.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {statusLabel(status)}
-                </SelectItem>
-              ))}
-            </SelectContent>
+            <Select.Item id={task.status} label={statusLabel(task.status)} />
+            {available.map((status) => (
+              <Select.Item key={status} id={status} label={statusLabel(status)} />
+            ))}
           </Select>
         )}
       </div>
@@ -144,7 +131,7 @@ export function TaskWorkflow<T extends TaskView>({
       onDragEnd={(event) => void dropped(event)}
     >
       {error && (
-        <p role="alert" className="mb-4 text-sm text-destructive-text">
+        <p role="alert" className="mb-4 text-sm text-error-primary">
           {m.tasks_mutation_error()}
         </p>
       )}
@@ -180,8 +167,8 @@ export function TaskWorkflow<T extends TaskView>({
       </div>
       <DragOverlay dropAnimation={null}>
         {active ? (
-          <div className="w-64 rounded-xl border bg-card p-4 shadow-lg">
-            <span className="text-xs text-muted-foreground">#{active.number}</span>
+          <div className="w-64 rounded-xl border border-secondary bg-primary p-4 shadow-lg">
+            <span className="text-xs text-tertiary">#{active.number}</span>
             <p className="mt-1 text-sm font-semibold">{active.title}</p>
           </div>
         ) : null}
@@ -217,19 +204,17 @@ export function TaskWorkflow<T extends TaskView>({
 function DragHandle({ task, disabled }: { task: TaskView; disabled: boolean }) {
   const drag = useDraggable({ id: task.messageId, disabled });
   return (
-    <Button
+    <ButtonUtility
       ref={drag.setNodeRef}
       {...drag.listeners}
       {...drag.attributes}
-      type="button"
-      size="icon-xs"
-      variant="ghost"
-      disabled={disabled}
+      size="xs"
+      color="tertiary"
+      isDisabled={disabled}
+      icon={GripVertical}
       aria-label={m.tasks_drag({ number: String(task.number) })}
       className="touch-none"
-    >
-      <GripVertical aria-hidden="true" />
-    </Button>
+    />
   );
 }
 
@@ -253,8 +238,8 @@ function TaskGroup({
       aria-label={statusLabel(status)}
       className={
         board
-          ? `min-w-0 rounded-xl bg-muted/40 p-3 ${drop.isOver ? "ring-2 ring-ring" : ""}`
-          : "min-w-0 overflow-hidden rounded-xl border bg-card shadow-xs"
+          ? `min-w-0 rounded-xl bg-secondary p-3 ${drop.isOver ? "ring-2 ring-brand" : ""}`
+          : "min-w-0 overflow-hidden rounded-xl border border-secondary bg-primary shadow-xs"
       }
     >
       <h2
@@ -262,7 +247,7 @@ function TaskGroup({
         className={
           board
             ? "mb-4 flex items-center gap-2 px-1 text-sm font-semibold"
-            : "flex items-center gap-2 border-b bg-muted/30 px-5 py-4 text-base font-semibold"
+            : "flex items-center gap-2 border-b border-secondary bg-secondary px-5 py-4 text-base font-semibold"
         }
       >
         <span className="inline-flex items-center gap-2">
@@ -272,7 +257,7 @@ function TaskGroup({
           />
           {statusLabel(status)}
           <span
-            className={`inline-flex min-h-5 min-w-6 shrink-0 items-center justify-center rounded-md px-1.5 text-xs font-medium tabular-nums ring-1 ring-inset ring-border ${statusAppearance[status].badge}`}
+            className={`inline-flex min-h-5 min-w-6 shrink-0 items-center justify-center rounded-md px-1.5 text-xs font-medium tabular-nums ring-1 ring-inset ring-secondary ${statusAppearance[status].badge}`}
           >
             {count}
           </span>
@@ -302,11 +287,11 @@ export function statusLabel(status: TaskStatus) {
 }
 
 const statusAppearance = {
-  todo: { background: "bg-muted-foreground", badge: "bg-card" },
-  in_progress: { background: "bg-info", badge: "bg-card" },
-  in_review: { background: "bg-brand", badge: "bg-card" },
-  done: { background: "bg-success", badge: "bg-card" },
-  closed: { background: "bg-offline", badge: "bg-card" },
+  todo: { background: "bg-fg-quaternary", badge: "bg-primary" },
+  in_progress: { background: "bg-utility-blue-500", badge: "bg-primary" },
+  in_review: { background: "bg-brand-solid", badge: "bg-primary" },
+  done: { background: "bg-fg-success-primary", badge: "bg-primary" },
+  closed: { background: "bg-offline", badge: "bg-primary" },
 } satisfies Record<TaskStatus, { background: string; badge: string }>;
 
 function parseTaskStatus(value: string | null): TaskStatus | undefined {

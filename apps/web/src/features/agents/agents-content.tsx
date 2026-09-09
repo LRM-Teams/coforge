@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Link } from "@tanstack/react-router";
+import { Heading, Text } from "react-aria-components";
 import {
   MessageCircle01 as MessageCircle,
   Monitor01 as Monitor,
@@ -10,9 +11,10 @@ import {
 } from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { Avatar } from "@/components/ui/avatar";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Avatar } from "@/components/base/avatar/avatar";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import {
   Empty,
   EmptyContent,
@@ -21,22 +23,8 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import {
-  Dialog,
-  DialogBackdrop,
-  DialogClose,
-  DialogDescription,
-  DialogPopup,
-  DialogPortal,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
+import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
 import type { AgentStatusView } from "./agent-status-realtime";
 import { AgentRuntimeFields, type RuntimeCatalog } from "./agent-runtime-fields";
@@ -85,7 +73,6 @@ export function AgentsContent({
   const [error, setError] = useState("");
   const [deferredStart, setDeferredStart] = useState(false);
   const [computerId, setComputerId] = useState(computers[0]?.id ?? "");
-  const selectedComputer = computers.find((computer) => computer.id === computerId);
   const memberCount = directory.people.length + directory.agents.length;
   const query = search.trim().toLowerCase();
   const filteredPeople = directory.people.filter(
@@ -138,11 +125,11 @@ export function AgentsContent({
 
   return (
     <main className="flex h-svh min-w-0 md:p-2">
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card md:rounded-xl md:border">
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-primary md:rounded-xl md:border md:border-secondary">
         <PageHeader
           heading={m.navigation_agents()}
           actions={
-            <Button className="h-11 md:h-10" onClick={() => setOpen(true)}>
+            <Button className="h-11 md:h-10" onPress={() => setOpen(true)}>
               <Plus aria-hidden="true" data-icon="inline-start" />
               {m.header_new_agent()}
             </Button>
@@ -152,7 +139,7 @@ export function AgentsContent({
           {deferredStart && (
             <p
               role="status"
-              className="mt-5 rounded-lg border bg-muted px-4 py-3 text-sm text-muted-foreground"
+              className="mt-5 rounded-lg border border-secondary bg-secondary px-4 py-3 text-sm text-tertiary"
             >
               {m.agent_deferred_start_notice()}
             </p>
@@ -162,7 +149,7 @@ export function AgentsContent({
               <div
                 role="group"
                 aria-label={m.member_type_filter()}
-                className="flex max-w-full gap-0.5 rounded-lg bg-muted p-1 ring-1 ring-border ring-inset"
+                className="flex max-w-full gap-0.5 rounded-lg bg-secondary p-1 ring-1 ring-secondary ring-inset"
               >
                 {(["all", "human", "agent"] as const).map((type) => (
                   <Button
@@ -174,17 +161,17 @@ export function AgentsContent({
                           ? m.member_person()
                           : m.member_agent()
                     }
-                    variant={memberType === type ? "outline" : "ghost"}
-                    className="h-11 gap-2 px-3 font-semibold md:h-9 aria-pressed:text-foreground"
+                    color={memberType === type ? "secondary" : "tertiary"}
+                    className="h-11 gap-2 px-3 font-semibold md:h-9 aria-pressed:text-primary"
                     aria-pressed={memberType === type}
-                    onClick={() => onMemberTypeChange(type)}
+                    onPress={() => onMemberTypeChange(type)}
                   >
                     {type === "all"
                       ? m.filters_all()
                       : type === "human"
                         ? m.member_person()
                         : m.member_agent()}
-                    <span className="rounded-full bg-card px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground ring-1 ring-border ring-inset">
+                    <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium tabular-nums text-tertiary ring-1 ring-secondary ring-inset">
                       {type === "all"
                         ? memberCount
                         : type === "human"
@@ -194,15 +181,15 @@ export function AgentsContent({
                   </Button>
                 ))}
               </div>
-              <label className="flex h-11 w-full items-center gap-2 rounded-lg bg-background px-3 text-sm shadow-xs ring-1 ring-border ring-inset transition-shadow focus-within:ring-2 focus-within:ring-ring sm:ml-auto sm:w-72">
-                <Search aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
+              <label className="flex h-11 w-full items-center gap-2 rounded-lg bg-primary px-3 text-sm shadow-xs ring-1 ring-secondary transition-shadow focus-within:ring-2 focus-within:ring-brand ring-inset sm:ml-auto sm:w-72">
+                <Search aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
                 <input
                   type="search"
                   aria-label={m.filters_search()}
                   placeholder={`${m.filters_search()}...`}
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+                  className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-tertiary"
                 />
               </label>
             </div>
@@ -237,20 +224,13 @@ export function AgentsContent({
               <EmptyHeader className="max-w-xs gap-3">
                 {memberCount ? (
                   <EmptyMedia>
-                    <Search
-                      aria-hidden="true"
-                      className="size-8 text-muted-foreground"
-                      strokeWidth={1.5}
-                    />
+                    <Search aria-hidden="true" className="size-8 text-tertiary" strokeWidth={1.5} />
                   </EmptyMedia>
                 ) : (
                   <EmptyMedia aria-hidden="true" className="relative mb-3 h-28 w-44">
-                    <span className="absolute inset-x-2 top-0 h-24 rounded-full bg-muted/70" />
-                    <UsersRound
-                      className="relative size-20 text-muted-foreground"
-                      strokeWidth={1}
-                    />
-                    <span className="absolute right-2 bottom-0 flex size-10 items-center justify-center rounded-xl border bg-card text-muted-foreground shadow-sm">
+                    <span className="absolute inset-x-2 top-0 h-24 rounded-full bg-secondary" />
+                    <UsersRound className="relative size-20 text-tertiary" strokeWidth={1} />
+                    <span className="absolute right-2 bottom-0 flex size-10 items-center justify-center rounded-xl border border-secondary bg-primary text-tertiary shadow-sm">
                       <Plus className="size-5" />
                     </span>
                   </EmptyMedia>
@@ -275,9 +255,9 @@ export function AgentsContent({
               <EmptyContent>
                 {memberCount ? (
                   <Button
-                    variant="outline"
+                    color="secondary"
                     className="h-11 px-5"
-                    onClick={() => (query ? setSearch("") : onMemberTypeChange("all"))}
+                    onPress={() => (query ? setSearch("") : onMemberTypeChange("all"))}
                   >
                     {query ? m.agent_clear_search() : m.member_show_all()}
                   </Button>
@@ -288,155 +268,144 @@ export function AgentsContent({
         </div>
       </section>
 
-      <Dialog
-        open={open}
+      <ModalOverlay
+        isOpen={open}
         onOpenChange={(nextOpen) => {
           if (!submittingRef.current) setOpen(nextOpen);
         }}
       >
-        <DialogPortal keepMounted>
-          <DialogBackdrop />
-          <DialogPopup className="rounded-2xl">
-            {computers.length ? (
-              <form onSubmit={submit}>
-                <div className="flex items-start justify-between gap-6 px-6 pt-6">
-                  <div>
-                    <DialogTitle>{m.agent_form_title()}</DialogTitle>
-                    <DialogDescription className="mt-2">
-                      {m.agent_form_description()}
-                    </DialogDescription>
+        <Modal className="w-[calc(100vw-2rem)] max-w-lg rounded-2xl">
+          <Dialog>
+            {({ close }) =>
+              computers.length ? (
+                <form onSubmit={submit}>
+                  <div className="flex items-start justify-between gap-6 px-6 pt-6">
+                    <div>
+                      <Heading slot="title" className="text-lg font-semibold text-primary">
+                        {m.agent_form_title()}
+                      </Heading>
+                      <Text slot="description" className="mt-2 text-sm text-tertiary">
+                        {m.agent_form_description()}
+                      </Text>
+                    </div>
+                    <ButtonUtility
+                      type="button"
+                      aria-label={m.controls_close()}
+                      icon={X}
+                      size="sm"
+                      color="tertiary"
+                      onClick={close}
+                    />
                   </div>
-                  <DialogClose
-                    render={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        aria-label={m.controls_close()}
-                      >
-                        <X aria-hidden="true" />
-                      </Button>
-                    }
-                  />
-                </div>
-                <div className="grid gap-5 px-6 py-6 sm:grid-cols-2">
-                  <div className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
-                    <span>{m.agent_form_computer()}</span>
-                    <Select
-                      name="computerId"
-                      required
-                      value={computerId}
-                      onValueChange={(value) => {
-                        if (value !== null) {
-                          setComputerId(value);
-                        }
-                      }}
-                    >
-                      <SelectTrigger
+                  <div className="grid gap-5 px-6 py-6 sm:grid-cols-2">
+                    <div className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
+                      <span>{m.agent_form_computer()}</span>
+                      <Select
+                        name="computerId"
+                        isRequired
+                        size="lg"
+                        className="min-w-0 rounded-lg shadow-xs"
                         aria-label={m.agent_form_computer()}
-                        className="h-11 min-w-0 rounded-lg shadow-xs"
+                        selectedKey={computerId}
+                        onSelectionChange={(key) => {
+                          if (key !== null) setComputerId(String(key));
+                        }}
                       >
-                        <SelectValue>{() => selectedComputer?.displayName}</SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
                         {computers.map((computer) => (
-                          <SelectItem key={computer.id} value={computer.id}>
-                            <span className="flex min-w-0 items-center gap-2">
-                              <span className="truncate">{computer.displayName}</span>
-                              <span className="shrink-0 text-muted-foreground">
-                                ·{" "}
-                                {computer.online
-                                  ? m.computer_status_online()
-                                  : m.computer_status_offline()}
-                              </span>
-                            </span>
-                          </SelectItem>
+                          <Select.Item
+                            key={computer.id}
+                            id={computer.id}
+                            label={computer.displayName}
+                            supportingText={
+                              computer.online
+                                ? m.computer_status_online()
+                                : m.computer_status_offline()
+                            }
+                          />
                         ))}
-                      </SelectContent>
-                    </Select>
+                      </Select>
+                    </div>
+                    <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
+                      {m.agent_form_name()}
+                      <input
+                        name="name"
+                        required
+                        pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+                        placeholder="release-fix"
+                        className="h-11 min-w-0 rounded-lg bg-primary px-3 shadow-xs ring-1 ring-secondary outline-none transition-shadow ring-inset focus:ring-2 focus:ring-brand"
+                      />
+                    </label>
+                    <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
+                      {m.agent_form_description()}
+                      <textarea
+                        name="description"
+                        required
+                        rows={3}
+                        placeholder={m.agent_form_description_placeholder()}
+                        className="min-w-0 resize-y rounded-lg bg-primary px-3 py-2.5 shadow-xs ring-1 ring-secondary outline-none transition-shadow ring-inset focus:ring-2 focus:ring-brand"
+                      />
+                    </label>
+                    <AgentRuntimeFields
+                      key={computerId}
+                      open={open}
+                      computerId={computerId}
+                      onLoad={async (id) => ({
+                        providers:
+                          computers
+                            .find((computer) => computer.id === id)
+                            ?.runtimes.map((runtime) => runtime.provider) ?? [],
+                        catalogs: await onLoadRuntimeCatalog(id),
+                      })}
+                    />
+                    {error && (
+                      <p role="alert" className="text-sm text-error-primary sm:col-span-2">
+                        {error}
+                      </p>
+                    )}
                   </div>
-                  <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
-                    {m.agent_form_name()}
-                    <input
-                      name="name"
-                      required
-                      pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-                      placeholder="release-fix"
-                      className="h-11 min-w-0 rounded-lg bg-background px-3 shadow-xs ring-1 ring-border ring-inset outline-none transition-shadow focus:ring-2 focus:ring-ring"
-                    />
-                  </label>
-                  <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
-                    {m.agent_form_description()}
-                    <textarea
-                      name="description"
-                      required
-                      rows={3}
-                      placeholder={m.agent_form_description_placeholder()}
-                      className="min-w-0 resize-y rounded-lg bg-background px-3 py-2.5 shadow-xs ring-1 ring-border ring-inset outline-none transition-shadow focus:ring-2 focus:ring-ring"
-                    />
-                  </label>
-                  <AgentRuntimeFields
-                    key={computerId}
-                    open={open}
-                    computerId={computerId}
-                    onLoad={async (id) => ({
-                      providers:
-                        computers
-                          .find((computer) => computer.id === id)
-                          ?.runtimes.map((runtime) => runtime.provider) ?? [],
-                      catalogs: await onLoadRuntimeCatalog(id),
-                    })}
-                  />
-                  {error && (
-                    <p role="alert" className="text-sm text-destructive-text sm:col-span-2">
-                      {error}
-                    </p>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-3 border-t px-6 py-4 sm:flex sm:justify-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-11"
-                    disabled={submitting}
-                    onClick={() => setOpen(false)}
+                  <div className="grid grid-cols-2 gap-3 border-t border-secondary px-6 py-4 sm:flex sm:justify-end">
+                    <Button
+                      type="button"
+                      color="secondary"
+                      className="h-11"
+                      isDisabled={submitting}
+                      onPress={() => setOpen(false)}
+                    >
+                      {m.controls_cancel()}
+                    </Button>
+                    <Button type="submit" className="h-11" isDisabled={submitting}>
+                      {submitting ? m.agent_form_submitting() : m.agent_form_submit()}
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <div className="p-6">
+                  <div
+                    aria-hidden="true"
+                    className="mb-5 flex size-12 items-center justify-center rounded-xl bg-primary text-tertiary shadow-xs ring-1 ring-secondary ring-inset"
                   >
-                    {m.controls_cancel()}
-                  </Button>
-                  <Button type="submit" className="h-11" disabled={submitting}>
-                    {submitting ? m.agent_form_submitting() : m.agent_form_submit()}
-                  </Button>
+                    <Monitor className="size-6" />
+                  </div>
+                  <Heading slot="title" className="text-lg font-semibold text-primary">
+                    {m.agent_form_title()}
+                  </Heading>
+                  <Text slot="description" className="mt-3 text-sm text-tertiary">
+                    {m.agent_empty_computer_description()}
+                  </Text>
+                  <div className="mt-6 flex flex-wrap justify-end gap-3">
+                    <Button color="secondary" onPress={() => setOpen(false)}>
+                      {m.controls_cancel()}
+                    </Button>
+                    <Button href="/computers" className="h-11" onPress={() => setOpen(false)}>
+                      {m.agent_connect_computer()}
+                    </Button>
+                  </div>
                 </div>
-              </form>
-            ) : (
-              <div className="p-6">
-                <div
-                  aria-hidden="true"
-                  className="mb-5 flex size-12 items-center justify-center rounded-xl bg-card text-muted-foreground shadow-xs ring-1 ring-border ring-inset"
-                >
-                  <Monitor className="size-6" />
-                </div>
-                <DialogTitle>{m.agent_form_title()}</DialogTitle>
-                <DialogDescription className="mt-3">
-                  {m.agent_empty_computer_description()}
-                </DialogDescription>
-                <div className="mt-6 flex flex-wrap justify-end gap-3">
-                  <Button variant="outline" onClick={() => setOpen(false)}>
-                    {m.controls_cancel()}
-                  </Button>
-                  <Link
-                    to="/computers"
-                    onClick={() => setOpen(false)}
-                    className={buttonVariants({ className: "h-11" })}
-                  >
-                    {m.agent_connect_computer()}
-                  </Link>
-                </div>
-              </div>
-            )}
-          </DialogPopup>
-        </DialogPortal>
-      </Dialog>
+              )
+            }
+          </Dialog>
+        </Modal>
+      </ModalOverlay>
     </main>
   );
 }
@@ -453,19 +422,23 @@ function MemberCard({
   ownedAgent?: AgentView;
 }) {
   return (
-    <li className="grid min-h-56 min-w-0 grid-cols-[3rem_minmax(0,1fr)_auto] grid-rows-[auto_1fr_auto] items-start gap-x-3 gap-y-5 rounded-xl bg-card p-5 shadow-xs ring-1 ring-border ring-inset">
+    <li className="grid min-h-56 min-w-0 grid-cols-[3rem_minmax(0,1fr)_auto] grid-rows-[auto_1fr_auto] items-start gap-x-3 gap-y-5 rounded-xl bg-primary p-5 shadow-xs ring-1 ring-secondary ring-inset">
       <Avatar
-        people={[{ name: member.displayName }]}
         size="xl"
-        online={ownedAgent ? ownedAgent.status.value === "active" : undefined}
-        statusLabel={
-          ownedAgent
-            ? ownedAgent.status.value === "active"
-              ? m.agent_status_online()
-              : m.agent_status_offline()
-            : undefined
+        alt={member.displayName}
+        initials={avatarInitial(member.displayName)}
+        contentClassName={avatarToneClassName(member.displayName)}
+        status={
+          ownedAgent ? (ownedAgent.status.value === "active" ? "online" : "offline") : undefined
         }
       />
+      {ownedAgent && (
+        <span className="sr-only">
+          {ownedAgent.status.value === "active"
+            ? m.agent_status_online()
+            : m.agent_status_offline()}
+        </span>
+      )}
       <div className="min-w-0">
         <h2 className="line-clamp-2 break-words text-base font-semibold">
           {ownedAgent ? (
@@ -473,7 +446,7 @@ function MemberCard({
               to="/agents/$agentId"
               params={{ agentId: member.id }}
               search={{ tab: "profile" }}
-              className="inline-flex min-h-11 items-center rounded-sm outline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring sm:min-h-0"
+              className="inline-flex min-h-11 items-center rounded-sm outline-focus-ring outline-offset-4 hover:underline focus-visible:outline-2 sm:min-h-0"
             >
               {member.displayName}
             </Link>
@@ -481,21 +454,21 @@ function MemberCard({
             member.displayName
           )}
         </h2>
-        <p className="mt-0.5 truncate text-sm text-muted-foreground">@{member.name}</p>
+        <p className="mt-0.5 truncate text-sm text-tertiary">@{member.name}</p>
       </div>
       <div className="col-span-3 row-start-2 min-w-0">
         {member.description && (
-          <p className="line-clamp-2 break-words text-sm leading-6 text-muted-foreground">
+          <p className="line-clamp-2 break-words text-sm leading-6 text-tertiary">
             {member.description}
           </p>
         )}
       </div>
       <div className="col-span-3 row-start-3 flex min-w-0 items-center gap-3 self-end">
-        <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-foreground ring-1 ring-border ring-inset">
+        <span className="shrink-0 rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-primary ring-1 ring-secondary ring-inset">
           {label}
         </span>
         {computerName !== undefined && (
-          <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <p className="flex min-w-0 items-center gap-1.5 text-xs text-tertiary">
             <Monitor aria-hidden="true" className="size-4 shrink-0" />
             <span className="min-w-0 line-clamp-2 break-words">
               {computerName === null
@@ -506,24 +479,14 @@ function MemberCard({
         )}
       </div>
       {ownedAgent && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="outline"
-                size="icon"
-                className="col-start-3 row-start-1 size-11 rounded-lg sm:size-9"
-                aria-label={m.agent_private_chat()}
-                render={
-                  <Link to="/messages/$agentId" params={{ agentId: member.id }}>
-                    <MessageCircle aria-hidden="true" />
-                  </Link>
-                }
-              />
-            }
-          />
-          <TooltipContent>{m.agent_private_chat()}</TooltipContent>
-        </Tooltip>
+        <ButtonUtility
+          icon={MessageCircle}
+          size="sm"
+          color="secondary"
+          tooltip={m.agent_private_chat()}
+          className="col-start-3 row-start-1"
+          href={`/messages/${member.id}`}
+        />
       )}
     </li>
   );

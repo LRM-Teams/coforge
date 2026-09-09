@@ -7,7 +7,7 @@ import {
 } from "@untitledui/icons";
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/base/buttons/button";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { ConversationTaskTabs } from "./conversation-task-tabs";
@@ -52,17 +52,17 @@ export function TaskBoard({
 }: TaskBoardProps) {
   const [createOpen, setCreateOpen] = useState(false);
   return (
-    <section aria-label={m.tasks_board()} className="flex min-h-0 flex-1 flex-col bg-background">
+    <section aria-label={m.tasks_board()} className="flex min-h-0 flex-1 flex-col bg-primary">
       {header}
-      <header className="shrink-0 border-b px-3 sm:px-5">
+      <header className="shrink-0 border-b border-secondary px-3 sm:px-5">
         {!header && (
           <>
             {conversationName && (
-              <div className="-mx-3 flex h-14 items-center border-b px-3 sm:-mx-5 sm:px-5">
+              <div className="-mx-3 flex h-14 items-center border-b border-secondary px-3 sm:-mx-5 sm:px-5">
                 <h1 className="truncate text-base font-medium">{conversationName}</h1>
               </div>
             )}
-            <div className="border-t py-2">
+            <div className="border-t border-secondary py-2">
               <ConversationTaskTabs
                 active="tasks"
                 taskCount={tasks.length}
@@ -74,29 +74,29 @@ export function TaskBoard({
         <div
           role="toolbar"
           aria-label={m.tasks_layout()}
-          className="flex flex-wrap items-center gap-2 border-t py-2"
+          className="flex flex-wrap items-center gap-2 border-t border-secondary py-2"
         >
           <TaskLayoutToggle layout={layout} onChange={onLayoutChange} />
           {canMutate && onCreateTask && (
-            <Button type="button" size="sm" className="ml-auto" onClick={() => setCreateOpen(true)}>
+            <Button type="button" size="sm" className="ml-auto" onPress={() => setCreateOpen(true)}>
               {m.tasks_create()}
             </Button>
           )}
         </div>
       </header>
       {error && (
-        <p role="alert" className="mx-5 mt-4 text-sm text-destructive-text">
+        <p role="alert" className="mx-5 mt-4 text-sm text-error-primary">
           {error}
         </p>
       )}
       <div className="min-h-0 flex-1 overflow-auto p-5">
         {loading && tasks.length === 0 ? (
-          <p role="status" className="text-sm text-muted-foreground">
+          <p role="status" className="text-sm text-tertiary">
             {m.tasks_loading()}
           </p>
         ) : tasks.length === 0 ? (
           <div className="grid h-full place-content-center text-center">
-            <ListTodo aria-hidden="true" className="mx-auto mb-3 size-6 text-muted-foreground" />
+            <ListTodo aria-hidden="true" className="mx-auto mb-3 size-6 text-tertiary" />
             <p className="font-medium">{m.tasks_empty()}</p>
           </div>
         ) : (
@@ -151,19 +151,19 @@ function TaskCard({
   const [pending, setPending] = useState(false);
   const available = task.status === "todo" && !task.owner;
   return (
-    <article className="rounded-lg border bg-card p-3 shadow-sm">
+    <article className="rounded-lg border border-secondary bg-primary p-3 shadow-sm">
       <Button
         type="button"
-        variant="ghost"
-        onClick={() => void Promise.resolve(onOpen()).catch(() => {})}
+        color="tertiary"
+        onPress={() => void Promise.resolve(onOpen()).catch(() => {})}
         className="h-auto w-full flex-col items-start px-0 text-left whitespace-normal hover:bg-transparent"
       >
-        <span className="text-xs text-muted-foreground">#{task.number}</span>
+        <span className="text-xs text-tertiary">#{task.number}</span>
         <span className="mt-1 block line-clamp-3 text-sm font-medium [overflow-wrap:anywhere]">
           {task.title}
         </span>
       </Button>
-      <div className="mt-3 flex items-center gap-1 text-xs text-muted-foreground">
+      <div className="mt-3 flex items-center gap-1 text-xs text-tertiary">
         {task.owner ? (
           <UserRound aria-hidden="true" className="size-3.5" />
         ) : (
@@ -225,11 +225,11 @@ function TaskAction({
   return (
     <Button
       type="button"
-      variant="ghost"
+      color="tertiary"
       size="xs"
       className="h-6 px-1.5"
-      disabled={disabled}
-      onClick={() => void onClick().catch(() => {})}
+      isDisabled={disabled}
+      onPress={() => void onClick().catch(() => {})}
     >
       {label}
     </Button>
@@ -240,7 +240,7 @@ export function TaskBadge({ task }: { task: TaskView }) {
   return (
     <span
       className={cn(
-        "mt-2 inline-flex items-center gap-1 rounded-md border bg-card px-2 py-1 text-xs text-muted-foreground",
+        "mt-2 inline-flex items-center gap-1 rounded-md border border-secondary bg-primary px-2 py-1 text-xs text-tertiary",
       )}
     >
       #{task.number} · {statusLabel(task.status)} · {task.owner?.name ?? m.tasks_unassigned()}

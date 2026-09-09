@@ -3,9 +3,9 @@ export function showsActivityMessage(activity: string) {
 }
 
 export function activityDotClass(activity: string, level: string) {
-  if (level === "error") return "bg-destructive";
+  if (level === "error") return "bg-error-solid";
   if (activity === "starting" || activity === "running_command") return "bg-amber-500";
-  if (activity === "stopped") return "bg-muted-foreground";
+  if (activity === "stopped") return "bg-quaternary";
   if (activity === "turn_completed") return "bg-emerald-500";
   return "bg-blue-500";
 }

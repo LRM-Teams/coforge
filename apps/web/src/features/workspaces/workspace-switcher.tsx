@@ -6,27 +6,19 @@ import {
   Plus,
   XClose as X,
 } from "@untitledui/icons";
+import {
+  Button as AriaButton,
+  Header as AriaHeader,
+  MenuItem as AriaMenuItem,
+  Heading,
+  Text,
+} from "react-aria-components";
 
-import { Button } from "@/components/ui/button";
+import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { useAppToast } from "@/components/ui/toast";
-import {
-  Dialog,
-  DialogBackdrop,
-  DialogClose,
-  DialogDescription,
-  DialogPopup,
-  DialogPortal,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
 import {
@@ -34,6 +26,7 @@ import {
   isValidWorkspaceSlug,
   nameToWorkspaceSlug,
 } from "@/server/workspaces/workspace-slug";
+import { cx } from "@/utils/cx";
 
 export type WorkspaceOption = { id: string; slug: string; name: string };
 
@@ -62,53 +55,70 @@ export function WorkspaceSwitcher({
 
   return (
     <>
-      <DropdownMenu modal={false}>
-        <DropdownMenuTrigger
+      <Dropdown.Root>
+        <AriaButton
           aria-label={m.workspace_switcher()}
-          className="flex h-12 w-full items-center gap-2 bg-transparent px-2 text-left outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          className="flex h-12 w-full items-center gap-2 bg-transparent px-2 text-left outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset"
         >
           <WorkspaceMark />
           <span data-workspace-name className="min-w-0 flex-1 truncate text-[13px] font-semibold">
             {label}
           </span>
-          <ChevronSelectorVertical
-            aria-hidden="true"
-            className="size-4 shrink-0 text-muted-foreground"
-          />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="start"
-          side="bottom"
-          sideOffset={6}
-          className="w-(--anchor-width) min-w-56 rounded-xl p-1.5 shadow-lg"
+          <ChevronSelectorVertical aria-hidden="true" className="size-4 shrink-0 text-tertiary" />
+        </AriaButton>
+        <Dropdown.Popover
+          placement="bottom start"
+          offset={6}
+          className="w-(--trigger-width) min-w-56 rounded-xl p-1.5 shadow-lg"
         >
-          <DropdownMenuGroup>
-            <DropdownMenuLabel>{m.workspace_menu_label()}</DropdownMenuLabel>
-            {workspaces.map((workspace) => (
-              <DropdownMenuItem
-                key={workspace.id}
-                className="h-9 gap-2 px-2"
-                onClick={() => void select(workspace.slug)}
-              >
-                <WorkspaceMark />
-                <span className="min-w-0 flex-1 truncate font-medium">{workspace.name}</span>
-                {workspace.id === current?.id && (
-                  <Check aria-hidden="true" className="size-3.5 text-foreground" />
-                )}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuGroup>
-          {onCreate && (
-            <>
-              {workspaces.length > 0 && <DropdownMenuSeparator />}
-              <DropdownMenuItem className="h-9 gap-2 px-2" onClick={() => setCreateOpen(true)}>
-                <Plus aria-hidden="true" className="size-3.5" />
-                {m.workspace_create()}
-              </DropdownMenuItem>
-            </>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+          <Dropdown.Menu aria-label={m.workspace_switcher()}>
+            <Dropdown.Section>
+              <AriaHeader className="px-2.5 pt-1.5 pb-1 text-xs font-semibold text-tertiary">
+                {m.workspace_menu_label()}
+              </AriaHeader>
+              {workspaces.map((workspace) => (
+                <AriaMenuItem
+                  key={workspace.id}
+                  id={workspace.id}
+                  textValue={workspace.name}
+                  onAction={() => void select(workspace.slug)}
+                  className="group block cursor-pointer px-1.5 py-px outline-hidden"
+                >
+                  {(state) => (
+                    <div
+                      className={cx(
+                        "relative flex items-center gap-2 rounded-md px-2.5 py-2 outline-focus-ring transition duration-100 ease-linear",
+                        "group-hover:bg-primary_hover",
+                        state.isFocused && "bg-primary_hover",
+                        state.isFocusVisible && "outline-2 -outline-offset-2",
+                      )}
+                    >
+                      <WorkspaceMark />
+                      <span className="min-w-0 flex-1 truncate font-medium text-secondary">
+                        {workspace.name}
+                      </span>
+                      {workspace.id === current?.id && (
+                        <Check aria-hidden="true" className="size-3.5 shrink-0 text-primary" />
+                      )}
+                    </div>
+                  )}
+                </AriaMenuItem>
+              ))}
+            </Dropdown.Section>
+            {onCreate && (
+              <>
+                {workspaces.length > 0 && <Dropdown.Separator />}
+                <Dropdown.Item
+                  id="create-workspace"
+                  icon={Plus}
+                  label={m.workspace_create()}
+                  onAction={() => setCreateOpen(true)}
+                />
+              </>
+            )}
+          </Dropdown.Menu>
+        </Dropdown.Popover>
+      </Dropdown.Root>
       {onCreate && (
         <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} onCreate={onCreate} />
       )}
@@ -121,7 +131,7 @@ function WorkspaceMark() {
     <span
       data-workspace-mark
       aria-hidden="true"
-      className="flex size-6 shrink-0 items-center justify-center text-brand"
+      className="flex size-6 shrink-0 items-center justify-center text-brand-secondary"
     >
       <Building className="size-5" />
     </span>
@@ -177,30 +187,31 @@ function CreateWorkspaceDialog({
   }
 
   return (
-    <Dialog
-      open={open}
+    <ModalOverlay
+      isOpen={open}
       onOpenChange={(next) => {
         if (next) onOpenChange(true);
         else close();
       }}
     >
-      <DialogPortal>
-        <DialogBackdrop />
-        <DialogPopup className="w-[min(480px,calc(100vw-2rem))]">
+      <Modal className="w-[min(480px,calc(100vw-2rem))]">
+        <Dialog>
           <form onSubmit={submit}>
             <div className="flex items-start justify-between gap-6 px-6 pt-6">
               <div>
-                <DialogTitle>{m.workspace_create_title()}</DialogTitle>
-                <DialogDescription className="mt-2">
+                <Heading slot="title" className="text-base font-semibold text-primary">
+                  {m.workspace_create_title()}
+                </Heading>
+                <Text slot="description" className="mt-2 text-sm text-tertiary">
                   {m.workspace_create_description()}
-                </DialogDescription>
+                </Text>
               </div>
-              <DialogClose
-                render={
-                  <Button type="button" variant="ghost" size="icon" aria-label={m.controls_close()}>
-                    <X aria-hidden="true" />
-                  </Button>
-                }
+              <ButtonUtility
+                aria-label={m.controls_close()}
+                icon={X}
+                size="sm"
+                color="tertiary"
+                onClick={close}
               />
             </div>
             <div className="grid gap-4 px-6 py-6">
@@ -217,7 +228,7 @@ function CreateWorkspaceDialog({
                     setName(value);
                     if (!slugTouched.current) setSlug(nameToWorkspaceSlug(value));
                   }}
-                  className="h-9 rounded-md border bg-background px-3 outline-none focus:ring-2 focus:ring-ring/30"
+                  className="h-9 rounded-md border border-secondary bg-primary px-3 outline-none focus:ring-2 focus:ring-brand/30"
                 />
               </label>
               <label htmlFor="workspace-create-slug" className="grid gap-1.5 text-sm">
@@ -232,26 +243,31 @@ function CreateWorkspaceDialog({
                     slugTouched.current = true;
                     setSlug(event.target.value);
                   }}
-                  className="h-9 rounded-md border bg-background px-3 outline-none focus:ring-2 focus:ring-ring/30"
+                  className="h-9 rounded-md border border-secondary bg-primary px-3 outline-none focus:ring-2 focus:ring-brand/30"
                 />
               </label>
               {(slugError || error) && (
-                <p role="alert" className="text-sm text-destructive-text">
+                <p role="alert" className="text-sm text-error-primary">
                   {error || slugError}
                 </p>
               )}
             </div>
-            <div className="flex justify-end gap-3 border-t px-6 py-4">
-              <Button type="button" variant="outline" onClick={close}>
+            <div className="flex justify-end gap-3 border-t border-secondary px-6 py-4">
+              <Button type="button" color="secondary" onPress={close}>
                 {m.controls_cancel()}
               </Button>
-              <Button type="submit" disabled={submitting || Boolean(slugError)}>
+              <Button
+                type="submit"
+                isDisabled={Boolean(slugError)}
+                isLoading={submitting}
+                showTextWhileLoading
+              >
                 {submitting ? m.workspace_create_submitting() : m.workspace_create_submit()}
               </Button>
             </div>
           </form>
-        </DialogPopup>
-      </DialogPortal>
-    </Dialog>
+        </Dialog>
+      </Modal>
+    </ModalOverlay>
   );
 }

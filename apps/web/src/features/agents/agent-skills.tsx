@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshCw01 as RefreshCw } from "@untitledui/icons";
 import type { AgentSkillsListResult, AgentSkillsScope } from "@coforge/protocol";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/base/buttons/button";
 import { m } from "@/paraglide/messages";
 
 export type AgentSkillsLoadResult =
@@ -48,20 +48,20 @@ export function AgentSkills({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-semibold">{m.agent_skills_title()}</h2>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">{m.agent_skills_caveat()}</p>
+          <p className="mt-1 text-sm leading-6 text-tertiary">{m.agent_skills_caveat()}</p>
         </div>
         <Button
           size="sm"
-          variant="outline"
-          onClick={() => void load()}
-          disabled={state.status === "loading"}
+          color="secondary"
+          onPress={() => void load()}
+          isDisabled={state.status === "loading"}
         >
           <RefreshCw aria-hidden="true" />
           {m.agent_skills_refresh()}
         </Button>
       </div>
       {state.status === "loading" ? (
-        <p role="status" className="mt-5 text-sm text-muted-foreground">
+        <p role="status" className="mt-5 text-sm text-tertiary">
           {m.agent_skills_loading()}
         </p>
       ) : state.status === "ready" ? (
@@ -70,7 +70,7 @@ export function AgentSkills({
           <SkillScope heading={m.agent_skills_workspace()} scope={state.result.workspace} />
         </div>
       ) : (
-        <p role="status" className="mt-5 text-sm text-destructive-text">
+        <p role="status" className="mt-5 text-sm text-error-primary">
           {state.status === "offline"
             ? m.agent_skills_offline()
             : state.status === "timeout"
@@ -92,7 +92,7 @@ function SkillScope({ heading, scope }: { heading: string; scope: AgentSkillsSco
           {heading}
         </h3>
         {scope.status !== "ok" && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-tertiary">
             {scope.status === "partial"
               ? m.agent_skills_partial()
               : scope.status === "unsupported"
@@ -102,9 +102,9 @@ function SkillScope({ heading, scope }: { heading: string; scope: AgentSkillsSco
         )}
       </div>
       {scope.entries.length ? (
-        <div className="mt-3 overflow-x-auto rounded-xl border">
+        <div className="mt-3 overflow-x-auto rounded-xl border border-secondary">
           <table className="w-full min-w-xl text-left text-sm">
-            <thead className="border-b bg-muted/50 text-xs text-muted-foreground [&_th]:px-4 [&_th]:py-3">
+            <thead className="border-b border-secondary bg-secondary text-xs text-tertiary [&_th]:px-4 [&_th]:py-3">
               <tr>
                 <th scope="col" className="py-2 pr-4 font-medium">
                   {m.agent_skills_name()}
@@ -121,8 +121,8 @@ function SkillScope({ heading, scope }: { heading: string; scope: AgentSkillsSco
               {scope.entries.map((entry) => (
                 <tr key={`${entry.sourcePath}:${entry.name}`}>
                   <td className="py-2 pr-4 font-medium">{entry.name}</td>
-                  <td className="py-2 pr-4 text-muted-foreground">{entry.description || "—"}</td>
-                  <td className="break-all py-2 font-mono text-xs text-muted-foreground">
+                  <td className="py-2 pr-4 text-tertiary">{entry.description || "—"}</td>
+                  <td className="break-all py-2 font-mono text-xs text-tertiary">
                     {entry.sourcePath}
                   </td>
                 </tr>
@@ -131,7 +131,7 @@ function SkillScope({ heading, scope }: { heading: string; scope: AgentSkillsSco
           </table>
         </div>
       ) : scope.status === "ok" ? (
-        <p className="mt-3 text-sm text-muted-foreground">{m.agent_skills_empty()}</p>
+        <p className="mt-3 text-sm text-tertiary">{m.agent_skills_empty()}</p>
       ) : null}
       {scope.directories.length > 0 && (
         <details className="mt-3 text-sm">
@@ -139,7 +139,7 @@ function SkillScope({ heading, scope }: { heading: string; scope: AgentSkillsSco
           <ul className="mt-2 grid gap-1.5">
             {scope.directories.map((directory) => (
               <li key={directory.path} className="flex flex-wrap justify-between gap-2 text-xs">
-                <code className="break-all text-muted-foreground">{directory.path}</code>
+                <code className="break-all text-tertiary">{directory.path}</code>
                 <span>{directoryStatus(directory.status)}</span>
               </li>
             ))}
