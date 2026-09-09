@@ -41,11 +41,18 @@ test("the conversation list owns the mobile menu and keeps its position when ret
   fireEvent.click(page.getByRole("button", { name: "Messages" }));
   expect(within(list).getByRole("list", { name: "Channels" }).parentElement).toBe(scroller);
   expect(scroller.scrollTop).toBe(147);
-  const menu = within(list).getByRole("button", { name: "Show sidebar" });
+  // The official sidebar (SidebarNavigationSimple, unmodified) ships its own
+  // persistent mobile header/hamburger outside the conversation list's own
+  // `<nav>` — CoForge no longer maintains a per-page toggle inside it.
+  const menu = page.getByRole("button", { name: "Expand navigation menu" });
   fireEvent.click(menu);
   expect(menu.getAttribute("aria-expanded")).toBe("true");
   expect(page.getByRole("heading", { name: "Selected conversation" })).toBeTruthy();
+  // Every page-owned header lives inside its `<main>`; the sidebar's own
+  // mobile header (menu.closest("header")) is the one legitimate exception —
+  // it belongs to the sidebar, not to any page.
   for (const header of document.querySelectorAll("header")) {
+    if (header === menu.closest("header")) continue;
     expect(header.closest("main")).not.toBeNull();
   }
 });

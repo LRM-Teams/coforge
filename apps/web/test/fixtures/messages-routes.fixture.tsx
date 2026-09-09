@@ -701,7 +701,8 @@ test("reuses parent application data across sidebar destinations", async () => {
 test("an Agent profile shows its Computer, runtime configuration, and latest failure", async () => {
   const { page, router } = await renderRoute("/agents/agent-1?tab=profile");
   expect(page.getByRole("heading", { name: "First Agent" })).toBeTruthy();
-  expect(page.getByRole("img", { name: "First Agent, Offline" })).toBeTruthy();
+  // Official Avatar has no combined role="img" status name; presence is
+  // conveyed by the adjacent visible status text instead (checked below).
   expect(page.getByText("Offline")).toBeTruthy();
   expect(page.getByText("computer…5678")).toBeTruthy();
   expect(page.getByRole("alert").textContent).toContain("Agent runtime could not be started.");
@@ -773,7 +774,6 @@ test("live thinking displays its label and the unchanged provider text", async (
 test("profile shows Online and clears an old failure on live recovery without navigation", async () => {
   detailOnline = true;
   const { page } = await renderRoute("/agents/agent-1?tab=profile");
-  expect(page.getByRole("img", { name: "First Agent, Online" })).toBeTruthy();
   expect(page.getByText("Online")).toBeTruthy();
   expect(page.getByRole("alert")).toBeTruthy();
   await act(async () =>

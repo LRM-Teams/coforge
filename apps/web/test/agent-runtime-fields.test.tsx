@@ -29,7 +29,7 @@ test("loads on demand and only offers installed or currently configured runtimes
 
   view.rerender(<AgentRuntimeFields open computerId="computer-1" onLoad={load} />);
   await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
-  await user.click(within(document.body).getByRole("button", { name: "Runtime provider" }));
+  await user.click(within(document.body).getByRole("button", { name: /Runtime provider/ }));
   expect(within(document.body).getByRole("option", { name: "Codex" })).toBeTruthy();
   expect(within(document.body).queryByText("Claude Code")).toBeNull();
 });

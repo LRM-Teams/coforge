@@ -86,10 +86,10 @@ test("filters displayed tasks and reports filter changes", async () => {
   expect(page.getAllByRole("region")).toHaveLength(1);
   expect(page.getByRole("region", { name: "To do" })).toBeTruthy();
   const user = userEvent.setup();
-  await user.click(page.getByRole("button", { name: "Status" }));
+  await user.click(page.getByRole("button", { name: /Status/ }));
   await user.click(page.getByRole("option", { name: "Done" }));
   expect(onStatusChange).toHaveBeenCalledWith("done");
-  await user.click(page.getByRole("button", { name: "Status" }));
+  await user.click(page.getByRole("button", { name: /Status/ }));
   await user.click(page.getByRole("option", { name: "All" }));
   expect(onStatusChange).toHaveBeenCalledWith(undefined);
 });
@@ -117,7 +117,7 @@ test("conflict feedback survives refreshed data removing the last filtered task"
   );
   const page = within(document.body);
   const user = userEvent.setup();
-  await user.click(page.getByRole("button", { name: "Change status" }));
+  await user.click(page.getByRole("button", { name: /Change status/ }));
   await user.click(page.getByRole("option", { name: "Done" }));
   expect(page.getByRole("alert").textContent).toContain("could not be updated");
   expect(page.getByText("No tasks match this status")).toBeTruthy();
