@@ -22,3 +22,15 @@ needs something Untitled doesn't provide, compose it inline at the call site
 from React Aria / official pieces first; only promote it to a new file here
 if it's reused in more than one place, and add a row to this table explaining
 why the official library has no equivalent.
+
+## Lint config
+
+`.oxlintrc.json` / `scripts/oxlint-plugin.js` may only be changed to exempt an
+**unmodified official file** under `src/components/base/**` or
+`src/components/application/**` from a `coforge/no-native-*` rule (each
+override names the specific file, with the reason in the commit message).
+Product code — this directory, `src/features/**`, `src/components/layout/**`,
+routes, tests — is never exempted; a lint hit there means fix the code (see
+`relative-time.tsx`'s `aria-label` fallback for an example), not loosen the
+rule. No `oxlint-disable`, `@ts-ignore`, or `@ts-expect-error` comments
+anywhere in the codebase.

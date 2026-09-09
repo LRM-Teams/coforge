@@ -19,6 +19,12 @@
 - 允许自写的只有官方没有对应物的原语，放在 `src/components/ui/`：Empty、Skeleton、Toast 包装、RelativeTime、InputOTP、HoverPopover。自写原语只能组合 React Aria 和官方组件，不能复制官方文件再改。
 - `src/components/ui/README.md` 维护"偏离官方组件清单"：每个自写文件一行，写明为什么官方没有。清单之外不允许出现非官方组件。
 - 图标只用 `@untitledui/icons`。厂商 logo（Claude Code、Codex 等）用 `@lobehub/icons-static-svg`。
+- `.oxlintrc.json` / `scripts/oxlint-plugin.js` 只允许一种改动：给 `src/components/base/**`、
+  `src/components/application/**` 下**未改动的官方文件**豁免 CoForge 自定义规则
+  （`coforge/no-native-button`、`coforge/no-native-select`、`coforge/no-native-title`），每条豁免
+  写明具体文件，理由写进提交信息。绝不豁免产品代码（`src/features/**`、`src/components/ui/**`、
+  `src/components/layout/**`、路由、测试）——命中规则就改代码，不要放宽规则；任何地方都不写
+  `oxlint-disable`、`@ts-ignore`、`@ts-expect-error` 注释。
 
 ## 3. 页面骨架：平铺，一条发丝线
 
