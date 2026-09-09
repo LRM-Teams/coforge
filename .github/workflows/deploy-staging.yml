@@ -10,6 +10,8 @@ permissions:
 concurrency:
   group: deploy-staging
   cancel-in-progress: false
+  # Preserve an affected push even when a later docs-only push enters the queue.
+  queue: max
 
 env:
   IMAGE_REPOSITORY: lrm-teams/coforge/coforge-web
@@ -17,12 +19,15 @@ env:
 
 jobs:
   gates:
-    name: Repository gates (check, test, build)
+    name: Web deployment gates
     uses: ./.github/workflows/ci.yml
+    with:
+      track: web
 
   image:
     name: Build one immutable image
     needs: gates
+    if: needs.gates.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 20

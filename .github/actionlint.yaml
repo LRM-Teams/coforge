@@ -1,3 +1,12 @@
 self-hosted-runner:
   labels:
     - coforge-test-deploy
+
+# GitHub supports concurrency.queue, but pinned actionlint 1.7.12 predates it.
+# https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency
+# workflow.test.ts validates queue: max together with cancel-in-progress: false.
+# Remove this exact diagnostic exception when actionlint supports queue.
+paths:
+  .github/workflows/deploy-staging.yml:
+    ignore:
+      - '^unexpected key "queue" for "concurrency" section\. expected one of "cancel-in-progress", "group"$'

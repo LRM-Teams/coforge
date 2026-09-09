@@ -408,13 +408,50 @@ variable. Both scripts carry the threat-model half of this reasoning inline
 as a comment.
 
 CI has one reusable validation definition in `.github/workflows/ci.yml`, invoked
-directly for pull requests and by the staging deployment for each `main` push.
-There is no second standalone CI run on that same main push. The existing
-Computer, Daemon, Web and infrastructure checks remain, with explicit protocol,
-Agent and CLI coverage. Manual local releases call the same gates again for
-their selected commit; this intentional pre-release validation is not replaced
-by a mutable "latest successful CI" result. Docker image builds and version/feed-
-specific cross-compilation remain independent artifact builds, not redundant gates.
+with three scopes selected by `scripts/ci/selection.ts`:
+
+- Pull requests validate changed modules and affected downstream consumers.
+  Web-only changes run Web gates; Daemon changes also validate Computer.
+  Agent changes additionally validate Web's imported Agent test contract.
+  Client module changes retain native macOS and Windows smoke checks;
+  PowerShell installer changes run both PowerShell parsers and lint. Both
+  installers are embedded in the Web image, so changing either also validates Web.
+- Each `main` push checks whether the Web image or deployment inputs changed.
+  If so, the exact main commit runs Web, protocol, and deploy-script gates before
+  building and deploying the image. Client-only and documentation-only pushes
+  do not build an image or deploy. There is no second standalone CI workflow
+  for that main push.
+- Manual local publication always runs the complete local track for its exact
+  selected main commit: protocol, Agent, CLI, Computer, Daemon, release scripts,
+  native macOS/Windows checks, and Windows installer checks. It does not run
+  unrelated Web, deployment, or OSS/CDN acceptance-verifier checks.
+
+Shared protocol, global toolchain/configuration, lockfile, CI, and unclassified
+paths select full PR coverage. Only known documentation locations are exempt;
+Markdown assets inside source directories remain code inputs. Documentation-only
+PRs run CI-policy tests, workflow/static lint, and changed-line whitespace checks,
+not application builds. No documentation link checker is currently configured.
+PR diffs use the merge base; push diffs use the before/after commits. Renames
+include both old and new paths, and a missing push base expands coverage.
+
+Every run ends with `CI passed`, which requires selection/static validation and
+every selected job to succeed. An unexpectedly skipped, failed, cancelled, or
+missing selected job cannot pass. Configure branch protection to require this
+aggregate rather than individual conditional/matrix job names; changing that
+GitHub setting requires separate authorization. PR updates cancel stale PR
+checks; release-track checks do not cancel an active publication or deployment.
+The cloud workflow uses GitHub's `queue: max` (up to 100 pending runs), so a
+later documentation-only push cannot replace a waiting Web-changing push.
+Pinned actionlint 1.7.12 does not yet recognize this documented property;
+`.github/actionlint.yaml` excludes only that exact diagnostic for this workflow,
+and the workflow contract test requires the valid queue/cancellation combination.
+
+Module-owned test/check/build commands remain unchanged. Local full validation
+still uses `mise run test`, `mise run check`, and `mise run build`; CI-policy
+regressions can be exercised alone with `bun run test:ci` and `bun run check:ci`.
+Track-specific pre-release validation is not replaced by a mutable "latest
+successful CI" result. Docker image builds and version/feed-specific
+cross-compilation remain independent artifact builds, not redundant gates.
 
 Publishing a local-distribution release is **manual**. The workflow exposes only
 `workflow_dispatch`; it is not triggered by merging to `main`. Continuous publish
@@ -447,7 +484,7 @@ without changing anything here.
 
 The automated cloud path is:
 
-1. Run the repository test, check, and build gates for the `main` commit.
+1. Run the Web-track test, check, and build gates for the affected `main` commit.
 2. Build and push the service image once, tagged with the full commit SHA.
 3. Capture the pushed image digest as a workflow output and deployment record.
 4. Enter the `staging` GitHub Environment and its environment-specific
@@ -474,7 +511,7 @@ built from both source packages, to the track's own feed (a staging build trusts
 `COFORGE_RELEASE_FEED_URL` than a production build compiles in, so the two
 tracks' `latest` pointers are never the same object):
 
-1. Run the repository gates for the exact `main` commit.
+1. Run the complete local-track gates for the exact `main` commit.
 2. Build the unified Computer executable once for the complete Windows, Linux,
    and macOS platform matrix, with the approved Bun executable targets and the
    same release version injected into both Computer and Daemon roles.
@@ -801,6 +838,8 @@ or end-user delivery. CDN acceptance remains a separate infrastructure check.
 
 ## Official references
 
+- [GitHub workflow syntax, reusable inputs, and job dependencies](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)
+- [GitHub concurrency and queued deployments](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
 - [GitHub deployments and environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
 - [Deploying with GitHub Actions](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments)
 - [Publishing Docker images](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)

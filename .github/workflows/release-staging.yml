@@ -23,9 +23,11 @@ concurrency:
 
 jobs:
   gates:
-    name: Repository gates (check, test, build)
+    name: Local distribution gates
     if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/ci.yml
+    with:
+      track: local
 
   publish:
     name: Publish to the staging release feed
