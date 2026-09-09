@@ -11,6 +11,11 @@ test("official thinking observation has a Thinking label and preserves its detai
   expect(showsActivityMessage("thinking_started")).toBe(true);
 });
 
+test("error activity uses an Error label and shows its message", () => {
+  expect(activityLabel("runtime_error", "error")).toBe("Error");
+  expect(showsActivityMessage("runtime_error")).toBe(true);
+});
+
 describe("Agent detail", () => {
   test("keeps authorized profile and Activity available when status cannot be read", async () => {
     const activity = [

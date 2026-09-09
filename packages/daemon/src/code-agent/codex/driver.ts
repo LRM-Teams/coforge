@@ -305,20 +305,9 @@ class CodexAgentSession implements AgentSession {
         typeof error?.message !== "string"
       )
         return;
-      const errorMessage = scrubError(error.message);
       this.#emit({
         type: "activity",
-        activity: createAgentActivity(
-          "runtime_error",
-          "error",
-          params.willRetry ? `Retrying: ${errorMessage}` : errorMessage,
-          eventTime(record),
-          {
-            errorClass: "CodexTurnError",
-            errorReason: params.willRetry ? "turn_retrying" : "turn_failed",
-            fingerprint: fingerprint(errorMessage),
-          },
-        ),
+        activity: createAgentActivity("runtime_error", "error", error.message, eventTime(record)),
       });
       return;
     }

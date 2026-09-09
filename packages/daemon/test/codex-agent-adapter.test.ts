@@ -341,10 +341,13 @@ test("Codex reports retry errors as activity without ending the active turn", as
         activity: expect.objectContaining({
           detailKind: "runtime_error",
           level: "error",
-          detail: "Retrying: request timed out: Bearer [redacted]",
+          detail: "request timed out: Bearer fixture-private-token",
         }),
       },
     ]);
+    for (const event of events) {
+      if (event.type === "activity") expect(event.activity.runtimeError).toBeUndefined();
+    }
     expect(events.some((event) => event.type === "completed")).toBe(false);
     await session.notify!("retry accepted");
     await expect(session.sendMessage("overlap")).rejects.toThrow("already running");

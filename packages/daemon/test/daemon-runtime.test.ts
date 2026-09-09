@@ -2875,7 +2875,7 @@ describe("DaemonRuntime", () => {
       activity: {
         detailKind: "runtime_error",
         level: "error",
-        detail: "Provider request failed safely.",
+        detail: "request timed out: Bearer fixture-private-token",
         observedAtMs: Date.parse("2026-08-29T00:00:00.500Z"),
       },
     });
@@ -2892,7 +2892,7 @@ describe("DaemonRuntime", () => {
       "/workspace/src/existing.ts",
       "WebSearch query=CoForge",
     ]);
-    expect(activities[6]!.detail).toBe("Provider request failed safely.");
+    expect(activities[6]!.detail).toBe("request timed out: Bearer fixture-private-token");
 
     const stopping = runtime.stopAgent("agent-a");
     sessions[0]!.event({

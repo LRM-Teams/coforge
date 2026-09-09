@@ -628,11 +628,6 @@ function Activity({ activity, timeZone }: { activity: ActivityEntry[]; timeZone:
                   </span>
                 ) : null,
               )}
-              {entry.runtimeError && (
-                <span className="mt-1 block text-xs opacity-75">
-                  {entry.runtimeError.errorClass} · {entry.runtimeError.errorReason}
-                </span>
-              )}
             </p>
           )}
         </li>
