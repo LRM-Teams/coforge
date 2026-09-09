@@ -296,6 +296,32 @@ class CodexAgentSession implements AgentSession {
 
   #accept(record: Record<string, unknown>): void {
     const params = asRecord(record.params);
+    if (record.method === "error") {
+      const error = asRecord(params?.error);
+      if (
+        params?.threadId !== this.#threadId ||
+        typeof params.turnId !== "string" ||
+        typeof params.willRetry !== "boolean" ||
+        typeof error?.message !== "string"
+      )
+        return;
+      const errorMessage = scrubError(error.message);
+      this.#emit({
+        type: "activity",
+        activity: createAgentActivity(
+          "runtime_error",
+          "error",
+          params.willRetry ? `Retrying: ${errorMessage}` : errorMessage,
+          eventTime(record),
+          {
+            errorClass: "CodexTurnError",
+            errorReason: params.willRetry ? "turn_retrying" : "turn_failed",
+            fingerprint: fingerprint(errorMessage),
+          },
+        ),
+      });
+      return;
+    }
     if (record.method === "item/agentMessage/delta" && typeof params?.delta === "string") {
       this.#emit({ type: "text-delta", text: params.delta });
       return;
