@@ -39,6 +39,8 @@ import {
 } from "@/components/ui/select";
 import { m } from "@/paraglide/messages";
 import type { AgentStatusView } from "./agent-status-realtime";
+import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
+import { AgentDisplayAvatar } from "./agent-activity-avatar";
 import { AgentRuntimeFields, type RuntimeCatalog } from "./agent-runtime-fields";
 import type { CreateAgentInput } from "./agent.schemas";
 import type { WorkspaceMemberDirectory } from "@/features/workspaces/workspaces.functions";
@@ -57,6 +59,7 @@ export type AgentView = {
   displayName: string;
   description?: string;
   status: AgentStatusView;
+  display?: AgentDisplaySnapshot;
 };
 
 export function AgentsContent({
@@ -453,18 +456,11 @@ function MemberCard({
 }) {
   return (
     <li className="grid min-h-56 min-w-0 grid-cols-[3rem_minmax(0,1fr)_auto] grid-rows-[auto_1fr_auto] items-start gap-x-3 gap-y-5 rounded-xl bg-card p-5 shadow-xs ring-1 ring-border ring-inset">
-      <Avatar
-        people={[{ name: member.displayName }]}
-        size="xl"
-        online={ownedAgent ? ownedAgent.status.value === "active" : undefined}
-        statusLabel={
-          ownedAgent
-            ? ownedAgent.status.value === "active"
-              ? m.agent_status_online()
-              : m.agent_status_offline()
-            : undefined
-        }
-      />
+      {ownedAgent ? (
+        <AgentDisplayAvatar name={member.displayName} display={ownedAgent.display} size="xl" />
+      ) : (
+        <Avatar people={[{ name: member.displayName }]} size="xl" />
+      )}
       <div className="min-w-0">
         <h2 className="line-clamp-2 break-words text-base font-semibold">
           {ownedAgent ? (

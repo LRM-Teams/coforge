@@ -46,6 +46,7 @@ test("chat activity history uses a compact parameterized member-scoped query", a
           detailKind: "idle",
           level: "info",
           detail: "",
+          activityKind: "online",
           observedAtMs: new Date("2026-01-01T00:00:00Z").getTime(),
           entries: [],
           createdAt: new Date("2026-01-01T00:00:00Z"),
@@ -61,4 +62,5 @@ test("chat activity history uses a compact parameterized member-scoped query", a
   expect(sql).not.toContain("workspace-1");
   expect(sql).not.toContain("runtime_config");
   expect(sql).not.toContain('activity."message"');
+  expect(sql).toContain('compact."detail"');
 });

@@ -1,6 +1,8 @@
 import type { Prisma } from "../../../generated/client";
 import { latestActivityError, type ActivityEntry } from "../../features/agents/agent-activity";
 import type { AgentStatusCache } from "./agent-status.server";
+import type { AgentDisplay } from "./agent-display.server";
+import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
 
 type DetailActivity = ActivityEntry & { computerId: string };
 
@@ -34,6 +36,7 @@ export class AgentDetailQuery {
   constructor(
     private readonly source: AgentDetailSource,
     private readonly status?: Pick<AgentStatusCache, "snapshot">,
+    private readonly display?: Pick<AgentDisplay, "snapshot">,
   ) {}
 
   async get(workspaceId: string, agentId: string, userId: string) {
@@ -42,6 +45,7 @@ export class AgentDetailQuery {
     const activity = await this.source.listActivity(workspaceId, agentId);
     let status;
     let statusReadFailed = false;
+    let display: AgentDisplaySnapshot | undefined;
     if (agent.computerId && this.status) {
       try {
         status = await this.status.snapshot({
@@ -53,9 +57,21 @@ export class AgentDetailQuery {
         statusReadFailed = true;
       }
     }
+    if (agent.computerId && this.display) {
+      try {
+        display = await this.display.snapshot({
+          workspaceId,
+          computerId: agent.computerId,
+          agentId,
+        });
+      } catch {
+        // Display is an optional read model; unavailable is not equivalent to offline.
+      }
+    }
     const latest = activity[0];
     return {
       ...agent,
+      ...(display ? { display } : {}),
       status: {
         value: statusReadFailed ? ("unknown" as const) : (status?.status ?? ("inactive" as const)),
         expiresAt: status?.expiresAt ?? null,

@@ -154,6 +154,7 @@ message AgentActivity {
   string runtime_error_reason = 14;
   string runtime_error_fingerprint = 15;
   repeated ActivityTrajectoryEntry entries = 16;
+  optional string activity_kind = 17;
 }
 
 // Display-only trajectory. The oneof makes kind/payload mismatches impossible.

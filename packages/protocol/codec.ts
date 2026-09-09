@@ -726,6 +726,7 @@ export function decodeAgentActivity(bytes: Uint8Array): AgentActivity {
     detail: v.detail,
     observedAtMs: Number(v.observedAtMs),
     launchId: v.launchId,
+    ...(v.activityKind ? { activityKind: v.activityKind as AgentActivity["activityKind"] } : {}),
     ...(entries.length ? { entries } : {}),
     ...(v.messageId ? { messageId: v.messageId } : {}),
     ...(v.conversationId ? { conversationId: v.conversationId } : {}),
@@ -811,6 +812,8 @@ function validateAgentActivity(value: AgentActivity): void {
     value.clientSeq < 1 ||
     !value.detailKind ||
     !["info", "warning", "error"].includes(value.level) ||
+    (value.activityKind !== undefined &&
+      !["online", "working", "thinking", "error", "offline"].includes(value.activityKind)) ||
     !Number.isSafeInteger(value.observedAtMs) ||
     value.observedAtMs < 1
   )

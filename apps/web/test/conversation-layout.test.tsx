@@ -57,6 +57,18 @@ const agent = {
   createdAt: "2026-08-20T12:00:00.000Z",
   runtimeConfig: { runtime: "codex" as const, model: "gpt-5" },
   status: { value: "active" as const, expiresAt: Date.now() + 60_000 },
+  display: {
+    protocolMajor: 1 as const,
+    workspaceId: "workspace-1",
+    computerId: "computer-1",
+    agentId: "agent-1",
+    revision: 1,
+    activityKind: "online" as const,
+    detailKind: "online",
+    detail: "",
+    entries: [],
+    expiresAt: Date.now() + 60_000,
+  },
 };
 
 function renderLayout(agents = [agent], selectedAgentId = agent.id) {
@@ -135,6 +147,7 @@ test("saved timezone and usable activity reach both sidebar and conversation des
               {
                 launchId: "launch",
                 clientSeq: 1,
+                activityKind: "working" as const,
                 detailKind: "running_command",
                 level: "info",
                 detail: "",
