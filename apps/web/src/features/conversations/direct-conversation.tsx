@@ -118,7 +118,6 @@ type ConversationProps = {
   onLoadReminderNotices?: (threadRootId?: string) => Promise<ReminderNoticeView[]>;
   reminderRefreshKey?: number;
   tasks?: TaskView[];
-  onConvertToTask?: (messageId: string) => Promise<void>;
   onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
   onShowTasks?: () => void;
 };
@@ -357,19 +356,7 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
           }}
           messageFooter={(message) => {
             const task = props.tasks?.find((candidate) => candidate.messageId === message.id);
-            return task ? (
-              <TaskBadge task={task} />
-            ) : props.onConvertToTask ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                className="mt-1 h-auto px-0 text-muted-foreground"
-                onClick={() => void props.onConvertToTask?.(message.id).catch(() => {})}
-              >
-                {m.tasks_convert()}
-              </Button>
-            ) : null;
+            return task ? <TaskBadge task={task} /> : null;
           }}
         />
       </div>
@@ -466,6 +453,7 @@ export function ConversationPane({
   const [ownMessageIndex, setOwnMessageIndex] = useState<OwnMessageIndexEntry[]>([]);
   const [hasOlderOwnMessages, setHasOlderOwnMessages] = useState(false);
   const [loadingOwnMessages, setLoadingOwnMessages] = useState(false);
+  const [ownMessagesOpen, setOwnMessagesOpen] = useState(false);
   const [reminderNotices, setReminderNotices] = useState<ReminderNoticeView[]>([]);
   const historyRef = useRef<HTMLDivElement>(null);
   const ownMessagesMenuRef = useRef<HTMLDivElement>(null);
@@ -595,6 +583,7 @@ export function ConversationPane({
     setOwnMessageIndex([]);
     setHasOlderOwnMessages(false);
     setLoadingOwnMessages(false);
+    setOwnMessagesOpen(false);
     loadingOwnMessagesRef.current = false;
     ownMenuScrollAnchorRef.current = undefined;
     if (!root && onLoadOwnMessages) void loadOwnMessages(undefined, false);
@@ -1002,25 +991,24 @@ export function ConversationPane({
             </ol>
           )}
         </div>
-        {(onLoadOwnMessages || ownMessages.length > 0 || !followingLatest) && (
+        {(ownMessages.length > 0 || !followingLatest) && (
           <div
             role="group"
             aria-label={m.conversation_message_navigation()}
             className={cn(
               "absolute right-5 bottom-2 z-10 flex items-center rounded-full border bg-card p-0.5 shadow-md transition-opacity",
               followingLatest &&
+                !ownMessagesOpen &&
                 "pointer-events-none opacity-0 group-hover/history:pointer-events-auto group-hover/history:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
             )}
           >
-            {(onLoadOwnMessages || ownMessages.length > 0) && (
+            {ownMessages.length > 0 && (
               <DropdownMenu
                 modal={false}
+                open={ownMessagesOpen}
                 onOpenChange={(open) => {
+                  setOwnMessagesOpen(open);
                   if (!open) return;
-                  if (onLoadOwnMessages && ownMessages.length === 0) {
-                    void loadOwnMessages();
-                    return;
-                  }
                   requestAnimationFrame(() => {
                     const menu = ownMessagesMenuRef.current;
                     if (menu) menu.scrollTop = menu.scrollHeight;
@@ -1085,7 +1073,7 @@ export function ConversationPane({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            {(onLoadOwnMessages || ownMessages.length > 0) && !followingLatest && (
+            {ownMessages.length > 0 && !followingLatest && (
               <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-border" />
             )}
             {!followingLatest && (

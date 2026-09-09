@@ -571,14 +571,26 @@ test("prefetches the own-message index on entry and prepends older cursor pages"
   const { page } = renderConversation(base, undefined, "active", undefined, onLoadOwnMessages);
 
   await waitFor(() => expect(onLoadOwnMessages).toHaveBeenCalledWith(undefined));
+  const controls = page.getByRole("group", { name: "Message navigation" });
+  expect(controls.classList.contains("opacity-0")).toBe(true);
   await user.click(page.getByRole("button", { name: "Your messages" }));
-  const menu = within(page.getByRole("menu"));
+  let menu = within(page.getByRole("menu"));
+  expect(controls.contains(page.getByRole("menu"))).toBe(false);
+  expect(controls.classList.contains("opacity-0")).toBe(false);
+  expect(controls.classList.contains("pointer-events-none")).toBe(false);
   await waitFor(() => expect(menu.getAllByRole("menuitem")).toHaveLength(2));
   expect(onLoadOwnMessages).toHaveBeenCalledTimes(1);
   expect(menu.getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
     expect.stringContaining("Indexed prompt 50"),
     expect.stringContaining("Indexed prompt 60"),
   ]);
+
+  await user.keyboard("{Escape}");
+  expect(controls.classList.contains("opacity-0")).toBe(true);
+  await user.click(page.getByRole("button", { name: "Your messages" }));
+  menu = within(page.getByRole("menu"));
+  expect(page.queryByRole("status", { name: "Loading your messages…" })).toBeNull();
+  expect(onLoadOwnMessages).toHaveBeenCalledTimes(1);
 
   fireEvent.scroll(page.getByRole("menu"), { target: { scrollTop: 0 } });
 
@@ -592,7 +604,7 @@ test("prefetches the own-message index on entry and prepends older cursor pages"
   ]);
 });
 
-test("shows immediate feedback while the own-message index is loading", async () => {
+test("hides own-message navigation while preloading an empty index", async () => {
   let resolvePage: ((page: { messages: []; hasOlder: false }) => void) | undefined;
   const onLoadOwnMessages = mock(
     () =>
@@ -602,13 +614,11 @@ test("shows immediate feedback while the own-message index is loading", async ()
   );
   const { page } = renderConversation(base, undefined, "active", undefined, onLoadOwnMessages);
 
-  await userEvent.setup().click(page.getByRole("button", { name: "Your messages" }));
-
-  expect(page.getByRole("status", { name: "Loading your messages…" })).toBeTruthy();
+  expect(onLoadOwnMessages).toHaveBeenCalledTimes(1);
+  expect(page.queryByRole("button", { name: "Your messages" })).toBeNull();
   await act(async () => resolvePage?.({ messages: [], hasOlder: false }));
-  await waitFor(() =>
-    expect(page.queryByRole("status", { name: "Loading your messages…" })).toBeNull(),
-  );
+  expect(page.queryByRole("button", { name: "Your messages" })).toBeNull();
+  expect(onLoadOwnMessages).toHaveBeenCalledTimes(1);
 });
 
 test("loads an around window before navigating to an indexed message outside history", async () => {
@@ -634,7 +644,7 @@ test("loads an around window before navigating to an indexed message outside his
   const scrollTo = mock(() => {});
   history.scrollTo = scrollTo;
 
-  await user.click(page.getByRole("button", { name: "Your messages" }));
+  await user.click(await page.findByRole("button", { name: "Your messages" }));
   await user.click(await page.findByRole("menuitem", { name: /Indexed old prompt/ }));
 
   expect(onLoadMessageAround).toHaveBeenCalledWith(indexedMessage.id);

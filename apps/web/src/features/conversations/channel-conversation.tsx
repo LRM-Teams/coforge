@@ -35,7 +35,6 @@ export function ChannelConversation({
   onReadThread,
   onThreadFollowedChange,
   tasks,
-  onConvertToTask,
   onCreateTask,
   onShowTasks,
 }: {
@@ -66,7 +65,6 @@ export function ChannelConversation({
   onReadThread?: (rootMessageId: string, throughSequence: number) => Promise<void>;
   onThreadFollowedChange?: (rootMessageId: string, followed: boolean) => Promise<void>;
   tasks?: TaskView[];
-  onConvertToTask?: (messageId: string) => Promise<void>;
   onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
   onShowTasks?: () => void;
 }) {
@@ -96,7 +94,6 @@ export function ChannelConversation({
       reminderRefreshKey={reminderRefreshKey}
       onReadThread={onReadThread}
       tasks={tasks}
-      onConvertToTask={conversation.senderMemberId ? onConvertToTask : undefined}
       onCreateTask={conversation.senderMemberId ? onCreateTask : undefined}
       threadHeaderAction={(rootMessageId) => {
         const followed = conversation.followedThreadRootIds?.includes(rootMessageId) ?? false;

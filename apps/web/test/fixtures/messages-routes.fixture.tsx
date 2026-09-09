@@ -637,7 +637,7 @@ test("channel message index is scoped by its conversation ID", async () => {
   const user = userEvent.setup();
   const { page } = await renderRoute("/messages/channels/channel-1");
 
-  await user.click(page.getByRole("button", { name: "Your messages" }));
+  await user.click(await page.findByRole("button", { name: "Your messages" }));
 
   await waitFor(() =>
     expect(loadOwnConversationMessages).toHaveBeenCalledWith({
@@ -658,6 +658,8 @@ test("a sent channel message renders immediately and reconciles unseen messages"
   await user.click(page.getByRole("button", { name: "Send" }));
 
   await waitFor(() => expect(page.getByText("Channel update")).toBeTruthy());
+  expect(page.queryAllByRole("button", { name: "Convert to task" })).toHaveLength(0);
+  expect(page.getByRole("button", { name: "As task" })).toBeTruthy();
   expect(sendPublicChannelMessage).toHaveBeenCalledTimes(1);
   await waitFor(() => expect(loadPublicChannelUpdates).toHaveBeenCalledTimes(1));
 });

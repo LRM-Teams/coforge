@@ -167,9 +167,6 @@ function DirectConversationPage() {
       }
       tasks={taskView.tasks}
       onShowTasks={showTasks}
-      onConvertToTask={async (messageId) => {
-        await taskView.command({ operation: "convert", messageId });
-      }}
       onCreateTask={async (title, requestId, attachmentId) => {
         await taskView.command({ operation: "create", title, requestId, attachmentId });
         setConversation(await loadConversation({ data: { agentId } }));
