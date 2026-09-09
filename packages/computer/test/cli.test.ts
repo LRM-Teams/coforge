@@ -346,6 +346,9 @@ test.each(["", "n", "no", "maybe", null])(
           async resolveVersion() {
             return "1.0.18";
           },
+          async getCurrentVersion() {
+            return "1.0.17";
+          },
           async install() {},
           async upgrade() {
             upgrades += 1;
@@ -380,6 +383,9 @@ test.each(["y", " YES "])(
         async resolveVersion(selector: string) {
           expect(selector).toBe("latest");
           return "1.0.18";
+        },
+        async getCurrentVersion() {
+          return "1.0.17";
         },
         async install(version: string) {
           calls.push({ operation: "install", version });

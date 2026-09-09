@@ -227,6 +227,13 @@ export class ComputerUpdater {
     });
   }
 
+  async getCurrentVersion(): Promise<string | null> {
+    const active = await this.#readJson<ActiveState>("active.json");
+    if (!active) return null;
+    this.#assertVersion(active.current, "active version is invalid");
+    return active.current;
+  }
+
   /** "latest" (or an omitted CLI selection, which the CLI defaults to "latest") resolves
    * through the feed's pointer file. Anything else must already be a well-formed version
    * string; there is no "test" or "sha256:" selection mode any more. */
