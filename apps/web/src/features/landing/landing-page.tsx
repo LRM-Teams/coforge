@@ -3,11 +3,17 @@ import codexMark from "@lobehub/icons-static-svg/icons/codex.svg";
 import grokMark from "@lobehub/icons-static-svg/icons/grok.svg";
 import openCodeMark from "@lobehub/icons-static-svg/icons/opencode.svg";
 import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
-import { ArrowRight, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Languages } from "lucide-react";
 import { MotionConfig, motion, useReducedMotion, useScroll, useTransform } from "motion/react";
 import { useEffect, useState } from "react";
 
-import { BorderBeam } from "@/components/magicui/border-beam";
+import { buttonVariants } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { AnimatedSpan, Terminal, TypingAnimation } from "@/components/magicui/terminal";
 import AnimatedGradient from "@/components/spell/animated-gradient";
 import { BlurReveal } from "@/components/spell/blur-reveal";
@@ -96,22 +102,29 @@ const locales = [
 function LocaleSwitch() {
   const active = getLocale();
   return (
-    <div className="flex h-8 shrink-0 items-center rounded-full border border-white/15 bg-white/5 p-0.5 text-xs font-medium whitespace-nowrap">
-      {locales.map((locale) => (
-        <a
-          key={locale.code}
-          href={locale.href}
-          aria-label={locale.name()}
-          aria-current={locale.code === active ? "true" : undefined}
-          className={cn(
-            "flex h-full items-center rounded-full px-2.5 text-white/60 hover:text-white",
-            locale.code === active && "bg-white/15 text-white",
-          )}
-        >
-          {locale.label}
-        </a>
-      ))}
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label={m.landing_language()}
+        className="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-2 text-xs font-medium text-white/70 hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+      >
+        <Languages aria-hidden="true" className="size-4" />
+        {locales.find((locale) => locale.code === active)?.label}
+        <ChevronDown aria-hidden="true" className="size-3" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="dark min-w-36">
+        {locales.map((locale) => (
+          <DropdownMenuItem
+            key={locale.code}
+            render={<a href={locale.href} />}
+            aria-label={locale.name()}
+            aria-current={locale.code === active ? "true" : undefined}
+          >
+            {locale.code === "en" ? "English" : "简体中文"}
+            {locale.code === active && <Check aria-hidden="true" className="ml-auto size-4" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -154,15 +167,8 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
         />
 
         <header className="flex h-19 w-full shrink-0 snap-start items-center justify-between px-5 sm:px-8">
-          <a href="/" className="flex items-center gap-2.5" aria-label="CoForge">
-            <img src="/logo.svg" alt="" className="size-8 rounded-lg" />
-            {/* The wordmark ends on the same dot the icon carries. */}
-            <span
-              aria-hidden="true"
-              className="hidden text-[17px] font-bold tracking-[-0.045em] sm:inline"
-            >
-              CoForge<span className="text-[#a993ff]">.</span>
-            </span>
+          <a href="/" className="shrink-0" aria-label="CoForge">
+            <img src="/coforge-brand.svg" alt="" className="h-5 w-auto min-[400px]:h-6 sm:h-8" />
           </a>
           <div className="flex items-center gap-2 sm:gap-3">
             <a
@@ -175,24 +181,18 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
               <GitHubMark className="size-[18px]" />
             </a>
             <LocaleSwitch />
-            <span className="relative inline-flex overflow-hidden rounded-full">
-              <a
-                href="/auth/login"
-                className="group relative flex h-9 items-center overflow-hidden rounded-full border border-white/15 bg-white/10 pr-5 pl-3 text-sm font-medium whitespace-nowrap text-white sm:pr-6 sm:pl-5"
-              >
-                {/* The fill grows out of the left edge; the arrow fades into the right padding, so nothing moves. */}
-                <span
-                  aria-hidden="true"
-                  className="absolute top-1/2 left-3 size-2 -translate-y-1/2 rounded-full bg-white/20 opacity-0 transition-all duration-300 group-hover:scale-[60] group-hover:opacity-100"
-                />
-                <span className="relative">{m.landing_action_sign_in()}</span>
-                <ArrowRight
-                  aria-hidden="true"
-                  className="absolute top-1/2 right-2 size-3.5 -translate-x-1 -translate-y-1/2 opacity-0 transition-all duration-300 group-hover:translate-x-0 group-hover:opacity-100"
-                />
-              </a>
-              <BorderBeam size={40} duration={7} colorFrom="#c5bafe" colorTo="#5d36dc" />
-            </span>
+            <a
+              href="/auth/login"
+              className="flex h-9 items-center rounded-full px-2 text-sm font-medium whitespace-nowrap text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:px-3"
+            >
+              <span>{m.landing_action_sign_in()}</span>
+            </a>
+            <a
+              href="/auth/login"
+              className={buttonVariants({ size: "lg", className: "dark px-4" })}
+            >
+              <span>{m.landing_action_sign_up()}</span>
+            </a>
           </div>
         </header>
 
