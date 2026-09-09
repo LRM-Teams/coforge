@@ -5,7 +5,7 @@ import {
   type RuntimeMetadata,
 } from "@coforge/protocol";
 import { agentEnvironment } from "./environment";
-import { JsonlProcess } from "./jsonl-process";
+import { JsonlProcess, JsonlRequestError } from "./jsonl-process";
 import { probeClaudeCodeVersion, resolveClaudeCodeExecutable } from "./claude-code/runtime";
 import { COFORGE_DAEMON_VERSION } from "../version";
 import { codeAgentExecutableSearchPath } from "../platform/code-agent-path";
@@ -223,7 +223,8 @@ async function discoverCodexCatalog(
   command: readonly string[],
   cwd: string,
 ): Promise<CodeAgentModelCatalog | undefined> {
-  return withJsonlProcess(RUNTIME_PROVIDER.CODEX, command, cwd, async (process) => {
+  return withJsonlProcess(RUNTIME_PROVIDER.CODEX, command, cwd, async (process, progress) => {
+    progress.stage = "initialize";
     await within(
       process.request({
         method: "initialize",
@@ -237,10 +238,12 @@ async function discoverCodexCatalog(
         },
       }),
     );
+    progress.stage = "initialized";
     await process.send({ method: "initialized", params: {} });
     const models: CodeAgentModelMetadata[] = [];
     let cursor: string | undefined;
     do {
+      progress.stage = "model/list";
       const response = await within(
         process.request({
           method: "model/list",
@@ -248,7 +251,9 @@ async function discoverCodexCatalog(
         }),
       );
       const result = asRecord(response.result);
-      if (!Array.isArray(result?.data)) throw new Error("Codex model catalog is unavailable");
+      progress.stage = "decode_catalog";
+      if (!Array.isArray(result?.data))
+        throw new CatalogDiscoveryError("Codex model catalog is unavailable");
       models.push(...result.data.map(codexModel).filter(isModel));
       cursor = typeof result.nextCursor === "string" ? result.nextCursor : undefined;
     } while (cursor);
@@ -256,36 +261,128 @@ async function discoverCodexCatalog(
   });
 }
 
+type CatalogProgress = {
+  stage:
+    | "spawn"
+    | "initialize"
+    | "initialized"
+    | "model/list"
+    | "get_available_models"
+    | "decode_catalog";
+};
+
+// Only adapter-authored messages may be persisted; provider output is untrusted.
+class CatalogDiscoveryError extends Error {}
+
 async function withJsonlProcess<T>(
   provider: RuntimeMetadata["provider"],
   command: readonly string[],
   cwd: string,
-  discover: (process: JsonlProcess) => Promise<T>,
+  discover: (process: JsonlProcess, progress: CatalogProgress) => Promise<T>,
 ): Promise<T | undefined> {
-  const process = new JsonlProcess(command, cwd, agentEnvironment(undefined));
+  const startedAt = performance.now();
+  const discoveryId = crypto.randomUUID();
+  const progress: CatalogProgress = { stage: "spawn" };
+  let process: JsonlProcess | undefined;
+  logger.info("Code Agent model catalog discovery started", {
+    event: "code_agent_catalog:discovery_started",
+    discovery_id: discoveryId,
+    provider,
+    stage: progress.stage,
+    outcome: "started",
+  });
   try {
-    return await discover(process);
+    process = new JsonlProcess(command, cwd, agentEnvironment(undefined));
+    const catalog = await discover(process, progress);
+    logger.info("Code Agent model catalog discovery completed", {
+      event: "code_agent_catalog:discovery_completed",
+      discovery_id: discoveryId,
+      provider,
+      elapsed_ms: Math.round(performance.now() - startedAt),
+      outcome: "ok",
+    });
+    return catalog;
   } catch (error) {
     logger.warning("Code Agent model catalog discovery failed", {
       event: "code_agent_catalog:discovery_failed",
       provider,
+      discovery_id: discoveryId,
+      stage: progress.stage,
+      elapsed_ms: Math.round(performance.now() - startedAt),
       error_code: diagnosticErrorCode(error),
+      error_message: catalogErrorMessage(error),
+      provider_error_code:
+        error instanceof JsonlRequestError &&
+        typeof asRecord(error.responseError)?.code === "number"
+          ? asRecord(error.responseError)?.code
+          : undefined,
       outcome: "unavailable",
     });
+    // Preserve spawn failures reaching the caller; only an established probe
+    // may fall back to an unavailable catalog.
+    if (!process) throw error;
     return undefined;
   } finally {
-    await process.dispose().catch(() => undefined);
+    if (process) {
+      const cleanupStartedAt = performance.now();
+      logger.info("Code Agent model catalog cleanup started", {
+        event: "code_agent_catalog:cleanup_started",
+        discovery_id: discoveryId,
+        provider,
+        outcome: "started",
+      });
+      try {
+        await process.dispose();
+        logger.info("Code Agent model catalog cleanup completed", {
+          event: "code_agent_catalog:cleanup_completed",
+          discovery_id: discoveryId,
+          provider,
+          elapsed_ms: Math.round(performance.now() - cleanupStartedAt),
+          outcome: "ok",
+        });
+      } catch (error) {
+        logger.warning("Code Agent model catalog cleanup failed", {
+          event: "code_agent_catalog:cleanup_failed",
+          discovery_id: discoveryId,
+          provider,
+          elapsed_ms: Math.round(performance.now() - cleanupStartedAt),
+          error_code: diagnosticErrorCode(error),
+          error_message: catalogErrorMessage(error),
+          outcome: "failed",
+        });
+      }
+    }
   }
+}
+
+function catalogErrorMessage(error: unknown): string {
+  if (error instanceof CatalogDiscoveryError || error instanceof JsonlRequestError)
+    return error.message;
+  if (
+    error instanceof Error &&
+    [
+      "code agent process exited unexpectedly",
+      "code agent process produced invalid output",
+      "code agent process rejected a message",
+      "code agent process closed",
+      "code agent process is closed",
+      "code agent process tree did not exit",
+    ].includes(error.message)
+  )
+    return error.message;
+  return "model catalog discovery failed; untrusted error detail omitted";
 }
 
 async function discoverPiCatalogFromProcess(
   command: readonly string[],
   cwd: string,
 ): Promise<CodeAgentModelCatalog | undefined> {
-  return withJsonlProcess(RUNTIME_PROVIDER.PI, command, cwd, async (process) => {
+  return withJsonlProcess(RUNTIME_PROVIDER.PI, command, cwd, async (process, progress) => {
+    progress.stage = "get_available_models";
     const response = await within(process.request({ type: "get_available_models" }));
     const models = asRecord(response.data)?.models;
-    if (!Array.isArray(models)) throw new Error("Pi model catalog is unavailable");
+    progress.stage = "decode_catalog";
+    if (!Array.isArray(models)) throw new CatalogDiscoveryError("Pi model catalog is unavailable");
     return {
       provider: RUNTIME_PROVIDER.PI,
       models: models.map(piModel).filter(isModel),
@@ -296,7 +393,9 @@ async function discoverPiCatalogFromProcess(
 function within<T>(promise: Promise<T>): Promise<T> {
   return Promise.race([
     promise,
-    Bun.sleep(5_000).then(() => Promise.reject(new Error("model catalog discovery timed out"))),
+    Bun.sleep(5_000).then(() =>
+      Promise.reject(new CatalogDiscoveryError("model catalog discovery timed out after 5000 ms")),
+    ),
   ]);
 }
 

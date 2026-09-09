@@ -103,6 +103,17 @@ function handle(request: Request): void {
     return;
   }
   if (request.method === "model/list" && request.id && initialized) {
+    if (process.argv.includes("catalog-invalid")) {
+      write({ id: request.id, result: { data: "fixture-private-payload" } });
+      return;
+    }
+    if (process.argv.includes("catalog-exit")) process.exit(23);
+    if (process.argv.includes("catalog-timeout")) return;
+    if (process.argv.includes("catalog-error")) {
+      console.error("401 Unauthorized: Bearer fixture-private-token");
+      write({ id: request.id, error: { code: -32001, message: "token=fixture-private-token" } });
+      return;
+    }
     write({
       id: request.id,
       result: {

@@ -56,6 +56,7 @@ export class JsonlProcess {
     this.#child = this.#tree.child;
     logger.info("Started code agent process", {
       event: "code_agent.process.started",
+      pid: this.#child.pid,
       executable: command[0],
       argument_count: Math.max(command.length - 1, 0),
       outcome: "ok",
@@ -127,6 +128,7 @@ export class JsonlProcess {
       await this.send({ ...command, id });
       logger.info("Sent code agent request", {
         event: "code_agent.request.sent",
+        pid: this.#child.pid,
         request_id: id,
         method: typeof command.method === "string" ? command.method : "unknown",
         outcome: "ok",
@@ -188,6 +190,7 @@ export class JsonlProcess {
       this.#pending.delete(id);
       logger.info("Received code agent response", {
         event: "code_agent.response.received",
+        pid: this.#child.pid,
         request_id: id,
         success: record.success !== false && record.error === undefined,
         error_type: record.error === undefined ? undefined : typeof record.error,
@@ -240,6 +243,7 @@ export class JsonlProcess {
       if (bytes > 0)
         logger.warning("Code agent process wrote diagnostics to stderr", {
           event: "code_agent.process.stderr",
+          pid: this.#child.pid,
           bytes,
           lines,
           outcome: "observed",
@@ -250,11 +254,17 @@ export class JsonlProcess {
   }
 
   async #observeExit(): Promise<void> {
-    await this.#child.exited;
-    logger.error("Code agent process exited", {
+    const exitCode = await this.#child.exited;
+    const expectedExit = this.#state.type === "disposing" || this.#state.type === "closed";
+    const properties = {
       event: "code_agent.process.exited",
-      outcome: "error",
-    });
+      pid: this.#child.pid,
+      exit_code: exitCode,
+      expected_exit: expectedExit,
+      outcome: expectedExit ? "ok" : "error",
+    };
+    if (expectedExit) logger.info("Code agent process exited", properties);
+    else logger.error("Code agent process exited", properties);
     this.#fail("code agent process exited unexpectedly");
   }
 
