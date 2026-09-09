@@ -249,7 +249,10 @@ mock.module("@/server/auth/current-user", () => ({
 }));
 mock.module("@/features/workspaces/workspaces.functions", () => ({
   loadWorkspaceSwitcher,
-  listWorkspaceMembers: mock(async () => ({ people: [], agents: [] })),
+  listWorkspaceMembers: mock(async () => ({
+    people: [],
+    agents: agents.map((agent) => ({ ...agent, description: "", computerName: null })),
+  })),
   selectWorkspace: mock(async () => {}),
   createWorkspace: mock(async () => {}),
 }));
@@ -419,7 +422,9 @@ test("a channel load failure stays inside the conversation and retries in place"
     expect(page.queryByRole("textbox", { name: "Message" })).toBeNull();
     const agentLink = page.getByRole("link", { name: /First Agent/ });
     await userEvent.setup().click(page.getByRole("button", { name: "Try again" }));
-    await waitFor(() => expect(page.getByRole("heading", { name: "#general" })).toBeTruthy());
+    await waitFor(() =>
+      expect(page.getByRole("heading", { name: "#general", level: 1 })).toBeTruthy(),
+    );
     expect(page.queryByRole("alert")).toBeNull();
     expect(page.getByRole("link", { name: /First Agent/ })).toBe(agentLink);
   } finally {
@@ -467,7 +472,7 @@ test("Agent list loads in place then keeps its cards and filter during refresh",
       firstLoad.resolve(agents);
       await navigationDone;
     });
-    const search = page.getByRole("searchbox", { name: "Search agents" });
+    const search = page.getByRole("searchbox", { name: "Search members" });
     await userEvent.setup().type(search, "Second");
     const refresh = Promise.withResolvers<typeof agents>();
     listAgents.mockImplementationOnce(() => refresh.promise);
@@ -478,14 +483,14 @@ test("Agent list loads in place then keeps its cards and filter during refresh",
       });
       expect(page.getByRole("heading", { name: "Second Agent" })).toBeTruthy();
       expect(page.queryByText("Loading Agents…")).toBeNull();
-      expect(page.getByRole("searchbox", { name: "Search agents" })).toBe(search);
+      expect(page.getByRole("searchbox", { name: "Search members" })).toBe(search);
     } finally {
       await act(async () => {
         refresh.resolve(agents);
         await refreshed;
       });
     }
-    expect(page.getByRole("searchbox", { name: "Search agents" }).getAttribute("value")).toBe(
+    expect(page.getByRole("searchbox", { name: "Search members" }).getAttribute("value")).toBe(
       "Second",
     );
   } finally {

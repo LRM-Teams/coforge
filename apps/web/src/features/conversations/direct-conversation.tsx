@@ -127,7 +127,7 @@ export type ThreadedConversationProps = Omit<ConversationProps, "conversation" |
   conversation: Omit<DirectConversationView, "agent">;
   header: React.ReactNode;
   readOnlyNotice?: React.ReactNode;
-  emptyDescription?: string;
+  emptyState: { title: string; description: string; media: React.ReactNode };
   threadHeaderAction?: (rootMessageId: string) => React.ReactNode;
 };
 
@@ -172,7 +172,23 @@ export function DirectConversation(props: ConversationProps) {
       )}
     </header>
   );
-  return <ThreadedConversation {...props} header={header} />;
+  return (
+    <ThreadedConversation
+      {...props}
+      header={header}
+      emptyState={{
+        title: m.conversation_empty_title({ name: conversation.agent.displayName }),
+        description: m.conversation_empty_description(),
+        media: (
+          <Avatar
+            people={[{ name: conversation.agent.displayName }]}
+            size="xl"
+            className="size-16 rounded-2xl text-xl"
+          />
+        ),
+      }}
+    />
+  );
 }
 
 export function ThreadedConversation(props: ThreadedConversationProps) {
@@ -235,17 +251,6 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
           {...conversationProps}
           header={header}
           conversation={{ ...conversation, messages: mainMessages }}
-          emptyState={{
-            title: m.conversation_empty_title({ name: conversation.agent.displayName }),
-            description: m.conversation_empty_description(),
-            media: (
-              <Avatar
-                people={[{ name: conversation.agent.displayName }]}
-                size="xl"
-                className="size-16 rounded-2xl text-xl"
-              />
-            ),
-          }}
           threadEntry={(message) => {
             const replies = conversation.messages.filter(
               (reply) => reply.threadRootId === message.id,

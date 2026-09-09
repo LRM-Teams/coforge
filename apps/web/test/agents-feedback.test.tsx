@@ -56,6 +56,9 @@ test("create submission cannot duplicate or dismiss its draft while saving", asy
     <RouterContextProvider router={getRouter()}>
       <AgentsContent
         agents={[]}
+        directory={{ people: [], agents: [] }}
+        memberType="all"
+        onMemberTypeChange={() => undefined}
         computers={[
           {
             id: "computer-1",
@@ -66,7 +69,6 @@ test("create submission cannot duplicate or dismiss its draft while saving", asy
         ]}
         defaultCreateDialogOpen
         onCreate={onCreate}
-        onRetry={async () => undefined}
         onLoadRuntimeCatalog={async () => []}
       />
     </RouterContextProvider>,

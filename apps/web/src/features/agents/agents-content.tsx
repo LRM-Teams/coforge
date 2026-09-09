@@ -203,7 +203,7 @@ export function AgentsContent({
           {filteredPeople.length + filteredAgents.length ? (
             <ul
               aria-label={m.navigation_agents()}
-              className="mt-5 grid gap-4 md:grid-cols-[repeat(auto-fill,minmax(16rem,19rem))] md:items-start"
+              className="mt-5 grid gap-4 md:grid-cols-[repeat(auto-fill,minmax(16rem,19rem))]"
             >
               {filteredPeople.map((person) => (
                 <MemberCard key={`person:${person.id}`} member={person} label={m.member_person()} />
@@ -436,7 +436,7 @@ function MemberCard({
   ownedAgent?: AgentView;
 }) {
   return (
-    <li className="grid min-h-44 min-w-0 grid-cols-[2.25rem_minmax(0,1fr)_auto] grid-rows-[auto_auto_1fr] items-start gap-x-3 gap-y-2 rounded-xl border bg-card p-4 md:min-h-36 md:p-3">
+    <li className="grid h-52 min-w-0 grid-cols-[2.25rem_minmax(0,1fr)_auto] grid-rows-[auto_auto_1fr] items-start gap-x-3 gap-y-2 rounded-xl border bg-card p-4 md:h-48 md:p-3">
       <Avatar
         people={[{ name: member.displayName }]}
         online={ownedAgent ? ownedAgent.status.value === "active" : undefined}
@@ -449,7 +449,7 @@ function MemberCard({
         }
       />
       <div className="min-w-0">
-        <h2 className="break-words text-sm font-semibold">
+        <h2 className="line-clamp-2 break-words text-sm font-semibold">
           {ownedAgent ? (
             <Link
               to="/agents/$agentId"
@@ -465,7 +465,7 @@ function MemberCard({
         </h2>
         <p className="truncate text-xs text-muted-foreground">@{member.name}</p>
         {member.description && (
-          <p className="mt-2 line-clamp-2 break-words text-xs text-muted-foreground">
+          <p className="mt-2 line-clamp-1 break-words text-xs text-muted-foreground">
             {member.description}
           </p>
         )}
@@ -476,7 +476,7 @@ function MemberCard({
       {computerName !== undefined && (
         <p className="col-span-3 row-start-3 mt-3 flex min-w-0 items-start gap-2 self-end text-xs text-muted-foreground">
           <Monitor aria-hidden="true" className="size-3.5 shrink-0" />
-          <span className="min-w-0 break-words">
+          <span className="min-w-0 line-clamp-2 break-words">
             {computerName === null
               ? m.member_no_computer()
               : computerName || m.agent_computer_unnamed()}
