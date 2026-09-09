@@ -113,22 +113,6 @@ export const SidebarExpanded = ({
 
         {footer}
       </div>
-
-      {/* Invisible resize handle: 8px hit area centered on the hairline,
-          shows a 2px brand line on hover/drag. */}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize sidebar"
-        className={cx(
-          "absolute inset-y-0 -right-1 hidden w-2 cursor-col-resize touch-none lg:block",
-          "after:absolute after:inset-y-0 after:right-1 after:w-0.5 after:bg-transparent hover:after:bg-brand-solid",
-          dragging && "after:bg-brand-solid",
-        )}
-        onPointerDown={onHandlePointerDown}
-        onPointerMove={onHandlePointerMove}
-        onPointerUp={onHandlePointerUp}
-      />
     </aside>
   );
 
@@ -139,8 +123,37 @@ export const SidebarExpanded = ({
           copy-and-adapt exception, only sidebar-simple/slim were). */}
       <MobileNavigationHeader>{content}</MobileNavigationHeader>
 
-      {/* Desktop sidebar navigation */}
-      <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:flex">{content}</div>
+      {/* Desktop sidebar navigation. The resize handle is a sibling of the
+          `aside`, not a child of it — the aside is `overflow-auto` (it
+          scrolls its own nav list), which clips any absolutely-positioned
+          descendant that pokes outside its box, including the handle
+          (found via elementsFromPoint while verifying the drag interaction:
+          the handle was in the accessibility tree and had a real bounding
+          rect, but never received the hit — the aside's own scroll clip
+          silently ate it). Living outside the scroll container keeps it
+          hit-testable across the full sidebar height. */}
+      <div
+        style={{ "--width": `${width}px` } as CSSProperties}
+        className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:flex lg:w-(--width)"
+      >
+        {content}
+
+        {/* Invisible resize handle: 8px hit area centered on the hairline,
+            shows a 2px brand line on hover/drag. */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          className={cx(
+            "absolute inset-y-0 -right-1 w-2 cursor-col-resize touch-none",
+            "after:absolute after:inset-y-0 after:right-1 after:w-0.5 after:bg-transparent hover:after:bg-brand-solid",
+            dragging && "after:bg-brand-solid",
+          )}
+          onPointerDown={onHandlePointerDown}
+          onPointerMove={onHandlePointerMove}
+          onPointerUp={onHandlePointerUp}
+        />
+      </div>
 
       {/* Placeholder to take up physical space because the real sidebar has
           `fixed` position — follows the live (resized) width. */}
