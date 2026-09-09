@@ -719,7 +719,7 @@ test("an Agent profile shows its Computer, runtime configuration, and latest fai
 
 test("an Agent Activity tab shows only time, action, and message", async () => {
   const { page } = await renderRoute("/agents/agent-1?tab=activity");
-  expect(page.getByText("Failed")).toBeTruthy();
+  expect(page.getByText("Error")).toBeTruthy();
   expect(page.getByText("Starting")).toBeTruthy();
   expect(page.getAllByText("Agent runtime could not be started.")).toHaveLength(1);
   expect(page.queryByText("Agent runtime is starting.")).toBeNull();

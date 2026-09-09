@@ -68,3 +68,40 @@ test("keeps the Agent heading and tabs outside the long Activity scroll region",
   expect(activityRegion.contains(page.getByRole("heading", { name: "Builder" }))).toBe(false);
   expect(within(activityRegion).getAllByRole("listitem")).toHaveLength(40);
 });
+
+test("shows Error and the original message without internal error metadata", () => {
+  const view = render(
+    <RouterContextProvider router={getRouter()}>
+      <AgentDetail
+        detail={{
+          ...detail,
+          activity: [
+            {
+              ...activity[0]!,
+              detailKind: "runtime_error",
+              level: "error",
+              detail: "request timed out: Bearer fixture-private-token",
+              runtimeError: {
+                errorClass: "CodexTurnError",
+                errorReason: "turn_retrying",
+                fingerprint: "12345678",
+              },
+            },
+          ],
+        }}
+        tab="activity"
+        timeZone="UTC"
+        onSaveRuntimeCredential={async () => undefined}
+        onDeleteRuntimeCredential={async () => undefined}
+        onUpdate={async () => undefined}
+        onLoadRuntimeOptions={async () => ({ providers: [], catalogs: [] })}
+      />
+    </RouterContextProvider>,
+  );
+  const row = within(view.getByRole("region", { name: "Activity" })).getByRole("listitem");
+  expect(within(row).getByText("Error")).toBeTruthy();
+  expect(within(row).getByText("request timed out: Bearer fixture-private-token")).toBeTruthy();
+  expect(row.textContent).not.toContain("Retrying:");
+  expect(row.textContent).not.toContain("turn_retrying");
+  expect(row.textContent).not.toContain("CodexTurnError");
+});

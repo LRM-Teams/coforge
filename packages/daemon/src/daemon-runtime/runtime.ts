@@ -1895,7 +1895,8 @@ export class DaemonRuntime {
 }
 
 function safeRuntimeActivityMessage(activity: string, level: string, message: string): string {
-  if (level === "error" || level === "warning") return scrubActivityText(message);
+  if (level === "error") return message.slice(0, 512);
+  if (level === "warning") return scrubActivityText(message);
   if (activity === "running_command") return [...scrubActivityText(message)].slice(0, 100).join("");
   if (activity === "tool_started") {
     return scrubActivityText(message);

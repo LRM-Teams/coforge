@@ -11,7 +11,7 @@ export function activityDotClass(activity: string, level: string) {
 }
 
 export function activityLabel(activity: string, level: string) {
-  if (level === "error") return "Failed";
+  if (level === "error") return "Error";
   if (activity === "thinking_started") return "Thinking";
   if (activity === "working") return "Working";
   if (activity === "starting") return "Starting";
