@@ -1,5 +1,14 @@
 import { useState, type FormEvent } from "react";
-import { AlertCircle, Bot, Monitor, Pencil, X } from "lucide-react";
+import {
+  Activity as ActivityIcon,
+  AlertCircle,
+  Bell,
+  Bot,
+  Monitor,
+  Pencil,
+  UserRound,
+  X,
+} from "lucide-react";
 import { Link } from "@tanstack/react-router";
 
 import { Avatar } from "@/components/ui/avatar";
@@ -42,7 +51,6 @@ export function AgentDetail({
   onLoadSkills,
   onExecuteControl,
   onLoadReminders = async () => ({ status: "unauthorized" }),
-  onLoadReminderHistory = async () => ({ status: "unauthorized" }),
 }: {
   detail: Detail;
   activity?: ActivityEntry[];
@@ -55,7 +63,6 @@ export function AgentDetail({
   onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
   onExecuteControl?: Parameters<typeof AgentControl>[0]["onExecute"];
   onLoadReminders?: Parameters<typeof AgentReminders>[0]["onLoad"];
-  onLoadReminderHistory?: Parameters<typeof AgentReminders>[0]["onLoadHistory"];
 }) {
   const online = detail.status.value === "unknown" ? undefined : detail.status.value === "active";
   const statusLabel =
@@ -98,8 +105,13 @@ export function AgentDetail({
             to="/agents/$agentId"
             params={{ agentId: detail.id }}
             search={{ tab: value }}
-            className={`border-b-2 px-4 py-2 text-sm font-medium ${tab === value ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}
+            className={`inline-flex items-center gap-1 border-b-2 px-2 py-2 text-sm font-medium sm:gap-2 sm:px-4 ${tab === value ? "border-primary text-foreground" : "border-transparent text-muted-foreground"}`}
           >
+            {value === "profile" && <UserRound className="size-4 shrink-0" aria-hidden="true" />}
+            {value === "activity" && (
+              <ActivityIcon className="size-4 shrink-0" aria-hidden="true" />
+            )}
+            {value === "reminders" && <Bell className="size-4 shrink-0" aria-hidden="true" />}
             {value === "profile"
               ? m.agent_profile_tab()
               : value === "activity"
@@ -149,7 +161,6 @@ export function AgentDetail({
             owned={detail.ownedByCurrentUser}
             timeZone={timeZone}
             onLoad={onLoadReminders}
-            onLoadHistory={onLoadReminderHistory}
           />
         )}
       </section>

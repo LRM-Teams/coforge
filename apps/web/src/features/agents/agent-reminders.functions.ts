@@ -10,13 +10,10 @@ import {
   prismaAgentReminderReadStore,
 } from "../../server/agents/agent-reminders.server";
 
-const statusSchema = z.enum(["scheduled", "fired", "canceled"]);
 const listSchema = z.object({
   agentId: agentIdSchema,
-  status: statusSchema.optional(),
   cursor: z.object({ id: z.uuid() }).optional(),
 });
-const historySchema = z.object({ agentId: agentIdSchema, reminderId: z.uuid() });
 
 async function context() {
   setResponseHeader("Cache-Control", "no-store");
@@ -35,11 +32,4 @@ export const listAgentReminders = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const { query, viewer } = await context();
     return query.list(viewer, data);
-  });
-
-export const getAgentReminderHistory = createServerFn({ method: "GET" })
-  .validator(historySchema)
-  .handler(async ({ data }) => {
-    const { query, viewer } = await context();
-    return query.history(viewer, data);
   });

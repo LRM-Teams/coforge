@@ -3147,6 +3147,108 @@ describe("DaemonRuntime", () => {
       await rm(stateDirectory, { recursive: true, force: true });
     }
   });
+
+  test("projects a long multiline reminder title into the App Inbox without changing its occurrence", async () => {
+    const stateDirectory = join(tmpdir(), `coforge-reminder-preview-${crypto.randomUUID()}`);
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const notified = Promise.withResolvers<void>();
+    let receiveReminder!: (sync: import("@coforge/protocol").ReminderSync) => void;
+    const fullTitle = `  检查\n\t${"中".repeat(115)}😀${"长期项目进度".repeat(30)}  `;
+    const reminderId = "123e4567-e89b-42d3-a456-426614174000";
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession() {
+          return { ...sessionSpy(), notify: async () => notified.resolve() };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          onReminderSync(callback) {
+            receiveReminder = callback;
+            return () => undefined;
+          },
+          async fireReminder(request) {
+            return { ...request, result: "accepted", fired: true, catchup: false } as const;
+          },
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+        }),
+      },
+      undefined,
+      async () => ({ runtimes: [], catalogs: [] }),
+      stateDirectory,
+    );
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+      receiveReminder({
+        protocolMajor: 1,
+        requestId: "reminder-snapshot",
+        workspaceId: connection.workspaceId,
+        computerId: connection.computerId,
+        agentId: "agent-a",
+        operation: "snapshot",
+        messageType: "coforge.rpc.v1.ReminderSync",
+        jobs: [
+          {
+            reminderId,
+            ownerAgentId: "agent-a",
+            version: 1,
+            title: fullTitle,
+            target: "@frank",
+            messageId: "123e4567-e89b-42d3-a456-426614174001",
+            fireAt: new Date(Date.now() - 1_000).toISOString(),
+          },
+        ],
+      });
+      await notified.promise;
+
+      const context = runtime.issueAgentContext("agent-a");
+      const inbox = await runtime.inbox(context, {
+        requestId: "check-reminder",
+        context,
+        operation: "check",
+      });
+      const app = inbox.entries[0]?.kind === "app" ? inbox.entries[0].app : undefined;
+      expect(app?.title).toHaveLength(120);
+      expect(app?.title).not.toMatch(/[\r\n\t]/);
+      expect(app?.title).toStartWith("检查 ");
+      expect(app?.title).toEndWith("😀");
+
+      const acknowledgement = await runtime.reminder(
+        context,
+        { requestId: "ack-reminder", context, operation: "ack", reminderId, revision: 1 },
+        `sk_agent_${"a".repeat(43)}`,
+      );
+      expect(acknowledgement).toMatchObject({ accepted: true, reminderId, revision: 1 });
+      expect(
+        (await runtime.inbox(context, { requestId: "after-ack", context, operation: "check" }))
+          .entries,
+      ).toEqual([]);
+      const receipts = (await Bun.file(
+        join(
+          stateDirectory,
+          "reminder-receipts",
+          connection.workspaceId,
+          "agent-a",
+          "receipts.json",
+        ),
+      ).json()) as { receipts: Array<{ job: { title: string } }> };
+      expect(receipts.receipts[0]?.job.title).toBe(fullTitle);
+    } finally {
+      await runtime.stop();
+      await rm(stateDirectory, { recursive: true, force: true });
+    }
+  });
 });
 
 function connectedClient(): CentrifugeWorkspaceClient {

@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import type { PrismaClient } from "../generated/client";
 import {
-  AGENT_REMINDER_HISTORY_SIZE,
   AGENT_REMINDER_PAGE_SIZE,
   AgentRemindersQuery,
   prismaAgentReminderReadStore,
@@ -12,11 +11,10 @@ const viewer = { userId: "user-1", workspaceId: "workspace-1" };
 const item = (id: string) => ({
   id,
   title: `Reminder ${id}`,
-  status: "scheduled",
   fireAt: "2026-09-10T10:00:00.000Z",
-  firedAt: null,
   repeat: null,
   timezone: null,
+  target: "@owner",
   createdAt: "2026-09-09T10:00:00.000Z",
   anchor: {
     kind: "direct" as const,
@@ -30,7 +28,6 @@ function store(overrides: Partial<AgentReminderReadStore> = {}): AgentReminderRe
   return {
     ownsAgent: async () => true,
     list: async () => [],
-    history: async () => [],
     ...overrides,
   };
 }
@@ -69,39 +66,16 @@ test("returns a bounded page and stable explicit cursor", async () => {
   expect(result.hasMore).toBeTrue();
 });
 
-test("history is owner scoped, reminder scoped, and bounded", async () => {
-  let received: Parameters<AgentReminderReadStore["history"]>[0] | undefined;
-  const query = new AgentRemindersQuery(
-    store({
-      history: async (input) => {
-        received = input;
-        return undefined;
-      },
-    }),
-  );
-  expect(await query.history(viewer, { agentId: "agent-1", reminderId: "wrong-reminder" })).toEqual(
-    { status: "unauthorized" },
-  );
-  expect(received).toEqual({
-    viewer,
-    agentId: "agent-1",
-    reminderId: "wrong-reminder",
-    take: AGENT_REMINDER_HISTORY_SIZE,
-  });
-});
-
-test("derives readable message anchors from the canonical conversation", async () => {
+test("exposes targets and derives readable message anchors from the canonical conversation", async () => {
   const reminder = (id: string, messageId: string) => ({
     id,
     title: id,
-    status: "scheduled",
     fireAt: new Date("2026-09-10T10:00:00Z"),
-    firedAt: null,
     repeat: null,
     timezone: null,
     createdAt: new Date("2026-09-09T10:00:00Z"),
     messageId,
-    target: "ignored",
+    target: id === "public-channel" ? "#general" : "@owner",
   });
   const db = {
     reminder: {
@@ -166,8 +140,66 @@ test("derives readable message anchors from the canonical conversation", async (
     {
       kind: "channel",
       channelId: "channel-1",
+      channelName: "general",
       messageId: "message-channel-reply",
       threadRootId: "channel-root",
     },
   ]);
+  expect(rows.map((row) => row.target)).toEqual(["@owner", "@owner", "#general"]);
+  expect(rows[2]?.anchor).toMatchObject({ channelName: "general" });
+});
+
+test("filters scheduled reminders in the database before cursor pagination", async () => {
+  const seeded = [
+    { id: "future", status: "scheduled", fireAt: new Date("2026-09-10T10:00:00Z"), firedAt: null },
+    {
+      id: "recurring",
+      status: "scheduled",
+      fireAt: new Date("2026-09-10T11:00:00Z"),
+      firedAt: new Date("2026-09-09T11:00:00Z"),
+    },
+    { id: "overdue", status: "scheduled", fireAt: new Date("2026-09-08T10:00:00Z"), firedAt: null },
+    { id: "fired", status: "fired", fireAt: new Date("2026-09-07T10:00:00Z"), firedAt: null },
+    { id: "canceled", status: "canceled", fireAt: new Date("2026-09-06T10:00:00Z"), firedAt: null },
+  ];
+  let findManyInput: Record<string, unknown> | undefined;
+  const db = {
+    reminder: {
+      findMany: async (input: {
+        where: { status: string };
+        cursor: { id: string };
+        skip: number;
+        take: number;
+      }) => {
+        findManyInput = input;
+        return seeded
+          .filter((row) => row.status === input.where.status)
+          .slice(0, input.take)
+          .map((row) => ({
+            ...row,
+            title: row.id,
+            repeat: row.id === "recurring" ? "daily@09:30" : null,
+            timezone: null,
+            createdAt: row.fireAt,
+            messageId: `message-${row.id}`,
+            target: "ignored",
+          }));
+      },
+    },
+    message: { findMany: async () => [] },
+  } as unknown as PrismaClient;
+
+  const rows = await prismaAgentReminderReadStore(db).list({
+    viewer,
+    agentId: "agent-1",
+    cursor: { id: "before-50" },
+    take: 50,
+  });
+
+  if (!findManyInput) throw new Error("expected the reminder query");
+  expect((findManyInput.where as { status?: string }).status).toBe("scheduled");
+  expect(findManyInput.cursor).toEqual({ id: "before-50" });
+  expect(findManyInput.skip).toBe(1);
+  expect(findManyInput.take).toBe(50);
+  expect(rows.map((row) => row.id)).toEqual(["future", "recurring", "overdue"]);
 });

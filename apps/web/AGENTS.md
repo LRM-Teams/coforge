@@ -187,7 +187,8 @@ instructions for the TanStack Start Web/backend modular monolith.
   `src/server/agents/` and `src/server/db/repositories/`.
 - `features/agents/agent-reminders.functions.ts` and `server/agents/agent-reminders.server.ts`
   own the owner-only, Workspace-scoped browser read model for bounded Reminder lists and
-  recent history. Reminder lifecycle behavior remains in `server/reminders/`.
+  expose scheduled Reminders only. Reminder lifecycle and history persistence remain in
+  `server/reminders/` and its repository.
 - `server/agents/agent-control.server.ts` owns owner-authorized control operations:
   fixed command chains for Restart, Reset Session and Full Reset, receipt-driven
   state transitions, and request/epoch fences. It clears the Session binding at

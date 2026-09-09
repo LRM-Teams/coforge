@@ -48,7 +48,9 @@ const fixture = {} as {
 
 beforeAll(async () => {
   const suffix = crypto.randomUUID().slice(0, 8);
-  const user = await db.user.create({ data: { username: `reminder_${suffix}` } });
+  const user = await db.user.create({
+    data: { username: `reminder_${suffix}` },
+  });
   const other = await db.user.create({ data: { username: `other_${suffix}` } });
   const workspace = await db.workspace.create({
     data: {
@@ -58,7 +60,11 @@ beforeAll(async () => {
     },
   });
   const otherWorkspace = await db.workspace.create({
-    data: { slug: `other-${suffix}`, name: "Other", members: { create: { userId: other.id } } },
+    data: {
+      slug: `other-${suffix}`,
+      name: "Other",
+      members: { create: { userId: other.id } },
+    },
   });
   const computer = await db.computer.create({
     data: {
@@ -123,10 +129,17 @@ beforeAll(async () => {
       directKey: `${user.id}:${agent.id}`,
       members: {
         create: [
-          { workspace: { connect: { id: workspace.id } }, user: { connect: { id: user.id } } },
           {
             workspace: { connect: { id: workspace.id } },
-            agent: { connect: { id_workspaceId: { id: agent.id, workspaceId: workspace.id } } },
+            user: { connect: { id: user.id } },
+          },
+          {
+            workspace: { connect: { id: workspace.id } },
+            agent: {
+              connect: {
+                id_workspaceId: { id: agent.id, workspaceId: workspace.id },
+              },
+            },
           },
         ],
       },
@@ -229,6 +242,104 @@ const fire = async (reminderId: string, version: number, requestId: string) =>
     ),
   );
 
+test("PostgreSQL preserves full multiline Unicode reminder titles through create, update, list, and fire", async () => {
+  const originalTitle =
+    "请在明天的产品例会上核对智能代理提醒功能：确认数据库、同步协议、个人资料页和到期通知都保留完整标题。\t负责人需要逐项记录验证结果，不能只检查截断预览。\r\n第二行请复核中文标点、制表符和换行符，并确认来源会话、准确时间、相对时间与每天重复计划全部一致。";
+  const updatedTitle =
+    "更新后的任务：请完成提醒标题全链路回归，检查创建、更新、列表和触发后的历史快照。\t任何界面预览都不能覆盖云端保存的原文。\r\n第二行继续保留中文内容和全部空白字符，并把验证证据附到对应来源会话中，确保这段标题明显超过一百二十个字符；最后再次核对每日计划推进后的标题仍然字节完整。";
+  expect(originalTitle.length).toBeGreaterThan(120);
+  expect(updatedTitle.length).toBeGreaterThan(120);
+
+  const previousNow = now;
+  const created = (
+    await reminders.execute(
+      schedule(`full-title-create-${crypto.randomUUID()}`, {
+        title: originalTitle,
+        fireAt: "2026-09-10T12:00:00.000Z",
+        repeat: "every:1d",
+        timezone: "Asia/Shanghai",
+      }),
+      fixture.userId,
+    )
+  ).reminders[0]!;
+  try {
+    expect(created.title).toBe(originalTitle);
+    expect(
+      await db.reminder.findUniqueOrThrow({
+        where: { id: created.reminderId },
+        select: { title: true },
+      }),
+    ).toEqual({ title: originalTitle });
+    expect(
+      (
+        await reminders.execute(
+          {
+            ...schedule(`full-title-list-before-${crypto.randomUUID()}`),
+            operation: "list",
+            title: undefined,
+            target: undefined,
+            messageId: undefined,
+            fireAt: undefined,
+          },
+          fixture.userId,
+        )
+      ).reminders.find((reminder) => reminder.reminderId === created.reminderId)?.title,
+    ).toBe(originalTitle);
+
+    const updated = (
+      await reminders.execute(
+        {
+          ...schedule(`full-title-update-${crypto.randomUUID()}`),
+          operation: "update",
+          reminderId: created.reminderId,
+          title: updatedTitle,
+          target: undefined,
+          messageId: undefined,
+          fireAt: undefined,
+        },
+        fixture.userId,
+      )
+    ).reminders[0]!;
+    expect(updated.title).toBe(updatedTitle);
+    expect(
+      (
+        await reminders.execute(
+          {
+            ...schedule(`full-title-list-after-${crypto.randomUUID()}`),
+            operation: "list",
+            title: undefined,
+            target: undefined,
+            messageId: undefined,
+            fireAt: undefined,
+          },
+          fixture.userId,
+        )
+      ).reminders.find((reminder) => reminder.reminderId === created.reminderId)?.title,
+    ).toBe(updatedTitle);
+    expect(
+      await db.reminderEvent.findFirstOrThrow({
+        where: { reminderId: created.reminderId, type: "created" },
+        select: { title: true },
+      }),
+    ).toEqual({ title: originalTitle });
+
+    now = new Date("2026-09-10T12:00:00.000Z");
+    expect(
+      (await fire(created.reminderId, updated.version, `full-title-fire-${crypto.randomUUID()}`))
+        .result,
+    ).toBe("accepted");
+    expect(
+      await db.reminderEvent.findFirstOrThrow({
+        where: { reminderId: created.reminderId, type: "fired" },
+        select: { title: true },
+      }),
+    ).toEqual({ title: updatedTitle });
+  } finally {
+    now = previousNow;
+    await db.reminder.delete({ where: { id: created.reminderId } });
+  }
+});
+
 test("Daemon reminder RPC derives the assigned Agent owner and rejects another Computer's Agent", async () => {
   const row = await db.reminder.create({
     data: {
@@ -263,7 +374,10 @@ test("Daemon reminder RPC derives the assigned Agent owner and rejects another C
   expect(snapshot).toBeInstanceOf(Uint8Array);
   if (!(snapshot instanceof Uint8Array)) throw new Error("expected encoded reminder snapshot");
   expect(decodeReminderSync(snapshot).jobs).toEqual([
-    expect.objectContaining({ reminderId: row.id, ownerAgentId: fixture.sharedAgentId }),
+    expect.objectContaining({
+      reminderId: row.id,
+      ownerAgentId: fixture.sharedAgentId,
+    }),
   ]);
 
   const fired = await createReminderFireMethod(reminders)(
@@ -304,7 +418,9 @@ test("PostgreSQL reminder lifecycle is scoped, idempotent, concurrent, and chron
   expect((await reminders.execute(request, fixture.userId)).reminders[0]).toEqual(created);
   expect(await db.reminder.count({ where: { ownerAgentId: fixture.agentId } })).toBe(1);
 
-  const prematureRequest = schedule("premature-create", { fireAt: "2026-09-08T15:00:00.000Z" });
+  const prematureRequest = schedule("premature-create", {
+    fireAt: "2026-09-08T15:00:00.000Z",
+  });
   const premature = (await reminders.execute(prematureRequest, fixture.userId)).reminders[0]!;
   expect((await fire(premature.reminderId, 1, "same-fire-id")).result).toBe("premature");
   now = new Date("2026-09-08T15:00:00.000Z");
@@ -324,7 +440,9 @@ test("PostgreSQL reminder lifecycle is scoped, idempotent, concurrent, and chron
   ]);
   expect(same.map((value) => value.result)).toEqual(["accepted", "accepted"]);
   expect(
-    await db.reminderEvent.count({ where: { reminderId: concurrent.reminderId, type: "fired" } }),
+    await db.reminderEvent.count({
+      where: { reminderId: concurrent.reminderId, type: "fired" },
+    }),
   ).toBe(1);
 
   const recurring = (
@@ -343,7 +461,9 @@ test("PostgreSQL reminder lifecycle is scoped, idempotent, concurrent, and chron
     fire(recurring.reminderId, 1, "fire-b"),
   ]);
   expect(different.map((value) => value.result).sort()).toEqual(["accepted", "obsolete"]);
-  const advanced = await db.reminder.findUniqueOrThrow({ where: { id: recurring.reminderId } });
+  const advanced = await db.reminder.findUniqueOrThrow({
+    where: { id: recurring.reminderId },
+  });
   expect(advanced.fireAt.toISOString()).toBe("2026-09-08T19:00:00.000Z");
   expect(published.at(-1)).toMatchObject({
     operation: "upsert",
@@ -380,7 +500,9 @@ test("PostgreSQL reminder lifecycle is scoped, idempotent, concurrent, and chron
 
   const oneTime = (
     await reminders.execute(
-      schedule("timezone-one-time-create", { fireAt: "2026-09-08T20:00:00.000Z" }),
+      schedule("timezone-one-time-create", {
+        fireAt: "2026-09-08T20:00:00.000Z",
+      }),
       fixture.userId,
     )
   ).reminders[0]!;
@@ -528,7 +650,9 @@ test("PostgreSQL reminder lifecycle is scoped, idempotent, concurrent, and chron
     MAX_ACTIVE_REMINDERS - currentlyActive,
   );
   expect(
-    await db.reminder.count({ where: { ownerAgentId: fixture.agentId, status: "scheduled" } }),
+    await db.reminder.count({
+      where: { ownerAgentId: fixture.agentId, status: "scheduled" },
+    }),
   ).toBe(MAX_ACTIVE_REMINDERS);
   await expect(
     reminders.execute(

@@ -775,10 +775,18 @@ Workspace Daemon 本地计时，到期先请求服务端裁决，再进入 Agent
 Agent 通过 `coforge reminder schedule|list|update|snooze|cancel|log` 调用已有
 Credential Proxy，再以独立 Agent＋Daemon 凭据调用 HTTPS `agent:reminder`。
 身份来自凭据绑定，不接受调用者声明其他 Agent 身份。真人浏览器沿用自己的登录会话，
-Agent Profile 的 Reminders 标签页只向 Agent owner 提供只读列表和历史；Workspace
+Agent Profile 的 Reminders 标签页只向 Agent owner 提供待触发提醒的只读列表，不展示历史；Workspace
 中其他 Profile 查看者不能据此读取私人提醒。聊天里的 created/fired 系统提醒则按
 原会话的可见范围展示，并隔离主聊天与具体 Thread，不伪造 User/Agent Message sender，
 不产生普通 Message attention，不唤醒其他 Agent。
+
+Reminder 的 `title` 是完整提醒正文，不是短标题；创建、更新、同步、持久化和列表
+保留长文本及换行、制表符，不施加 Inbox 的 120 字预览限制。仅在生成 Agent App
+Inbox item 时归一化控制字符和空白，并截取最多 120 个 UTF-16 code unit（不拆开
+代理对）的单行预览；原始正文和 occurrence receipt 不被截断。仍拒绝空白正文和
+除 tab、CR、LF 外的 C0/DEL 控制字符。此处对齐 Raft 1.0.17 发布包的正文与预览
+分离，不据客户端 schema 推断其私有服务端长度上限。协议字段及数据库结构不变，
+但旧版 Daemon 的 120 字校验无法接收长正文，发布时须配套更新 Web 与本地客户端。
 
 PostgreSQL 的 Reminder 保存 owner、Workspace、Computer、canonical Message 锚点、
 完整 target、版本、计划时间及周期；ReminderEvent 保存创建、更新、推迟、取消、触发

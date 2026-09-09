@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { Clock, LinkIcon, Repeat } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { RelativeTime } from "@/components/ui/relative-time";
@@ -9,22 +9,16 @@ import type { AgentReminderListItem } from "../../server/agents/agent-reminders.
 type ListResult = Awaited<
   ReturnType<typeof import("./agent-reminders.functions").listAgentReminders>
 >;
-type HistoryResult = Awaited<
-  ReturnType<typeof import("./agent-reminders.functions").getAgentReminderHistory>
->;
-
 export function AgentReminders({
   agentId,
   owned,
   timeZone,
   onLoad,
-  onLoadHistory,
 }: {
   agentId: string;
   owned: boolean;
   timeZone: string | null;
   onLoad: (cursor?: { id: string }) => Promise<ListResult>;
-  onLoadHistory: (reminderId: string) => Promise<HistoryResult>;
 }) {
   const [result, setResult] = useState<ListResult>();
   const [error, setError] = useState(false);
@@ -44,45 +38,49 @@ export function AgentReminders({
   }, [agentId, onLoad, owned]);
 
   if (!owned || result?.status === "unauthorized")
-    return (
-      <State
-        heading={m.agent_reminders_private()}
-        description={m.agent_reminders_private_description()}
-      />
-    );
+    return <State message={m.agent_reminders_private()} />;
   if (error)
     return (
       <State
-        heading={m.agent_reminders_error()}
-        description={m.agent_reminders_error_description()}
+        message={m.agent_reminders_error()}
         alert
+        action={
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setError(false);
+              setResult(undefined);
+              void onLoad()
+                .then(setResult)
+                .catch(() => setError(true));
+            }}
+          >
+            {m.agent_reminders_retry()}
+          </Button>
+        }
       />
     );
   if (!result)
     return (
       <div className="mt-6 animate-pulse space-y-3" aria-label={m.agent_reminders_loading()}>
-        <div className="h-24 rounded-xl bg-muted" />
-        <div className="h-24 rounded-xl bg-muted" />
+        <div className="flex items-center justify-between gap-6 rounded-xl border bg-card p-4">
+          <div className="h-4 w-52 max-w-2/3 rounded bg-muted" />
+          <div className="h-4 w-20 rounded bg-muted" />
+        </div>
+        <div className="flex items-center justify-between gap-6 rounded-xl border bg-card p-4">
+          <div className="h-4 w-64 max-w-2/3 rounded bg-muted" />
+          <div className="h-4 w-16 rounded bg-muted" />
+        </div>
       </div>
     );
-  if (!result.reminders.length)
-    return (
-      <State
-        heading={m.agent_reminders_empty()}
-        description={m.agent_reminders_empty_description()}
-      />
-    );
+  if (!result.reminders.length) return <State message={m.agent_reminders_empty()} />;
 
   return (
     <div className="mt-6 space-y-3">
       <ol className="space-y-3">
         {result.reminders.map((reminder) => (
-          <ReminderRow
-            key={reminder.id}
-            reminder={reminder}
-            timeZone={timeZone}
-            onLoadHistory={onLoadHistory}
-          />
+          <ReminderRow key={reminder.id} reminder={reminder} timeZone={timeZone} />
         ))}
       </ol>
       {result.hasMore && result.cursor && (
@@ -112,146 +110,148 @@ export function AgentReminders({
 function ReminderRow({
   reminder,
   timeZone,
-  onLoadHistory,
 }: {
   reminder: AgentReminderListItem;
   timeZone: string | null;
-  onLoadHistory: (id: string) => Promise<HistoryResult>;
 }) {
-  const [open, setOpen] = useState(false);
-  const [history, setHistory] = useState<HistoryResult>();
-  const [historyError, setHistoryError] = useState(false);
   return (
-    <li className="rounded-xl border bg-card p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="break-words font-medium">{reminder.title}</h2>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-            <span>{statusLabel(reminder.status)}</span>
-            {reminder.status === "fired" && reminder.firedAt ? (
-              <span>
-                {m.agent_reminders_fired_time()}{" "}
-                <RelativeTime value={reminder.firedAt} timeZone={timeZone} />
-              </span>
-            ) : (
-              <span>
-                {reminder.status === "scheduled"
-                  ? m.agent_reminders_next()
-                  : m.agent_reminders_scheduled_time()}{" "}
-                <RelativeTime value={reminder.fireAt} timeZone={timeZone} />
-              </span>
-            )}
-            <span>
-              {m.agent_reminders_recurrence()} {reminder.repeat ?? m.agent_reminders_once()}
+    <li className="min-w-0 rounded-xl border bg-card p-4 text-card-foreground">
+      <p className="whitespace-pre-wrap break-words font-medium">{reminder.title}</p>
+      <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            <Clock className="size-3.5 shrink-0" aria-hidden="true" />
+            <RelativeTime
+              value={reminder.fireAt}
+              timeZone={reminder.timezone ?? timeZone}
+              showExact
+            />
+          </span>
+          {reminder.repeat && (
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <Repeat className="size-3.5 shrink-0" aria-hidden="true" />
+              {formatRecurrence(reminder.repeat)}
             </span>
-          </div>
-        </div>
-        {reminder.anchor && <AnchorLink anchor={reminder.anchor} />}
-      </div>
-      <Button
-        className="mt-3 px-0"
-        variant="ghost"
-        size="sm"
-        aria-expanded={open}
-        onClick={async () => {
-          const nextOpen = !open;
-          setOpen(nextOpen);
-          if (!nextOpen || history) return;
-          try {
-            setHistory(await onLoadHistory(reminder.id));
-          } catch {
-            setHistoryError(true);
-          }
-        }}
-      >
-        {open ? <ChevronDown /> : <ChevronRight />}
-        {m.agent_reminders_recent_history()}
-      </Button>
-      {open && (
-        <div className="border-t pt-3 text-sm">
-          {historyError || history?.status === "unauthorized" ? (
-            <p role="alert" className="text-destructive-text">
-              {m.agent_reminders_history_error()}
-            </p>
-          ) : !history ? (
-            <p className="text-muted-foreground">{m.agent_reminders_loading()}</p>
-          ) : !history.events.length ? (
-            <p className="text-muted-foreground">{m.agent_reminders_history_empty()}</p>
-          ) : (
-            <ol className="space-y-2">
-              {history.events.map((event) => (
-                <li key={event.id} className="flex flex-wrap justify-between gap-2">
-                  <span>
-                    {eventLabel(event.type)} · {event.title}
-                    <span className="block text-muted-foreground">
-                      {m.agent_reminders_scheduled_time()}{" "}
-                      <RelativeTime value={event.scheduledFor} timeZone={timeZone} />
-                    </span>
-                  </span>
-                  <RelativeTime value={event.time} timeZone={timeZone} />
-                </li>
-              ))}
-            </ol>
           )}
         </div>
-      )}
+        <div className="flex min-w-0">
+          <Source reminder={reminder} />
+        </div>
+      </div>
     </li>
   );
 }
 
-function AnchorLink({ anchor }: { anchor: NonNullable<AgentReminderListItem["anchor"]> }) {
+function formatRecurrence(value: string) {
+  const every = /^every:([1-9]\d*)([mhd])$/.exec(value);
+  if (every)
+    return m.agent_reminders_repeat_every({
+      count: every[1]!,
+      unit:
+        every[2] === "m"
+          ? m.agent_reminders_unit_minutes()
+          : every[2] === "h"
+            ? m.agent_reminders_unit_hours()
+            : m.agent_reminders_unit_days(),
+    });
+  const daily = /^daily@(\d{2}:\d{2})$/.exec(value);
+  if (daily) return m.agent_reminders_repeat_daily({ time: daily[1]! });
+  const weekly = /^weekly:([a-z,]+)@(\d{2}:\d{2})$/.exec(value);
+  if (weekly) {
+    const weekdays: Record<string, string> = {
+      mon: m.agent_reminders_weekday_mon(),
+      tue: m.agent_reminders_weekday_tue(),
+      wed: m.agent_reminders_weekday_wed(),
+      thu: m.agent_reminders_weekday_thu(),
+      fri: m.agent_reminders_weekday_fri(),
+      sat: m.agent_reminders_weekday_sat(),
+      sun: m.agent_reminders_weekday_sun(),
+    };
+    const days = weekly[1]!
+      .split(",")
+      .map((day) => weekdays[day] ?? day)
+      .join(", ");
+    return m.agent_reminders_repeat_weekly({ days, time: weekly[2]! });
+  }
+  return m.agent_reminders_repeat_unknown({ value });
+}
+
+function Source({ reminder }: { reminder: AgentReminderListItem }) {
+  const thread = reminder.anchor?.threadRootId;
+  const shortThread = thread?.slice(0, 8);
+  const target =
+    reminder.anchor?.kind === "channel" ? `#${reminder.anchor.channelName}` : reminder.target;
+  const label =
+    shortThread && !target.includes(shortThread) ? `${target} · ${shortThread}` : target;
+  const content = (
+    <>
+      <LinkIcon className="size-3.5 shrink-0" aria-hidden="true" />
+      {label}
+    </>
+  );
+  const className = "inline-flex min-w-0 items-center gap-1.5 break-all";
+  return reminder.anchor ? (
+    <AnchorLink
+      anchor={reminder.anchor}
+      className={`${className} rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring`}
+    >
+      {content}
+    </AnchorLink>
+  ) : (
+    <span className={className}>{content}</span>
+  );
+}
+
+function AnchorLink({
+  anchor,
+  children,
+  className,
+}: {
+  anchor: NonNullable<AgentReminderListItem["anchor"]>;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  className ??=
+    "min-w-0 rounded-sm outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring";
   return anchor.kind === "channel" ? (
     <Link
-      className="text-sm font-medium text-primary hover:underline"
+      className={className}
       to="/messages/channels/$channelId"
       params={{ channelId: anchor.channelId }}
       search={{ message: anchor.messageId, threadRootId: anchor.threadRootId ?? undefined }}
       hash={`message-${anchor.messageId}`}
     >
-      {m.agent_reminders_anchor()}
+      {children}
     </Link>
   ) : (
     <Link
-      className="text-sm font-medium text-primary hover:underline"
+      className={className}
       to="/messages/$agentId"
       params={{ agentId: anchor.agentId }}
       search={{ message: anchor.messageId, threadRootId: anchor.threadRootId ?? undefined }}
       hash={`message-${anchor.messageId}`}
     >
-      {m.agent_reminders_anchor()}
+      {children}
     </Link>
   );
 }
 
 function State({
-  heading,
-  description,
+  message,
   alert = false,
+  action,
 }: {
-  heading: string;
-  description: string;
+  message: string;
   alert?: boolean;
+  action?: React.ReactNode;
 }) {
   return (
-    <div className="mt-6 rounded-xl border bg-card p-6" role={alert ? "alert" : undefined}>
-      <p className="font-medium">{heading}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+    <div
+      className="mt-6 flex min-h-10 items-center gap-3 text-sm text-muted-foreground"
+      role={alert ? "alert" : undefined}
+    >
+      <p>{message}</p>
+      {action}
     </div>
   );
-}
-
-function statusLabel(status: string) {
-  if (status === "scheduled") return m.agent_reminders_status_scheduled();
-  if (status === "fired") return m.agent_reminders_status_fired();
-  if (status === "canceled") return m.agent_reminders_status_canceled();
-  return status;
-}
-
-function eventLabel(type: string) {
-  if (type === "created") return m.agent_reminders_event_created();
-  if (type === "updated") return m.agent_reminders_event_updated();
-  if (type === "snoozed") return m.agent_reminders_event_snoozed();
-  if (type === "fired") return m.agent_reminders_event_fired();
-  if (type === "canceled") return m.agent_reminders_event_canceled();
-  return type;
 }

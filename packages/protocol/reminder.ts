@@ -155,7 +155,7 @@ function fields<T extends ReminderOperationFields>(value: T, canonicalTarget = f
     throw new Error("invalid reminder target");
   if (
     value.title !== undefined &&
-    (!value.title.trim() || value.title.length > 120 || /[\u0000-\u001f\u007f]/.test(value.title))
+    (!value.title.trim() || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value.title))
   )
     throw new Error("invalid reminder title");
   positive(value.delaySeconds, "reminder delay");

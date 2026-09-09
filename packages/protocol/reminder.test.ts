@@ -4,6 +4,7 @@ import { AgentReminderOperationRequestSchema } from "./gen/coforge/rpc/v1/remind
 import {
   REMINDER_SYNC_MESSAGE_TYPE,
   decodeAgentReminderOperationRequest,
+  decodeAgentReminderOperationResponse,
   decodeReminderFireResponse,
   decodeReminderSync,
   encodeAgentReminderOperationResponse,
@@ -22,6 +23,67 @@ const scope = {
   agentId: "agent-1",
 };
 const reminderId = "018f47ac-7c56-7abc-8def-0123456789ab";
+const fullTitle =
+  "准备发布提醒：请核对 multilingual release notes、回滚步骤与负责人。\n\t第二行保留原始缩进，包含 العربية و日本語；第三部分继续记录完整提醒正文，不应截断为 Inbox preview。\r\n最后确认所有检查均已完成。";
+
+test("preserves full multiline reminder titles across protocol seams", () => {
+  expect(fullTitle.length).toBeGreaterThan(120);
+
+  const schedule = {
+    ...scope,
+    operation: "schedule" as const,
+    title: fullTitle,
+    target: "#general",
+    messageId: "deadbeef",
+    delaySeconds: 900,
+  };
+  expect(
+    decodeAgentReminderOperationRequest(encodeAgentReminderOperationRequest(schedule)),
+  ).toEqual(schedule);
+
+  const update = {
+    ...scope,
+    operation: "update" as const,
+    reminderId,
+    title: fullTitle,
+  };
+  expect(decodeAgentReminderOperationRequest(encodeAgentReminderOperationRequest(update))).toEqual(
+    update,
+  );
+
+  const job = {
+    reminderId,
+    ownerAgentId: scope.agentId,
+    version: 2,
+    title: fullTitle,
+    target: "@frank",
+    messageId: reminderId,
+    fireAt: "2026-09-08T10:00:00Z",
+  };
+  const sync = {
+    ...scope,
+    operation: "upsert" as const,
+    jobs: [job],
+    messageType: REMINDER_SYNC_MESSAGE_TYPE,
+  };
+  expect(decodeReminderSync(encodeReminderSync(sync))).toEqual(sync);
+
+  const response = {
+    ...scope,
+    accepted: true,
+    reminders: [
+      {
+        ...job,
+        status: "scheduled" as const,
+        createdAt: "2026-09-08T09:00:00Z",
+      },
+    ],
+    events: [],
+  };
+  expect(
+    decodeAgentReminderOperationResponse(encodeAgentReminderOperationResponse(response)),
+  ).toEqual(response);
+});
 
 test("round-trips and validates cloud reminder operations", () => {
   const request = {
@@ -132,8 +194,9 @@ test("enforces operation-specific reminder fields", () => {
     }),
   ).not.toThrow();
   expect(() =>
-    encodeAgentReminderOperationRequest({ ...schedule, title: "bad\ncontrol" }),
+    encodeAgentReminderOperationRequest({ ...schedule, title: "bad\u0000control" }),
   ).toThrow();
+  expect(() => encodeAgentReminderOperationRequest({ ...schedule, title: " \t\r\n" })).toThrow();
 });
 
 test("rejects malformed explicit optional values when decoding", () => {

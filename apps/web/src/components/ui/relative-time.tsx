@@ -8,10 +8,12 @@ export function RelativeTime({
   value,
   timeZone,
   className,
+  showExact = false,
 }: {
   value: Date | string;
   timeZone?: string | null;
   className?: string;
+  showExact?: boolean;
 }) {
   const [now, setNow] = useState(() => new Date());
 
@@ -34,6 +36,7 @@ export function RelativeTime({
             suppressHydrationWarning
           >
             {formatRelativeTime(instant, now, locale)}
+            {showExact && <span className="ml-1.5">· {exactTime}</span>}
           </time>
         }
       />

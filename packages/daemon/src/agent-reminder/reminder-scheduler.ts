@@ -5,11 +5,27 @@ import type {
   ReminderJob,
   ReminderSync,
 } from "@coforge/protocol";
+import { APP_INBOX_PREVIEW_MAX_CHARS } from "../agent-app-inbox/registry";
 
 const logger = getLogger(["coforge", "daemon", "reminder"]);
 const MAX_TIMER_MS = 24 * 60 * 60_000;
 const RETRY_BUDGET_MS = 15 * 60_000;
 const MAX_ATTEMPTS = 8;
+
+/** Projects canonical reminder text into the strict, bounded App Inbox preview. */
+export function reminderAppInboxPreview(title: string): string {
+  const withoutControls = [...title]
+    .map((character) => {
+      const codePoint = character.codePointAt(0)!;
+      return codePoint <= 31 || (codePoint >= 127 && codePoint <= 159) ? " " : character;
+    })
+    .join("");
+  const singleLine = withoutControls.replace(/\s+/g, " ").trim();
+  let preview = singleLine.slice(0, APP_INBOX_PREVIEW_MAX_CHARS);
+  const lastCodeUnit = preview.charCodeAt(preview.length - 1);
+  if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) preview = preview.slice(0, -1);
+  return preview;
+}
 
 export type ReminderReceipt = {
   workspaceId: string;

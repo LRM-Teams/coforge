@@ -63,7 +63,7 @@ import {
 } from "../code-agent/runtime-inventory";
 import { getLogger } from "@logtape/logtape";
 import { COFORGE_DAEMON_VERSION } from "../version";
-import { ReminderScheduler } from "../agent-reminder/reminder-scheduler";
+import { ReminderScheduler, reminderAppInboxPreview } from "../agent-reminder/reminder-scheduler";
 import { FileReminderReceiptStore } from "../persistence/reminder-receipt-store";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
@@ -1647,7 +1647,7 @@ export class DaemonRuntime {
       appId: "system.reminder",
       notificationClass: "due",
       sourceRef: { kind: "reminder", id: job.reminderId, revision: String(job.version) },
-      title: job.title,
+      title: reminderAppInboxPreview(job.title),
       summary: "Reminder due",
     });
     return this.#notifyAppItem(job.ownerAgentId, item.itemId);

@@ -1,34 +1,28 @@
 import type { PrismaClient } from "../../../generated/client";
 
 export const AGENT_REMINDER_PAGE_SIZE = 50;
-export const AGENT_REMINDER_HISTORY_SIZE = 20;
 
 export type AgentReminderViewer = { userId: string; workspaceId: string };
 export type AgentReminderCursor = { id: string };
-export type AgentReminderStatus = "scheduled" | "fired" | "canceled";
 
 export type AgentReminderListItem = {
   id: string;
   title: string;
-  status: string;
   fireAt: string;
-  firedAt: string | null;
   repeat: string | null;
   timezone: string | null;
+  target: string;
   createdAt: string;
   anchor:
     | { kind: "direct"; agentId: string; messageId: string; threadRootId: string | null }
-    | { kind: "channel"; channelId: string; messageId: string; threadRootId: string | null }
+    | {
+        kind: "channel";
+        channelId: string;
+        channelName: string;
+        messageId: string;
+        threadRootId: string | null;
+      }
     | null;
-};
-
-export type AgentReminderHistoryItem = {
-  id: string;
-  type: string;
-  title: string;
-  time: string;
-  scheduledFor: string;
-  nextFireAt: string | null;
 };
 
 export interface AgentReminderReadStore {
@@ -36,16 +30,9 @@ export interface AgentReminderReadStore {
   list(input: {
     viewer: AgentReminderViewer;
     agentId: string;
-    status?: AgentReminderStatus;
     cursor?: AgentReminderCursor;
     take: number;
   }): Promise<AgentReminderListItem[]>;
-  history(input: {
-    viewer: AgentReminderViewer;
-    agentId: string;
-    reminderId: string;
-    take: number;
-  }): Promise<AgentReminderHistoryItem[] | undefined>;
 }
 
 export class AgentRemindersQuery {
@@ -53,7 +40,7 @@ export class AgentRemindersQuery {
 
   async list(
     viewer: AgentReminderViewer,
-    input: { agentId: string; status?: AgentReminderStatus; cursor?: AgentReminderCursor },
+    input: { agentId: string; cursor?: AgentReminderCursor },
   ) {
     if (!(await this.store.ownsAgent(viewer, input.agentId)))
       return { status: "unauthorized" as const };
@@ -71,17 +58,6 @@ export class AgentRemindersQuery {
       cursor: hasMore ? { id: reminders.at(-1)!.id } : null,
     };
   }
-
-  async history(viewer: AgentReminderViewer, input: { agentId: string; reminderId: string }) {
-    if (!(await this.store.ownsAgent(viewer, input.agentId)))
-      return { status: "unauthorized" as const };
-    const events = await this.store.history({
-      viewer,
-      ...input,
-      take: AGENT_REMINDER_HISTORY_SIZE,
-    });
-    return events ? { status: "ready" as const, events } : { status: "unauthorized" as const };
-  }
 }
 
 export function prismaAgentReminderReadStore(db: PrismaClient): AgentReminderReadStore {
@@ -98,7 +74,7 @@ export function prismaAgentReminderReadStore(db: PrismaClient): AgentReminderRea
           select: { id: true },
         }),
       ),
-    list: async ({ viewer, agentId, status, cursor, take }) => {
+    list: async ({ viewer, agentId, cursor, take }) => {
       const rows = await db.reminder.findMany({
         where: {
           workspaceId: viewer.workspaceId,
@@ -107,7 +83,7 @@ export function prismaAgentReminderReadStore(db: PrismaClient): AgentReminderRea
             ownerId: viewer.userId,
             workspace: { members: { some: { userId: viewer.userId } } },
           },
-          ...(status ? { status } : {}),
+          status: "scheduled",
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         ...(cursor ? { cursor: { id: cursor.id }, skip: 1 } : {}),
@@ -115,9 +91,7 @@ export function prismaAgentReminderReadStore(db: PrismaClient): AgentReminderRea
         select: {
           id: true,
           title: true,
-          status: true,
           fireAt: true,
-          firedAt: true,
           repeat: true,
           timezone: true,
           createdAt: true,
@@ -151,6 +125,7 @@ export function prismaAgentReminderReadStore(db: PrismaClient): AgentReminderRea
             ? {
                 kind: "channel" as const,
                 channelId: conversation.id,
+                channelName: conversation.channelName,
                 messageId: row.messageId,
                 threadRootId: message.threadRootId,
               }
@@ -167,50 +142,14 @@ export function prismaAgentReminderReadStore(db: PrismaClient): AgentReminderRea
         return {
           id: row.id,
           title: row.title,
-          status: row.status,
           fireAt: row.fireAt.toISOString(),
-          firedAt: row.firedAt?.toISOString() ?? null,
           repeat: row.repeat,
           timezone: row.timezone,
+          target: row.target,
           createdAt: row.createdAt.toISOString(),
           anchor,
         };
       });
-    },
-    history: async ({ viewer, agentId, reminderId, take }) => {
-      const reminder = await db.reminder.findFirst({
-        where: {
-          id: reminderId,
-          workspaceId: viewer.workspaceId,
-          ownerAgentId: agentId,
-          ownerAgent: {
-            ownerId: viewer.userId,
-            workspace: { members: { some: { userId: viewer.userId } } },
-          },
-        },
-        select: {
-          events: {
-            orderBy: [{ time: "desc" }, { id: "desc" }],
-            take,
-            select: {
-              id: true,
-              type: true,
-              title: true,
-              time: true,
-              scheduledFor: true,
-              nextFireAt: true,
-            },
-          },
-        },
-      });
-      return reminder?.events.map((event) => ({
-        id: event.id,
-        type: event.type,
-        title: event.title,
-        time: event.time.toISOString(),
-        scheduledFor: event.scheduledFor.toISOString(),
-        nextFireAt: event.nextFireAt?.toISOString() ?? null,
-      }));
     },
   };
 }

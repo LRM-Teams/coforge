@@ -3,10 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useMemo } from "react";
 
 import { AgentDetail } from "@/features/agents/agent-detail";
-import {
-  getAgentReminderHistory,
-  listAgentReminders,
-} from "@/features/agents/agent-reminders.functions";
+import { listAgentReminders } from "@/features/agents/agent-reminders.functions";
 import { getAgentSkills } from "@/features/agents/agent-skills.functions";
 import { executeAgentControl } from "@/features/agents/agent-control.functions";
 import { useAgentStatuses } from "@/features/agents/agent-status-realtime";
@@ -57,7 +54,6 @@ function AgentDetailPage() {
   const loadSkills = useServerFn(getAgentSkills);
   const executeControl = useServerFn(executeAgentControl);
   const loadReminders = useServerFn(listAgentReminders);
-  const loadReminderHistory = useServerFn(getAgentReminderHistory);
   const agents = useMemo(() => [detail], [detail]);
   const refresh = useCallback(
     async () => [await loadDetail({ data: detail.id })],
@@ -89,10 +85,6 @@ function AgentDetailPage() {
       loadReminders({ data: { agentId: detail.id, ...(cursor ? { cursor } : {}) } }),
     [detail.id, loadReminders],
   );
-  const loadAgentReminderHistory = useCallback(
-    (reminderId: string) => loadReminderHistory({ data: { agentId: detail.id, reminderId } }),
-    [detail.id, loadReminderHistory],
-  );
   return (
     <AgentDetail
       activity={activity}
@@ -102,7 +94,6 @@ function AgentDetailPage() {
       onLoadSkills={loadAgentSkills}
       onExecuteControl={(request) => executeControl({ data: request })}
       onLoadReminders={loadAgentReminders}
-      onLoadReminderHistory={loadAgentReminderHistory}
       onLoadRuntimeOptions={async (computerId) => {
         const [computers, catalogs] = await Promise.all([
           loadComputers(),
