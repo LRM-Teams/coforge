@@ -186,13 +186,14 @@ async function capture(
   url: string,
   includeBody: boolean,
   includeProbeCookie = true,
+  timeoutMs = 30_000,
 ): Promise<CapturedResponse> {
   const response = await fetcher(url, {
     method: "GET",
     ...(includeProbeCookie ? { headers: { Cookie: PROBE_COOKIE } } : {}),
     credentials: "omit",
     redirect: "manual",
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const captured: CapturedResponse = {
     status: response.status,
@@ -230,7 +231,10 @@ export async function verifyReleaseObject(
       "the release origin returned HTTP 403 without a redirect",
     );
 
-    const cdn = await capture(fetcher, probe.cdn_url, true, false);
+    // Unified executables are tens of MB; observed valid CDN transfers exceed 30s.
+    // Keep metadata/origin checks short while bounding the entire gzip body download.
+    const timeoutMs = new URL(probe.cdn_url).pathname.endsWith(".gz") ? 120_000 : 30_000;
+    const cdn = await capture(fetcher, probe.cdn_url, true, false, timeoutMs);
     addCheck(
       checks,
       "release_cdn_object_matches",
