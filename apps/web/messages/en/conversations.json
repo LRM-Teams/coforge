@@ -64,7 +64,6 @@
   "tasks_create_description": "Create a task and start its discussion thread.",
   "tasks_create_error": "The task could not be created. Try again.",
   "tasks_as_task": "As task",
-  "tasks_convert": "Convert to task",
   "tasks_loading": "Loading tasks…",
   "tasks_empty": "No tasks in this conversation",
   "tasks_load_error": "Tasks could not be loaded. Try again.",

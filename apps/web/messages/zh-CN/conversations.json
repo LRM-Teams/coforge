@@ -64,7 +64,6 @@
   "tasks_create_description": "创建任务并开始其讨论。",
   "tasks_create_error": "任务创建失败，请重试。",
   "tasks_as_task": "作为任务",
-  "tasks_convert": "转为任务",
   "tasks_loading": "正在加载任务…",
   "tasks_empty": "此会话暂无任务",
   "tasks_load_error": "任务加载失败，请重试。",
