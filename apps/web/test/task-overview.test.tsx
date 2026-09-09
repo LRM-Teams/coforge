@@ -38,12 +38,7 @@ function renderOverview(status?: (typeof tasks)[number]["status"]) {
   const onStatusChange = mock(() => {});
   render(
     <RouterContextProvider router={getRouter()}>
-      <TaskOverview
-        tasks={tasks}
-        status={status}
-        onStatusChange={onStatusChange}
-        onRefresh={() => {}}
-      />
+      <TaskOverview tasks={tasks} status={status} onStatusChange={onStatusChange} />
     </RouterContextProvider>,
   );
   return onStatusChange;
@@ -52,6 +47,7 @@ function renderOverview(status?: (typeof tasks)[number]["status"]) {
 test("groups tasks by workflow status with counts and retains empty stages", () => {
   renderOverview();
   const page = within(document.body);
+  expect(page.queryByRole("button", { name: "Refresh" })).toBeNull();
   const todo = within(page.getByRole("region", { name: "To do" }));
   const review = within(page.getByRole("region", { name: "In review" }));
   expect(todo.getByRole("heading", { name: "To do 1" })).toBeTruthy();
@@ -107,7 +103,6 @@ test("conflict feedback survives refreshed data removing the last filtered task"
         status="in_review"
         layout="list"
         onStatusChange={() => {}}
-        onRefresh={() => {}}
         onCommand={async () => {
           setItems([]);
           throw new Error("CONFLICT");

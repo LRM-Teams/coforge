@@ -1,5 +1,5 @@
 import { TASK_STATUSES } from "@coforge/protocol";
-import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
@@ -34,7 +34,6 @@ function TasksPage() {
   useEffect(() => setData(initial), [initial]);
   const { status, layout } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
-  const router = useRouter();
   const execute = useServerFn(executeTask);
   const load = useServerFn(loadTaskOverview);
   return (
@@ -48,7 +47,6 @@ function TasksPage() {
       onLayoutChange={(nextLayout) =>
         void navigate({ search: (previous) => ({ ...previous, layout: nextLayout }) })
       }
-      onRefresh={() => void router.invalidate()}
       onCommand={async (task, command) => {
         const requestedScope = initial;
         try {

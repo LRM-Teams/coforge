@@ -10,7 +10,7 @@ import {
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { GripVertical } from "lucide-react";
+import { Columns3, GripVertical, List } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,11 @@ export function TaskLayoutToggle({
           aria-pressed={layout === value}
           onClick={() => onChange(value)}
         >
+          {value === "board" ? (
+            <Columns3 aria-hidden="true" data-icon="inline-start" />
+          ) : (
+            <List aria-hidden="true" data-icon="inline-start" />
+          )}
           {value === "board" ? m.tasks_layout_board() : m.tasks_layout_list()}
         </Button>
       ))}
@@ -248,17 +253,20 @@ function TaskGroup({
           : "min-w-0"
       }
     >
-      <h2 className="mb-3 flex items-center gap-2 text-sm font-medium">
+      <h2
+        aria-label={`${statusLabel(status)} ${count}`}
+        className="mb-3 flex items-center gap-2 text-sm font-medium"
+      >
         <span
           className={`inline-flex items-center gap-2 rounded-md px-2 py-1 ${statusAppearance[status].background}`}
         >
           <span
-            aria-hidden="true"
-            className={`size-2 shrink-0 rounded-full ${statusAppearance[status].dot}`}
-          />
+            className={`inline-flex min-h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1 text-xs tabular-nums ${statusAppearance[status].badge}`}
+          >
+            {count}
+          </span>
           {statusLabel(status)}
         </span>
-        <span className="text-xs text-muted-foreground">{count}</span>
       </h2>
       <div className={board ? "flex min-h-24 flex-col gap-3" : "flex flex-col gap-2"}>
         {children}
@@ -278,12 +286,12 @@ export function statusLabel(status: TaskStatus) {
 }
 
 const statusAppearance = {
-  todo: { background: "bg-muted", dot: "bg-muted-foreground" },
-  in_progress: { background: "bg-info/10", dot: "bg-info" },
-  in_review: { background: "bg-brand/10", dot: "bg-brand" },
-  done: { background: "bg-success/10", dot: "bg-success" },
-  closed: { background: "bg-offline/15", dot: "bg-offline" },
-} satisfies Record<TaskStatus, { background: string; dot: string }>;
+  todo: { background: "bg-muted", badge: "bg-muted-foreground/15" },
+  in_progress: { background: "bg-info/10", badge: "bg-info/20" },
+  in_review: { background: "bg-brand/10", badge: "bg-brand/20" },
+  done: { background: "bg-success/10", badge: "bg-success/20" },
+  closed: { background: "bg-offline/15", badge: "bg-offline/25" },
+} satisfies Record<TaskStatus, { background: string; badge: string }>;
 
 function parseTaskStatus(value: string | null): TaskStatus | undefined {
   return TASK_STATUSES.find((status) => status === value);

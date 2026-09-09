@@ -1,9 +1,8 @@
 import { TASK_STATUSES, type TaskStatus, type TaskView } from "@coforge/protocol";
 import { Link } from "@tanstack/react-router";
-import { RefreshCw } from "lucide-react";
+import { ListFilter } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -31,7 +30,6 @@ export function TaskOverview({
   layout,
   onStatusChange,
   onLayoutChange,
-  onRefresh,
   onCommand,
 }: {
   tasks: TaskOverviewItem[];
@@ -39,48 +37,43 @@ export function TaskOverview({
   layout?: TaskLayout;
   onStatusChange: (status?: TaskStatus) => void;
   onLayoutChange?: (layout: TaskLayout) => void;
-  onRefresh: () => void;
   onCommand?: (task: TaskOverviewItem, command: TaskMoveCommand) => Promise<void>;
 }) {
   layout ??= "board";
   onLayoutChange ??= () => {};
   const visible = status ? tasks.filter((task) => task.status === status) : tasks;
   return (
-    <main className="m-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background">
+    <main className="m-2 flex max-h-[calc(100svh-1rem)] min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-background">
       <PageHeader
         heading={m.tasks_tab()}
-        actions={
-          <Button type="button" variant="outline" size="sm" onClick={onRefresh}>
-            <RefreshCw aria-hidden="true" />
-            {m.tasks_overview_refresh()}
-          </Button>
-        }
+        actions={<TaskLayoutToggle layout={layout} onChange={onLayoutChange} />}
       />
-      <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
-        <div className="mb-5 flex flex-wrap items-center gap-3">
-          <span className="text-sm font-medium">{m.tasks_overview_status()}</span>
-          <Select
-            value={status ?? "all"}
-            onValueChange={(value) => onStatusChange(parseStatus(value))}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-muted/20 px-4 py-2 sm:px-6">
+        <Select
+          value={status ?? "all"}
+          onValueChange={(value) => onStatusChange(parseStatus(value))}
+        >
+          <SelectTrigger
+            aria-label={m.tasks_overview_status()}
+            className={`h-7 w-auto gap-2 px-2 text-xs ${status ? "border-brand/30 bg-brand/5" : "border-transparent bg-transparent hover:bg-muted"}`}
           >
-            <SelectTrigger aria-label={m.tasks_overview_status()} className="h-8 w-44">
-              <SelectValue>
-                {() => (status ? statusLabel(status) : m.tasks_overview_all())}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{m.tasks_overview_all()}</SelectItem>
-              {TASK_STATUSES.map((value) => (
-                <SelectItem key={value} value={value}>
-                  {statusLabel(value)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="ml-auto">
-            <TaskLayoutToggle layout={layout} onChange={onLayoutChange} />
-          </div>
-        </div>
+            <ListFilter aria-hidden="true" className="size-3.5 text-muted-foreground" />
+            <span className="text-muted-foreground">{m.tasks_overview_status()}</span>
+            <SelectValue>
+              {() => (status ? statusLabel(status) : m.tasks_overview_all())}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{m.tasks_overview_all()}</SelectItem>
+            {TASK_STATUSES.map((value) => (
+              <SelectItem key={value} value={value}>
+                {statusLabel(value)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6">
         {visible.length === 0 && (
           <p className="py-16 text-center text-sm text-muted-foreground">
             {status ? m.tasks_overview_filter_empty() : m.tasks_overview_empty()}

@@ -78,7 +78,6 @@
   "tasks_overview_status": "状态",
   "tasks_overview_all": "全部",
   "tasks_overview_owner": "负责人",
-  "tasks_overview_refresh": "刷新",
   "tasks_overview_empty": "可见会话中暂无任务",
   "tasks_overview_filter_empty": "没有符合此状态的任务"
 }

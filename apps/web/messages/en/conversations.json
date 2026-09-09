@@ -78,7 +78,6 @@
   "tasks_overview_status": "Status",
   "tasks_overview_all": "All",
   "tasks_overview_owner": "Owner",
-  "tasks_overview_refresh": "Refresh",
   "tasks_overview_empty": "No tasks in visible conversations",
   "tasks_overview_filter_empty": "No tasks match this status"
 }
