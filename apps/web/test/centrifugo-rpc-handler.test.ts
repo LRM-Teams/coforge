@@ -257,11 +257,20 @@ describe("CentrifugoRpcHandler", () => {
 
   test("starts every existing Workspace Agent after the exact Computer reports ready", async () => {
     const recovered: unknown[][] = [];
-    const method = createDaemonRuntimeReadyMethod({
-      recoverWorkspace: async (workspaceId, computerId, runningAgentIds) => {
-        recovered.push([workspaceId, computerId, runningAgentIds]);
+    const observed: unknown[] = [];
+    const method = createDaemonRuntimeReadyMethod(
+      {
+        recoverWorkspace: async (workspaceId, computerId, runningAgentIds) => {
+          recovered.push([workspaceId, computerId, runningAgentIds]);
+        },
       },
-    });
+      undefined,
+      undefined,
+      undefined,
+      async (scope, metadata) => {
+        observed.push({ scope, metadata });
+      },
+    );
     const payload = encodeDaemonRuntimeReadyRequest({
       protocolMajor: 1,
       requestId: "ready-1",
@@ -269,12 +278,21 @@ describe("CentrifugoRpcHandler", () => {
       computerId: "computer-1",
       workerInstanceId: "worker-1",
       daemonVersion: "1.2.3",
+      computerVersion: "4.5.6",
+      platform: "darwin",
+      osVersion: "26.1",
       startedAt: 1,
       runningAgentIds: ["agent-running"],
       recoveredRestartRequestIds: ["restart-1"],
     });
 
     expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
+    expect(observed).toEqual([
+      {
+        scope: { workspaceId: "workspace-1", computerId: "computer-1" },
+        metadata: { computerVersion: "4.5.6", platform: "darwin", osVersion: "26.1", startedAt: 1 },
+      },
+    ]);
     expect(recovered).toEqual([["workspace-1", "computer-1", ["agent-running"]]]);
     const missingRecoveryEvidence = encodeDaemonRuntimeReadyRequest({
       protocolMajor: 1,
@@ -298,6 +316,43 @@ describe("CentrifugoRpcHandler", () => {
       message: "daemon runtime identity is not authorized",
     });
     expect(recovered).toEqual([["workspace-1", "computer-1", ["agent-running"]]]);
+    expect(observed).toHaveLength(1);
+  });
+
+  test("rejects invalid observed metadata before persistence", async () => {
+    let writes = 0;
+    const method = createDaemonRuntimeReadyMethod(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async () => {
+        writes++;
+      },
+    );
+    for (const metadata of [
+      { platform: "invented-os" },
+      { computerVersion: "v".repeat(201) },
+      { startedAt: -1 },
+    ]) {
+      const payload = encodeDaemonRuntimeReadyRequest({
+        protocolMajor: 1,
+        requestId: "ready-1",
+        workspaceId: "workspace-1",
+        computerId: "computer-1",
+        workerInstanceId: "worker-1",
+        daemonVersion: "1.2.3",
+        startedAt: 1,
+        runningAgentIds: [],
+        recoveredRestartRequestIds: [],
+        ...metadata,
+      });
+      expect(await method(payload, { principal: principal() })).toEqual({
+        code: 400,
+        message: "invalid Computer metadata",
+      });
+    }
+    expect(writes).toBe(0);
   });
 
   test("stores an available Daemon usage result as available", async () => {

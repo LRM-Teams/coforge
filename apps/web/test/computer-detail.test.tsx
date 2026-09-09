@@ -37,7 +37,50 @@ const computer = {
   ],
 };
 
-test("shows the machine, its Code Agents, and an explicit no-snapshot usage state", () => {
+test("overview shows observed metadata and original creator while offline", () => {
+  render(
+    <ComputerDetail
+      computer={{
+        ...computer,
+        online: false,
+        ownedByCurrentUser: false,
+        computerVersion: "4.5.6",
+        platform: "darwin",
+        osVersion: "26.1",
+        creator: {
+          displayName: "Alice Creator",
+          username: "alice",
+          avatarUrl: "/api/computers/computer-1/creator-avatar?workspaceId=w",
+        },
+      }}
+      onScanUsage={async () => {}}
+      onSetRuntimePublic={async () => {}}
+    />,
+  );
+  const page = within(document.body);
+  expect(page.getByText("Computer Version")).toBeTruthy();
+  expect(page.getByText("4.5.6")).toBeTruthy();
+  expect(page.getByText("macOS 26.1")).toBeTruthy();
+  expect(page.getByText("Alice Creator")).toBeTruthy();
+  expect(page.getByText("@alice")).toBeTruthy();
+  expect(document.querySelector("img")?.getAttribute("src")).toBe(
+    "/api/computers/computer-1/creator-avatar?workspaceId=w",
+  );
+  expect(page.getByText("Offline")).toBeTruthy();
+});
+
+test("legacy Computers show unknown metadata rather than inferring it from runtimes", () => {
+  render(
+    <ComputerDetail
+      computer={computer}
+      onScanUsage={async () => {}}
+      onSetRuntimePublic={async () => {}}
+    />,
+  );
+  expect(within(document.body).getAllByText("Unknown")).toHaveLength(3);
+});
+
+test("shows the machine and Code Agents with usage hidden until requested", async () => {
   render(
     <ComputerDetail
       computer={computer}
@@ -56,7 +99,10 @@ test("shows the machine, its Code Agents, and an explicit no-snapshot usage stat
   expect(page.queryByText("Models")).toBeNull();
   expect(page.queryByText("GPT-5")).toBeNull();
   expect(page.queryByText("Recommended")).toBeNull();
-  expect(document.body.textContent).not.toContain("Detected");
+  expect(page.getByRole("heading", { name: "Detected Runtimes" })).toBeTruthy();
+  expect(page.queryByText("No snapshot yet")).toBeNull();
+  fireEvent.click(page.getByRole("button", { name: "Codex Runtime · Usage" }));
+  await page.findByRole("dialog");
   expect(page.getByText("No snapshot yet")).toBeTruthy();
 });
 
@@ -186,7 +232,8 @@ test("scans usage for the runtime the User asked about", async () => {
     />,
   );
 
-  fireEvent.click(within(document.body).getByRole("button", { name: "Scan" }));
+  fireEvent.click(within(document.body).getByRole("button", { name: "Codex Runtime · Usage" }));
+  fireEvent.click(await within(document.body).findByRole("button", { name: "Scan" }));
   await waitFor(() => expect(scanned).toEqual(["codex"]));
 });
 

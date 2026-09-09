@@ -123,6 +123,9 @@ export type DaemonRuntimeReadyRequest = {
   computerId: string;
   workerInstanceId: string;
   daemonVersion?: string;
+  computerVersion?: string;
+  platform?: string;
+  osVersion?: string;
   startedAt: number;
   runningAgentIds: string[];
   recoveredRestartRequestIds?: string[];

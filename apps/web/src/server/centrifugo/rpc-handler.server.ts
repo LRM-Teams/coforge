@@ -50,6 +50,10 @@ import {
 } from "@coforge/protocol";
 import type { Reminders } from "../reminders/reminders.server";
 import type { ComputerRestartStore } from "../computers/computer-restart-store.server";
+import {
+  computerObservationSchema,
+  type ComputerObservation,
+} from "../computers/computer-metadata.server";
 export { createAgentSessionMethod } from "./agent-session-receiver.server";
 
 export const createAgentReminderMethod =
@@ -468,6 +472,10 @@ export const createDaemonRuntimeReadyMethod =
       record(workspaceId: string, computerId: string, values: readonly string[]): Promise<unknown>;
     },
     reminderRecovery?: { snapshotAssigned(workspaceId: string, computerId: string): Promise<void> },
+    observe?: (
+      scope: { workspaceId: string; computerId: string },
+      metadata: ComputerObservation,
+    ) => Promise<void>,
   ): CentrifugoRpcMethod =>
   async (payload, metadata) => {
     const request = decodeDaemonRuntimeReadyRequest(payload);
@@ -491,6 +499,8 @@ export const createDaemonRuntimeReadyMethod =
       !request.requestId
     )
       return { code: 400, message: "invalid daemon runtime ready request" };
+    const observation = computerObservationSchema.safeParse(request);
+    if (!observation.success) return { code: 400, message: "invalid Computer metadata" };
     try {
       await restarts?.ready(
         { workspaceId: request.workspaceId, computerId: request.computerId },
@@ -512,6 +522,10 @@ export const createDaemonRuntimeReadyMethod =
       });
       if (current && current.workerInstanceId !== request.workerInstanceId)
         return { code: 409, message: "daemon runtime was superseded" };
+      await observe?.(
+        { workspaceId: request.workspaceId, computerId: request.computerId },
+        observation.data,
+      );
       await recovery?.recoverWorkspace(
         request.workspaceId,
         request.computerId,

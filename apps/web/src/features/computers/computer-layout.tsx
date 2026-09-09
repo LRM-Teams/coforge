@@ -12,6 +12,7 @@ import { ComputerTile } from "./computer-tile";
 export type ComputerListItem = ComputerIdentity & {
   id: string;
   online: boolean;
+  computerVersion?: string | null;
 };
 
 /**
@@ -63,7 +64,7 @@ export function ComputerLayout({
       >
         <PageHeader heading={m.computer_page_title()} actions={<AddComputer onAdd={onAdd} />} />
 
-        <ul className="flex-1 overflow-y-auto p-2">
+        <ul className="flex-1 space-y-1 overflow-y-auto p-2">
           {computers.map((computer) => {
             const selected = computer.id === selectedComputerId;
             return (
@@ -74,14 +75,23 @@ export function ComputerLayout({
                   aria-current={selected ? "page" : undefined}
                   onClick={() => setShowMobileList(false)}
                   className={cn(
-                    "flex min-w-0 items-center gap-3 rounded-lg px-2.5 py-2.5 hover:bg-muted",
-                    selected && "bg-muted",
+                    "flex min-h-14 min-w-0 items-center gap-3 rounded-lg px-3 py-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                    selected
+                      ? "bg-accent/50 text-accent-foreground hover:bg-accent/70"
+                      : "hover:bg-muted",
                   )}
                 >
                   <ComputerTile computer={computer} online={computer.online} />
-                  <span className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="truncate text-xs font-medium">{computerLabel(computer)}</span>
-                    <span className="truncate text-xs text-muted-foreground">{computer.name}</span>
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="truncate text-sm font-medium">{computerLabel(computer)}</span>
+                    {computer.computerVersion && (
+                      <span
+                        className="truncate text-xs text-muted-foreground"
+                        aria-label={m.computer_version()}
+                      >
+                        v{computer.computerVersion}
+                      </span>
+                    )}
                   </span>
                 </Link>
               </li>

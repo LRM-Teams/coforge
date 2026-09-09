@@ -47,6 +47,7 @@ export {
 } from "./src/daemon-host";
 export { LocalDaemonLauncher, resolveDaemonExecutablePath } from "./src/daemon-host/launcher";
 export { acquireProcessLock } from "./src/platform/process-lock";
+export { readOperatingSystem } from "./src/platform/operating-system";
 export type { ProcessLock } from "./src/platform/process-lock";
 export type {
   DaemonLauncher,
@@ -97,7 +98,7 @@ export { COFORGE_DAEMON_SERVER_URL, daemonConnectionEndpoint } from "./src/conne
 
 const DAEMON_CATEGORY = ["coforge", "daemon"];
 
-export async function runDaemon(args: string[]): Promise<void> {
+export async function runDaemon(args: string[], computerVersion?: string): Promise<void> {
   const socketIndex = args.indexOf("--socket");
   const socketPath = socketIndex >= 0 ? args[socketIndex + 1] : undefined;
   const stateIndex = args.indexOf("--state-directory");
@@ -186,6 +187,7 @@ export async function runDaemon(args: string[]): Promise<void> {
             discoverCodeAgentInventory,
             daemonStateDirectory,
             lifecycle(),
+            computerVersion,
           );
           await runtime.start(config);
         },
@@ -203,6 +205,7 @@ export async function runDaemon(args: string[]): Promise<void> {
               discoverCodeAgentInventory,
               daemonStateDirectory,
               lifecycle(),
+              computerVersion,
             );
             await runtime.start(config);
           }

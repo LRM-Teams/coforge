@@ -2,6 +2,7 @@ import "./dom-setup";
 
 import { afterEach, expect, test } from "bun:test";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import { RuntimeUsage } from "@/features/computers/runtime-usage";
 import { baseLocale, overwriteGetLocale } from "@/paraglide/runtime";
@@ -18,6 +19,22 @@ const codex = {
   version: "1",
   displayName: "Custom Codex",
 };
+
+test("keyboard users can open usage, reach Scan, and dismiss it with Escape", async () => {
+  const user = userEvent.setup();
+  render(<RuntimeUsage runtime={codex} onScan={() => undefined} />);
+  const page = within(document.body);
+  await user.tab();
+  await user.keyboard("{Enter}");
+  const dialog = await page.findByRole("dialog");
+  await waitFor(() =>
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Scan" })),
+  );
+  await user.keyboard("{Enter}");
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(page.queryByRole("dialog")).toBeNull());
+  expect(document.activeElement).toBe(page.getByRole("button", { name: /Custom Codex/ }));
+});
 
 test("usage scan is on demand and renders a real snapshot", async () => {
   let scans = 0;
@@ -38,6 +55,11 @@ test("usage scan is on demand and renders a real snapshot", async () => {
   );
   const page = within(document.body);
 
+  expect(page.queryByRole("progressbar")).toBeNull();
+  expect(page.queryByRole("button", { name: "Refresh" })).toBeNull();
+  expect(scans).toBe(0);
+  fireEvent.click(page.getByRole("button", { name: /Custom Codex/ }));
+  await page.findByRole("dialog");
   expect(document.body.textContent).toContain("Pro");
   expect(document.body.textContent).toContain("Session");
   expect(document.body.textContent).toContain("42% used");
@@ -47,7 +69,7 @@ test("usage scan is on demand and renders a real snapshot", async () => {
   await waitFor(() => expect(scans).toBe(1));
 });
 
-test("reads as Chinese rather than English word order in the Chinese catalog", () => {
+test("reads as Chinese rather than English word order in the Chinese catalog", async () => {
   overwriteGetLocale(() => "zh-CN");
   render(
     <RuntimeUsage
@@ -63,6 +85,8 @@ test("reads as Chinese rather than English word order in the Chinese catalog", (
     />,
   );
 
+  fireEvent.click(within(document.body).getByRole("button", { name: /Custom Codex/ }));
+  await within(document.body).findByRole("dialog");
   expect(document.body.textContent).toContain("已使用 42%");
   expect(document.body.textContent).not.toContain("42% 已使用");
   expect(document.body.textContent).toContain("Pro 套餐");
@@ -70,7 +94,7 @@ test("reads as Chinese rather than English word order in the Chinese catalog", (
   expect(document.body.textContent).toContain("重置于");
 });
 
-test("renders a Claude rate-limit observation without inventing a percentage", () => {
+test("renders a Claude rate-limit observation without inventing a percentage", async () => {
   render(
     <RuntimeUsage
       runtime={{
@@ -91,12 +115,14 @@ test("renders a Claude rate-limit observation without inventing a percentage", (
     />,
   );
 
+  fireEvent.click(within(document.body).getByRole("button", { name: /Claude Code/ }));
+  await within(document.body).findByRole("dialog");
   expect(document.body.textContent).toContain("Limit reached");
   expect(document.body.textContent).not.toContain("% used");
   expect(within(document.body).queryByRole("progressbar")).toBeNull();
 });
 
-test("names the runtime and offers a first scan when there is no snapshot", () => {
+test("names the runtime and offers a first scan when there is no snapshot", async () => {
   render(
     <RuntimeUsage
       runtime={{ provider: "codex", version: "1", displayName: "Future Agent" }}
@@ -105,8 +131,27 @@ test("names the runtime and offers a first scan when there is no snapshot", () =
   );
 
   expect(document.body.textContent).toContain("Future Agent");
+  expect(document.body.textContent).not.toContain("No snapshot yet");
+  fireEvent.click(within(document.body).getByRole("button", { name: /Future Agent/ }));
+  await within(document.body).findByRole("dialog");
   expect(document.body.textContent).toContain("No snapshot yet");
   expect(within(document.body).getByRole("button", { name: "Scan" })).toBeTruthy();
+});
+
+test.each(["pi", "coforge"] as const)("%s has no usage controls before any scan", (provider) => {
+  render(
+    <RuntimeUsage
+      runtime={{ provider, displayName: provider, version: "1.2.3" }}
+      onScan={() => {
+        throw new Error("unsupported runtime must not scan");
+      }}
+    />,
+  );
+  const page = within(document.body);
+  expect(page.getByText(provider)).toBeTruthy();
+  expect(page.getByText("Version 1.2.3")).toBeTruthy();
+  expect(page.queryByRole("button")).toBeNull();
+  expect(page.queryByRole("dialog")).toBeNull();
 });
 
 test("does not offer or describe usage when the Code Agent does not support it", () => {
@@ -124,6 +169,7 @@ test("does not offer or describe usage when the Code Agent does not support it",
   expect(document.body.textContent).toContain("Custom Codex");
   expect(document.body.textContent).toContain("Version 1");
   expect(document.body.textContent).not.toContain("Usage");
+  expect(within(document.body).queryByRole("button")).toBeNull();
   expect(within(document.body).queryByRole("button", { name: /Scan|Refresh/ })).toBeNull();
   expect(scans).toBe(0);
 });
@@ -136,6 +182,7 @@ test("usage failures never render provider exception messages", async () => {
       onScan={() => undefined}
     />,
   );
+  fireEvent.click(within(document.body).getByRole("button", { name: /Codex/ }));
   await waitFor(() => {
     const text = document.body.textContent;
     expect(text).toContain("Usage scan failed. Try again.");
@@ -153,6 +200,7 @@ test("usage failures use the Simplified Chinese catalog", async () => {
       onScan={() => undefined}
     />,
   );
+  fireEvent.click(within(document.body).getByRole("button", { name: /Codex/ }));
   await waitFor(() => {
     expect(document.body.textContent).toContain("用量扫描失败，请重试。");
   });

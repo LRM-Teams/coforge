@@ -17,6 +17,7 @@ const computer = {
   machineId: "macos:9f2c",
   kind: "local",
   online: true,
+  computerVersion: "4.5.6",
 };
 
 function renderLayout(computers = [computer], selectedComputerId?: string) {
@@ -45,6 +46,7 @@ test("lists each Computer as a typed detail link and marks the selected one", ()
         machineId: "linux:41ab",
         kind: "local",
         online: false,
+        computerVersion: "",
       },
     ],
     computer.id,
@@ -52,13 +54,18 @@ test("lists each Computer as a typed detail link and marks the selected one", ()
 
   expect(page.getByRole("navigation", { name: "Connected computers" })).toBeTruthy();
   expect(page.getByText("Frank’s MacBook Pro")).toBeTruthy();
-  expect(page.getByText("franks-macbook-pro")).toBeTruthy();
+  expect(page.queryByText("franks-macbook-pro")).toBeNull();
+  expect(page.queryByText("build-box")).toBeNull();
   expect(document.body.textContent).not.toContain("macos:9f2c");
   expect(document.body.textContent).not.toContain("linux:41ab");
 
   const selected = page.getByRole("link", { name: /Frank’s MacBook Pro/ });
   expect(selected.getAttribute("href")).toBe("/en/computers/computer-1");
   expect(selected.getAttribute("aria-current")).toBe("page");
+  expect(within(selected).getByText("v4.5.6")).toBeTruthy();
+  expect(page.queryByText("Unknown")).toBeNull();
+  expect(within(selected).getByText("Online")).toBeTruthy();
+  expect(within(page.getByRole("link", { name: /Build Box/ })).getByText("Offline")).toBeTruthy();
   expect(page.getByRole("link", { name: /Build Box/ }).getAttribute("aria-current")).toBeNull();
   expect(page.getByText("Computer detail")).toBeTruthy();
 });

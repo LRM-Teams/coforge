@@ -6,6 +6,7 @@ import {
   type UsageSnapshot,
 } from "../code-agent/contract";
 import { mkdirSync } from "node:fs";
+import { readOperatingSystem } from "../platform/operating-system";
 import { ActivityTrajectory } from "../agent-runtime/activity-trajectory";
 import {
   AgentProcessManager,
@@ -175,6 +176,7 @@ export class DaemonRuntime {
       requestRestart?(requestId: string): Promise<void>;
       recoveredRestartRequestIds?: string[];
     } = {},
+    private readonly computerVersion?: string,
   ) {
     this.#connection = connection;
     this.#createDriver = createDriver;
@@ -496,6 +498,8 @@ export class DaemonRuntime {
         startedAt: this.#startedAt,
         runningAgentIds: this.#readyRunningAgentIds(),
         daemonVersion: COFORGE_DAEMON_VERSION,
+        computerVersion: this.computerVersion,
+        ...readOperatingSystem(),
         recoveredRestartRequestIds: this.lifecycle.recoveredRestartRequestIds ?? [],
         capabilities: [REMINDER_CAPABILITY],
       }));

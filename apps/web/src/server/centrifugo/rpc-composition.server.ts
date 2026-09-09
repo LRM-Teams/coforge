@@ -45,6 +45,7 @@ import {
 import { WorkspaceQueryUseCase } from "../workspaces/query.server";
 import { ComputerRegistrar } from "../computers/registration.server";
 import { getComputerRestartStore } from "../computers/computer-restart-store.server";
+import { recordComputerObservation } from "../computers/computer-metadata.server";
 import {
   PrismaAgentRepository,
   RepositoryAgentAuthorization,
@@ -237,6 +238,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
               }
             },
           },
+          (scope, observation) => recordComputerObservation(db, scope, observation),
         ),
         [REMINDER_FIRE_METHOD]: createReminderFireMethod(reminders),
         [REMINDER_SNAPSHOT_METHOD]: createReminderSnapshotMethod(reminders),

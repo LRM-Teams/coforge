@@ -136,6 +136,10 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
             displayName: true,
             kind: true,
             ownerId: true,
+            computerVersion: true,
+            platform: true,
+            osVersion: true,
+            owner: { select: { username: true, displayName: true, avatarObjectKey: true } },
           },
         },
       },
@@ -151,6 +155,16 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
         name: computer.name,
         displayName: computer.displayName,
         kind: computer.kind,
+        computerVersion: computer.computerVersion,
+        platform: computer.platform,
+        osVersion: computer.osVersion,
+        creator: {
+          username: computer.owner.username,
+          displayName: computer.owner.displayName,
+          avatarUrl: computer.owner.avatarObjectKey
+            ? `/api/computers/${computer.id}/creator-avatar?workspaceId=${workspaceId}`
+            : null,
+        },
         connectedAt: createdAt,
         ownedByCurrentUser: computer.ownerId === user.id,
         online: await computerStatus.get({

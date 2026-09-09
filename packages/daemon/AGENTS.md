@@ -170,7 +170,10 @@ configuration and recovery; the entrypoint assembles these policies, not their r
 - `persistence/` owns durable local state and atomic App Inbox storage. A
   connection outbox is not durable storage.
 - `platform/` contains OS-specific details only. Do not leak platform APIs
-  into domain or application modules. `platform/daemon-log-file.ts` owns
+  into domain or application modules.
+  `platform/operating-system.ts` owns OS release observation, shared by Computer
+  registration and Daemon ready reporting; macOS uses product, not kernel, version.
+  `platform/daemon-log-file.ts` owns
   owner-only log path preparation and symlink rejection; it does not wrap
   LogTape configuration or loggers. `platform/process-lock.ts` owns the
   reusable SQLite-backed process lock primitive. The Supervisor lifetime lock
