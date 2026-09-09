@@ -2,9 +2,20 @@ import { describe, expect, test } from "bun:test";
 
 import { AgentDetailQuery } from "../src/server/agents/agent-detail.server";
 import {
+  activityDotClass,
   activityLabel,
   showsActivityMessage,
 } from "../src/features/agents/agent-activity-presentation";
+
+test("model request activity shows Message received with a yellow dot", () => {
+  expect(activityLabel("model_request_started", "info")).toBe("Message received");
+  expect(activityDotClass("model_request_started", "info")).toBe("bg-amber-500");
+  expect(showsActivityMessage("model_request_started")).toBe(true);
+  expect(activityLabel("model_request_started", "error")).toBe("Error");
+  expect(activityDotClass("model_request_started", "error")).toBe("bg-destructive");
+  expect(activityLabel("future_activity", "info")).toBe("Other: future_activity");
+  expect(activityDotClass("future_activity", "info")).toBe("bg-blue-500");
+});
 
 test("official thinking observation has a Thinking label and preserves its detail", () => {
   expect(activityLabel("thinking_started", "info")).toBe("Thinking");
