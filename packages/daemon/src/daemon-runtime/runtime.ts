@@ -192,6 +192,24 @@ export class DaemonRuntime {
       connection.workspaceId,
       this.#agentProcessManager,
       (ack) => this.#transport.sendAgentDeliveryAck?.(ack) ?? Promise.resolve(),
+      (agentId) => {
+        const launch = this.#currentActivityLaunches.get(agentId);
+        if (!launch) return;
+        try {
+          this.#emitAgentActivity(agentId, launch, {
+            protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+            requestId: crypto.randomUUID(),
+            workspaceId: connection.workspaceId,
+            agentId,
+            detailKind: "model_request_started",
+            level: "info",
+            detail: "Message received",
+            entries: [],
+          });
+        } catch {
+          // Best-effort observation must not turn accepted input into failed delivery.
+        }
+      },
     );
     this.#reminders = new ReminderScheduler(
       { workspaceId: connection.workspaceId, computerId: connection.computerId },

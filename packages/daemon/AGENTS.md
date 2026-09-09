@@ -64,7 +64,15 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   states the claim-before-work and conversational acceptance workflow.
 
 - `daemon-runtime/agent-message-attention-index.ts` owns full-target thread
-  attention and model-visible positions. `runtime.ts` routes those targets to
+  attention, model-visible positions, and the accepted-Message observation hook.
+  After successful current-generation `notify`, ordinary live Message delivery
+  and concrete wake/resume batches report `Message received` with
+  `model_request_started`, matching Raft 1.0.17's
+  `broadcastMessageReceivedActivity`. Summary-only recovery and deduplicated
+  inputs do not report it. `runtime.ts` assigns launch/sequence metadata and
+  publishes best-effort Activity before live delivery ACK; observer failure
+  must not reject accepted input. Reference: [official Raft distribution](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz).
+  `runtime.ts` routes those targets to
   the existing Agent session and canonicalizes short channel/DM thread targets.
   Thread follow state remains cloud-persisted; Daemon only forwards the Agent's
   explicit unfollow operation. Threads never create sessions or processes.
