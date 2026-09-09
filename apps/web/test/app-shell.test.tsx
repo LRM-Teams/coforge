@@ -482,6 +482,24 @@ test("submits the public creation form callback", async () => {
   );
 });
 
+test("creates an Agent without a description", async () => {
+  const onCreate = mock(async () => ({ startPublished: true }));
+  renderAgents([], onCreate, true);
+  fireEvent.change(await page().findByLabelText("Name"), {
+    target: { value: "build-helper" },
+  });
+
+  const description = page().getByPlaceholderText("What should this Agent help with?");
+  expect(description.hasAttribute("required")).toBe(false);
+  fireEvent.click(page().getByRole("button", { name: "Create agent" }));
+
+  await waitFor(() =>
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "build-helper", description: "" }),
+    ),
+  );
+});
+
 test("selects a CoForge model provider before its model", async () => {
   const browserUser = userEvent.setup({ document });
   const onCreate = mock(async () => ({ startPublished: true }));

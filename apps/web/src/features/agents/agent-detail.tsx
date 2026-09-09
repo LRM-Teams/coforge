@@ -296,7 +296,6 @@ function Profile({
                   {m.agent_profile_description()}
                   <textarea
                     name="description"
-                    required
                     rows={4}
                     defaultValue={detail.description}
                     className="mt-1.5 w-full rounded-lg border bg-background p-3 font-normal leading-6 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"

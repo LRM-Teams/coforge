@@ -122,3 +122,30 @@ test("edit failure stays inline and preserves the draft", async () => {
   expect(dialog.getByDisplayValue("release-builder")).toBeTruthy();
   expect(within(document.body).getAllByRole("alert")).toHaveLength(1);
 });
+
+test("updates an Agent with an empty description", async () => {
+  const onUpdate = mock(async () => undefined);
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <AgentDetail
+        detail={detail}
+        tab="profile"
+        timeZone="UTC"
+        onSaveRuntimeCredential={async () => undefined}
+        onDeleteRuntimeCredential={async () => undefined}
+        onUpdate={onUpdate}
+        onLoadRuntimeOptions={async () => ({ providers: ["codex"], catalogs: [] })}
+      />
+    </RouterContextProvider>,
+  );
+  fireEvent.click(within(document.body).getByRole("button", { name: "Edit" }));
+  const dialog = within(await within(document.body).findByRole("dialog", { name: "Edit Agent" }));
+  const description = dialog.getByRole("textbox", { name: "Description" });
+  expect(description.hasAttribute("required")).toBe(false);
+  await userEvent.clear(description);
+  await userEvent.click(dialog.getByRole("button", { name: "Save runtime config" }));
+
+  await waitFor(() =>
+    expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ description: "" })),
+  );
+});

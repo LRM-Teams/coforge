@@ -109,7 +109,7 @@ export function AgentsContent({
     const form = new FormData(formElement);
     const name = String(form.get("name") ?? "").trim();
     const description = String(form.get("description") ?? "").trim();
-    if (!name || !description) {
+    if (!name) {
       setError(m.agent_form_required_error());
       return;
     }
@@ -369,7 +369,6 @@ export function AgentsContent({
                     {m.agent_form_description()}
                     <textarea
                       name="description"
-                      required
                       rows={3}
                       placeholder={m.agent_form_description_placeholder()}
                       className="min-w-0 resize-y rounded-lg bg-background px-3 py-2.5 shadow-xs ring-1 ring-border ring-inset outline-none transition-shadow focus:ring-2 focus:ring-ring"
