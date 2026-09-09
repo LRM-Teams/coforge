@@ -29,7 +29,7 @@ export const Route = createRootRoute({
     links: [
       {
         rel: "icon",
-        href: "/logo.svg",
+        href: "/logo.svg?v=coforge-purple",
         type: "image/svg+xml",
       },
       {

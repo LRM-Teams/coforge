@@ -1,4 +1,8 @@
+import "./dom-setup";
+
 import { expect, test } from "bun:test";
+import { render, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { LandingPage, repositoryUrl } from "@/features/landing/landing-page";
@@ -6,11 +10,36 @@ import { overwriteGetLocale } from "@/paraglide/runtime";
 
 const installOrigin = "https://staging.coforge.cn";
 
-test("offers a sign-in action that starts the browser login", () => {
-  const markup = renderToStaticMarkup(<LandingPage installOrigin={installOrigin} />);
+test("both account actions start the unified browser authentication flow", () => {
+  const page = render(<LandingPage installOrigin={installOrigin} />);
 
-  expect(markup).toContain('href="/auth/login"');
-  expect(markup).toContain("Get started");
+  expect(page.getByRole("link", { name: "Log in" }).getAttribute("href")).toBe("/auth/login");
+  expect(page.getByRole("link", { name: "Sign up" }).getAttribute("href")).toBe("/auth/login");
+});
+
+test("opens the language menu by pointer and keyboard with the correct locale links", async () => {
+  const user = userEvent.setup({ document });
+  const page = render(<LandingPage installOrigin={installOrigin} />);
+  const trigger = page.getByRole("button", { name: "Language" });
+
+  expect(page.queryByRole("menu")).toBeNull();
+  await user.click(trigger);
+  const english = page.getByRole("menuitem", { name: "Switch to English" });
+  const chinese = page.getByRole("menuitem", { name: "切换到中文" });
+  expect(english.getAttribute("href")).toBe("/en");
+  expect(english.getAttribute("aria-current")).toBe("true");
+  expect(chinese.getAttribute("href")).toBe("/zh-CN");
+  expect(chinese.hasAttribute("aria-current")).toBe(false);
+
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(page.queryByRole("menu")).toBeNull());
+  expect(document.activeElement).toBe(trigger);
+  await user.keyboard("{ArrowDown}");
+  await waitFor(() =>
+    expect(document.activeElement).toBe(page.getByRole("menuitem", { name: "Switch to English" })),
+  );
+  await user.keyboard("{ArrowDown}");
+  expect(document.activeElement).toBe(page.getByRole("menuitem", { name: "切换到中文" }));
 });
 
 test("keeps installation commands and copy controls off the first screen", () => {
@@ -46,6 +75,7 @@ test("renders the Simplified Chinese landing catalog", () => {
   const markup = renderToStaticMarkup(<LandingPage installOrigin={installOrigin} />);
   overwriteGetLocale(() => "en");
 
-  expect(markup).toContain("开始使用");
+  expect(markup).toContain(">登录</span>");
+  expect(markup).toContain(">注册</span>");
   expect(markup).toContain("GitHub 仓库");
 });
