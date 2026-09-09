@@ -45,6 +45,7 @@ export type LocalReminderReceiptResponse = {
   reminderId: string;
   revision: number;
 };
+export type ThreadInvocation = { command: "thread-unfollow"; target: string };
 
 export type MessageTransport = {
   check(): Promise<{ messages: AgentMessageRecord[] }>;
@@ -64,6 +65,7 @@ export type MessageTransport = {
   reminder?(
     request: ReminderTransportRequest,
   ): Promise<AgentReminderOperationResponse | LocalReminderReceiptResponse>;
+  setThreadFollowed?(target: string, followed: boolean): Promise<unknown>;
 };
 
 export function parseArgs(
@@ -73,7 +75,8 @@ export function parseArgs(
   | AttachmentInvocation
   | InboxInvocation
   | ChannelInvocation
-  | ReminderInvocation {
+  | ReminderInvocation
+  | ThreadInvocation {
   if (args[0] === "reminder") return parseReminderArgs(args.slice(1));
   if (
     args[0] === "channel" &&
@@ -83,6 +86,16 @@ export function parseArgs(
     /^#[a-z0-9][a-z0-9_-]{0,31}$/.test(args[3] ?? "")
   )
     return { command: args[1], target: args[3]! };
+  if (
+    args[0] === "thread" &&
+    args[1] === "unfollow" &&
+    args[2] === "--target" &&
+    args.length === 4 &&
+    /^#[a-z0-9][a-z0-9_-]{0,31}:(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.test(
+      args[3] ?? "",
+    )
+  )
+    return { command: "thread-unfollow", target: args[3]! };
   if (args[0] === "inbox" && args[1] === "check" && args.length === 2)
     return { command: "inbox-check" };
   if (args[0] === "attachment" && args[1] === "view") {
@@ -186,7 +199,7 @@ export function parseArgs(
     }
   }
   throw new Error(
-    "Usage: coforge channel mute|unmute --target '#channel' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] | coforge attachment view <id> --output <path>",
+    "Usage: coforge channel mute|unmute --target '#channel' | coforge thread unfollow --target '#channel:message-id' | coforge inbox check | coforge message check | coforge message search --query <text> [--target <target>] [--sender <handle>] [--sort relevance|recent] [--before <iso>] [--after <iso>] [--limit <n>] [--offset <n>] | coforge message read --target @user | coforge message send --target @user [--send-draft] [--anyway] | coforge attachment view <id> --output <path>",
   );
 }
 
@@ -200,6 +213,10 @@ export async function run(args: readonly string[], transport: MessageTransport):
   if (invocation.command === "mute" || invocation.command === "unmute") {
     if (!transport.setChannelMuted) throw new Error("Channel settings transport is unavailable");
     return transport.setChannelMuted(invocation.target, invocation.command === "mute");
+  }
+  if (invocation.command === "thread-unfollow") {
+    if (!transport.setThreadFollowed) throw new Error("Thread settings transport is unavailable");
+    return transport.setThreadFollowed(invocation.target, false);
   }
   if (invocation.command === "inbox-check") {
     if (!transport.inboxCheck) throw new Error("App Inbox transport is unavailable");

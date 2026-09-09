@@ -8,6 +8,7 @@ import { PublicChannels } from "../../server/conversations/public-channels.serve
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 import { AppError } from "../../lib/app-error";
+import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
 
 const channelInput = z.object({ channelId: z.uuid() });
 const channelPageInput = channelInput.extend({
@@ -15,6 +16,14 @@ const channelPageInput = channelInput.extend({
 });
 const channelUpdatesInput = channelInput.extend({
   afterSequence: z.number().int().nonnegative(),
+});
+const channelThreadReadInput = channelInput.extend({
+  threadRootId: z.uuid(),
+  throughSequence: z.number().int().positive(),
+});
+const channelThreadFollowInput = channelInput.extend({
+  threadRootId: z.uuid(),
+  followed: z.boolean(),
 });
 async function context() {
   const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
@@ -79,12 +88,39 @@ export const setPublicChannelMuted = createServerFn({ method: "POST" })
     return channels.setUserMuted(workspaceId, userId, data.channelId, data.muted);
   });
 
+export const markPublicChannelThreadRead = createServerFn({ method: "POST" })
+  .validator(channelThreadReadInput)
+  .handler(async ({ data }) => {
+    const { channels, workspaceId, userId } = await context();
+    await channels.markThreadReadForUser(
+      workspaceId,
+      userId,
+      data.channelId,
+      data.threadRootId,
+      data.throughSequence,
+    );
+  });
+
+export const setPublicChannelThreadFollowed = createServerFn({ method: "POST" })
+  .validator(channelThreadFollowInput)
+  .handler(async ({ data }) => {
+    const { channels, workspaceId, userId } = await context();
+    return channels.setUserThreadFollowed(
+      workspaceId,
+      userId,
+      data.channelId,
+      data.threadRootId,
+      data.followed,
+    );
+  });
+
 export const sendPublicChannelMessage = createServerFn({ method: "POST" })
   .validator(
     channelInput.extend({
       requestId: z.uuid(),
       body: z.string().trim().min(1).max(8_000),
       attachmentId: z.uuid().optional(),
+      threadRootId: z.uuid().optional(),
     }),
   )
   .handler(async ({ data }) => {
@@ -94,13 +130,14 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       db,
       undefined,
       centrifugo,
-      undefined,
+      bestEffortMessageNotifier(db),
       new CentrifugoConversationRealtime(centrifugo),
     );
     const message = await channels.send({ ...data, workspaceId, userId });
     return {
       id: message.id,
       sequence: message.sequence,
+      threadRootId: message.threadRootId ?? undefined,
       senderMemberId: message.senderMemberId,
       senderKind: "user" as const,
       senderName: `@${username}`,

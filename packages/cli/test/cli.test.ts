@@ -191,6 +191,27 @@ test("Agent channel mute and unmute change its own setting without sending a mes
   expect(() => parseArgs(["channel", "mute", "--target", "#general:12345678"])).toThrow("Usage:");
 });
 
+test("Agent thread unfollow changes only the exact channel thread", async () => {
+  const calls: unknown[] = [];
+  expect(parseArgs(["thread", "unfollow", "--target", "#general:12345678"])).toEqual({
+    command: "thread-unfollow",
+    target: "#general:12345678",
+  });
+  await run(["thread", "unfollow", "--target", "#general:12345678"], {
+    check: async () => ({ messages: [] }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+    setThreadFollowed: async (target, followed) => {
+      calls.push([target, followed]);
+      return { accepted: true };
+    },
+  });
+  expect(calls).toEqual([["#general:12345678", false]]);
+  expect(() => parseArgs(["thread", "unfollow", "--target", "#general"])).toThrow("Usage:");
+  expect(() => parseArgs(["thread", "unfollow", "--target", "@alice:12345678"])).toThrow("Usage:");
+});
+
 test("message check has no target arguments", () => {
   expect(parseArgs(["message", "check"])).toEqual({ command: "check" });
   expect(() => parseArgs(["message", "check", "--target", "@ada"])).toThrow("Usage:");

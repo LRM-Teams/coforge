@@ -15,6 +15,7 @@ import {
 import type { MessageNotifier } from "../notifications/web-push-composition.server";
 import { mentionedNames } from "./mentions";
 import type { ConversationRealtime } from "./conversation-realtime.server";
+import { AgentMessageValidationError } from "./agent-message-validation-error.server";
 
 /** Nested creation keeps default enrollment inside the Workspace creation transaction. */
 export function generalChannelForCreator(userId: string) {
@@ -101,6 +102,24 @@ export class PublicChannels {
     return { muted };
   }
 
+  async setAgentThreadFollowed(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+    followed: boolean,
+  ) {
+    const [parentTarget, anchor] = target.split(":");
+    if (!parentTarget || !anchor) throw new AppError("INVALID_INPUT");
+    const channel = await getAgentChannel(this.db, workspaceId, agentId, parentTarget);
+    const member = await this.db.conversationMember.findUniqueOrThrow({
+      where: { conversationId_agentId: { conversationId: channel.id, agentId } },
+      select: { id: true },
+    });
+    const root = await this.threadRoot(channel.id, anchor);
+    await this.setThreadFollowed(member.id, workspaceId, channel.id, root.id, followed);
+    return { followed };
+  }
+
   async setUserMuted(workspaceId: string, userId: string, channelId: string, muted: boolean) {
     const channel = await this.channel(workspaceId, userId, channelId);
     await this.db.$transaction(async (tx) => {
@@ -112,6 +131,68 @@ export class PublicChannels {
       if (updated.count !== 1) throw new AppError("ACCESS_DENIED");
     });
     return { muted };
+  }
+
+  async setUserThreadFollowed(
+    workspaceId: string,
+    userId: string,
+    channelId: string,
+    rootMessageId: string,
+    followed: boolean,
+  ) {
+    await this.channel(workspaceId, userId, channelId);
+    const member = await this.db.conversationMember.findUnique({
+      where: { conversationId_userId: { conversationId: channelId, userId } },
+      select: { id: true },
+    });
+    if (!member) throw new AppError("ACCESS_DENIED");
+    const root = await this.threadRoot(channelId, rootMessageId);
+    await this.setThreadFollowed(member.id, workspaceId, channelId, root.id, followed);
+    return { followed };
+  }
+
+  private async setThreadFollowed(
+    memberId: string,
+    workspaceId: string,
+    conversationId: string,
+    rootMessageId: string,
+    followed: boolean,
+  ) {
+    await this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${conversationId}::uuid FOR UPDATE`;
+      if (followed) {
+        await tx.threadFollow.upsert({
+          where: { memberId_rootMessageId: { memberId, rootMessageId } },
+          create: { memberId, workspaceId, conversationId, rootMessageId },
+          update: {},
+        });
+      } else {
+        await tx.threadFollow.deleteMany({ where: { memberId, rootMessageId } });
+      }
+    });
+  }
+
+  private async threadRoot(conversationId: string, anchor: string) {
+    const rows = await this.db.message.findMany({
+      where: {
+        conversationId,
+        threadRootId: null,
+        id:
+          anchor.length === 8
+            ? {
+                gte: `${anchor}-0000-0000-0000-000000000000`,
+                lte: `${anchor}-ffff-ffff-ffff-ffffffffffff`,
+              }
+            : anchor,
+      },
+      take: 2,
+      select: { id: true },
+    });
+    if (rows.length > 1)
+      throw new AgentMessageValidationError("ambiguous message prefix; use the full UUID");
+    if (!rows[0])
+      throw new AgentMessageValidationError("message anchor not found in this conversation");
+    return rows[0];
   }
 
   private async authorize(workspaceId: string, userId: string) {
@@ -193,6 +274,7 @@ export class PublicChannels {
     const [member, messages] = await Promise.all([
       this.db.conversationMember.findUnique({
         where: { conversationId_userId: { conversationId: channelId, userId } },
+        include: { threadReads: true, threadFollows: true },
       }),
       this.db.message.findMany({
         where: {
@@ -205,37 +287,51 @@ export class PublicChannels {
         include: {
           sender: { include: { user: true, agent: true } },
           attachment: true,
+          replies: {
+            orderBy: { sequence: "asc" },
+            include: {
+              sender: { include: { user: true, agent: true } },
+              attachment: true,
+            },
+          },
         },
       }),
     ]);
     const hasOlder = messages.length > limit;
+    const pageMessages = messages
+      .slice(0, limit)
+      .reverse()
+      .flatMap((message) => [message, ...message.replies])
+      .sort((left, right) => left.sequence - right.sequence);
     return {
       conversationId: channel.id,
       name: channel.channelName!,
       senderMemberId: member?.id ?? "",
       muted: member?.channelMuted ?? false,
+      threadReadThrough: Object.fromEntries(
+        (member?.threadReads ?? []).map((read) => [read.rootMessageId, read.readThroughSequence]),
+      ),
+      followedThreadRootIds: (member?.threadFollows ?? []).map((follow) => follow.rootMessageId),
       hasOlder,
       hasNewer: false,
-      messages: messages
-        .slice(0, limit)
-        .reverse()
-        .map((message) => ({
-          id: message.id,
-          sequence: message.sequence,
-          senderMemberId: message.senderMemberId,
-          senderKind: message.sender.agentId ? ("agent" as const) : ("user" as const),
-          senderName: `@${message.sender.agent?.name ?? message.sender.user!.username}`,
-          body: message.body,
-          createdAt: message.createdAt,
-          attachment: message.attachment
-            ? {
-                id: message.attachment.id,
-                fileName: message.attachment.fileName,
-                contentType: message.attachment.contentType,
-                sizeBytes: message.attachment.sizeBytes,
-              }
-            : undefined,
-        })),
+      messages: pageMessages.map((message) => ({
+        id: message.id,
+        sequence: message.sequence,
+        threadRootId: message.threadRootId ?? undefined,
+        senderMemberId: message.senderMemberId,
+        senderKind: message.sender.agentId ? ("agent" as const) : ("user" as const),
+        senderName: `@${message.sender.agent?.name ?? message.sender.user!.username}`,
+        body: message.body,
+        createdAt: message.createdAt,
+        attachment: message.attachment
+          ? {
+              id: message.attachment.id,
+              fileName: message.attachment.fileName,
+              contentType: message.attachment.contentType,
+              sizeBytes: message.attachment.sizeBytes,
+            }
+          : undefined,
+      })),
     };
   }
 
@@ -244,7 +340,6 @@ export class PublicChannels {
     const messages = await this.db.message.findMany({
       where: {
         conversationId: channelId,
-        threadRootId: null,
         sequence: { gt: afterSequence },
       },
       orderBy: { sequence: "asc" },
@@ -257,6 +352,7 @@ export class PublicChannels {
     return messages.map((message) => ({
       id: message.id,
       sequence: message.sequence,
+      threadRootId: message.threadRootId ?? undefined,
       senderMemberId: message.senderMemberId,
       senderKind: message.sender.agentId ? ("agent" as const) : ("user" as const),
       senderName: `@${message.sender.agent?.name ?? message.sender.user!.username}`,
@@ -280,8 +376,9 @@ export class PublicChannels {
     requestId: string;
     body: string;
     attachmentId?: string;
+    threadRootId?: string;
   }) {
-    const { workspaceId, userId, channelId, requestId, attachmentId } = input;
+    const { workspaceId, userId, channelId, requestId, attachmentId, threadRootId } = input;
     const channel = await this.channel(workspaceId, userId, channelId);
     const member = await this.db.conversationMember.findUnique({
       where: { conversationId_userId: { conversationId: channelId, userId } },
@@ -295,6 +392,16 @@ export class PublicChannels {
       () =>
         this.db.$transaction(async (tx) => {
           await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${channelId}::uuid FOR UPDATE`;
+          const root = threadRootId
+            ? await tx.message.findFirst({
+                where: { id: threadRootId, conversationId: channelId },
+                select: { id: true, threadRootId: true },
+              })
+            : undefined;
+          if (threadRootId && !root)
+            throw new AgentMessageValidationError("message anchor not found in this conversation");
+          if (root?.threadRootId)
+            throw new AgentMessageValidationError("thread root must be a top-level message");
           const latest = await tx.message.findFirst({
             where: { conversationId: channelId },
             orderBy: { sequence: "desc" },
@@ -312,12 +419,34 @@ export class PublicChannels {
             if (!attachment) throw new AppError("ACCESS_DENIED");
           }
           const names = mentionedNames(body);
+          if (root) {
+            const mentioned = await tx.conversationMember.findMany({
+              where: {
+                conversationId: channelId,
+                OR: [{ user: { username: { in: names } } }, { agent: { name: { in: names } } }],
+              },
+              select: { id: true },
+            });
+            await tx.threadFollow.createMany({
+              data: [member.id, ...mentioned.map(({ id }) => id)].map((memberId) => ({
+                memberId,
+                rootMessageId: root.id,
+                conversationId: channelId,
+                workspaceId,
+              })),
+              skipDuplicates: true,
+            });
+          }
           const recipients = await tx.conversationMember.findMany({
             where: {
               conversationId: channelId,
               agentId: { not: null },
               agent: { workspaceId },
-              OR: [{ channelMuted: false }, { agent: { name: { in: names } } }],
+              OR: [
+                { channelMuted: false },
+                { agent: { name: { in: names } } },
+                ...(root ? [{ threadFollows: { some: { rootMessageId: root.id } } }] : []),
+              ],
             },
             select: { agentId: true },
           });
@@ -327,6 +456,7 @@ export class PublicChannels {
               workspaceId,
               conversationId: channelId,
               senderMemberId: member.id,
+              threadRootId: root?.id,
               body,
               sequence,
               attachment: attachmentId ? { connect: { id: attachmentId } } : undefined,
@@ -341,7 +471,10 @@ export class PublicChannels {
             },
           });
           created = true;
-          return { ...message, target: `#${channel.channelName}` };
+          return {
+            ...message,
+            target: `#${channel.channelName}${root ? `:${root.id}` : ""}`,
+          };
         }),
     );
     // Reuse persisted delivery identities on retries; never recompute recipients after mute changes.
@@ -384,11 +517,48 @@ export class PublicChannels {
           deliveryId: delivery.deliveryId,
           sequence: message.sequence,
           body: message.body,
-          target: `#${channel.channelName}`,
+          target: `#${channel.channelName}${message.threadRootId ? `:${message.threadRootId}` : ""}`,
           latestSender: `@${message.sender.user!.username}`,
         }),
       );
     }
     return message;
+  }
+
+  async markThreadReadForUser(
+    workspaceId: string,
+    userId: string,
+    channelId: string,
+    rootMessageId: string,
+    throughSequence: number,
+  ) {
+    await this.channel(workspaceId, userId, channelId);
+    const root = await this.db.message.findFirst({
+      where: { id: rootMessageId, conversationId: channelId, threadRootId: null },
+      select: { id: true },
+    });
+    if (!root)
+      throw new AgentMessageValidationError("message anchor not found in this conversation");
+    const [member, latest] = await Promise.all([
+      this.db.conversationMember.findUnique({
+        where: { conversationId_userId: { conversationId: channelId, userId } },
+        select: { id: true },
+      }),
+      this.db.message.findFirst({
+        where: {
+          conversationId: channelId,
+          threadRootId: root.id,
+          sequence: { lte: throughSequence },
+        },
+        orderBy: { sequence: "desc" },
+        select: { sequence: true },
+      }),
+    ]);
+    if (!member || !latest) return;
+    await this.db.$executeRaw`INSERT INTO "thread_reads"
+      ("memberId", "conversationId", "workspaceId", "rootMessageId", "readThroughSequence")
+      VALUES (${member.id}::uuid, ${channelId}::uuid, ${workspaceId}::uuid, ${root.id}::uuid, ${latest.sequence})
+      ON CONFLICT ("memberId", "rootMessageId") DO UPDATE SET "readThroughSequence" =
+        GREATEST("thread_reads"."readThroughSequence", EXCLUDED."readThroughSequence")`;
   }
 }

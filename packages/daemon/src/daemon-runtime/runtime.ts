@@ -69,8 +69,8 @@ import { FileReminderReceiptStore } from "../persistence/reminder-receipt-store"
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
 const FULL_THREAD_TARGET =
-  /^(@[^:]+):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
-const SHORT_THREAD_TARGET = /^(@[^:]+):([0-9a-f]{8})$/;
+  /^((?:@[^:]+)|(?:#[a-z0-9][a-z0-9_-]{0,31})):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+const SHORT_THREAD_TARGET = /^((?:@[^:]+)|(?:#[a-z0-9][a-z0-9_-]{0,31})):([0-9a-f]{8})$/;
 
 type AgentInputCompletion = {
   resolve: () => void;

@@ -42,6 +42,15 @@ test("direct user messages require a visible CoForge reply", () => {
 test("channels allow selective replies and self mute without hiding history", () => {
   expect(instructions).toContain("coforge channel mute --target '#general'");
   expect(instructions).toContain("coforge channel unmute --target '#general'");
+  expect(instructions).toContain("#general:12345678");
+  expect(instructions).toContain("Channel thread replies stay in their thread");
+  expect(instructions).toContain("coforge message read --target '#general:12345678'");
+  expect(instructions).toContain("coforge message read --target '#general' --around 12345678");
+  expect(instructions).toContain("automatically follow it");
+  expect(instructions).toContain("coforge thread unfollow --target '#general:12345678'");
+  expect(instructions).toContain(
+    "A parent channel mute does not suppress replies in threads you follow",
+  );
   expect(instructions).toContain("Do not reply to every ordinary channel message.");
   expect(instructions).toContain("Human personal @mentions still notify you while muted.");
   expect(instructions).toContain("Unmuting does not replay messages from the muted period.");

@@ -5,6 +5,7 @@ import {
   AGENT_CHANNEL_MUTE_METHOD,
   AGENT_CHANNEL_UNMUTE_METHOD,
   AGENT_REMINDER_METHOD,
+  AGENT_THREAD_UNFOLLOW_METHOD,
 } from "@coforge/protocol";
 
 import {
@@ -106,6 +107,12 @@ export function createAgentMessageHttpHandler() {
         conversations,
         centrifugo,
         "unmute",
+        authorization,
+      ),
+      [AGENT_THREAD_UNFOLLOW_METHOD]: createAgentMessageMethod(
+        conversations,
+        centrifugo,
+        "thread-unfollow",
         authorization,
       ),
       [AGENT_MESSAGE_READ_METHOD]: createAgentMessageMethod(

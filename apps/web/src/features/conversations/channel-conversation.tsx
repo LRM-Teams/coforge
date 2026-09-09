@@ -3,7 +3,7 @@ import { Bell, BellOff, Hash } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BackToAgents } from "./conversation-layout";
 import {
-  ConversationPane,
+  ThreadedConversation,
   type DirectConversationView,
   type OwnMessageIndexEntry,
 } from "./direct-conversation";
@@ -13,6 +13,7 @@ import type { ReminderNoticeView } from "./reminder-notice";
 export type ChannelConversationView = Omit<DirectConversationView, "agent" | "messages"> & {
   name: string;
   muted: boolean;
+  followedThreadRootIds?: string[];
   messages: (DirectConversationView["messages"][number] & {
     senderMemberId: string;
   })[];
@@ -29,12 +30,15 @@ export function ChannelConversation({
   onShowLatest,
   onLoadReminderNotices,
   reminderRefreshKey,
+  onReadThread,
+  onThreadFollowedChange,
 }: {
   conversation: ChannelConversationView;
   onSend: (
     body: string,
     requestId: string,
     attachmentId?: string,
+    threadRootId?: string,
   ) => Promise<OwnMessageIndexEntry | void>;
   onJoin: () => Promise<void>;
   onMutedChange: (muted: boolean) => Promise<void>;
@@ -53,6 +57,8 @@ export function ChannelConversation({
   onShowLatest?: () => Promise<void>;
   onLoadReminderNotices?: (threadRootId?: string) => Promise<ReminderNoticeView[]>;
   reminderRefreshKey?: number;
+  onReadThread?: (rootMessageId: string, throughSequence: number) => Promise<void>;
+  onThreadFollowedChange?: (rootMessageId: string, followed: boolean) => Promise<void>;
 }) {
   const [joining, setJoining] = useState(false);
   const [savingMute, setSavingMute] = useState(false);
@@ -69,7 +75,7 @@ export function ChannelConversation({
     }
   }
   return (
-    <ConversationPane
+    <ThreadedConversation
       conversation={conversation}
       onSend={onSend}
       onLoadOlder={onLoadOlder}
@@ -78,6 +84,24 @@ export function ChannelConversation({
       onShowLatest={onShowLatest}
       onLoadReminderNotices={onLoadReminderNotices}
       reminderRefreshKey={reminderRefreshKey}
+      onReadThread={onReadThread}
+      threadHeaderAction={(rootMessageId) => {
+        const followed = conversation.followedThreadRootIds?.includes(rootMessageId) ?? false;
+        return conversation.senderMemberId ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="ml-auto"
+            aria-label={
+              followed ? m.conversation_thread_unfollow() : m.conversation_thread_follow()
+            }
+            onClick={() => void onThreadFollowedChange?.(rootMessageId, !followed)}
+          >
+            {followed ? <BellOff aria-hidden="true" /> : <Bell aria-hidden="true" />}
+          </Button>
+        ) : undefined;
+      }}
       emptyDescription={m.channel_empty()}
       header={
         <header className="flex h-14 shrink-0 items-center gap-3 border-b px-3 sm:px-5">

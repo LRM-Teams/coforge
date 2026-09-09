@@ -30,8 +30,13 @@ export const AGENT_MESSAGE_SEARCH_METHOD = "agent:message:search" as const;
 export const AGENT_MESSAGE_SEND_METHOD = "agent:message:send" as const;
 export const AGENT_CHANNEL_MUTE_METHOD = "agent:channel:mute" as const;
 export const AGENT_CHANNEL_UNMUTE_METHOD = "agent:channel:unmute" as const;
-export const isChannelMessageTarget = (target: string): boolean =>
+export const AGENT_THREAD_UNFOLLOW_METHOD = "agent:thread:unfollow" as const;
+export const isChannelTarget = (target: string): boolean =>
   /^#[a-z0-9][a-z0-9_-]{0,31}$/.test(target);
+export const isChannelMessageTarget = (target: string): boolean =>
+  /^#[a-z0-9][a-z0-9_-]{0,31}(?::(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))?$/.test(
+    target,
+  );
 export const AGENT_MESSAGE_VALIDATION_MESSAGES = [
   "message anchor must be eight hexadecimal characters or a full UUID",
   "ambiguous message prefix; use the full UUID",
@@ -256,7 +261,7 @@ export type AgentMessageRequest = {
   workspaceId: string;
   fromSequence?: number;
   throughSequence?: number;
-  operation: "read" | "search" | "send" | "mute" | "unmute";
+  operation: "read" | "search" | "send" | "mute" | "unmute" | "thread-unfollow";
   target: string;
   body?: string;
   holdToken?: string;

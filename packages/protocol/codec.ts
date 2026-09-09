@@ -631,7 +631,7 @@ export function decodeAgentMessageRequest(bytes: Uint8Array): AgentMessageReques
   if (
     !v.requestId ||
     !v.agentId ||
-    !["read", "search", "send", "mute", "unmute"].includes(v.operation) ||
+    !["read", "search", "send", "mute", "unmute", "thread-unfollow"].includes(v.operation) ||
     (v.operation !== "search" && !v.target)
   )
     throw new Error("invalid cloud agent message request");

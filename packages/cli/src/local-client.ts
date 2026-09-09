@@ -18,7 +18,7 @@ export function connectLocal(
   proxyUrl = Bun.env.COFORGE_AGENT_PROXY_URL ?? "",
 ) {
   const call = async (
-    operation: "check" | "read" | "search" | "send" | "mute" | "unmute",
+    operation: "check" | "read" | "search" | "send" | "mute" | "unmute" | "thread-unfollow",
     target?: string,
     body?: string,
     options?: {
@@ -61,6 +61,10 @@ export function connectLocal(
     reminder: (request: ReminderTransportRequest) => callReminder(request),
     inboxCheck: () => callInbox(),
     setChannelMuted: (target: string, muted: boolean) => call(muted ? "mute" : "unmute", target),
+    setThreadFollowed: (target: string, followed: boolean) => {
+      if (followed) throw new Error("Explicit thread follow is unavailable");
+      return call("thread-unfollow", target);
+    },
     check: () => call("check"),
     read: (
       target: string,

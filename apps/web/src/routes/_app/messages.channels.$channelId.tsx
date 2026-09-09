@@ -13,6 +13,8 @@ import {
   loadPublicChannel,
   loadPublicChannelUpdates,
   joinPublicChannel,
+  markPublicChannelThreadRead,
+  setPublicChannelThreadFollowed,
   setPublicChannelMuted,
   sendPublicChannelMessage,
 } from "@/features/conversations/channels.functions";
@@ -30,6 +32,8 @@ function ChannelPage() {
   const router = useRouter();
   const send = useServerFn(sendPublicChannelMessage);
   const join = useServerFn(joinPublicChannel);
+  const markRead = useServerFn(markPublicChannelThreadRead);
+  const setThreadFollowed = useServerFn(setPublicChannelThreadFollowed);
   const setMuted = useServerFn(setPublicChannelMuted);
   const loadChannel = useServerFn(loadPublicChannel);
   const loadAround = useServerFn(loadConversationAround);
@@ -88,14 +92,22 @@ function ChannelPage() {
       key={channelId}
       conversation={conversation}
       reminderRefreshKey={reminderRefreshKey}
-      onLoadReminderNotices={async () =>
-        (await loadNotices({ data: { conversationId: conversation.conversationId } })).notices
+      onLoadReminderNotices={async (threadRootId) =>
+        (await loadNotices({ data: { conversationId: conversation.conversationId, threadRootId } }))
+          .notices
       }
-      onSend={async (body, requestId, attachmentId) => {
+      onSend={async (body, requestId, attachmentId, threadRootId) => {
         const message = await send({
-          data: { channelId, body, requestId, attachmentId },
+          data: { channelId, body, requestId, attachmentId, threadRootId },
         });
         mergeUpdatesRef.current([message]);
+        if (threadRootId)
+          setConversation((current) => ({
+            ...current,
+            followedThreadRootIds: current.followedThreadRootIds.includes(threadRootId)
+              ? current.followedThreadRootIds
+              : [...current.followedThreadRootIds, threadRootId],
+          }));
         void reconciliation.reconcile().catch(() => {});
         return message;
       }}
@@ -106,6 +118,18 @@ function ChannelPage() {
       onMutedChange={async (muted) => {
         await setMuted({ data: { channelId, muted } });
         await router.invalidate({ sync: true });
+      }}
+      onReadThread={(threadRootId, throughSequence) =>
+        markRead({ data: { channelId, threadRootId, throughSequence } })
+      }
+      onThreadFollowedChange={async (threadRootId, followed) => {
+        await setThreadFollowed({ data: { channelId, threadRootId, followed } });
+        setConversation((current) => ({
+          ...current,
+          followedThreadRootIds: followed
+            ? [...new Set([...current.followedThreadRootIds, threadRootId])]
+            : current.followedThreadRootIds.filter((id) => id !== threadRootId),
+        }));
       }}
       onLoadOwnMessages={(beforeSequence) =>
         loadOwnMessages({

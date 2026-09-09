@@ -62,7 +62,7 @@ test("channel identifies the current human, not every human, as You", async () =
   expect(other.textContent).not.toContain("You");
   expect(document.querySelector("#message-b")).toBe(other);
   expect(other.className).toContain("target:ring-2");
-  expect(page.queryByRole("button", { name: "Reply in thread" })).toBeNull();
+  expect(page.getAllByRole("button", { name: "Reply in thread" })).toHaveLength(4);
   const user = userEvent.setup();
   await user.click(page.getByRole("button", { name: "Mute channel notifications" }));
   expect(onMutedChange).toHaveBeenCalledWith(true);
@@ -89,4 +89,55 @@ test("a non-joined Workspace member can read but must join before composing", as
   expect(document.querySelector('[data-message="own"]')).toBeNull();
   await userEvent.setup().click(page.getByRole("button", { name: "Join channel" }));
   expect(onJoin).toHaveBeenCalledTimes(1);
+});
+
+test("channel threads keep replies out of the main flow and send to the selected root", async () => {
+  const user = userEvent.setup();
+  const onSend = mock(async () => {});
+  const onThreadFollowedChange = mock(async () => {});
+  const root = {
+    ...history.messages[0]!,
+    id: "12345678-0000-4000-8000-000000000001",
+  };
+  render(
+    <AppToastProvider>
+      <ChannelConversation
+        conversation={{
+          ...history,
+          threadReadThrough: { [root.id]: 0 },
+          followedThreadRootIds: [root.id],
+          messages: [
+            root,
+            {
+              ...history.messages[1]!,
+              id: "thread-reply",
+              threadRootId: root.id,
+              body: "Only in the channel thread",
+            },
+          ],
+        }}
+        onSend={onSend}
+        onJoin={async () => {}}
+        onMutedChange={async () => {}}
+        onReadThread={async () => {}}
+        onThreadFollowedChange={onThreadFollowedChange}
+      />
+    </AppToastProvider>,
+  );
+  const page = within(document.body);
+  expect(page.getByLabelText("Message history").querySelectorAll("[data-message]")).toHaveLength(1);
+  await user.click(page.getByRole("button", { name: /1 reply/ }));
+  const discussion = within(page.getByRole("region", { name: "Thread" }));
+  expect(discussion.getByText("Only in the channel thread")).toBeTruthy();
+  expect(page.getByRole("button", { name: /@bob Only in the channel thread/ })).toBeTruthy();
+  await user.click(discussion.getByRole("button", { name: "Unfollow thread" }));
+  expect(onThreadFollowedChange).toHaveBeenCalledWith(root.id, false);
+  await user.type(discussion.getByLabelText("Message"), "Channel thread response");
+  await user.click(discussion.getByRole("button", { name: "Send" }));
+  expect(onSend).toHaveBeenCalledWith(
+    "Channel thread response",
+    expect.any(String),
+    undefined,
+    root.id,
+  );
 });

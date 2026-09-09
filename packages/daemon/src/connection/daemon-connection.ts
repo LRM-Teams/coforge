@@ -64,6 +64,7 @@ import {
   type ReminderFireResponse,
   type ReminderSnapshotRequest,
   type ReminderSync,
+  AGENT_THREAD_UNFOLLOW_METHOD,
 } from "@coforge/protocol";
 import { isAgentApiKey } from "../credentials/agent-api-key";
 import type { AgentRuntimeProviderConfig } from "../code-agent/contract";
@@ -223,6 +224,7 @@ export const createAgentMessageHttpClient = (
           send: AGENT_MESSAGE_SEND_METHOD,
           mute: AGENT_CHANNEL_MUTE_METHOD,
           unmute: AGENT_CHANNEL_UNMUTE_METHOD,
+          "thread-unfollow": AGENT_THREAD_UNFOLLOW_METHOD,
         }[request.operation],
         b64data: btoa(String.fromCharCode(...encodeAgentMessageRequest(request))),
       }),

@@ -704,10 +704,10 @@ Daemon 仅为被 Web/backend 暂缓的 Agent response 保存短期 continuation 
 - attention 丢失后的恢复依赖 canonical Message/read boundary；恢复正文被 model 接受后，Daemon 在该 Agent 随后的 `send` side effect 上附带可信 `seenUpToSequence`，Web 据此为精确授权的会话单调推进且不超过当前 sequence。它不是专用恢复回执，也不表示 turn 完成；delivery ACK、start ACK 和 `unreadSummary` 都不是阅读确认；
 - 不使用数据库 command mailbox 或 claim/lease，除非先形成新的架构决策。
 
-### 6.3 私聊 Thread
+### 6.3 消息 Thread
 
-Thread 仅适用于现有 User–Agent DirectConversation，不引入群聊、独立随机
-thread ID、独立会话或进程。一个 Agent 在主聊天和所有 Thread 中继续使用同一个
+Thread 适用于现有 User–Agent DirectConversation 与 Workspace 公开频道，不引入群聊、独立随机
+thread ID、独立会话或进程。一个 Agent 在主聊天、频道和所有 Thread 中继续使用同一个
 既有 runtime session。Thread 的身份是顶层 Message 的 UUID；首条回复创建讨论，
 打开空讨论或输入草稿不创建 durable Thread。回复只属于该 Thread，不支持嵌套。
 
@@ -717,7 +717,8 @@ Web/backend 生成的 Thread target（包括投递、读取结果和恢复）始
 conversation 内解析；必须恰好匹配一个顶层 Message，否则明确报错并要求完整 UUID，不得猜测。
 Daemon 在筛选 attention、读取或保存草稿、检查 model-visible position 和发送前，通过对父目标的
 已认证 HTTPS `around` 读取把短输入解析为完整 target；不缓存别名，也不把该 root lookup 展示给
-Agent 或推进阅读位置。主聊天与 Thread 的普通读取仍从
+Agent 或推进阅读位置。频道 Thread 使用同样规则，公开主目标为 `#general`，Agent 输入可用
+`#general:<root UUID 的前 8 位>`，Web/backend 输出完整 root UUID。主聊天、主频道与 Thread 的普通读取仍从
 各自未读边界开始；`before`、`after`、`around`、`limit` 保持范围读取能力，显式
 历史跳转不推进 canonical 或 Daemon 的阅读位置。背景通过普通父目标读取获得，
 例如 `message read --target @alice --around 12345678`；notice/check 不自动插入
@@ -763,11 +764,24 @@ Web 复用聊天气泡、输入框和附件，增加频道列表、创建与加�
 沿用会话实时信号和 canonical Message 历史恢复，不新增真人持久化未读游标。
 Agent 通过已有独立 HTTPS RPC 使用 CLI `#channel` target 读写已加入的频道，
 仍复用单 Agent runtime session，不创建频道 session。当前不新增非默认频道的 Agent 加入入口。
-频道暂不提供 Thread、follow/unfollow；已有私聊 Thread 路由不变。
+频道 Thread 的 root 必须是同频道顶层 Message；Workspace 真人可随父频道可见性读取，只有
+已加入成员可回复或上传附件。主频道与每个 Thread 的 Agent/Human ThreadRead 独立；读取
+`#general:<root>` 只返回并推进该 Thread 回复，root 与父频道上下文需另用
+`message read --target '#general' --around <root>` 读取，该显式 range read 不推进位置。
+投递、恢复、freshness hold、可信 model-visible position 与附件均绑定精确 Thread target。
+
+`ThreadFollow` 按 ConversationMember 与 root Message 持久化。真人或 Agent 在频道 Thread
+回复时自动 follow；被该 Thread 中的个人 mention 命中时自动或重新 follow。已 follow Thread
+的普通真人回复独立于父频道 mute 产生通知；unfollow 只停止后续普通通知，不撤销读取、回复
+或附件权限。Web 提供 follow/unfollow 控件；Agent 用
+`coforge thread unfollow --target '#general:<root>'`。follow/unfollow 与消息创建使用同一
+conversation 行锁排序。Agent 发言（包括 mention）仍不唤醒其他 Agent，但被 mention 的真人
+可按既有 browser push 规则获知并成为 follower。
 
 ConversationMember 的 `channelMuted` 默认 false；Agent 使用自身凭证执行
 `coforge channel mute|unmute --target '#general'`。已加入且未 mute 的 Agent 可以接收
-普通真人消息通知；mute 后仅真人明确 `@agent-name` 穿透。Agent 发言及互相 mention
+普通真人消息通知；mute 后仅真人明确 `@agent-name` 或已 follow Thread 的普通真人回复穿透。
+Agent 发言及互相 mention
 均不自动唤醒，避免回复循环。mute 不等于 leave，不撤销主动读取历史或发送权限。
 
 mute 变更与消息创建使用同一 conversation 行锁串行化，仅影响之后创建消息的通知资格。
@@ -778,13 +792,24 @@ mute 变更与消息创建使用同一 conversation 行锁串行化，仅影响�
 频道 live notice 与启动恢复不把正文或历史注入模型，Agent 自主 check/read；不将普通频道
 消息解释为必须回复。共享 session 的保密提示属于行为约束，并不提供严格的跨受众上下文隔离。
 
-这些默认与时间规则是用户确认的 CoForge 决策。Raft 官方默认频道名为
+这些默认与时间规则是用户确认的 CoForge 决策。与 Raft 公开指令逐项比较：两者都以顶层
+消息为 root、首回复创建、禁止嵌套、参与或被 mention 后自动 follow、允许 unfollow，且父频道
+mute 不压制已 follow Thread。CoForge 额外要求短 target 经父频道 authenticated `around`
+canonicalization、Web/backend 始终输出完整 UUID、主频道/各 Thread 分别维护 read/recovery/
+freshness 边界、notice 与 channel recovery 不含正文，并保持单 Agent shared runtime session。
+CoForge 当前缺少 Raft 的显式 Agent channel join/leave、private channel、channel member/admin、
+DM Thread follow/unfollow、task/reviewer-isolation 与 reaction/resolve 能力；standing instructions
+不得声称或复制这些能力。Raft 官方默认频道名为
 [#all](https://docs.raft.build/features/messaging/channels/)，不是 #general；官方
+[Thread 文档](https://docs.raft.build/features/messaging/threads/)定义上述 follow/unfollow 行为；
+已核对的 [Raft 1.0.17 官方发行包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)
+还明确给出 `raft thread unfollow`、mention 恢复 follow 和父频道 mute 例外。官方
 [mute 上线说明](https://raft.build/resources/blog/how-a-feature-ships-for-raft-on-raft/)
 支持实际投递控制与 mention 例外，但不据此推断其服务端补投实现。
 
 `mise run test:channel` 使用显式本地 PostgreSQL/Redis 连接验证公开范围、默认加入、
-主动加入发送、附件权限、稳定发送者、并发消息顺序及 Agent mute/mention/恢复资格；
+主动加入发送、附件权限、稳定发送者、并发消息顺序、Thread target/read/follow 隔离及
+Agent mute/mention/恢复资格；
 不属于普通无数据库测试发现范围。
 
 ### 6.5 Agent Reminder

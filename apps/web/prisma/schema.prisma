@@ -343,6 +343,7 @@ model ConversationMember {
   agent                    Agent?       @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   messages                 Message[]
   threadReads              ThreadRead[]
+  threadFollows            ThreadFollow[]
 
   @@unique([id, conversationId, workspaceId])
   @@unique([conversationId, userId])
@@ -368,6 +369,7 @@ model Message {
   threadRoot     Message?               @relation("MessageThread", fields: [threadRootId, conversationId], references: [id, conversationId], onDelete: Cascade)
   replies        Message[]              @relation("MessageThread")
   threadReads    ThreadRead[]
+  threadFollows  ThreadFollow[]
 
   @@unique([id, conversationId])
   @@unique([conversationId, sequence])
@@ -387,6 +389,19 @@ model ThreadRead {
 
   @@id([memberId, rootMessageId])
   @@map("thread_reads")
+}
+
+model ThreadFollow {
+  memberId       String             @db.Uuid
+  rootMessageId  String             @db.Uuid
+  conversationId String             @db.Uuid
+  workspaceId    String             @db.Uuid
+  createdAt      DateTime           @default(now())
+  member         ConversationMember @relation(fields: [memberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Cascade)
+  root           Message            @relation(fields: [rootMessageId, conversationId], references: [id, conversationId], onDelete: Cascade)
+
+  @@id([memberId, rootMessageId])
+  @@map("thread_follows")
 }
 
 model Attachment {

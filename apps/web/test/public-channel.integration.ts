@@ -62,11 +62,17 @@ test("existing Workspace humans automatically join one general channel; outsider
       messageId: string;
       sequence: number;
     }> = [];
-    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), undefined, {
-      async notifyMessage(messageId) {
-        realtimeEvents.push({ conversationId: "", messageId, sequence: 0 });
+    const channels = new PublicChannels(
+      db,
+      new RedisMessageRequestIdempotency(redis),
+      undefined,
+      undefined,
+      {
+        async messageAvailable(event) {
+          realtimeEvents.push(event);
+        },
       },
-    });
+    );
     const [first, second] = await Promise.all([
       channels.list(workspace.id, alice.id),
       channels.list(workspace.id, bob.id),
@@ -194,40 +200,43 @@ test("existing Workspace humans automatically join one general channel; outsider
     expect(history.messages[0]?.senderMemberId).toBe(history.senderMemberId);
     expect(history.messages[3]?.senderMemberId).not.toBe(history.senderMemberId);
     await Promise.all([send(alice.id, "Concurrent A"), send(bob.id, "Concurrent B")]);
-    expect(
-      (await channels.open(workspace.id, alice.id, engineering.id)).messages.map((m) => m.sequence),
-    ).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(history.messages[1]?.senderMemberId).not.toBe(history.senderMemberId);
+    const concurrentHistory = await channels.open(workspace.id, alice.id, engineering.id);
+    expect(concurrentHistory.messages.map((m) => m.sequence)).toEqual([1, 2, 3, 4, 5, 6]);
+    const concurrentBobMessage = concurrentHistory.messages.find(
+      (message) => message.body === "Concurrent B",
+    );
+    expect(concurrentBobMessage?.senderMemberId).not.toBe(concurrentHistory.senderMemberId);
     const browserHistory = new ConversationHistory(db);
     expect(
       (await browserHistory.listOwnMessages(workspace.id, alice.id, engineering.id)).messages.map(
         (message) => message.body,
       ),
-    ).toEqual(["Hello Bob"]);
+    ).toEqual([
+      "Hello Bob",
+      "Muted ordinary message",
+      `@${bob.username} please review this`,
+      "Concurrent A",
+    ]);
     await expect(
       browserHistory.loadAround(workspace.id, bob.id, engineering.id, saved.id),
     ).rejects.toThrow("NOT_FOUND");
     await expect(
       browserHistory.listOwnMessages(workspace.id, outsider.id, engineering.id),
     ).rejects.toThrow("ACCESS_DENIED");
-    await Promise.all([send(alice.id, "Concurrent A"), send(bob.id, "Concurrent B")]);
-    expect(
-      (await channels.open(workspace.id, alice.id, engineering.id)).messages.map((m) => m.sequence),
-    ).toEqual([1, 2, 3, 4]);
     const latestPage = await channels.open(workspace.id, alice.id, engineering.id, { limit: 2 });
     expect(latestPage.hasOlder).toBe(true);
-    expect(latestPage.messages.map((message) => message.sequence)).toEqual([3, 4]);
+    expect(latestPage.messages.map((message) => message.sequence)).toEqual([5, 6]);
     const olderPage = await channels.open(workspace.id, alice.id, engineering.id, {
-      beforeSequence: 3,
+      beforeSequence: 5,
       limit: 2,
     });
-    expect(olderPage.hasOlder).toBe(false);
-    expect(olderPage.messages.map((message) => message.sequence)).toEqual([1, 2]);
+    expect(olderPage.hasOlder).toBe(true);
+    expect(olderPage.messages.map((message) => message.sequence)).toEqual([3, 4]);
     expect(
-      (await channels.updates(workspace.id, alice.id, engineering.id, 2)).map(
+      (await channels.updates(workspace.id, alice.id, engineering.id, 4)).map(
         (message) => message.sequence,
       ),
-    ).toEqual([3, 4]);
+    ).toEqual([5, 6]);
     const direct = await db.conversation.create({
       data: { workspaceId: workspace.id, directKey: `private-${suffix}` },
     });
@@ -592,6 +601,332 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
     await db.workspace.delete({ where: { id: workspace.id } });
     await db.computer.deleteMany({ where: { ownerId: user.id } });
     await db.user.delete({ where: { id: user.id } });
+    await db.$disconnect();
+    redis.close();
+  }
+});
+
+test("channel threads enforce channel scope and isolate reads, recovery, notifications, and attachments", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const redis = new RedisClient(Bun.env.CHANNEL_TEST_REDIS_URL!);
+  const suffix = crypto.randomUUID();
+  const alice = await db.user.create({ data: { username: `ta${suffix.slice(0, 8)}` } });
+  const bob = await db.user.create({ data: { username: `tb${suffix.slice(0, 8)}` } });
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `thread-${suffix}`,
+      name: "Channel threads",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+    },
+  });
+  const foreignWorkspace = await db.workspace.create({
+    data: {
+      slug: `foreign-${suffix}`,
+      name: "Foreign channel threads",
+      members: { create: { userId: alice.id } },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: alice.id, machineId: crypto.randomUUID() },
+    });
+    const agent = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: alice.id,
+        computerId: computer.id,
+        name: "thread-helper",
+        displayName: "Thread Helper",
+        runtimeConfig: {},
+      },
+    });
+    const published: ReturnType<typeof decodeAgentMessageDelivery>[] = [];
+    const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
+      publish: async (_channel, payload) => {
+        published.push(decodeAgentMessageDelivery(payload));
+      },
+      publishJson: async () => {},
+    });
+    const general = await channels.create(workspace.id, alice.id, "threads");
+    await db.conversationMember.create({
+      data: { workspaceId: workspace.id, conversationId: general.id, agentId: agent.id },
+    });
+    const foreignGeneral = (await channels.list(foreignWorkspace.id, alice.id))[0]!;
+    const foreignRoot = await channels.send({
+      workspaceId: foreignWorkspace.id,
+      userId: alice.id,
+      channelId: foreignGeneral.id,
+      requestId: crypto.randomUUID(),
+      body: "foreign root",
+    });
+    const root = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "channel root",
+    });
+    await channels.setAgentMuted(workspace.id, agent.id, "#threads", true);
+    const quietReply = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "quiet thread reply",
+      threadRootId: root.id,
+    });
+    const mentionedReply = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "@thread-helper please inspect this thread",
+      threadRootId: root.id,
+    });
+    const target = `#threads:${root.id}`;
+    const repo = new PrismaDirectConversationRepository(db);
+    expect(published.map((message) => [message.messageId, message.target])).toEqual([
+      [root.id, "#threads"],
+      [mentionedReply.id, target],
+    ]);
+    const followedReply = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "ordinary reply reaches a follower through channel mute",
+      threadRootId: root.id,
+    });
+    expect(published.at(-1)?.messageId).toBe(followedReply.id);
+    const unfollow = createAgentMessageMethod(repo, {}, "thread-unfollow", {
+      canUseAgent: async () => true,
+    });
+    const unfollowResult = await unfollow(
+      encodeAgentMessageRequest({
+        protocolMajor: 1,
+        requestId: crypto.randomUUID(),
+        workspaceId: workspace.id,
+        agentId: agent.id,
+        operation: "thread-unfollow",
+        target,
+      }),
+      {
+        principal: {
+          userId: alice.id,
+          workspaceId: workspace.id,
+          agentId: agent.id,
+          computerId: computer.id,
+        },
+      },
+    );
+    if (!(unfollowResult instanceof Uint8Array)) throw new Error(JSON.stringify(unfollowResult));
+    expect(decodeCloudAgentMessageResponse(unfollowResult).accepted).toBe(true);
+    const afterUnfollow = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "ordinary reply after unfollow",
+      threadRootId: root.id,
+    });
+    expect(published.some((message) => message.messageId === afterUnfollow.id)).toBe(false);
+    const reactivatingMention = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "@thread-helper please return",
+      threadRootId: root.id,
+    });
+    const afterReactivation = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "ordinary reply after mention restored follow",
+      threadRootId: root.id,
+    });
+    expect(published.slice(-2).map((message) => message.messageId)).toEqual([
+      reactivatingMention.id,
+      afterReactivation.id,
+    ]);
+    await expect(
+      channels.send({
+        workspaceId: workspace.id,
+        userId: bob.id,
+        channelId: general.id,
+        requestId: crypto.randomUUID(),
+        body: "not joined",
+        threadRootId: root.id,
+      }),
+    ).rejects.toThrow("ACCESS_DENIED");
+    await expect(
+      channels.send({
+        workspaceId: workspace.id,
+        userId: alice.id,
+        channelId: general.id,
+        requestId: crypto.randomUUID(),
+        body: "cross Workspace root",
+        threadRootId: foreignRoot.id,
+      }),
+    ).rejects.toThrow("not found");
+    await expect(
+      channels.send({
+        workspaceId: workspace.id,
+        userId: alice.id,
+        channelId: general.id,
+        requestId: crypto.randomUUID(),
+        body: "nested thread",
+        threadRootId: quietReply.id,
+      }),
+    ).rejects.toThrow("top-level");
+    const attachment = await db.attachment.create({
+      data: {
+        workspaceId: workspace.id,
+        conversationId: general.id,
+        uploaderId: alice.id,
+        objectKey: `channel-thread/${suffix}`,
+        fileName: "thread.txt",
+        contentType: "text/plain",
+        sizeBytes: 6,
+      },
+    });
+    const attachmentReply = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "thread attachment",
+      attachmentId: attachment.id,
+      threadRootId: root.id,
+    });
+    expect((await repo.readMessages(workspace.id, agent.id, "#threads")).map((m) => m.id)).toEqual([
+      root.id,
+    ]);
+    expect(
+      (await repo.readMessages(workspace.id, agent.id, `#threads:${root.id.slice(0, 8)}`)).map(
+        (message) => [message.id, message.target, message.attachment?.id],
+      ),
+    ).toEqual([
+      [quietReply.id, target, undefined],
+      [mentionedReply.id, target, undefined],
+      [followedReply.id, target, undefined],
+      [afterUnfollow.id, target, undefined],
+      [reactivatingMention.id, target, undefined],
+      [afterReactivation.id, target, undefined],
+      [attachmentReply.id, target, attachment.id],
+    ]);
+    expect((await repo.readAgentRecoveryContext(workspace.id, agent.id)).unreadSummary).toEqual({});
+    await repo.setAgentThreadFollowed(workspace.id, agent.id, target, false);
+    const agentReply = await repo.sendAgentMessage(
+      general.id,
+      agent.id,
+      "Agent thread response",
+      undefined,
+      root.id.slice(0, 8),
+    );
+    expect(agentReply.target).toBe(target);
+    expect(
+      await db.threadFollow.findUnique({
+        where: {
+          memberId_rootMessageId: {
+            memberId: (
+              await db.conversationMember.findUniqueOrThrow({
+                where: {
+                  conversationId_agentId: { conversationId: general.id, agentId: agent.id },
+                },
+              })
+            ).id,
+            rootMessageId: root.id,
+          },
+        },
+      }),
+    ).not.toBeNull();
+    expect(
+      (await repo.readPendingAgentDeliveries(workspace.id, agent.id)).some(
+        (message) => message.messageId === agentReply.id,
+      ),
+    ).toBe(false);
+    const opened = await channels.open(workspace.id, bob.id, general.id);
+    expect(opened.messages.map((message) => message.id)).toEqual([
+      root.id,
+      quietReply.id,
+      mentionedReply.id,
+      followedReply.id,
+      afterUnfollow.id,
+      reactivatingMention.id,
+      afterReactivation.id,
+      attachmentReply.id,
+      agentReply.id,
+    ]);
+    expect(opened.threadReadThrough[root.id]).toBeUndefined();
+    await channels.markThreadReadForUser(workspace.id, alice.id, general.id, root.id, 999);
+    expect(
+      (await channels.open(workspace.id, alice.id, general.id)).threadReadThrough[root.id],
+    ).toBe(agentReply.sequence);
+    expect(
+      (await channels.open(workspace.id, alice.id, general.id)).followedThreadRootIds,
+    ).toContain(root.id);
+    await channels.setUserThreadFollowed(workspace.id, alice.id, general.id, root.id, false);
+    expect(
+      (await channels.open(workspace.id, alice.id, general.id)).followedThreadRootIds,
+    ).not.toContain(root.id);
+    await channels.join(workspace.id, bob.id, general.id);
+    await db.user.update({
+      where: { id: bob.id },
+      data: { browserNotificationsEnabled: true },
+    });
+    await db.webPushSubscription.create({
+      data: {
+        userId: bob.id,
+        endpoint: `https://fcm.googleapis.com/wp/channel-thread-${suffix}`,
+        p256dh: "thread-key",
+        auth: "thread-auth",
+      },
+    });
+    await channels.send({
+      workspaceId: workspace.id,
+      userId: bob.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "Bob participates and follows",
+      threadRootId: root.id,
+    });
+    await channels.setUserMuted(workspace.id, bob.id, general.id, true);
+    const followerNotice = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "ordinary human follower notification",
+      threadRootId: root.id,
+    });
+    const pushSubscriptions = new PrismaWebPushSubscriptionStore(db);
+    expect(
+      (await pushSubscriptions.notificationForMessage(followerNotice.id))?.subscriptions,
+    ).toEqual([
+      expect.objectContaining({
+        endpoint: `https://fcm.googleapis.com/wp/channel-thread-${suffix}`,
+      }),
+    ]);
+    await channels.setUserThreadFollowed(workspace.id, bob.id, general.id, root.id, false);
+    const unfollowedNotice = await channels.send({
+      workspaceId: workspace.id,
+      userId: alice.id,
+      channelId: general.id,
+      requestId: crypto.randomUUID(),
+      body: "quiet after human unfollow",
+      threadRootId: root.id,
+    });
+    expect(
+      (await pushSubscriptions.notificationForMessage(unfollowedNotice.id))?.subscriptions,
+    ).toEqual([]);
+  } finally {
+    await db.workspace.deleteMany({ where: { id: { in: [workspace.id, foreignWorkspace.id] } } });
+    await db.computer.deleteMany({ where: { ownerId: alice.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
     await db.$disconnect();
     redis.close();
   }

@@ -45,5 +45,7 @@
   "conversation_thread_back": "Back to chat",
   "conversation_thread_root": "Original message",
   "conversation_thread_empty": "Send the first reply to start this thread.",
+  "conversation_thread_follow": "Follow thread",
+  "conversation_thread_unfollow": "Unfollow thread",
   "conversation_you": "You"
 }

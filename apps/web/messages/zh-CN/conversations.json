@@ -45,5 +45,7 @@
   "conversation_thread_back": "返回聊天",
   "conversation_thread_root": "原始消息",
   "conversation_thread_empty": "发送第一条回复以开始讨论。",
+  "conversation_thread_follow": "关注讨论",
+  "conversation_thread_unfollow": "取消关注讨论",
   "conversation_you": "我"
 }

@@ -112,7 +112,7 @@ export function startAgentProxy(input: {
         if (
           typeof payload.requestId !== "string" ||
           payload.requestId.length === 0 ||
-          !["check", "read", "search", "send", "mute", "unmute"].includes(
+          !["check", "read", "search", "send", "mute", "unmute", "thread-unfollow"].includes(
             payload.operation as string,
           ) ||
           (payload.continueAnyway !== undefined && typeof payload.continueAnyway !== "boolean") ||

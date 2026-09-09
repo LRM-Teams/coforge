@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "../../../../generated/client";
 import { AgentMessageValidationError } from "../../conversations/agent-message-validation-error.server";
 import { getAgentChannel, PublicChannels } from "../../conversations/public-channels.server";
+import { mentionedNames } from "../../conversations/mentions";
 
 export type AttachmentMetadata = {
   id: string;
@@ -71,6 +72,12 @@ type DirectConversationMessageRow = Prisma.MessageGetPayload<{
 export type DirectConversationRepository = {
   userIdForUsername?(target: string): Promise<string>;
   getAgentChannel?(workspaceId: string, agentId: string, target: string): Promise<{ id: string }>;
+  setAgentThreadFollowed?(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+    followed: boolean,
+  ): Promise<{ followed: boolean }>;
   getOrCreateUserAgent(
     workspaceId: string,
     userId: string,
@@ -283,6 +290,15 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
 
   setAgentChannelMuted(workspaceId: string, agentId: string, target: string, muted: boolean) {
     return new PublicChannels(this.db).setAgentMuted(workspaceId, agentId, target, muted);
+  }
+
+  setAgentThreadFollowed(workspaceId: string, agentId: string, target: string, followed: boolean) {
+    return new PublicChannels(this.db).setAgentThreadFollowed(
+      workspaceId,
+      agentId,
+      target,
+      followed,
+    );
   }
 
   private async conversationForAgentTarget(workspaceId: string, agentId: string, target: string) {
@@ -765,7 +781,10 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return deliveries.map((delivery) => {
       const sender = `@${delivery.message.sender.user?.username ?? ""}`;
       const target = delivery.conversation.channelName
-        ? `#${delivery.conversation.channelName}`
+        ? this.deliveryTarget(
+            `#${delivery.conversation.channelName}`,
+            delivery.message.threadRootId,
+          )
         : this.deliveryTarget(sender, delivery.message.threadRootId);
       if (!PUBLIC_USERNAME_TARGET.test(sender))
         throw new Error("pending Agent delivery sender must be a public @username");
@@ -1136,8 +1155,6 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const user = conversation.members.find((m) => m.userId);
     if (!sender || (!conversation.channelName && !user))
       throw new Error("agent is not a conversation member");
-    if (conversation.channelName && threadRootId)
-      throw new Error("channel threads are not supported");
     const root = threadRootId
       ? await this.resolveMessage(conversationId, threadRootId, true)
       : undefined;
@@ -1150,6 +1167,25 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         select: { sequence: true },
       });
       const sequence = (last?.sequence ?? 0) + 1;
+      if (conversation.channelName && root) {
+        const names = mentionedNames(body);
+        const mentioned = await tx.conversationMember.findMany({
+          where: {
+            conversationId,
+            OR: [{ user: { username: { in: names } } }, { agent: { name: { in: names } } }],
+          },
+          select: { id: true },
+        });
+        await tx.threadFollow.createMany({
+          data: [sender.id, ...mentioned.map(({ id }) => id)].map((memberId) => ({
+            memberId,
+            rootMessageId: root.id,
+            conversationId,
+            workspaceId: conversation.workspaceId,
+          })),
+          skipDuplicates: true,
+        });
+      }
       return tx.message.create({
         data: {
           conversationId,
@@ -1183,7 +1219,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       deliveryId: undefined,
       workspaceId: conversation.workspaceId,
       agentId,
-      target: "",
+      target: conversation.channelName
+        ? this.deliveryTarget(`#${conversation.channelName}`, root?.id)
+        : "",
       attachment: result.attachment ?? undefined,
     };
   }

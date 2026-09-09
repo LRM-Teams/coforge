@@ -109,8 +109,16 @@ type ConversationProps = {
   reminderRefreshKey?: number;
 };
 
+export type ThreadedConversationProps = Omit<ConversationProps, "conversation" | "agentStatus"> & {
+  conversation: Omit<DirectConversationView, "agent">;
+  header: React.ReactNode;
+  readOnlyNotice?: React.ReactNode;
+  emptyDescription?: string;
+  threadHeaderAction?: (rootMessageId: string) => React.ReactNode;
+};
+
 export function DirectConversation(props: ConversationProps) {
-  const { conversation, onReadThread } = props;
+  const { conversation } = props;
   const { agentStatus } = props;
   const activity = useConversationActivity(conversation.agent.id);
   const workingLabel = useAgentWorkingLabel({
@@ -139,6 +147,11 @@ export function DirectConversation(props: ConversationProps) {
       </span>
     </header>
   );
+  return <ThreadedConversation {...props} header={header} />;
+}
+
+export function ThreadedConversation(props: ThreadedConversationProps) {
+  const { conversation, onReadThread, header, threadHeaderAction, ...conversationProps } = props;
   const [selected, setSelected] = useState<string>();
   const [visited, setVisited] = useState<string[]>([]);
   const [readThrough, setReadThrough] = useState<Record<string, number>>({});
@@ -194,7 +207,7 @@ export function DirectConversation(props: ConversationProps) {
     <div className="flex min-h-0 min-w-0 flex-1">
       <div className={cn("min-h-0 min-w-0 flex-1 flex-col", selected ? "hidden md:flex" : "flex")}>
         <ConversationPane
-          {...props}
+          {...conversationProps}
           header={header}
           conversation={{ ...conversation, messages: mainMessages }}
           threadEntry={(message) => {
@@ -278,7 +291,13 @@ export function DirectConversation(props: ConversationProps) {
                         <Avatar people={[{ name: reply.senderName }]} size="sm" />
                         <span className="flex min-w-0 items-baseline gap-2 text-sm">
                           <span className="max-w-[40%] shrink-0 truncate font-medium">
-                            {reply.senderKind === "user" ? m.conversation_you() : reply.senderName}
+                            {(
+                              reply.senderMemberId !== undefined
+                                ? reply.senderMemberId === conversation.senderMemberId
+                                : reply.senderKind === "user"
+                            )
+                              ? m.conversation_you()
+                              : reply.senderName}
                           </span>
                           <span className="min-w-0 flex-1 truncate text-muted-foreground">
                             {reply.body || reply.attachment?.fileName}
@@ -311,7 +330,7 @@ export function DirectConversation(props: ConversationProps) {
             )}
           >
             <ConversationPane
-              {...props}
+              {...conversationProps}
               root={root}
               onClose={() => setSelected(undefined)}
               conversation={{
@@ -321,8 +340,9 @@ export function DirectConversation(props: ConversationProps) {
                 ),
               }}
               onSend={(body, requestId, attachmentId) =>
-                props.onSend(body, requestId, attachmentId, rootId)
+                conversationProps.onSend(body, requestId, attachmentId, rootId)
               }
+              threadHeaderAction={threadHeaderAction?.(rootId)}
             />
           </section>
         );
@@ -347,6 +367,7 @@ export function ConversationPane({
   onClose,
   threadEntry,
   threadPreview,
+  threadHeaderAction,
   onLoadOlder,
   onLoadOwnMessages,
   onLoadMessageAround,
@@ -362,6 +383,7 @@ export function ConversationPane({
   onClose?: () => void;
   threadEntry?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
   threadPreview?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
+  threadHeaderAction?: React.ReactNode;
 }) {
   const composerId = useId();
   const [body, setBody] = useState("");
@@ -706,6 +728,7 @@ export function ConversationPane({
             <ArrowLeft aria-hidden="true" />
           </Button>
           <h2 className="text-base font-medium">{m.conversation_thread()}</h2>
+          {threadHeaderAction}
         </header>
       ) : (
         header
