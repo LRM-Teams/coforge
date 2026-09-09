@@ -205,7 +205,9 @@ mock.module("@/features/conversations/channels.functions", () => ({
   loadPublicChannelUpdates,
   createPublicChannel: mock(async () => ({ id: "channel-1" })),
   joinPublicChannel: mock(async () => {}),
+  markPublicChannelThreadRead: mock(async () => {}),
   setPublicChannelMuted: mock(async () => ({ muted: true })),
+  setPublicChannelThreadFollowed: mock(async () => ({ followed: true })),
   sendPublicChannelMessage,
 }));
 mock.module("@/features/settings/settings.functions", () => ({

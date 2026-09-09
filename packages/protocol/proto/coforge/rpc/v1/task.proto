@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package coforge.rpc.v1;
+
+message TaskRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string agent_id = 4;
+  string operation = 5;
+  optional string target = 6;
+  optional uint32 number = 7;
+  optional string message_id = 8;
+  optional string title = 9;
+  optional string status = 10;
+  optional uint32 expected_revision = 11;
+}
+
+message TaskResponse {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  repeated TaskView tasks = 3;
+}
+
+message TaskView {
+  string message_id = 1;
+  string conversation_id = 2;
+  uint32 number = 3;
+  string title = 4;
+  string status = 5;
+  uint32 revision = 6;
+  TaskOwner owner = 7;
+}
+
+message TaskOwner {
+  string member_id = 1;
+  string kind = 2;
+  string name = 3;
+}

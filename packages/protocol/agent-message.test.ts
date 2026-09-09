@@ -14,6 +14,7 @@ import {
   decodeAgentMessageRequest,
   decodeLocalAgentMessageRequest,
   encodeLocalAgentMessageRequest,
+  isChannelMessageTarget,
 } from "./index";
 
 test.each(["mute", "unmute"] as const)(
@@ -40,6 +41,27 @@ test.each(["mute", "unmute"] as const)(
   },
 );
 
+test("round-trips Agent channel thread unfollow over existing versioned envelopes", () => {
+  const request = {
+    protocolMajor: 1,
+    requestId: "request-unfollow",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    operation: "thread-unfollow" as const,
+    target: "#general:12345678-1234-4234-8234-123456789abc",
+  };
+  expect(decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toMatchObject(request);
+  const local = {
+    requestId: "request-unfollow",
+    context: "context-a",
+    operation: "thread-unfollow" as const,
+    target: "#general:12345678",
+  };
+  expect(decodeLocalAgentMessageRequest(encodeLocalAgentMessageRequest(local))).toMatchObject(
+    local,
+  );
+});
+
 test("round-trips Agent lexical message search filters over the HTTPS envelope", () => {
   const request = {
     protocolMajor: 1,
@@ -56,6 +78,13 @@ test("round-trips Agent lexical message search filters over the HTTPS envelope",
     offset: 2,
   } as const;
   expect(decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toMatchObject(request);
+});
+
+test("accepts full and short channel thread targets without treating them as mute targets", () => {
+  expect(isChannelMessageTarget("#general")).toBe(true);
+  expect(isChannelMessageTarget("#general:12345678")).toBe(true);
+  expect(isChannelMessageTarget("#general:12345678-1234-4234-8234-123456789abc")).toBe(true);
+  expect(isChannelMessageTarget("#general:reply-id")).toBe(false);
 });
 
 test("round-trips an Agent direct message delivery", () => {

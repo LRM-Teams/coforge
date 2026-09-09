@@ -37,7 +37,13 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
         userId: { not: null },
         ...(channelName
           ? {
-              OR: [{ channelMuted: false }, { user: { username: { in: names } } }],
+              OR: [
+                { channelMuted: false },
+                { user: { username: { in: names } } },
+                ...(message.threadRootId
+                  ? [{ threadFollows: { some: { rootMessageId: message.threadRootId } } }]
+                  : []),
+              ],
             }
           : {}),
         user: { browserNotificationsEnabled: true },

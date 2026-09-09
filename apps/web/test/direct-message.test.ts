@@ -278,6 +278,69 @@ describe("SendDirectMessage", () => {
     });
   });
 
+  test("routes an Agent channel-thread reply through the parent channel and preserves the root", async () => {
+    const rootId = "12345678-0000-4000-8000-000000000001";
+    const calls: string[] = [];
+    const repository = {
+      async sendMessage() {
+        throw new Error("not used");
+      },
+      async getOrCreateUserAgent() {
+        throw new Error("not used");
+      },
+      async getAgentChannel(workspaceId: string, agentId: string, target: string) {
+        calls.push(`channel:${workspaceId}:${agentId}:${target}`);
+        return { id: "channel-a" };
+      },
+      async sendAgentMessage(
+        conversationId: string,
+        agentId: string,
+        body: string,
+        attachmentId?: string,
+        threadRootId?: string,
+      ) {
+        calls.push(
+          `send:${conversationId}:${agentId}:${body}:${attachmentId ?? ""}:${threadRootId ?? ""}`,
+        );
+        return {
+          ...persisted,
+          deliveryId: undefined,
+          target: `#general:${rootId}`,
+        };
+      },
+    } satisfies DirectConversationRepository;
+    const useCase = new SendDirectMessage(
+      repository,
+      new MemoryMessageRequestIdempotency(),
+      {
+        async publish() {
+          throw new Error("must not publish an Agent reply to a Daemon channel");
+        },
+      },
+      undefined,
+      {
+        async notifyMessage(messageId) {
+          calls.push(`notify:${messageId}`);
+        },
+      },
+    );
+
+    await expect(
+      useCase.executeFromAgent({
+        requestId: "channel-thread-request",
+        workspaceId: "workspace-a",
+        agentId: "agent-a",
+        target: `#general:${rootId}`,
+        body: "Thread reply",
+      }),
+    ).resolves.toMatchObject({ target: `#general:${rootId}` });
+    expect(calls).toEqual([
+      "channel:workspace-a:agent-a:#general",
+      `send:channel-a:agent-a:Thread reply::${rootId}`,
+      "notify:message-a",
+    ]);
+  });
+
   test("does not publish when Agent persistence fails", async () => {
     let published = false;
     const repository = {

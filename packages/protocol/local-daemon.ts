@@ -177,7 +177,7 @@ export const decodeUsageScanResponse = (b: Uint8Array): UsageScanResponse => {
 export type LocalAgentMessageRequest = {
   requestId: string;
   context: string;
-  operation: "check" | "read" | "search" | "send" | "mute" | "unmute";
+  operation: "check" | "read" | "search" | "send" | "mute" | "unmute" | "thread-unfollow";
   target?: string;
   body?: string;
   sendDraft?: boolean;

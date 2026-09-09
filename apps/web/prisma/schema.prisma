@@ -26,6 +26,7 @@ model Workspace {
   reminders           Reminder[]
   reminderEvents      ReminderEvent[]
   attachments         Attachment[]
+  tasks               Task[]
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 
@@ -321,6 +322,7 @@ model Conversation {
   messages    Message[]
   deliveries  AgentMessageDelivery[]
   attachments Attachment[]
+  tasks       Task[]
 
   @@unique([workspaceId, directKey])
   @@unique([workspaceId, channelName])
@@ -343,6 +345,9 @@ model ConversationMember {
   agent                    Agent?       @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   messages                 Message[]
   threadReads              ThreadRead[]
+  threadFollows            ThreadFollow[]
+  ownedTasks               Task[]             @relation("TaskOwner")
+  createdTasks             Task[]             @relation("TaskCreator")
 
   @@unique([id, conversationId, workspaceId])
   @@unique([conversationId, userId])
@@ -368,12 +373,40 @@ model Message {
   threadRoot     Message?               @relation("MessageThread", fields: [threadRootId, conversationId], references: [id, conversationId], onDelete: Cascade)
   replies        Message[]              @relation("MessageThread")
   threadReads    ThreadRead[]
+  threadFollows  ThreadFollow[]
+  task           Task?
 
   @@unique([id, conversationId])
   @@unique([conversationId, sequence])
   @@index([conversationId, threadRootId, sequence])
   @@index([conversationId, createdAt])
   @@map("messages")
+}
+
+model Task {
+  messageId       String             @id @db.Uuid
+  conversationId  String             @db.Uuid
+  workspaceId     String             @db.Uuid
+  number          Int
+  title           String
+  status          String             @default("todo")
+  revision        Int                @default(0)
+  ownerMemberId   String?            @db.Uuid
+  creatorMemberId String             @db.Uuid
+  requestId       String?            @db.Uuid
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  message         Message            @relation(fields: [messageId, conversationId], references: [id, conversationId], onDelete: Cascade)
+  conversation    Conversation       @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  workspace       Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner           ConversationMember? @relation("TaskOwner", fields: [ownerMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Restrict)
+  creator         ConversationMember @relation("TaskCreator", fields: [creatorMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Restrict)
+
+  @@unique([conversationId, number])
+  @@unique([messageId, conversationId])
+  @@unique([conversationId, creatorMemberId, requestId])
+  @@index([workspaceId, conversationId, status])
+  @@map("tasks")
 }
 
 model ThreadRead {
@@ -387,6 +420,19 @@ model ThreadRead {
 
   @@id([memberId, rootMessageId])
   @@map("thread_reads")
+}
+
+model ThreadFollow {
+  memberId       String             @db.Uuid
+  rootMessageId  String             @db.Uuid
+  conversationId String             @db.Uuid
+  workspaceId    String             @db.Uuid
+  createdAt      DateTime           @default(now())
+  member         ConversationMember @relation(fields: [memberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Cascade)
+  root           Message            @relation(fields: [rootMessageId, conversationId], references: [id, conversationId], onDelete: Cascade)
+
+  @@id([memberId, rootMessageId])
+  @@map("thread_follows")
 }
 
 model Attachment {

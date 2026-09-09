@@ -547,7 +547,7 @@ const recovery = {
   unreadSummary: { "@ada": 1 },
 };
 
-test("channel check includes different human senders and mute uses the bound Agent without replacing its session", async () => {
+test("channel check and notification settings use the bound Agent without replacing its session", async () => {
   const calls: AgentMessageRequest[] = [];
   const harness = await messageHarness(async (request) => {
     calls.push(request);
@@ -577,11 +577,22 @@ test("channel check includes different human senders and mute uses the bound Age
         { requestId: operation, context: harness.context, operation, target: "#general" },
         harness.apiKey,
       );
+    await harness.runtime.agentMessage(
+      harness.context,
+      {
+        requestId: "thread-unfollow",
+        context: harness.context,
+        operation: "thread-unfollow",
+        target: "#general:12345678-0000-4000-8000-000000000001",
+      },
+      harness.apiKey,
+    );
     expect(
-      calls.slice(-2).map(({ operation, target, agentId }) => [operation, target, agentId]),
+      calls.slice(-3).map(({ operation, target, agentId }) => [operation, target, agentId]),
     ).toEqual([
       ["mute", "#general", "agent-a"],
       ["unmute", "#general", "agent-a"],
+      ["thread-unfollow", "#general:12345678-0000-4000-8000-000000000001", "agent-a"],
     ]);
   } finally {
     await harness.runtime.stop();
@@ -847,6 +858,50 @@ describe("DaemonRuntime", () => {
         operation: "send",
         target: fullTarget,
         seenUpToSequence: 7,
+      });
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("resolves a short channel thread target through its parent channel", async () => {
+    const rootId = "abcdef12-1234-4234-8234-123456789abc";
+    const fullTarget = `#general:${rootId}`;
+    const requests: AgentMessageRequest[] = [];
+    const harness = await messageHarness(async (request) => {
+      requests.push(request);
+      if (request.target === "#general")
+        return {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: true,
+          attentionCount: 0,
+          messages: [messageRecord(1, "@ada", "#general", rootId)],
+        };
+      return {
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messageId: request.operation === "send" ? "sent" : undefined,
+        messages: [],
+      };
+    });
+    try {
+      await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "send-channel-thread",
+          context: harness.context,
+          operation: "send",
+          target: "#general:abcdef12",
+          body: "thread reply",
+        },
+        harness.apiKey,
+      );
+      expect(requests.at(-1)).toMatchObject({
+        operation: "send",
+        target: fullTarget,
       });
     } finally {
       await harness.runtime.stop();

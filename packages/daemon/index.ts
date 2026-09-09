@@ -143,6 +143,9 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
             Promise.reject(new Error("daemon runtime is not running")),
           inbox: (...args) =>
             runtime?.inbox(...args) ?? Promise.reject(new Error("daemon runtime is not running")),
+          agentTask: (...args) =>
+            runtime?.agentTask(...args) ??
+            Promise.reject(new Error("daemon runtime is not running")),
           issueAgentContext: (agentId) => {
             if (!runtime) throw new Error("daemon runtime is not running");
             return runtime.issueAgentContext(agentId);

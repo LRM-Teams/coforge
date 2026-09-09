@@ -9,6 +9,7 @@ import { daemonControlChannel } from "../centrifugo/server-api.server";
 import type { DirectConversationRepository } from "../db/repositories/direct-conversation.repositories.server";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
 import type { ConversationRealtime } from "./conversation-realtime.server";
+import type { MessageNotifier } from "../notifications/web-push-composition.server";
 
 export class ReadDirectMessages {
   constructor(private readonly conversations: DirectConversationRepository) {}
@@ -34,6 +35,7 @@ export class SendDirectMessage {
     private readonly idempotency: MessageRequestIdempotency,
     private readonly centrifugo: Pick<CentrifugoServerApi, "publish">,
     private readonly realtime?: ConversationRealtime,
+    private readonly notifications?: MessageNotifier,
   ) {}
 
   async execute(input: {
@@ -87,7 +89,11 @@ export class SendDirectMessage {
     )
       throw new Error("invalid agent direct message");
     const conversation = isChannelMessageTarget(input.target)
-      ? await this.conversations.getAgentChannel?.(input.workspaceId, input.agentId, input.target)
+      ? await this.conversations.getAgentChannel?.(
+          input.workspaceId,
+          input.agentId,
+          input.target.split(":")[0]!,
+        )
       : await (async () => {
           const userId = await this.conversations.userIdForUsername?.(input.target);
           if (!userId) throw new Error("target user not found");
@@ -114,6 +120,7 @@ export class SendDirectMessage {
       },
     );
     await this.publishBrowserEvent(message, conversation.id);
+    await this.notifications?.notifyMessage(message.id);
     return message;
   }
 

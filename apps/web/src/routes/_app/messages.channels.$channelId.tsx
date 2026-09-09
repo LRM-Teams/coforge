@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { z } from "zod";
 import { ChannelConversation } from "@/features/conversations/channel-conversation";
 import {
   ConversationLoadError,
@@ -9,6 +10,8 @@ import {
 import { createConversationReconciler } from "@/features/conversations/conversation-reconciliation";
 import { useConversationRealtime } from "@/features/conversations/conversation-realtime-client";
 import { loadReminderNotices } from "@/features/conversations/reminder-notices.functions";
+import { TaskBoard } from "@/features/tasks/task-board";
+import { useConversationTasks } from "@/features/tasks/use-conversation-tasks";
 import {
   loadConversationAround,
   loadOwnConversationMessages,
@@ -17,11 +20,19 @@ import {
   loadPublicChannel,
   loadPublicChannelUpdates,
   joinPublicChannel,
+  markPublicChannelThreadRead,
+  setPublicChannelThreadFollowed,
   setPublicChannelMuted,
   sendPublicChannelMessage,
 } from "@/features/conversations/channels.functions";
 
 export const Route = createFileRoute("/_app/messages/channels/$channelId")({
+  validateSearch: z.object({
+    view: z.enum(["chat", "tasks"]).optional().catch(undefined),
+    layout: z.enum(["board", "list"]).optional().catch(undefined),
+    message: z.uuid().optional().catch(undefined),
+    threadRootId: z.uuid().optional().catch(undefined),
+  }),
   remountDeps: ({ params }) => params.channelId,
   loader: ({ params }) => loadPublicChannel({ data: { channelId: params.channelId } }),
   pendingMs: 300,
@@ -35,9 +46,12 @@ function ChannelPage() {
   const latestConversation = Route.useLoaderData();
   const [conversation, setConversation] = useState(latestConversation);
   const { channelId } = Route.useParams();
+  const { view, layout } = Route.useSearch();
   const router = useRouter();
   const send = useServerFn(sendPublicChannelMessage);
   const join = useServerFn(joinPublicChannel);
+  const markRead = useServerFn(markPublicChannelThreadRead);
+  const setThreadFollowed = useServerFn(setPublicChannelThreadFollowed);
   const setMuted = useServerFn(setPublicChannelMuted);
   const loadChannel = useServerFn(loadPublicChannel);
   const loadAround = useServerFn(loadConversationAround);
@@ -48,6 +62,7 @@ function ChannelPage() {
   const channelIdRef = useRef(channelId);
   const loadUpdatesRef = useRef(loadUpdates);
   const mergeUpdatesRef = useRef<(updates: typeof conversation.messages) => void>(() => {});
+  const taskView = useConversationTasks(latestConversation.conversationId);
   channelIdRef.current = channelId;
   loadUpdatesRef.current = loadUpdates;
   mergeUpdatesRef.current = (updates) => {
@@ -74,7 +89,7 @@ function ChannelPage() {
     [latestConversation.conversationId],
   );
   useConversationRealtime(latestConversation.conversationId, async () => {
-    await reconciliation.reconcile();
+    await Promise.all([reconciliation.reconcile(), taskView.refresh()]);
     setReminderRefreshKey((value) => value + 1);
   });
 
@@ -91,19 +106,91 @@ function ChannelPage() {
     });
   }, [latestConversation]);
 
+  const showChat = () =>
+    void router.navigate({
+      from: Route.fullPath,
+      search: (previous) => ({ ...previous, view: "chat" }),
+    });
+  const showTasks = () =>
+    void router.navigate({
+      from: Route.fullPath,
+      search: (previous) => ({ ...previous, view: "tasks" }),
+    });
+  const openTask = async (messageId: string) => {
+    if (!conversation.messages.some((message) => message.id === messageId)) {
+      const around = await loadAround({
+        data: { conversationId: conversation.conversationId, messageId },
+      });
+      setConversation((current) => ({ ...current, ...around }));
+    }
+    await router.navigate({
+      from: Route.fullPath,
+      search: (previous) => ({ ...previous, view: "chat" }),
+      hash: `message-${messageId}`,
+    });
+  };
+  if (view === "tasks")
+    return (
+      <TaskBoard
+        layout={layout ?? "board"}
+        onLayoutChange={(nextLayout) =>
+          void router.navigate({
+            from: Route.fullPath,
+            search: (previous) => ({ ...previous, layout: nextLayout }),
+          })
+        }
+        tasks={taskView.tasks}
+        conversationName={`#${conversation.name}`}
+        currentMemberId={conversation.senderMemberId}
+        canMutate={Boolean(conversation.senderMemberId)}
+        loading={taskView.loading}
+        error={taskView.error}
+        onOpenMessage={openTask}
+        onShowChat={showChat}
+        onCreateTask={
+          conversation.senderMemberId
+            ? async (title, requestId) => {
+                const [task] = await taskView.command({ operation: "create", title, requestId });
+                setConversation(await loadChannel({ data: { channelId } }));
+                return task;
+              }
+            : undefined
+        }
+        onCommand={async (command) => {
+          await taskView.command(command);
+        }}
+      />
+    );
   return (
     <ChannelConversation
       key={channelId}
       conversation={conversation}
       reminderRefreshKey={reminderRefreshKey}
-      onLoadReminderNotices={async () =>
-        (await loadNotices({ data: { conversationId: conversation.conversationId } })).notices
+      onLoadReminderNotices={async (threadRootId) =>
+        (await loadNotices({ data: { conversationId: conversation.conversationId, threadRootId } }))
+          .notices
       }
-      onSend={async (body, requestId, attachmentId) => {
+      tasks={taskView.tasks}
+      onShowTasks={showTasks}
+      onConvertToTask={async (messageId) => {
+        await taskView.command({ operation: "convert", messageId });
+      }}
+      onCreateTask={async (title, requestId, attachmentId) => {
+        await taskView.command({ operation: "create", title, requestId, attachmentId });
+        setConversation(await loadChannel({ data: { channelId } }));
+      }}
+      onSend={async (body, requestId, attachmentId, threadRootId) => {
         const message = await send({
-          data: { channelId, body, requestId, attachmentId },
+          data: { channelId, body, requestId, attachmentId, threadRootId },
         });
         mergeUpdatesRef.current([message]);
+        if (threadRootId)
+          setConversation((current) => ({
+            ...current,
+            followedThreadRootIds: current.followedThreadRootIds.includes(threadRootId)
+              ? current.followedThreadRootIds
+              : [...current.followedThreadRootIds, threadRootId],
+          }));
         void reconciliation.reconcile().catch(() => {});
         return message;
       }}
@@ -114,6 +201,18 @@ function ChannelPage() {
       onMutedChange={async (muted) => {
         await setMuted({ data: { channelId, muted } });
         await router.invalidate({ sync: true });
+      }}
+      onReadThread={(threadRootId, throughSequence) =>
+        markRead({ data: { channelId, threadRootId, throughSequence } })
+      }
+      onThreadFollowedChange={async (threadRootId, followed) => {
+        await setThreadFollowed({ data: { channelId, threadRootId, followed } });
+        setConversation((current) => ({
+          ...current,
+          followedThreadRootIds: followed
+            ? [...new Set([...current.followedThreadRootIds, threadRootId])]
+            : current.followedThreadRootIds.filter((id) => id !== threadRootId),
+        }));
       }}
       onLoadOwnMessages={(beforeSequence) =>
         loadOwnMessages({

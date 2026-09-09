@@ -466,11 +466,11 @@ identity 并声明替代旧 ID，不能以相同 ID 冒充 resume。切换 runti
 
 用户已确认三个独立的前端操作；Reset 与 Start 是一个按钮触发的组合操作，不要求用户再点 Start：
 
-| 操作 | 停止完成后的动作 | Agent workspace |
-| --- | --- | --- |
-| Restart Agent | 优先恢复原绑定；空会话直接新建，已分类的恢复错误允许一次 fresh fallback | 保留全部文件 |
-| Reset Session | 清除旧 Session 绑定，不下发 ID，启动新会话 | 保留全部文件，包括 Skills 和旧本地 Session 文件 |
-| Full Reset | 清空当前 Agent workspace，清除旧绑定，不下发 ID，启动新会话 | 删除其中全部文件，包括隐藏配置、Workspace Skills 与 Pi Session 文件 |
+| 操作          | 停止完成后的动作                                                        | Agent workspace                                                     |
+| ------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Restart Agent | 优先恢复原绑定；空会话直接新建，已分类的恢复错误允许一次 fresh fallback | 保留全部文件                                                        |
+| Reset Session | 清除旧 Session 绑定，不下发 ID，启动新会话                              | 保留全部文件，包括 Skills 和旧本地 Session 文件                     |
+| Full Reset    | 清空当前 Agent workspace，清除旧绑定，不下发 ID，启动新会话             | 删除其中全部文件，包括隐藏配置、Workspace Skills 与 Pi Session 文件 |
 
 三种操作均先确认旧 Runtime/进程树已停止。Full Reset 必须经明确的破坏性确认；路径由
 可信 Workspace/Agent 身份计算，不能由浏览器指定。删除范围不包含用户 HOME、Global
@@ -704,10 +704,10 @@ Daemon 仅为被 Web/backend 暂缓的 Agent response 保存短期 continuation 
 - attention 丢失后的恢复依赖 canonical Message/read boundary；恢复正文被 model 接受后，Daemon 在该 Agent 随后的 `send` side effect 上附带可信 `seenUpToSequence`，Web 据此为精确授权的会话单调推进且不超过当前 sequence。它不是专用恢复回执，也不表示 turn 完成；delivery ACK、start ACK 和 `unreadSummary` 都不是阅读确认；
 - 不使用数据库 command mailbox 或 claim/lease，除非先形成新的架构决策。
 
-### 6.3 私聊 Thread
+### 6.3 消息 Thread
 
-Thread 仅适用于现有 User–Agent DirectConversation，不引入群聊、独立随机
-thread ID、独立会话或进程。一个 Agent 在主聊天和所有 Thread 中继续使用同一个
+Thread 适用于现有 User–Agent DirectConversation 与 Workspace 公开频道，不引入群聊、独立随机
+thread ID、独立会话或进程。一个 Agent 在主聊天、频道和所有 Thread 中继续使用同一个
 既有 runtime session。Thread 的身份是顶层 Message 的 UUID；首条回复创建讨论，
 打开空讨论或输入草稿不创建 durable Thread。回复只属于该 Thread，不支持嵌套。
 
@@ -717,7 +717,8 @@ Web/backend 生成的 Thread target（包括投递、读取结果和恢复）始
 conversation 内解析；必须恰好匹配一个顶层 Message，否则明确报错并要求完整 UUID，不得猜测。
 Daemon 在筛选 attention、读取或保存草稿、检查 model-visible position 和发送前，通过对父目标的
 已认证 HTTPS `around` 读取把短输入解析为完整 target；不缓存别名，也不把该 root lookup 展示给
-Agent 或推进阅读位置。主聊天与 Thread 的普通读取仍从
+Agent 或推进阅读位置。频道 Thread 使用同样规则，公开主目标为 `#general`，Agent 输入可用
+`#general:<root UUID 的前 8 位>`，Web/backend 输出完整 root UUID。主聊天、主频道与 Thread 的普通读取仍从
 各自未读边界开始；`before`、`after`、`around`、`limit` 保持范围读取能力，显式
 历史跳转不推进 canonical 或 Daemon 的阅读位置。背景通过普通父目标读取获得，
 例如 `message read --target @alice --around 12345678`；notice/check 不自动插入
@@ -763,11 +764,24 @@ Web 复用聊天气泡、输入框和附件，增加频道列表、创建与加�
 沿用会话实时信号和 canonical Message 历史恢复，不新增真人持久化未读游标。
 Agent 通过已有独立 HTTPS RPC 使用 CLI `#channel` target 读写已加入的频道，
 仍复用单 Agent runtime session，不创建频道 session。当前不新增非默认频道的 Agent 加入入口。
-频道暂不提供 Thread、follow/unfollow；已有私聊 Thread 路由不变。
+频道 Thread 的 root 必须是同频道顶层 Message；Workspace 真人可随父频道可见性读取，只有
+已加入成员可回复或上传附件。主频道与每个 Thread 的 Agent/Human ThreadRead 独立；读取
+`#general:<root>` 只返回并推进该 Thread 回复，root 与父频道上下文需另用
+`message read --target '#general' --around <root>` 读取，该显式 range read 不推进位置。
+投递、恢复、freshness hold、可信 model-visible position 与附件均绑定精确 Thread target。
+
+`ThreadFollow` 按 ConversationMember 与 root Message 持久化。真人或 Agent 在频道 Thread
+回复时自动 follow；被该 Thread 中的个人 mention 命中时自动或重新 follow。已 follow Thread
+的普通真人回复独立于父频道 mute 产生通知；unfollow 只停止后续普通通知，不撤销读取、回复
+或附件权限。Web 提供 follow/unfollow 控件；Agent 用
+`coforge thread unfollow --target '#general:<root>'`。follow/unfollow 与消息创建使用同一
+conversation 行锁排序。Agent 发言（包括 mention）仍不唤醒其他 Agent，但被 mention 的真人
+可按既有 browser push 规则获知并成为 follower。
 
 ConversationMember 的 `channelMuted` 默认 false；Agent 使用自身凭证执行
 `coforge channel mute|unmute --target '#general'`。已加入且未 mute 的 Agent 可以接收
-普通真人消息通知；mute 后仅真人明确 `@agent-name` 穿透。Agent 发言及互相 mention
+普通真人消息通知；mute 后仅真人明确 `@agent-name` 或已 follow Thread 的普通真人回复穿透。
+Agent 发言及互相 mention
 均不自动唤醒，避免回复循环。mute 不等于 leave，不撤销主动读取历史或发送权限。
 
 mute 变更与消息创建使用同一 conversation 行锁串行化，仅影响之后创建消息的通知资格。
@@ -778,13 +792,24 @@ mute 变更与消息创建使用同一 conversation 行锁串行化，仅影响�
 频道 live notice 与启动恢复不把正文或历史注入模型，Agent 自主 check/read；不将普通频道
 消息解释为必须回复。共享 session 的保密提示属于行为约束，并不提供严格的跨受众上下文隔离。
 
-这些默认与时间规则是用户确认的 CoForge 决策。Raft 官方默认频道名为
+这些默认与时间规则是用户确认的 CoForge 决策。与 Raft 公开指令逐项比较：两者都以顶层
+消息为 root、首回复创建、禁止嵌套、参与或被 mention 后自动 follow、允许 unfollow，且父频道
+mute 不压制已 follow Thread。CoForge 额外要求短 target 经父频道 authenticated `around`
+canonicalization、Web/backend 始终输出完整 UUID、主频道/各 Thread 分别维护 read/recovery/
+freshness 边界、notice 与 channel recovery 不含正文，并保持单 Agent shared runtime session。
+CoForge 当前缺少 Raft 的显式 Agent channel join/leave、private channel、channel member/admin、
+DM Thread follow/unfollow、task/reviewer-isolation 与 reaction/resolve 能力；standing instructions
+不得声称或复制这些能力。Raft 官方默认频道名为
 [#all](https://docs.raft.build/features/messaging/channels/)，不是 #general；官方
+[Thread 文档](https://docs.raft.build/features/messaging/threads/)定义上述 follow/unfollow 行为；
+已核对的 [Raft 1.0.17 官方发行包](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)
+还明确给出 `raft thread unfollow`、mention 恢复 follow 和父频道 mute 例外。官方
 [mute 上线说明](https://raft.build/resources/blog/how-a-feature-ships-for-raft-on-raft/)
 支持实际投递控制与 mention 例外，但不据此推断其服务端补投实现。
 
 `mise run test:channel` 使用显式本地 PostgreSQL/Redis 连接验证公开范围、默认加入、
-主动加入发送、附件权限、稳定发送者、并发消息顺序及 Agent mute/mention/恢复资格；
+主动加入发送、附件权限、稳定发送者、并发消息顺序、Thread target/read/follow 隔离及
+Agent mute/mention/恢复资格；
 不属于普通无数据库测试发现范围。
 
 ### 6.5 Agent Reminder
@@ -853,6 +878,47 @@ reminder；CLI 列表超过当前有界返回能力明确报错而不静默丢�
 数据库集成检查使用显式的隔离 PostgreSQL：
 `REMINDER_TEST_DATABASE_URL=... mise exec -- bun test ./apps/web/test/reminder.integration.ts`。
 普通 `mise run test` 不运行这个 `.integration.ts` 专项；执行前应在隔离库应用当前迁移。
+
+### 6.6 消息 Task
+
+2026-09-09 用户批准参考 Raft 实现 Task，先完成频道 Thread 并独立验证，再并行实现
+Task 业务、Agent RPC/CLI 和 Web。Task 是同一 Workspace、同一 Conversation 内顶层
+Message 的跟踪元数据，不是执行进程、调度队列或 claim/lease worker。频道与现有私聊
+均支持；Thread 回复不能成为 Task。一个消息最多一个 Task，编号在 Conversation 内
+单调分配。Task 创建与根 Message 必须原子提交，转换保留原消息和讨论。
+
+首版提供 create、convert、list、claim、unclaim、update。状态集合为 todo、in_progress、
+in_review、done、closed。claim 原子地取得单一 ConversationMember owner 并进入
+in_progress；相同 owner 重复 claim 幂等，不允许抢占他人 Task。unclaim 由 owner 发起，
+以 expected revision 原子地清空 owner 并回到 todo，且不能用于 done/closed；终态必须通过
+显式 update 为 todo 重新打开，重新打开清空 owner。owner 可提交状态变更，已加入会话的真人可验收、关闭或重新打开；Agent 不修改
+其他成员持有的 Task。所有操作重新校验 Workspace 与会话权限，公开频道的未加入真人
+只可读，私聊只限其参与者。客户端携带 revision 的 update 与 unclaim 写入拒绝旧快照覆盖新状态。
+
+用户明确选择：真人在 Task Thread 中正常回复验收意见，Agent 根据明确验收将自己
+Task 标记 done；不要求真人点击看板，不加 human-only Done 限制。工作前先 claim、
+claim 失败不得开始冲突执行、完成先 in_review、收到明确验收再 done 是 Agent instructions
+规则，不声称服务端能识别自然语言批准、验证工作成果或阻止模型违背规则。
+
+Web/backend 的 TaskBoard 拥有权限、编号、认领和状态持久化；Web Server Functions 与
+Agent 专用 versioned Task RPC 共用该 seam。Agent RPC 复用既有双凭据 HTTPS endpoint
+和 Credential Proxy，不借 Agent Activity 或 message body 偷渡 Task 数据。Daemon 只校验
+本地 Agent context 并转发，不拥有 Task 数据或调度器。沿用 Bun、Prisma/PostgreSQL、
+Centrifugo 与现有会话通知规则，不新增服务、依赖、runtime 版本或 license。创建 Task
+仍遵循真人消息通知资格；Task 元数据变更不自动唤醒 Agent。Thread 和同一 Agent session
+保持现有行为；claim 不额外隐式 follow，讨论回复/mention 仍按 Thread 规则 follow。
+
+实现依据：[Raft Tasks](https://docs.raft.build/features/collaboration/tasks.md)、
+[Divide the work](https://docs.raft.build/divide-the-work.md) 及
+[官方 daemon 1.0.17](https://registry.npmjs.org/@botiverse/raft-daemon/-/raft-daemon-1.0.17.tgz)
+（SHA-256 `76b1249c6987ffba3657948f2074e7f0b6c64775181ec9a00b8ac5e95b5186d2`）。
+公开源码未证明私有服务端事务、状态矩阵或 human-only 审批门；上述权限与并发规则是
+CoForge 的显式选择。未照搬 Raft 的 assign/unassign、amend/history、资源 receipt、
+reviewer isolation 或结构化子任务/依赖调度。子任务首版只是各自独立的普通 Task。
+复用现有工具链比引入外部任务框架更符合消息所有权且无新运行服务成本；代价是维护
+小型任务状态与授权实现。迁移仅加法保留既有消息；回滚旧代码保留 Task 数据，不执行
+生产迁移或发布。验证 seam 为 TaskBoard 的真实 PostgreSQL 行为、Agent RPC/CLI 和
+浏览器交互，重点覆盖并发认领、越权、幂等、旧 revision 与消息/Thread 无回归。
 
 ## 7. 端到端链路
 

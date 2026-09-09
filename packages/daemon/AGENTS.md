@@ -57,9 +57,17 @@ configuration and recovery; the entrypoint assembles these policies, not their r
 
 ### Layer rules
 
+- Agent Task operations use the existing Credential Proxy and authenticated
+  HTTPS connection. Task parsing/wire contracts belong to protocol and CLI;
+  the Daemon forwards them without storing Task state or interpreting claims,
+  status transitions or human approval. `code-agent/agent-instructions.ts`
+  states the claim-before-work and conversational acceptance workflow.
+
 - `daemon-runtime/agent-message-attention-index.ts` owns full-target thread
   attention and model-visible positions. `runtime.ts` routes those targets to
-  the existing Agent session; threads never create sessions or processes.
+  the existing Agent session and canonicalizes short channel/DM thread targets.
+  Thread follow state remains cloud-persisted; Daemon only forwards the Agent's
+  explicit unfollow operation. Threads never create sessions or processes.
 
 - `main.ts` only assembles dependencies and starts the daemon. It does not
   contain Workspace, Agent, or protocol business logic.

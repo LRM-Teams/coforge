@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Bell, BellOff, Hash } from "lucide-react";
+import type { TaskView } from "@coforge/protocol";
 import { Button } from "@/components/ui/button";
+import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
 import { BackToAgents } from "./conversation-layout";
 import {
-  ConversationPane,
+  ThreadedConversation,
   type DirectConversationView,
   type OwnMessageIndexEntry,
 } from "./direct-conversation";
@@ -13,6 +15,7 @@ import type { ReminderNoticeView } from "./reminder-notice";
 export type ChannelConversationView = Omit<DirectConversationView, "agent" | "messages"> & {
   name: string;
   muted: boolean;
+  followedThreadRootIds?: string[];
   messages: (DirectConversationView["messages"][number] & {
     senderMemberId: string;
   })[];
@@ -29,12 +32,19 @@ export function ChannelConversation({
   onShowLatest,
   onLoadReminderNotices,
   reminderRefreshKey,
+  onReadThread,
+  onThreadFollowedChange,
+  tasks,
+  onConvertToTask,
+  onCreateTask,
+  onShowTasks,
 }: {
   conversation: ChannelConversationView;
   onSend: (
     body: string,
     requestId: string,
     attachmentId?: string,
+    threadRootId?: string,
   ) => Promise<OwnMessageIndexEntry | void>;
   onJoin: () => Promise<void>;
   onMutedChange: (muted: boolean) => Promise<void>;
@@ -53,6 +63,12 @@ export function ChannelConversation({
   onShowLatest?: () => Promise<void>;
   onLoadReminderNotices?: (threadRootId?: string) => Promise<ReminderNoticeView[]>;
   reminderRefreshKey?: number;
+  onReadThread?: (rootMessageId: string, throughSequence: number) => Promise<void>;
+  onThreadFollowedChange?: (rootMessageId: string, followed: boolean) => Promise<void>;
+  tasks?: TaskView[];
+  onConvertToTask?: (messageId: string) => Promise<void>;
+  onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>;
+  onShowTasks?: () => void;
 }) {
   const [joining, setJoining] = useState(false);
   const [savingMute, setSavingMute] = useState(false);
@@ -69,7 +85,7 @@ export function ChannelConversation({
     }
   }
   return (
-    <ConversationPane
+    <ThreadedConversation
       conversation={conversation}
       onSend={onSend}
       onLoadOlder={onLoadOlder}
@@ -78,33 +94,65 @@ export function ChannelConversation({
       onShowLatest={onShowLatest}
       onLoadReminderNotices={onLoadReminderNotices}
       reminderRefreshKey={reminderRefreshKey}
+      onReadThread={onReadThread}
+      tasks={tasks}
+      onConvertToTask={conversation.senderMemberId ? onConvertToTask : undefined}
+      onCreateTask={conversation.senderMemberId ? onCreateTask : undefined}
+      threadHeaderAction={(rootMessageId) => {
+        const followed = conversation.followedThreadRootIds?.includes(rootMessageId) ?? false;
+        return conversation.senderMemberId ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="ml-auto"
+            aria-label={
+              followed ? m.conversation_thread_unfollow() : m.conversation_thread_follow()
+            }
+            onClick={() => void onThreadFollowedChange?.(rootMessageId, !followed)}
+          >
+            {followed ? <BellOff aria-hidden="true" /> : <Bell aria-hidden="true" />}
+          </Button>
+        ) : undefined;
+      }}
       emptyDescription={m.channel_empty()}
       header={
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b px-3 sm:px-5">
-          <BackToAgents />
-          <Hash aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
-          <h1 className="truncate text-base font-medium">#{conversation.name}</h1>
-          <span className="ml-auto hidden text-xs text-muted-foreground sm:block">
-            {m.channel_public()}
-          </span>
-          {conversation.senderMemberId && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              disabled={savingMute}
-              aria-label={conversation.muted ? m.channel_unmute() : m.channel_mute()}
-              onClick={async () => {
-                setSavingMute(true);
-                try {
-                  await onMutedChange(!conversation.muted);
-                } finally {
-                  setSavingMute(false);
-                }
-              }}
-            >
-              {conversation.muted ? <BellOff aria-hidden="true" /> : <Bell aria-hidden="true" />}
-            </Button>
+        <header className="shrink-0 border-b px-3 sm:px-5">
+          <div className="-mx-3 flex h-14 items-center gap-3 border-b px-3 sm:-mx-5 sm:px-5">
+            <BackToAgents />
+            <Hash aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
+            <h1 className="truncate text-base font-medium">#{conversation.name}</h1>
+            <span className="ml-auto hidden text-xs text-muted-foreground sm:block">
+              {m.channel_public()}
+            </span>
+            {conversation.senderMemberId && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                disabled={savingMute}
+                aria-label={conversation.muted ? m.channel_unmute() : m.channel_mute()}
+                onClick={async () => {
+                  setSavingMute(true);
+                  try {
+                    await onMutedChange(!conversation.muted);
+                  } finally {
+                    setSavingMute(false);
+                  }
+                }}
+              >
+                {conversation.muted ? <BellOff aria-hidden="true" /> : <Bell aria-hidden="true" />}
+              </Button>
+            )}
+          </div>
+          {onShowTasks && (
+            <div className="py-2">
+              <ConversationTaskTabs
+                active="chat"
+                taskCount={tasks?.length ?? 0}
+                onShowTasks={onShowTasks}
+              />
+            </div>
           )}
         </header>
       }

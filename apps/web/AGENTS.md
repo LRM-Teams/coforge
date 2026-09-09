@@ -79,11 +79,14 @@ instructions for the TanStack Start Web/backend modular monolith.
   and the Agent HTTPS functions enforce its authenticated identity. No additional
   Agent enrollment entrypoint, invitations or roles are introduced.
 
-- Direct-message threads belong to `features/conversations/` (selection, drafts,
-  discussion UI and authenticated functions), `server/conversations/` (send
-  routing), and `direct-conversation.repositories.server.ts` (root validation,
-  target-scoped ranges, read positions and recovery). A thread uses its root
-  Message identity, never a separate conversation or Agent runtime.
+- Message threads belong to `features/conversations/` (selection, drafts,
+  discussion UI, follow controls and authenticated functions),
+  `server/conversations/` (send and notification routing), and
+  `direct-conversation.repositories.server.ts` (root validation, target-scoped
+  ranges, Agent read positions and recovery). `PublicChannels` owns channel
+  membership, human read positions, persistent follow state and Agent delivery
+  eligibility. A thread uses its root Message identity, never a separate
+  conversation or Agent runtime.
 
 - Browser message index and around-window reads belong to the shared
   `features/conversations/` Server Function seam and
@@ -91,6 +94,23 @@ instructions for the TanStack Start Web/backend modular monolith.
   `conversationId` for both direct conversations and public channels; the
   server-side module owns Conversation-type visibility checks and bounded
   history mapping.
+
+- Message-backed Tasks belong to `server/tasks/task-board.server.ts`:
+  `TaskBoard.execute(principal, command)` owns authorization, message/task atomic
+  creation, numbering, exclusive claims and revision-checked status writes.
+  `features/tasks/tasks.functions.ts` exposes `executeTask` to the browser;
+  `features/tasks/` owns the board and message actions. Agent Task RPC adapters
+  under `server/agents/` call the same TaskBoard, never duplicate business rules.
+  `packages/protocol/tasks.ts` owns the framework-free shared contract.
+  `TaskBoard.overview(workspaceId, userId)` owns the browser-only Workspace
+  overview query under existing conversation visibility rules;
+  `features/tasks/tasks.functions.ts` exposes `loadTaskOverview` and
+  `features/tasks/task-overview.tsx` renders it. Task views share status-grouped
+  Board/List layout and drag interactions under `features/tasks/`; dnd-kit owns
+  pointer/keyboard mechanics, never authorization or persistence. The `/tasks`
+  and conversation routes own validated view search state. All status edits
+  reuse `executeTask`, with claim semantics and revision-checked updates;
+  overview membership metadata only controls available UI actions.
 
 - Browser realtime connection ownership belongs to `features/realtime/`. The
   `_app` layout owns one Centrifuge connection for the selected Workspace;

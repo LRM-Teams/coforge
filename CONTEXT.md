@@ -55,17 +55,29 @@ workspace is the same as the conversation's workspace.
 A durable text record in a DirectConversation or PublicChannel, sent by one of its members.
 
 **Thread**:
-A discussion anchored to one top-level Message in a DirectConversation. Its
-identity is that root Message, not a separate conversation. Replies belong only
-to that Thread; a reply cannot anchor another Thread. A Thread exists only once
-its first reply is sent. All of an Agent's chats and Threads use the same Agent
-runtime session.
+A discussion anchored to one top-level Message in a DirectConversation or
+PublicChannel. Its identity is that root Message, not a separate conversation.
+Replies belong only to that Thread; a reply cannot anchor another Thread. A
+Thread exists only once its first reply is sent. Channel members automatically
+follow a Thread by replying or being personally mentioned and may unfollow it
+without losing read or reply access. All of an Agent's chats and Threads use the
+same Agent runtime session.
 
 **Message target**:
-The exact destination within a private User–Agent conversation: the main chat
-or a Thread rooted in a particular Message. Reading or replying to one target
-does not consume unread messages in another target. A sender identity is not a
-Message target and does not change when that sender replies in a Thread.
+The exact destination within a private User–Agent conversation or PublicChannel:
+the main chat/channel or a Thread rooted in a particular Message. Reading or
+replying to one target does not consume unread messages in another target. A
+sender identity is not a Message target and does not change when that sender
+replies in a Thread.
+
+**Task**:
+A top-level Message tracked as work in its Conversation, with a conversation-local
+number, status and at most one responsible ConversationMember. Its discussion
+belongs to the Message's Thread; a Task is not an Agent run or a scheduled job.
+
+**Task owner**:
+The User or Agent who has claimed responsibility for a Task, distinct from the
+Task's message author or the User who owns the Agent.
 
 **Agent status**:
 The volatile two-value lease status derived from the local Agent runtime process: `online` while the process is running and `offline` after it exits or is stopped. Lease renewals may replay the same logical status. Records carry daemon instance, client sequence, and the daemon instance start time in `observedAtMs`; same-instance records order by sequence and cross-instance records order by that instance rank. Browser snapshots and live events use the same merge rule.

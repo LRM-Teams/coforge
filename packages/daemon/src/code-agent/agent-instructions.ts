@@ -24,10 +24,12 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 
 ### Public channels
 
-- Channel targets use \`#name\`, for example \`coforge message read --target '#general'\` and \`coforge message send --target '#general'\`. Channel threads are not supported. Channels use the same runtime session as direct messages and threads.
+- Channel targets use \`#name\`, for example \`coforge message read --target '#general'\` and \`coforge message send --target '#general'\`. A channel thread target is \`#general:12345678\`; use the top-level root Message prefix just like a direct-message thread. Channel thread replies stay in their thread, cannot nest, and use the same runtime session as every other conversation. Reuse the exact thread target when replying.
+- Read only a channel thread's replies with \`coforge message read --target '#general:12345678'\`; this advances only that thread's read position. To inspect its root Message and nearby parent-channel context, separately run \`coforge message read --target '#general' --around 12345678\`; that range read does not advance any read position. The root is not automatically included in a thread read, notice, or check.
 - You automatically join your Workspace's #general, initially unmuted. Ordinary human messages in joined, unmuted channels can notify you. Agent messages never automatically notify other Agents, including when they contain @mentions.
 - A channel notice, including restart recovery, contains no message bodies or history. Use \`coforge message check\` for pending messages or \`coforge message read --target '#general'\` to read history deliberately. Do not reply to every ordinary channel message. Reply when addressed with a request or when your contribution is useful; avoid repetitive acknowledgements and Agent reply loops.
-- Use \`coforge channel mute --target '#general'\` to suppress subsequent ordinary notifications, and \`coforge channel unmute --target '#general'\` to resume them. Human personal @mentions still notify you while muted. Muting does not leave the channel or remove your read/write permissions. Unmuting does not replay messages from the muted period. Previously eligible notifications can still be recovered.
+- When you reply in a channel thread or a human personally @mentions you there, you automatically follow it and receive ordinary human replies. Use \`coforge thread unfollow --target '#general:12345678'\` when the work is complete; this stops ordinary delivery without changing read or reply access. A later human personal @mention follows the thread again.
+- Use \`coforge channel mute --target '#general'\` to suppress subsequent ordinary parent-channel notifications, and \`coforge channel unmute --target '#general'\` to resume them. A parent channel mute does not suppress replies in threads you follow; unfollow the exact thread to stop those replies. Human personal @mentions still notify you while muted. Muting does not leave the channel or remove your read/write permissions. Unmuting does not replay messages from the muted period. Previously eligible notifications can still be recovered.
 - Channel messages are visible to Workspace members. Do not disclose private conversation contents or secrets learned in another conversation without permission to share them with this audience. A shared runtime session is not a strict confidentiality boundary.
 
 ### App Inbox
@@ -40,6 +42,15 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 - Use \`coforge reminder schedule --title <title> --target <target> --message-id <id>\` with exactly one of \`--delay-seconds\`, \`--fire-at\`, or \`--repeat\`; recurring reminders may include \`--tz\`.
 - Use \`coforge reminder list|update|snooze|cancel|log\` to manage reminders. A due App Inbox item is completed with \`coforge reminder ack --id <full-reminder-uuid> --revision <exact-positive-revision>\` (or \`dismiss\`) exactly as shown by the item.
 - For future work, schedule a reminder rather than sleeping or polling for a long time. A reminder marked fired means its authoritative due event was accepted, not that the requested work ran or completed.
+
+### Tasks
+
+- Task commands use the parent target (\`#general\` or \`@username\`), never a \`:thread\` suffix. For work requested inside an existing Thread, inspect and claim its root Message, not the reply Message. Use the returned Task message ID with the parent target to send progress to that exact Thread; for example \`#general:<message-id>\`.
+- Before starting work, run \`coforge task list --target <target>\`. Claim an existing Task with \`coforge task claim --target <target> --number <number>\`; for an ordinary work Message, claim it atomically with \`coforge task claim --target <target> --message-id <message-id>\`. If claiming fails, do not perform conflicting work.
+- Create an independent Task with \`coforge task create --target <target> --title <title>\`. This records work; it does not create dependency scheduling or imply that another Agent will execute it. Do not turn ordinary conversation into Tasks.
+- Post progress and results in the original Task Thread using \`coforge message send\`, then move your Task to \`in_review\` with \`coforge task update --target <target> --number <number> --status in_review\`.
+- Mark your Task \`done\` only after a human clearly accepts the result in that original Thread. Natural-language acceptance is a judgment you must make from the conversation, not an automatic approval detector or a requirement that the human click the UI. Never invent or infer approval from silence.
+- Task updates use revisions to reject stale writes. If an update reports a conflict, read the Task list again and decide from the current state; do not repeatedly overwrite it.
 
 Complete the requested work and send any required CoForge replies before ending the turn.`;
 

@@ -41,7 +41,7 @@ import {
 } from "../../features/agents/agent-status-realtime";
 import type { CentrifugoServerApi } from "./server-api.server";
 import { AgentMessageValidationError } from "../conversations/agent-message-validation-error.server";
-import { isChannelMessageTarget } from "@coforge/protocol";
+import { isChannelMessageTarget, isChannelTarget } from "@coforge/protocol";
 import {
   decodeReminderFireRequest,
   decodeReminderSnapshotRequest,
@@ -218,13 +218,13 @@ export function createAgentStatusMethod(
 export function createAgentMessageMethod(
   repository: any,
   _centrifugo: any,
-  operation: "read" | "search" | "send" | "mute" | "unmute",
+  operation: "read" | "search" | "send" | "mute" | "unmute" | "thread-unfollow",
   authorization?: {
     canUseAgent(workspaceId: string, agentId: string, userId: string): Promise<boolean>;
   },
   idempotency?: MessageRequestIdempotency,
   holdStore?: AgentMessageHoldStore,
-  _notifications?: MessageNotifier,
+  notifications?: MessageNotifier,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
     const request = decodeAgentMessageRequest(payload);
@@ -270,7 +270,7 @@ export function createAgentMessageMethod(
       });
     }
     if (operation === "mute" || operation === "unmute") {
-      if (!isChannelMessageTarget(request.target))
+      if (!isChannelTarget(request.target))
         return { code: 400, message: "mute requires a channel target" };
       await repository.setAgentChannelMuted(
         request.workspaceId,
@@ -278,6 +278,18 @@ export function createAgentMessageMethod(
         request.target,
         operation === "mute",
       );
+      return encodeCloudAgentMessageResponse({
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messages: [],
+      });
+    }
+    if (operation === "thread-unfollow") {
+      if (!isChannelMessageTarget(request.target) || isChannelTarget(request.target))
+        return { code: 400, message: "unfollow requires a channel thread target" };
+      await repository.setAgentThreadFollowed(request.workspaceId, agentId, request.target, false);
       return encodeCloudAgentMessageResponse({
         protocolMajor: 1,
         requestId: request.requestId,
@@ -420,6 +432,7 @@ export function createAgentMessageMethod(
       idempotency ?? getMessageRequestIdempotency(),
       _centrifugo,
       new CentrifugoConversationRealtime(_centrifugo),
+      notifications,
     ).executeFromAgent({
       requestId: request.requestId,
       workspaceId: request.workspaceId,
