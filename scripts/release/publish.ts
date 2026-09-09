@@ -30,7 +30,6 @@ import {
   type ReleaseTree,
 } from "./build-release";
 import { compileTargetArtifacts, isReleaseTarget, type ReleaseTarget } from "./compile-targets";
-import { verifyReleaseObject } from "../verify-oss-cdn";
 
 /* -------------------------------------------------------------------------------------------- */
 /* Alibaba Cloud OSS V1 "Authorization header" signature                                         */
@@ -238,7 +237,6 @@ export async function assertVersionIsUnpublished(
 
 export interface UploadOptions {
   target: OssTarget;
-  feedUrl: string;
   credentials: OssCredentials;
   fetchImpl?: typeof fetch;
   now?: () => Date;
@@ -309,24 +307,25 @@ export async function uploadReleaseTree(
     log(`verified ${relativePath}`);
   }
 
-  async function verifyDelivery(key: string, bytes: Uint8Array): Promise<void> {
-    const report = await verifyReleaseObject(
-      {
-        origin_url: options.target.objectUrl(key),
-        cdn_url: `${options.feedUrl.replace(/\/$/, "")}/${key}`,
-        expected_sha256: new Bun.CryptoHasher("sha256").update(bytes).digest("hex"),
-      },
-      fetchImpl,
-    );
-    if (!report.passed) {
-      const failed = report.checks.filter((check) => !check.passed).map((check) => check.id);
-      throw new Error(`Release delivery verification failed: ${key} (${failed.join(", ")})`);
+  async function verifyPrivateOrigin(key: string): Promise<void> {
+    try {
+      const response = await fetchImpl(options.target.objectUrl(key), {
+        method: "GET",
+        credentials: "omit",
+        redirect: "manual",
+        signal: AbortSignal.timeout(30_000),
+      });
+      await response.body?.cancel();
+      if (response.status !== 403 || response.headers.has("location"))
+        throw new Error("Origin is not private");
+    } catch {
+      throw new Error(`Private origin verification failed: ${key}`);
     }
-    log(`verified delivery ${key}: private origin and byte-identical CDN`);
+    log(`verified private origin ${key}`);
   }
 
   for (const key of tree.files) {
-    await verifyDelivery(key, await readFile(join(outputDirectory, key)));
+    await verifyPrivateOrigin(key);
   }
 
   const previous = (await objectExists(
@@ -344,7 +343,7 @@ export async function uploadReleaseTree(
         fetchImpl,
       )
     : null;
-  if (previous) await verifyDelivery(LATEST_OBJECT_KEY, previous);
+  if (previous) await verifyPrivateOrigin(LATEST_OBJECT_KEY);
   log(
     previous
       ? `previous latest sha256=${new Bun.CryptoHasher("sha256").update(previous).digest("hex")}`
@@ -368,7 +367,7 @@ export async function uploadReleaseTree(
       fetchImpl,
     );
     if (!bytesEqual(bytes, readback)) throw new Error("OSS latest read-back mismatch");
-    await verifyDelivery(LATEST_OBJECT_KEY, bytes);
+    await verifyPrivateOrigin(LATEST_OBJECT_KEY);
   }
 
   try {
@@ -407,14 +406,6 @@ export async function uploadReleaseTree(
           ))
         )
           throw new Error("could not restore empty selector");
-        const cdn = await fetchImpl(`${options.feedUrl.replace(/\/$/, "")}/latest`, {
-          redirect: "manual",
-          credentials: "omit",
-          signal: AbortSignal.timeout(30_000),
-        });
-        await cdn.body?.cancel();
-        if (cdn.status !== 404 || cdn.headers.has("location"))
-          throw new Error("empty CDN selector not verified");
       }
     } catch {
       throw new Error(
@@ -534,7 +525,6 @@ export async function runPublish(
     };
     const result = await uploadReleaseTree(treeDirectory, tree, {
       target,
-      feedUrl: options.feedUrl,
       credentials: options.credentials,
       fetchImpl: deps.fetchImpl,
       now: deps.now,

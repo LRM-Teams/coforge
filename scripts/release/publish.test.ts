@@ -78,7 +78,6 @@ interface FakeOssOptions {
   credentials?: OssCredentials;
   failUploadKeys?: Set<string>;
   tamperReadbackKeys?: Set<string>;
-  tamperCdnKeys?: Set<string>;
   publicOriginKeys?: Set<string>;
   previousLatest?: string;
   /** Objects that already exist in the bucket before the publish starts. */
@@ -113,17 +112,7 @@ function startFakeOssServer(bucket: string, options: FakeOssOptions = {}): FakeO
       });
 
       if (cdn) {
-        if (request.headers.has("authorization") || request.headers.has("cookie"))
-          return new Response("credentials forwarded", { status: 400 });
-        const bytes = store.get(objectKey);
-        return bytes
-          ? new Response(
-              options.tamperCdnKeys?.has(objectKey) &&
-                new TextDecoder().decode(bytes) !== options.previousLatest
-                ? "stale bytes"
-                : bytes,
-            )
-          : new Response("missing", { status: 404 });
+        return new Response("CDN unavailable", { status: 503 });
       }
       if (anonymous)
         return new Response("origin", {
@@ -184,7 +173,10 @@ function startFakeOssServer(bucket: string, options: FakeOssOptions = {}): FakeO
             headers: { "x-oss-request-id": "fake-request-id-missing" },
           });
         }
-        if (options.tamperReadbackKeys?.has(objectKey)) {
+        if (
+          options.tamperReadbackKeys?.has(objectKey) &&
+          new TextDecoder().decode(stored) !== options.previousLatest
+        ) {
           const tampered = new Uint8Array(stored.byteLength + 1);
           tampered.set(stored);
           tampered[stored.byteLength] = 0xff;
@@ -263,13 +255,12 @@ test("a GET StringToSign carries an empty Content-Type slot", () => {
 /* 2. Ordering: latest is written last, and only after every object is verified                 */
 /* ------------------------------------------------------------------------------------------- */
 
-test("a successful publish uploads every object, verifies every object, then writes and verifies latest - in that order", async () => {
+test("publication verifies OSS objects and latest without requesting the CDN", async () => {
   const outputDirectory = await tempDir("coforge-publish-tree-");
   const tree = await fixtureTree("9.9.9-publish-ok", outputDirectory);
   const fake = startFakeOssServer(BUCKET);
 
   const result = await uploadReleaseTree(outputDirectory, tree, {
-    feedUrl: `${fake.baseUrl}/cdn`,
     target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
     credentials: CREDENTIALS,
   });
@@ -285,15 +276,11 @@ test("a successful publish uploads every object, verifies every object, then wri
     ...tree.files.filter((key) => key !== manifestKey).map((key) => ({ method: "PUT", key })),
     { method: "PUT", key: manifestKey },
     ...tree.files.map((key) => ({ method: "GET", key })),
-    ...tree.files.flatMap((key) => [
-      { method: "ANONYMOUS_GET", key },
-      { method: "CDN_GET", key },
-    ]),
+    ...tree.files.map((key) => ({ method: "ANONYMOUS_GET", key })),
     { method: "HEAD", key: LATEST_OBJECT_KEY },
     { method: "PUT", key: LATEST_OBJECT_KEY },
     { method: "GET", key: LATEST_OBJECT_KEY },
     { method: "ANONYMOUS_GET", key: LATEST_OBJECT_KEY },
-    { method: "CDN_GET", key: LATEST_OBJECT_KEY },
   ];
   expect(fake.calls).toEqual(expectedSequence);
 
@@ -316,7 +303,6 @@ test("a failed object upload never writes latest, and stops before uploading lat
 
   await expect(
     uploadReleaseTree(outputDirectory, tree, {
-      feedUrl: `${fake.baseUrl}/cdn`,
       target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
       credentials: CREDENTIALS,
     }),
@@ -343,7 +329,6 @@ test("republishing a version that already completed is refused before anything i
 
   await expect(
     uploadReleaseTree(outputDirectory, tree, {
-      feedUrl: `${fake.baseUrl}/cdn`,
       target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
       credentials: CREDENTIALS,
     }),
@@ -364,7 +349,6 @@ test("a version left half-uploaded by an earlier failure can still be published"
   const fake = startFakeOssServer(BUCKET, { preexistingKeys: new Set([partial]) });
 
   const result = await uploadReleaseTree(outputDirectory, tree, {
-    feedUrl: `${fake.baseUrl}/cdn`,
     target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
     credentials: CREDENTIALS,
   });
@@ -383,7 +367,6 @@ test("an ambiguous existence probe aborts the publish instead of reading as abse
   // transient credential or permission fault.
   await expect(
     uploadReleaseTree(outputDirectory, tree, {
-      feedUrl: `${fake.baseUrl}/cdn`,
       target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
       credentials: CREDENTIALS,
     }),
@@ -416,7 +399,6 @@ test("a tampered read-back fails the publish and never writes latest", async () 
 
   await expect(
     uploadReleaseTree(outputDirectory, tree, {
-      feedUrl: `${fake.baseUrl}/cdn`,
       target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
       credentials: CREDENTIALS,
     }),
@@ -434,41 +416,94 @@ test("a tampered read-back fails the publish and never writes latest", async () 
 /* 4. Credential redaction                                                                       */
 /* ------------------------------------------------------------------------------------------- */
 
-for (const failure of ["tamperCdnKeys", "publicOriginKeys"] as const) {
-  test(`${failure} blocks activation even after signed OSS verification succeeds`, async () => {
-    const directory = await tempDir("coforge-delivery-gate-");
-    const tree = await fixtureTree("9.9.9-delivery-gate", directory);
-    const key = manifestObjectKey(tree.version);
-    const fake = startFakeOssServer(BUCKET, { [failure]: new Set([key]) });
-    await expect(
-      uploadReleaseTree(directory, tree, {
-        feedUrl: `${fake.baseUrl}/cdn`,
-        target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
-        credentials: CREDENTIALS,
-      }),
-    ).rejects.toThrow(/delivery verification failed/);
-    expect(fake.calls).toContainEqual({ method: "GET", key });
-    expect(fake.calls.some((call) => call.method === "PUT" && call.key === "latest")).toBe(false);
-  });
-}
+test("public origin blocks activation even after signed OSS verification succeeds", async () => {
+  const directory = await tempDir("coforge-delivery-gate-");
+  const tree = await fixtureTree("9.9.9-delivery-gate", directory);
+  const key = manifestObjectKey(tree.version);
+  const fake = startFakeOssServer(BUCKET, { publicOriginKeys: new Set([key]) });
+  await expect(
+    uploadReleaseTree(directory, tree, {
+      target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
+      credentials: CREDENTIALS,
+    }),
+  ).rejects.toThrow(/Private origin verification failed/);
+  expect(fake.calls).toContainEqual({ method: "GET", key });
+  expect(fake.calls.some((call) => call.method === "PUT" && call.key === "latest")).toBe(false);
+});
 
 for (const previousLatest of ["0.1.0-rc.3\n", undefined]) {
-  test(`latest CDN failure restores ${previousLatest ? "previous version" : "empty bootstrap"}`, async () => {
+  test(`latest OSS read-back failure restores ${previousLatest ? "previous version" : "empty bootstrap"}`, async () => {
     const directory = await tempDir("coforge-selector-gate-");
     const tree = await fixtureTree("9.9.9-selector-gate", directory);
-    const fake = startFakeOssServer(BUCKET, { previousLatest, tamperCdnKeys: new Set(["latest"]) });
+    const fake = startFakeOssServer(BUCKET, {
+      previousLatest,
+      tamperReadbackKeys: new Set(["latest"]),
+    });
     await expect(
       uploadReleaseTree(directory, tree, {
-        feedUrl: `${fake.baseUrl}/cdn`,
         target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
         credentials: CREDENTIALS,
       }),
     ).rejects.toThrow(/activation failed.*restored/);
-    const response = await fetch(`${fake.baseUrl}/cdn/latest`);
+    expect(fake.calls.some((call) => call.method === "CDN_GET")).toBe(false);
+    const date = new Date().toUTCString();
+    const response = await fetch(`${fake.baseUrl}/latest`, {
+      headers: {
+        Date: date,
+        Authorization: ossAuthorizationHeader(
+          CREDENTIALS,
+          ossStringToSign({
+            method: "GET",
+            bucket: BUCKET,
+            objectKey: "latest",
+            date,
+            contentType: "",
+          }),
+        ),
+      },
+    });
     if (previousLatest) expect(await response.text()).toBe(previousLatest);
     else expect(response.status).toBe(404);
   });
 }
+
+test("private origin network failures are sanitized", async () => {
+  const directory = await tempDir("coforge-origin-error-");
+  const tree = await fixtureTree("9.9.9-origin-error", directory);
+  const fake = startFakeOssServer(BUCKET);
+  await expect(
+    uploadReleaseTree(directory, tree, {
+      target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
+      credentials: CREDENTIALS,
+      fetchImpl: async (input, init) => {
+        if (init?.credentials === "omit") throw new Error("secret origin URL Authorization token");
+        return fetch(input, init);
+      },
+    }),
+  ).rejects.toThrow(/^Private origin verification failed: 9\.9\.9-origin-error\//);
+  expect(fake.calls.some((call) => call.method === "PUT" && call.key === "latest")).toBe(false);
+});
+
+test("public activated and restored latest fails private origin verification", async () => {
+  const directory = await tempDir("coforge-latest-origin-");
+  const tree = await fixtureTree("9.9.9-latest-origin", directory);
+  const fake = startFakeOssServer(BUCKET, { previousLatest: "0.1.0-rc.3\n" });
+  let probes = 0;
+  await expect(
+    uploadReleaseTree(directory, tree, {
+      target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
+      credentials: CREDENTIALS,
+      fetchImpl: async (input, init) => {
+        if (String(input).endsWith("/latest") && init?.credentials === "omit") {
+          probes += 1;
+          if (probes > 1) return new Response("public", { status: 200 });
+        }
+        return fetch(input, init);
+      },
+    }),
+  ).rejects.toThrow(/rollback could not be verified/);
+  expect(probes).toBe(3);
+});
 
 test("rollback failure is reported instead of claiming the previous selector is restored", async () => {
   const directory = await tempDir("coforge-rollback-failure-");
@@ -479,7 +514,6 @@ test("rollback failure is reported instead of claiming the previous selector is 
   });
   await expect(
     uploadReleaseTree(directory, tree, {
-      feedUrl: `${fake.baseUrl}/cdn`,
       target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
       credentials: CREDENTIALS,
     }),

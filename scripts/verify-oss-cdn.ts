@@ -185,15 +185,13 @@ async function capture(
   fetcher: Fetcher,
   url: string,
   includeBody: boolean,
-  includeProbeCookie = true,
-  timeoutMs = 30_000,
 ): Promise<CapturedResponse> {
   const response = await fetcher(url, {
     method: "GET",
-    ...(includeProbeCookie ? { headers: { Cookie: PROBE_COOKIE } } : {}),
+    headers: { Cookie: PROBE_COOKIE },
     credentials: "omit",
     redirect: "manual",
-    signal: AbortSignal.timeout(timeoutMs),
+    signal: AbortSignal.timeout(30_000),
   });
   const captured: CapturedResponse = {
     status: response.status,
@@ -213,49 +211,6 @@ function hasNoProviderLeak(response: CapturedResponse, originHosts: string[]): b
   }
   const values = [...response.headers.values()].join("\n").toLowerCase();
   return !originHosts.some((host) => values.includes(host.toLowerCase()));
-}
-
-export async function verifyReleaseObject(
-  probe: ContentProbe,
-  fetcher: Fetcher = fetch,
-): Promise<AcceptanceReport> {
-  const checks: AcceptanceCheck[] = [];
-
-  try {
-    const originHost = new URL(probe.origin_url).hostname;
-    const origin = await capture(fetcher, probe.origin_url, false, false);
-    addCheck(
-      checks,
-      "release_origin_rejects_unsigned_get",
-      origin.status === 403 && !origin.headers.has("location"),
-      "the release origin returned HTTP 403 without a redirect",
-    );
-
-    // Unified executables are tens of MB; observed valid CDN transfers exceed 30s.
-    // Keep metadata/origin checks short while bounding the entire gzip body download.
-    const timeoutMs = new URL(probe.cdn_url).pathname.endsWith(".gz") ? 120_000 : 30_000;
-    const cdn = await capture(fetcher, probe.cdn_url, true, false, timeoutMs);
-    addCheck(
-      checks,
-      "release_cdn_object_matches",
-      cdn.status === 200 &&
-        cdn.sha256 === probe.expected_sha256 &&
-        hasNoProviderLeak(cdn, [originHost]),
-      "the CDN returned the expected bytes without redirect, cookie, or origin disclosure",
-    );
-  } catch {
-    addCheck(
-      checks,
-      "release_object_probe_execution",
-      false,
-      "the release object probe could not complete; inspect operator-side diagnostics",
-    );
-  }
-
-  return {
-    passed: checks.every(({ passed }) => passed),
-    checks,
-  };
 }
 
 function hasFilesCachePolicy(headers: Headers): boolean {

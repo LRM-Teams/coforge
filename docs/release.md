@@ -236,22 +236,28 @@ must not link to a CDN or OSS origin directly.
 
 Users never depend on or discover the OSS bucket URL. Immutable version objects
 use a long immutable cache policy; `latest` requires an evidenced, effective
-every-request origin-revalidation policy. A publication is incomplete until the
-workflow downloads exact consumer-visible bytes to compare them with its local
-manifest and binaries. For every publication, the workflow must
-also prove that an unsigned anonymous/direct GET of the exact OSS object key is
-rejected, while the public CDN URL succeeds through the configured private-origin
-authorization. The durable record stores only the pass/fail evidence, not the
-private bucket endpoint or credentials. A redirect to OSS, an anonymously
-readable origin object, or a CDN fetch that cannot be tied to the same bytes
-fails publication.
+every-request origin-revalidation policy. Routine publication verifies storage,
+not domestic CDN reachability: the workflow performs authenticated, byte-identical
+OSS read-back for every version object and `latest`, and proves that an unsigned
+anonymous/direct GET of each exact private-origin key returns 403. The durable
+record stores only pass/fail evidence, not the private bucket endpoint or
+credentials. An anonymously readable origin object or authenticated read-back
+that differs from the source bytes fails publication.
+
+Consumer-path CDN reachability, private-origin authorization, redirects, cache
+behavior, and bytes remain independent infrastructure acceptance concerns.
+Their existing tooling is retained and may be run from a suitable network, but
+CDN read-back is not a publication or rollback gate. A successful publication
+therefore proves the release objects and selector are correctly stored and
+origin-private; it does not by itself prove end-user delivery through the CDN.
 
 Under that revalidation policy, explicit CDN purge is not a routine publication
 requirement. Retain evidence of matching cache rules, completed propagation and
 appropriate client cache behavior; old entries created before a policy change
 must not survive under the former policy. Stale or unverifiable responses fail
-publication, and cache-busting URLs must not substitute for consumer-path checks.
-Cache-policy migration or purging legacy entries is separate operator work.
+the independent CDN acceptance check, and cache-busting URLs must not substitute
+for consumer-path checks. Cache-policy migration or purging legacy entries is
+separate operator work.
 Versioned keys remain immutable, including across retries.
 
 ### Per-user installation
@@ -480,17 +486,16 @@ tracks' `latest` pointers are never the same object):
    must never be allowed to diverge.
 4. Publish `manifest.json`, every platform's `coforge-computer.sha256`
    sidecar, and every platform's sole `coforge-computer.gz` beneath the new `<version>/` prefix on
-   the staging feed. Prove anonymous/direct reads of their exact
-   private-origin keys are rejected, then re-read them through
-   `releases.coforge.cn` and compare consumer-visible bytes with the workflow
-   source bytes.
+   the staging feed. Re-read every object through authenticated OSS access and
+   compare it byte-for-byte with the workflow source, then prove unsigned
+   anonymous/direct reads of the exact private-origin keys return 403.
 5. Only after every object under `<version>/` is published and verified,
    write the staging feed's `latest` pointer to the new version. A publish
    that fails before this step leaves an unreferenced version directory that
    no installer will ever resolve.
-6. Re-read `latest` through the staging feed under the evidenced revalidation
-   policy, then run the
-   local-distribution checks below against the version it resolves.
+6. Re-read `latest` through authenticated OSS access, verify its exact bytes and
+   unsigned-origin 403 guard, then run the local-distribution checks below
+   against the version it resolves.
 7. Record the version and its manifest checksums as healthy only after every
    required check passes.
 8. On failure, leave the staging feed's `latest` pointing at the last healthy
@@ -549,14 +554,14 @@ updating itself from staging. Promotion therefore rebuilds:
    difference from the staging set is the compiled-in environment (feed and
    matching business server addresses).
 4. The Agent publishes the new manifest, checksum sidecars and binaries beneath
-   the production feed's `<version>/` path, then re-reads each object from the
-   production feed and confirms it matches what was published.
+   the production feed's `<version>/` path, then performs authenticated OSS
+   byte-identical read-back and verifies the unsigned-origin 403 guard for each
+   object.
 5. Only after that confirmation does the Agent write the production feed's
    `latest` pointer to the approved version.
-6. The Agent re-reads the production feed's `latest` under the evidenced
-   revalidation policy, verifies it
-   resolves the approved version, runs the production local-distribution checks,
-   and records the result.
+6. The Agent re-reads the production feed's `latest` through authenticated OSS
+   access, verifies its exact bytes and unsigned-origin 403 guard, runs the
+   production local-distribution checks, and records the result.
 
 Building a commit other than the approved one, or altering the source between
 approval and build, invalidates the approval. Because the artifacts are rebuilt
@@ -606,9 +611,8 @@ A local Computer release version is production-ready only when:
 2. the version's schema 2 manifest and every downloaded platform Computer executable match their
    recorded byte sizes and SHA-256 checksums;
 3. an unsigned anonymous/direct GET of each exact private OSS object key is
-   rejected, the CDN succeeds through private-origin authorization, the
-   CDN-retrieved bytes match the workflow's source bytes, and no package URL
-   exposes or redirects to the OSS bucket;
+   rejected with 403, while authenticated OSS read-back for every version object
+   and `latest` is byte-identical to the workflow's source bytes;
 4. clean per-user Computer install and supported per-user upgrade checks pass
    without a separate Daemon install or elevation on every required target
    platform/architecture;
@@ -666,8 +670,8 @@ valid recovery plan and the release must not proceed.
 
 If staging publication or production verification fails, leave the affected
 feed's `latest` pointing at its last healthy version - do not advance it -
-verify the restored selector through OSS and the exact revalidating CDN URL,
-and verify installation again. Because both
+verify the restored selector through authenticated OSS read-back and its
+unsigned-origin 403 guard, and verify installation again. Because both
 components always publish together, there is no separately unchanged peer to
 preserve.
 
@@ -695,7 +699,9 @@ state. An interrupted release is a recorded outcome, not a missing entry. The
 records must reveal the selected and next rollback identities without relying
 on an Agent's private memory, and must never contain secrets. Local records also
 preserve the previous and resulting version strings, the manifest's per-platform
-SHA-256 checksums, and CDN verification evidence.
+SHA-256 checksums, authenticated storage read-back evidence, and the unsigned
+private-origin guard result. Independently run CDN acceptance evidence may be
+linked, but is not required for routine publication or rollback.
 
 ## Routine release boundary
 
@@ -707,9 +713,9 @@ Before any mutating deployment, verify all of the following:
 - the target has isolated secrets/credentials and a unique concurrency group;
 - the track-specific configuration or feed manifest validates;
 - the applicable cloud or local-package verification checks are defined;
-- local distribution proves anonymous/direct reads of each exact private-origin
-  object key fail while CDN private-origin retrieval returns the verified bytes
-  without redirecting the client to OSS;
+- local distribution proves authenticated OSS read-back of every object and
+  `latest` is byte-identical and unsigned/direct reads of each exact
+  private-origin object key return 403;
 - the previous healthy identity is recorded, or the target is verified and
   recorded as empty for a first deployment;
 - no secret will enter workflow input, command arguments, logs, or artifacts;
@@ -746,27 +752,27 @@ staging`), implements the "Main to staging" local-
 distribution path: it runs the repository gates, cross-compiles the unified
 Computer for a set of release targets, assembles the schema 2 version tree
 (`build-release.ts`), uploads every object `buildReleaseTree` lists, and verifies
-signed OSS read-back. Before updating `latest`, it calls the reusable
-`verifyReleaseObject` probe for **every** exact object key: unsigned origin GET
-must return 403, and the anonymous CDN GET must return 200 with the expected
-SHA-256 and no redirect, cookie, or origin disclosure. Origin and metadata requests
-have a 30-second deadline; gzip CDN downloads have a 120-second deadline covering
-the entire body. A measured 38 MB release download took 31.7 seconds, so metadata's
-budget is not sufficient for binary verification. Deadline expiry still fails
-publication; no hash, TLS, origin, or selector check is bypassed. Probe failures
-produce sanitized diagnostics. No OSS credentials reach CDN probes.
+authenticated OSS read-back. Before updating `latest`, it verifies **every**
+exact object key is byte-identical through authenticated OSS access and that an
+unsigned exact-origin GET returns 403. Probe failures produce sanitized
+diagnostics.
 The existing `latest` bytes are saved and verified before activation. The new
-selector is then checked through OSS and CDN; on failure the previous bytes are
-restored and verified, or a first-publish selector is removed and absence checked.
+selector is then checked through authenticated OSS read-back and the unsigned
+origin guard; on failure the previous bytes are restored and verified, or a
+first-publish selector is removed and absence checked.
 Rollback verification failure is reported separately, never as a healthy release.
 Object checks and the previous selector hash are retained in workflow logs.
 
 The existing staging CDN policy revalidates `/latest` and `*.json` on each
 request, while versioned binaries are immutable (see
-`docs/operations/aliyun-oss-cdn.md`, Section 10). The publisher tests the exact
-consumer URL without cache-busting query parameters; it does not change CDN
-configuration or issue purge requests. A stale response fails publication rather
-than bypassing the cache to manufacture a pass.
+`docs/operations/aliyun-oss-cdn.md`, Section 10). Routine publication does not
+request the CDN, change CDN configuration, or issue purge requests. Independent
+infrastructure CDN acceptance tooling remains available to test the exact
+consumer URL without cache-busting query parameters from an appropriate network;
+its result describes domestic consumer-path reachability and cache behavior, not
+the storage publication result. The user authorized this release-gate change on
+2026-09-09; routine publications and their automatic rollback do not require a
+new human approval merely because CDN read-back is omitted.
 
 Platform coverage and remaining acceptance gaps are explicit:
 
@@ -789,8 +795,9 @@ see `infra/staging/README.md`) and updater commands (`packages/computer/src/
 updater.ts`, `install.sh`, `install.ps1`) were already implemented before this
 publish workflow. The release Skill may publish development candidates through
 this workflow, but must distinguish published targets and native smoke checks
-from complete platform lifecycle acceptance. CDN verification is implemented; a successful
-live workflow run, not unit tests alone, is its publication evidence.
+from complete platform lifecycle acceptance. A successful live publish workflow
+proves authenticated OSS storage read-back and private-origin rejection, not CDN
+or end-user delivery. CDN acceptance remains a separate infrastructure check.
 
 ## Official references
 
