@@ -450,28 +450,25 @@ function AccountSettings({
               </div>
               <p className="mt-2 text-xs text-tertiary">{m.settings_avatar_help()}</p>
 
-              <div className="mt-6 grid gap-3 border-t border-secondary pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
-                <label htmlFor="profile-name" className="text-sm font-semibold @2xl/settings:pt-2">
-                  {m.settings_name()}
-                </label>
-                <input
-                  id="profile-name"
-                  value={name}
-                  maxLength={80}
-                  disabled={saving}
-                  onChange={(event) => setName(event.target.value)}
-                  className="h-10 w-full max-w-xl rounded-lg bg-primary px-3 text-sm shadow-xs ring-1 ring-primary ring-inset outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
-                />
-              </div>
+              <div className="mt-6 grid gap-6 border-t border-secondary pt-6 md:grid-cols-2 xl:grid-cols-3">
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="profile-name" className="text-sm text-tertiary">
+                    {m.settings_name()}
+                  </label>
+                  <input
+                    id="profile-name"
+                    value={name}
+                    maxLength={80}
+                    disabled={saving}
+                    onChange={(event) => setName(event.target.value)}
+                    className="h-10 w-full rounded-lg bg-primary px-3 text-sm shadow-xs ring-1 ring-primary ring-inset outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
+                  />
+                </div>
 
-              <div className="mt-5 grid gap-3 border-t border-secondary pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
-                <label
-                  htmlFor="profile-description"
-                  className="text-sm font-semibold @2xl/settings:pt-2"
-                >
-                  {m.settings_user_description()}
-                </label>
-                <div className="min-w-0 max-w-xl">
+                <div className="flex flex-col gap-1 md:col-span-2 xl:col-span-3">
+                  <label htmlFor="profile-description" className="text-sm text-tertiary">
+                    {m.settings_user_description()}
+                  </label>
                   <textarea
                     id="profile-description"
                     value={description}
@@ -482,7 +479,7 @@ function AccountSettings({
                     onChange={(event) => setDescription(event.target.value)}
                     className="w-full resize-none rounded-lg bg-primary px-3 py-2 text-sm shadow-xs ring-1 ring-primary ring-inset outline-none placeholder:text-quaternary focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
                   />
-                  <p className="mt-2 text-right text-sm text-tertiary tabular-nums">
+                  <p className="text-right text-sm text-tertiary tabular-nums">
                     {description.length}/280
                   </p>
                 </div>
@@ -524,13 +521,14 @@ function AccountSettings({
                 <p className="break-words text-sm text-tertiary">@{profile.username}</p>
               </div>
             </div>
-            <dl className="divide-y border-y border-secondary">
+            <dl className="grid gap-x-8 gap-y-6 border-t border-secondary pt-6 md:grid-cols-2 xl:grid-cols-3">
               <ProfileValue label={m.settings_name()} value={profile.name} />
-              <ProfileValue label={m.settings_email()} value={profile.email} />
-              <ProfileValue label={m.settings_username()} value={`@${profile.username}`} />
+              <ProfileValue label={m.settings_email()} value={profile.email} mono />
+              <ProfileValue label={m.settings_username()} value={`@${profile.username}`} mono />
               <ProfileValue
                 label={m.settings_user_description()}
                 value={profile.description || "-"}
+                full
               />
             </dl>
           </>
@@ -540,11 +538,28 @@ function AccountSettings({
   );
 }
 
-function ProfileValue({ label, value }: { label: string; value: string }) {
+function ProfileValue({
+  label,
+  value,
+  mono = false,
+  full = false,
+}: {
+  label: string;
+  value: string;
+  /** Identifiers (email, username) render in the mono font. */
+  mono?: boolean;
+  /** Long values (the description) span the full row. */
+  full?: boolean;
+}) {
   return (
-    <div className="grid min-w-0 gap-2 py-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
-      <dt className="text-sm font-semibold">{label}</dt>
-      <dd className="min-w-0 max-w-xl text-sm break-words whitespace-pre-wrap text-tertiary">
+    <div className={cn("flex min-w-0 flex-col gap-1", full && "md:col-span-2 xl:col-span-3")}>
+      <dt className="text-sm text-tertiary">{label}</dt>
+      <dd
+        className={cn(
+          "min-w-0 text-sm font-medium break-words whitespace-pre-wrap text-primary",
+          mono && "font-mono",
+        )}
+      >
         {value}
       </dd>
     </div>
@@ -563,7 +578,7 @@ function Preferences({
 
   return (
     <div className="w-full px-4 pb-8 sm:px-6">
-      <div className="divide-y border-b border-secondary">
+      <div className="divide-y divide-secondary border-b border-secondary">
         <PreferenceSection
           icon={<Languages aria-hidden="true" />}
           heading={m.preferences_language()}
