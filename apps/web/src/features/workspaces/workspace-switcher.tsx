@@ -35,11 +35,14 @@ export function WorkspaceSwitcher({
   current,
   onSelect,
   onCreate,
+  compact = false,
 }: {
   workspaces: WorkspaceOption[];
   current: WorkspaceOption | null;
   onSelect?: (slug: string) => Promise<void> | void;
   onCreate?: (input: { name: string; slug: string }) => Promise<void>;
+  /** Icon-only trigger for the collapsed sidebar rail. */
+  compact?: boolean;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const toast = useAppToast();
@@ -56,16 +59,25 @@ export function WorkspaceSwitcher({
   return (
     <>
       <Dropdown.Root>
-        <AriaButton
-          aria-label={m.workspace_switcher()}
-          className="flex h-12 w-full items-center gap-2 bg-transparent px-2 text-left outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset"
-        >
-          <WorkspaceMark />
-          <span data-workspace-name className="min-w-0 flex-1 truncate text-[13px] font-semibold">
-            {label}
-          </span>
-          <ChevronSelectorVertical aria-hidden="true" className="size-4 shrink-0 text-tertiary" />
-        </AriaButton>
+        {compact ? (
+          <AriaButton
+            aria-label={`${m.workspace_switcher()}: ${label}`}
+            className="flex size-9 items-center justify-center rounded-lg bg-transparent outline-none transition-colors hover:bg-primary_hover focus-visible:ring-2 focus-visible:ring-brand"
+          >
+            <WorkspaceMark />
+          </AriaButton>
+        ) : (
+          <AriaButton
+            aria-label={m.workspace_switcher()}
+            className="flex h-12 w-full items-center gap-2 bg-transparent px-2 text-left outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset"
+          >
+            <WorkspaceMark />
+            <span data-workspace-name className="min-w-0 flex-1 truncate text-[13px] font-semibold">
+              {label}
+            </span>
+            <ChevronSelectorVertical aria-hidden="true" className="size-4 shrink-0 text-tertiary" />
+          </AriaButton>
+        )}
         <Dropdown.Popover
           placement="bottom start"
           offset={6}

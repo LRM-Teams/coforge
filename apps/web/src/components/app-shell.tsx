@@ -14,14 +14,16 @@ import {
 import { Button as AriaButton } from "react-aria-components";
 
 import type { NavItemType } from "@/components/application/app-navigation/config";
-import { SidebarNavigationSimple } from "@/components/application/app-navigation/sidebar-navigation/sidebar-simple";
-import { SidebarNavigationSlim } from "@/components/application/app-navigation/sidebar-navigation/sidebar-slim";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
+import { SidebarCollapsed } from "@/components/layout/sidebar/sidebar-collapsed";
+import {
+  SidebarExpanded,
+  SIDEBAR_DEFAULT_WIDTH,
+} from "@/components/layout/sidebar/sidebar-expanded";
 import { WorkspaceSwitcher, type WorkspaceOption } from "@/features/workspaces/workspace-switcher";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { cx } from "@/utils/cx";
 import { m } from "@/paraglide/messages";
 import { localizeHref } from "@/paraglide/runtime";
 
@@ -103,6 +105,7 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   // The router's own `location.pathname` is de-localized (see the `rewrite.input`
   // hook in src/router.tsx, which strips the locale prefix for internal route
   // matching) while each nav item's `href` is the localized, user-facing string
@@ -120,88 +123,70 @@ export function AppShell({
 
   useHotkey(sidebarShortcut, () => setSidebarCollapsed((collapsed) => !collapsed));
 
-  const featureCard = (
-    <div className="flex flex-col gap-3">
-      <WorkspaceSwitcher
-        workspaces={workspaces}
-        current={currentWorkspace}
-        onSelect={onSelectWorkspace}
-        onCreate={onCreateWorkspace}
-      />
-      <UserMenuCard user={user} onSignOut={onSignOut} />
-      <ButtonUtility
-        icon={PanelLeft}
-        size="sm"
-        color="tertiary"
-        tooltip={m.controls_hide_sidebar()}
-        onClick={() => setSidebarCollapsed(true)}
-      />
-    </div>
-  );
+  const settingsFooterItem: NavItemType & { icon: FC<{ className?: string }> } = {
+    label: m.navigation_personal_settings(),
+    href: localizeHref("/settings"),
+    icon: Settings01,
+  };
 
   return (
     <div className="min-h-svh bg-primary font-body antialiased lg:flex">
       {/*
-        SidebarNavigationSimple/Slim render their real sidebar `position: fixed`
-        and rely on an invisible sibling "spacer" div (padding-left equal to the
-        sidebar's width) to reserve room for it in normal flow — but that only
-        works when the spacer's parent is a flex row, which is why this shell is
-        `lg:flex` rather than plain block. The `contents` wrapper keeps the
-        sidebar's own fragment (mobile header + fixed sidebar + spacer) as direct
-        flex items here instead of being boxed inside an extra div.
+        SidebarExpanded/SidebarCollapsed render their real sidebar `position: fixed`
+        and rely on an invisible sibling "spacer" div (padding equal to the sidebar's
+        width) to reserve room for it in normal flow — but that only works when the
+        spacer's parent is a flex row, which is why this shell is `lg:flex` rather
+        than plain block. The `contents` wrapper keeps the sidebar's own fragment
+        (mobile header + fixed sidebar + spacer) as direct flex items here instead
+        of being boxed inside an extra div.
       */}
       <div onClickCapture={onSidebarClickCapture} className="contents">
         {sidebarCollapsed ? (
-          // Untitled's official SidebarNavigationSlim (unmodified) always renders its own
-          // built-in account switcher at the bottom with hardcoded placeholder data
-          // ("Olivia Rhye") and no prop to disable, override, or wire it to real sign-out —
-          // a known limitation of the official free component, not something CoForge adds.
-          // Real account access (including sign-out) stays reachable by expanding the
-          // sidebar back to SidebarNavigationSimple, which uses a real, working user menu
-          // (see UserMenuCard below) instead of the official demo widget. There is also no
-          // prop to expand the rail back out from inside Slim itself, so the expand control
-          // lives in the main content area (see the ButtonUtility rendered just after this
-          // sidebar block).
-          <SidebarNavigationSlim
+          <SidebarCollapsed
             activeUrl={activeUrl}
             items={navItems}
-            footerItems={[
-              {
-                label: m.navigation_personal_settings(),
-                href: localizeHref("/settings"),
-                icon: Settings01,
-              },
-            ]}
+            footerItems={[settingsFooterItem]}
+            onExpand={() => setSidebarCollapsed(false)}
+            footer={
+              <div className="flex flex-col items-center gap-2">
+                <WorkspaceSwitcher
+                  compact
+                  workspaces={workspaces}
+                  current={currentWorkspace}
+                  onSelect={onSelectWorkspace}
+                  onCreate={onCreateWorkspace}
+                />
+                <UserMenuCard compact user={user} onSignOut={onSignOut} />
+              </div>
+            }
           />
         ) : (
-          <SidebarNavigationSimple
+          <SidebarExpanded
             activeUrl={activeUrl}
             items={navItems}
-            showAccountCard={false}
-            featureCard={featureCard}
-            className={cx(
-              "bg-sidebar",
-              // CoForge lavender tint: Untitled's own sidebar is plain `bg-primary`, so this
-              // scopes `--color-bg-primary` (read by every `bg-primary` utility inside, e.g.
-              // the search input and nav items' resting state) to the sidebar tint instead of
-              // touching sidebar-simple.tsx itself.
-              "[--color-bg-primary:var(--color-sidebar)]",
-            )}
+            width={sidebarWidth}
+            onWidthChange={setSidebarWidth}
+            footer={
+              <div className="flex flex-col gap-3">
+                <WorkspaceSwitcher
+                  workspaces={workspaces}
+                  current={currentWorkspace}
+                  onSelect={onSelectWorkspace}
+                  onCreate={onCreateWorkspace}
+                />
+                <UserMenuCard user={user} onSignOut={onSignOut} />
+                <ButtonUtility
+                  icon={PanelLeft}
+                  size="sm"
+                  color="tertiary"
+                  tooltip={m.controls_hide_sidebar()}
+                  onClick={() => setSidebarCollapsed(true)}
+                />
+              </div>
+            }
           />
         )}
       </div>
-
-      {sidebarCollapsed && (
-        <div className="fixed top-3 left-[calc(68px+0.5rem)] z-40 hidden lg:block">
-          <ButtonUtility
-            icon={PanelLeft}
-            size="sm"
-            color="secondary"
-            tooltip={m.controls_show_sidebar()}
-            onClick={() => setSidebarCollapsed(false)}
-          />
-        </div>
-      )}
 
       <div className="flex min-w-0 flex-1 flex-col">{children}</div>
     </div>
@@ -211,33 +196,47 @@ export function AppShell({
 function UserMenuCard({
   user,
   onSignOut,
+  compact = false,
 }: {
   user: AppUser;
   onSignOut?: () => Promise<void> | void;
+  compact?: boolean;
 }) {
+  const avatar = (
+    <Avatar
+      size={compact ? "sm" : "md"}
+      src={user.avatarUrl}
+      alt={user.name}
+      initials={avatarInitial(user.name)}
+      contentClassName={avatarToneClassName(user.name)}
+    />
+  );
   return (
     <Dropdown.Root>
-      <AriaButton
-        aria-label={m.controls_current_user()}
-        className="relative flex w-full items-center gap-3 rounded-xl p-3 text-left outline-focus-ring ring-1 ring-secondary transition duration-100 ease-linear ring-inset hover:bg-primary_hover focus-visible:outline-2 focus-visible:outline-offset-2"
-      >
-        <Avatar
-          size="md"
-          src={user.avatarUrl}
-          alt={user.name}
-          initials={avatarInitial(user.name)}
-          contentClassName={avatarToneClassName(user.name)}
-        />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold text-primary">{user.name}</span>
-          <span className="block truncate text-sm text-tertiary">{user.email}</span>
-        </span>
-        <ChevronSelectorVertical
-          aria-hidden="true"
-          className="size-4 shrink-0 text-fg-quaternary"
-        />
-      </AriaButton>
-      <Dropdown.Popover placement="top left" className="w-64">
+      {compact ? (
+        <AriaButton
+          aria-label={`${m.controls_current_user()}: ${user.name}`}
+          className="relative flex size-9 items-center justify-center rounded-full outline-focus-ring transition duration-100 ease-linear focus-visible:outline-2 focus-visible:outline-offset-2"
+        >
+          {avatar}
+        </AriaButton>
+      ) : (
+        <AriaButton
+          aria-label={m.controls_current_user()}
+          className="relative flex w-full items-center gap-3 rounded-xl p-3 text-left outline-focus-ring ring-1 ring-secondary transition duration-100 ease-linear ring-inset hover:bg-primary_hover focus-visible:outline-2 focus-visible:outline-offset-2"
+        >
+          {avatar}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold text-primary">{user.name}</span>
+            <span className="block truncate text-sm text-tertiary">{user.email}</span>
+          </span>
+          <ChevronSelectorVertical
+            aria-hidden="true"
+            className="size-4 shrink-0 text-fg-quaternary"
+          />
+        </AriaButton>
+      )}
+      <Dropdown.Popover placement={compact ? "right bottom" : "top left"} className="w-64">
         <Dropdown.Menu
           onAction={(key) => {
             if (key === "sign-out") void onSignOut?.();
