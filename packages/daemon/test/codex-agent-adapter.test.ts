@@ -319,3 +319,36 @@ async function waitForEvent(
   }
   throw new Error(`timed out waiting for ${type}`);
 }
+
+test("Codex reports retry errors as activity without ending the active turn", async () => {
+  const session = await fixtureAdapter().createAgentSession({
+    agentWorkspaceDirectory: tmpdir(),
+    instructions: TEST_AGENT_INSTRUCTIONS,
+  });
+  const events: AgentRuntimeEvent[] = [];
+  const observed = new Promise<void>((resolve) => {
+    session.subscribe((event) => {
+      events.push(event);
+      if (event.type === "text-delta" && event.text === "retry observed") resolve();
+    });
+  });
+  try {
+    await session.sendMessage("retry-error");
+    await observed;
+    expect(events.filter((event) => event.type === "activity")).toEqual([
+      {
+        type: "activity",
+        activity: expect.objectContaining({
+          detailKind: "runtime_error",
+          level: "error",
+          detail: "Retrying: request timed out: Bearer [redacted]",
+        }),
+      },
+    ]);
+    expect(events.some((event) => event.type === "completed")).toBe(false);
+    await session.notify!("retry accepted");
+    await expect(session.sendMessage("overlap")).rejects.toThrow("already running");
+  } finally {
+    await session.dispose();
+  }
+});

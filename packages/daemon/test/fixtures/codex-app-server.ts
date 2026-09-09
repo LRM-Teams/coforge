@@ -276,6 +276,19 @@ function handle(request: Request): void {
       id: request.id,
       result: { turn: { id: turnId, status: "inProgress" } },
     });
+    if (textInput(request.params) === "retry-error") {
+      write({
+        method: "error",
+        params: {
+          threadId,
+          turnId,
+          willRetry: true,
+          error: { message: "request timed out: Bearer fixture-private-token" },
+        },
+      });
+      write({ method: "item/agentMessage/delta", params: { delta: "retry observed" } });
+      return;
+    }
     if (textInput(request.params)?.startsWith("race-")) {
       write({
         method: "item/agentMessage/delta",
