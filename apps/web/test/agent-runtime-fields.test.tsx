@@ -4,6 +4,7 @@ import { afterEach, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { Button } from "@/components/base/buttons/button";
 import { AgentRuntimeFields } from "@/features/agents/agent-runtime-fields";
 
 afterEach(cleanup);
@@ -57,7 +58,7 @@ test("replays the current catalog model and reasoning and submits no computer id
           catalogs: [{ provider: "coforge", models: [model] }],
         })}
       />
-      <button type="submit">Save</button>
+      <Button type="submit">Save</Button>
     </form>,
   );
   await waitFor(() => expect(document.body.textContent).toContain("openai / GPT 5"));
@@ -91,7 +92,7 @@ test("keeps a configured model visible when it is absent from the latest catalog
         }}
         onLoad={async () => ({ providers: ["pi"], catalogs: [] })}
       />
-      <button type="submit">Save</button>
+      <Button type="submit">Save</Button>
     </form>,
   );
 
@@ -134,7 +135,7 @@ test("submits the model provider selected through an external runtime catalog", 
         }}
         onLoad={load}
       />
-      <button type="submit">Save</button>
+      <Button type="submit">Save</Button>
     </form>,
   );
   await waitFor(() => expect(load).toHaveBeenCalledTimes(1));

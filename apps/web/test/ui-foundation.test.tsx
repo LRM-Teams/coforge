@@ -45,7 +45,7 @@ test("a controlled dialog opens and closes via its close button", async () => {
     const [open, setOpen] = useState(true);
     return (
       <>
-        <button onClick={() => setOpen(true)}>Open dialog</button>
+        <Button onPress={() => setOpen(true)}>Open dialog</Button>
         <ModalOverlay isOpen={open} onOpenChange={setOpen}>
           <Modal className="w-96">
             <Dialog className="p-6">

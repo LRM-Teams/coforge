@@ -22,12 +22,6 @@
       "rules": {
         "coforge/no-native-select": "off"
       }
-    },
-    {
-      "files": ["test/**/*.{ts,tsx}"],
-      "rules": {
-        "coforge/no-native-button": "off"
-      }
     }
   ]
 }

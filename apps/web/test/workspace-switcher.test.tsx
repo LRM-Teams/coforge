@@ -4,6 +4,7 @@ import { expect, mock, test } from "bun:test";
 import { cleanup, render, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { Button } from "@/components/base/buttons/button";
 import { AppToastProvider } from "@/components/ui/toast";
 import { WorkspaceSwitcher } from "@/features/workspaces/workspace-switcher";
 import { AppError } from "@/lib/app-error";
@@ -44,7 +45,7 @@ test("dismisses the workspace menu by repeated trigger click, outside click, and
     <AppToastProvider>
       <div>
         <WorkspaceSwitcher workspaces={workspaces} current={workspaces[0]!} />
-        <button type="button">Outside</button>
+        <Button type="button">Outside</Button>
       </div>
     </AppToastProvider>,
   );
