@@ -7,7 +7,7 @@ export const createAgentInputSchema = z.object({
     .min(1)
     .max(48)
     .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-  description: z.string().trim().min(1).max(500),
+  description: z.string().trim().max(500).default(""),
   provider: z.enum(["coforge", "pi", "codex", "claude-code"]),
   model: z.string().trim().max(200).optional(),
   modelProvider: z.string().trim().max(100).optional(),
