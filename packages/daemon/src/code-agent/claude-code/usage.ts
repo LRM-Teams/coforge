@@ -12,7 +12,14 @@ export async function readClaudeCodeUsage(
 ): Promise<UsageSnapshot | null> {
   const baseCommand = options.command ?? ["claude"];
   const timeoutMs = options.timeoutMs ?? 5_000;
-  const environment = agentEnvironment(options.environment);
+  // Claude uses USER to locate the signed-in account in the macOS Keychain.
+  const username = Bun.env.USER;
+  // Normalize the CLI report without changing the parent or Agent environment.
+  const environment = {
+    ...(username ? { USER: username } : {}),
+    ...agentEnvironment(options.environment),
+    TZ: "UTC",
+  };
   const auth = await run(
     [...baseCommand, "auth", "status", "--json"],
     workingDirectory,
@@ -51,17 +58,22 @@ function parseUsage(output: string): UsageSnapshot | null {
   let text = output;
   try {
     const value = JSON.parse(output) as unknown;
-    text = typeof value === "string" ? value : JSON.stringify(value);
+    if (typeof value === "string") text = value;
+    else if (value && typeof value === "object") {
+      if ("result" in value && typeof value.result === "string") text = value.result;
+      else if ("text" in value && typeof value.text === "string") text = value.text;
+      else return null;
+    } else return null;
   } catch {
     /* Some Claude versions emit the report as plain text. */
   }
   const primary = window(
     text,
-    /Current session[\s\S]{0,180}?([\d.]+)%[\s\S]{0,100}?(?:reset|resets)[\s\S]{0,40}?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),\s+(\d{4}),\s+(\d{1,2}):(\d{2})\s*(am|pm)\s*\(UTC\)/i,
+    /^Current session:?\s+([\d.]+)%[^\r\n]{0,100}?(?:reset|resets)[^\r\n]{0,40}?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})(?:,\s+(\d{4}),|\s+at)\s+(\d{1,2}):(\d{2})\s*(am|pm)\s*\(UTC\)/im,
   );
   const secondary = window(
     text,
-    /Current week[\s\S]{0,180}?([\d.]+)%[\s\S]{0,100}?(?:reset|resets)[\s\S]{0,40}?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),\s+(\d{4}),\s+(\d{1,2}):(\d{2})\s*(am|pm)\s*\(UTC\)/i,
+    /^Current week(?: \(all models\))?:?\s+([\d.]+)%[^\r\n]{0,100}?(?:reset|resets)[^\r\n]{0,40}?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})(?:,\s+(\d{4}),|\s+at)\s+(\d{1,2}):(\d{2})\s*(am|pm)\s*\(UTC\)/im,
   );
   if (!primary && !secondary) return null;
   return {
@@ -92,9 +104,15 @@ function window(text: string, pattern: RegExp): UsageWindow | undefined {
   let hour = Number(match[5]);
   if ((match[7] ?? "").toLowerCase() === "pm" && hour !== 12) hour += 12;
   if ((match[7] ?? "").toLowerCase() === "am" && hour === 12) hour = 0;
-  const reset = new Date(
-    Date.UTC(Number(match[4]), month, Number(match[3]), hour, Number(match[6])),
-  );
+  const now = new Date();
+  let year = match[4] ? Number(match[4]) : now.getUTCFullYear();
+  // Session/week resets are near the scan date, including just-expired windows.
+  // Infer the adjacent year around New Year without moving stale resets a year ahead.
+  if (!match[4]) {
+    if (month - now.getUTCMonth() < -6) year += 1;
+    if (month - now.getUTCMonth() > 6) year -= 1;
+  }
+  const reset = new Date(Date.UTC(year, month, Number(match[3]), hour, Number(match[6])));
   if (!Number.isFinite(usedPercent) || month < 0 || Number.isNaN(reset.getTime())) return undefined;
   return {
     usedPercent,
