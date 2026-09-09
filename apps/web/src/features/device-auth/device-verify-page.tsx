@@ -90,7 +90,7 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
             <div
               className={`mx-auto mb-6 flex size-14 items-center justify-center rounded-xl border shadow-xs ${
                 stage.name === "confirm"
-                  ? "border-brand bg-brand-primary text-brand-secondary"
+                  ? "border-brand bg-primary text-brand-secondary"
                   : "border-secondary bg-primary text-primary"
               }`}
             >

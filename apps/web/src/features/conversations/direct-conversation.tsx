@@ -923,7 +923,7 @@ export function ConversationPane({
                       id={`message-${message.id}`}
                       data-message={own ? "own" : "other"}
                       className={cn(
-                        "flex scroll-m-6 gap-3 rounded-xl transition-[background-color,box-shadow] duration-500 target:bg-brand-primary target:ring-2 target:ring-brand/50 target:ring-offset-4 target:ring-offset-primary",
+                        "flex scroll-m-6 gap-3 rounded-xl transition-[background-color,box-shadow] duration-500 target:bg-active target:ring-2 target:ring-brand/50 target:ring-offset-4 target:ring-offset-primary",
                         own ? "flex-col items-end" : "items-start",
                       )}
                     >

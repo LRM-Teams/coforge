@@ -112,7 +112,7 @@ export function AgentControl({
                       aria-label={option.label}
                       aria-pressed={action === option.action}
                       data-control-action={option.action}
-                      className={`h-auto flex-col items-start whitespace-normal rounded-xl p-4 text-left ${action === option.action ? (destructive ? "border-error bg-error-primary ring-1 ring-error hover:bg-error-primary" : "border-brand bg-brand-primary ring-1 ring-brand hover:bg-brand-primary") : "hover:bg-secondary"}`}
+                      className={`h-auto flex-col items-start whitespace-normal rounded-xl p-4 text-left ${action === option.action ? (destructive ? "border-error bg-error-primary ring-1 ring-error hover:bg-error-primary" : "border-brand bg-primary ring-1 ring-brand hover:bg-primary") : "hover:bg-secondary"}`}
                       onPress={() => setAction(option.action)}
                     >
                       <span className="font-semibold">{option.label}</span>

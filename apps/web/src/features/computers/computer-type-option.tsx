@@ -25,7 +25,7 @@ export function ComputerTypeOption({
       type="button"
       color="secondary"
       aria-pressed={selected}
-      className={`relative h-auto flex-col items-stretch justify-start whitespace-normal rounded-xl p-4 text-left shadow-xs ${selected ? "border-brand bg-brand-primary ring-1 ring-brand" : "hover:bg-primary_hover"}`}
+      className={`relative h-auto flex-col items-stretch justify-start whitespace-normal rounded-xl p-4 text-left shadow-xs ${selected ? "border-brand bg-primary ring-1 ring-brand" : "hover:bg-primary_hover"}`}
       onPress={onSelect}
     >
       <span className="mb-3 flex size-10 items-center justify-center rounded-lg border border-secondary bg-primary text-tertiary shadow-xs">
