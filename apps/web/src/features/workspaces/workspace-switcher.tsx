@@ -69,7 +69,7 @@ export function WorkspaceSwitcher({
         ) : (
           <AriaButton
             aria-label={m.workspace_switcher()}
-            className="flex h-12 w-full items-center px-2 text-left outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset"
+            className="flex h-12 w-full items-center bg-transparent px-2 text-left outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset"
           >
             {/* size-5 column matches every sidebar row's icon column, so the
                 name below lines up with row text even though the mark itself is 24px. */}

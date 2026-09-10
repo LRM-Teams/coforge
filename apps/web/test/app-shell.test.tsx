@@ -187,15 +187,15 @@ test("shows an icon with the Sign out action", async () => {
   ).toBeTruthy();
 });
 
-test("shows the primary navigation with Home first", () => {
+test("shows the primary navigation with Chat first", () => {
   const markup = renderShell();
 
   expect(markup).toContain("<aside");
-  expect(markup).toContain("Home");
+  expect(markup).toContain("Chat");
   expect(markup).toContain("Members");
   expect(markup).toContain("Tasks");
   expect(markup).toContain("Computers");
-  expect(markup.indexOf("Home")).toBeLessThan(markup.indexOf("Members"));
+  expect(markup.indexOf("Chat")).toBeLessThan(markup.indexOf("Members"));
   expect(markup.indexOf("Members")).toBeLessThan(markup.indexOf("Tasks"));
   expect(markup.indexOf("Tasks")).toBeLessThan(markup.indexOf("Computers"));
   expect(markup).toContain('href="/en/messages"');
@@ -203,7 +203,7 @@ test("shows the primary navigation with Home first", () => {
   expect(markup).toContain(">F</span>");
 });
 
-test("keeps Home selected on a private conversation route", () => {
+test("keeps Chat selected on a private conversation route", () => {
   window.history.pushState({}, "", "/en/messages/agent-1");
   const router = getRouter();
   render(
@@ -214,9 +214,7 @@ test("keeps Home selected on a private conversation route", () => {
     </RouterContextProvider>,
   );
 
-  // The rail's NavButton (official, unmodified) has no `aria-current` — it
-  // marks the current item visually only, with a bg-secondary class.
-  expect(page().getByRole("link", { name: "Home" }).className).toContain("bg-secondary");
+  expect(page().getByRole("link", { name: "Chat" }).getAttribute("aria-current")).toBe("page");
   window.history.pushState({}, "", "/en");
 });
 
@@ -230,9 +228,7 @@ test("keeps Tasks selected in the rail", () => {
     </RouterContextProvider>,
   );
 
-  // The rail's NavButton (official, unmodified) has no `aria-current` — it
-  // marks the current item visually only, with a bg-secondary class.
-  expect(page().getByRole("link", { name: "Tasks" }).className).toContain("bg-secondary");
+  expect(page().getByRole("link", { name: "Tasks" }).getAttribute("aria-current")).toBe("page");
   window.history.pushState({}, "", "/en");
 });
 
@@ -553,7 +549,7 @@ test("hiding the channel sidebar keeps the rail reachable and can be shown again
   expect(page().getByText("channels hidden")).toBeTruthy();
   // The rail (Members, Tasks, Computers, Home) is a separate, permanent
   // surface — hiding the Channels/Direct-messages panel doesn't touch it.
-  for (const name of ["Home", "Members", "Tasks", "Computers"]) {
+  for (const name of ["Chat", "Members", "Tasks", "Computers"]) {
     expect(page().getByRole("link", { name }).getAttribute("href")).toBeTruthy();
   }
 

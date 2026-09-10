@@ -40,12 +40,11 @@ test("lists Channels (joined first) and Direct messages as typed links, highligh
 
   const channelList = page.getByRole("list", { name: "Channels" });
   const channelLinks = within(channelList).getAllByRole("link");
-  expect(channelLinks.map((link) => link.textContent)).toEqual(["#general", "#roadmap"]);
+  expect(channelLinks.map((link) => link.textContent)).toEqual(["general", "roadmap"]);
   expect(channelLinks[0].getAttribute("aria-current")).toBe("page");
   expect(channelLinks[1].getAttribute("aria-current")).toBeNull();
-  // Not-joined channels read as de-emphasized rather than hidden. (The outer
-  // span is NavItemBase's own label wrapper; ours nests inside it.)
-  expect(channelLinks[1].querySelector("span > span")?.className).toContain("text-tertiary");
+  // Not-joined channels read as de-emphasized rather than hidden.
+  expect(channelLinks[1].querySelector("span.flex-1")?.className).toContain("text-tertiary");
   expect(channelLinks[0].getAttribute("href")).toBe("/en/messages/channels/channel-1");
 
   const dmList = page.getByRole("list", { name: "Direct messages" });

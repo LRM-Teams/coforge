@@ -754,7 +754,12 @@ test("an Agent Activity tab shows only time, action, and message", async () => {
   expect(page.getByText("Starting")).toBeTruthy();
   expect(page.getAllByText("Agent runtime could not be started.")).toHaveLength(1);
   expect(page.queryByText("Agent runtime is starting.")).toBeNull();
-  expect(document.querySelector("time")?.getAttribute("datetime")).toBe("2026-08-29T00:00:01.000Z");
+  // Scoped to the activity list itself — the page header now carries its own
+  // RelativeTime (e.g. "Online since"), so a bare document-wide `time` query
+  // would pick that one up instead.
+  expect(document.querySelector("ol time")?.getAttribute("datetime")).toBe(
+    "2026-08-29T00:00:01.000Z",
+  );
   expect(page.queryByText("launch_failed")).toBeNull();
   expect(page.queryByText(/launch-1/)).toBeNull();
   expect(page.queryByText("error")).toBeNull();

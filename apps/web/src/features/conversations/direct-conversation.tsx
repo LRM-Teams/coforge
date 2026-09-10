@@ -28,6 +28,7 @@ import type { TaskView } from "@coforge/protocol";
 import { MenuItem as AriaMenuItem, Popover as AriaPopover } from "react-aria-components";
 
 import { useChannelSidebarVisibility } from "@/components/app-shell";
+import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
 import { useConversationActivity } from "@/features/conversations/conversation-layout";
 import { AgentActivityAvatar, useAgentWorkingLabel } from "@/features/agents/agent-activity-avatar";
 import { Avatar } from "@/components/base/avatar/avatar";
@@ -136,44 +137,44 @@ export function DirectConversation(props: ConversationProps) {
   });
   const channelSidebar = useChannelSidebarVisibility();
   const header = (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-3 sm:gap-3 sm:px-5">
-      {channelSidebar.hidden && (
-        <ButtonUtility
-          icon={PanelLeft}
-          size="sm"
-          color="tertiary"
-          tooltip={m.controls_show_sidebar()}
-          onClick={channelSidebar.show}
-          className="hidden lg:inline-flex"
-        />
-      )}
-      <AgentActivityAvatar
-        agent={conversation.agent}
-        size="sm"
-        status={agentStatus}
-        {...activity}
-      />
-      <div className="min-w-0">
-        <h1 className="truncate text-base font-semibold">{conversation.agent.displayName}</h1>
-        {workingLabel && (
-          <p role="status" className="truncate text-xs text-tertiary">
-            {workingLabel}…
-          </p>
+    <header className="shrink-0 border-b border-secondary px-3 sm:px-5">
+      <div className="-mx-3 flex h-12 items-center gap-2 px-3 sm:-mx-5 sm:gap-3 sm:px-5">
+        {channelSidebar.hidden && (
+          <ButtonUtility
+            icon={PanelLeft}
+            size="sm"
+            color="tertiary"
+            tooltip={m.controls_show_sidebar()}
+            onClick={channelSidebar.show}
+            className="hidden lg:inline-flex"
+          />
         )}
-      </div>
-      <span className="hidden shrink-0 text-sm text-tertiary sm:block">
-        @{conversation.agent.name}
-      </span>
-      {props.onShowTasks && (
-        <Button
-          color="tertiary"
+        <AgentActivityAvatar
+          agent={conversation.agent}
           size="sm"
-          className="ml-auto"
-          onPress={props.onShowTasks}
-          iconLeading={ListTodo}
-        >
-          {m.tasks_tab()}
-        </Button>
+          status={agentStatus}
+          {...activity}
+        />
+        <div className="min-w-0">
+          <h1 className="truncate text-base font-semibold">{conversation.agent.displayName}</h1>
+          {workingLabel && (
+            <p role="status" className="truncate text-xs text-tertiary">
+              {workingLabel}…
+            </p>
+          )}
+        </div>
+        <span className="hidden shrink-0 text-sm text-tertiary sm:block">
+          @{conversation.agent.name}
+        </span>
+      </div>
+      {props.onShowTasks && (
+        <div className="-mx-3 flex h-11 items-center px-3 sm:-mx-5 sm:px-5">
+          <ConversationTaskTabs
+            active="chat"
+            taskCount={props.tasks?.length ?? 0}
+            onShowTasks={props.onShowTasks}
+          />
+        </div>
       )}
     </header>
   );

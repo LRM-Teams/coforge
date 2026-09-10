@@ -40,7 +40,11 @@ function SidebarRow({
       <span
         className={cx(
           "flex-1 truncate text-sm",
-          current ? "font-semibold text-brand-secondary" : muted ? "text-tertiary" : "text-secondary",
+          current
+            ? "font-semibold text-brand-secondary"
+            : muted
+              ? "text-tertiary"
+              : "text-secondary",
         )}
       >
         {children}
