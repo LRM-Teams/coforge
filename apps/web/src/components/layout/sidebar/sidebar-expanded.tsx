@@ -30,6 +30,8 @@ interface SidebarExpandedProps {
   footer: ReactNode;
   /** Control rendered at the right end of the logo row (the collapse button). */
   headerAction?: ReactNode;
+  /** Block rendered under the logo row, before the nav (the workspace switcher). */
+  subheader?: ReactNode;
   /** Current width in pixels (controlled). */
   width: number;
   /** Called while the user drags the resize handle, with the next clamped width. */
@@ -41,6 +43,7 @@ export const SidebarExpanded = ({
   items,
   footerItems = [],
   headerAction,
+  subheader,
   footer,
   width,
   onWidthChange,
@@ -89,8 +92,9 @@ export const SidebarExpanded = ({
         <span className="text-sm font-semibold text-primary">CoForge</span>
         {headerAction && <div className="ml-auto">{headerAction}</div>}
       </div>
+      {subheader && <div className="px-4 pt-1 lg:px-5">{subheader}</div>}
 
-      <NavList activeUrl={activeUrl} items={items} className="mt-2" />
+      <NavList activeUrl={activeUrl} items={items} className="mt-3" />
 
       <div className="mt-auto flex flex-col gap-3 px-4 py-4 lg:py-5">
         {footerItems.length > 0 && (

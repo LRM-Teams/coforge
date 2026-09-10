@@ -166,17 +166,15 @@ export function AppShell({
             items={navItems}
             width={sidebarWidth}
             onWidthChange={setSidebarWidth}
-            footer={
-              <div className="flex flex-col gap-3">
-                <WorkspaceSwitcher
-                  workspaces={workspaces}
-                  current={currentWorkspace}
-                  onSelect={onSelectWorkspace}
-                  onCreate={onCreateWorkspace}
-                />
-                <UserMenuCard user={user} onSignOut={onSignOut} />
-              </div>
+            subheader={
+              <WorkspaceSwitcher
+                workspaces={workspaces}
+                current={currentWorkspace}
+                onSelect={onSelectWorkspace}
+                onCreate={onCreateWorkspace}
+              />
             }
+            footer={<UserMenuCard user={user} onSignOut={onSignOut} />}
             headerAction={
               <ButtonUtility
                 icon={PanelLeft}
