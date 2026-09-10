@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CodeAgentModelMetadata, RuntimeProvider } from "@coforge/protocol";
 
 import { Button } from "@/components/base/buttons/button";
+import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
 
@@ -100,46 +101,40 @@ export function AgentRuntimeFields({
 
   return (
     <>
-      <div className="grid min-w-0 gap-1.5 text-sm">
-        <span>{m.agent_form_provider()}</span>
-        <input type="hidden" name="provider" value={provider} />
-        <Select
-          aria-label={m.agent_form_provider()}
-          size="sm"
-          className="min-w-0"
-          selectedKey={provider}
-          onSelectionChange={(key) => {
-            if (key === null) return;
-            setProvider(runtimeProvider(String(key)));
-            setModelProvider("");
-            setModelKey("");
-            setReasoning("");
-          }}
-        >
-          <Select.Item id="coforge" label={m.agent_provider_pi_builtin()} />
-          {providers.has("pi") && <Select.Item id="pi" label="Pi" />}
-          {providers.has("codex") && <Select.Item id="codex" label="Codex" />}
-          {providers.has("claude-code") && <Select.Item id="claude-code" label="Claude Code" />}
-        </Select>
-      </div>
+      <input type="hidden" name="provider" value={provider} />
+      <Select
+        label={m.agent_form_provider()}
+        size="sm"
+        className="min-w-0"
+        selectedKey={provider}
+        onSelectionChange={(key) => {
+          if (key === null) return;
+          setProvider(runtimeProvider(String(key)));
+          setModelProvider("");
+          setModelKey("");
+          setReasoning("");
+        }}
+      >
+        <Select.Item id="coforge" label={m.agent_provider_pi_builtin()} />
+        {providers.has("pi") && <Select.Item id="pi" label="Pi" />}
+        {providers.has("codex") && <Select.Item id="codex" label="Codex" />}
+        {providers.has("claude-code") && <Select.Item id="claude-code" label="Claude Code" />}
+      </Select>
       {failed ? (
-        <label className="grid min-w-0 gap-1.5 text-sm">
-          {m.agent_form_model_provider()}
-          <input
-            name="modelProvider"
-            required={provider === "coforge"}
-            maxLength={100}
-            defaultValue={modelProvider}
-            className="h-9 min-w-0 rounded-md border border-secondary bg-primary px-3"
-          />
-        </label>
+        <Input
+          label={m.agent_form_model_provider()}
+          name="modelProvider"
+          size="sm"
+          isRequired={provider === "coforge"}
+          maxLength={100}
+          defaultValue={modelProvider}
+        />
       ) : (
         provider === "coforge" && (
-          <div className="grid min-w-0 gap-1.5 text-sm">
-            <span>{m.agent_form_model_provider()}</span>
+          <>
             <input type="hidden" name="modelProvider" value={modelProvider} />
             <Select
-              aria-label={m.agent_form_model_provider()}
+              label={m.agent_form_model_provider()}
               size="sm"
               className="min-w-0"
               isDisabled={!options}
@@ -156,33 +151,30 @@ export function AgentRuntimeFields({
                 <Select.Item key={value} id={value} label={value} />
               ))}
             </Select>
-          </div>
+          </>
         )
       )}
       {!failed && provider !== "coforge" && (
         <input type="hidden" name="modelProvider" value={submittedModelProvider} />
       )}
       {failed ? (
-        <label className="grid min-w-0 gap-1.5 text-sm">
-          {m.agent_form_model()}
-          <input
-            name="model"
-            required
-            maxLength={200}
-            defaultValue={initial?.model}
-            className="h-9 min-w-0 rounded-md border border-secondary bg-primary px-3"
-          />
-        </label>
+        <Input
+          label={m.agent_form_model()}
+          name="model"
+          size="sm"
+          isRequired
+          maxLength={200}
+          defaultValue={initial?.model}
+        />
       ) : (
-        <div className="grid min-w-0 gap-1.5 text-sm">
-          <span>{m.agent_form_model()}</span>
+        <>
           <input
             type="hidden"
             name="model"
             value={selectedModel?.id ?? (modelKey === initialModelKey ? initial?.model : "")}
           />
           <Select
-            aria-label={`${m.agent_form_model()} ${m.agent_optional()}`}
+            label={m.agent_form_model()}
             size="sm"
             className="min-w-0"
             isDisabled={!options}
@@ -213,11 +205,11 @@ export function AgentRuntimeFields({
                 />
               ))}
           </Select>
-        </div>
+        </>
       )}
       {failed && (
-        <div role="alert" className="grid gap-2 text-sm text-error-primary sm:col-span-2">
-          <span>{m.agent_form_catalog_manual_help()}</span>
+        <div role="alert" className="grid gap-2 sm:col-span-2">
+          <p className="text-sm text-error-primary">{m.agent_form_catalog_manual_help()}</p>
           <Button
             type="button"
             color="secondary"
@@ -236,23 +228,20 @@ export function AgentRuntimeFields({
           </Button>
         </div>
       )}
-      <div className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
-        <span>{m.agent_form_reasoning()}</span>
-        <input type="hidden" name="reasoning" value={reasoning} />
-        <Select
-          aria-label={`${m.agent_form_reasoning()} ${m.agent_optional()}`}
-          size="sm"
-          className="min-w-0"
-          isDisabled={!selectedModel?.reasoningEfforts.length}
-          selectedKey={reasoning}
-          onSelectionChange={(key) => key !== null && setReasoning(String(key))}
-        >
-          <Select.Item id="" label={m.agent_form_provider_default()} />
-          {selectedModel?.reasoningEfforts.map((effort) => (
-            <Select.Item key={effort} id={effort} label={effort} />
-          ))}
-        </Select>
-      </div>
+      <input type="hidden" name="reasoning" value={reasoning} />
+      <Select
+        label={m.agent_form_reasoning()}
+        size="sm"
+        className="min-w-0 sm:col-span-2"
+        isDisabled={!selectedModel?.reasoningEfforts.length}
+        selectedKey={reasoning}
+        onSelectionChange={(key) => key !== null && setReasoning(String(key))}
+      >
+        <Select.Item id="" label={m.agent_form_provider_default()} />
+        {selectedModel?.reasoningEfforts.map((effort) => (
+          <Select.Item key={effort} id={effort} label={effort} />
+        ))}
+      </Select>
     </>
   );
 }
