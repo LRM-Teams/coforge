@@ -2,8 +2,11 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { XClose as X } from "@untitledui/icons";
 
-import { Avatar } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
+import { Avatar } from "@/components/base/avatar/avatar";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { TextArea } from "@/components/base/textarea/textarea";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { m } from "@/paraglide/messages";
 import { addRecordComment, loadRecordComments } from "./records.functions";
 
@@ -59,66 +62,66 @@ export function RecordSidePanel({
   }
 
   return (
-    <aside className="flex w-full max-w-sm shrink-0 flex-col border-l bg-card">
-      <div className="flex items-center justify-between border-b px-4 py-3">
-        <div className="text-sm font-semibold">
+    <aside className="flex w-full max-w-sm shrink-0 flex-col border-l border-secondary bg-primary">
+      <div className="flex items-center justify-between border-b border-secondary px-4 py-3">
+        <div className="text-sm font-semibold text-primary">
           {m.records_side_chat()}{" "}
-          <span className="font-normal text-muted-foreground">
+          <span className="font-normal text-tertiary">
             {m.records_side_chat_count({ count: comments.length })}
           </span>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
+        <ButtonUtility
+          size="sm"
+          color="tertiary"
+          icon={X}
           aria-label={m.controls_close()}
           onClick={onClose}
-        >
-          <X className="size-4" />
-        </Button>
+        />
       </div>
 
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         {comments.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{m.records_side_chat_empty()}</p>
+          <p className="text-sm text-tertiary">{m.records_side_chat_empty()}</p>
         ) : (
-          comments.map((comment) => (
-            <article key={comment.id} className="space-y-1.5">
-              <div className="flex items-center gap-2">
-                {comment.author ? (
-                  <Avatar people={[{ name: comment.author.displayName }]} size="xs" />
-                ) : (
-                  <span className="flex size-6 items-center justify-center rounded-full bg-brand/15 text-[10px] font-semibold text-brand">
-                    AI
+          comments.map((comment) => {
+            const authorName =
+              comment.authorType === "assistant"
+                ? m.records_side_chat_assistant()
+                : comment.authorType === "system"
+                  ? m.records_side_chat_system()
+                  : (comment.author?.displayName ?? m.records_side_chat_user());
+            return (
+              <article key={comment.id} className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Avatar
+                    size="xs"
+                    alt={authorName}
+                    initials={avatarInitial(authorName)}
+                    contentClassName={avatarToneClassName(authorName)}
+                  />
+                  <span className="text-sm font-medium text-primary">{authorName}</span>
+                  <span className="ml-auto text-xs text-tertiary">
+                    {new Date(comment.createdAt).toLocaleString()}
                   </span>
-                )}
-                <span className="text-sm font-medium">
-                  {comment.authorType === "assistant"
-                    ? m.records_side_chat_assistant()
-                    : comment.authorType === "system"
-                      ? m.records_side_chat_system()
-                      : (comment.author?.displayName ?? m.records_side_chat_user())}
-                </span>
-                <span className="ml-auto text-[11px] text-muted-foreground">
-                  {new Date(comment.createdAt).toLocaleString()}
-                </span>
-              </div>
-              <p className="whitespace-pre-wrap text-sm text-foreground">{comment.body}</p>
-            </article>
-          ))
+                </div>
+                <p className="whitespace-pre-wrap text-sm text-primary">{comment.body}</p>
+              </article>
+            );
+          })
         )}
       </div>
 
-      <form onSubmit={(event) => void onSubmit(event)} className="border-t p-3">
-        <div className="flex items-end gap-2 rounded-xl bg-muted/50 px-3 py-2 ring-1 ring-border ring-inset focus-within:ring-2 focus-within:ring-ring">
-          <textarea
+      <form onSubmit={(event) => void onSubmit(event)} className="border-t border-secondary p-3">
+        <div className="flex items-end gap-2">
+          <TextArea
+            aria-label={m.records_side_chat_placeholder()}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={setDraft}
             placeholder={m.records_side_chat_placeholder()}
             rows={2}
-            className="min-h-10 min-w-0 flex-1 resize-none bg-transparent text-sm outline-none"
+            className="flex-1"
           />
-          <Button type="submit" size="sm" disabled={busy || !draft.trim()}>
+          <Button type="submit" size="sm" isDisabled={busy || !draft.trim()}>
             {m.records_side_chat_send()}
           </Button>
         </div>

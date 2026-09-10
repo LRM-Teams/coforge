@@ -14,27 +14,42 @@ import {
 } from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { Avatar } from "@/components/ui/avatar";
-import { Button, buttonVariants } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
+import { Avatar } from "@/components/base/avatar/avatar";
+import { Badge } from "@/components/base/badges/badges";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
+import { Input } from "@/components/base/input/input";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
+import { cx } from "@/utils/cx";
 import { m } from "@/paraglide/messages";
 import {
   addCurrentWeeklyCycle,
   deleteWeeklyCycle,
   type loadRecordsCatalog,
 } from "./records.functions";
+
 export type RecordsTab = "weekly" | "notes";
 export type RecordsPanel = "settings" | "stats";
 export type RecordsCatalog = Awaited<ReturnType<typeof loadRecordsCatalog>>;
+type ToolbarKey = RecordsTab | RecordsPanel;
 
 function recordsTabSearch(tab: string | undefined): RecordsTab {
   return tab === "notes" ? "notes" : "weekly";
+}
+
+function reportStatusColor(status: string): "gray" | "success" | "blue" {
+  if (status === "submitted") return "success";
+  if (status === "shared") return "blue";
+  return "gray";
+}
+
+function reportStatusLabel(status: string): string {
+  if (status === "submitted") return m.records_status_submitted();
+  if (status === "shared") return m.records_status_shared();
+  return m.records_status_draft();
 }
 
 const BackToRecordsContext = createContext<(() => void) | undefined>(undefined);
@@ -73,6 +88,7 @@ export function RecordsLayout({
   const [busy, setBusy] = useState(false);
   const detailOpen = Boolean(selectedRecordId || selectedPanel);
   const listHidden = detailOpen && !showMobileList;
+  const toolbarKey: ToolbarKey = selectedPanel ?? tab;
 
   const filteredFavorites = useMemo(
     () => catalog.favorites.filter((item) => matchesQuery(item.title, query)),
@@ -138,46 +154,103 @@ export function RecordsLayout({
     }
   }
 
+  function selectToolbar(next: string) {
+    if (next === "settings") {
+      setShowMobileList(false);
+      void navigate({
+        to: "/records/settings",
+        search: (previous) => ({ tab: recordsTabSearch(previous.tab) }),
+      });
+      return;
+    }
+    if (next === "stats") {
+      setShowMobileList(false);
+      const now = new Date();
+      void navigate({
+        to: "/records/stats",
+        search: (previous) => ({
+          tab: recordsTabSearch(previous.tab),
+          year: typeof previous.year === "number" ? previous.year : now.getFullYear(),
+          month: typeof previous.month === "number" ? previous.month : now.getMonth() + 1,
+        }),
+      });
+      return;
+    }
+    const nextTab = recordsTabSearch(next);
+    if (selectedPanel) {
+      void navigate({ to: "/records", search: { tab: nextTab } });
+      return;
+    }
+    onTabChange(nextTab);
+  }
+
   return (
-    <main className="flex h-svh min-w-0 md:gap-2 md:p-2">
+    <main className="flex h-svh min-w-0">
       <nav
         aria-label={m.records_list_label()}
-        className={cn(
-          "min-w-0 flex-col overflow-hidden bg-card md:flex md:w-72 md:shrink-0 md:rounded-xl md:border xl:w-80",
+        className={cx(
+          "min-w-0 flex-col overflow-hidden bg-primary md:flex md:w-80 md:shrink-0 md:border-r md:border-secondary",
           listHidden ? "hidden" : "flex w-full",
         )}
       >
-        <PageHeader heading={m.records_title()} />
+        <PageHeader
+          heading={m.records_title()}
+          actions={
+            selectedPanel === "settings" ? undefined : (
+              <Button
+                size="sm"
+                color="secondary"
+                iconLeading={Plus}
+                onPress={() => {
+                  setShowMobileList(false);
+                  void navigate({
+                    to: "/records/settings",
+                    search: (previous) => ({ tab: recordsTabSearch(previous.tab), create: true }),
+                  });
+                }}
+              >
+                {m.records_create_template()}
+              </Button>
+            )
+          }
+        />
+
+        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-secondary px-3">
+          <ButtonGroup
+            aria-label={m.records_list_label()}
+            size="sm"
+            selectedKeys={[toolbarKey]}
+            disallowEmptySelection
+            onSelectionChange={(keys) => {
+              const next = [...keys][0];
+              if (next !== undefined) selectToolbar(String(next));
+            }}
+          >
+            <ButtonGroupItem id="weekly" iconLeading={FileText}>
+              {m.records_tab_weekly()}
+            </ButtonGroupItem>
+            <ButtonGroupItem id="notes" iconLeading={Edit}>
+              {m.records_tab_notes()}
+            </ButtonGroupItem>
+            <ButtonGroupItem id="stats" iconLeading={LineChart}>
+              {m.records_stats()}
+            </ButtonGroupItem>
+            <ButtonGroupItem id="settings" iconLeading={Settings}>
+              {m.records_settings()}
+            </ButtonGroupItem>
+          </ButtonGroup>
+        </div>
+
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="space-y-3 px-3 pt-3">
-            <label className="flex h-10 items-center gap-2 rounded-full bg-muted/60 px-3 text-sm ring-1 ring-border/60 ring-inset transition-shadow focus-within:bg-background focus-within:ring-2 focus-within:ring-ring">
-              <Search aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={m.records_search_placeholder()}
-                className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
-              />
-            </label>
-            <div
-              role="group"
-              aria-label={m.records_title()}
-              className="flex gap-4 border-b border-border px-1"
-            >
-              <TabButton
-                active={tab === "weekly"}
-                icon={<FileText aria-hidden="true" className="size-4" />}
-                label={m.records_tab_weekly()}
-                onClick={() => onTabChange("weekly")}
-              />
-              <TabButton
-                active={tab === "notes"}
-                icon={<Edit aria-hidden="true" className="size-4" />}
-                label={m.records_tab_notes()}
-                onClick={() => onTabChange("notes")}
-              />
-            </div>
+          <div className="px-3 pt-3">
+            <Input
+              size="sm"
+              type="search"
+              icon={Search}
+              value={query}
+              onChange={setQuery}
+              placeholder={m.records_search_placeholder()}
+            />
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
@@ -191,17 +264,24 @@ export function RecordsLayout({
                   {filteredFavorites.length === 0 ? (
                     <EmptyHint />
                   ) : (
-                    <ul className="space-y-0.5">
+                    <ul className="divide-y divide-secondary">
                       {filteredFavorites.map((item) => (
                         <li key={item.id}>
-                          <RecordLink
+                          <RecordRow
                             recordId={item.id}
                             selected={item.id === selectedRecordId}
                             onSelect={() => setShowMobileList(false)}
-                          >
-                            <Avatar people={[{ name: item.author.displayName }]} size="sm" />
-                            <span className="truncate">{item.title}</span>
-                          </RecordLink>
+                            leading={
+                              <Avatar
+                                size="xs"
+                                alt={item.author.displayName}
+                                initials={avatarInitial(item.author.displayName)}
+                                contentClassName={avatarToneClassName(item.author.displayName)}
+                              />
+                            }
+                            title={item.title}
+                            meta={item.author.displayName}
+                          />
                         </li>
                       ))}
                     </ul>
@@ -216,17 +296,16 @@ export function RecordsLayout({
                   {filteredHighlights.length === 0 ? (
                     <EmptyHint />
                   ) : (
-                    <ul className="space-y-0.5">
+                    <ul className="divide-y divide-secondary">
                       {filteredHighlights.map((item) => (
                         <li key={item.id}>
-                          <RecordLink
+                          <RecordRow
                             recordId={item.id}
                             selected={item.id === selectedRecordId}
                             onSelect={() => setShowMobileList(false)}
-                          >
-                            <WeekBadge week={item.week} />
-                            <span className="truncate">{item.title}</span>
-                          </RecordLink>
+                            leading={<WeekChip week={item.week} />}
+                            title={item.title}
+                          />
                         </li>
                       ))}
                     </ul>
@@ -241,17 +320,17 @@ export function RecordsLayout({
                   {filteredMyReports.length === 0 ? (
                     <EmptyHint />
                   ) : (
-                    <ul className="space-y-0.5">
+                    <ul className="divide-y divide-secondary">
                       {filteredMyReports.map((item) => (
                         <li key={item.id}>
-                          <RecordLink
+                          <RecordRow
                             recordId={item.id}
                             selected={item.id === selectedRecordId}
                             onSelect={() => setShowMobileList(false)}
-                          >
-                            <WeekBadge week={item.week} />
-                            <span className="truncate">{item.title}</span>
-                          </RecordLink>
+                            leading={<WeekChip week={item.week} />}
+                            title={item.title}
+                            status={item.status}
+                          />
                         </li>
                       ))}
                     </ul>
@@ -263,16 +342,14 @@ export function RecordsLayout({
                   open={membersOpen}
                   onOpenChange={setMembersOpen}
                   actions={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
+                    <ButtonUtility
+                      size="xs"
+                      color="tertiary"
+                      icon={Plus}
+                      isDisabled={busy}
                       aria-label={m.records_add_member_week()}
-                      disabled={busy}
                       onClick={() => void onAddCycle()}
-                    >
-                      <Plus aria-hidden="true" className="size-4" />
-                    </Button>
+                    />
                   }
                 >
                   {filteredMemberWeeks.length === 0 ? (
@@ -283,13 +360,21 @@ export function RecordsLayout({
                         const expanded =
                           expandedWeeks[week.id] ?? (Boolean(query) && week.reports.length > 0);
                         return (
-                          <li key={week.id} className="space-y-0.5">
+                          <li key={week.id}>
                             <div className="flex min-w-0 items-center gap-1">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon-xs"
-                                className="size-7 shrink-0"
+                              <ButtonUtility
+                                size="xs"
+                                color="tertiary"
+                                className="shrink-0"
+                                icon={
+                                  <ChevronDown
+                                    aria-hidden="true"
+                                    className={cx(
+                                      "size-4 transition-transform",
+                                      expanded && "rotate-180",
+                                    )}
+                                  />
+                                }
                                 aria-expanded={expanded}
                                 aria-label={
                                   expanded
@@ -302,35 +387,30 @@ export function RecordsLayout({
                                     [week.id]: !expanded,
                                   }))
                                 }
-                              >
-                                <ChevronDown
-                                  aria-hidden="true"
-                                  className={cn(
-                                    "size-4 transition-transform",
-                                    expanded && "rotate-180",
-                                  )}
-                                />
-                              </Button>
+                              />
                               {week.templateReport?.id || week.highlight?.id ? (
-                                <RecordLink
+                                <RecordRow
                                   recordId={(week.templateReport?.id ?? week.highlight?.id)!}
                                   selected={
                                     week.templateReport?.id === selectedRecordId ||
                                     week.highlight?.id === selectedRecordId
                                   }
                                   onSelect={() => setShowMobileList(false)}
+                                  title={week.title}
+                                  trailing={
+                                    week.latestTemplate ? (
+                                      <Badge size="sm" color="brand">
+                                        {m.records_latest_template()}
+                                      </Badge>
+                                    ) : null
+                                  }
                                   className="min-w-0 flex-1"
-                                >
-                                  <span className="truncate font-medium">{week.title}</span>
-                                  {week.latestTemplate && (
-                                    <span className="ml-auto shrink-0 rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-medium text-brand">
-                                      {m.records_latest_template()}
-                                    </span>
-                                  )}
-                                </RecordLink>
+                                />
                               ) : (
-                                <div className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm">
-                                  <span className="truncate font-medium">{week.title}</span>
+                                <div className="flex min-h-12 min-w-0 flex-1 items-center px-2.5 py-2 text-sm">
+                                  <span className="truncate font-medium text-primary">
+                                    {week.title}
+                                  </span>
                                 </div>
                               )}
                               <WeekActionsMenu
@@ -339,20 +419,26 @@ export function RecordsLayout({
                               />
                             </div>
                             {expanded && (
-                              <ul className="ml-7 space-y-0.5">
+                              <ul className="ml-7 divide-y divide-secondary">
                                 {week.reports.map((report) => (
                                   <li key={report.id}>
-                                    <RecordLink
+                                    <RecordRow
                                       recordId={report.id}
                                       selected={report.id === selectedRecordId}
                                       onSelect={() => setShowMobileList(false)}
-                                    >
-                                      <Avatar
-                                        people={[{ name: report.author.displayName }]}
-                                        size="sm"
-                                      />
-                                      <span className="truncate">{report.title}</span>
-                                    </RecordLink>
+                                      leading={
+                                        <Avatar
+                                          size="xs"
+                                          alt={report.author.displayName}
+                                          initials={avatarInitial(report.author.displayName)}
+                                          contentClassName={avatarToneClassName(
+                                            report.author.displayName,
+                                          )}
+                                        />
+                                      }
+                                      title={report.title}
+                                      status={report.status}
+                                    />
                                   </li>
                                 ))}
                               </ul>
@@ -365,74 +451,25 @@ export function RecordsLayout({
                 </CollapsibleSection>
               </div>
             ) : filteredNotes.length === 0 ? (
-              <p className="px-1 py-6 text-sm text-muted-foreground">{m.records_notes_empty()}</p>
+              <p className="px-1 py-6 text-sm text-tertiary">{m.records_notes_empty()}</p>
             ) : (
-              <ul className="space-y-0.5">
+              <ul className="divide-y divide-secondary">
                 {filteredNotes.map((note) => (
-                  <li key={note.id}>
-                    <div className="rounded-lg px-2.5 py-2 text-sm">
-                      <div className="font-medium">{note.title}</div>
-                      <div className="text-xs text-muted-foreground">{note.preview}</div>
-                    </div>
+                  <li key={note.id} className="px-2.5 py-2 text-sm">
+                    <div className="font-medium text-primary">{note.title}</div>
+                    <div className="text-xs text-tertiary">{note.preview}</div>
                   </li>
                 ))}
               </ul>
             )}
           </div>
-
-          <div className="border-t px-2 py-2">
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger
-                aria-label={m.records_tools_menu()}
-                className={buttonVariants({
-                  variant: "ghost",
-                  size: "icon",
-                  className: "size-9 text-muted-foreground",
-                })}
-              >
-                <Settings aria-hidden="true" className="size-4" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" className="min-w-44">
-                <DropdownMenuItem
-                  onClick={() => {
-                    setShowMobileList(false);
-                    const now = new Date();
-                    void navigate({
-                      to: "/records/stats",
-                      search: (previous) => ({
-                        tab: recordsTabSearch(previous.tab),
-                        year: typeof previous.year === "number" ? previous.year : now.getFullYear(),
-                        month:
-                          typeof previous.month === "number" ? previous.month : now.getMonth() + 1,
-                      }),
-                    });
-                  }}
-                >
-                  <LineChart aria-hidden="true" className="size-4" />
-                  {m.records_stats()}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    setShowMobileList(false);
-                    void navigate({
-                      to: "/records/settings",
-                      search: (previous) => ({ tab: recordsTabSearch(previous.tab) }),
-                    });
-                  }}
-                >
-                  <Settings aria-hidden="true" className="size-4" />
-                  {m.records_settings()}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
         </div>
       </nav>
 
       <section
-        className={cn(
-          "min-w-0 flex-1 flex-col overflow-hidden bg-card md:flex md:rounded-xl md:border",
-          listHidden ? "flex" : "hidden md:flex",
+        className={cx(
+          "min-w-0 flex-1 flex-col overflow-hidden bg-primary md:flex",
+          listHidden ? "flex" : "hidden",
         )}
       >
         <BackToRecordsContext value={() => setShowMobileList(true)}>
@@ -444,37 +481,7 @@ export function RecordsLayout({
 }
 
 function EmptyHint() {
-  return <p className="px-1 py-2 text-xs text-muted-foreground">{m.records_section_empty()}</p>;
-}
-
-function TabButton({
-  active,
-  icon,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  icon: ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn(
-        "-mb-px h-auto rounded-none px-0.5 pb-2.5 hover:bg-transparent",
-        active
-          ? "border-b-2 border-foreground text-foreground hover:text-foreground"
-          : "border-b-2 border-transparent text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {icon}
-      {label}
-    </Button>
-  );
+  return <p className="px-1 py-2 text-xs text-tertiary">{m.records_section_empty()}</p>;
 }
 
 function CollapsibleSection({
@@ -494,17 +501,19 @@ function CollapsibleSection({
     <section>
       <div className="mb-1.5 flex items-center gap-1">
         <Button
-          type="button"
-          variant="ghost"
+          color="tertiary"
+          size="xs"
+          iconLeading={
+            <ChevronDown
+              aria-hidden="true"
+              className={cx("size-3.5 transition-transform", open && "rotate-180")}
+            />
+          }
           aria-expanded={open}
-          onClick={() => onOpenChange(!open)}
-          className="h-auto min-w-0 flex-1 justify-start gap-1 px-1 py-1 text-left text-xs font-semibold text-muted-foreground hover:bg-transparent hover:text-foreground"
+          onPress={() => onOpenChange(!open)}
+          className="min-w-0 flex-1 justify-start gap-1 px-1 py-1 text-xs font-semibold text-tertiary uppercase"
         >
-          <ChevronDown
-            aria-hidden="true"
-            className={cn("size-3.5 transition-transform", open && "rotate-180")}
-          />
-          {title}
+          <span className="truncate normal-case">{title}</span>
         </Button>
         {actions}
       </div>
@@ -515,38 +524,47 @@ function CollapsibleSection({
 
 function WeekActionsMenu({ weekTitle, onDelete }: { weekTitle: string; onDelete: () => void }) {
   return (
-    <DropdownMenu modal={false}>
-      <DropdownMenuTrigger
+    <Dropdown.Root>
+      <ButtonUtility
+        size="xs"
+        color="tertiary"
+        className="shrink-0"
+        icon={DotsHorizontal}
         aria-label={`${m.records_week_actions()}: ${weekTitle}`}
-        className={buttonVariants({
-          variant: "ghost",
-          size: "icon-xs",
-          className: "size-7 shrink-0 text-muted-foreground",
-        })}
-      >
-        <DotsHorizontal aria-hidden="true" className="size-4" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-36">
-        <DropdownMenuItem variant="destructive" onClick={onDelete}>
-          {m.records_delete_week()}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+      />
+      <Dropdown.Popover placement="bottom end" className="w-36">
+        <Dropdown.Menu
+          onAction={(key) => {
+            if (key === "delete") onDelete();
+          }}
+        >
+          <Dropdown.Item id="delete" label={m.records_delete_week()} />
+        </Dropdown.Menu>
+      </Dropdown.Popover>
+    </Dropdown.Root>
   );
 }
 
-function RecordLink({
+function RecordRow({
   recordId,
   selected,
   onSelect,
+  leading,
+  title,
+  meta,
+  status,
+  trailing,
   className,
-  children,
 }: {
   recordId: string;
   selected: boolean;
   onSelect: () => void;
+  leading?: ReactNode;
+  title: string;
+  meta?: string;
+  status?: string;
+  trailing?: ReactNode;
   className?: string;
-  children: ReactNode;
 }) {
   return (
     <Link
@@ -556,25 +574,31 @@ function RecordLink({
       aria-current={selected ? "page" : undefined}
       resetScroll={false}
       onClick={onSelect}
-      className={cn(
-        "flex min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-        selected && "bg-muted font-medium",
+      className={cx(
+        "flex min-h-12 min-w-0 items-center gap-2.5 rounded-md px-2.5 py-2 text-sm outline-none transition-colors hover:bg-primary_hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand aria-[current=page]:bg-secondary",
         className,
       )}
     >
-      {children}
+      {leading}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium text-primary">{title}</span>
+        {meta && <span className="block truncate text-xs text-tertiary">{meta}</span>}
+      </span>
+      {status && (
+        <Badge size="sm" color={reportStatusColor(status)}>
+          {reportStatusLabel(status)}
+        </Badge>
+      )}
+      {trailing}
     </Link>
   );
 }
 
-function WeekBadge({ week }: { week: number }) {
+function WeekChip({ week }: { week: number }) {
   return (
-    <span
-      aria-hidden="true"
-      className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand/15 text-xs font-semibold text-brand"
-    >
-      {week}
-    </span>
+    <Badge type="pill-color" size="sm" color="gray" className="shrink-0">
+      W{week}
+    </Badge>
   );
 }
 
@@ -582,18 +606,24 @@ export function BackToRecords() {
   const back = useContext(BackToRecordsContext);
   if (!back) return null;
   return (
-    <Button type="button" variant="ghost" size="icon" className="md:hidden" onClick={back}>
-      <span className="sr-only">{m.controls_back()}</span>
-      <ChevronLeft aria-hidden="true" className="size-4" />
-    </Button>
+    <ButtonUtility
+      size="sm"
+      color="tertiary"
+      className="-ml-2 size-11 md:hidden"
+      onClick={back}
+      aria-label={m.controls_back()}
+      icon={ChevronLeft}
+    />
   );
 }
 
 export function EmptyRecord() {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-      <p className="text-base font-semibold">{m.records_empty_title()}</p>
-      <p className="max-w-sm text-sm text-muted-foreground">{m.records_empty_description()}</p>
-    </div>
+    <Empty className="flex-1">
+      <EmptyHeader>
+        <EmptyTitle>{m.records_empty_title()}</EmptyTitle>
+        <EmptyDescription>{m.records_empty_description()}</EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   );
 }

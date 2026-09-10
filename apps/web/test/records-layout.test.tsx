@@ -118,7 +118,7 @@ test("renders empty weekly sections without hardcoded demo people", () => {
 
   expect(page().getByRole("heading", { name: "记录" })).toBeTruthy();
   expect(page().getByPlaceholderText("搜索...")).toBeTruthy();
-  expect(page().getByRole("button", { name: "周报" }).getAttribute("aria-pressed")).toBe("true");
+  expect(page().getByRole("radio", { name: "周报" }).getAttribute("aria-checked")).toBe("true");
   expect(page().getByText("已收藏的周报")).toBeTruthy();
   expect(page().getByText("周报要点")).toBeTruthy();
   expect(page().getByText("我的周报")).toBeTruthy();
@@ -140,8 +140,8 @@ test("renders catalog rows from props", () => {
 test("switches to the notes tab", () => {
   renderRecords();
 
-  fireEvent.click(page().getByRole("button", { name: "笔记" }));
-  expect(page().getByRole("button", { name: "笔记" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(page().getByRole("radio", { name: "笔记" }));
+  expect(page().getByRole("radio", { name: "笔记" }).getAttribute("aria-checked")).toBe("true");
   expect(page().getByText("还没有笔记。")).toBeTruthy();
 });
 
@@ -154,11 +154,9 @@ test("filters the weekly list by search query", async () => {
   expect(page().queryByText("张亚红 2026 W36 工作周报")).toBeNull();
 });
 
-test("exposes weekly tools menu for stats and settings", async () => {
-  const user = userEvent.setup({ document });
+test("exposes stats and settings from the toolbar", () => {
   renderRecords();
 
-  await user.click(page().getByRole("button", { name: "周报工具" }));
-  expect(page().getByRole("menuitem", { name: "周报统计" })).toBeTruthy();
-  expect(page().getByRole("menuitem", { name: "周报设置" })).toBeTruthy();
+  expect(page().getByRole("radio", { name: "周报统计" })).toBeTruthy();
+  expect(page().getByRole("radio", { name: "周报设置" })).toBeTruthy();
 });

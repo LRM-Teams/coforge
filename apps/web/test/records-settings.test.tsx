@@ -65,13 +65,14 @@ test("lists templates from props and opens create and edit dialogs", async () =>
   );
 
   expect(page().getByText("设计周报")).toBeTruthy();
-  expect(page().getByText("全部成员")).toBeTruthy();
+  expect(page().getByText(/全部成员/)).toBeTruthy();
 
   await user.click(page().getByRole("button", { name: /创建模板/ }));
   expect(page().getByRole("heading", { name: "创建模板" })).toBeTruthy();
   await user.click(page().getByRole("button", { name: "取消" }));
 
-  await user.click(page().getByRole("button", { name: /编辑/ }));
+  await user.click(page().getByRole("button", { name: /操作/ }));
+  await user.click(page().getByRole("menuitem", { name: "编辑" }));
   expect(page().getByRole("heading", { name: "编辑模板" })).toBeTruthy();
   expect((page().getByPlaceholderText("请输入模板名称") as HTMLInputElement).value).toBe(
     "设计周报",
