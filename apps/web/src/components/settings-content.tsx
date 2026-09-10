@@ -6,6 +6,7 @@ import {
   Clock as Clock3,
   Translate01 as Languages,
   Moon01 as Moon,
+  Share01,
   Sliders01 as SlidersHorizontal,
   Sun,
   SunSetting01 as SunMoon,
@@ -18,6 +19,8 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Input } from "@/components/base/input/input";
+import { TextArea } from "@/components/base/textarea/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ComboBox } from "@/components/base/select/combobox";
 import { SelectItem } from "@/components/base/select/select-item";
@@ -101,7 +104,7 @@ export function SettingsPending() {
           ].map((group) => (
             <SettingsNavigationGroup key={group.label} label={group.label}>
               {group.items.map((label) => (
-                <li key={label} className="flex h-11 items-center gap-3 px-3 text-sm font-medium">
+                <li key={label} className="flex h-9 items-center gap-3 px-3 text-sm font-medium">
                   <span>{label}</span>
                 </li>
               ))}
@@ -269,7 +272,9 @@ function SettingsNavigationGroup({
 }) {
   return (
     <div>
-      <h2 className="px-3 pt-2 pb-2 text-xs font-semibold text-tertiary">{label}</h2>
+      <h2 className="px-3 pt-2 pb-2 text-xs font-semibold text-quaternary uppercase tracking-wide">
+        {label}
+      </h2>
       <ul aria-label={label} className="space-y-1">
         {children}
       </ul>
@@ -297,7 +302,7 @@ function SettingsNavigationButton({
         aria-current={active ? "page" : undefined}
         onPress={onClick}
         className={cn(
-          "h-11 w-full min-w-0 justify-start rounded-lg px-3 text-sm font-medium",
+          "h-9 w-full min-w-0 justify-start rounded-lg px-3 text-sm font-medium",
           active && "bg-active text-brand-secondary",
         )}
       >
@@ -457,33 +462,25 @@ function AccountSettings({
               <p className="mt-2 text-xs text-tertiary">{m.settings_avatar_help()}</p>
 
               <div className="mt-6 grid gap-6 border-t border-secondary pt-6 md:grid-cols-2 xl:grid-cols-3">
-                <div className="flex flex-col gap-1">
-                  <label htmlFor="profile-name" className="text-sm text-tertiary">
-                    {m.settings_name()}
-                  </label>
-                  <input
-                    id="profile-name"
-                    value={name}
-                    maxLength={80}
-                    disabled={saving}
-                    onChange={(event) => setName(event.target.value)}
-                    className="h-10 w-full rounded-lg bg-primary px-3 text-sm shadow-xs ring-1 ring-primary ring-inset outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
-                  />
-                </div>
+                <Input
+                  label={m.settings_name()}
+                  value={name}
+                  maxLength={80}
+                  isDisabled={saving}
+                  hideRequiredIndicator
+                  onChange={setName}
+                />
 
-                <div className="flex flex-col gap-1 md:col-span-2 xl:col-span-3">
-                  <label htmlFor="profile-description" className="text-sm text-tertiary">
-                    {m.settings_user_description()}
-                  </label>
-                  <textarea
-                    id="profile-description"
+                <div className="flex flex-col gap-1.5 md:col-span-2 xl:col-span-3">
+                  <TextArea
+                    label={m.settings_user_description()}
                     value={description}
                     maxLength={280}
                     rows={4}
                     placeholder={m.settings_user_description_placeholder()}
-                    disabled={saving}
-                    onChange={(event) => setDescription(event.target.value)}
-                    className="w-full resize-none rounded-lg bg-primary px-3 py-2 text-sm shadow-xs ring-1 ring-primary ring-inset outline-none placeholder:text-quaternary focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50"
+                    isDisabled={saving}
+                    hideRequiredIndicator
+                    onChange={setDescription}
                   />
                   <p className="text-right text-sm text-tertiary tabular-nums">
                     {description.length}/280
@@ -671,107 +668,110 @@ function NotificationSettings({
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testSent, setTestSent] = useState(false);
-  const status = !browserNotificationsConfigured
-    ? m.preferences_browser_notifications_unavailable()
+  const unavailableReason = !browserNotificationsConfigured
+    ? m.notifications_push_unconfigured()
     : browserNotificationPermission === "unsupported"
       ? m.preferences_browser_notifications_unsupported()
       : browserNotificationPermission === "denied"
         ? m.preferences_browser_notifications_blocked()
-        : browserNotificationsEnabled
-          ? m.preferences_browser_notifications_on()
-          : m.preferences_browser_notifications_off();
+        : null;
+  const toggleDisabled =
+    saving || !browserNotificationsConfigured || browserNotificationPermission === "unsupported";
+  const showActions = browserNotificationsEnabled && browserNotificationsConfigured;
 
   return (
-    <div className="w-full space-y-6 px-4 pb-8 sm:px-6">
-      <section className="border-b border-secondary">
-        <div className="flex items-start justify-between gap-5 py-5">
-          <div className="min-w-0">
-            <h2 className="font-semibold">{m.notifications_push_title()}</h2>
-            <p className="mt-1 text-sm text-tertiary">{m.notifications_push_description()}</p>
+    <div className="w-full px-4 pb-8 sm:px-6">
+      <div className="divide-y divide-secondary border-b border-secondary">
+        <div className="py-2">
+          <div className="flex min-h-14 items-center justify-between gap-5">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-primary">{m.notifications_push_title()}</h2>
+              <p className="mt-0.5 text-sm text-tertiary">
+                {unavailableReason ?? m.notifications_push_description()}
+              </p>
+            </div>
+            <Toggle
+              size="md"
+              className="shrink-0"
+              aria-label={m.preferences_browser_notifications()}
+              isSelected={browserNotificationsEnabled}
+              isDisabled={toggleDisabled}
+              onChange={async (isSelected) => {
+                setSaving(true);
+                setTestSent(false);
+                try {
+                  await onBrowserNotificationsChange(isSelected);
+                } finally {
+                  setSaving(false);
+                }
+              }}
+            />
           </div>
-          <Toggle
-            size="md"
-            className="mt-0.5"
-            aria-label={m.preferences_browser_notifications()}
-            isSelected={browserNotificationsEnabled}
-            isDisabled={
-              saving ||
-              !browserNotificationsConfigured ||
-              browserNotificationPermission === "unsupported"
-            }
-            onChange={async (isSelected) => {
-              setSaving(true);
-              setTestSent(false);
-              try {
-                await onBrowserNotificationsChange(isSelected);
-              } finally {
-                setSaving(false);
-              }
-            }}
-          />
-        </div>
-        <div className="flex flex-wrap items-center gap-3 border-t border-secondary py-4">
-          <span className="mr-auto text-sm text-tertiary">{status}</span>
-          {browserNotificationsEnabled &&
-            browserNotificationsConfigured &&
-            browserNotificationPermission === "default" && (
+          {showActions && (
+            <div className="flex flex-wrap items-center gap-3 pb-3">
+              {browserNotificationPermission === "default" && (
+                <Button
+                  type="button"
+                  color="secondary"
+                  size="sm"
+                  isDisabled={saving}
+                  onPress={async () => {
+                    setSaving(true);
+                    try {
+                      await onEnableBrowserNotifications();
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
+                >
+                  {m.preferences_browser_notifications_allow_browser()}
+                </Button>
+              )}
               <Button
                 type="button"
                 color="secondary"
                 size="sm"
-                isDisabled={saving}
+                isDisabled={browserNotificationPermission !== "granted" || testing}
                 onPress={async () => {
-                  setSaving(true);
+                  setTesting(true);
+                  setTestSent(false);
                   try {
-                    await onEnableBrowserNotifications();
+                    setTestSent(await onTestBrowserNotification());
                   } finally {
-                    setSaving(false);
+                    setTesting(false);
                   }
                 }}
               >
-                {m.preferences_browser_notifications_allow_browser()}
+                {testing
+                  ? m.preferences_browser_notifications_testing()
+                  : m.preferences_browser_notifications_test()}
               </Button>
-            )}
-          {browserNotificationsEnabled && browserNotificationsConfigured && (
-            <Button
-              type="button"
-              color="secondary"
-              size="sm"
-              isDisabled={browserNotificationPermission !== "granted" || testing}
-              onPress={async () => {
-                setTesting(true);
-                setTestSent(false);
-                try {
-                  setTestSent(await onTestBrowserNotification());
-                } finally {
-                  setTesting(false);
-                }
-              }}
-            >
-              {testing
-                ? m.preferences_browser_notifications_testing()
-                : m.preferences_browser_notifications_test()}
-            </Button>
-          )}
-          {testSent && (
-            <span role="status" className="text-xs text-tertiary">
-              {m.preferences_browser_notifications_test_sent()}
-            </span>
+              {testSent && (
+                <span role="status" className="text-xs text-tertiary">
+                  {m.preferences_browser_notifications_test_sent()}
+                </span>
+              )}
+            </div>
           )}
         </div>
-      </section>
+      </div>
       {showAddToHomeScreenGuide && (
-        <section className="rounded-xl border border-secondary bg-secondary p-5 sm:p-6">
-          <h2 className="font-semibold">{m.notifications_home_screen_title()}</h2>
-          <p className="mt-1 max-w-2xl text-sm text-tertiary">
-            {m.notifications_home_screen_description()}
-          </p>
-          <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm">
-            <li>{m.notifications_home_screen_share()}</li>
-            <li>{m.notifications_home_screen_add()}</li>
-            <li>{m.notifications_home_screen_open()}</li>
-          </ol>
-        </section>
+        <div className="mt-6 flex items-start gap-3 rounded-lg border border-secondary bg-secondary px-4 py-4">
+          <Share01 aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-tertiary" />
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-primary">
+              {m.notifications_home_screen_title()}
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm text-tertiary">
+              {m.notifications_home_screen_description()}
+            </p>
+            <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-secondary">
+              <li>{m.notifications_home_screen_share()}</li>
+              <li>{m.notifications_home_screen_add()}</li>
+              <li>{m.notifications_home_screen_open()}</li>
+            </ol>
+          </div>
+        </div>
       )}
     </div>
   );
