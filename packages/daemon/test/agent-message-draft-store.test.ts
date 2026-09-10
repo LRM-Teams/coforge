@@ -1,6 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { join } from "node:path";
 import {
   AgentMessageDraftStore,
@@ -30,7 +30,12 @@ test("saves and loads only a versioned Agent message draft", async () => {
   expect(
     JSON.parse(
       await readFile(
-        join(stateDirectory, "coforge-cli-attested-send", "agent%2Fa", "continue-state.json"),
+        join(
+          stateDirectory,
+          `coforge-cli-attested-send-${process.geteuid?.() ?? encodeURIComponent(userInfo().username).replaceAll(".", "%2E")}`,
+          "agent%2Fa",
+          "continue-state.json",
+        ),
         "utf8",
       ),
     ),
@@ -72,3 +77,24 @@ function temporaryStateDirectory() {
   directories.push(path);
   return path;
 }
+
+// Effective UID is an OS boundary; both users share the same temporary root.
+test.skipIf(!process.geteuid)("isolates drafts belonging to different system users", async () => {
+  const stateDirectory = temporaryStateDirectory();
+  const identity = spyOn(process, "geteuid");
+  try {
+    identity.mockReturnValue(1001);
+    const first = new AgentMessageDraftStore("shared-agent", stateDirectory);
+    await first.save("@ada", "first user's reply");
+    identity.mockReturnValue(1009);
+    const second = new AgentMessageDraftStore("shared-agent", stateDirectory);
+    expect(await second.load("@ada")).toBeUndefined();
+    await second.save("@ada", "second user's reply");
+    expect((await first.load("@ada"))?.body).toBe("first user's reply");
+    expect((await second.load("@ada"))?.body).toBe("second user's reply");
+    await second.clear("@ada");
+    expect((await first.load("@ada"))?.body).toBe("first user's reply");
+  } finally {
+    identity.mockRestore();
+  }
+});

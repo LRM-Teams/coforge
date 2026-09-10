@@ -1,5 +1,5 @@
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 
 export const AGENT_MESSAGE_DRAFT_TTL_MS = 10 * 60 * 1_000;
@@ -24,7 +24,7 @@ export class AgentMessageDraftStore {
     if (!rootDirectory) throw new Error("Agent message draft state directory is required");
     this.#path = join(
       rootDirectory,
-      "coforge-cli-attested-send",
+      `coforge-cli-attested-send-${encodeIdentity(String(process.geteuid?.() ?? userInfo().username))}`,
       encodeIdentity(agentId),
       "continue-state.json",
     );
