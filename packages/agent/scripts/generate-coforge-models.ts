@@ -1,6 +1,6 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { CodeAgentModelMetadata } from "@coforge/protocol";
-import { COFORGE_MODEL_PROVIDER_API_KEY_ENV } from "../src/runtime-provider";
+import { API_KEY_ENV_BY_PROVIDER } from "../src/runtime-provider";
 
 const outputPath = new URL("../src/coforge-provider-models.generated.ts", import.meta.url);
 const runtime = await ModelRuntime.create({
@@ -12,7 +12,7 @@ const runtime = await ModelRuntime.create({
 const maximumModels = 200;
 const allModels: CodeAgentModelMetadata[] = runtime
   .getModels()
-  .filter((model) => Object.hasOwn(COFORGE_MODEL_PROVIDER_API_KEY_ENV, model.provider))
+  .filter((model) => Object.hasOwn(API_KEY_ENV_BY_PROVIDER, model.provider))
   .map((model) => {
     const thinkingLevelMap = Reflect.get(model, "thinkingLevelMap") as
       | Record<string, unknown>
@@ -37,9 +37,7 @@ const allModels: CodeAgentModelMetadata[] = runtime
     `${left.modelProvider}/${left.id}`.localeCompare(`${right.modelProvider}/${right.id}`),
   );
 
-const providerQuota = Math.floor(
-  maximumModels / Object.keys(COFORGE_MODEL_PROVIDER_API_KEY_ENV).length,
-);
+const providerQuota = Math.floor(maximumModels / Object.keys(API_KEY_ENV_BY_PROVIDER).length);
 const providerCounts = new Map<string, number>();
 const models: CodeAgentModelMetadata[] = [];
 const overflow: CodeAgentModelMetadata[] = [];

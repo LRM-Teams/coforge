@@ -1,4 +1,4 @@
-export const COFORGE_MODEL_PROVIDER_API_KEY_ENV = {
+export const API_KEY_ENV_BY_PROVIDER = {
   deepseek: "DEEPSEEK_API_KEY",
   minimax: "MINIMAX_API_KEY",
   "minimax-cn": "MINIMAX_CN_API_KEY",
@@ -18,7 +18,7 @@ export const COFORGE_MODEL_PROVIDER_API_KEY_ENV = {
 } as const;
 
 const HOST_PROVIDER_ENV = [
-  ...Object.values(COFORGE_MODEL_PROVIDER_API_KEY_ENV),
+  ...Object.values(API_KEY_ENV_BY_PROVIDER),
   "ANTHROPIC_OAUTH_TOKEN",
   "AZURE_OPENAI_BASE_URL",
   "AZURE_OPENAI_RESOURCE_NAME",

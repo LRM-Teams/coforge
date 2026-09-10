@@ -14,7 +14,7 @@ import {
 import { join, resolve } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { getCoforgeAgentDir, getCoforgeSessionDir, prepareAgentSessionDirectory } from "./paths";
-import { COFORGE_MODEL_PROVIDER_API_KEY_ENV, withRuntimeEnvironment } from "./runtime-provider";
+import { API_KEY_ENV_BY_PROVIDER, withRuntimeEnvironment } from "./runtime-provider";
 
 export const createRuntime: CreateAgentSessionRuntimeFactory = async ({
   cwd,
@@ -272,7 +272,7 @@ async function createPiModelRuntime(
   // Resolve native environment credentials through Pi so stored auth retains
   // priority. Snapshot single-key auth per session, without patching process.env.
   // OAuth remains SDK-owned so token refresh is not replaced by a static key.
-  for (const [provider, variable] of Object.entries(COFORGE_MODEL_PROVIDER_API_KEY_ENV)) {
+  for (const [provider, variable] of Object.entries(API_KEY_ENV_BY_PROVIDER)) {
     if (!(environment[variable] ?? Bun.env[variable]) || modelRuntime.isUsingOAuth(provider))
       continue;
     const resolved = await modelRuntime.getAuth(provider, { env: { ...environment } });
