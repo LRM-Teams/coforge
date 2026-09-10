@@ -24,6 +24,8 @@ interface SidebarCollapsedProps {
   items: (NavItemType & { icon: FC<{ className?: string }> })[];
   /** List of footer items to display. */
   footerItems?: (NavItemType & { icon: FC<{ className?: string }> })[];
+  /** Compact workspace switcher, rendered under the expand control. */
+  subheader?: ReactNode;
   /** Real avatar + user menu, rendered at the bottom of the rail. */
   footer: ReactNode;
   /** Expands the sidebar back out. */
@@ -34,6 +36,7 @@ export const SidebarCollapsed = ({
   activeUrl,
   items,
   footerItems = [],
+  subheader,
   footer,
   onExpand,
 }: SidebarCollapsedProps) => {
@@ -58,6 +61,7 @@ export const SidebarCollapsed = ({
             onClick={onExpand}
           />
         </div>
+        {subheader}
         <ul className="flex flex-col gap-0.5">
           {items.map((item) => (
             <li key={item.label}>

@@ -147,18 +147,16 @@ export function AppShell({
             items={navItems}
             footerItems={[settingsFooterItem]}
             onExpand={() => setSidebarCollapsed(false)}
-            footer={
-              <div className="flex flex-col items-center gap-2">
-                <WorkspaceSwitcher
-                  compact
-                  workspaces={workspaces}
-                  current={currentWorkspace}
-                  onSelect={onSelectWorkspace}
-                  onCreate={onCreateWorkspace}
-                />
-                <UserMenuCard compact user={user} onSignOut={onSignOut} />
-              </div>
+            subheader={
+              <WorkspaceSwitcher
+                compact
+                workspaces={workspaces}
+                current={currentWorkspace}
+                onSelect={onSelectWorkspace}
+                onCreate={onCreateWorkspace}
+              />
             }
+            footer={<UserMenuCard compact user={user} onSignOut={onSignOut} />}
           />
         ) : (
           <SidebarExpanded

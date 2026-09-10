@@ -79,7 +79,7 @@ export function WorkspaceSwitcher({
           </AriaButton>
         )}
         <Dropdown.Popover
-          placement={compact ? "right bottom" : "bottom start"}
+          placement={compact ? "right top" : "bottom start"}
           offset={6}
           className="w-(--trigger-width) min-w-56 rounded-xl p-1.5 shadow-lg"
         >
