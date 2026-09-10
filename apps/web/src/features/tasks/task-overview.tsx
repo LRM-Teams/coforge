@@ -1,6 +1,7 @@
 import { TASK_STATUSES, type TaskStatus, type TaskView } from "@coforge/protocol";
 import { Link } from "@tanstack/react-router";
 import { FilterLines as ListFilter } from "@untitledui/icons";
+import { Avatar } from "@/components/base/avatar/avatar";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Select } from "@/components/base/select/select";
@@ -93,15 +94,28 @@ function TaskOverviewLink({
 }) {
   const content = (
     <div className="min-w-0 flex-1">
-      <div className="text-xs text-tertiary [overflow-wrap:anywhere]">{task.source.label}</div>
-      <h3 className="mt-2 text-sm leading-6 font-semibold [overflow-wrap:anywhere]">
-        <span className="mr-2 text-tertiary">#{task.number}</span>
+      <h3 className="text-sm leading-5 font-medium text-primary [overflow-wrap:anywhere]">
         {task.title}
       </h3>
-      <p className="mt-3 text-sm text-tertiary [overflow-wrap:anywhere]">
-        {m.tasks_overview_owner()}: {task.owner?.name ?? m.tasks_unassigned()}
+      <p className="mt-1.5 flex items-center gap-1.5 text-xs text-tertiary [overflow-wrap:anywhere]">
+        <span className="font-mono">#{task.number}</span>
+        <span aria-hidden="true">·</span>
+        <span className="truncate">{task.source.label}</span>
       </p>
     </div>
+  );
+  const owner = (
+    <p className="flex min-w-0 items-center gap-2 text-xs text-secondary">
+      <span className="sr-only">{m.tasks_overview_owner()}: </span>
+      {task.owner ? (
+        <>
+          <Avatar size="xs" initials={task.owner.name.trim().charAt(0).toUpperCase()} alt="" />
+          <span className="truncate">{task.owner.name}</span>
+        </>
+      ) : (
+        <span className="text-tertiary">{m.tasks_unassigned()}</span>
+      )}
+    </p>
   );
   const linkClass =
     "min-w-0 flex-1 rounded-md outline-none focus-visible:ring-3 focus-visible:ring-brand/50";
@@ -127,10 +141,15 @@ function TaskOverviewLink({
   );
   return (
     <article
-      className={`flex gap-4 rounded-xl border border-secondary bg-primary p-4 shadow-xs transition-colors hover:bg-secondary ${list ? "flex-col sm:flex-row sm:items-center sm:px-5" : "flex-col"}`}
+      className={`flex gap-3 rounded-lg border border-secondary bg-primary p-3 shadow-xs transition-colors hover:bg-secondary ${list ? "flex-col sm:flex-row sm:items-center sm:gap-4 sm:px-4" : "flex-col"}`}
     >
       {link}
-      {controls}
+      <div
+        className={`flex min-w-0 items-center justify-between gap-3 ${list ? "sm:w-auto sm:shrink-0 sm:gap-4" : ""}`}
+      >
+        {owner}
+        {controls}
+      </div>
     </article>
   );
 }

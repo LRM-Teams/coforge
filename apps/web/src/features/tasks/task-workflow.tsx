@@ -135,7 +135,7 @@ export function TaskWorkflow<T extends TaskView>({
       <div
         className={
           layout === "board" && groups.length > 1
-            ? "flex flex-col items-stretch gap-6 md:flex-row md:items-start md:gap-4 md:overflow-x-auto md:pb-2 md:[&>*]:w-72 md:[&>*]:shrink-0"
+            ? "grid grid-cols-1 items-start gap-4 md:grid-cols-[repeat(5,minmax(15rem,1fr))] md:overflow-x-auto md:pb-2"
             : layout === "board"
               ? "grid max-w-sm gap-4"
               : "flex flex-col gap-6"

@@ -67,8 +67,8 @@ test("shows conversation-local numbers with source, status, owner, and typed des
   expect(page.getAllByText("#3")).toHaveLength(2);
   expect(page.getByText("#general")).toBeTruthy();
   expect(page.getByRole("heading", { name: "In review 1" })).toBeTruthy();
-  expect(page.getByText(/Owner: Release Agent/)).toBeTruthy();
-  expect(page.getByText(/Owner: Unassigned/)).toBeTruthy();
+  expect(page.getByText("Release Agent")).toBeTruthy();
+  expect(page.getByText("Unassigned")).toBeTruthy();
   expect(page.getByRole("link", { name: /Prepare channel release/ }).getAttribute("href")).toBe(
     "/en/messages/channels/channel-conversation?view=tasks",
   );
