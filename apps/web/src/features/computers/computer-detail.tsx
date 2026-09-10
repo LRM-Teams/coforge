@@ -4,9 +4,6 @@ import type { RuntimeProvider } from "@coforge/protocol";
 
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { RelativeTime } from "@/components/ui/relative-time";
 import { useAppToast } from "@/components/ui/toast";
 import { m } from "@/paraglide/messages";
 import { BackToComputers } from "./computer-layout";
@@ -188,35 +185,6 @@ export function ComputerDetail({
             <span>{operatingSystemLabel(computer)}</span>
             <span aria-hidden="true">·</span>
             <span>{computerVersionLabel(computer)}</span>
-            <span aria-hidden="true">·</span>
-            <span>
-              {m.computer_connected_at()}{" "}
-              <RelativeTime value={computer.connectedAt} timeZone={timeZone} plain />
-            </span>
-            <span aria-hidden="true">·</span>
-            <span className="flex min-w-0 items-center gap-1.5">
-              {m.computer_added_by()}
-              {computer.creator ? (
-                <>
-                  <Avatar
-                    size="xs"
-                    src={computer.creator.avatarUrl}
-                    alt={computer.creator.displayName || computer.creator.username}
-                    initials={avatarInitial(
-                      computer.creator.displayName || computer.creator.username,
-                    )}
-                    contentClassName={avatarToneClassName(
-                      computer.creator.displayName || computer.creator.username,
-                    )}
-                  />
-                  <span className="truncate text-primary">
-                    {computer.creator.displayName || computer.creator.username}
-                  </span>
-                </>
-              ) : (
-                m.computer_metadata_unknown()
-              )}
-            </span>
           </p>
         </div>
         {onRestart && (

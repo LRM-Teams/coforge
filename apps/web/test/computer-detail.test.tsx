@@ -63,7 +63,6 @@ test("overview shows observed metadata and original creator while offline", () =
   // line, not as their own labeled grid fields.
   expect(page.getByText("v4.5.6")).toBeTruthy();
   expect(page.getByText("macOS 26.1")).toBeTruthy();
-  expect(page.getByText("Added by")).toBeTruthy();
   expect(page.getByText("Alice Creator")).toBeTruthy();
   expect(document.querySelector("img")?.getAttribute("src")).toBe(
     "/api/computers/computer-1/creator-avatar?workspaceId=w",
@@ -79,7 +78,7 @@ test("legacy Computers show unknown metadata rather than inferring it from runti
       onSetRuntimePublic={async () => {}}
     />,
   );
-  // OS and version in the header facts line; the creator is known in this fixture.
+  // OS and version in the header facts line.
   expect(within(document.body).getAllByText("Unknown")).toHaveLength(2);
 });
 

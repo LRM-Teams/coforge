@@ -41,8 +41,10 @@ export function RelativeTime({
 
   const instant = new Date(value);
   const locale = getLocale();
-  const exactTime = now ? formatDateForDisplay(instant, timeZone, locale) : instant.toISOString();
-  const relative = now ? formatRelativeTime(instant, now, locale) : instant.toISOString();
+  // Before mount the server and client cannot agree on locale or time zone, so
+  // render nothing visible yet; the dateTime attribute still carries the instant.
+  const exactTime = now ? formatDateForDisplay(instant, timeZone, locale) : "";
+  const relative = now ? formatRelativeTime(instant, now, locale) : "";
   const timeElement = (
     <time
       dateTime={instant.toISOString()}
