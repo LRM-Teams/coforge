@@ -35,3 +35,23 @@ export function computerIcon(computer: ComputerIdentity): typeof Cloud | typeof 
   if (computerKind(computer.kind) === "cloud") return Cloud;
   return Monitor;
 }
+
+/** What the Computer's daemon last reported about its host machine. */
+export type ComputerPlatformInfo = {
+  platform?: string | null;
+  osVersion?: string | null;
+};
+
+export function operatingSystemLabel(computer: ComputerPlatformInfo): string {
+  const name =
+    computer.platform === "darwin"
+      ? "macOS"
+      : computer.platform === "linux"
+        ? "Linux"
+        : computer.platform === "win32"
+          ? "Windows"
+          : undefined;
+  return name
+    ? `${name} ${computer.osVersion || m.computer_metadata_unknown()}`
+    : m.computer_metadata_unknown();
+}

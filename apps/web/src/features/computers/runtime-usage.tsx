@@ -49,8 +49,11 @@ export function RuntimeIdentity({ runtime }: { runtime: Runtime }) {
       ) : (
         <span
           aria-hidden="true"
-          className="size-6 shrink-0 bg-primary mask-contain mask-center mask-no-repeat"
-          style={{ maskImage: `url("${runtimeMarks[runtime.provider]}")` }}
+          className="size-6 shrink-0 bg-fg-primary mask-contain mask-center mask-no-repeat"
+          style={{
+            maskImage: `url("${runtimeMarks[runtime.provider]}")`,
+            WebkitMaskImage: `url("${runtimeMarks[runtime.provider]}")`,
+          }}
         />
       )}
       <span className="min-w-0">
