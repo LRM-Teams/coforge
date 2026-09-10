@@ -27,12 +27,16 @@ import {
   type ComputerPlatformInfo,
 } from "./computer-identity";
 import { ComputerTile } from "./computer-tile";
+import { Avatar } from "@/components/base/avatar/avatar";
+import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 
 export type ComputerListItem = ComputerIdentity &
   ComputerPlatformInfo & {
     id: string;
     online: boolean;
     computerVersion?: string | null;
+    creator?: { username: string; displayName: string | null; avatarUrl: string | null } | null;
   };
 
 /**
@@ -119,6 +123,30 @@ export function ComputerLayout({
                       </span>
                     )}
                   </span>
+                  {computer.creator && (
+                    <Tooltip
+                      title={m.computer_added_by_name({
+                        name: computer.creator.displayName || computer.creator.username,
+                      })}
+                    >
+                      <TooltipTrigger className="shrink-0 rounded-full">
+                        <Avatar
+                          size="xs"
+                          src={computer.creator.avatarUrl}
+                          alt=""
+                          initials={avatarInitial(
+                            computer.creator.displayName || computer.creator.username,
+                          )}
+                          contentClassName={avatarToneClassName(
+                            computer.creator.displayName || computer.creator.username,
+                          )}
+                        />
+                        <span className="sr-only">
+                          {computer.creator.displayName || computer.creator.username}
+                        </span>
+                      </TooltipTrigger>
+                    </Tooltip>
+                  )}
                 </Link>
               </li>
             );
