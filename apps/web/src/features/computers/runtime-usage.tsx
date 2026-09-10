@@ -55,8 +55,8 @@ export function RuntimeIdentity({ runtime }: { runtime: Runtime }) {
       )}
       <span className="min-w-0">
         <span className="block truncate font-medium text-primary">{runtime.displayName}</span>
-        <span className="mt-0.5 block truncate text-xs text-tertiary">
-          {m.computer_runtime_version({ version: runtime.version })}
+        <span className="mt-0.5 block truncate font-mono text-xs text-tertiary">
+          {runtime.version}
         </span>
       </span>
     </span>

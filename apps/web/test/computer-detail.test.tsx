@@ -58,11 +58,12 @@ test("overview shows observed metadata and original creator while offline", () =
     />,
   );
   const page = within(document.body);
-  expect(page.getByText("Computer Version")).toBeTruthy();
+  // OS, Computer version, and "Added <when>" now live in the header's second
+  // line, not as their own labeled grid fields.
   expect(page.getByText("4.5.6")).toBeTruthy();
   expect(page.getByText("macOS 26.1")).toBeTruthy();
+  expect(page.getByText("Added by")).toBeTruthy();
   expect(page.getByText("Alice Creator")).toBeTruthy();
-  expect(page.getByText("@alice")).toBeTruthy();
   expect(document.querySelector("img")?.getAttribute("src")).toBe(
     "/api/computers/computer-1/creator-avatar?workspaceId=w",
   );
@@ -95,7 +96,9 @@ test("shows the machine and Code Agents with usage hidden until requested", asyn
   expect(page.getByText("franks-macbook-pro")).toBeTruthy();
   expect(document.body.textContent).not.toContain("macos:9f2c");
   expect(page.getByText("Codex Runtime")).toBeTruthy();
-  expect(document.body.textContent).toContain("Version 0.151.0");
+  // The runtime row shows the version in mono, without the word "Version".
+  expect(document.body.textContent).toContain("0.151.0");
+  expect(document.body.textContent).not.toContain("Version 0.151.0");
   expect(page.queryByText("Models")).toBeNull();
   expect(page.queryByText("GPT-5")).toBeNull();
   expect(page.queryByText("Recommended")).toBeNull();

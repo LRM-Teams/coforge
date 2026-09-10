@@ -55,20 +55,29 @@ test("lists each Computer as a typed detail link and marks the selected one", ()
 
   expect(page.getByRole("navigation", { name: "Connected computers" })).toBeTruthy();
   expect(page.getByText("Frank’s MacBook Pro")).toBeTruthy();
-  expect(page.queryByText("franks-macbook-pro")).toBeNull();
-  expect(page.queryByText("build-box")).toBeNull();
   expect(document.body.textContent).not.toContain("macos:9f2c");
   expect(document.body.textContent).not.toContain("linux:41ab");
 
   const selected = page.getByRole("link", { name: /Frank’s MacBook Pro/ });
   expect(selected.getAttribute("href")).toBe("/en/computers/computer-1");
   expect(selected.getAttribute("aria-current")).toBe("page");
-  expect(within(selected).getByText("v4.5.6")).toBeTruthy();
+  // The row's second line is the hostname (not the Computer version).
+  expect(within(selected).getByText("franks-macbook-pro")).toBeTruthy();
   expect(page.queryByText("Unknown")).toBeNull();
   expect(within(selected).getByText("Online")).toBeTruthy();
-  expect(within(page.getByRole("link", { name: /Build Box/ })).getByText("Offline")).toBeTruthy();
-  expect(page.getByRole("link", { name: /Build Box/ }).getAttribute("aria-current")).toBeNull();
+  const other = page.getByRole("link", { name: /Build Box/ });
+  expect(within(other).getByText("build-box")).toBeTruthy();
+  expect(within(other).getByText("Offline")).toBeTruthy();
+  expect(other.getAttribute("aria-current")).toBeNull();
   expect(page.getByText("Computer detail")).toBeTruthy();
+});
+
+test("omits the hostname line when it's the same string already shown as the name", () => {
+  const page = renderLayout([{ ...computer, displayName: "" }], computer.id);
+  const selected = page.getByRole("link", { name: /franks-macbook-pro/ });
+  // computerLabel() falls back to the hostname when there's no displayName —
+  // showing it again underneath would just repeat the same text.
+  expect(within(selected).getAllByText("franks-macbook-pro")).toHaveLength(1);
 });
 
 test("says a computer is not in this workspace instead of a bare Not Found", () => {

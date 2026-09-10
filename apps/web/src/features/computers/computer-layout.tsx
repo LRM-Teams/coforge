@@ -103,12 +103,9 @@ export function ComputerLayout({
                     <span className="truncate text-sm font-semibold">
                       {computerLabel(computer)}
                     </span>
-                    {computer.computerVersion && (
-                      <span
-                        className="truncate text-xs text-tertiary"
-                        aria-label={m.computer_version()}
-                      >
-                        v{computer.computerVersion}
+                    {computer.name && computer.name !== computerLabel(computer) && (
+                      <span className="truncate font-mono text-xs text-tertiary">
+                        {computer.name}
                       </span>
                     )}
                   </span>

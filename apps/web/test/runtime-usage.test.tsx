@@ -110,7 +110,7 @@ test("reads as Chinese rather than English word order in the Chinese catalog", a
   expect(document.body.textContent).toContain("已使用 42%");
   expect(document.body.textContent).not.toContain("42% 已使用");
   expect(document.body.textContent).toContain("Pro 套餐");
-  expect(document.body.textContent).toContain("版本 1");
+  expect(within(document.body).getByText(codex.version)).toBeTruthy();
   expect(document.body.textContent).toContain("重置于");
 });
 
@@ -184,7 +184,7 @@ test.each(["pi", "coforge"] as const)("%s has no usage controls before any scan"
   );
   const page = within(document.body);
   expect(page.getByText(provider)).toBeTruthy();
-  expect(page.getByText("Version 1.2.3")).toBeTruthy();
+  expect(page.getByText("1.2.3")).toBeTruthy();
   expect(page.queryByRole("button")).toBeNull();
   expect(page.queryByRole("dialog")).toBeNull();
 });
@@ -229,7 +229,7 @@ test("does not offer or describe usage when the Code Agent does not support it",
   );
 
   expect(document.body.textContent).toContain("Custom Codex");
-  expect(document.body.textContent).toContain("Version 1");
+  expect(within(document.body).getByText(codex.version)).toBeTruthy();
   expect(document.body.textContent).not.toContain("Usage");
   expect(within(document.body).queryByRole("button")).toBeNull();
   expect(within(document.body).queryByRole("button", { name: /Scan|Refresh/ })).toBeNull();

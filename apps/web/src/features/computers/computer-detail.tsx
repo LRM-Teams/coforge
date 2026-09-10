@@ -156,6 +156,16 @@ export function ComputerDetail({
           ) : undefined
         }
       />
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 border-b border-secondary px-4 py-2 text-sm text-tertiary sm:px-6">
+        <span>{operatingSystemLabel(computer)}</span>
+        <span aria-hidden="true">·</span>
+        <span>{computer.computerVersion || m.computer_metadata_unknown()}</span>
+        <span aria-hidden="true">·</span>
+        <span>
+          {m.computer_connected_at()}{" "}
+          <RelativeTime value={computer.connectedAt} timeZone={timeZone} />
+        </span>
+      </div>
 
       <div className="@container min-h-0 flex-1 space-y-8 overflow-y-auto p-4 sm:p-6 lg:p-8">
         {restartState === "accepted" && (
@@ -280,30 +290,12 @@ export function ComputerDetail({
               </dd>
             </div>
             <div className="min-w-0">
-              <dt className="text-sm text-tertiary">{m.computer_connected_at()}</dt>
-              <dd className="mt-1 text-sm font-medium text-primary">
-                <RelativeTime value={computer.connectedAt} timeZone={timeZone} />
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-sm text-tertiary">{m.computer_version()}</dt>
-              <dd className="mt-1 font-mono text-sm font-medium break-words text-primary">
-                {computer.computerVersion || m.computer_metadata_unknown()}
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-sm text-tertiary">{m.computer_os()}</dt>
-              <dd className="mt-1 text-sm font-medium break-words text-primary">
-                {operatingSystemLabel(computer)}
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-sm text-tertiary">{m.computer_creator()}</dt>
+              <dt className="text-sm text-tertiary">{m.computer_added_by()}</dt>
               <dd className="mt-1 flex min-w-0 items-center gap-2 text-sm font-medium text-primary">
                 {computer.creator ? (
                   <>
                     <Avatar
-                      size="sm"
+                      size="xs"
                       src={computer.creator.avatarUrl}
                       alt={computer.creator.displayName || computer.creator.username}
                       initials={avatarInitial(
@@ -313,13 +305,8 @@ export function ComputerDetail({
                         computer.creator.displayName || computer.creator.username,
                       )}
                     />
-                    <span className="min-w-0">
-                      <span className="block truncate">
-                        {computer.creator.displayName || computer.creator.username}
-                      </span>
-                      <span className="block truncate text-xs text-tertiary">
-                        @{computer.creator.username}
-                      </span>
+                    <span className="truncate">
+                      {computer.creator.displayName || computer.creator.username}
                     </span>
                   </>
                 ) : (

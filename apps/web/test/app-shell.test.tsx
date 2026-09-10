@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { useState, type ComponentProps } from "react";
 
 import { AppShell, useChannelSidebarVisibility } from "@/components/app-shell";
+import { Button } from "@/components/base/buttons/button";
 import { AppToastProvider } from "@/components/ui/toast";
 import type { AgentView } from "@/features/agents/agents-content";
 import { AgentsContent as MembersContent } from "@/features/agents/agents-content";
@@ -527,7 +528,7 @@ test("hiding the channel sidebar keeps the rail reachable and can be shown again
   window.history.pushState({}, "", "/en/messages/agent-1");
   function ShowChannelsProbe() {
     const { hidden, show } = useChannelSidebarVisibility();
-    return <button onClick={show}>{hidden ? "channels hidden" : "channels visible"}</button>;
+    return <Button onPress={show}>{hidden ? "channels hidden" : "channels visible"}</Button>;
   }
   render(
     <RouterContextProvider router={getRouter()}>

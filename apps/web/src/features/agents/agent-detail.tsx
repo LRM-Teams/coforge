@@ -597,14 +597,12 @@ function nestedConfigValue(config: unknown, field: string, nestedField: string) 
 
 function RuntimeField({ label, value }: { label: string; value: string }) {
   return (
-    <label className="grid min-w-0 gap-1.5 text-sm font-medium">
-      {label}
-      <input
-        value={value}
-        readOnly
-        className="h-10 min-w-0 rounded-lg border border-secondary bg-secondary px-3 font-normal text-tertiary shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-brand"
-      />
-    </label>
+    <div className="min-w-0">
+      <p className="text-sm text-tertiary">{label}</p>
+      <p className="mt-1 min-w-0 text-sm font-medium whitespace-pre-wrap break-words text-primary">
+        {value || "—"}
+      </p>
+    </div>
   );
 }
 
