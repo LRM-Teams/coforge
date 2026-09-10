@@ -378,7 +378,7 @@ function Profile({
                 value={providerId || m.agent_form_provider_default()}
               />
               <RuntimeField
-                label={m.agent_runtime_api_key()}
+                label={m.agent_runtime_api_key({ provider: providerId })}
                 value={
                   detail.ownedByCurrentUser
                     ? detail.runtimeCredential?.hint || m.agent_runtime_api_key_not_configured()
@@ -483,7 +483,7 @@ function Profile({
                   <>
                     <RuntimeField label={m.agent_runtime_provider_field()} value={providerId} />
                     <label className="grid gap-1.5 text-sm sm:col-span-2">
-                      {m.agent_runtime_api_key()}
+                      {m.agent_runtime_api_key({ provider: providerId })}
                       <input
                         name="apiKey"
                         type="password"
@@ -492,7 +492,7 @@ function Profile({
                         required
                         minLength={8}
                         autoComplete="new-password"
-                        placeholder={m.agent_runtime_api_key_placeholder()}
+                        placeholder={m.agent_runtime_api_key_placeholder({ provider: providerId })}
                         className="h-10 rounded-lg border bg-background px-3 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       />
                       {detail.runtimeCredential && (

@@ -215,7 +215,7 @@ test("Pi offers CoForge catalog providers and submits an optional isolated API k
   );
   await user.click(within(document.body).getByRole("button", { name: /Model Optional/ }));
   await user.click(within(document.body).getByRole("option", { name: "openai / GPT 5" }));
-  const key = within(document.body).getByLabelText("API key");
+  const key = within(document.body).getByLabelText("openai API key");
   expect(key.hasAttribute("required")).toBe(false);
   await user.type(key, "secret-key");
   await user.click(within(document.body).getByRole("button", { name: "Save" }));
@@ -249,10 +249,11 @@ test("clears a drafted API key when model provider changes", async () => {
   );
   await user.click(within(document.body).getByRole("button", { name: "Model provider" }));
   await user.click(within(document.body).getByRole("option", { name: "openai" }));
-  const key = within(document.body).getByLabelText("API key") as HTMLInputElement;
+  const key = within(document.body).getByLabelText("openai API key") as HTMLInputElement;
   await user.type(key, "secret-key");
   await user.click(within(document.body).getByRole("button", { name: "Model provider" }));
   await user.click(within(document.body).getByRole("option", { name: "anthropic" }));
+  expect(within(document.body).getByLabelText("anthropic API key")).toBe(key);
   expect(key.value).toBe("");
 });
 
@@ -272,11 +273,15 @@ test("requires a new credential after leaving the configured model provider", as
       })}
     />,
   );
-  await waitFor(() => expect(within(document.body).getByLabelText("API key")).toBeTruthy());
-  expect(within(document.body).getByLabelText("API key").hasAttribute("required")).toBe(false);
+  await waitFor(() => expect(within(document.body).getByLabelText("openai API key")).toBeTruthy());
+  expect(within(document.body).getByLabelText("openai API key").hasAttribute("required")).toBe(
+    false,
+  );
   await user.click(within(document.body).getByRole("button", { name: "Model provider" }));
   await user.click(within(document.body).getByRole("option", { name: "anthropic" }));
-  expect(within(document.body).getByLabelText("API key").hasAttribute("required")).toBe(true);
+  expect(within(document.body).getByLabelText("anthropic API key").hasAttribute("required")).toBe(
+    true,
+  );
 });
 
 test("external runtimes show their complete model catalog", async () => {
@@ -357,7 +362,7 @@ test("keeps a drafted API key when selecting another model from the same provide
   );
   await user.click(within(document.body).getByRole("button", { name: "Model provider" }));
   await user.click(within(document.body).getByRole("option", { name: "openai" }));
-  const key = within(document.body).getByLabelText("API key") as HTMLInputElement;
+  const key = within(document.body).getByLabelText("openai API key") as HTMLInputElement;
   await user.type(key, "secret-key");
   await user.click(within(document.body).getByRole("button", { name: /Model Optional/ }));
   await user.click(within(document.body).getByRole("option", { name: "openai / GPT 5 mini" }));
@@ -376,7 +381,7 @@ test("clears a drafted API key when the Computer changes", async () => {
   );
   await user.click(within(document.body).getByRole("button", { name: "Model provider" }));
   await user.click(within(document.body).getByRole("option", { name: "openai" }));
-  const key = within(document.body).getByLabelText("API key") as HTMLInputElement;
+  const key = within(document.body).getByLabelText("openai API key") as HTMLInputElement;
   await user.type(key, "secret-key");
   view.rerender(<AgentRuntimeFields open computerId="computer-2" onLoad={load} />);
   await waitFor(() => expect(key.value).toBe(""));
