@@ -198,11 +198,8 @@ export function ComputerDetail({
             {m.computer_restart_error()}
           </p>
         )}
-        <section aria-labelledby="computer-overview">
-          <h2 id="computer-overview" className="text-lg font-semibold tracking-tight">
-            {m.computer_overview()}
-          </h2>
-          <dl className="mt-4 grid gap-x-8 gap-y-6 border-t border-secondary pt-6 md:grid-cols-2 xl:grid-cols-3">
+        <section aria-label={m.computer_overview()}>
+          <dl className="grid gap-x-8 gap-y-6 md:grid-cols-2 xl:grid-cols-3">
             <div className="min-w-0">
               <dt className="text-sm text-tertiary">{m.computer_display_name()}</dt>
               <dd className="mt-1 text-sm font-medium text-primary">
