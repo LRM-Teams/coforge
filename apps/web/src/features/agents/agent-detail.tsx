@@ -33,6 +33,10 @@ import { AgentActivityAvatar } from "./agent-activity-avatar";
 import { AgentSkills, type AgentSkillsLoadResult } from "./agent-skills";
 import { AgentControl } from "./agent-control";
 import { AgentReminders } from "./agent-reminders";
+import {
+  AgentEnvironmentEditor,
+  type AgentEnvironmentEditorProps,
+} from "./agent-environment-editor";
 
 type Detail = Awaited<ReturnType<typeof import("./agents.functions").getAgentDetail>>;
 
@@ -48,6 +52,7 @@ export function AgentDetail({
   onLoadSkills,
   onExecuteControl,
   onLoadReminders = async () => ({ status: "unauthorized" }),
+  environment,
 }: {
   detail: Detail;
   activity?: ActivityEntry[];
@@ -60,6 +65,7 @@ export function AgentDetail({
   onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
   onExecuteControl?: Parameters<typeof AgentControl>[0]["onExecute"];
   onLoadReminders?: Parameters<typeof AgentReminders>[0]["onLoad"];
+  environment?: AgentEnvironmentEditorProps;
 }) {
   const statusLabel = agentDisplay(detail.display).label;
   const latestError = latestActivityError(activity);
@@ -149,6 +155,7 @@ export function AgentDetail({
             onLoadRuntimeOptions={onLoadRuntimeOptions}
             onLoadSkills={onLoadSkills}
             onExecuteControl={onExecuteControl}
+            environment={environment}
           />
         ) : tab === "activity" ? (
           <AgentActivityTimeline activity={activity} timeZone={timeZone} />
@@ -174,6 +181,7 @@ function Profile({
   onLoadRuntimeOptions,
   onLoadSkills,
   onExecuteControl,
+  environment,
 }: {
   detail: Detail;
   timeZone: string | null;
@@ -183,6 +191,7 @@ function Profile({
   onLoadRuntimeOptions: (computerId: string) => Promise<RuntimeOptions>;
   onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
   onExecuteControl?: Parameters<typeof AgentControl>[0]["onExecute"];
+  environment?: AgentEnvironmentEditorProps;
 }) {
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -399,6 +408,9 @@ function Profile({
           />
         </div>
       </section>
+      {detail.ownedByCurrentUser && environment && (
+        <AgentEnvironmentEditor key={detail.id} {...environment} />
+      )}
       {detail.ownedByCurrentUser && onLoadSkills && (
         <AgentSkills
           key={`${detail.id}:${detail.computerId ?? ""}:${JSON.stringify(detail.runtimeConfig)}`}

@@ -184,6 +184,9 @@ export class ManageAgents {
         model: selection.model,
         modelProvider: selection.modelProvider,
         reasoning: selection.reasoning,
+        ...(current.runtimeConfig.environment
+          ? { environment: current.runtimeConfig.environment }
+          : {}),
       };
       const runtimeChanged =
         JSON.stringify(current.runtimeConfig) !== JSON.stringify(runtimeConfig);

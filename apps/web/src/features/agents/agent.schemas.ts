@@ -75,3 +75,8 @@ export const saveAgentRuntimeCredentialInputSchema = z.object({
   agentId: agentIdSchema,
   apiKey: z.string().trim().min(8).max(4096),
 });
+
+export const saveAgentEnvironmentInputSchema = z.object({
+  agentId: agentIdSchema,
+  envVars: z.record(z.string(), z.string()),
+});

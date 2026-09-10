@@ -5,6 +5,7 @@ import {
   agentIdSchema,
   createAgentInputSchema,
   saveAgentRuntimeCredentialInputSchema,
+  saveAgentEnvironmentInputSchema,
   updateAgentInputSchema,
 } from "./agent.schemas";
 import { getDatabaseClient } from "../../server/db/client.server";
@@ -39,6 +40,7 @@ import { getAgentStatusCache } from "../../server/agents/agent-status.server";
 import { issueBrowserRealtimeToken } from "../../server/auth/browser-realtime-token.server";
 import { createAgentSessions } from "../../server/db/repositories/agent-session.repositories.server";
 import { getAgentDisplay } from "../../server/agents/agent-display.server";
+import { AgentEnvironment } from "../../server/agents/agent-environment.server";
 
 function dependencies() {
   const db = getDatabaseClient();
@@ -160,6 +162,29 @@ function changeRuntimeCredential(
       ),
     ),
     getAgentRuntimeLock(),
+  );
+}
+
+function agentEnvironment(db: NonNullable<ReturnType<typeof getDatabaseClient>>) {
+  const agents = new PrismaAgentRepository(db);
+  return new AgentEnvironment(
+    new PrismaAgentRuntimeCredentialRepository(db),
+    agents,
+    new PublishAgentRuntimeControl(
+      new RepositoryAgentAuthorization(agents),
+      createCentrifugoServerApi(),
+      async () => {},
+      createAgentSessions(db),
+      new AgentControl(
+        new PrismaAgentControlStore(db),
+        createCentrifugoServerApi(),
+        getAgentRuntimeLock(),
+        undefined,
+        createAgentSessions(db),
+      ),
+    ),
+    getAgentRuntimeLock(),
+    readAgentRuntimeCredentialEncryptionKey(process.env),
   );
 }
 
@@ -332,4 +357,25 @@ export const deleteAgentRuntimeCredential = createServerFn({ method: "POST" })
     if (!db) throw new Error("Agent persistence is unavailable");
     const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
     return changeRuntimeCredential(db).delete({ workspaceId, userId: user.id }, agentId);
+  });
+
+export const getAgentEnvironment = createServerFn({ method: "GET" })
+  .validator(agentIdSchema)
+  .handler(async ({ data: agentId }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Agent persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    setResponseHeader("cache-control", "no-store");
+    return agentEnvironment(db).get({ workspaceId, userId: user.id }, agentId);
+  });
+
+export const saveAgentEnvironment = createServerFn({ method: "POST" })
+  .validator(saveAgentEnvironmentInputSchema)
+  .handler(async ({ data }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Agent persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    return agentEnvironment(db).save({ workspaceId, userId: user.id }, data.agentId, data.envVars);
   });

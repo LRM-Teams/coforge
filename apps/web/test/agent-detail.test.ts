@@ -205,6 +205,27 @@ test("thinking and output entries stay separate and retain provider text and lin
   ]);
 });
 
+test("reconnecting uses backend detail for current status while retaining raw timeline output", () => {
+  const reconnecting = display({
+    detailKind: "runtime_reconnecting",
+    detail: "Codex reconnecting to provider…",
+    entries: [{ kind: "text", text: "Reconnecting... 2/5 (unexpected status 502 Bad Gateway)" }],
+  });
+
+  expect(agentDisplay(reconnecting)).toMatchObject({
+    kind: "working",
+    label: "Codex reconnecting to provider…",
+  });
+  expect(presentActivity({ ...reconnecting, level: "info" })).toMatchObject([
+    {
+      label: "Output",
+      detail: "Reconnecting... 2/5 (unexpected status 502 Bad Gateway)",
+      recentLabel: "Reconnecting... 2/5 (unexpected status 502 Bad Gateway)",
+      currentLabel: "Codex reconnecting to provider…",
+    },
+  ]);
+});
+
 describe("Agent detail", () => {
   test("keeps authorized profile and Activity available when status cannot be read", async () => {
     const activity = [

@@ -228,4 +228,4 @@ These instructions apply to the entire repository.
 - Keep domain and protocol packages independent of UI frameworks, database clients, transport servers, and concrete Agent providers.
 - Validate external input at process and network boundaries. Version shared protocols explicitly.
 - Keep credentials out of source, logs, command arguments, fixtures, and generated artifacts.
-- Restrict Agent processes to their declared Agent workspace directories and explicitly allowed environment variables.
+- Launch Agent processes in their declared Agent workspace directories. Inherit the Daemon's ordinary local environment, then apply explicit Agent overrides, adapter extraEnv, and trusted CoForge launch fields. Never upload inherited environment variables; cloud persistence is only for user-entered overrides. Clear stale CoForge Agent capabilities and control sockets before installing the current launch fields.

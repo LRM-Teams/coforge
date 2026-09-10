@@ -1,8 +1,11 @@
 import type { PrismaClient } from "../../../../generated/client";
 import { parseAgentRuntimeConfig } from "../../agents/agent-runtime-config.server";
 import type { AgentRuntimeCredentialRepository } from "../../agents/agent-runtime-credentials.server";
+import type { AgentEnvironmentRepository } from "../../agents/agent-environment.server";
 
-export class PrismaAgentRuntimeCredentialRepository implements AgentRuntimeCredentialRepository {
+export class PrismaAgentRuntimeCredentialRepository
+  implements AgentRuntimeCredentialRepository, AgentEnvironmentRepository
+{
   constructor(private readonly db: PrismaClient) {}
 
   async findOwnedAgent(agentId: string, workspaceId: string, ownerId: string) {

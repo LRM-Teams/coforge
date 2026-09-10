@@ -1,3 +1,5 @@
+import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+
 export const API_KEY_ENV_BY_PROVIDER = {
   deepseek: "DEEPSEEK_API_KEY",
   minimax: "MINIMAX_API_KEY",
@@ -17,48 +19,64 @@ export const API_KEY_ENV_BY_PROVIDER = {
   xiaomi: "XIAOMI_API_KEY",
 } as const;
 
-const HOST_PROVIDER_ENV = [
-  ...Object.values(API_KEY_ENV_BY_PROVIDER),
-  "ANTHROPIC_OAUTH_TOKEN",
-  "AZURE_OPENAI_BASE_URL",
-  "AZURE_OPENAI_RESOURCE_NAME",
-  "AZURE_OPENAI_API_VERSION",
-  "AWS_PROFILE",
-  "AWS_ACCESS_KEY_ID",
-  "AWS_SECRET_ACCESS_KEY",
-  "AWS_BEARER_TOKEN_BEDROCK",
-  "AWS_REGION",
-  "CLOUDFLARE_ACCOUNT_ID",
-];
+/** Bun does not apply request-local Pi provider env to its process-level proxy settings. */
+export function runtimeFetch(environment: Readonly<Record<string, string>>): typeof fetch {
+  const request = (input: Request | string | URL, init?: RequestInit) => {
+    const target = new URL(input instanceof Request ? input.url : input);
+    const port = target.port || (target.protocol === "https:" ? "443" : "80");
+    const bypass = (environment.no_proxy || environment.NO_PROXY || "")
+      .toLowerCase()
+      .split(/[,\s]+/)
+      .some((entry) => {
+        if (!entry) return false;
+        if (entry === "*") return true;
+        const match = entry.match(/^(.*):(\d+)$/);
+        const host = match ? match[1]! : entry;
+        if (match && match[2] !== port) return false;
+        if (host.startsWith(".")) return target.hostname.endsWith(host);
+        if (host.startsWith("*")) return target.hostname.endsWith(host.slice(1));
+        return target.hostname === host;
+      });
+    const scheme = target.protocol === "https:" ? "https" : "http";
+    const proxy = bypass
+      ? ""
+      : environment[`${scheme}_proxy`] ||
+        environment[`${scheme.toUpperCase()}_PROXY`] ||
+        environment.all_proxy ||
+        environment.ALL_PROXY ||
+        "";
+    return fetch(input, { ...init, proxy });
+  };
+  // Bun's optional optimization must not open a direct connection around this proxy.
+  return Object.assign(request, { preconnect: () => {} });
+}
 
-let patchTail = Promise.resolve();
-export async function withRuntimeEnvironment<T>(
-  patch: Readonly<Record<string, string | undefined>>,
-  fn: () => Promise<T>,
-  preserveProviderAuth = false,
-): Promise<T> {
-  const previous = patchTail;
-  let release!: () => void;
-  patchTail = new Promise((resolve) => (release = resolve));
-  await previous;
-  const old = new Map<string, string | undefined>();
-  try {
-    for (const key of preserveProviderAuth ? [] : HOST_PROVIDER_ENV) {
-      old.set(key, process.env[key]);
-      delete process.env[key];
-    }
-    for (const [key, value] of Object.entries(patch)) {
-      if (HOST_PROVIDER_ENV.includes(key)) continue;
-      old.set(key, process.env[key]);
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-    return await fn();
-  } finally {
-    for (const [key, value] of old) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-    release();
-  }
+/** Bind only this Pi runtime; summaries resolve auth before requesting a stream. */
+export function configureRuntimeEnvironment(
+  runtime: ModelRuntime,
+  environment: Readonly<Record<string, string>>,
+): void {
+  const fetch = runtimeFetch(environment);
+  const getAuth = runtime.getAuth.bind(runtime);
+  runtime.getAuth = (model, options) => {
+    const scoped = { ...options, env: { ...options?.env, ...environment } };
+    return typeof model === "string" ? getAuth(model, scoped) : getAuth(model, scoped);
+  };
+  const stream = runtime.stream.bind(runtime);
+  runtime.stream = (model, context, options) =>
+    stream(
+      model,
+      context,
+      Object.assign({}, options, {
+        env: { ...options?.env, ...environment },
+        ...(model.api === "google-generative-ai" || model.api === "google-vertex" ? {} : { fetch }),
+      }),
+    );
+  const streamSimple = runtime.streamSimple.bind(runtime);
+  runtime.streamSimple = (model, context, options) =>
+    streamSimple(model, context, {
+      ...options,
+      env: { ...options?.env, ...environment },
+      ...(model.api === "google-generative-ai" || model.api === "google-vertex" ? {} : { fetch }),
+    });
 }

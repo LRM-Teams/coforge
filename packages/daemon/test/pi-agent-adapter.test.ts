@@ -307,7 +307,7 @@ test("concurrent embedded Pi sessions keep distinct in-memory Agent keys", async
   }
 });
 
-test("embedded Pi default bash preserves host prefix and exposes only declared daemon environment", async () => {
+test("embedded Pi default bash preserves host prefix and composes runtime and host environment", async () => {
   const root = await mkdtemp(join(tmpdir(), "coforge-pi-bash-env-"));
   const workspace = join(root, "workspace");
   const agentDir = join(root, "host-pi-agent");
@@ -330,7 +330,7 @@ test("embedded Pi default bash preserves host prefix and exposes only declared d
                 function: {
                   name: "bash",
                   arguments:
-                    '{"command":"printf \'prefix=%s declared=%s undeclared=%s\' \\"$COFORGE_PREFIX_SENTINEL\\" \\"$COFORGE_DECLARED_SENTINEL\\" \\"${COFORGE_UNDECLARED_DAEMON_SENTINEL-absent}\\""}',
+                    '{"command":"printf \'prefix=%s declared=%s runtime=%s inherited=%s\' \\"$COFORGE_PREFIX_SENTINEL\\" \\"$COFORGE_DECLARED_SENTINEL\\" \\"$COFORGE_RUNTIME_SENTINEL\\" \\"$COFORGE_UNDECLARED_DAEMON_SENTINEL\\""}',
                 },
               },
             ],
@@ -354,6 +354,10 @@ test("embedded Pi default bash preserves host prefix and exposes only declared d
       PI_CODING_AGENT_DIR: agentDir,
       COFORGE_DECLARED_SENTINEL: "declared-value",
     },
+    runtime: {
+      ...piRuntime(agentDir).runtime,
+      envVars: { COFORGE_RUNTIME_SENTINEL: "runtime-value" },
+    },
   });
   session.subscribe((event) => events.push(event));
   try {
@@ -361,7 +365,7 @@ test("embedded Pi default bash preserves host prefix and exposes only declared d
     expect(events.filter((event) => event.type === "tool-output")).toEqual([
       expect.objectContaining({
         text: expect.stringContaining(
-          "prefix=host-prefix declared=declared-value undeclared=absent",
+          "prefix=host-prefix declared=declared-value runtime=runtime-value inherited=must-not-leak",
         ),
       }),
     ]);

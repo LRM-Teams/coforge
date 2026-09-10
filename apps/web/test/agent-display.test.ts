@@ -214,16 +214,17 @@ describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
     await redis.send("FLUSHDB", []);
     now = 2_900_000;
     const prefix = "coforge:agent-display:v1:workspace-a:computer-a:agent-a";
-    await redis.send("SET", [`${prefix}:revision`, "1789000000000000"]);
+    // Above current Redis wall time and cjson precision, within JS safe integers.
+    await redis.send("SET", [`${prefix}:revision`, "8000000000000000"]);
     const subject = display();
 
     const first = await subject.observeStatus(status(1));
     const second = await subject.observeActivity(activity(1, "working"), fence);
 
-    expect(first?.revision).toBe(1_789_000_000_000_001);
-    expect(second?.revision).toBe(1_789_000_000_000_002);
-    expect(await redis.get(`${prefix}:revision`)).toBe("1789000000000002");
-    expect(JSON.parse((await redis.get(`${prefix}:state`))!).revision).toBe("1789000000000002");
+    expect(first?.revision).toBe(8_000_000_000_000_001);
+    expect(second?.revision).toBe(8_000_000_000_000_002);
+    expect(await redis.get(`${prefix}:revision`)).toBe("8000000000000002");
+    expect(JSON.parse((await redis.get(`${prefix}:state`))!).revision).toBe("8000000000000002");
   });
 
   test("inactive dominates and rejects retired launch and daemon replays", async () => {
@@ -291,6 +292,9 @@ test("activityKindForObservation is stateless and leaves unknown facts unclassif
     "thinking",
   );
   expect(activityKindForObservation({ detailKind: "runtime_progress", level: "info" })).toBe(
+    "working",
+  );
+  expect(activityKindForObservation({ detailKind: "runtime_reconnecting", level: "info" })).toBe(
     "working",
   );
   expect(activityKindForObservation({ detailKind: "anything", level: "error" })).toBe("error");

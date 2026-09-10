@@ -123,7 +123,11 @@ export function presentActivity(observation: ActivityObservation): ActivityRow[]
             label: thinking ? "Thinking" : "Output",
             detail: entry.text,
             recentLabel: entry.text || (thinking ? "Thinking" : "Output"),
-            currentLabel: thinking ? "Thinking…" : "Working…",
+            currentLabel: thinking
+              ? "Thinking…"
+              : kind === "runtime_reconnecting"
+                ? detail || "Working…"
+                : "Working…",
             tone: thinking ? "thinking" : "output",
             recentTone: thinking ? "thinking" : "working",
             pulse: thinking,

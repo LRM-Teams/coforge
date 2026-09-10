@@ -7,10 +7,270 @@ import {
 } from "../src/server/agents/agent-control.server";
 import { AgentSessionReceiver } from "../src/server/agents/agent-session.server";
 import {
+  AgentSessions,
+  type RuntimeSessionReference,
+} from "../src/server/agents/agent-sessions.server";
+import {
   decodeAgentStartIntent,
   decodeAgentStopIntent,
   decodeAgentWorkspaceResetRequest,
 } from "@coforge/protocol";
+
+function observationRace() {
+  const runtimeConfig = {
+    runtime: "pi" as const,
+    provider: { kind: "default" as const },
+    model: "original-model",
+    modelProvider: "anthropic",
+    reasoning: "high",
+  };
+  const scope = {
+    protocolMajor: 1,
+    workspaceId: "w",
+    computerId: "c",
+    agentId: "a",
+    provider: "pi" as const,
+    requestId: "original",
+    epoch: 7,
+    launchId: "launch",
+  };
+  let reference: RuntimeSessionReference = {
+    provider: "pi",
+    computerId: "c",
+    startRequestId: "original",
+    daemonInstanceId: "daemon",
+    launchId: "launch",
+    sessionMode: "create",
+    sessionId: "native",
+    state: "empty",
+  };
+  const fixture = {
+    agent: {
+      id: "a",
+      ownerId: "owner",
+      workspaceId: "w",
+      computerId: "c",
+      runtimeConfig,
+      storedRuntimeConfig: { ...runtimeConfig, env: { FIRST: "one", SECOND: "two" } },
+      storedRuntimeSession: reference,
+      currentSessionId: "session-row",
+      identity: { sessionId: "native", state: "empty" },
+      state: {
+        ...scope,
+        version: 1,
+        action: "start",
+        phase: "completed",
+        configRevision: agentControlRevision(runtimeConfig),
+        controlSequence: 1,
+        sessionSequence: 0,
+        identity: { sessionId: "native", state: "empty" },
+      },
+    } as AgentControlAgent,
+    authorized: true,
+    attempts: 0,
+    events: [] as string[],
+    beforeReplace: async () => {},
+  };
+  const store: AgentControlStore = {
+    get: async () => (fixture.authorized ? structuredClone(fixture.agent) : undefined),
+    replace: async (before, state) => {
+      if (state.requestId === "config-stop" && state.phase === "stopping") {
+        fixture.attempts++;
+        await fixture.beforeReplace();
+      }
+      if (!fixture.authorized || JSON.stringify(before) !== JSON.stringify(fixture.agent))
+        return false;
+      fixture.agent = { ...fixture.agent, state, identity: state.identity };
+      return true;
+    },
+  };
+  const sessions = new AgentSessions(
+    {
+      read: async () => ({ workspaceId: "w", computerId: "c", provider: "pi", reference }),
+      replace: async (_id, _old, next) => {
+        reference = next;
+        const identity = { sessionId: next.sessionId!, state: next.state! };
+        fixture.agent = {
+          ...fixture.agent,
+          storedRuntimeSession: next,
+          identity,
+          state: { ...fixture.agent.state!, identity },
+        };
+        return true;
+      },
+    },
+    async () => "daemon",
+  );
+  const control = new AgentControl(
+    store,
+    {
+      publish: async (_channel, bytes) => {
+        const stop = decodeAgentStopIntent(bytes);
+        expect(stop).toMatchObject({ requestId: "config-stop", controlEpoch: 8 });
+        expect(fixture.agent.state?.identity).toEqual({ sessionId: "native", state: "resumable" });
+        fixture.events.push("stop-published");
+        await control.result(stop, {
+          ...stop,
+          provider: stop.provider!,
+          epoch: stop.controlEpoch!,
+          phase: "stopped",
+          sequence: 1,
+        });
+        fixture.events.push("stop-acknowledged");
+      },
+    },
+    { run: async (_id, work) => work() },
+  );
+  return {
+    fixture,
+    snapshot: (sequence: number) =>
+      new AgentSessionReceiver(store).accept(scope, {
+        ...scope,
+        sequence,
+        identity: { sessionId: "native", state: "resumable" },
+      }),
+    observe: () =>
+      sessions.accept({
+        ...scope,
+        startRequestId: "original",
+        controlEpoch: 7,
+        daemonInstanceId: "daemon",
+        sessionId: "native",
+        sessionState: "resumable",
+      }),
+    stop: () =>
+      control.publishStop({ agentId: "a", workspaceId: "w", requestId: "config-stop" }, "owner"),
+  };
+}
+
+test("configuration stop retries a Session observation race before allowing the config write", async () => {
+  const { fixture, observe, stop } = observationRace();
+  fixture.beforeReplace = async () => {
+    if (fixture.attempts === 1) await observe();
+  };
+  await stop();
+  fixture.events.push("config-write");
+  expect(fixture.attempts).toBe(2);
+  expect(fixture.events).toEqual(["stop-published", "stop-acknowledged", "config-write"]);
+  expect(fixture.agent.state).toMatchObject({
+    epoch: 8,
+    phase: "completed",
+    identity: { state: "resumable" },
+  });
+});
+
+test("configuration stop compares persisted config semantically after an observation", async () => {
+  const { fixture, observe, stop } = observationRace();
+  fixture.beforeReplace = async () => {
+    if (fixture.attempts !== 1) return;
+    await observe();
+    fixture.agent.storedRuntimeConfig = {
+      env: { SECOND: "two", FIRST: "one" },
+      ...fixture.agent.runtimeConfig,
+    };
+  };
+  await stop();
+  expect(fixture.attempts).toBe(2);
+});
+
+test.each([
+  "owner",
+  "workspace",
+  "computer",
+  "runtime",
+  "stored config",
+  "credential",
+  "request",
+  "epoch",
+  "phase",
+  "action",
+  "launch",
+  "control sequence",
+  "authorization",
+] as const)("configuration stop rejects intervening %s changes", async (change) => {
+  const { fixture, observe, stop } = observationRace();
+  fixture.beforeReplace = async () => {
+    await observe();
+    const agent = fixture.agent;
+    switch (change) {
+      case "owner":
+        agent.ownerId = "another-owner";
+        break;
+      case "workspace":
+        agent.workspaceId = "another-workspace";
+        break;
+      case "computer":
+        agent.computerId = "another-computer";
+        break;
+      case "runtime":
+        agent.runtimeConfig = { ...agent.runtimeConfig, model: "new-model" };
+        break;
+      case "stored config":
+        agent.storedRuntimeConfig = {
+          ...agent.runtimeConfig,
+          env: { FIRST: "changed", SECOND: "two" },
+        };
+        break;
+      case "credential":
+        agent.storedRuntimeConfig = {
+          ...agent.runtimeConfig,
+          provider: { kind: "coforge", providerId: "anthropic", apiKey: { ciphertext: "changed" } },
+        };
+        break;
+      case "request":
+        agent.state!.requestId = "competitor";
+        break;
+      case "epoch":
+        agent.state!.epoch++;
+        break;
+      case "phase":
+        agent.state!.phase = "failed";
+        break;
+      case "action":
+        agent.state!.action = "full-reset";
+        break;
+      case "launch":
+        agent.state!.launchId = "another-launch";
+        break;
+      case "control sequence":
+        agent.state!.controlSequence++;
+        break;
+      case "authorization":
+        fixture.authorized = false;
+        break;
+    }
+  };
+  await expect(stop()).rejects.toThrow(
+    ["owner", "workspace", "authorization"].includes(change)
+      ? "Agent is not authorized or assigned"
+      : "Agent configuration or control operation changed",
+  );
+  expect(fixture.attempts).toBe(1);
+  expect(fixture.events).toEqual([]);
+  expect(fixture.agent.state?.requestId).not.toBe("config-stop");
+});
+
+test.each([2, 3])(
+  "configuration stop bounds contention after %i observation races",
+  async (races) => {
+    const { fixture, snapshot, stop } = observationRace();
+    fixture.beforeReplace = async () => {
+      if (fixture.attempts > races) return;
+      await snapshot(fixture.attempts);
+    };
+    if (races === 2) {
+      await stop();
+      expect(fixture.agent.state?.phase).toBe("completed");
+    } else {
+      await expect(stop()).rejects.toThrow(
+        "Agent control could not begin after 3 compare-and-swap attempts",
+      );
+      expect(fixture.agent.state?.requestId).toBe("original");
+      expect(fixture.events).toEqual([]);
+    }
+    expect(fixture.attempts).toBe(3);
+  },
+);
 
 test("reset is one confirmed-stop then fresh-start operation and retains no old binding", async () => {
   let agent: AgentControlAgent = {

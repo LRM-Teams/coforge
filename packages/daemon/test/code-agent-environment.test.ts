@@ -2,24 +2,33 @@ import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { agentEnvironment } from "../src/code-agent/environment";
 
-test("inherits host proxy settings without inheriting unrelated secrets", () => {
-  const proxy = {
-    HTTP_PROXY: "http://localhost:7893",
-    HTTPS_PROXY: "http://localhost:7893",
-    ALL_PROXY: "socks5://localhost:7893",
-    NO_PROXY: "localhost,127.0.0.1",
-    http_proxy: "http://localhost:7894",
-    https_proxy: "http://localhost:7894",
-    all_proxy: "socks5://localhost:7894",
-    no_proxy: "localhost,127.0.0.1,internal.example",
+test("inherits local host variables and overlays custom, adapter, then system values without mutating the host", () => {
+  const inherited = {
+    HTTP_PROXY: "http://proxy.example:8080",
+    https_proxy: "http://secure.example:8081",
+    OPENAI_API_KEY: "host-provider-key",
+    CUSTOM_HOST_SETTING: "host",
+    NO_PROXY: "example.com,LOCALHOST",
+    no_proxy: "internal.example,example.com",
+    SELECTED: "host",
+    COFORGE_AGENT_CONTEXT: "stale-context",
   };
-  const environment = agentEnvironment(undefined, {
-    ...proxy,
-    DATABASE_PASSWORD: "must-not-be-inherited",
+  const env = agentEnvironment({ SELECTED: "system" }, inherited, "linux", {
+    envVars: { SELECTED: "custom", CUSTOM_HOST_SETTING: "custom", EMPTY: "" },
+    extraEnv: { SELECTED: "adapter", NO_COLOR: "1" },
   });
-
-  expect(environment).toMatchObject(proxy);
-  expect(environment).not.toHaveProperty("DATABASE_PASSWORD");
+  expect(env.HTTP_PROXY).toBe(inherited.HTTP_PROXY);
+  expect(env.https_proxy).toBe(inherited.https_proxy);
+  expect(env.OPENAI_API_KEY).toBe("host-provider-key");
+  expect(env.CUSTOM_HOST_SETTING).toBe("custom");
+  expect(env.SELECTED).toBe("system");
+  expect(env.NO_COLOR).toBe("1");
+  expect(env.EMPTY).toBe("");
+  expect(env.NO_PROXY).toBe("127.0.0.1,localhost,example.com,internal.example");
+  expect(env.no_proxy).toBe(env.NO_PROXY);
+  expect(env.COFORGE_AGENT_CONTEXT).toBeUndefined();
+  expect(inherited.CUSTOM_HOST_SETTING).toBe("host");
+  expect(inherited.NO_PROXY).toBe("example.com,LOCALHOST");
 });
 
 test("makes the Agent-facing coforge binary available without Agent identity", () => {

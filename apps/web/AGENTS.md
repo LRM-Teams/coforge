@@ -263,6 +263,9 @@ instructions for the TanStack Start Web/backend modular monolith.
   structured tool names, never commands or paths. `agent-activity-timeline.tsx`
   owns row rendering and on-demand expansion. Current state and expiry decisions
   belong to the cloud reducer, not these presentation functions.
+- `agent-environment-editor.tsx` edits only user-declared Agent environment overrides.
+  `server/agents/agent-environment.server.ts` owns their authorized persistence and
+  restart application. Local inherited environment is never collected or uploaded.
 - `workspace-activity-realtime.ts` owns one messages-page Workspace Activity
   subscription and compact initial/reconnect history; avatars never open connections.
 - Workspace-scoped Code Agent installation inventory belongs to

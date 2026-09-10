@@ -76,6 +76,29 @@ function fixture(options?: {
 }
 
 describe("ManageAgents", () => {
+  test("profile runtime edits preserve encrypted environment while list and starts omit it", async () => {
+    const { agentManagement, records, starts } = fixture();
+    const principal = { userId: "user-1", workspaceId: "workspace-1" };
+    const created = await agentManagement.create(principal, {
+      name: "builder",
+      description: "Builder",
+      provider: RUNTIME_PROVIDER.PI,
+      computerId: "computer-1",
+    });
+    const environment = { keyId: "v1", ciphertext: "encrypted-env", nonce: "nonce" };
+    records[0]!.runtimeConfig.environment = environment;
+    await agentManagement.update(principal, {
+      agentId: created.agent.id,
+      name: "renamed",
+      description: "Builder",
+      provider: RUNTIME_PROVIDER.CODEX,
+      model: "new-model",
+    });
+    expect(records[0]!.runtimeConfig.environment).toEqual(environment);
+    expect(JSON.stringify(await agentManagement.list(principal))).not.toContain("encrypted-env");
+    expect(JSON.stringify(starts)).not.toContain("encrypted-env");
+  });
+
   test("lists and creates only for the authenticated user's current Workspace", async () => {
     const { agentManagement, records, starts } = fixture();
     records.push({
