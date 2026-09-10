@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   changes:
-    name: Select checks and validate CI
+    name: Plan checks
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -32,20 +32,24 @@ jobs:
       jobs: ${{ steps.select.outputs.jobs }}
       deploy: ${{ steps.select.outputs.deploy }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - name: Set up mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
           install: false
-      - run: mise install
-      - run: bun install --frozen-lockfile
+      - name: Install toolchain
+        run: mise install
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
       - name: Test CI policy
         run: bun run test:ci
-      - name: Check CI policy and workflows
+      - name: Lint workflows and CI scripts
         run: bun run check:ci
-      - name: Select affected checks
+      - name: Select checks for changed files
         id: select
         env:
           TRACK: ${{ inputs.track || 'changes' }}
@@ -69,7 +73,7 @@ jobs:
           bun scripts/ci/selection.ts "$TRACK" < "$files" | tee -a "$GITHUB_OUTPUT"
 
   infrastructure-contracts:
-    name: Contracts (${{ matrix.suite }})
+    name: Validate ${{ matrix.suite }} scripts
     needs: changes
     if: needs.changes.outputs.contracts != '[]'
     strategy:
@@ -80,10 +84,10 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - name: Install pinned toolchain
+      - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
@@ -95,14 +99,14 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Test
+      - name: Run tests
         run: bun run test:${{ matrix.suite }}
 
-      - name: Check
+      - name: Run static checks
         run: bun run check:${{ matrix.suite }}
 
   libraries:
-    name: Library (${{ matrix.package }})
+    name: Validate ${{ matrix.package }}
     needs: changes
     if: needs.changes.outputs.libraries != '[]'
     strategy:
@@ -113,10 +117,10 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - name: Install pinned toolchain
+      - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
@@ -131,28 +135,28 @@ jobs:
       - name: Generate protocol
         run: bun run --cwd packages/protocol generate
 
-      - name: Test
+      - name: Run tests
         run: bun run --cwd packages/${{ matrix.package }} test
 
-      - name: Check
+      - name: Run static checks
         run: bun run --cwd packages/${{ matrix.package }} check
 
-      - name: Build
+      - name: Build package
         if: matrix.package != 'protocol'
         run: bun run --cwd packages/${{ matrix.package }} build
 
   computer:
-    name: Computer
+    name: Validate Computer
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.checks), 'computer')
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - name: Install pinned toolchain
+      - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
@@ -164,27 +168,27 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Test
+      - name: Run tests
         run: mise run test:computer
 
-      - name: Check
+      - name: Run static checks
         run: mise run check:computer
 
-      - name: Build
+      - name: Build package
         run: mise run build:computer
 
   daemon:
-    name: Daemon
+    name: Validate Daemon
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.checks), 'daemon')
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - name: Install pinned toolchain
+      - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
@@ -196,25 +200,25 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Test
+      - name: Run tests
         run: mise run test:daemon
 
-      - name: Check
+      - name: Run static checks
         run: mise run check:daemon
 
-      - name: Build
+      - name: Build package
         run: mise run build:daemon
 
   macos-lifecycle:
-    name: macOS native lifecycle
+    name: Test macOS lifecycle
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.checks), 'macos-lifecycle')
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - name: Install pinned toolchain
+      - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
@@ -229,17 +233,17 @@ jobs:
         run: bun test packages/daemon/test/launchd-job.test.ts packages/daemon/test/launchd-process.test.ts packages/daemon/test/macos-supervisor.test.ts
 
   web:
-    name: Web
+    name: Validate Web
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.checks), 'web')
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - name: Install pinned toolchain
+      - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
@@ -251,17 +255,17 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Test
+      - name: Run tests
         run: mise run test:web
 
-      - name: Check
+      - name: Run static checks
         run: mise run check:web
 
-      - name: Build
+      - name: Build package
         run: mise run build:web
 
   windows-release:
-    name: Windows release (${{ matrix.runner }})
+    name: Test Windows ${{ matrix.runner == 'windows-latest' && 'x64' || 'arm64' }} executable
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.checks), 'windows-release')
     strategy:
@@ -271,7 +275,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Install pinned Bun
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
@@ -282,7 +286,7 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Generate protocol
         run: bun run --cwd packages/protocol generate
-      - name: Verify native release identity and environment binding
+      - name: Test compiled version and server configuration
         # Every repetition must pass; this detects Windows process/pipe cleanup races.
         run: bun test scripts/release/compile-targets.test.ts --test-name-pattern "published Computer" --rerun-each 10
 
@@ -293,14 +297,14 @@ jobs:
   # Windows binary in a fixture feed and would write to the runner's HKCU\Environment, so nothing
   # here proves the installer's runtime behavior - see the note in the pull request.
   windows-installer:
-    name: Windows installer
+    name: Check Windows installer
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.checks), 'windows-installer')
     runs-on: windows-latest
     timeout-minutes: 10
 
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Record PowerShell version

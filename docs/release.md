@@ -407,6 +407,24 @@ belongs to a future per-environment publishing/serving decision, not to this
 variable. Both scripts carry the threat-model half of this reasoning inline
 as a comment.
 
+### Reading GitHub Actions
+
+| Workflow | When it runs | Steps |
+| --- | --- | --- |
+| **CI** | A pull request is opened or updated | Plan checks → validate affected packages and scripts → CI passed |
+| **Deploy Web (staging)** | A commit reaches `main` | Validate → build and push Docker image → deploy and verify Web |
+| **Publish Computer (staging)** | Manually started from `main` | Validate → build all six platforms → upload and verify release → update staging `latest` |
+
+The Web workflow skips image build and deployment when the commit does not
+affect Web. Computer publication is manual and its run title includes the
+version. Its build, upload, integrity checks, and selector update stay together
+in one publication transaction; expand that step to see each platform and object.
+
+`Validate` reuses CI. Package jobs run tests, static checks, and a build where
+applicable; separate jobs check macOS lifecycle, Windows executables, and the
+Windows installer. These checks can run in parallel. `CI passed` is the final
+required check and keeps its existing name for branch protection.
+
 CI has one reusable validation definition in `.github/workflows/ci.yml`, invoked
 with three scopes selected by `scripts/ci/selection.ts`:
 
