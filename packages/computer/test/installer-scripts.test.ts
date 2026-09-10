@@ -21,7 +21,7 @@ async function run(
   env: Record<string, string | undefined>,
   isolatedHome?: string,
   shellRoots: { zdotdir?: string; xdgConfigHome?: string } = {},
-): Promise<{ exitCode: number; stderr: string; home: string }> {
+): Promise<{ exitCode: number; stdout: string; stderr: string; home: string }> {
   // Every installer execution gets a disposable HOME. This is a safety boundary, not just test
   // cleanup: behavior tests exercise shell startup-file persistence and must never append to the
   // developer's real shell configuration, even when callers spread process.env.
@@ -38,8 +38,12 @@ async function run(
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
-  return { exitCode, stderr, home };
+  const [exitCode, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  return { exitCode, stdout, stderr, home };
 }
 
 function sha256hex(bytes: Uint8Array): string {
@@ -67,11 +71,8 @@ function currentTarget(): string {
   return target;
 }
 
-/** Serves the two objects install.sh consumes for a version: a sidecar checksum file
- * (`<version>/<target>/coforge-computer.sha256`, a bare hex line - no manifest.json, no jq, no
- * sed-based JSON parsing) and that version's computer binary. Also serves "/latest". The served
- * binary is itself a shell script that records the arguments it is invoked with, so a test can
- * assert install.sh chose the right version and forwarded it correctly. */
+/** Serves release metadata, gzip and sidecar. The payload records its invocation and checks
+ * that the forwarded directory contains the local artifacts before creating a shim. */
 async function serveFixture(
   options: {
     version?: string;
@@ -95,6 +96,8 @@ async function serveFixture(
   // and every test here fails - which is exactly the behavior that guard exists to produce.
   const computer = Buffer.from(
     `#!/bin/sh\n` +
+      `[ "$1" = __install-local ] && [ "$2" = --version ] && [ "$4" = --directory ] || exit 90\n` +
+      `[ -f "$5/manifest.json" ] && [ -f "$5/coforge-computer.gz" ] && [ "$(cat "$5/version")" = "$3" ] || exit 91\n` +
       `printf '%s\\n' "$@" > "${log}"\n` +
       (options.omitShim
         ? ""
@@ -108,6 +111,7 @@ async function serveFixture(
 
   const files = new Map<string, Uint8Array>([
     ["/latest", Buffer.from(options.latestContent ?? `${version}\n`)],
+    [`/${version}/manifest.json`, Buffer.from('{"schema_version":2}')],
   ]);
   if (!options.omitGzip) {
     files.set(
@@ -136,7 +140,58 @@ async function serveFixture(
   return { baseUrl: `http://localhost:${server.port}`, version, target, requested };
 }
 
-test("install.sh resolves latest and an explicit version, and never touches manifest.json", async () => {
+test("install.sh prepares cross-target gzip once without executing or configuring PATH", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "coforge-prepare-"));
+  temporaryDirectories.push(directory);
+  const log = join(directory, "executed");
+  const fixture = await serveFixture({
+    target: "windows-arm64",
+    omitSidecar: true,
+    argumentLog: log,
+  });
+  const child = await run(["--prepare-directory", directory, "--target", fixture.target], {
+    ...process.env,
+    SHELL: "/bin/bash",
+    COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+    COFORGE_INSTALLER_TEST_MODE: "1",
+  });
+  expect(child.exitCode).toBe(0);
+  expect(fixture.requested).toEqual([
+    "/latest",
+    `/${fixture.version}/manifest.json`,
+    `/${fixture.version}/${fixture.target}/coforge-computer.gz`,
+  ]);
+  expect((await readdir(directory)).sort()).toEqual([
+    "coforge-computer.gz",
+    "manifest.json",
+    "version",
+  ]);
+  expect(await Bun.file(join(directory, "version")).text()).toBe("3.2.1\n");
+  expect(await readdir(child.home)).toEqual([]);
+  expect(child.stderr.indexOf("Windows ARM64")).toBeLessThan(
+    child.stderr.indexOf("Finding the latest"),
+  );
+  expect(child.stderr).toContain("Resolved version: 3.2.1");
+});
+
+test("install.sh resolve-only prints only the concrete version and fetches no package", async () => {
+  for (const selector of ["latest", "3.2.1"]) {
+    const fixture = await serveFixture();
+    const child = await run(["--resolve-only", "--version", selector, "--target", "darwin-arm64"], {
+      ...process.env,
+      COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+      COFORGE_INSTALLER_TEST_MODE: "1",
+    });
+    expect(child.exitCode).toBe(0);
+    expect(child.stdout).toBe("3.2.1\n");
+    expect(child.stderr).toContain("Detected platform: macOS (Apple Silicon)");
+    expect(child.stderr).toContain("Resolved version: 3.2.1");
+    expect(fixture.requested).toEqual(selector === "latest" ? ["/latest"] : []);
+    expect(await readdir(child.home)).toEqual([]);
+  }
+});
+
+test("install.sh resolves latest and an explicit version, and forwards local artifacts", async () => {
   const directory = await mkdtemp(join(tmpdir(), "coforge-install-script-"));
   temporaryDirectories.push(directory);
   const log = join(directory, "arguments");
@@ -150,17 +205,16 @@ test("install.sh resolves latest and an explicit version, and never touches mani
     });
     expect(child.exitCode).toBe(0);
     expect((await readFile(log, "utf8")).trim().split("\n")).toEqual([
-      "install",
+      "__install-local",
       "--version",
       "3.2.1",
+      "--directory",
+      expect.stringContaining("coforge-installer."),
     ]);
-    // Only the computer binary and its sidecar checksum are fetched; install.sh no longer
-    // downloads or parses manifest.json at all (B1), and its own job ends at running the
-    // computer binary - that binary's own `install` command is what fetches the daemon payload.
-    expect(fixture.requested).not.toContain(`/${fixture.version}/manifest.json`);
+    expect(fixture.requested).toContain(`/${fixture.version}/manifest.json`);
     expect(fixture.requested).not.toContain(`/${fixture.version}/${fixture.target}/coforge-daemon`);
-    expect(fixture.requested).toContain(
-      `/${fixture.version}/${fixture.target}/coforge-computer.gz`,
+    expect(fixture.requested.filter((path) => path.endsWith("/coforge-computer.gz"))).toHaveLength(
+      1,
     );
     expect(fixture.requested).not.toContain(
       `/${fixture.version}/${fixture.target}/coforge-computer`,
@@ -174,10 +228,95 @@ test("install.sh resolves latest and an explicit version, and never touches mani
   });
   expect(omitted.exitCode).toBe(0);
   expect((await readFile(log, "utf8")).trim().split("\n")).toEqual([
-    "install",
+    "__install-local",
     "--version",
     "3.2.1",
+    "--directory",
+    expect.stringContaining("coforge-installer."),
   ]);
+});
+
+test("install.sh quiet-header preparation only reports downloading and leaves verification to the updater", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "coforge-prepare-"));
+  temporaryDirectories.push(directory);
+  const fixture = await serveFixture({ omitSidecar: true, corruptGzip: true });
+  const child = await run(
+    ["--prepare-directory", directory, "--version", fixture.version, "--quiet-header"],
+    {
+      ...process.env,
+      COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+      COFORGE_INSTALLER_TEST_MODE: "1",
+    },
+  );
+  expect(child.exitCode).toBe(0);
+  expect(child.stdout).toBe("");
+  expect(child.stderr).toBe("==> Downloading CoForge Computer\n");
+  expect(await Bun.file(join(directory, "coforge-computer.gz")).text()).toBe("not gzip");
+});
+
+test("install.sh refuses unknown targets and nonexistent preparation directories before fetching", async () => {
+  const fixture = await serveFixture();
+  for (const args of [
+    ["--resolve-only", "--target", "../linux-x64"],
+    ["--prepare-directory", "/does-not-exist/coforge"],
+  ]) {
+    const child = await run(args, {
+      ...process.env,
+      COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
+      COFORGE_INSTALLER_TEST_MODE: "1",
+    });
+    expect(child.exitCode).not.toBe(0);
+  }
+  expect(fixture.requested).toEqual([]);
+});
+
+for (const object of ["latest", "manifest.json", "coforge-computer.gz"]) {
+  test(`install.sh preparation refuses ${object} redirects, even with a usable response body`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), "coforge-prepare-"));
+    temporaryDirectories.push(directory);
+    const requested: string[] = [];
+    const server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const path = new URL(request.url).pathname;
+        requested.push(path);
+        return new Response(
+          path === "/latest" ? "3.2.1" : "{}",
+          path.endsWith(`/${object}`) ? { status: 302, headers: { Location: "/redirected" } } : {},
+        );
+      },
+    });
+    servers.push(server);
+    const child = await run(["--prepare-directory", directory], {
+      ...process.env,
+      COFORGE_RELEASE_FEED_URL: `http://localhost:${server.port}`,
+      COFORGE_INSTALLER_TEST_MODE: "1",
+    });
+    expect(child.exitCode).not.toBe(0);
+    expect(child.stderr).toContain("HTTP 302");
+    expect(requested).not.toContain("/redirected");
+    expect(await Bun.file(join(directory, "version")).exists()).toBe(false);
+  });
+}
+
+test("install.sh bounds manifest downloads at 1 MiB", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "coforge-prepare-"));
+  temporaryDirectories.push(directory);
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      return new Response(Buffer.alloc(1048577, 0x20));
+    },
+  });
+  servers.push(server);
+  const child = await run(["--prepare-directory", directory, "--version", "3.2.1"], {
+    ...process.env,
+    COFORGE_RELEASE_FEED_URL: `http://localhost:${server.port}`,
+    COFORGE_INSTALLER_TEST_MODE: "1",
+  });
+  expect(child.exitCode).not.toBe(0);
+  expect(child.stderr).toContain("curl: (63)");
+  expect(await Bun.file(join(directory, "coforge-computer.gz")).exists()).toBe(false);
 });
 
 test("install.sh fails on gzip HTTP 404 without requesting a raw binary", async () => {
@@ -281,6 +420,7 @@ const invalidLatestPointers: Array<[name: string, content: string]> = [
   ["an HTML error page", "<html><body>502 Bad Gateway</body></html>"],
   ["content containing a traversal segment", ".."],
   ["an empty body", ""],
+  ["the unresolved latest selector", "latest"],
 ];
 
 for (const [name, latestContent] of invalidLatestPointers) {
@@ -325,6 +465,8 @@ test("install.sh caps the size of the latest pointer and sidecar downloads", asy
   const oversized = Buffer.alloc(5000, 0x61);
   const files = new Map<string, Uint8Array>([
     ["/latest", oversized],
+    [`/${version}/manifest.json`, Buffer.from("{}")],
+    [`/${version}/${target}/coforge-computer.gz`, Bun.gzipSync(Buffer.from("test"))],
     [`/${version}/${target}/coforge-computer.sha256`, oversized],
   ]);
   const server = Bun.serve({
@@ -452,11 +594,11 @@ for (const shell of ["bash", "zsh", "fish"] as const) {
         : 'export PATH="$HOME/.local/bin:$PATH"';
     expect(content).toContain(original);
     expect(content.split(pathLine)).toHaveLength(2);
-    expect(first.stderr).toContain("To use it in this one, run:");
-    // The full-path fallback names `login`, the first command a fresh install actually runs:
-    // `setup` registers against an account and has nothing to register as until login stores a
-    // credential.
-    expect(first.stderr).toContain(`"${join(first.home, ".local/bin/coforge-computer")}" login`);
+    expect(first.stderr).toContain("Current terminal:");
+    // Setup owns automatic sign-in; keep one actionable, absolute command.
+    expect(first.stderr).toContain(
+      `"${join(first.home, ".local/bin/coforge-computer")}" setup --workspace <slug>`,
+    );
     if (shell === "bash") {
       const loginProfile = await readFile(join(first.home, ".bash_profile"), "utf8");
       expect(loginProfile.split(pathLine)).toHaveLength(2);
@@ -524,12 +666,12 @@ for (const shell of ["bash", "zsh", "fish"] as const) {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain(`CoForge Computer ${fixture.version} installed`);
-    expect(result.stderr).toContain("coforge-computer login");
+    expect(result.stderr).not.toContain("coforge-computer login");
     expect(result.stderr).toContain("coforge-computer setup --workspace <slug>");
     // The bare command the installer just told the user to run has to resolve on the PATH the
     // installer itself saw - that is the whole claim being made here.
     expect(await Bun.file(join(home, ".local/bin/coforge-computer")).exists()).toBe(true);
-    expect(result.stderr).not.toContain("To use it in this one, run:");
+    expect(result.stderr).not.toContain("Current terminal:");
     expect(result.stderr).not.toContain("fish_add_path");
     expect(result.stderr).not.toContain("export PATH=");
     for (const configuration of [
@@ -641,6 +783,8 @@ test("install.sh shows curl progress only for the binary download on a terminal"
       SHELL: "/usr/bin/bash",
       PATH: `${directory}:${process.env.PATH}`,
       CURL_ARGUMENT_LOG: curlLog,
+      NO_COLOR: "1",
+      COFORGE_INSTALLER_NO_COLOR: "1",
       COFORGE_RELEASE_FEED_URL: fixture.baseUrl,
       COFORGE_INSTALLER_TEST_MODE: "1",
     },
@@ -659,6 +803,82 @@ test("install.sh shows curl progress only for the binary download on a terminal"
   expect(binary).toContain("--progress-bar");
   expect(binary).not.toContain("--silent");
 });
+
+test("install.sh renders native curl progress before a gated response completes", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "coforge-progress-"));
+  temporaryDirectories.push(directory);
+  const releaseBody = Promise.withResolvers<void>();
+  let bodyCompleted = false;
+  let cancelled = false;
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      if (new URL(request.url).pathname.endsWith("manifest.json")) return new Response("{}");
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new Uint8Array(32768));
+            void releaseBody.promise.then(() => {
+              if (cancelled) return;
+              controller.enqueue(new Uint8Array(32768));
+              bodyCompleted = true;
+              controller.close();
+            });
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        { headers: { "Content-Length": "65536" } },
+      );
+    },
+  });
+  servers.push(server);
+  const args = ["--prepare-directory", directory, "--version", "3.2.1", "--quiet-header"];
+  const child = Bun.spawn({
+    cmd:
+      process.platform === "darwin"
+        ? ["script", "-q", "/dev/null", script, ...args]
+        : [
+            "script",
+            "-q",
+            "-e",
+            "-c",
+            [script, ...args].map((arg) => `'${arg.replaceAll("'", "'\\''")}'`).join(" "),
+            "/dev/null",
+          ],
+    env: {
+      ...process.env,
+      HOME: directory,
+      NO_COLOR: "1",
+      COFORGE_INSTALLER_NO_COLOR: "1",
+      COFORGE_RELEASE_FEED_URL: `http://localhost:${server.port}`,
+      COFORGE_INSTALLER_TEST_MODE: "1",
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+    signal: AbortSignal.timeout(5000),
+  });
+  let output = "";
+  let observedMidDownload = false;
+  try {
+    for await (const chunk of child.stdout) {
+      output += new TextDecoder().decode(chunk);
+      // Bun streams this response chunked, so curl uses its indeterminate native bar.
+      if (!observedMidDownload && /[#=O -]{5,}\r/.test(output)) {
+        expect(bodyCompleted).toBe(false);
+        observedMidDownload = true;
+        releaseBody.resolve();
+      }
+    }
+    expect(await child.exited).toBe(0);
+    expect(observedMidDownload).toBe(true);
+    expect(bodyCompleted).toBe(true);
+    expect(await Bun.file(join(directory, "coforge-computer.gz")).size).toBe(65536);
+  } finally {
+    releaseBody.resolve();
+  }
+}, 10000);
 
 test("install scripts fail closed and stay within the current user's own account", async () => {
   const shell = await readFile(
@@ -736,12 +956,9 @@ test("install scripts fail closed and stay within the current user's own account
   expect(shell).toMatch(/^max_binary_bytes=[1-9]\d*$/m);
   expect(powershell).toMatch(/^\$maxPointerBytes = [1-9]\d*$/m);
   expect(powershell).toMatch(/^\$maxBinaryBytes = [1-9]\d*$/m);
-  // install.sh no longer parses JSON in the shell at all (B1): no jq invocation, and no request
-  // for the manifest ("install.sh resolves latest and an explicit version, and never touches
-  // manifest.json" above proves that behaviorally; this just confirms no code path can even
-  // construct that request).
+  // Shell does not parse JSON; the local installer owns manifest verification.
   expect(shell).not.toContain("jq ");
-  expect(shell).not.toContain("/manifest.json");
+  expect(shell).toContain("/manifest.json");
   expect(shell).toContain("coforge-computer.gz");
   expect(powershell).toContain("coforge-computer.gz");
   expect(powershell).toContain("System.IO.Compression.GZipStream");

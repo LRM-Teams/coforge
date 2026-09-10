@@ -67,6 +67,7 @@ export function useAgentActivity({
           {
             launchId: event.launchId,
             clientSeq: event.clientSeq,
+            activityKind: event.activityKind,
             detailKind: event.detailKind,
             level: event.level,
             detail: event.detail,

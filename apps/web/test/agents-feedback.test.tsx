@@ -130,3 +130,83 @@ test("edit failure stays inline and preserves the draft", async () => {
   expect(dialog.getByDisplayValue("release-builder")).toBeTruthy();
   expect(within(document.body).getAllByRole("alert")).toHaveLength(1);
 });
+
+test("updates an Agent with an empty description", async () => {
+  const onUpdate = mock(async () => undefined);
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <AgentDetail
+        detail={detail}
+        tab="profile"
+        timeZone="UTC"
+        onSaveRuntimeCredential={async () => undefined}
+        onDeleteRuntimeCredential={async () => undefined}
+        onUpdate={onUpdate}
+        onLoadRuntimeOptions={async () => ({ providers: ["codex"], catalogs: [] })}
+      />
+    </RouterContextProvider>,
+  );
+  fireEvent.click(within(document.body).getByRole("button", { name: "Edit" }));
+  const dialog = within(await within(document.body).findByRole("dialog", { name: "Edit Agent" }));
+  const description = dialog.getByRole("textbox", { name: "Description" });
+  expect(description.hasAttribute("required")).toBe(false);
+  await userEvent.clear(description);
+  await userEvent.click(dialog.getByRole("button", { name: "Save runtime config" }));
+
+  await waitFor(() =>
+    expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ description: "" })),
+  );
+});
+
+test("runtime credential dialog clears its password after cancel and successful save", async () => {
+  const onSave = mock(async () => undefined);
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <AgentDetail
+        detail={{
+          ...detail,
+          runtimeConfig: {
+            runtime: "coforge" as const,
+            provider: { kind: "coforge" as const, providerId: "openai" },
+            model: "gpt-5",
+            modelProvider: "openai",
+            reasoning: "high",
+          },
+          runtimeCredential: { providerId: "openai", hint: "…abcd" },
+        }}
+        tab="profile"
+        timeZone="UTC"
+        onSaveRuntimeCredential={onSave}
+        onDeleteRuntimeCredential={async () => undefined}
+        onUpdate={async () => undefined}
+        onLoadRuntimeOptions={async () => ({ providers: [], catalogs: [] })}
+      />
+    </RouterContextProvider>,
+  );
+  const page = within(document.body);
+  await userEvent.click(page.getByRole("button", { name: "Edit runtime config" }));
+  let dialog = within(await page.findByRole("dialog", { name: "Edit runtime config" }));
+  await userEvent.type(
+    dialog.getByPlaceholderText("Enter the API key issued by openai"),
+    "first-key",
+  );
+  await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+
+  await userEvent.click(page.getByRole("button", { name: "Edit runtime config" }));
+  dialog = within(await page.findByRole("dialog", { name: "Edit runtime config" }));
+  expect(
+    (dialog.getByPlaceholderText("Enter the API key issued by openai") as HTMLInputElement).value,
+  ).toBe("");
+  await userEvent.type(
+    dialog.getByPlaceholderText("Enter the API key issued by openai"),
+    "second-key",
+  );
+  await userEvent.click(dialog.getByRole("button", { name: "Save runtime config" }));
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith("second-key"));
+
+  await userEvent.click(page.getByRole("button", { name: "Edit runtime config" }));
+  dialog = within(await page.findByRole("dialog", { name: "Edit runtime config" }));
+  expect(
+    (dialog.getByPlaceholderText("Enter the API key issued by openai") as HTMLInputElement).value,
+  ).toBe("");
+});

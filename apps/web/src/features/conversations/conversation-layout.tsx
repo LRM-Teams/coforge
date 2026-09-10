@@ -7,12 +7,14 @@ import {
 } from "@/features/agents/workspace-activity-realtime";
 import { m } from "@/paraglide/messages";
 import type { AgentStatusView } from "@/features/agents/agent-status-realtime";
+import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
 
 export type ConversationAgent = {
   id: string;
   name: string;
   displayName: string;
   status: AgentStatusView;
+  display?: AgentDisplaySnapshot;
 };
 
 const defaultActivity: WorkspaceActivityView = {
@@ -45,6 +47,12 @@ export function useLiveAgents() {
 export function useConversationAgentStatus(agentId: string) {
   const agents = useContext(LiveAgentsContext);
   return agents.find((agent) => agent.id === agentId)?.status.value;
+}
+
+/** One Agent's live display snapshot, for its status label and activity avatar. */
+export function useConversationDisplay(agentId: string) {
+  const agents = useContext(LiveAgentsContext);
+  return agents.find((agent) => agent.id === agentId)?.display;
 }
 
 /**

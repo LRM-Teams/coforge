@@ -4,6 +4,10 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { encodeAgentActivity } from "@coforge/protocol";
+import {
+  parseAgentDisplaySnapshot,
+  type AgentDisplaySnapshot,
+} from "@coforge/protocol/agent-display";
 import { Centrifuge } from "centrifuge";
 import { PrismaClient } from "../generated/client";
 import { DEV_BROWSER_USER } from "../src/server/auth/dev-skip-auth.server";
@@ -39,10 +43,10 @@ import {
   DaemonConnection,
   DaemonRuntime,
   InMemoryDaemonCredentialStore,
-  PiDriver,
   defaultCentrifugeWorkspaceClientFactory,
   startAgentProxy,
 } from "../../../packages/daemon";
+import { PiJsonlFixtureDriver } from "../../../packages/daemon/test/fixtures/pi-jsonl-fixture-driver";
 
 const databaseUrl = requireEnvironment("DATABASE_URL");
 if (requireEnvironment("COFORGE_E2E_ALLOW_RESET") !== "1")
@@ -170,15 +174,13 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       serverHttpUrl: "http://127.0.0.1:8789",
     },
     () =>
-      new PiDriver({
-        command: [
-          process.execPath,
-          join(
-            import.meta.dir,
-            "../../../packages/daemon/test/fixtures/agent-message-e2e-runtime.ts",
-          ),
-        ],
-      }),
+      new PiJsonlFixtureDriver([
+        process.execPath,
+        join(
+          import.meta.dir,
+          "../../../packages/daemon/test/fixtures/agent-message-e2e-runtime.ts",
+        ),
+      ]),
     credentials,
     {
       create: () =>
@@ -204,6 +206,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     daemonStateDirectory,
   );
   const statusEvents: AgentStatusEvent[] = [];
+  const displayEvents: AgentDisplaySnapshot[] = [];
   const statusClient = new Centrifuge("ws://127.0.0.1:8000/connection/websocket", {
     token: await issueBrowserRealtimeToken({
       userId: DEV_BROWSER_USER.id,
@@ -211,8 +214,10 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     }),
   });
   statusClient.on("publication", (publication) => {
-    if (publication.channel === agentStatusChannel(workspaceId))
-      statusEvents.push(decodeAgentStatusEvent(publication.data));
+    if (publication.channel !== agentStatusChannel(workspaceId)) return;
+    if (publication.data?.type === "agent:display")
+      displayEvents.push(parseAgentDisplaySnapshot(publication.data));
+    else statusEvents.push(decodeAgentStatusEvent(publication.data));
   });
 
   try {
@@ -237,7 +242,8 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     };
     await waitFor(async () => (await statuses.get(statusScope)) === "active");
     await waitFor(() => statusEvents.some((event) => event.status === "active"));
-    expect(await agentsPage()).toContain("Online");
+    await waitFor(() => displayEvents.some((event) => event.activityKind !== "offline"));
+    expect(await agentsPage()).toContain('aria-label="e2e-agent, Starting…"');
     expect(await Bun.file(runtimeConfigPath).json()).toEqual({
       modelProvider: "e2e-provider",
       model: "e2e-model",
@@ -362,7 +368,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       async () =>
         (await db.agentActivity.count({
           where: { agentId: created.agent.id },
-        })) >= 9,
+        })) >= 10,
     );
     const firstLaunchActivity = await db.agentActivity.findMany({
       where: { agentId: created.agent.id },
@@ -379,13 +385,15 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       firstLaunchId,
       firstLaunchId,
       firstLaunchId,
+      firstLaunchId,
     ]);
     expect(firstLaunchActivity.map(({ clientSeq }) => clientSeq)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
     ]);
     expect(firstLaunchActivity.map(({ detailKind }) => detailKind)).toEqual([
       "starting",
       "idle",
+      "model_request_started",
       "freshness_hold",
       "running_command",
       "tool_started",
@@ -394,8 +402,9 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       "tool_started",
       "idle",
     ]);
-    expect(firstLaunchActivity[3]!.detail).toBe("printf e2e-activity");
-    expect(firstLaunchActivity.slice(4, 8).map(({ detail }) => detail)).toEqual([
+    expect(firstLaunchActivity[2]!.detail).toBe("Message received");
+    expect(firstLaunchActivity[4]!.detail).toBe("printf e2e-activity");
+    expect(firstLaunchActivity.slice(5, 9).map(({ detail }) => detail)).toEqual([
       "/workspace/e2e-read.ts",
       "/workspace/e2e-write.ts",
       "/workspace/e2e-edit.ts",
@@ -472,7 +481,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
       {
         canRun: async () => true,
       },
-      { run: async (_agentId, callback) => callback() },
+      getAgentRuntimeLock(),
     ).update(
       { userId: DEV_BROWSER_USER.id, workspaceId },
       {
@@ -502,7 +511,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
     expect(pidExists(replacementProcesses.descendantPid)).toBe(true);
     await waitFor(async () => (await statuses.get(statusScope)) === "active");
     await waitFor(() => statusEvents.filter((event) => event.status === "active").length >= 2);
-    expect(await agentsPage()).toContain("Online");
+    expect(await agentsPage()).toContain('aria-label="e2e-agent-updated, Online"');
     expect(await Bun.file(runtimeConfigPath).json()).toEqual({
       modelProvider: "e2e-provider",
       model: "e2e-model-updated",

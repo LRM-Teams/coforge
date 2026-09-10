@@ -11,6 +11,7 @@ type HistoryActivity = {
   id: string;
   launchId: string;
   clientSeq: number;
+  activityKind: "online" | "working" | "thinking" | "error" | "offline";
   detailKind: string;
   level: "info" | "warning" | "error";
   detail: string;
@@ -35,6 +36,13 @@ const publishActivity = (publication: ActivityPublication) => {
 const connectActivity = () => {
   for (const listener of activityConnectedListeners) listener();
 };
+// Agent status (online/offline) rides a separate, non-protobuf Centrifuge
+// client (see agent-status-realtime.ts / browser-realtime.ts), so it gets
+// its own publication fan-out here rather than sharing activity's.
+let statusListeners: Array<(publication: { channel: string; data: unknown }) => void> = [];
+const publishStatus = (publication: { channel: string; data: unknown }) => {
+  for (const listener of statusListeners) listener(publication);
+};
 let detailReadCount = 0;
 let historyBlock: Promise<void> | undefined;
 let extraHistory: HistoryActivity[] = [];
@@ -48,6 +56,18 @@ const agents = [
     createdAt: new Date("2026-08-29T00:00:00Z"),
     runtimeConfig: { provider: "pi" as const, model: "", reasoning: "" },
     status: { value: "inactive" as const, expiresAt: null },
+    display: {
+      protocolMajor: 1 as const,
+      workspaceId: "workspace-1",
+      computerId: "computer-12345678",
+      agentId: "agent-1",
+      revision: 1,
+      activityKind: "offline" as const,
+      detailKind: "stopped",
+      detail: "",
+      entries: [],
+      expiresAt: null,
+    },
   },
   {
     id: "agent-2",
@@ -58,6 +78,18 @@ const agents = [
     createdAt: new Date("2026-08-29T00:00:00Z"),
     runtimeConfig: { provider: "pi" as const, model: "", reasoning: "" },
     status: { value: "inactive" as const, expiresAt: null },
+    display: {
+      protocolMajor: 1 as const,
+      workspaceId: "workspace-1",
+      computerId: "computer-12345678",
+      agentId: "agent-2",
+      revision: 1,
+      activityKind: "offline" as const,
+      detailKind: "stopped",
+      detail: "",
+      entries: [],
+      expiresAt: null,
+    },
   },
 ];
 const listAgents = mock(async () => agents);
@@ -171,6 +203,8 @@ mock.module("@/features/agents/agents.functions", () => ({
   updateAgent: mock(async () => ({ restart: "not-required" })),
   deleteAgentRuntimeCredential: mock(async () => ({ deleted: true })),
   saveAgentRuntimeCredential: mock(async () => ({ saved: true })),
+  getAgentEnvironment: mock(async () => ({})),
+  saveAgentEnvironment: mock(async () => ({ restart: "published" })),
   getAgentStatusConnectionToken: mock(async () => "test-agent-status-token"),
   getAgentActivityConnectionToken: mock(async () => "test-agent-activity-token"),
   getAgentDetail: mock(async () => {
@@ -181,6 +215,7 @@ mock.module("@/features/agents/agents.functions", () => ({
       computerId: "computer-12345678",
       launchId: "launch-1",
       clientSeq: 2,
+      activityKind: "error" as const,
       detailKind: "launch_failed",
       level: "error",
       detail: "Agent runtime could not be started.",
@@ -190,6 +225,7 @@ mock.module("@/features/agents/agents.functions", () => ({
       ...failure,
       id: "activity-2",
       clientSeq: 1,
+      activityKind: "working" as const,
       detailKind: "starting",
       level: "info",
       detail: "Agent runtime is starting.",
@@ -198,6 +234,16 @@ mock.module("@/features/agents/agents.functions", () => ({
     return {
       ...agents[0],
       status: detailOnline ? { value: "active", expiresAt: Date.now() + 90_000 } : agents[0].status,
+      display: detailOnline
+        ? {
+            ...agents[0].display,
+            revision: 2,
+            activityKind: "error" as const,
+            detailKind: "launch_failed",
+            detail: failure.detail,
+            expiresAt: Date.now() + 90_000,
+          }
+        : agents[0].display,
       owner: { id: "user-1", username: "route-tester" },
       computer: { id: failure.computerId, label: "computer…5678" },
       latestError: failure,
@@ -278,10 +324,13 @@ mock.module("@/features/realtime/realtime.functions", () => ({
 }));
 mock.module("centrifuge", () => ({
   Centrifuge: class {
-    on() {
+    on(event: string, listener: typeof publishStatus) {
+      if (event === "publication") statusListeners.push(listener);
       return this;
     }
-    off() {
+    off(event: string, listener: typeof publishStatus) {
+      if (event === "publication")
+        statusListeners = statusListeners.filter((item) => item !== listener);
       return this;
     }
     newSubscription() {
@@ -419,6 +468,7 @@ afterEach(() => {
   // doesn't fully unwind never leaks a listener into the next test.
   activityPublicationListeners.clear();
   activityConnectedListeners.clear();
+  statusListeners = [];
   detailReadCount = 0;
   historyBlock = undefined;
   extraHistory = [];
@@ -739,6 +789,7 @@ test("an Agent profile shows its Computer, runtime configuration, and latest fai
         agentId: "agent-1",
         launchId: "launch-recovery",
         clientSeq: 1,
+        activityKind: "working",
         detailKind: "other",
         level: "info",
         detail: reason,
@@ -778,6 +829,7 @@ test("live thinking displays its label and the unchanged provider text", async (
         agentId: "agent-1",
         launchId: "launch-2",
         clientSeq: 1,
+        activityKind: "thinking",
         detailKind: "thinking_started",
         level: "info",
         detail: "Checking the saved conversation before replying.",
@@ -793,7 +845,10 @@ test("live thinking displays its label and the unchanged provider text", async (
 test("profile shows Online and clears an old failure on live recovery without navigation", async () => {
   detailOnline = true;
   const { page } = await renderRoute("/agents/agent-1?tab=profile");
-  expect(page.getByText("Online")).toBeTruthy();
+  expect(
+    page.getByRole("img", { name: "First Agent, Error: Agent runtime could not be started." }),
+  ).toBeTruthy();
+  expect(page.getByText("Error: Agent runtime could not be started.")).toBeTruthy();
   expect(page.getByRole("alert")).toBeTruthy();
   await act(async () =>
     publishActivity({
@@ -805,6 +860,7 @@ test("profile shows Online and clears an old failure on live recovery without na
         agentId: "agent-1",
         launchId: "launch-2",
         clientSeq: 1,
+        activityKind: "working",
         detailKind: "starting",
         level: "info",
         detail: "Starting",
@@ -812,11 +868,28 @@ test("profile shows Online and clears an old failure on live recovery without na
       }),
     }),
   );
-  expect(page.queryByRole("alert")).toBeNull();
-  expect(page.getByText("Online")).toBeTruthy();
+  expect(
+    page.getByRole("img", { name: "First Agent, Error: Agent runtime could not be started." }),
+  ).toBeTruthy();
+  await act(async () =>
+    publishStatus({
+      channel: "status:workspace-1",
+      data: {
+        type: "agent:display",
+        ...agents[0].display,
+        revision: 3,
+        activityKind: "online",
+        detailKind: "online",
+        detail: "",
+        expiresAt: Date.now() + 90_000,
+      },
+    }),
+  );
+  await waitFor(() => expect(page.queryByRole("alert")).toBeNull());
+  expect(page.getByRole("img", { name: "First Agent, Online" })).toBeTruthy();
 });
 
-test("Activity appends matching live observations once and renders turn completion as Idle", async () => {
+test("Activity appends matching live observations once without reducing raw facts into display", async () => {
   const { page } = await renderRoute("/agents/agent-1?tab=activity");
   const event = {
     protocolMajor: 1,
@@ -825,6 +898,7 @@ test("Activity appends matching live observations once and renders turn completi
     agentId: "agent-1",
     launchId: "launch-2",
     clientSeq: 1,
+    activityKind: "working" as const,
     detailKind: "turn_completed",
     level: "info" as const,
     detail: "Agent turn completed.",
@@ -836,7 +910,7 @@ test("Activity appends matching live observations once and renders turn completi
       data: encodeAgentActivity({ ...event, agentId: "agent-2" }),
     });
   });
-  expect(page.queryByText("Idle")).toBeNull();
+  expect(page.queryByText("Working")).toBeNull();
   await act(async () => {
     const publication = {
       channel: "activity:workspace-1",
@@ -845,7 +919,8 @@ test("Activity appends matching live observations once and renders turn completi
     publishActivity(publication);
     publishActivity(publication);
   });
-  expect(page.getAllByText("Idle")).toHaveLength(1);
+  expect(page.getAllByText("Working")).toHaveLength(1);
+  expect(page.getByText("Agent turn completed.")).toBeTruthy();
   expect(page.queryByText("Run completed")).toBeNull();
   expect(page.getByText("Agent runtime could not be started.")).toBeTruthy();
 });
@@ -870,6 +945,7 @@ test("reconnect hydrates missed history without losing activity arriving during 
           agentId: "agent-1",
           launchId: "launch-2",
           clientSeq: 2,
+          activityKind: "working",
           detailKind: "using_tool",
           level: "info",
           detail: "Live during reload",
@@ -883,6 +959,7 @@ test("reconnect hydrates missed history without losing activity arriving during 
         id: "persisted-missed",
         launchId: "launch-2",
         clientSeq: 1,
+        activityKind: "working",
         detailKind: "using_tool",
         level: "info",
         detail: "Recovered history",

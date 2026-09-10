@@ -13,6 +13,8 @@ export type UpgradeOperation = "upgrade" | "rollback";
 export interface UpgradeCoordinatorOptions {
   installRoot: string;
   binaryDirectory?: string;
+  localDirectory?: string;
+  quietHeader?: boolean;
   target: string;
   baseUrl: string;
   selection: string;
@@ -48,6 +50,7 @@ export class UpgradeCoordinatorError extends Error {
 
 export async function coordinateUpgrade(
   options: UpgradeCoordinatorOptions,
+  onStage: (stage: string) => void = () => {},
 ): Promise<UpgradeResult> {
   const updater =
     options.updater ??
@@ -56,6 +59,9 @@ export async function coordinateUpgrade(
       binaryDirectory: options.binaryDirectory,
       target: options.target,
       baseUrl: options.baseUrl,
+      localDirectory: options.localDirectory,
+      quietHeader: options.quietHeader,
+      onStage,
     });
   const lifecycle =
     options.lifecycle ??
@@ -80,7 +86,14 @@ export async function coordinateUpgrade(
       await lifecycle.resumeLaunches();
       throw error;
     }
-    return await switchRuntime(lifecycle, lockedUpdater, snapshot, prepared, options.operation);
+    return await switchRuntime(
+      lifecycle,
+      lockedUpdater,
+      snapshot,
+      prepared,
+      options.operation,
+      onStage,
+    );
   });
 }
 
@@ -90,6 +103,7 @@ async function switchRuntime(
   snapshot: ManagedRuntimeSnapshot,
   prepared: PreparedUpdate,
   operation: UpgradeOperation,
+  onStage: (stage: string) => void,
 ): Promise<UpgradeResult> {
   const oldProcessIds = snapshot.bindings
     .filter((binding) => binding.running && binding.processId !== null)
@@ -112,6 +126,7 @@ async function switchRuntime(
       throw candidateError;
     }
     try {
+      onStage(`Upgrade failed; restoring ${prepared.previous}`);
       await lifecycle.stop(snapshot);
       await updater.restoreVerified(prepared.previous, prepared.rollbackVersion ?? null);
       await lifecycle.start(snapshot, prepared.previous);
@@ -120,6 +135,7 @@ async function switchRuntime(
         previousProcessIds: oldProcessIds,
       });
       await lifecycle.resumeLaunches();
+      onStage(`Previous version ${prepared.previous} restored and healthy`);
       const result: UpgradeResult = {
         schema_version: 1,
         operation,
@@ -157,7 +173,7 @@ export async function runUpgradeCoordinator(args: string[]): Promise<void> {
   const request = JSON.parse(await readFile(requestPath, "utf8")) as CoordinatorRequest;
   let result: UpgradeResult;
   try {
-    result = await coordinateUpgrade(request);
+    result = await coordinateUpgrade(request, (stage) => console.error(`==> ${stage}`));
   } catch (error) {
     result =
       error instanceof UpgradeCoordinatorError
@@ -171,7 +187,8 @@ export async function runUpgradeCoordinator(args: string[]): Promise<void> {
   }
   await writeJsonAtomic(request.resultPath, result);
   await rm(requestPath, { force: true });
-  if (result.status === "failed") throw new UpgradeCoordinatorError(result.error!, result);
+  // The caller reports the durable error; an uncaught throw would dump a second stack trace.
+  if (result.status === "failed") process.exitCode = 1;
 }
 
 export interface LaunchUpgradeCoordinatorOptions extends Omit<
@@ -199,7 +216,8 @@ export async function launchUpgradeCoordinator(
     cmd: [executablePath, "__upgrade", "--request", requestPath],
     stdin: "ignore",
     stdout: "ignore",
-    stderr: "ignore",
+    // Presentation only: completion still uses the durable result, never terminal output.
+    stderr: "inherit",
     detached: true,
     windowsHide: true,
   });

@@ -276,17 +276,24 @@ function handle(request: Request): void {
       id: request.id,
       result: { turn: { id: turnId, status: "inProgress" } },
     });
-    if (textInput(request.params) === "retry-error") {
+    if (
+      textInput(request.params) === "retry-error" ||
+      textInput(request.params) === "final-error"
+    ) {
       write({
         method: "error",
         params: {
           threadId,
           turnId,
-          willRetry: true,
+          willRetry: textInput(request.params) === "retry-error",
           error: { message: "request timed out: Bearer fixture-private-token" },
         },
       });
       write({ method: "item/agentMessage/delta", params: { delta: "retry observed" } });
+      return;
+    }
+    if (textInput(request.params)?.startsWith("reconnect-stderr:")) {
+      console.error(textInput(request.params)!.slice("reconnect-stderr:".length));
       return;
     }
     if (textInput(request.params)?.startsWith("race-")) {

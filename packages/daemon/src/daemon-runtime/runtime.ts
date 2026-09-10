@@ -895,6 +895,7 @@ export class DaemonRuntime {
         {
           ...config,
           ...(launchConfig.providerConfig ? { providerConfig: launchConfig.providerConfig } : {}),
+          envVars: launchConfig.envVars,
         },
         agentWorkspaceDirectory(
           this.#connection.workspaceRoot,
@@ -982,13 +983,15 @@ export class DaemonRuntime {
             detailKind: runtimeEvent.activity.detailKind,
             level: runtimeEvent.activity.level,
             entries: runtimeEvent.activity.entries,
-            detail: runtimeEvent.activity.entries?.some((entry) => entry.kind !== "tool_start")
-              ? ""
-              : safeRuntimeActivityMessage(
-                  runtimeEvent.activity.detailKind,
-                  runtimeEvent.activity.level,
-                  runtimeEvent.activity.detail,
-                ),
+            detail:
+              runtimeEvent.activity.detailKind !== "runtime_reconnecting" &&
+              runtimeEvent.activity.entries?.some((entry) => entry.kind !== "tool_start")
+                ? ""
+                : safeRuntimeActivityMessage(
+                    runtimeEvent.activity.detailKind,
+                    runtimeEvent.activity.level,
+                    runtimeEvent.activity.detail,
+                  ),
             ...(runtimeEvent.activity.runtimeError
               ? { runtimeError: runtimeEvent.activity.runtimeError }
               : runtimeEvent.activity.level === "error"
@@ -1898,7 +1901,7 @@ function safeRuntimeActivityMessage(activity: string, level: string, message: st
   if (level === "error") return message.slice(0, 512);
   if (level === "warning") return scrubActivityText(message);
   if (activity === "running_command") return [...scrubActivityText(message)].slice(0, 100).join("");
-  if (activity === "tool_started") {
+  if (activity === "tool_started" || activity === "runtime_reconnecting") {
     return scrubActivityText(message);
   }
   return "Agent activity observed.";

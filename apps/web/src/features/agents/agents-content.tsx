@@ -31,6 +31,8 @@ import { Select } from "@/components/base/select/select";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { m } from "@/paraglide/messages";
 import type { AgentStatusView } from "./agent-status-realtime";
+import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
+import { AgentDisplayAvatar } from "./agent-activity-avatar";
 import { AgentRuntimeFields, type RuntimeCatalog } from "./agent-runtime-fields";
 import type { CreateAgentInput } from "./agent.schemas";
 import type { WorkspaceMemberDirectory } from "@/features/workspaces/workspaces.functions";
@@ -49,6 +51,7 @@ export type AgentView = {
   displayName: string;
   description?: string;
   status: AgentStatusView;
+  display?: AgentDisplaySnapshot;
 };
 
 export function AgentsContent({
@@ -100,7 +103,7 @@ export function AgentsContent({
     const form = new FormData(formElement);
     const name = String(form.get("name") ?? "").trim();
     const description = String(form.get("description") ?? "").trim();
-    if (!name || !description) {
+    if (!name) {
       setError(m.agent_form_required_error());
       return;
     }
@@ -114,6 +117,7 @@ export function AgentsContent({
         model: String(form.get("model") ?? "").trim() || undefined,
         modelProvider: String(form.get("modelProvider") ?? "").trim() || undefined,
         reasoning: String(form.get("reasoning") ?? "").trim(),
+        apiKey: String(form.get("apiKey") ?? "").trim() || undefined,
         computerId: String(form.get("computerId") ?? ""),
       });
       formElement.reset();
@@ -336,7 +340,6 @@ export function AgentsContent({
                     <TextArea
                       label={m.agent_profile_description()}
                       name="description"
-                      isRequired
                       rows={3}
                       placeholder={m.agent_form_description_placeholder()}
                       className="min-w-0 sm:col-span-2"
@@ -423,21 +426,15 @@ function MemberCard({
 }) {
   return (
     <li className="grid min-w-0 grid-cols-[3rem_minmax(0,1fr)_auto] grid-rows-[auto_auto_auto] items-start gap-x-3 gap-y-3 rounded-xl bg-primary p-5 shadow-xs ring-1 ring-secondary ring-inset">
-      <Avatar
-        size="xl"
-        alt={member.displayName}
-        initials={avatarInitial(member.displayName)}
-        contentClassName={avatarToneClassName(member.displayName)}
-        status={
-          ownedAgent ? (ownedAgent.status.value === "active" ? "online" : "offline") : undefined
-        }
-      />
-      {ownedAgent && (
-        <span className="sr-only">
-          {ownedAgent.status.value === "active"
-            ? m.agent_status_online()
-            : m.agent_status_offline()}
-        </span>
+      {ownedAgent ? (
+        <AgentDisplayAvatar name={member.displayName} display={ownedAgent.display} size="xl" />
+      ) : (
+        <Avatar
+          size="xl"
+          alt={member.displayName}
+          initials={avatarInitial(member.displayName)}
+          contentClassName={avatarToneClassName(member.displayName)}
+        />
       )}
       <div className="min-w-0">
         <h2 className="line-clamp-2 break-words text-base font-semibold">

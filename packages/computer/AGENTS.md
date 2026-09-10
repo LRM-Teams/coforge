@@ -53,6 +53,11 @@ only when a real boundary is needed.
 `coforge` launcher targeting the adjacent `coforge-computer __agent-cli` entry.
 Computer owns writing it into staging, recording its identity and verifying
 it on rollback. There is no legacy installer compatibility path.
+`src/release/installation-source.ts` runs the embedded release installer scripts
+for curl-based version resolution and package preparation. The same scripts own
+bootstrap downloads; updater consumes local manifest/gzip bytes and never
+implements another binary downloader. The hidden `__install-local` command
+hands bootstrap packages to the existing install use case without downloading again.
 Computer's user command tree does not own Agent message commands.
 The full install/upgrade/rollback transaction is serialized by the machine
 mutation lock; do not narrow it to activation or reuse the Supervisor lifetime

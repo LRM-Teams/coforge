@@ -6,6 +6,7 @@ import {
 } from "@coforge/protocol";
 import type { AgentRecord, AgentRepository } from "../db/repositories/agent.repositories.server";
 import { publicAgentRuntimeConfig } from "./agent-runtime-config.server";
+import type { AgentRuntimeCredentials } from "./agent-runtime-credentials.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 
 const providers = new Set<unknown>(Object.values(RUNTIME_PROVIDER));
@@ -18,6 +19,7 @@ export type AgentCreateInput = {
   modelProvider?: string;
   reasoning?: string;
   computerId: string;
+  apiKey?: string;
 };
 
 type AgentPrincipal = { userId: string; workspaceId: string };
@@ -35,6 +37,7 @@ type RuntimeAvailability = {
       model: string;
       modelProvider: string;
       reasoning: string;
+      hasApiKey: boolean;
     },
   ): Promise<boolean>;
 };
@@ -45,6 +48,7 @@ export class ManageAgents {
     private readonly runtimeControl: AgentRuntimeControl,
     private readonly availability: RuntimeAvailability,
     private readonly runtimeLock: AgentRuntimeLock,
+    private readonly credentials?: () => Pick<AgentRuntimeCredentials, "encrypt">,
   ) {}
 
   list(principal: AgentPrincipal) {
@@ -64,12 +68,16 @@ export class ManageAgents {
     const description = input.description.trim();
     if (!providers.has(input.provider)) throw new Error("provider is not supported");
     if (!input.computerId) throw new Error("computer is required");
+    const apiKeyInput = input.apiKey?.trim();
     const selection = {
       provider: input.provider,
       model: input.model?.trim() ?? "",
       modelProvider: input.modelProvider?.trim() ?? "",
       reasoning: input.reasoning?.trim() ?? "",
+      hasApiKey: Boolean(apiKeyInput),
     };
+    if (selection.provider === RUNTIME_PROVIDER.COFORGE && !apiKeyInput)
+      throw new Error("API key is required for CoForge");
     if (
       !(await this.availability.canRun(
         principal.workspaceId,
@@ -79,7 +87,21 @@ export class ManageAgents {
       ))
     )
       throw new Error("runtime selection is not available on the selected Computer");
+    const agentId = crypto.randomUUID();
+    const encryptedApiKey = apiKeyInput
+      ? await this.#encrypt(agentId, selection.modelProvider, apiKeyInput)
+      : undefined;
+    const storedProvider =
+      selection.modelProvider &&
+      (selection.provider === RUNTIME_PROVIDER.COFORGE || encryptedApiKey)
+        ? {
+            kind: "coforge" as const,
+            providerId: selection.modelProvider,
+            ...(encryptedApiKey ? { apiKey: encryptedApiKey } : {}),
+          }
+        : { kind: "default" as const };
     const agent = await this.agents.create({
+      id: agentId,
       workspaceId: principal.workspaceId,
       ownerId: principal.userId,
       name,
@@ -88,13 +110,7 @@ export class ManageAgents {
       computerId: input.computerId,
       runtimeConfig: {
         runtime: selection.provider,
-        provider:
-          selection.provider === RUNTIME_PROVIDER.COFORGE && selection.modelProvider
-            ? {
-                kind: "coforge" as const,
-                providerId: selection.modelProvider,
-              }
-            : { kind: "default" as const },
+        provider: storedProvider,
         model: selection.model,
         modelProvider: selection.modelProvider,
         reasoning: selection.reasoning,
@@ -112,9 +128,9 @@ export class ManageAgents {
         },
         principal.userId,
       );
-      return { agent, startPublished: true as const };
+      return { agent: publicAgent(agent), startPublished: true as const };
     } catch {
-      return { agent, startPublished: false as const };
+      return { agent: publicAgent(agent), startPublished: false as const };
     }
   }
 
@@ -134,6 +150,7 @@ export class ManageAgents {
       const name = input.name.trim().toLowerCase();
       if (!name) throw new Error("name is required");
       if (!providers.has(input.provider)) throw new Error("provider is not supported");
+      const apiKeyInput = input.apiKey?.trim();
       const selection = {
         provider: input.provider,
         model: input.model?.trim() ?? "",
@@ -142,36 +159,44 @@ export class ManageAgents {
       };
       const sameProvider =
         current.runtimeConfig.provider.kind === "coforge" &&
-        selection.provider === RUNTIME_PROVIDER.COFORGE &&
+        current.runtimeConfig.runtime === selection.provider &&
         current.runtimeConfig.provider.providerId === selection.modelProvider;
+      const preservedApiKey =
+        sameProvider && current.runtimeConfig.provider.kind === "coforge"
+          ? current.runtimeConfig.provider.apiKey
+          : undefined;
+      const encryptedApiKey = apiKeyInput
+        ? await this.#encrypt(current.id, selection.modelProvider, apiKeyInput)
+        : undefined;
+      const apiKey = encryptedApiKey ?? preservedApiKey;
+      if (selection.provider === RUNTIME_PROVIDER.COFORGE && !apiKey)
+        throw new Error("API key is required for CoForge");
       const runtimeConfig: AgentRecord["runtimeConfig"] = {
         runtime: selection.provider,
         provider:
-          selection.provider === RUNTIME_PROVIDER.COFORGE && selection.modelProvider
+          selection.modelProvider && (selection.provider === RUNTIME_PROVIDER.COFORGE || apiKey)
             ? {
                 kind: "coforge",
                 providerId: selection.modelProvider,
-                ...(sameProvider &&
-                current.runtimeConfig.provider.kind === "coforge" &&
-                current.runtimeConfig.provider.apiKey
-                  ? { apiKey: current.runtimeConfig.provider.apiKey }
-                  : {}),
+                ...(apiKey ? { apiKey } : {}),
               }
             : { kind: "default" },
         model: selection.model,
         modelProvider: selection.modelProvider,
         reasoning: selection.reasoning,
+        ...(current.runtimeConfig.environment
+          ? { environment: current.runtimeConfig.environment }
+          : {}),
       };
       const runtimeChanged =
-        JSON.stringify(publicAgentRuntimeConfig(current.runtimeConfig)) !==
-        JSON.stringify(publicAgentRuntimeConfig(runtimeConfig));
+        JSON.stringify(current.runtimeConfig) !== JSON.stringify(runtimeConfig);
       if (
         runtimeChanged &&
         !(await this.availability.canRun(
           principal.workspaceId,
           principal.userId,
           current.computerId,
-          selection,
+          { ...selection, hasApiKey: Boolean(apiKey) },
         ))
       )
         throw new Error("runtime selection is not available on the selected Computer");
@@ -195,7 +220,7 @@ export class ManageAgents {
         current.id,
         runtimeChanged ? { ...metadata, runtimeConfig } : metadata,
       );
-      if (!runtimeChanged) return { agent, restart: "not-required" as const };
+      if (!runtimeChanged) return { agent: publicAgent(agent), restart: "not-required" as const };
       try {
         await this.runtimeControl.start(
           {
@@ -208,12 +233,22 @@ export class ManageAgents {
           },
           principal.userId,
         );
-        return { agent, restart: "published" as const };
+        return { agent: publicAgent(agent), restart: "published" as const };
       } catch {
-        return { agent, restart: "deferred" as const };
+        return { agent: publicAgent(agent), restart: "deferred" as const };
       }
     });
   }
+
+  async #encrypt(agentId: string, providerId: string, apiKey: string) {
+    if (!providerId) throw new Error("model provider is required for an API key");
+    if (!this.credentials) throw new Error("Agent runtime credential encryption is unavailable");
+    return this.credentials().encrypt(agentId, providerId, apiKey);
+  }
+}
+
+function publicAgent(agent: AgentRecord): AgentRecord {
+  return { ...agent, runtimeConfig: publicAgentRuntimeConfig(agent.runtimeConfig) };
 }
 
 export function runtimeStartFields(config: AgentRecord["runtimeConfig"]) {

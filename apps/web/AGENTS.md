@@ -128,6 +128,15 @@ instructions for the TanStack Start Web/backend modular monolith.
   reuse `executeTask`, with claim semantics and revision-checked updates;
   overview membership metadata only controls available UI actions.
 
+- Workspace Records (weekly reports) belong to `features/records/` (list/detail,
+  settings, stats, side comments, and Server Functions) and
+  `server/records/record-catalog.server.ts` (cycles, reports, highlights,
+  templates, favorites, notes, and comments). Persistence is Prisma under
+  Workspace membership. Report bodies use lightweight outline JSON keyed by
+  template-dimension tabs. MVP writes only human `user` comments; `assistant`
+  authorType and comment `payload` are reserved for later AI side panels.
+  Schema merge requires Frank approval (see ADR 0009).
+
 - Browser realtime connection ownership belongs to `features/realtime/`. The
   `_app` layout owns one Centrifuge connection for the selected Workspace;
   feature modules may subscribe to authorized channels but must not create
@@ -251,7 +260,27 @@ instructions for the TanStack Start Web/backend modular monolith.
 - `src/features/agents/agent-activity-avatar.tsx` owns the working activity label
   and accessible recent-activity popover. It consumes newest-first activity from
   the Activity module; it does not interpret provider message text or own transport.
-  Online presence remains independent. Stale observations clear the working label.
+  It renders the cloud-authored unified Agent display; it never reduces raw facts.
+- `server/agents/agent-display.server.ts` owns cloud reduction of ordered process
+  status and authorized Activity into online/working/thinking/error/offline.
+  Its atomic Redis projection renews process leases for 90 seconds and expires
+  working/thinking after 60 seconds of server receipt time, returning online while
+  the process remains alive. Error remains until recognized activity or reset;
+  process expiry yields offline. State expires after 24 hours, while the revision
+  counter persists with a Redis server-time floor. RPC and publication adapters
+  invoke this seam, never duplicate its transition rules. The current
+  `runtimeSession` launch read is a best-effort fence, not a Redis-atomic guarantee.
+  `packages/protocol/agent-display.ts` owns the additive browser display contract.
+  Process leases and Activity remain separate Daemon facts, not separate UI states.
+- `agent-activity-presentation.ts` projects existing Activity fields into status,
+  tool, thinking and output rows for the timeline, recent-activity popover and
+  current label. Status detail comes from the backend; tool labels come from
+  structured tool names, never commands or paths. `agent-activity-timeline.tsx`
+  owns row rendering and on-demand expansion. Current state and expiry decisions
+  belong to the cloud reducer, not these presentation functions.
+- `agent-environment-editor.tsx` edits only user-declared Agent environment overrides.
+  `server/agents/agent-environment.server.ts` owns their authorized persistence and
+  restart application. Local inherited environment is never collected or uploaded.
 - `workspace-activity-realtime.ts` owns one messages-page Workspace Activity
   subscription and compact initial/reconnect history; avatars never open connections.
 - Workspace-scoped Code Agent installation inventory belongs to
@@ -267,6 +296,10 @@ instructions for the TanStack Start Web/backend modular monolith.
 - `src/features/agents/agents.functions.ts` owns the authenticated Agent list/create seam;
   server-side Agent persistence, start publication, and ready recovery remain under
   `src/server/agents/` and `src/server/db/repositories/`.
+- `server/agents/manage-agents.server.ts` owns Agent create/edit orchestration, including
+  runtime selection, credential-aware restart decisions, and public response redaction.
+  `AgentRuntimeCredentials` owns Agent/provider-bound encryption; repositories only persist
+  the completed runtime config, and Server Function composition supplies encryption lazily.
 - `features/agents/agent-reminders.functions.ts` and `server/agents/agent-reminders.server.ts`
   own the owner-only, Workspace-scoped browser read model for bounded Reminder lists and
   expose scheduled Reminders only. Reminder lifecycle and history persistence remain in
@@ -292,23 +325,28 @@ instructions for the TanStack Start Web/backend modular monolith.
   stores short-lived request-scoped results, not inventory or canonical data.
   The Profile displays Global/Workspace metadata, never skill bodies or a claim
   that a running session has loaded each entry.
-- `src/features/agents/agent-status-realtime.ts` owns the browser status event contract and
-  state updates. Redis supplies initial/reconnect snapshots; Centrifugo publications update
-  the open page without periodic backend polling.
+- `src/features/agents/agent-status-realtime.ts` consumes backend display snapshots from the
+  initial server response and the existing realtime status channel. It accepts revisions and,
+  at display expiry, refreshes the backend and retries on failure without implementing a
+  reducer. It retains the last snapshot when refresh fails; an unavailable initial snapshot
+  with no prior value is unknown, not offline.
 - `src/features/agents/agent-activity.ts` owns timeline merging and unresolved-error selection;
   `agent-activity-realtime.ts` hydrates history and consumes the existing binary Activity
   channel. History and live entries deduplicate by launch ID/client sequence. Reconnect
-  reloads best-effort history; neither a gap nor a completed turn changes online status.
+  reloads best-effort history; timeline history never independently changes the unified
+  display snapshot.
 
-- Keep Agent status and activity separate. `agent:status` contains only
-  `active` or `inactive`; the UI presents those values as online or offline and
-  must not infer more statuses from activity text.
+- Keep Daemon process and Activity facts separate. `agent:status` contains only
+  `active` or `inactive`, and Activity retains raw detail/entries. The browser displays only
+  the backend-authored online/working/thinking/error/offline projection; backend
+  `activity_kind` classification overrides any Daemon-supplied classification.
 - Render `agent:activity` fields `detail`, `detailKind`, `entries`, `observedAtMs`,
   and the CoForge `level` extension in an Agent-owned timeline under
   `src/features/agents/`.
 - Activity content and labels are **not internationalized**. Use Raft-style
   English activity labels consistently in the timeline, avatar hover and chat
-  header. Preserve provider text, thinking, errors and warnings in their original
+  header. Display backend detail and use Raft-style tool-row formatting; working and
+  thinking use the yellow work treatment. Preserve provider text, thinking, errors and warnings in their original
   language and wording, subject to required secret redaction. Do not add Activity
   label translation keys. Navigation, tabs and general UI remain localized.
 - Render unknown detail kinds with a generic activity presentation and the

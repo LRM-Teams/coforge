@@ -236,6 +236,7 @@ export type AgentActivity = {
   observedAtMs: number;
   launchId: string;
   clientSeq: number;
+  activityKind?: import("./agent-display").AgentActivityKind;
   entries?: import("./activity-entries").ActivityTrajectoryEntry[];
   runtimeError?: {
     errorClass: string;

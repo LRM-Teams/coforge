@@ -15,6 +15,8 @@ import {
   getAgentActivityConnectionToken,
   saveAgentRuntimeCredential,
   updateAgent,
+  getAgentEnvironment,
+  saveAgentEnvironment,
 } from "@/features/agents/agents.functions";
 import { getUserPreferences } from "@/features/settings/settings.functions";
 import { PageLoadError } from "@/features/errors/page-load-error";
@@ -51,6 +53,8 @@ function AgentDetailPage() {
   const router = useRouter();
   const saveCredential = useServerFn(saveAgentRuntimeCredential);
   const deleteCredential = useServerFn(deleteAgentRuntimeCredential);
+  const loadEnvironment = useServerFn(getAgentEnvironment);
+  const saveEnvironment = useServerFn(saveAgentEnvironment);
   const update = useServerFn(updateAgent);
   const loadComputers = useServerFn(listComputers);
   const loadCatalog = useServerFn(getComputerRuntimeCatalog);
@@ -95,6 +99,14 @@ function AgentDetailPage() {
       detail={visibleAgents.find((agent) => agent.id === detail.id) ?? detail}
       timeZone={timeZone}
       tab={Route.useSearch().tab}
+      environment={{
+        onLoad: () => loadEnvironment({ data: detail.id }),
+        onSave: async (envVars) => {
+          const result = await saveEnvironment({ data: { agentId: detail.id, envVars } });
+          await router.invalidate({ sync: true });
+          return result;
+        },
+      }}
       onLoadSkills={loadAgentSkills}
       onExecuteControl={(request) => executeControl({ data: request })}
       onLoadReminders={loadAgentReminders}

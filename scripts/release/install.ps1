@@ -1,7 +1,18 @@
 [CmdletBinding()]
 param(
   [Parameter()]
-  [string]$Version = "latest"
+  [string]$Version = "latest",
+  [Parameter()]
+  [string]$PrepareDirectory,
+  [Parameter()]
+  [string]$Target,
+  [Parameter()]
+  [switch]$ResolveOnly,
+  [Parameter()]
+  [switch]$QuietHeader,
+  [Parameter()]
+  [ValidateSet("all", "manifest", "artifact")]
+  [string]$PreparePhase = "all"
 )
 
 $ErrorActionPreference = "Stop"
@@ -48,92 +59,52 @@ if (-not ($feedUrl.StartsWith("https://") -or ($testMode -and $feedUrl.StartsWit
   throw "install.ps1: COFORGE_RELEASE_FEED_URL must use HTTPS"
 }
 
-# Windows PowerShell 5.1 (.NET Framework) does not negotiate TLS 1.2 by default, unlike
-# install.sh's curl invocation, which pins a `--tlsv1.2` floor explicitly. A plain assignment
-# (not `-bor`'d onto the existing value) is used deliberately: the default SecurityProtocol
-# varies by .NET Framework patch level - it can be `SystemDefault` (0) on newer installs, where
-# OR'ing in Tls12 would happen to equal exactly Tls12, but `Ssl3, Tls, Tls12` on older ones, where
-# the same OR would still leave TLS 1.0 enabled. A plain assignment is a floor on every patch
-# level. Only Tls12 is assigned, not a literal Tls13 enum member: that member is not guaranteed to
-# exist on every .NET Framework patch level, and referencing it directly would throw on one where
-# it does not, rather than silently degrading. On PowerShell 7's .NET Core runtime,
-# ServicePointManager is largely vestigial and the OS/runtime negotiates TLS independently, so
-# this line is close to a no-op there rather than a floor - untested on either runtime; see the CR
-# description.
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-
-$architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
-$target = switch ($architecture) {
-  "x64" { "windows-x64" }
-  "arm64" { "windows-arm64" }
-  default { throw "install.ps1: unsupported Windows architecture: $architecture" }
+$curlProto = if ($testMode -and $feedUrl.StartsWith("http://")) { "=http,https" } else { "=https" }
+if ([string]::IsNullOrEmpty($Target)) {
+  $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+  $Target = switch ($architecture) {
+    "x64" { "windows-x64" }
+    "arm64" { "windows-arm64" }
+    default { throw "install.ps1: unsupported Windows architecture: $architecture" }
+  }
+}
+$platform = switch -CaseSensitive ($Target) {
+  "linux-x64" { "Linux x64" }
+  "linux-arm64" { "Linux ARM64" }
+  "darwin-x64" { "macOS (Intel)" }
+  "darwin-arm64" { "macOS (Apple Silicon)" }
+  "windows-x64" { "Windows x64" }
+  "windows-arm64" { "Windows ARM64" }
+  default { throw "install.ps1: unsupported release target: $Target" }
+}
+if ($PreparePhase -ne "all" -and -not $PrepareDirectory) {
+  throw "install.ps1: preparation phase requires a directory"
 }
 
 # `latest` and the checksum sidecar are both tiny, feed-controlled text objects with no
 # advertised size of their own, so each download gets a small fixed ceiling rather than none.
 $maxPointerBytes = 4096
-# The manifest no longer travels through this script (see docs/release.md); there is no
-# per-download size to enforce for the binary either. This generous constant only bounds
-# memory/disk against an unbounded stream - the checksum comparison below is what actually
-# proves the payload correct.
+$maxManifestBytes = 1048576
+# Fixed transport ceiling; the updater checks exact compressed and expanded manifest sizes.
 $maxBinaryBytes = 536870912
 
-# Invoke-WebRequest on Windows PowerShell 5.1 offers neither a working redirect refusal (its
-# -MaximumRedirection parameter does not reliably reject a redirect the way curl's --proto does
-# for install.sh) nor any response-size limit at all, so both are implemented directly against
-# System.Net.Http.HttpClient. `$handler.AllowAutoRedirect = $false` below is what actually
-# refuses a redirect - an https-to-http downgrade redirect (or any redirect) then arrives here as
-# an ordinary, un-followed 3xx response rather than being silently followed (N5); the explicit
-# status-code check right below just turns that already-blocked case into a clearer error message
-# than the generic "returned HTTP $status" branch would (it is otherwise redundant with
-# IsSuccessStatusCode, which is also false for a 3xx). The response body is copied through a
-# size-counted stream that throws once it exceeds MaxBytes rather than buffering an
-# attacker-controlled feed's entire response (N4).
-#
-# This function has not been exercised against a real pwsh/Windows PowerShell runtime - the
-# sandbox this change was written and tested in has neither installed - so treat it as reviewed
-# but functionally unverified; see the CR description for the line-by-line reasoning in place of
-# a test run.
-function Get-CoforgeObject([string]$Uri, [string]$OutFile, [long]$MaxBytes) {
-  $handler = New-Object System.Net.Http.HttpClientHandler
-  $handler.AllowAutoRedirect = $false
-  $client = New-Object System.Net.Http.HttpClient($handler)
-  try {
-    $response = $client.GetAsync($Uri, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
-    try {
-      if ([int]$response.StatusCode -ge 300 -and [int]$response.StatusCode -lt 400) {
-        throw "install.ps1: $Uri returned a redirect, which is not followed"
-      }
-      if (-not $response.IsSuccessStatusCode) {
-        throw "install.ps1: $Uri returned HTTP $([int]$response.StatusCode)"
-      }
-      $inputStream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
-      try {
-        $outputStream = [System.IO.File]::Open($OutFile, [System.IO.FileMode]::Create)
-        try {
-          $buffer = New-Object byte[] 65536
-          [long]$total = 0
-          while ($true) {
-            $read = $inputStream.Read($buffer, 0, $buffer.Length)
-            if ($read -le 0) { break }
-            $total += $read
-            if ($total -gt $MaxBytes) {
-              throw "install.ps1: $Uri exceeded the maximum allowed size of $MaxBytes bytes"
-            }
-            $outputStream.Write($buffer, 0, $read)
-          }
-        } finally {
-          $outputStream.Dispose()
-        }
-      } finally {
-        $inputStream.Dispose()
-      }
-    } finally {
-      $response.Dispose()
-    }
-  } finally {
-    $client.Dispose()
-    $handler.Dispose()
+function Write-CoforgeStep([string]$Message) {
+  [Console]::Error.WriteLine("==> $Message")
+}
+
+# Use native curl (not PowerShell's curl alias). No redirects are followed, including for
+# bodies, preserving the Windows bootstrap and updater transport policy.
+function Get-CoforgeObject([string]$Uri, [string]$OutFile, [long]$MaxBytes, [switch]$Binary) {
+  $progress = if ($Binary -and -not [Console]::IsErrorRedirected) { "--progress-bar" } else { "--silent" }
+  $status = & curl.exe --fail $progress --show-error --proto $curlProto --tlsv1.2 --max-filesize $MaxBytes --output $OutFile --write-out '%{http_code}' $Uri
+  if ($LASTEXITCODE -ne 0) {
+    throw "install.ps1: download failed with curl exit code $LASTEXITCODE"
+  }
+  if ($status -cnotmatch '^2[0-9]{2}\z') {
+    throw "install.ps1: download returned HTTP $status (redirects are not followed)"
+  }
+  if ((Get-Item -LiteralPath $OutFile).Length -gt $MaxBytes) {
+    throw "install.ps1: download exceeded the maximum allowed size of $MaxBytes bytes"
   }
 }
 
@@ -169,10 +140,19 @@ function Expand-CoforgeGzip([string]$InputFile, [string]$OutFile, [long]$MaxByte
   }
 }
 
-$temporaryDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("coforge-installer-" + [guid]::NewGuid().ToString("N"))
-New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
+if ($PrepareDirectory) {
+  if (-not (Test-Path -LiteralPath $PrepareDirectory -PathType Container)) {
+    throw "install.ps1: preparation directory must already exist"
+  }
+  $temporaryDirectory = $PrepareDirectory
+} else {
+  $temporaryDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("coforge-installer-" + [guid]::NewGuid().ToString("N"))
+  New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
+}
 try {
+  if (-not $QuietHeader) { Write-CoforgeStep "Detected platform: $platform" }
   if ($Version -eq "latest") {
+    if (-not $QuietHeader) { Write-CoforgeStep "Finding the latest CoForge Computer version" }
     $latestPath = Join-Path $temporaryDirectory "latest"
     Get-CoforgeObject -Uri "$feedUrl/latest" -OutFile $latestPath -MaxBytes $maxPointerBytes
     # Get-Content -Raw on a zero-byte file returns $null on Windows PowerShell 5.1, and $null has
@@ -180,17 +160,31 @@ try {
     # is_valid_version("") in install.sh already fails closed on an empty body instead of
     # erroring out with an unrelated method-not-found exception.
     $latestPointer = ([string](Get-Content -Raw -LiteralPath $latestPath)).Trim()
-    if (-not (Test-CoforgeVersion $latestPointer)) {
+    Remove-Item -LiteralPath $latestPath
+    if ($latestPointer -eq "latest" -or -not (Test-CoforgeVersion $latestPointer)) {
       throw "install.ps1: the latest pointer did not return a valid version"
     }
     $Version = $latestPointer
   }
 
-  # Integrity for the binary comes from a sidecar checksum file, not a parsed manifest.json: the
-  # feed publishes one line of bare lowercase hex per platform binary at
-  # "<version>/<target>/coforge-computer.sha256". The updater in
-  # packages/computer/src/updater.ts is a real JSON.parse consumer and keeps reading
-  # manifest.json directly; that file is unaffected by this script.
+  if (-not $QuietHeader) { Write-CoforgeStep "Resolved version: $Version" }
+  if ($ResolveOnly) {
+    Write-Output $Version
+    return
+  }
+
+  $manifestPath = Join-Path $temporaryDirectory "manifest.json"
+  if ($PreparePhase -ne "artifact") {
+    Get-CoforgeObject -Uri "$feedUrl/$Version/manifest.json" -OutFile $manifestPath -MaxBytes $maxManifestBytes
+  }
+  if ($PreparePhase -eq "manifest") { return }
+  $compressedPath = Join-Path $temporaryDirectory "coforge-computer.gz"
+  Write-CoforgeStep "Downloading CoForge Computer"
+  Get-CoforgeObject -Uri "$feedUrl/$Version/$Target/coforge-computer.gz" -OutFile $compressedPath -MaxBytes $maxBinaryBytes -Binary
+  [System.IO.File]::WriteAllText((Join-Path $temporaryDirectory "version"), "$Version`n", [System.Text.UTF8Encoding]::new($false))
+  if ($PrepareDirectory) { return }
+
+  # Bootstrap checks the sidecar before executing code; the local installer parses the manifest.
   $sidecarPath = Join-Path $temporaryDirectory "coforge-computer.sha256"
   Get-CoforgeObject -Uri "$feedUrl/$Version/$target/coforge-computer.sha256" -OutFile $sidecarPath -MaxBytes $maxPointerBytes
   $expectedSha256 = ([string](Get-Content -Raw -LiteralPath $sidecarPath)).Trim()
@@ -204,15 +198,13 @@ try {
   }
 
   $computerPath = Join-Path $temporaryDirectory "coforge-computer.exe"
-  $compressedPath = Join-Path $temporaryDirectory "coforge-computer.gz"
-  Get-CoforgeObject -Uri "$feedUrl/$Version/$target/coforge-computer.gz" -OutFile $compressedPath -MaxBytes $maxBinaryBytes
   Expand-CoforgeGzip -InputFile $compressedPath -OutFile $computerPath -MaxBytes $maxBinaryBytes
   $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $computerPath).Hash.ToLowerInvariant()
   if ($actualSha256 -ne $expectedSha256) {
     throw "install.ps1: downloaded binary failed its checksum check"
   }
 
-  & $computerPath install --version $Version
+  & $computerPath __install-local --version $Version --directory $temporaryDirectory
   # Not `exit`: the documented entry point is `irm ... | iex`, which runs this script inside the
   # user's own PowerShell process, where a top-level `exit` terminates their session - closing the
   # window on success just as readily as on failure. Throwing surfaces the failure through the
@@ -279,17 +271,12 @@ try {
   }
   if (-not $alreadyInSession) { $env:Path = "$binDirectory;$env:Path" }
 
-  # Write-Host, not Write-Output: under `irm ... | iex` the pipeline carries the script's return
-  # value, and progress text written there would become the expression's result. This is also the
-  # script's only output - matching install.sh's step-by-step reporting is separate work.
+  # Keep completion guidance out of the script's pipeline return value.
   Write-Host "   CoForge Computer $Version installed and ready to use"
-  Write-Host ""
-  # Sign in first: `setup` registers this Computer against an account, so it has nothing to
-  # register as until `login` has stored a credential.
-  Write-Host "Sign in, then connect this computer to a workspace:"
-  Write-Host "  coforge-computer login"
-  Write-Host "  coforge-computer setup --workspace <slug>"
+  Write-Host "Next: coforge-computer setup --workspace <slug>"
 }
 finally {
-  Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force -ErrorAction SilentlyContinue
+  if (-not $PrepareDirectory) {
+    Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }

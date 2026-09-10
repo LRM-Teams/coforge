@@ -203,11 +203,14 @@ test("shows the primary navigation with Chat first", () => {
   expect(markup).toContain("Chat");
   expect(markup).toContain("Members");
   expect(markup).toContain("Tasks");
+  expect(markup).toContain("Records");
   expect(markup).toContain("Computers");
   expect(markup.indexOf("Chat")).toBeLessThan(markup.indexOf("Members"));
   expect(markup.indexOf("Members")).toBeLessThan(markup.indexOf("Tasks"));
-  expect(markup.indexOf("Tasks")).toBeLessThan(markup.indexOf("Computers"));
+  expect(markup.indexOf("Tasks")).toBeLessThan(markup.indexOf("Records"));
+  expect(markup.indexOf("Records")).toBeLessThan(markup.indexOf("Computers"));
   expect(markup).toContain('href="/en/messages"');
+  expect(markup).toContain('href="/en/records?tab=weekly"');
   expect(markup).toContain('aria-label="Current user: Frank An"');
   expect(markup).toContain(">F</span>");
 });
@@ -266,13 +269,40 @@ test("renders persisted Agent fields without fabricated details", () => {
 
 test("shows Agent status on the avatar", () => {
   renderShell([
-    { ...agent, status: { value: "active", expiresAt: Date.now() + 60_000 } },
+    {
+      ...agent,
+      status: { value: "active", expiresAt: Date.now() + 60_000 },
+      display: {
+        protocolMajor: 1 as const,
+        workspaceId: "workspace-1",
+        computerId: "computer-1",
+        agentId: "agent-1",
+        revision: 1,
+        activityKind: "online" as const,
+        detailKind: "online",
+        detail: "",
+        entries: [],
+        expiresAt: Date.now() + 60_000,
+      },
+    },
     {
       ...agent,
       id: "agent-2",
       name: "research-helper",
       displayName: "Research Helper",
       status: { value: "inactive", expiresAt: null },
+      display: {
+        protocolMajor: 1 as const,
+        workspaceId: "workspace-1",
+        computerId: "computer-1",
+        agentId: "agent-2",
+        revision: 1,
+        activityKind: "offline" as const,
+        detailKind: "stopped",
+        detail: "",
+        entries: [],
+        expiresAt: null,
+      },
     },
   ]);
 
@@ -280,14 +310,12 @@ test("shows Agent status on the avatar", () => {
   const inactiveCard = page().getByText("Research Helper").closest("li");
   if (!(activeCard instanceof HTMLElement) || !(inactiveCard instanceof HTMLElement))
     throw new Error("Agent cards were not rendered");
-  // The official Avatar's own status dot (base-components/avatar-online-indicator.tsx,
-  // unmodified) uses Untitled's own success/neutral tokens, not a CoForge-specific one.
-  expect(activeCard.querySelector("[data-avatar] > span.bg-fg-success-secondary")).toBeTruthy();
-  expect(inactiveCard.querySelector("[data-avatar] > span.bg-utility-neutral-300")).toBeTruthy();
-  // The official Avatar has no `statusLabel` prop; presence text is a
-  // visually-hidden sibling span instead of a combined `role="img"` name.
-  expect(within(activeCard).getByText("Online")).toBeTruthy();
-  expect(within(inactiveCard).getByText("Offline")).toBeTruthy();
+  // The avatar's accessible name (AgentDisplayAvatar, role="img") carries the
+  // presence label; there is no separate visible "Online"/"Offline" text.
+  expect(activeCard.textContent).not.toContain("Online");
+  expect(inactiveCard.textContent).not.toContain("Offline");
+  expect(within(activeCard).getByRole("img", { name: "Release Helper, Online" })).toBeTruthy();
+  expect(within(inactiveCard).getByRole("img", { name: "Research Helper, Offline" })).toBeTruthy();
 });
 
 test("explains the Computer prerequisite only after requesting a new Agent", async () => {
@@ -484,6 +512,23 @@ test("submits the public creation form callback", async () => {
   );
 });
 
+test("creates an Agent without a description", async () => {
+  const browserUser = userEvent.setup();
+  const onCreate = mock(async () => ({ startPublished: true }));
+  renderAgents([], onCreate, true);
+  await browserUser.type(await page().findByLabelText(startsWith("Name")), "build-helper");
+
+  const description = page().getByPlaceholderText("What should this Agent help with?");
+  expect(description.hasAttribute("required")).toBe(false);
+  fireEvent.click(page().getByRole("button", { name: "Create agent" }));
+
+  await waitFor(() =>
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "build-helper", description: "" }),
+    ),
+  );
+});
+
 test("selects a CoForge model provider before its model", async () => {
   const browserUser = userEvent.setup({ document });
   const onCreate = mock(async () => ({ startPublished: true }));
@@ -497,6 +542,9 @@ test("selects a CoForge model provider before its model", async () => {
   await browserUser.click(page().getByRole("option", { name: "anthropic" }));
   await browserUser.click(page().getByRole("button", { name: isModelLabel }));
   await browserUser.click(page().getByRole("option", { name: "anthropic / Claude Sonnet" }));
+  fireEvent.change(page().getByLabelText("anthropic API key"), {
+    target: { value: "fixture-provider-key" },
+  });
   fireEvent.click(page().getByRole("button", { name: "Create agent" }));
   await waitFor(() =>
     expect(onCreate).toHaveBeenCalledWith(
@@ -504,6 +552,7 @@ test("selects a CoForge model provider before its model", async () => {
         provider: "coforge",
         modelProvider: "anthropic",
         model: "claude-sonnet",
+        apiKey: "fixture-provider-key",
       }),
     ),
   );

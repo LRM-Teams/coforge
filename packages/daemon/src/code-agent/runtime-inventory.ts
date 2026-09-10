@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import {
   RUNTIME_PROVIDER,
   type CodeAgentModelCatalog,
@@ -9,7 +10,12 @@ import { JsonlProcess, JsonlRequestError } from "./jsonl-process";
 import { probeClaudeCodeVersion, resolveClaudeCodeExecutable } from "./claude-code/runtime";
 import { COFORGE_DAEMON_VERSION } from "../version";
 import { codeAgentExecutableSearchPath } from "../platform/code-agent-path";
-import { COFORGE_PROVIDER_MODELS_GENERATED } from "@coforge/agent";
+import {
+  COFORGE_PROVIDER_MODELS_GENERATED,
+  discoverPiModels,
+  getAgentDir,
+  PI_SDK_VERSION,
+} from "@coforge/agent";
 import { COFORGE_AGENT_RUNTIME_METADATA } from "./pi/metadata";
 import { getLogger } from "@logtape/logtape";
 
@@ -70,7 +76,6 @@ const bunProbe: ExternalCodeAgentProbe = {
 };
 
 const externalCodeAgents = [
-  { provider: RUNTIME_PROVIDER.PI, executable: "pi" },
   { provider: RUNTIME_PROVIDER.CODEX, executable: "codex" },
   { provider: RUNTIME_PROVIDER.CLAUDE_CODE, executable: "claude" },
 ] as const;
@@ -103,12 +108,7 @@ export async function discoverExternalCodeAgents(
           runtimes.push({
             provider,
             version,
-            displayName:
-              provider === RUNTIME_PROVIDER.PI
-                ? "Pi"
-                : provider === RUNTIME_PROVIDER.CODEX
-                  ? "Codex"
-                  : "Claude Code",
+            displayName: provider === RUNTIME_PROVIDER.CODEX ? "Codex" : "Claude Code",
           });
         continue;
       }
@@ -142,12 +142,7 @@ export async function discoverExternalCodeAgents(
         runtimes.push({
           provider,
           version,
-          displayName:
-            provider === RUNTIME_PROVIDER.PI
-              ? "Pi"
-              : provider === RUNTIME_PROVIDER.CODEX
-                ? "Codex"
-                : "Claude Code",
+          displayName: provider === RUNTIME_PROVIDER.CODEX ? "Codex" : "Claude Code",
         });
     } catch (error) {
       logger.warning("Code Agent runtime probe failed", {
@@ -169,7 +164,6 @@ export type CodeAgentInventory = {
 };
 
 type CatalogCommands = {
-  pi?: readonly string[];
   codex?: readonly string[];
 };
 
@@ -187,21 +181,20 @@ export async function discoverCodeAgentInventory(
   const searchPath = codeAgentExecutableSearchPath(environment, options.platform);
   const runtimes = [
     COFORGE_AGENT_RUNTIME_METADATA,
+    { provider: RUNTIME_PROVIDER.PI, version: PI_SDK_VERSION, displayName: "Pi" },
     ...(await discoverExternalCodeAgents(probe, environment, options.platform)),
   ];
   const cwd = options.cwd ?? process.cwd();
   const commands = options.commands ?? {};
   const discoveries: Array<Promise<CodeAgentModelCatalog | undefined>> = [];
   discoveries.push(Promise.resolve(discoverCoforgeCatalog()));
-  if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.PI)) {
-    const executable = probe.which("pi", searchPath);
-    if (executable)
-      discoveries.push(discoverPiCatalogFromProcess(commands.pi ?? [executable], cwd));
-  }
+  discoveries.push(discoverPiCatalog(cwd, environment));
   if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.CODEX)) {
     const executable = probe.which("codex", searchPath);
     if (executable)
-      discoveries.push(discoverCodexCatalog(commands.codex ?? [executable, "app-server"], cwd));
+      discoveries.push(
+        discoverCodexCatalog(commands.codex ?? [executable, "app-server"], cwd, environment),
+      );
   }
   if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.CLAUDE_CODE)) {
     discoveries.push(Promise.resolve(claudeStaticCatalog()));
@@ -222,43 +215,97 @@ function discoverCoforgeCatalog(): CodeAgentModelCatalog {
 async function discoverCodexCatalog(
   command: readonly string[],
   cwd: string,
+  environment: Readonly<Record<string, string | undefined>>,
 ): Promise<CodeAgentModelCatalog | undefined> {
-  return withJsonlProcess(RUNTIME_PROVIDER.CODEX, command, cwd, async (process, progress) => {
-    progress.stage = "initialize";
-    await within(
-      process.request({
-        method: "initialize",
-        params: {
-          clientInfo: {
-            name: "coforge_daemon",
-            title: "CoForge Daemon",
-            version: COFORGE_DAEMON_VERSION,
-          },
-          capabilities: { experimentalApi: false },
-        },
-      }),
-    );
-    progress.stage = "initialized";
-    await process.send({ method: "initialized", params: {} });
-    const models: CodeAgentModelMetadata[] = [];
-    let cursor: string | undefined;
-    do {
-      progress.stage = "model/list";
-      const response = await within(
+  const live = await discoverCodexCatalogFromProcess(command, cwd, environment).catch(
+    () => undefined,
+  );
+  if (live) return live;
+  // Match the home inherited by the provider; CODEX_HOME is not in its allowlist.
+  const home = environment.HOME ?? environment.USERPROFILE;
+  if (!home) return undefined;
+  try {
+    const cache = asRecord(await Bun.file(join(home, ".codex", "models_cache.json")).json());
+    if (!Array.isArray(cache?.models)) return undefined;
+    const models = cache.models
+      .map((value: unknown) => {
+        const entry = asRecord(value);
+        if (typeof entry?.slug !== "string" || !entry.slug.trim()) return undefined;
+        if (entry.visibility && entry.visibility !== "public" && entry.visibility !== "list")
+          return undefined;
+        if (entry.supported_in_api === false) return undefined;
+        return codexModel({
+          model: entry.slug,
+          displayName: entry.display_name,
+          description: entry.description,
+          defaultReasoningEffort: entry.default_reasoning_level,
+          supportedReasoningEfforts: Array.isArray(entry.supported_reasoning_levels)
+            ? entry.supported_reasoning_levels.map((level: unknown) => ({
+                reasoningEffort: asRecord(level)?.effort,
+              }))
+            : [],
+        });
+      })
+      .filter(isModel);
+    if (!models.length) return undefined;
+    logger.info("Code Agent model catalog loaded from cache", {
+      event: "code_agent_catalog:cache_loaded",
+      provider: RUNTIME_PROVIDER.CODEX,
+      model_count: models.length,
+    });
+    return { provider: RUNTIME_PROVIDER.CODEX, models };
+  } catch {
+    return undefined;
+  }
+}
+
+async function discoverCodexCatalogFromProcess(
+  command: readonly string[],
+  cwd: string,
+  environment: Readonly<Record<string, string | undefined>>,
+): Promise<CodeAgentModelCatalog | undefined> {
+  return withJsonlProcess(
+    RUNTIME_PROVIDER.CODEX,
+    command,
+    cwd,
+    async (process, progress) => {
+      progress.stage = "initialize";
+      await within(
         process.request({
-          method: "model/list",
-          params: { limit: 100, includeHidden: false, ...(cursor ? { cursor } : {}) },
+          method: "initialize",
+          params: {
+            clientInfo: {
+              name: "coforge_daemon",
+              title: "CoForge Daemon",
+              version: COFORGE_DAEMON_VERSION,
+            },
+            capabilities: { experimentalApi: false },
+          },
         }),
       );
-      const result = asRecord(response.result);
-      progress.stage = "decode_catalog";
-      if (!Array.isArray(result?.data))
-        throw new CatalogDiscoveryError("Codex model catalog is unavailable");
-      models.push(...result.data.map(codexModel).filter(isModel));
-      cursor = typeof result.nextCursor === "string" ? result.nextCursor : undefined;
-    } while (cursor);
-    return { provider: RUNTIME_PROVIDER.CODEX, models };
-  });
+      progress.stage = "initialized";
+      await process.send({ method: "initialized", params: {} });
+      const models: CodeAgentModelMetadata[] = [];
+      let cursor: string | undefined;
+      do {
+        progress.stage = "model/list";
+        const response = await within(
+          process.request({
+            method: "model/list",
+            params: { limit: 100, includeHidden: false, ...(cursor ? { cursor } : {}) },
+          }),
+        );
+        const result = asRecord(response.result);
+        progress.stage = "decode_catalog";
+        if (!Array.isArray(result?.data))
+          throw new CatalogDiscoveryError("Codex model catalog is unavailable");
+        models.push(...result.data.map(codexModel).filter(isModel));
+        cursor = typeof result.nextCursor === "string" ? result.nextCursor : undefined;
+      } while (cursor);
+      return { provider: RUNTIME_PROVIDER.CODEX, models };
+    },
+    environment,
+  );
 }
 
 type CatalogProgress = {
@@ -279,6 +326,7 @@ async function withJsonlProcess<T>(
   command: readonly string[],
   cwd: string,
   discover: (process: JsonlProcess, progress: CatalogProgress) => Promise<T>,
+  environment: Readonly<Record<string, string | undefined>> = Bun.env,
 ): Promise<T | undefined> {
   const startedAt = performance.now();
   const discoveryId = crypto.randomUUID();
@@ -292,7 +340,7 @@ async function withJsonlProcess<T>(
     outcome: "started",
   });
   try {
-    process = new JsonlProcess(command, cwd, agentEnvironment(undefined));
+    process = new JsonlProcess(command, cwd, agentEnvironment(undefined, environment));
     const catalog = await discover(process, progress);
     logger.info("Code Agent model catalog discovery completed", {
       event: "code_agent_catalog:discovery_completed",
@@ -373,21 +421,33 @@ function catalogErrorMessage(error: unknown): string {
   return "model catalog discovery failed; untrusted error detail omitted";
 }
 
-async function discoverPiCatalogFromProcess(
-  command: readonly string[],
+async function discoverPiCatalog(
   cwd: string,
+  environment: Readonly<Record<string, string | undefined>>,
 ): Promise<CodeAgentModelCatalog | undefined> {
-  return withJsonlProcess(RUNTIME_PROVIDER.PI, command, cwd, async (process, progress) => {
-    progress.stage = "get_available_models";
-    const response = await within(process.request({ type: "get_available_models" }));
-    const models = asRecord(response.data)?.models;
-    progress.stage = "decode_catalog";
-    if (!Array.isArray(models)) throw new CatalogDiscoveryError("Pi model catalog is unavailable");
+  try {
+    const home = environment.HOME ?? environment.USERPROFILE;
+    const agentDir =
+      environment.PI_CODING_AGENT_DIR ?? (home ? join(home, ".pi", "agent") : getAgentDir());
+    const models = await discoverPiModels(cwd, {
+      agentDir,
+      environment: definedEnvironment(environment),
+    });
     return {
       provider: RUNTIME_PROVIDER.PI,
       models: models.map(piModel).filter(isModel),
     };
-  });
+  } catch {
+    return undefined;
+  }
+}
+
+function definedEnvironment(environment: Readonly<Record<string, string | undefined>>) {
+  return Object.fromEntries(
+    Object.entries(environment).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  );
 }
 
 function within<T>(promise: Promise<T>): Promise<T> {

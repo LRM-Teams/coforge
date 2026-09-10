@@ -3,25 +3,91 @@ name: CI
 on:
   pull_request:
   workflow_call:
+    inputs:
+      track:
+        description: "Validation scope: web deployment or local publication"
+        required: true
+        type: string
+    outputs:
+      deploy:
+        description: Whether this push affects the Web deployment
+        value: ${{ jobs.changes.outputs.deploy }}
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: Plan checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      checks: ${{ steps.select.outputs.checks }}
+      libraries: ${{ steps.select.outputs.libraries }}
+      contracts: ${{ steps.select.outputs.contracts }}
+      jobs: ${{ steps.select.outputs.jobs }}
+      deploy: ${{ steps.select.outputs.deploy }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+      - name: Set up mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: "2026.9.2"
+          install: false
+      - name: Install toolchain
+        run: mise install
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Test CI policy
+        run: bun run test:ci
+      - name: Lint workflows and CI scripts
+        run: bun run check:ci
+      - name: Select checks for changed files
+        id: select
+        env:
+          TRACK: ${{ inputs.track || 'changes' }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          files="$RUNNER_TEMP/ci-changed-files"
+          if [ "$TRACK" = local ]; then
+            : > "$files"
+          elif [ "$EVENT" = pull_request ]; then
+            git diff --check "$BASE...$HEAD"
+            git diff --name-only --no-renames -z "$BASE...$HEAD" > "$files"
+          elif [ "$EVENT" = push ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            git diff --check "$BASE" "$HEAD"
+            git diff --name-only --no-renames -z "$BASE" "$HEAD" > "$files"
+          else
+            # Missing push base (e.g. a new branch): full coverage, never a silent skip.
+            printf 'mise.toml\0' > "$files"
+          fi
+          bun scripts/ci/selection.ts "$TRACK" < "$files" | tee -a "$GITHUB_OUTPUT"
+
   infrastructure-contracts:
-    name: Infrastructure contracts
+    name: Validate ${{ matrix.suite }} scripts
+    needs: changes
+    if: needs.changes.outputs.contracts != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ${{ fromJSON(needs.changes.outputs.contracts) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - name: Install pinned toolchain
+      - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
@@ -33,37 +99,28 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Test OSS/CDN acceptance verifier
-        run: bun run test:oss-cdn
+      - name: Run tests
+        run: bun run test:${{ matrix.suite }}
 
-      - name: Test deploy identity contracts
-        run: bun run test:deploy
-
-      - name: Test release build script
-        run: bun run test:release
-
-      - name: Lint GitHub workflows
-        run: actionlint
-
-      - name: Check OSS/CDN acceptance verifier
-        run: bun run check:oss-cdn
-
-      - name: Check deploy scripts
-        run: bun run check:deploy
-
-      - name: Check release build script
-        run: bun run check:release
+      - name: Run static checks
+        run: bun run check:${{ matrix.suite }}
 
   libraries:
-    name: Libraries
+    name: Validate ${{ matrix.package }}
+    needs: changes
+    if: needs.changes.outputs.libraries != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.libraries) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - name: Install pinned toolchain
+      - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
@@ -75,33 +132,31 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Test
-        run: |
-          bun run --cwd packages/protocol test
-          bun run --cwd packages/agent test
-          bun run --cwd packages/cli test
+      - name: Generate protocol
+        run: bun run --cwd packages/protocol generate
 
-      - name: Check
-        run: |
-          bun run --cwd packages/protocol check
-          bun run --cwd packages/agent check
-          bun run --cwd packages/cli check
+      - name: Run tests
+        run: bun run --cwd packages/${{ matrix.package }} test
 
-      - name: Build
-        run: |
-          bun run --cwd packages/agent build
-          bun run --cwd packages/cli build
+      - name: Run static checks
+        run: bun run --cwd packages/${{ matrix.package }} check
+
+      - name: Build package
+        if: matrix.package != 'protocol'
+        run: bun run --cwd packages/${{ matrix.package }} build
 
   computer:
-    name: Computer
+    name: Validate Computer
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.checks), 'computer')
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - name: Install pinned toolchain
+      - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
@@ -113,25 +168,27 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Test
+      - name: Run tests
         run: mise run test:computer
 
-      - name: Check
+      - name: Run static checks
         run: mise run check:computer
 
-      - name: Build
+      - name: Build package
         run: mise run build:computer
 
   daemon:
-    name: Daemon
+    name: Validate Daemon
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.checks), 'daemon')
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - name: Install pinned toolchain
+      - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
@@ -143,23 +200,25 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Test
+      - name: Run tests
         run: mise run test:daemon
 
-      - name: Check
+      - name: Run static checks
         run: mise run check:daemon
 
-      - name: Build
+      - name: Build package
         run: mise run build:daemon
 
   macos-lifecycle:
-    name: macOS native lifecycle
+    name: Test macOS lifecycle
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.checks), 'macos-lifecycle')
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - name: Install pinned toolchain
+      - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
@@ -174,15 +233,17 @@ jobs:
         run: bun test packages/daemon/test/launchd-job.test.ts packages/daemon/test/launchd-process.test.ts packages/daemon/test/macos-supervisor.test.ts
 
   web:
-    name: Web
+    name: Validate Web
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.checks), 'web')
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - name: Install pinned toolchain
+      - name: Set up mise
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
@@ -194,17 +255,19 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Test
+      - name: Run tests
         run: mise run test:web
 
-      - name: Check
+      - name: Run static checks
         run: mise run check:web
 
-      - name: Build
+      - name: Build package
         run: mise run build:web
 
   windows-release:
-    name: Windows release (${{ matrix.runner }})
+    name: Test Windows ${{ matrix.runner == 'windows-latest' && 'x64' || 'arm64' }} executable
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.checks), 'windows-release')
     strategy:
       fail-fast: false
       matrix:
@@ -212,7 +275,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Install pinned Bun
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
@@ -223,8 +286,13 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Generate protocol
         run: bun run --cwd packages/protocol generate
-      - name: Verify native release identity and environment binding
-        run: bun test scripts/release/compile-targets.test.ts --test-name-pattern "published Computer"
+      - name: Test compiled version and server configuration
+        env:
+          # GitHub empties runner.temp at job boundaries. Each test creates a unique
+          # subdirectory; external Windows readers must not fail functional tests.
+          COFORGE_RELEASE_TEST_ARTIFACT_ROOT: ${{ runner.temp }}
+        # Every repetition must pass; retain native executable behavior coverage.
+        run: bun test scripts/release/compile-targets.test.ts --test-name-pattern "published Computer" --rerun-each 10
 
   # install.sh is gated by shellcheck in the Computer job; install.ps1 had no machine gate at all,
   # which is how a top-level `exit` - fatal under the documented `irm ... | iex` entry point,
@@ -233,12 +301,14 @@ jobs:
   # Windows binary in a fixture feed and would write to the runner's HKCU\Environment, so nothing
   # here proves the installer's runtime behavior - see the note in the pull request.
   windows-installer:
-    name: Windows installer
+    name: Check Windows installer
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.checks), 'windows-installer')
     runs-on: windows-latest
     timeout-minutes: 10
 
     steps:
-      - name: Check out repository
+      - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Record PowerShell version
@@ -287,3 +357,21 @@ jobs:
             $findings | Format-Table -AutoSize | Out-String | Write-Error
             exit 1
           }
+
+  ci-passed:
+    name: CI passed
+    if: always()
+    needs: [changes, infrastructure-contracts, libraries, computer, daemon, macos-lifecycle, web, windows-release, windows-installer]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every selected job to succeed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          printf '%s\n' "$NEEDS" | jq -e '
+            . as $needs |
+            .changes.result == "success" and
+            ((.changes.outputs.jobs | fromjson) | all(.[]; $needs[.].result == "success")) and
+            all(.[]; .result == "success" or .result == "skipped")
+          '

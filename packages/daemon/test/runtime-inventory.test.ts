@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   discoverCodeAgentInventory,
   discoverExternalCodeAgents,
@@ -26,6 +29,41 @@ function probeFor(
 }
 
 describe("external Code Agent inventory", () => {
+  test("reports embedded Pi and discovers custom models from host Pi resources", async () => {
+    const home = await mkdtemp(join(tmpdir(), "coforge-pi-inventory-"));
+    const agentDir = join(home, ".pi", "agent");
+    await mkdir(agentDir, { recursive: true });
+    await Bun.write(
+      join(agentDir, "models.json"),
+      JSON.stringify({
+        providers: {
+          fixture: {
+            baseUrl: "http://localhost.invalid/v1",
+            apiKey: "local",
+            models: [{ id: "host-model", name: "Host Model", api: "openai-completions" }],
+          },
+        },
+      }),
+    );
+    try {
+      const inventory = await discoverCodeAgentInventory({
+        probe: probeFor({}),
+        cwd: home,
+        environment: { HOME: home, PATH: "" },
+      });
+      expect(inventory.runtimes).toContainEqual({
+        provider: "pi",
+        version: "0.84.3",
+        displayName: "Pi",
+      });
+      expect(
+        inventory.catalogs.find((catalog) => catalog.provider === "pi")?.models,
+      ).toContainEqual(expect.objectContaining({ id: "host-model", modelProvider: "fixture" }));
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   test("searches user CLI directories when the Daemon service PATH is minimal", async () => {
     const searchedPaths: string[] = [];
     const probe: ExternalCodeAgentProbe = {
@@ -57,7 +95,7 @@ describe("external Code Agent inventory", () => {
     expect(searchedPaths.every((path) => path.includes("/Users/frank/.local/bin"))).toBe(true);
   });
 
-  test("searches standard macOS package-manager directories outside launchd's PATH", async () => {
+  test("does not scan PATH for Pi because its SDK is embedded", async () => {
     const searchedPaths: string[] = [];
     const probe: ExternalCodeAgentProbe = {
       which(name, searchPath) {
@@ -82,7 +120,7 @@ describe("external Code Agent inventory", () => {
         },
         "darwin",
       ),
-    ).resolves.toEqual([{ provider: "pi", version: "0.84.4", displayName: "Pi" }]);
+    ).resolves.toEqual([]);
     expect(searchedPaths.every((path) => path.includes("/usr/local/bin"))).toBe(true);
   });
 
@@ -133,7 +171,7 @@ describe("external Code Agent inventory", () => {
     expect(killed).toBe(true);
   });
 
-  test("detects installed Pi, Codex, and Claude Code as external runtimes", async () => {
+  test("detects Codex and Claude Code as external runtimes without installed Pi", async () => {
     const runtimes = await discoverExternalCodeAgents(
       probeFor({
         codex: { path: "/bin/codex", version: "codex-cli 0.151.0\n" },
@@ -143,7 +181,6 @@ describe("external Code Agent inventory", () => {
     );
 
     expect(runtimes).toEqual([
-      { provider: "pi", version: "0.9.1", displayName: "Pi" },
       { provider: "codex", version: "0.151.0", displayName: "Codex" },
       { provider: "claude-code", version: "2.1.0", displayName: "Claude Code" },
     ]);
@@ -199,7 +236,6 @@ describe("external Code Agent inventory", () => {
       }),
       commands: {
         codex: fixture("codex-app-server.ts"),
-        pi: fixture("pi-rpc.ts"),
       },
     });
 
@@ -207,6 +243,11 @@ describe("external Code Agent inventory", () => {
       provider: "coforge",
       version: COFORGE_DAEMON_VERSION,
       displayName: "CoForge",
+    });
+    expect(inventory.runtimes[1]).toEqual({
+      provider: "pi",
+      version: "0.84.3",
+      displayName: "Pi",
     });
     const coforgeCatalog = inventory.catalogs.find((catalog) => catalog.provider === "coforge");
     expect(coforgeCatalog).toBeDefined();
@@ -238,22 +279,10 @@ describe("external Code Agent inventory", () => {
     expect(coforgeCatalog?.models).toContainEqual(
       expect.objectContaining({ id: "deepseek/deepseek-chat", modelProvider: "openrouter" }),
     );
-    expect(inventory.catalogs).toEqual([
+    const piCatalog = inventory.catalogs.find((catalog) => catalog.provider === "pi");
+    expect(piCatalog).toEqual({ provider: "pi", models: [] });
+    expect(inventory.catalogs.filter((catalog) => catalog.provider !== "pi")).toEqual([
       coforgeCatalog!,
-      {
-        provider: "pi",
-        models: [
-          {
-            id: "claude-sonnet-4-6",
-            displayName: "Claude Sonnet 4.6",
-            description: "",
-            modelProvider: "anthropic",
-            reasoningEfforts: ["off", "low", "medium", "high"],
-            defaultReasoning: "",
-            recommended: false,
-          },
-        ],
-      },
       {
         provider: "codex",
         models: [

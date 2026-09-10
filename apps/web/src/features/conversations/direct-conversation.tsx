@@ -25,8 +25,12 @@ import { MenuItem as AriaMenuItem, Popover as AriaPopover } from "react-aria-com
 
 import { useChannelSidebarVisibility } from "@/components/app-shell";
 import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
-import { useConversationActivity } from "@/features/conversations/conversation-layout";
-import { AgentActivityAvatar, useAgentWorkingLabel } from "@/features/agents/agent-activity-avatar";
+import {
+  useConversationActivity,
+  useConversationDisplay,
+} from "@/features/conversations/conversation-layout";
+import { AgentActivityAvatar } from "@/features/agents/agent-activity-avatar";
+import { agentDisplay } from "@/features/agents/agent-activity-presentation";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { Button } from "@/components/base/buttons/button";
@@ -125,12 +129,9 @@ export type ThreadedConversationProps = Omit<ConversationProps, "conversation" |
 
 export function DirectConversation(props: ConversationProps) {
   const { conversation } = props;
-  const { agentStatus } = props;
   const activity = useConversationActivity(conversation.agent.id);
-  const workingLabel = useAgentWorkingLabel({
-    ...activity,
-    status: agentStatus,
-  });
+  const display = useConversationDisplay(conversation.agent.id);
+  const displayLabel = agentDisplay(display).label;
   const channelSidebar = useChannelSidebarVisibility();
   const header = (
     <header className="shrink-0 border-b border-secondary px-3 sm:px-5">
@@ -146,19 +147,12 @@ export function DirectConversation(props: ConversationProps) {
           />
         )}
         <MobileNavigationButton />
-        <AgentActivityAvatar
-          agent={conversation.agent}
-          size="sm"
-          status={agentStatus}
-          {...activity}
-        />
+        <AgentActivityAvatar agent={conversation.agent} size="sm" display={display} {...activity} />
         <div className="min-w-0">
           <h1 className="truncate text-base font-semibold">{conversation.agent.displayName}</h1>
-          {workingLabel && (
-            <p role="status" className="truncate text-xs text-tertiary">
-              {workingLabel}…
-            </p>
-          )}
+          <p role="status" className="truncate text-xs text-tertiary">
+            {displayLabel}
+          </p>
         </div>
         <span className="hidden shrink-0 text-sm text-tertiary sm:block">
           @{conversation.agent.name}

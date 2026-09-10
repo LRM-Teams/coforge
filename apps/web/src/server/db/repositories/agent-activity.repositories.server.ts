@@ -1,5 +1,6 @@
 import { parseActivityEntries, type AgentActivity } from "@coforge/protocol";
 import type { PrismaClient } from "../../../../generated/client";
+import { activityKindForObservation } from "../../agents/agent-display.server";
 
 export type TrustedAgentActivity = AgentActivity & { computerId: string };
 
@@ -22,6 +23,16 @@ type CompactActivityRow =
   | (Record<Exclude<keyof CompactActivity, "agentId">, null> & {
       agentId: string;
     });
+
+function activityKind(activity: { detailKind: string; level: string }) {
+  if (activity.detailKind === "stopped") return "offline" as const;
+  if (!(["info", "warning", "error"] as const).some((level) => level === activity.level))
+    return undefined;
+  return activityKindForObservation({
+    detailKind: activity.detailKind,
+    level: activity.level === "error" ? "error" : activity.level === "warning" ? "warning" : "info",
+  });
+}
 
 export class AgentActivityRepository {
   constructor(private readonly db: PrismaClient) {}
@@ -88,6 +99,7 @@ export class AgentActivityRepository {
         compact."clientSeq",
         compact."detailKind",
         compact."level",
+        compact."detail",
         compact."entries",
         compact."occurredAt",
         compact."createdAt",
@@ -126,6 +138,7 @@ export class AgentActivityRepository {
           detailKind,
           level,
           detail,
+          activityKind: activityKind({ detailKind, level }),
           entries: entries === null ? [] : parseActivityEntries(entries),
           observedAtMs: occurredAt.getTime(),
           createdAt,
@@ -171,6 +184,7 @@ export class AgentActivityRepository {
         ...row
       }) => ({
         ...row,
+        activityKind: activityKind(row),
         observedAtMs: occurredAt.getTime(),
         entries: entries === null ? [] : parseActivityEntries(entries),
         ...(runtimeErrorClass

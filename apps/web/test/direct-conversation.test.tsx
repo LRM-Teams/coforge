@@ -14,6 +14,8 @@ import { AppToastProvider } from "@/components/ui/toast";
 import { ChannelSidebarVisibilityContext } from "@/components/app-shell";
 import { ConversationRealtimeProvider } from "@/features/conversations/conversation-layout";
 import { getRouter } from "@/router";
+import type { ActivityEntry } from "@/features/agents/agent-activity";
+import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
 
 afterEach(cleanup);
 
@@ -26,6 +28,19 @@ const base: DirectConversationView = {
     displayName: "Release Helper",
   },
   messages: [],
+};
+
+const onlineDisplay = {
+  protocolMajor: 1 as const,
+  workspaceId: "workspace-1",
+  computerId: "computer-1",
+  agentId: "agent-1",
+  revision: 1,
+  activityKind: "online" as const,
+  detailKind: "online",
+  detail: "",
+  entries: [],
+  expiresAt: Date.now() + 60_000,
 };
 
 type ConversationSend = (
@@ -56,15 +71,25 @@ function renderConversation(
   const view = render(
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
-        <DirectConversation
-          conversation={conversation}
-          agentStatus={agentStatus}
-          onSend={onSend}
-          onLoadOlder={onLoadOlder}
-          onLoadOwnMessages={onLoadOwnMessages}
-          onLoadMessageAround={onLoadMessageAround}
-          onShowLatest={onShowLatest}
-        />
+        <ConversationRealtimeProvider
+          agents={[
+            {
+              ...conversation.agent,
+              status: { value: agentStatus, expiresAt: null },
+              display: onlineDisplay,
+            },
+          ]}
+        >
+          <DirectConversation
+            conversation={conversation}
+            agentStatus={agentStatus}
+            onSend={onSend}
+            onLoadOlder={onLoadOlder}
+            onLoadOwnMessages={onLoadOwnMessages}
+            onLoadMessageAround={onLoadMessageAround}
+            onShowLatest={onShowLatest}
+          />
+        </ConversationRealtimeProvider>
       </AppToastProvider>
     </RouterContextProvider>,
   );
@@ -75,15 +100,25 @@ function renderConversation(
       view.rerender(
         <RouterContextProvider router={getRouter()}>
           <AppToastProvider>
-            <DirectConversation
-              conversation={nextConversation}
-              agentStatus={agentStatus}
-              onSend={onSend}
-              onLoadOlder={onLoadOlder}
-              onLoadOwnMessages={onLoadOwnMessages}
-              onLoadMessageAround={onLoadMessageAround}
-              onShowLatest={onShowLatest}
-            />
+            <ConversationRealtimeProvider
+              agents={[
+                {
+                  ...nextConversation.agent,
+                  status: { value: agentStatus, expiresAt: null },
+                  display: onlineDisplay,
+                },
+              ]}
+            >
+              <DirectConversation
+                conversation={nextConversation}
+                agentStatus={agentStatus}
+                onSend={onSend}
+                onLoadOlder={onLoadOlder}
+                onLoadOwnMessages={onLoadOwnMessages}
+                onLoadMessageAround={onLoadMessageAround}
+                onShowLatest={onShowLatest}
+              />
+            </ConversationRealtimeProvider>
           </AppToastProvider>
         </RouterContextProvider>,
       );
@@ -217,6 +252,7 @@ test("shared chat activity reaches the header from the app-wide realtime context
   const entry = {
     launchId: "launch",
     clientSeq: 1,
+    activityKind: "working" as const,
     detailKind: "running_command",
     level: "info",
     detail: "",
@@ -225,13 +261,19 @@ test("shared chat activity reaches the header from the app-wide realtime context
   const agent = {
     ...base.agent,
     status: { value: "active" as const, expiresAt: Date.now() + 60_000 },
+    display: {
+      ...onlineDisplay,
+      activityKind: "working" as const,
+      detailKind: "running_command",
+      entries: [{ kind: "tool_start" as const, toolName: "bash" }],
+    },
   };
   const refresh = async () => {};
-  const tree = (activity: (typeof entry)[]) => (
+  const tree = (activity: ActivityEntry[], display: AgentDisplaySnapshot = agent.display) => (
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
         <ConversationRealtimeProvider
-          agents={[agent]}
+          agents={[{ ...agent, display }]}
           activityView={{
             activity: { [agent.id]: activity },
             loading: false,
@@ -247,15 +289,23 @@ test("shared chat activity reaches the header from the app-wide realtime context
   const page = within(document.body);
   expect(page.getByRole("status").textContent).toBe("Running command…");
   const avatar = page.getByRole("button", {
-    name: /Release Helper, Online, Running command/,
+    name: /Release Helper, Running command/,
   });
   expect(avatar.querySelector(".bg-amber-500")).toBeTruthy();
   expect(document.querySelector("a button")).toBeNull();
   fireEvent.click(avatar);
   const popup = await page.findByRole("dialog");
   expect(popup.querySelector("li .bg-amber-500")).not.toBeNull();
-  view.rerender(tree([{ ...entry, clientSeq: 2, detailKind: "idle" }]));
-  expect(document.querySelector("header [role=status]")).toBeNull();
+  fireEvent.keyDown(document, { key: "Escape" });
+  view.rerender(
+    tree([{ ...entry, clientSeq: 2, activityKind: "online", detailKind: "idle" }], {
+      ...onlineDisplay,
+      revision: 2,
+    }),
+  );
+  await waitFor(() =>
+    expect(document.querySelector("header [role=status]")?.textContent).toBe("Online"),
+  );
   expect(document.querySelector("button[data-working=true]")).toBeNull();
 });
 
@@ -281,7 +331,7 @@ test("renders persisted messages in sequence order with distinct senders", () =>
       },
     ],
   });
-  const messages = page.getByRole("list").querySelectorAll("[data-message]");
+  const messages = page.getByLabelText("Message history").querySelectorAll("[data-message]");
   expect(messages[0]?.textContent).toContain("Please check");
   expect(messages[1]?.textContent).toContain("Checked");
   // Flat rows: authorship is told apart only by the "You" label and the

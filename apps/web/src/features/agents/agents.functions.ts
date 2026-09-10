@@ -5,6 +5,7 @@ import {
   agentIdSchema,
   createAgentInputSchema,
   saveAgentRuntimeCredentialInputSchema,
+  saveAgentEnvironmentInputSchema,
   updateAgentInputSchema,
 } from "./agent.schemas";
 import { getDatabaseClient } from "../../server/db/client.server";
@@ -38,6 +39,8 @@ import {
 import { getAgentStatusCache } from "../../server/agents/agent-status.server";
 import { issueBrowserRealtimeToken } from "../../server/auth/browser-realtime-token.server";
 import { createAgentSessions } from "../../server/db/repositories/agent-session.repositories.server";
+import { getAgentDisplay } from "../../server/agents/agent-display.server";
+import { AgentEnvironment } from "../../server/agents/agent-environment.server";
 
 function dependencies() {
   const db = getDatabaseClient();
@@ -87,7 +90,10 @@ function dependencies() {
                 modelCatalogs: {
                   where: {
                     workspaceId,
-                    provider: config.provider,
+                    provider:
+                      config.provider === RUNTIME_PROVIDER.PI && config.hasApiKey
+                        ? { in: [RUNTIME_PROVIDER.PI, RUNTIME_PROVIDER.COFORGE] }
+                        : config.provider,
                   },
                   select: { models: true },
                 },
@@ -102,8 +108,9 @@ function dependencies() {
           return false;
         if (!config.model) return !config.modelProvider && !config.reasoning;
         if (config.provider === RUNTIME_PROVIDER.COFORGE && config.modelProvider) return true;
-        const models = connection.computer.modelCatalogs[0]?.models;
-        if (!Array.isArray(models)) return false;
+        const models = connection.computer.modelCatalogs.flatMap((catalog) =>
+          Array.isArray(catalog.models) ? catalog.models : [],
+        );
         return models.some((value) => {
           if (!value || typeof value !== "object" || Array.isArray(value)) return false;
           const id = Reflect.get(value, "id");
@@ -118,6 +125,7 @@ function dependencies() {
       },
     },
     runtimeLock,
+    () => runtimeCredentials(db, true),
   );
   return { agentManagement, db };
 }
@@ -157,6 +165,29 @@ function changeRuntimeCredential(
   );
 }
 
+function agentEnvironment(db: NonNullable<ReturnType<typeof getDatabaseClient>>) {
+  const agents = new PrismaAgentRepository(db);
+  return new AgentEnvironment(
+    new PrismaAgentRuntimeCredentialRepository(db),
+    agents,
+    new PublishAgentRuntimeControl(
+      new RepositoryAgentAuthorization(agents),
+      createCentrifugoServerApi(),
+      async () => {},
+      createAgentSessions(db),
+      new AgentControl(
+        new PrismaAgentControlStore(db),
+        createCentrifugoServerApi(),
+        getAgentRuntimeLock(),
+        undefined,
+        createAgentSessions(db),
+      ),
+    ),
+    getAgentRuntimeLock(),
+    readAgentRuntimeCredentialEncryptionKey(process.env),
+  );
+}
+
 export const listAgents = createServerFn({ method: "GET" }).handler(async () => {
   const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
   const { agentManagement, db } = dependencies();
@@ -172,8 +203,21 @@ export const listAgents = createServerFn({ method: "GET" }).handler(async () => 
             agentId: agent.id,
           })
         : undefined;
+      let displaySnapshot;
+      if (agent.computerId) {
+        try {
+          displaySnapshot = await getAgentDisplay().snapshot({
+            workspaceId,
+            computerId: agent.computerId,
+            agentId: agent.id,
+          });
+        } catch {
+          // An unavailable display read model must not hide an Agent profile.
+        }
+      }
       return {
         ...agent,
+        ...(displaySnapshot ? { display: displaySnapshot } : {}),
         status: {
           value: status?.status ?? ("inactive" as const),
           expiresAt: status?.expiresAt ?? null,
@@ -272,6 +316,9 @@ export const getAgentDetail = createServerFn({ method: "GET" })
       {
         snapshot: (scope) => getAgentStatusCache().snapshot(scope),
       },
+      {
+        snapshot: (scope) => getAgentDisplay().snapshot(scope),
+      },
     );
     const result = await query.get(workspaceId, agentId, user.id);
     if (!result) throw new Error("Agent not found");
@@ -310,4 +357,25 @@ export const deleteAgentRuntimeCredential = createServerFn({ method: "POST" })
     if (!db) throw new Error("Agent persistence is unavailable");
     const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
     return changeRuntimeCredential(db).delete({ workspaceId, userId: user.id }, agentId);
+  });
+
+export const getAgentEnvironment = createServerFn({ method: "GET" })
+  .validator(agentIdSchema)
+  .handler(async ({ data: agentId }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Agent persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    setResponseHeader("cache-control", "no-store");
+    return agentEnvironment(db).get({ workspaceId, userId: user.id }, agentId);
+  });
+
+export const saveAgentEnvironment = createServerFn({ method: "POST" })
+  .validator(saveAgentEnvironmentInputSchema)
+  .handler(async ({ data }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Agent persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    return agentEnvironment(db).save({ workspaceId, userId: user.id }, data.agentId, data.envVars);
   });

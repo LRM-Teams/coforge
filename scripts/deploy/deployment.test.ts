@@ -257,6 +257,136 @@ describe("remote-deploy.sh compose invocation shape", () => {
   });
 });
 
+describe("candidate failure diagnostics", () => {
+  for (const mode of ["available", "unavailable", "oversized"]) {
+    test(`diagnostics precede rollback without leaking logs (${mode})`, async () => {
+      const root = await mkdtemp(join(tmpdir(), "coforge-deploy-failure-"));
+      try {
+        await mkdir(join(root, "bin"));
+        await mkdir(join(root, "secrets"));
+        await mkdir(join(root, "centrifugo"));
+        await Bun.write(join(root, "centrifugo/config.yaml"), "client: {}\n");
+        await Bun.write(join(root, "compose.yml"), "services: {}\n");
+        for (const name of [
+          "authing_app_id",
+          "authing_app_secret",
+          "coforge_session_secret",
+          "coforge_agent_credential_encryption_key",
+          "coforge_web_push_public_key",
+          "coforge_web_push_private_key",
+          "postgres_password",
+          "redis_password",
+          "centrifugo_http_api_key",
+          "centrifugo_proxy_secret",
+          "worker_jwt_key_id",
+          "worker_jwt_private_jwk",
+        ])
+          await Bun.write(join(root, "secrets", name), "fixture-private-value");
+        const previous = `coforge/web@sha256:${"b".repeat(64)}`;
+        const state = `CURRENT_WEB_IMAGE=${previous}\nPREVIOUS_WEB_IMAGE=\n`;
+        await Bun.write(join(root, "state.env"), state);
+        await writeFile(
+          join(root, "bin/timeout"),
+          `#!/bin/bash
+echo "timeout $*" >> "$FIXTURE_ROOT/calls"
+exec ${JSON.stringify(Bun.which("timeout"))} "$@"
+`,
+          { mode: 0o700 },
+        );
+        await writeFile(
+          join(root, "bin/docker"),
+          `#!/bin/bash
+echo "$*" >> "$FIXTURE_ROOT/calls"
+if [[ "$1" = compose ]]; then
+  shift 5
+  case "$1" in
+    up) if [[ ! -f "$FIXTURE_ROOT/candidate-failed" ]]; then touch "$FIXTURE_ROOT/candidate-failed"; exit 1; fi ;;
+    ps) echo abc123 ;;
+  esac
+elif [[ "$1" = ps || "$1" = logs ]]; then
+  if [[ "$DIAGNOSTICS_MODE" = unavailable ]]; then echo fixture-private-value >&2; exit 1; fi
+  if [[ "$1" = ps ]]; then echo abc123; else
+    if [[ "$DIAGNOSTICS_MODE" = oversized ]]; then printf '%20000s' ''; fi
+    echo 'TypeError: createSsrRpc is not a function fixture-private-value'
+    echo 'https://user:fixture-private-value@example.test/?token=unknown-private-value'
+  fi
+elif [[ "$1" = inspect ]]; then
+  if [[ "$*" = *RestartCount* ]]; then echo 'running 0 3 unhealthy'; else echo healthy; fi
+fi
+`,
+          { mode: 0o700 },
+        );
+        await writeFile(
+          join(root, "bin/curl"),
+          `#!/bin/bash
+if [[ "$*" = *http_code* ]]; then echo 500; fi
+`,
+          { mode: 0o700 },
+        );
+        const proc = Bun.spawn(
+          [
+            "bash",
+            new URL("./remote-deploy.sh", import.meta.url).pathname,
+            "--image",
+            registryImage,
+            "--compose-file",
+            join(root, "compose.yml"),
+            "--secrets-dir",
+            join(root, "secrets"),
+            "--state-file",
+            join(root, "state.env"),
+            "--web-health-url",
+            "http://127.0.0.1/health",
+            "--public-health-url",
+            "https://example.test/health",
+          ],
+          {
+            env: {
+              ...Bun.env,
+              PATH: `${join(root, "bin")}:${Bun.env.PATH}`,
+              FIXTURE_ROOT: root,
+              DIAGNOSTICS_MODE: mode,
+            },
+            stdout: "pipe",
+            stderr: "pipe",
+          },
+        );
+        const [stdout, stderr, code] = await Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+          proc.exited,
+        ]);
+        expect(code).toBe(0);
+        expect(parseRemoteOutputs(stdout).outcome).toBe("rolled_back");
+        expect(await Bun.file(join(root, "state.env")).text()).toBe(state);
+        expect(stderr).toContain("candidate diagnostics");
+        expect(stderr.indexOf("candidate diagnostics")).toBeLessThan(stderr.indexOf("rolled back"));
+        expect(stdout + stderr).not.toContain("fixture-private-value");
+        expect(stdout + stderr).not.toContain("unknown-private-value");
+        expect(stderr).toContain("candidate loopback health HTTP status: 500");
+        if (mode !== "unavailable") {
+          expect(stderr).toContain(
+            mode === "oversized"
+              ? "startup_signature=unclassified_or_unavailable"
+              : "startup_signature=createSsrRpc",
+          );
+          expect(stderr).toContain("candidate state/exit/restarts/health: running 0 3 unhealthy");
+        }
+        const calls = await Bun.file(join(root, "calls")).text();
+        expect(calls).toContain(
+          "timeout --kill-after=1s 5s docker ps --filter label=com.docker.compose.project=coforge-staging",
+        );
+        if (mode !== "unavailable")
+          expect(calls).toContain(
+            "timeout --kill-after=1s 5s docker logs --tail 80 --since 5m abc123",
+          );
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
 describe("staging Web Push key validation", () => {
   const keyPair = () => {
     const ecdh = createECDH("prime256v1");
@@ -498,13 +628,13 @@ describe("GitHub validation workflow contract", () => {
       new URL("../../.github/workflows/ci.yml", import.meta.url),
     ).text();
 
-    for (const workspace of ["protocol", "agent", "cli"]) {
-      expect(workflow).toContain(`bun run --cwd packages/${workspace} test`);
-      expect(workflow).toContain(`bun run --cwd packages/${workspace} check`);
+    // The selector's behavioral tests cover which packages enter this matrix.
+    // Each selected library must still execute its full package-owned gates.
+    for (const command of ["test", "check", "build"]) {
+      expect(workflow).toContain(`bun run --cwd packages/\${{ matrix.package }} ${command}`);
     }
-    for (const workspace of ["agent", "cli"]) {
-      expect(workflow).toContain(`bun run --cwd packages/${workspace} build`);
-    }
+    expect(workflow).toContain("if: matrix.package != 'protocol'");
+    expect(workflow).toContain("bun run --cwd packages/protocol generate");
   });
 });
 

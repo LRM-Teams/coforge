@@ -150,6 +150,28 @@ sidecar after bounded expansion. POSIX bootstrap requires the gzip utility;
 PowerShell uses .NET GZipStream. Compression does not reduce
 installed executable size and never permits overwriting a published version.
 
+Bootstrap and Computer install/upgrade use the same installer script source for
+downloads: `curl` on POSIX and `curl.exe` on Windows. Computer embeds these scripts
+at build time, pins their feed to its compiled environment, and invokes preparation
+mode under the existing machine mutation lock. It does not fetch a mutable remote
+script or maintain a separate binary downloader. Preparation writes bounded
+manifest/gzip files without executing the candidate or configuring PATH.
+Bootstrap additionally verifies the checksum sidecar before executing Computer's
+hidden `__install-local` entry with that local package directory. Computer verifies
+the local manifest and both artifact identities again, without downloading the
+gzip a second time. The directory's owner retains it until installation completes.
+
+Both entry points detect the platform before resolving the version. Normal output
+is limited to platform/version, curl download progress, installation location, and
+the final result. Bootstrap retains one setup command and, only when needed, a
+current-terminal PATH instruction; upgrade prints no onboarding instructions.
+Runtime switching and health checks are silent unless they fail;
+rollback outcome is reported on failure. Captured output keeps stage lines without
+the interactive progress bar. See curl's [progress-bar documentation](https://curl.se/docs/manpage.html#--progress-bar)
+and Bun's [text loader](https://bun.com/docs/bundler/loaders#text) for these mechanisms.
+New bootstrap scripts require a Computer release supporting `__install-local`;
+publish that candidate before deploying the Web build that embeds the new scripts.
+
 `<target>` is one of the existing `releaseTarget` values: `linux-x64`,
 `linux-arm64`, `darwin-x64`, `darwin-arm64`, `windows-x64`, `windows-arm64`.
 `manifest.json` uses `schema_version: 2`. For every supported target,
@@ -177,9 +199,8 @@ one line of hex and nothing else (not `sha256sum`'s two-field
 `computer` entry's `checksum` for the same `<version>/<target>` in
 `manifest.json` - the release workflow generates both from the same bytes in
 the same step (see "Main to staging" below) - and the two are never allowed to
-drift apart. `updater.ts`, which runs after Computer is already installed and
-has a real `JSON.parse`, keeps reading `manifest.json` directly and never
-reads the sidecar; only the two bootstrap scripts do.
+drift apart. `updater.ts`, which has a real `JSON.parse`, reads the locally
+prepared `manifest.json` and never reads the sidecar; only bootstrap does.
 
 Every publication ships the unified executable under one version identity;
 there is no mechanism to change only Computer or only Daemon while reusing
@@ -407,14 +428,69 @@ belongs to a future per-environment publishing/serving decision, not to this
 variable. Both scripts carry the threat-model half of this reasoning inline
 as a comment.
 
+### Reading GitHub Actions
+
+| Workflow | When it runs | Steps |
+| --- | --- | --- |
+| **CI** | A pull request is opened or updated | Plan checks → validate affected packages and scripts → CI passed |
+| **Deploy Web (staging)** | A commit reaches `main` | Validate → build and push Docker image → deploy and verify Web |
+| **Publish Computer (staging)** | Manually started from `main` | Validate → build all six platforms → upload and verify release → update staging `latest` |
+
+The Web workflow skips image build and deployment when the commit does not
+affect Web. Computer publication is manual and its run title includes the
+version. Its build, upload, integrity checks, and selector update stay together
+in one publication transaction; expand that step to see each platform and object.
+
+`Validate` reuses CI. Package jobs run tests, static checks, and a build where
+applicable; separate jobs check macOS lifecycle, Windows executables, and the
+Windows installer. These checks can run in parallel. `CI passed` is the final
+required check and keeps its existing name for branch protection.
+
 CI has one reusable validation definition in `.github/workflows/ci.yml`, invoked
-directly for pull requests and by the staging deployment for each `main` push.
-There is no second standalone CI run on that same main push. The existing
-Computer, Daemon, Web and infrastructure checks remain, with explicit protocol,
-Agent and CLI coverage. Manual local releases call the same gates again for
-their selected commit; this intentional pre-release validation is not replaced
-by a mutable "latest successful CI" result. Docker image builds and version/feed-
-specific cross-compilation remain independent artifact builds, not redundant gates.
+with three scopes selected by `scripts/ci/selection.ts`:
+
+- Pull requests validate changed modules and affected downstream consumers.
+  Web-only changes run Web gates; Daemon changes also validate Computer.
+  Agent changes additionally validate Web's imported Agent test contract.
+  Client module changes retain native macOS and Windows smoke checks;
+  PowerShell installer changes run both PowerShell parsers and lint. Both
+  installers are embedded in the Web image, so changing either also validates Web.
+- Each `main` push checks whether the Web image or deployment inputs changed.
+  If so, the exact main commit runs Web, protocol, and deploy-script gates before
+  building and deploying the image. Client-only and documentation-only pushes
+  do not build an image or deploy. There is no second standalone CI workflow
+  for that main push.
+- Manual local publication always runs the complete local track for its exact
+  selected main commit: protocol, Agent, CLI, Computer, Daemon, release scripts,
+  native macOS/Windows checks, and Windows installer checks. It does not run
+  unrelated Web, deployment, or OSS/CDN acceptance-verifier checks.
+
+Shared protocol, global toolchain/configuration, lockfile, CI, and unclassified
+paths select full PR coverage. Only known documentation locations are exempt;
+Markdown assets inside source directories remain code inputs. Documentation-only
+PRs run CI-policy tests, workflow/static lint, and changed-line whitespace checks,
+not application builds. No documentation link checker is currently configured.
+PR diffs use the merge base; push diffs use the before/after commits. Renames
+include both old and new paths, and a missing push base expands coverage.
+
+Every run ends with `CI passed`, which requires selection/static validation and
+every selected job to succeed. An unexpectedly skipped, failed, cancelled, or
+missing selected job cannot pass. Configure branch protection to require this
+aggregate rather than individual conditional/matrix job names; changing that
+GitHub setting requires separate authorization. PR updates cancel stale PR
+checks; release-track checks do not cancel an active publication or deployment.
+The cloud workflow uses GitHub's `queue: max` (up to 100 pending runs), so a
+later documentation-only push cannot replace a waiting Web-changing push.
+Pinned actionlint 1.7.12 does not yet recognize this documented property;
+`.github/actionlint.yaml` excludes only that exact diagnostic for this workflow,
+and the workflow contract test requires the valid queue/cancellation combination.
+
+Module-owned test/check/build commands remain unchanged. Local full validation
+still uses `mise run test`, `mise run check`, and `mise run build`; CI-policy
+regressions can be exercised alone with `bun run test:ci` and `bun run check:ci`.
+Track-specific pre-release validation is not replaced by a mutable "latest
+successful CI" result. Docker image builds and version/feed-specific
+cross-compilation remain independent artifact builds, not redundant gates.
 
 Publishing a local-distribution release is **manual**. The workflow exposes only
 `workflow_dispatch`; it is not triggered by merging to `main`. Continuous publish
@@ -447,7 +523,7 @@ without changing anything here.
 
 The automated cloud path is:
 
-1. Run the repository test, check, and build gates for the `main` commit.
+1. Run the Web-track test, check, and build gates for the affected `main` commit.
 2. Build and push the service image once, tagged with the full commit SHA.
 3. Capture the pushed image digest as a workflow output and deployment record.
 4. Enter the `staging` GitHub Environment and its environment-specific
@@ -474,7 +550,7 @@ built from both source packages, to the track's own feed (a staging build trusts
 `COFORGE_RELEASE_FEED_URL` than a production build compiles in, so the two
 tracks' `latest` pointers are never the same object):
 
-1. Run the repository gates for the exact `main` commit.
+1. Run the complete local-track gates for the exact `main` commit.
 2. Build the unified Computer executable once for the complete Windows, Linux,
    and macOS platform matrix, with the approved Bun executable targets and the
    same release version injected into both Computer and Daemon roles.
@@ -590,6 +666,23 @@ documented timeout:
 
 Compose health is necessary but does not replace external or functional
 verification. Capture failure diagnostics without secrets.
+
+The Web Docker build also starts the isolated runtime payload as its runtime
+user, with networking disabled and fixture configuration only, and checks
+`/health` plus both Computer installer responses before publication. The
+`apps/web/test/production.integration.ts` check catches SSR initialization errors
+that a successful bundle build cannot detect. Nitro's documented
+[`inlineDynamicImports`](https://nitro.build/config#inlinedynamicimports) option
+currently avoids cyclic server-chunk initialization; browser splitting is unchanged.
+This workaround does not replace staging checks with real dependencies.
+
+Before automatic rollback, `remote-deploy.sh` reports allowlisted container
+state, exit/restart counts, health state, loopback HTTP status, and fixed startup
+error signatures. It examines at most 80 log lines from five minutes, capped at
+16 KiB; raw logs, health bodies, URLs, and arbitrary error text are never printed.
+Three Docker reads each have a five-second deadline plus one-second forced-kill
+grace period; the HTTP probe has a five-second timeout. Missing diagnostics do
+not prevent rollback or alter its outcome.
 
 ### Local Computer distribution
 
@@ -801,6 +894,8 @@ or end-user delivery. CDN acceptance remains a separate infrastructure check.
 
 ## Official references
 
+- [GitHub workflow syntax, reusable inputs, and job dependencies](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)
+- [GitHub concurrency and queued deployments](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)
 - [GitHub deployments and environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
 - [Deploying with GitHub Actions](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments)
 - [Publishing Docker images](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)

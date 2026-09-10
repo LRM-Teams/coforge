@@ -108,6 +108,7 @@ export function useWorkspaceActivity({
         const entry: ActivityEntry = {
           launchId: event.launchId,
           clientSeq: event.clientSeq,
+          activityKind: event.activityKind,
           detailKind: event.detailKind,
           level: event.level,
           detail: event.detail,

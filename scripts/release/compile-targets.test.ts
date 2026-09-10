@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,7 +14,9 @@ test.each([
   async (feedUrl, serverUrl) => {
     const target = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
     if (!isReleaseTarget(target)) throw new Error(`unsupported test host: ${target}`);
-    const directory = await mkdtemp(join(tmpdir(), "coforge-release-version-"));
+    // An explicit artifact root transfers cleanup ownership to the calling CI job.
+    const artifactRoot = Bun.env.COFORGE_RELEASE_TEST_ARTIFACT_ROOT;
+    const directory = await mkdtemp(join(artifactRoot ?? tmpdir(), "coforge-release-version-"));
     try {
       const options = {
         target,
@@ -40,98 +42,42 @@ test.each([
         directory,
         `${target}-coforge-computer${process.platform === "win32" ? ".exe" : ""}`,
       );
-      const result = Bun.spawnSync([executable, "--cli-version"], {
-        env: { ...Bun.env, COFORGE_COMPUTER_VERSION: "0.0.0-wrong" },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout.toString()).toBe("9.8.7-rc.6\n");
-      expect(result.stderr.toString()).toBe("");
-      const otherServer = serverUrl.includes("staging")
-        ? "https://coforge.cn"
-        : "https://staging.coforge.cn";
-      const state = join(directory, "daemon-state");
-      await mkdir(state);
-      await Bun.write(
-        join(state, "config.json"),
-        JSON.stringify({
-          computerId: "test-computer",
-          workspaceId: "test-workspace",
-          workspaceRoot: directory,
-          serverHttpUrl: otherServer,
-        }),
-      );
-      const daemon = Bun.spawn(
+      // Await the worker's OS exit and drain its pipes before inspecting results.
+      const probe = Bun.spawn(
         [
+          process.execPath,
+          join(import.meta.dir, "fixtures/probe-release-environment.ts"),
           executable,
-          "__workspace-daemon",
-          "--socket",
-          join(directory, "daemon.sock"),
-          "--state-directory",
-          state,
+          directory,
+          serverUrl,
         ],
-        {
-          env: {
-            ...Bun.env,
-            HOME: join(directory, "daemon-home"),
-            COFORGE_DAEMON_SERVER_URL: otherServer,
-            COFORGE_SERVER_HTTP_URL: otherServer,
-          },
-          stdout: "pipe",
-          stderr: "pipe",
-          timeout: 5000,
-        },
+        { stdout: "pipe", stderr: "pipe" },
       );
-      const [daemonCode, daemonError] = await Promise.all([
-        daemon.exited,
-        new Response(daemon.stderr).text(),
+      const [probeCode, probeOutput, probeError] = await Promise.all([
+        probe.exited,
+        new Response(probe.stdout).text(),
+        new Response(probe.stderr).text(),
       ]);
-      expect(daemonCode).toBe(1);
-      expect(daemonError).toContain("does not match this daemon build");
-      const requests: string[] = [];
-      const proxy = Bun.listen({
-        hostname: "127.0.0.1",
-        port: 0,
-        socket: {
-          data(socket, data) {
-            requests.push(data.toString());
-            socket.end("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n");
-          },
-        },
-      });
-      try {
-        const login = Bun.spawn([executable, "login"], {
-          env: {
-            ...Bun.env,
-            HOME: join(directory, "clean-home"),
-            COFORGE_RELEASE_FEED_URL: "https://invalid.example",
-            COFORGE_SERVER_HTTP_URL: "https://invalid.example",
-            HTTPS_PROXY: `http://127.0.0.1:${proxy.port}`,
-            https_proxy: `http://127.0.0.1:${proxy.port}`,
-            NO_PROXY: "",
-            no_proxy: "",
-          },
-          stdout: "pipe",
-          stderr: "pipe",
-          timeout: 5000,
-        });
-        const [code, stdout, stderr] = await Promise.all([
-          login.exited,
-          new Response(login.stdout).text(),
-          new Response(login.stderr).text(),
-        ]);
-        expect(code).toBe(1);
-        expect(stdout + stderr).toContain(serverUrl);
-        // The proxy deliberately rejects the tunnel; this is a routing check, not login success.
-        expect(stdout + stderr).toContain("AUTH_FAILED");
-        expect(requests.join("\n")).toContain(`CONNECT ${new URL(serverUrl).hostname}:443`);
-        expect(requests.join("\n")).not.toContain("invalid.example");
-      } finally {
-        proxy.stop(true);
-      }
+      expect(probeError).toBe("");
+      expect(probeCode).toBe(0);
+      const observed = JSON.parse(probeOutput);
+      expect(observed.version.exitCode).toBe(0);
+      expect(observed.version.stdout).toBe("9.8.7-rc.6\n");
+      expect(observed.version.stderr).toBe("");
+      expect(observed.daemonCode).toBe(1);
+      expect(observed.daemonOutput).toBe("");
+      expect(observed.daemonError).toContain("does not match this daemon build");
+      expect(observed.code).toBe(1);
+      expect(observed.stdout + observed.stderr).toContain(serverUrl);
+      // The proxy rejects the tunnel; this checks routing, not login success.
+      expect(observed.stdout + observed.stderr).toContain("AUTH_FAILED");
+      expect(observed.requests.join("\n")).toContain(`CONNECT ${new URL(serverUrl).hostname}:443`);
+      expect(observed.requests.join("\n")).not.toContain("invalid.example");
     } finally {
-      await rm(directory, { recursive: true, force: true });
+      // Hosted Windows processes can briefly open the executable without sharing
+      // deletion, even after our worker exits. runner.temp owns CI disposal;
+      // local runs still remove their own fixtures and surface cleanup errors.
+      if (!artifactRoot) await rm(directory, { recursive: true, force: true });
     }
   },
   60_000,

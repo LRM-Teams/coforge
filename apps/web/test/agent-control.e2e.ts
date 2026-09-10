@@ -11,8 +11,8 @@ import {
   DaemonConnection,
   DaemonRuntime,
   InMemoryDaemonCredentialStore,
-  PiDriver,
 } from "../../../packages/daemon";
+import { PiJsonlFixtureDriver } from "../../../packages/daemon/test/fixtures/pi-jsonl-fixture-driver";
 
 // Explicit opt-in: real local Web/PostgreSQL/Redis/Centrifugo and browser, but a
 // deterministic Pi-protocol child instead of paid model inference. No TRUNCATE/FLUSHDB.
@@ -76,12 +76,10 @@ test("Profile controls and Skills cross Web, WSS, native child and Session persi
       new DaemonRuntime(
         connection,
         () =>
-          new PiDriver({
-            command: [
-              process.execPath,
-              join(import.meta.dir, "../../../packages/daemon/test/fixtures/pi-session-control.ts"),
-            ],
-          }),
+          new PiJsonlFixtureDriver([
+            process.execPath,
+            join(import.meta.dir, "../../../packages/daemon/test/fixtures/pi-session-control.ts"),
+          ]),
         credentials,
         { create: () => new DaemonConnection("ws://127.0.0.1:8000/connection/websocket") },
         undefined,

@@ -888,6 +888,7 @@ test("requests and revokes Agent API keys through the server API route", async (
       providerId: "deepseek",
       apiKey: "sk-deepseek-secret",
     });
+    expect(launchConfig.envVars).toEqual({});
     await transport.revokeAgentApiKey(launchConfig.agentApiKey);
   } finally {
     globalThis.fetch = originalFetch;
@@ -905,6 +906,39 @@ test("requests and revokes Agent API keys through the server API route", async (
       authorization: "Bearer daemon-token",
     },
   ]);
+});
+
+test("validates explicit launch environment and preserves provider keys and empty values", async () => {
+  const originalFetch = globalThis.fetch;
+  const transport = new DaemonConnection("wss://cloud.example", () => fakeClient().client);
+  await transport.start("daemon-token", { ...config, serverHttpUrl: "https://server.example" });
+  try {
+    for (const envVars of [
+      { TOKEN: "secret", HTTPS_PROXY: "https://proxy", EMPTY: "" },
+      null,
+      [],
+      { PATH: "secret" },
+      { COFORGE_API_KEY: "secret" },
+      { A: "secret\0" },
+      { A: 1 },
+      { "BAD=NAME": "secret" },
+      { A: "s".repeat(32769) },
+      Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`A${i}`, "s"])),
+    ]) {
+      globalThis.fetch = Object.assign(
+        async () => Response.json({ apiKey: `sk_agent_${"a".repeat(43)}`, envVars }),
+        { preconnect: originalFetch.preconnect },
+      );
+      const result = transport.requestAgentLaunchConfig({
+        agentId: "agent-1",
+        workspaceId: config.workspaceId,
+      });
+      if (envVars && "TOKEN" in envVars) expect((await result).envVars).toEqual(envVars);
+      else await expect(result).rejects.toThrow("invalid Agent environment response");
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("rejects non-canonical runtime provider config from the server", async () => {

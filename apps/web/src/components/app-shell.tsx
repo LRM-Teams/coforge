@@ -4,6 +4,7 @@ import { useParams, useRouter, useRouterState } from "@tanstack/react-router";
 import {
   ChevronSelectorVertical,
   CheckSquare as ListTodo,
+  File02 as FileText,
   LogOut01 as LogOut,
   MessageChatSquare,
   Monitor01 as Monitor,
@@ -53,6 +54,12 @@ function useNavItems(): (NavItemType & { icon: FC<{ className?: string }>; bareH
       icon: Users,
     },
     { label: m.tasks_tab(), bareHref: "/tasks", href: localizeHref("/tasks"), icon: ListTodo },
+    {
+      label: m.navigation_records(),
+      bareHref: "/records",
+      href: localizeHref("/records?tab=weekly"),
+      icon: FileText,
+    },
     {
       label: m.navigation_computers(),
       bareHref: "/computers",

@@ -59,6 +59,7 @@ test("replays the current catalog model and reasoning and submits no computer id
           model: "gpt-5",
           reasoning: "high",
         }}
+        credentialConfigured
         onLoad={async () => ({
           providers: [],
           catalogs: [{ provider: "coforge", models: [model] }],
@@ -75,6 +76,7 @@ test("replays the current catalog model and reasoning and submits no computer id
     modelProvider: "openai",
     model: "gpt-5",
     reasoning: "high",
+    apiKey: "",
   });
 });
 
@@ -193,4 +195,209 @@ test("falls back to manual provider and model inputs and allows retry", async ()
   ).toBeTruthy();
   fireEvent.click(within(document.body).getByRole("button", { name: "Try again" }));
   await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+});
+
+test("Pi offers CoForge catalog providers and submits an optional isolated API key", async () => {
+  let submitted: FormData | undefined;
+  const user = userEvent.setup();
+  render(
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        submitted = new FormData(event.currentTarget);
+      }}
+    >
+      <AgentRuntimeFields
+        open
+        computerId="computer-1"
+        initial={{ provider: "pi", modelProvider: "", model: "", reasoning: "" }}
+        onLoad={async () => ({
+          providers: ["pi"],
+          catalogs: [
+            {
+              provider: "pi",
+              models: [{ ...model, id: "local", displayName: "Local", modelProvider: "" }],
+            },
+            { provider: "coforge", models: [model] },
+          ],
+        })}
+      />
+      <Button type="submit">Save</Button>
+    </form>,
+  );
+  await waitFor(() =>
+    expect(within(document.body).getByRole("button", { name: /Model provider/ })).toBeTruthy(),
+  );
+  await user.click(within(document.body).getByRole("button", { name: isModelSelect }));
+  await user.click(within(document.body).getByRole("option", { name: "openai / GPT 5" }));
+  const key = within(document.body).getByLabelText("openai API key");
+  expect(key.hasAttribute("required")).toBe(false);
+  await user.type(key, "secret-key");
+  await user.click(within(document.body).getByRole("button", { name: "Save" }));
+  expect(Object.fromEntries(submitted!)).toMatchObject({
+    provider: "pi",
+    modelProvider: "openai",
+    model: "gpt-5",
+    apiKey: "secret-key",
+  });
+});
+
+test("clears a drafted API key when model provider changes", async () => {
+  const user = userEvent.setup();
+  render(
+    <AgentRuntimeFields
+      open
+      computerId="computer-1"
+      onLoad={async () => ({
+        providers: [],
+        catalogs: [
+          {
+            provider: "coforge",
+            models: [model, { ...model, id: "claude", modelProvider: "anthropic" }],
+          },
+        ],
+      })}
+    />,
+  );
+  await waitFor(() =>
+    expect(within(document.body).getByRole("button", { name: /Model provider/ })).toBeTruthy(),
+  );
+  await user.click(within(document.body).getByRole("button", { name: /Model provider/ }));
+  await user.click(within(document.body).getByRole("option", { name: "openai" }));
+  const key = within(document.body).getByLabelText("openai API key") as HTMLInputElement;
+  await user.type(key, "secret-key");
+  await user.click(within(document.body).getByRole("button", { name: /Model provider/ }));
+  await user.click(within(document.body).getByRole("option", { name: "anthropic" }));
+  expect(within(document.body).getByLabelText("anthropic API key")).toBe(key);
+  expect(key.value).toBe("");
+});
+
+test("requires a new credential after leaving the configured model provider", async () => {
+  const user = userEvent.setup();
+  render(
+    <AgentRuntimeFields
+      open
+      computerId="computer-1"
+      initial={{ provider: "coforge", modelProvider: "openai", model: "gpt-5", reasoning: "" }}
+      credentialConfigured
+      onLoad={async () => ({
+        providers: [],
+        catalogs: [
+          { provider: "coforge", models: [model, { ...model, modelProvider: "anthropic" }] },
+        ],
+      })}
+    />,
+  );
+  await waitFor(() => expect(within(document.body).getByLabelText("openai API key")).toBeTruthy());
+  expect(within(document.body).getByLabelText("openai API key").hasAttribute("required")).toBe(
+    false,
+  );
+  await user.click(within(document.body).getByRole("button", { name: /Model provider/ }));
+  await user.click(within(document.body).getByRole("option", { name: "anthropic" }));
+  expect(within(document.body).getByLabelText("anthropic API key").hasAttribute("required")).toBe(
+    true,
+  );
+});
+
+test("external runtimes show their complete model catalog", async () => {
+  const user = userEvent.setup();
+  render(
+    <AgentRuntimeFields
+      open
+      computerId="computer-1"
+      initial={{ provider: "codex", modelProvider: "", model: "", reasoning: "" }}
+      onLoad={async () => ({
+        providers: ["codex"],
+        catalogs: [{ provider: "codex", models: [model] }],
+      })}
+    />,
+  );
+  await waitFor(() =>
+    expect(within(document.body).getByRole("button", { name: isModelSelect })).toBeTruthy(),
+  );
+  await user.click(within(document.body).getByRole("button", { name: isModelSelect }));
+  expect(within(document.body).getByRole("option", { name: "openai / GPT 5" })).toBeTruthy();
+});
+
+test("Pi filters an explicit provider and deduplicates local models before CoForge models", async () => {
+  const user = userEvent.setup();
+  render(
+    <AgentRuntimeFields
+      open
+      computerId="computer-1"
+      initial={{ provider: "pi", modelProvider: "", model: "", reasoning: "" }}
+      onLoad={async () => ({
+        providers: ["pi"],
+        catalogs: [
+          { provider: "coforge", models: [{ ...model, displayName: "Cloud duplicate" }] },
+          {
+            provider: "pi",
+            models: [
+              model,
+              { ...model, id: "claude", displayName: "Claude", modelProvider: "anthropic" },
+            ],
+          },
+        ],
+      })}
+    />,
+  );
+  await waitFor(() =>
+    expect(within(document.body).getByRole("button", { name: /Model provider/ })).toBeTruthy(),
+  );
+  await user.click(within(document.body).getByRole("button", { name: isModelSelect }));
+  expect(within(document.body).getAllByRole("option", { name: "openai / GPT 5" })).toHaveLength(1);
+  expect(within(document.body).queryByText("Cloud duplicate")).toBeNull();
+  await user.keyboard("{Escape}");
+  await user.click(within(document.body).getByRole("button", { name: /Model provider/ }));
+  await user.click(within(document.body).getByRole("option", { name: "anthropic" }));
+  await user.click(within(document.body).getByRole("button", { name: isModelSelect }));
+  expect(within(document.body).getByRole("option", { name: "anthropic / Claude" })).toBeTruthy();
+  expect(within(document.body).queryByRole("option", { name: "openai / GPT 5" })).toBeNull();
+});
+
+test("keeps a drafted API key when selecting another model from the same provider", async () => {
+  const user = userEvent.setup();
+  render(
+    <AgentRuntimeFields
+      open
+      computerId="computer-1"
+      onLoad={async () => ({
+        providers: [],
+        catalogs: [
+          {
+            provider: "coforge",
+            models: [model, { ...model, id: "gpt-5-mini", displayName: "GPT 5 mini" }],
+          },
+        ],
+      })}
+    />,
+  );
+  await waitFor(() =>
+    expect(within(document.body).getByRole("button", { name: /Model provider/ })).toBeTruthy(),
+  );
+  await user.click(within(document.body).getByRole("button", { name: /Model provider/ }));
+  await user.click(within(document.body).getByRole("option", { name: "openai" }));
+  const key = within(document.body).getByLabelText("openai API key") as HTMLInputElement;
+  await user.type(key, "secret-key");
+  await user.click(within(document.body).getByRole("button", { name: isModelSelect }));
+  await user.click(within(document.body).getByRole("option", { name: "openai / GPT 5 mini" }));
+  expect(key.value).toBe("secret-key");
+});
+
+test("clears a drafted API key when the Computer changes", async () => {
+  const user = userEvent.setup();
+  const load = async () => ({
+    providers: [],
+    catalogs: [{ provider: "coforge", models: [model] }],
+  });
+  const view = render(<AgentRuntimeFields open computerId="computer-1" onLoad={load} />);
+  await waitFor(() =>
+    expect(within(document.body).getByRole("button", { name: /Model provider/ })).toBeTruthy(),
+  );
+  await user.click(within(document.body).getByRole("button", { name: /Model provider/ }));
+  await user.click(within(document.body).getByRole("option", { name: "openai" }));
+  const key = within(document.body).getByLabelText("openai API key") as HTMLInputElement;
+  await user.type(key, "secret-key");
+  view.rerender(<AgentRuntimeFields open computerId="computer-2" onLoad={load} />);
+  await waitFor(() => expect(key.value).toBe(""));
 });

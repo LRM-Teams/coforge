@@ -1,6 +1,5 @@
 import { useRef, useState, type FormEvent } from "react";
 import {
-  Activity as ActivityIcon,
   AlertCircle,
   Bell01 as Bell,
   CpuChip01 as Bot,
@@ -8,12 +7,11 @@ import {
   Edit01 as Pencil,
   UserCircle as UserRound,
   XClose as X,
+  Activity as ActivityIcon,
 } from "@untitledui/icons";
 import { Link } from "@tanstack/react-router";
 import { Heading, Text } from "react-aria-components";
 
-import { Avatar } from "@/components/base/avatar/avatar";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
@@ -25,14 +23,16 @@ import { localizeHref } from "@/paraglide/runtime";
 import { AgentRuntimeFields, type RuntimeOptions } from "./agent-runtime-fields";
 import type { UpdateAgentInput } from "./agent.schemas";
 import { latestActivityError, type ActivityEntry } from "./agent-activity";
-import {
-  activityLabel,
-  activityDotClass,
-  showsActivityMessage,
-} from "./agent-activity-presentation";
+import { agentDisplay } from "./agent-activity-presentation";
+import { AgentActivityAvatar } from "./agent-activity-avatar";
+import { AgentActivityTimeline } from "./agent-activity-timeline";
 import { AgentSkills, type AgentSkillsLoadResult } from "./agent-skills";
 import { AgentControl } from "./agent-control";
 import { AgentReminders } from "./agent-reminders";
+import {
+  AgentEnvironmentEditor,
+  type AgentEnvironmentEditorProps,
+} from "./agent-environment-editor";
 
 type Detail = Awaited<ReturnType<typeof import("./agents.functions").getAgentDetail>>;
 
@@ -48,6 +48,7 @@ export function AgentDetail({
   onLoadSkills,
   onExecuteControl,
   onLoadReminders = async () => ({ status: "unauthorized" }),
+  environment,
 }: {
   detail: Detail;
   activity?: ActivityEntry[];
@@ -60,25 +61,22 @@ export function AgentDetail({
   onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
   onExecuteControl?: Parameters<typeof AgentControl>[0]["onExecute"];
   onLoadReminders?: Parameters<typeof AgentReminders>[0]["onLoad"];
+  environment?: AgentEnvironmentEditorProps;
 }) {
-  const online = detail.status.value === "unknown" ? undefined : detail.status.value === "active";
-  const statusLabel =
-    detail.status.value === "unknown"
-      ? m.agent_status_unknown()
-      : online
-        ? m.agent_status_online()
-        : m.agent_status_offline();
+  const view = agentDisplay(detail.display);
+  const online = view.isOnline;
+  const statusLabel = view.label;
   const latestError = latestActivityError(activity);
   return (
     <main className="flex h-svh max-h-svh min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-primary px-4 pt-5 md:px-8 md:pt-8">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-4 pb-6">
         <div className="flex min-w-0 items-center gap-3">
-          <Avatar
+          <AgentActivityAvatar
+            agent={detail}
             size="lg"
-            alt={detail.displayName}
-            initials={avatarInitial(detail.displayName)}
-            contentClassName={avatarToneClassName(detail.displayName)}
-            status={online === undefined ? undefined : online ? "online" : "offline"}
+            display={detail.display}
+            activity={activity}
+            timeZone={timeZone}
           />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -160,9 +158,10 @@ export function AgentDetail({
             onLoadRuntimeOptions={onLoadRuntimeOptions}
             onLoadSkills={onLoadSkills}
             onExecuteControl={onExecuteControl}
+            environment={environment}
           />
         ) : tab === "activity" ? (
-          <Activity activity={activity} timeZone={timeZone} />
+          <AgentActivityTimeline activity={activity} timeZone={timeZone} />
         ) : (
           <AgentReminders
             agentId={detail.id}
@@ -184,6 +183,7 @@ function Profile({
   onLoadRuntimeOptions,
   onLoadSkills,
   onExecuteControl,
+  environment,
 }: {
   detail: Detail;
   onSaveRuntimeCredential: (apiKey: string) => Promise<void>;
@@ -192,6 +192,7 @@ function Profile({
   onLoadRuntimeOptions: (computerId: string) => Promise<RuntimeOptions>;
   onLoadSkills?: () => Promise<AgentSkillsLoadResult>;
   onExecuteControl?: Parameters<typeof AgentControl>[0]["onExecute"];
+  environment?: AgentEnvironmentEditorProps;
 }) {
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -313,7 +314,6 @@ function Profile({
                   {m.agent_profile_description()}
                   <textarea
                     name="description"
-                    required
                     rows={4}
                     defaultValue={detail.description}
                     className="mt-1.5 w-full rounded-lg border border-secondary bg-primary p-3 font-normal leading-6 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-brand"
@@ -393,8 +393,24 @@ function Profile({
         <div className="mt-5 grid min-w-0 gap-x-8 gap-y-6 md:grid-cols-2 xl:grid-cols-3">
           <RuntimeField
             label={m.agent_runtime_field()}
-            value={providerKind === "coforge" ? m.agent_provider_pi_builtin() : runtime}
+            value={runtime === "coforge" ? m.agent_provider_pi_builtin() : providerLabel(runtime)}
           />
+          {providerKind === "coforge" && (
+            <>
+              <RuntimeField
+                label={m.agent_runtime_provider_field()}
+                value={providerId || m.agent_form_provider_default()}
+              />
+              <RuntimeField
+                label={m.agent_runtime_api_key({ provider: providerId })}
+                value={
+                  detail.ownedByCurrentUser
+                    ? detail.runtimeCredential?.hint || m.agent_runtime_api_key_not_configured()
+                    : m.agent_runtime_api_key_private()
+                }
+              />
+            </>
+          )}
           <RuntimeField
             label={m.agent_form_model()}
             value={configValue(detail.runtimeConfig, "model") || m.agent_form_provider_default()}
@@ -407,6 +423,9 @@ function Profile({
           />
         </div>
       </section>
+      {detail.ownedByCurrentUser && environment && (
+        <AgentEnvironmentEditor key={detail.id} {...environment} />
+      )}
       {detail.ownedByCurrentUser && onLoadSkills && (
         <AgentSkills
           key={`${detail.id}:${detail.computerId ?? ""}:${JSON.stringify(detail.runtimeConfig)}`}
@@ -474,7 +493,9 @@ function Profile({
                 <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
                   <RuntimeField
                     label={m.agent_runtime_field()}
-                    value={providerKind === "coforge" ? m.agent_provider_pi_builtin() : runtime}
+                    value={
+                      runtime === "coforge" ? m.agent_provider_pi_builtin() : providerLabel(runtime)
+                    }
                   />
                   {runtimeError && (
                     <p role="alert" className="text-sm text-error-primary sm:col-span-2">
@@ -485,14 +506,16 @@ function Profile({
                     <>
                       <RuntimeField label={m.agent_runtime_provider_field()} value={providerId} />
                       <label className="grid gap-1.5 text-sm sm:col-span-2">
-                        {m.agent_runtime_api_key()}
+                        {m.agent_runtime_api_key({ provider: providerId })}
                         <input
                           name="apiKey"
                           type="password"
                           required
                           minLength={8}
                           autoComplete="new-password"
-                          placeholder={m.agent_runtime_api_key_placeholder()}
+                          placeholder={m.agent_runtime_api_key_placeholder({
+                            provider: providerId,
+                          })}
                           className="h-10 rounded-lg border border-secondary bg-primary px-3 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-brand"
                         />
                         {detail.runtimeCredential && (
@@ -590,6 +613,13 @@ function nestedConfigValue(config: unknown, field: string, nestedField: string) 
   return typeof value === "string" ? value : "";
 }
 
+function providerLabel(provider: string) {
+  if (provider === "pi") return "Pi";
+  if (provider === "codex") return "Codex";
+  if (provider === "claude-code") return "Claude Code";
+  return provider;
+}
+
 function RuntimeField({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
@@ -598,59 +628,5 @@ function RuntimeField({ label, value }: { label: string; value: string }) {
         {value || "—"}
       </p>
     </div>
-  );
-}
-
-function Activity({ activity, timeZone }: { activity: ActivityEntry[]; timeZone: string | null }) {
-  if (!activity.length)
-    return (
-      <div className="my-8 flex flex-col items-center rounded-xl border border-secondary px-6 py-12 text-center">
-        <span className="mb-4 rounded-xl border border-secondary p-3 shadow-xs">
-          <ActivityIcon aria-hidden="true" className="size-6 text-tertiary" />
-        </span>
-        <p className="font-medium">{m.agent_activity_empty()}</p>
-        <p className="mt-1 max-w-md text-sm leading-6 text-tertiary">
-          {m.agent_activity_empty_description()}
-        </p>
-      </div>
-    );
-  return (
-    <ol className="mt-6 list-none divide-y divide-secondary rounded-xl border border-secondary px-4 md:px-6">
-      {activity.map((entry) => (
-        <li
-          key={`${entry.launchId}:${entry.clientSeq}`}
-          className="grid gap-2 py-4 md:grid-cols-[7rem_10rem_minmax(0,1fr)] md:items-start md:gap-5"
-        >
-          <RelativeTime
-            value={new Date(entry.observedAtMs)}
-            timeZone={timeZone}
-            className="whitespace-nowrap text-xs tabular-nums text-tertiary sm:pt-0.5"
-          />
-          <span className="flex items-center gap-2 text-sm font-semibold">
-            <span
-              aria-hidden="true"
-              className={`size-1.5 shrink-0 rounded-full ${activityDotClass(entry.detailKind, entry.level)}`}
-            />
-            <span className={entry.level === "error" ? "text-error-primary" : undefined}>
-              {activityLabel(entry.detailKind, entry.level)}
-            </span>
-          </span>
-          {showsActivityMessage(entry.detailKind) && (
-            <p
-              className={`whitespace-pre-wrap break-words text-sm ${["running_command", "tool_started"].includes(entry.detailKind) ? "select-text font-mono" : ""} ${entry.level === "error" ? "text-error-primary" : "text-tertiary"}`}
-            >
-              {entry.detail}
-              {entry.entries?.map((item, index) =>
-                item.kind !== "tool_start" ? (
-                  <span key={index} className="block">
-                    {item.text}
-                  </span>
-                ) : null,
-              )}
-            </p>
-          )}
-        </li>
-      ))}
-    </ol>
   );
 }

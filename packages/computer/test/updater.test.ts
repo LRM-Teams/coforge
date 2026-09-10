@@ -125,6 +125,59 @@ function updater(input: Awaited<ReturnType<typeof fixture>>) {
   });
 }
 
+test("install consumes a local bootstrap package without downloading it again", async () => {
+  const input = await fixture();
+  const localDirectory = join(input.directory, "bootstrap");
+  await Bun.write(
+    join(localDirectory, "manifest.json"),
+    input.files.get(`/${input.version}/manifest.json`)!,
+  );
+  await Bun.write(
+    join(localDirectory, "coforge-computer.gz"),
+    input.files.get(`/${input.version}/${input.target}/coforge-computer.gz`)!,
+  );
+  const manager = new ComputerUpdater({
+    baseUrl: input.baseUrl,
+    target: input.target,
+    installRoot: input.directory,
+    localDirectory,
+  });
+  await manager.install(input.version);
+  expect(input.requested).toEqual([]);
+  expect(
+    await readFile(join(input.directory, "versions", input.version, "coforge-computer"), "utf8"),
+  ).toBe("computer-payload-v2");
+});
+
+test("a local bootstrap package is reverified and cannot activate corrupt or mismatched bytes", async () => {
+  for (const failure of ["gzip", "version"] as const) {
+    const input = await fixture();
+    const localDirectory = join(input.directory, "bootstrap");
+    await Bun.write(
+      join(localDirectory, "manifest.json"),
+      input.files.get(`/${input.version}/manifest.json`)!,
+    );
+    const gzip = input.files.get(`/${input.version}/${input.target}/coforge-computer.gz`)!;
+    await Bun.write(
+      join(localDirectory, "coforge-computer.gz"),
+      failure === "gzip" ? flipByte(Buffer.from(gzip)) : gzip,
+    );
+    const manager = new ComputerUpdater({
+      baseUrl: input.baseUrl,
+      target: input.target,
+      installRoot: input.directory,
+      localDirectory,
+    });
+    await expect(
+      manager.install(failure === "version" ? "2.0.1" : input.version),
+    ).rejects.toMatchObject({
+      code: failure === "gzip" ? "UPDATE_INTEGRITY_FAILED" : "UPDATE_FEED_INVALID",
+    });
+    expect(await manager.getCurrentVersion()).toBeNull();
+    expect(input.requested).toEqual([]);
+  }
+});
+
 test("gzip corruption, missing objects, invalid paths and oversized expansion never activate", async () => {
   for (const failure of [
     "checksum",
@@ -192,6 +245,56 @@ test("offline rollback rejects a missing or corrupted version-local Agent launch
   }
 });
 
+test.each(["latest", "0.1.0-dev.15"])(
+  "upgrade skips consent and activation for the active version: %s",
+  async (selection) => {
+    const input = await fixture({ version: "0.1.0-dev.15" });
+    const manager = updater(input);
+    await manager.install("latest");
+    input.requested.length = 0;
+    const output: string[] = [];
+    let prompted = false;
+    let upgraded = false;
+    const code = await runCli(
+      ["upgrade", "--version", selection],
+      {
+        login: { async run() {} },
+        setup: { async run() {} },
+        updater: {
+          resolveVersion: (selector) => manager.resolveVersion(selector),
+          getCurrentVersion: () => manager.getCurrentVersion(),
+          async install() {},
+          async rollback() {},
+          async upgrade() {
+            upgraded = true;
+          },
+        },
+      },
+      {
+        stdout: (line) => output.push(line),
+        stderr: (line) => output.push(line),
+        prompt: () => {
+          prompted = true;
+          return "y";
+        },
+      },
+    );
+    expect(code).toBe(0);
+    expect(prompted).toBe(false);
+    expect(upgraded).toBe(false);
+    expect(output).toEqual(["Already up to date: 0.1.0-dev.15"]);
+    expect(input.requested).toEqual(selection === "latest" ? ["/latest"] : []);
+  },
+);
+
+test("current version is absent before installation and follows the active installation", async () => {
+  const input = await fixture({ version: "0.1.0-dev.15" });
+  const manager = updater(input);
+  expect(await manager.getCurrentVersion()).toBeNull();
+  await manager.install("latest");
+  expect(await manager.getCurrentVersion()).toBe("0.1.0-dev.15");
+});
+
 test("a self-referencing latest pointer fails before upgrade consent", async () => {
   const input = await fixture({ version: "latest" });
   const manager = updater(input);
@@ -205,6 +308,7 @@ test("a self-referencing latest pointer fails before upgrade consent", async () 
       setup: { async run() {} },
       updater: {
         resolveVersion: (selector) => manager.resolveVersion(selector),
+        getCurrentVersion: () => manager.getCurrentVersion(),
         async install() {},
         async rollback() {},
         async upgrade() {

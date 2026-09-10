@@ -1,4 +1,4 @@
-name: Deploy staging
+name: Deploy Web (staging)
 
 on:
   push:
@@ -10,6 +10,8 @@ permissions:
 concurrency:
   group: deploy-staging
   cancel-in-progress: false
+  # Preserve an affected push even when a later docs-only push enters the queue.
+  queue: max
 
 env:
   IMAGE_REPOSITORY: lrm-teams/coforge/coforge-web
@@ -17,12 +19,15 @@ env:
 
 jobs:
   gates:
-    name: Repository gates (check, test, build)
+    name: Validate
     uses: ./.github/workflows/ci.yml
+    with:
+      track: web
 
   image:
-    name: Build one immutable image
+    name: Build and push Docker image
     needs: gates
+    if: needs.gates.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 20
@@ -33,9 +38,11 @@ jobs:
       image: ${{ steps.identity.outputs.image }}
       deployment_id: ${{ steps.validate.outputs.deployment_id }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - name: Set up mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
           install: false
@@ -56,7 +63,7 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - name: Build and push the immutable digest
+      - name: Build and push Docker image
         id: push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
@@ -65,25 +72,25 @@ jobs:
           push: true
           outputs: type=image,name=ghcr.io/${{ env.IMAGE_REPOSITORY }},push-by-digest=true,name-canonical=true
 
-      - name: Record the immutable identity
+      - name: Record image digest
         id: identity
         run: |
           echo "image=ghcr.io/${{ env.IMAGE_REPOSITORY }}@${{ steps.push.outputs.digest }}" >> "$GITHUB_OUTPUT"
 
-      - name: Tag the commit identity
+      - name: Tag image with source commit
         run: |
           docker buildx imagetools create \
             -t "ghcr.io/${{ env.IMAGE_REPOSITORY }}:sha-${{ github.sha }}" \
             "ghcr.io/${{ env.IMAGE_REPOSITORY }}@${{ steps.push.outputs.digest }}"
 
-      - name: Validate the identity
+      - name: Validate image reference
         id: validate
         run: |
           id="$(bun scripts/deploy/deployment.ts validate --image "${{ steps.identity.outputs.image }}")"
           echo "deployment_id=${id#deployment_id=}" >> "$GITHUB_OUTPUT"
 
   deploy:
-    name: Deploy the tested digest to staging
+    name: Deploy and verify Web
     needs: image
     runs-on: ubuntu-latest
     environment: staging
@@ -96,9 +103,11 @@ jobs:
       DEPLOY_SSH_USER: ${{ vars.DEPLOY_SSH_USER }}
       REMOTE_ASSETS: ${{ github.workspace }}/assets.tgz
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - name: Set up mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
           install: false
@@ -204,7 +213,7 @@ jobs:
              done" \
             < "$payload"
 
-      - name: Deploy the tested digest
+      - name: Deploy image and check health
         env:
           IMAGE: ${{ needs.image.outputs.image }}
         run: |
@@ -258,7 +267,7 @@ jobs:
             exit 1
           fi
 
-      - name: Smoke the realtime route
+      - name: Check realtime endpoint responds
         run: |
           code="$(curl --silent --output /dev/null --write-out '%{http_code}' \
             -H 'Connection: Upgrade' \
@@ -270,7 +279,7 @@ jobs:
           echo "realtime route answered with HTTP $code (any response proves the WSS path)"
           [ "$code" != "000" ]
 
-      - name: Record the release record
+      - name: Record deployment result
         if: always()
         run: |
           previous="$(sed -n 's/^previous_web_image=//p' remote-report.env 2>/dev/null || true)"
@@ -287,7 +296,7 @@ jobs:
             --started-at "${{ env.DEPLOY_STARTED_AT }}" \
             --outcome "${{ steps.outcome.outputs.outcome || 'interrupted' }}"
 
-      - name: Upload the release record
+      - name: Upload deployment record
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
