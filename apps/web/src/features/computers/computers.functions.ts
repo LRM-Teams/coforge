@@ -284,7 +284,13 @@ function modelMetadata(value: unknown): CodeAgentModelMetadata[] | undefined {
 }
 
 function runtimeProvider(value: string): RuntimeProvider {
-  if (value === "coforge" || value === "codex" || value === "claude-code" || value === "pi")
+  if (
+    value === "coforge" ||
+    value === "codex" ||
+    value === "claude-code" ||
+    value === "kiro" ||
+    value === "pi"
+  )
     return value;
   throw new Error("Computer reported an unknown runtime provider");
 }

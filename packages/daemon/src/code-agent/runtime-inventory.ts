@@ -17,6 +17,7 @@ import {
   PI_SDK_VERSION,
 } from "@coforge/agent";
 import { COFORGE_AGENT_RUNTIME_METADATA } from "./pi/metadata";
+import { discoverKiroCatalog } from "./kiro/catalog";
 import { getLogger } from "@logtape/logtape";
 
 const logger = getLogger(["coforge", "daemon", "runtime-inventory"]);
@@ -78,6 +79,7 @@ const bunProbe: ExternalCodeAgentProbe = {
 const externalCodeAgents = [
   { provider: RUNTIME_PROVIDER.CODEX, executable: "codex" },
   { provider: RUNTIME_PROVIDER.CLAUDE_CODE, executable: "claude" },
+  { provider: RUNTIME_PROVIDER.KIRO, executable: "kiro-cli" },
 ] as const;
 
 export async function discoverExternalCodeAgents(
@@ -142,7 +144,7 @@ export async function discoverExternalCodeAgents(
         runtimes.push({
           provider,
           version,
-          displayName: provider === RUNTIME_PROVIDER.CODEX ? "Codex" : "Claude Code",
+          displayName: externalRuntimeDisplayName(provider),
         });
     } catch (error) {
       logger.warning("Code Agent runtime probe failed", {
@@ -165,6 +167,7 @@ export type CodeAgentInventory = {
 
 type CatalogCommands = {
   codex?: readonly string[];
+  kiro?: readonly string[];
 };
 
 export async function discoverCodeAgentInventory(
@@ -198,6 +201,17 @@ export async function discoverCodeAgentInventory(
   }
   if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.CLAUDE_CODE)) {
     discoveries.push(Promise.resolve(claudeStaticCatalog()));
+  }
+  if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.KIRO)) {
+    const executable = probe.which("kiro-cli", searchPath);
+    if (executable)
+      discoveries.push(
+        discoverKiroCatalog(
+          commands.kiro ?? [executable, "acp", "--agent-engine", "v3", "--auth-method", "cli"],
+          cwd,
+          environment,
+        ).catch(() => undefined),
+      );
   }
   const catalogs = (await Promise.all(discoveries)).filter(
     (catalog): catalog is CodeAgentModelCatalog => catalog !== undefined,
@@ -477,6 +491,19 @@ async function readVersionWithBun(executable: string): Promise<string | undefine
 function diagnosticErrorCode(error: unknown): string {
   if (error && typeof error === "object" && "code" in error) return String(error.code);
   return error instanceof Error ? error.name : "UnknownError";
+}
+
+function externalRuntimeDisplayName(provider: RuntimeMetadata["provider"]): string {
+  switch (provider) {
+    case RUNTIME_PROVIDER.CODEX:
+      return "Codex";
+    case RUNTIME_PROVIDER.CLAUDE_CODE:
+      return "Claude Code";
+    case RUNTIME_PROVIDER.KIRO:
+      return "Kiro";
+    default:
+      return provider;
+  }
 }
 
 function piModel(value: unknown): CodeAgentModelMetadata | undefined {

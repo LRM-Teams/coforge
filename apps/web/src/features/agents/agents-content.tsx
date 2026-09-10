@@ -491,6 +491,7 @@ function MemberCard({
 }
 
 function runtimeProvider(value: FormDataEntryValue | null): CreateAgentInput["provider"] {
-  if (value === "pi" || value === "codex" || value === "claude-code") return value;
+  if (value === "pi" || value === "codex" || value === "claude-code" || value === "kiro")
+    return value;
   return "coforge";
 }

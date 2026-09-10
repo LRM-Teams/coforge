@@ -116,5 +116,6 @@ function runtimeProvider(value: unknown): RuntimeProvider | undefined {
   if (value === RUNTIME_PROVIDER.PI) return RUNTIME_PROVIDER.PI;
   if (value === RUNTIME_PROVIDER.CODEX) return RUNTIME_PROVIDER.CODEX;
   if (value === RUNTIME_PROVIDER.CLAUDE_CODE) return RUNTIME_PROVIDER.CLAUDE_CODE;
+  if (value === RUNTIME_PROVIDER.KIRO) return RUNTIME_PROVIDER.KIRO;
   return undefined;
 }

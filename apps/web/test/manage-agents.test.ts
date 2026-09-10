@@ -256,6 +256,23 @@ describe("ManageAgents", () => {
     ).toMatchObject({ modelProvider: "" });
   });
 
+  test("parses Kiro as an external runtime with default credentials", () => {
+    expect(
+      parseAgentRuntimeConfig({
+        runtime: RUNTIME_PROVIDER.KIRO,
+        provider: { kind: "default" },
+        model: "auto",
+        reasoning: "high",
+      }),
+    ).toEqual({
+      runtime: RUNTIME_PROVIDER.KIRO,
+      provider: { kind: "default" },
+      model: "auto",
+      modelProvider: "",
+      reasoning: "high",
+    });
+  });
+
   test("keeps the canonical Agent when start publication fails", async () => {
     const { agentManagement, records } = fixture({ publishFails: true });
     const result = await agentManagement.create(

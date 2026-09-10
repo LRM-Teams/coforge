@@ -31,6 +31,7 @@ src/
 ├── code-agent/                     # provider-neutral contract and adapters
 │   ├── codex/
 │   ├── claude-code/
+│   ├── kiro/                      # Kiro v3 ACP, admission, permissions, native profiles/catalog, read-only account quota
 │   ├── pi/
 │   ├── tool-activity.ts            # recognized tool aliases → existing semantic activities; safe input summaries
 │   └── runtime-inventory.ts        # external provider discovery

@@ -380,7 +380,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     !v.provider
   )
     throw new Error("invalid agent start intent");
-  if (!["coforge", "pi", "codex", "claude-code"].includes(v.provider))
+  if (!["coforge", "pi", "codex", "claude-code", "kiro"].includes(v.provider))
     throw new Error(`unsupported runtime provider: ${v.provider}`);
   if (v.controlEpoch !== undefined)
     assertPositiveControlCounter(v.controlEpoch, "Agent control epoch");

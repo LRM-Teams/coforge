@@ -14,6 +14,13 @@ export type {
 export type CodeAgentProvider = RuntimeProvider;
 export type { UsageSnapshot, UsageWindow } from "@coforge/agent";
 export const AGENT_RUNTIME_EVENT_TYPE = { USAGE: "usage" } as const;
+/** The account is authenticated but its quota cannot be represented safely. */
+export class UsageUnavailableError extends Error {
+  constructor() {
+    super("Provider usage is unavailable");
+  }
+}
+
 export class AgentProcessCleanupError extends Error {
   constructor() {
     super("code agent process tree did not exit");

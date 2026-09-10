@@ -22,6 +22,7 @@ export type UsageSnapshot = {
     resetsAt: string;
   };
   credits?: { hasCredits: boolean; unlimited: boolean };
+  creditUsage?: { used: number; limit: number; overage: number };
 };
 export type UsageCacheRecord = UsageCacheKey & {
   scanId: string;

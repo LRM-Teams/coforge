@@ -2,6 +2,7 @@ import { ClaudeCodeDriver } from "./claude-code/driver";
 import { CodexDriver } from "./codex/driver";
 import type { AgentDriver, CodeAgentProvider } from "./contract";
 import { CoforgeDriver, PiDriver } from "./pi/driver";
+import { KiroDriver } from "./kiro/driver";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
 
 export function createAgentDriver(provider: CodeAgentProvider): AgentDriver {
@@ -14,5 +15,7 @@ export function createAgentDriver(provider: CodeAgentProvider): AgentDriver {
       return new CodexDriver();
     case RUNTIME_PROVIDER.CLAUDE_CODE:
       return new ClaudeCodeDriver();
+    case RUNTIME_PROVIDER.KIRO:
+      return new KiroDriver();
   }
 }

@@ -16,6 +16,17 @@ describe("createAgentInputSchema", () => {
     expect(createAgentInputSchema.parse(validInput)).toEqual(validInput);
   });
 
+  test("accepts Kiro with its default credential configuration", () => {
+    expect(
+      createAgentInputSchema.parse({
+        ...validInput,
+        provider: "kiro",
+        model: "auto",
+        reasoning: "high",
+      }),
+    ).toMatchObject({ provider: "kiro", model: "auto", reasoning: "high" });
+  });
+
   test("trims values and accepts optional runtime settings", () => {
     expect(
       createAgentInputSchema.parse({

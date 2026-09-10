@@ -1,6 +1,7 @@
 import {
   AGENT_RUNTIME_EVENT_TYPE,
   AgentProcessCleanupError,
+  UsageUnavailableError,
   type AgentRuntimeConfig,
   type CodeAgentProvider,
   type UsageSnapshot,
@@ -304,7 +305,7 @@ export class DaemonRuntime {
   async scanUsage(provider: RuntimeProvider): Promise<UsageScanResponse> {
     const protocolMajor = 1;
     if (!this.#started) throw new Error("daemon runtime is not running");
-    if (provider !== "codex" && provider !== "claude-code")
+    if (provider !== "codex" && provider !== "claude-code" && provider !== "kiro")
       return {
         protocolMajor,
         requestId: "",
@@ -336,7 +337,7 @@ export class DaemonRuntime {
             status: "reauth",
             message: "Provider usage is unavailable",
           };
-    } catch {
+    } catch (error) {
       const snapshot = this.#currentObservedUsage(provider);
       if (snapshot)
         return {
@@ -350,8 +351,11 @@ export class DaemonRuntime {
         protocolMajor,
         requestId: "",
         accepted: false,
-        status: "error",
-        message: "Usage scan failed",
+        status: error instanceof UsageUnavailableError ? "unavailable" : "error",
+        message:
+          error instanceof UsageUnavailableError
+            ? "Provider usage is unavailable"
+            : "Usage scan failed",
       };
     }
   }

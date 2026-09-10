@@ -27,7 +27,8 @@ function runtimeProvider(value: string): RuntimeProvider {
     value === RUNTIME_PROVIDER.COFORGE ||
     value === RUNTIME_PROVIDER.PI ||
     value === RUNTIME_PROVIDER.CODEX ||
-    value === RUNTIME_PROVIDER.CLAUDE_CODE
+    value === RUNTIME_PROVIDER.CLAUDE_CODE ||
+    value === RUNTIME_PROVIDER.KIRO
   )
     return value;
   throw new Error("Computer runtime has an invalid provider");
