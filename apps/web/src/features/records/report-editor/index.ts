@@ -3,7 +3,7 @@
  *
  * Enabled features:
  * - Markdown persistence via @tiptap/markdown
- * - Headings, lists, task lists, quotes, highlight, links
+ * - Headings (H1–H5), selection color / font size, lists, task lists, quotes, highlight, links
  * - Inline / block KaTeX formulas ($ / $$)
  * - Tables with column resize controls
  * - Images + file cards (paste/drop upload)

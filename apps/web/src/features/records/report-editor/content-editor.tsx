@@ -180,6 +180,14 @@ export const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
     }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps -- mount-only hydrate
 
     useEffect(() => {
+      if (!editor || editor.isDestroyed) return;
+      editor.view.dom.classList.add("note-format");
+      return () => {
+        editor.view.dom.classList.remove("note-format");
+      };
+    }, [editor]);
+
+    useEffect(() => {
       if (!editor || dirtyRef.current) return;
       const next = preprocessMarkdown(defaultValue);
       const current = stripBlobUrls(editor.getMarkdown()).trimEnd();
