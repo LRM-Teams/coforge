@@ -13,7 +13,7 @@ import {
 import { Columns03 as Columns3, DotsGrid as GripVertical, List } from "@untitledui/icons";
 import { useRef, useState, type ReactNode } from "react";
 
-import { Button } from "@/components/base/buttons/button";
+import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
@@ -30,25 +30,23 @@ export function TaskLayoutToggle({
   onChange: (layout: TaskLayout) => void;
 }) {
   return (
-    <div
-      className="inline-flex items-center -space-x-px rounded-lg shadow-xs"
+    <ButtonGroup
       aria-label={m.tasks_layout()}
+      size="sm"
+      selectedKeys={[layout]}
+      disallowEmptySelection
+      onSelectionChange={(keys) => {
+        const next = [...keys][0];
+        if (next === "board" || next === "list") onChange(next);
+      }}
     >
-      {(["board", "list"] as const).map((value) => (
-        <Button
-          key={value}
-          type="button"
-          size="sm"
-          color={layout === value ? "secondary" : "tertiary"}
-          iconLeading={value === "board" ? Columns3 : List}
-          className="rounded-none border border-secondary first:rounded-l-lg last:rounded-r-lg focus-visible:z-10"
-          aria-pressed={layout === value}
-          onPress={() => onChange(value)}
-        >
-          {value === "board" ? m.tasks_layout_board() : m.tasks_layout_list()}
-        </Button>
-      ))}
-    </div>
+      <ButtonGroupItem id="board" iconLeading={Columns3}>
+        {m.tasks_layout_board()}
+      </ButtonGroupItem>
+      <ButtonGroupItem id="list" iconLeading={List}>
+        {m.tasks_layout_list()}
+      </ButtonGroupItem>
+    </ButtonGroup>
   );
 }
 

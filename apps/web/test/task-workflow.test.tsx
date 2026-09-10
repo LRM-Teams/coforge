@@ -53,8 +53,8 @@ test("list and board toggle retain status groups and selected state", async () =
   }
   render(<Views />);
   const page = within(document.body);
-  await userEvent.setup().click(page.getByRole("button", { name: "List" }));
-  expect(page.getByRole("button", { name: "List" }).getAttribute("aria-pressed")).toBe("true");
+  await userEvent.setup().click(page.getByRole("radio", { name: "List" }));
+  expect(page.getByRole("radio", { name: "List" }).getAttribute("aria-checked")).toBe("true");
   expect(page.getByRole("heading", { name: "In progress 2" })).toBeTruthy();
   expect(page.getByRole("heading", { name: "Done 0" })).toBeTruthy();
   expect(page.queryByRole("button", { name: /Change status/ })).toBeNull();

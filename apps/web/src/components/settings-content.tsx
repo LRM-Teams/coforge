@@ -22,7 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ComboBox } from "@/components/base/select/combobox";
 import { SelectItem } from "@/components/base/select/select-item";
 import { Toggle } from "@/components/base/toggle/toggle";
-import { RadioButton, RadioGroup } from "@/components/base/radio-buttons/radio-buttons";
+import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
 import { WorkspaceMembersPanel } from "@/features/workspaces/workspace-members-panel";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
@@ -590,15 +590,19 @@ function Preferences({
           icon={<Languages aria-hidden="true" />}
           heading={m.preferences_language()}
         >
-          <RadioGroup
+          <ButtonGroup
             aria-label={m.preferences_language()}
-            value={locale}
-            onChange={(value) => onLocaleChange(value as typeof locale)}
-            className="flex-row flex-wrap gap-x-8 gap-y-3"
+            size="sm"
+            selectedKeys={[locale]}
+            disallowEmptySelection
+            onSelectionChange={(keys) => {
+              const next = [...keys][0];
+              if (next !== undefined) onLocaleChange(String(next) as typeof locale);
+            }}
           >
-            <RadioButton value="en" label={m.preferences_english()} />
-            <RadioButton value="zh-CN" label={m.preferences_chinese()} />
-          </RadioGroup>
+            <ButtonGroupItem id="en">{m.preferences_english()}</ButtonGroupItem>
+            <ButtonGroupItem id="zh-CN">{m.preferences_chinese()}</ButtonGroupItem>
+          </ButtonGroup>
         </PreferenceSection>
 
         <PreferenceSection icon={<Clock3 aria-hidden="true" />} heading={m.preferences_time_zone()}>
@@ -629,16 +633,26 @@ function Preferences({
           }
           heading={m.preferences_appearance()}
         >
-          <RadioGroup
+          <ButtonGroup
             aria-label={m.preferences_appearance()}
-            value={theme}
-            onChange={(value) => onThemeChange(value as typeof theme)}
-            className="flex-row flex-wrap gap-x-8 gap-y-3"
+            size="sm"
+            selectedKeys={[theme]}
+            disallowEmptySelection
+            onSelectionChange={(keys) => {
+              const next = [...keys][0];
+              if (next !== undefined) onThemeChange(String(next) as typeof theme);
+            }}
           >
-            <RadioButton value="system" label={m.preferences_system()} />
-            <RadioButton value="light" label={m.preferences_light()} />
-            <RadioButton value="dark" label={m.preferences_dark()} />
-          </RadioGroup>
+            <ButtonGroupItem id="system" iconLeading={SunMoon}>
+              {m.preferences_system()}
+            </ButtonGroupItem>
+            <ButtonGroupItem id="light" iconLeading={Sun}>
+              {m.preferences_light()}
+            </ButtonGroupItem>
+            <ButtonGroupItem id="dark" iconLeading={Moon}>
+              {m.preferences_dark()}
+            </ButtonGroupItem>
+          </ButtonGroup>
         </PreferenceSection>
       </div>
     </div>
