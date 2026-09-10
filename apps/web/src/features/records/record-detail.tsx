@@ -1,14 +1,20 @@
 import { useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { DotsHorizontal, MessageChatCircle as Message, Trash01 as Trash } from "@untitledui/icons";
+import {
+  DotsHorizontal,
+  MessageChatCircle as Message,
+  Plus,
+  Trash01 as Trash,
+} from "@untitledui/icons";
 
-import { PageHeader } from "@/components/layout/page-header";
 import { Avatar } from "@/components/base/avatar/avatar";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { Button } from "@/components/base/buttons/button";
+import { Badge } from "@/components/base/badges/badges";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { cn } from "@/lib/utils";
+import { Input } from "@/components/base/input/input";
+import { TextArea } from "@/components/base/textarea/textarea";
+import { Tabs } from "@/components/application/tabs/tabs";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { m } from "@/paraglide/messages";
 import { saveWeeklyHighlightContent, saveWeeklyReportContent } from "./records.functions";
 import {
@@ -46,6 +52,18 @@ type HighlightSubject = {
   };
 };
 
+function reportStatusColor(status: string): "gray" | "success" | "blue" {
+  if (status === "submitted") return "success";
+  if (status === "shared") return "blue";
+  return "gray";
+}
+
+function reportStatusLabel(status: string): string {
+  if (status === "submitted") return m.records_status_submitted();
+  if (status === "shared") return m.records_status_shared();
+  return m.records_status_draft();
+}
+
 export function RecordDetail({ subject }: { subject: ReportSubject | HighlightSubject }) {
   if (subject.type === "highlight") {
     return <HighlightDetail highlight={subject.highlight} />;
@@ -76,111 +94,110 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
     }
   }
 
-  const tab = content.tabs[activeTab] ?? emptyReportTab();
+  function updateSectionRoots(tabName: string, sectionIndex: number, roots: OutlineNode[]) {
+    const next = structuredClone(contentRef.current);
+    const target = next.tabs[tabName]?.sections[sectionIndex];
+    if (target) target.roots = roots;
+    setContent(next);
+    contentRef.current = next;
+  }
 
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <PageHeader
-          heading={report.title}
-          leading={<BackToRecords />}
-          meta={
-            <div className="flex min-w-0 items-center gap-2 text-sm text-tertiary">
+        <div className="flex shrink-0 flex-wrap items-center gap-4 border-b border-secondary px-4 py-3 sm:px-6">
+          <BackToRecords />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="truncate text-lg font-semibold text-primary">{report.title}</h1>
+              <Badge size="sm" color={reportStatusColor(report.status)}>
+                {reportStatusLabel(report.status)}
+              </Badge>
+            </div>
+            <p className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 text-sm text-tertiary">
               <Avatar
-                size="sm"
+                size="xs"
                 alt={report.author.displayName}
                 initials={avatarInitial(report.author.displayName)}
                 contentClassName={avatarToneClassName(report.author.displayName)}
               />
               <span className="truncate">{report.author.displayName}</span>
-            </div>
-          }
-          actions={
-            <div className="flex items-center gap-1">
+              <span aria-hidden="true">·</span>
+              <span className="truncate">{report.cycle.title}</span>
+            </p>
+          </div>
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            <ButtonUtility
+              size="sm"
+              color="tertiary"
+              icon={Message}
+              aria-pressed={sideOpen}
+              aria-label={m.records_side_chat()}
+              onClick={() => setSideOpen((open) => !open)}
+            />
+            <Dropdown.Root>
               <ButtonUtility
-                icon={Message}
                 size="sm"
                 color="tertiary"
-                aria-label={m.records_side_chat()}
-                aria-pressed={sideOpen}
-                onClick={() => setSideOpen((open) => !open)}
+                icon={DotsHorizontal}
+                aria-label={m.records_report_actions()}
               />
-              <Dropdown.Root>
-                <ButtonUtility
-                  icon={DotsHorizontal}
-                  size="sm"
-                  color="tertiary"
-                  aria-label={m.records_report_actions()}
-                />
-                <Dropdown.Popover placement="bottom right">
-                  <Dropdown.Menu
-                    aria-label={m.records_report_actions()}
-                    onAction={() => {
-                      if (saving || tabNames.length === 0) return;
+              <Dropdown.Popover placement="bottom end" className="w-44">
+                <Dropdown.Menu
+                  onAction={(key) => {
+                    if (key === "clear")
                       void persist(clearReportContent(contentRef.current), "draft");
-                    }}
-                  >
-                    <Dropdown.Item
-                      id="clear"
-                      label={m.records_report_clear()}
-                      icon={Trash}
-                      isDisabled={saving || tabNames.length === 0}
-                    />
-                  </Dropdown.Menu>
-                </Dropdown.Popover>
-              </Dropdown.Root>
-            </div>
-          }
-        />
+                  }}
+                >
+                  <Dropdown.Item
+                    id="clear"
+                    icon={Trash}
+                    label={m.records_report_clear()}
+                    isDisabled={saving || tabNames.length === 0}
+                  />
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown.Root>
+          </div>
+        </div>
 
         {tabNames.length === 0 ? (
           <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-tertiary">
             {m.records_tabs_from_dimensions_empty()}
           </div>
         ) : (
-          <>
-            <div className="flex gap-4 border-b border-secondary px-4 sm:px-6">
+          <Tabs
+            selectedKey={activeTab}
+            onSelectionChange={(key) => setSelectedTab(String(key))}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <Tabs.List type="underline" size="sm" className="px-4 sm:px-6">
               {tabNames.map((name) => (
-                <Button
-                  key={name}
-                  type="button"
-                  color="tertiary"
-                  aria-pressed={name === activeTab}
-                  className={cn(
-                    "-mb-px h-10 rounded-none border-b-2 px-1",
-                    name === activeTab
-                      ? "border-brand text-brand-secondary"
-                      : "border-transparent text-tertiary",
-                  )}
-                  onPress={() => setSelectedTab(name)}
-                >
-                  {name}
-                </Button>
+                <Tabs.Item key={name} id={name} label={name} />
               ))}
-            </div>
-
-            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
-              {tab.sections.map((section, sectionIndex) => (
-                <section key={section.id} className="space-y-3">
-                  <h2 className="flex items-center gap-2 text-sm font-semibold">
-                    <span className="size-2 rounded-full bg-brand" aria-hidden="true" />
-                    {section.title || m.records_section_untitled()}
-                  </h2>
-                  <OutlineEditor
-                    roots={section.roots}
-                    onChange={(roots) => {
-                      const next = structuredClone(contentRef.current);
-                      const target = next.tabs[activeTab]?.sections[sectionIndex];
-                      if (target) target.roots = roots;
-                      setContent(next);
-                      contentRef.current = next;
-                    }}
-                    onBlur={() => void persist(contentRef.current)}
-                  />
-                </section>
-              ))}
-            </div>
-          </>
+            </Tabs.List>
+            {tabNames.map((name) => (
+              <Tabs.Panel
+                key={name}
+                id={name}
+                className="min-h-0 flex-1 divide-y divide-secondary overflow-y-auto px-4 sm:px-6"
+              >
+                {(content.tabs[name] ?? emptyReportTab()).sections.map((section, sectionIndex) => (
+                  <section key={section.id} className="space-y-3 py-6">
+                    <h2 className="flex items-center gap-2 text-sm font-semibold text-primary">
+                      <span className="size-1.5 rounded-full bg-brand-solid" aria-hidden="true" />
+                      {section.title || m.records_section_untitled()}
+                    </h2>
+                    <OutlineEditor
+                      roots={section.roots}
+                      onChange={(roots) => updateSectionRoots(name, sectionIndex, roots)}
+                      onBlur={() => void persist(contentRef.current)}
+                    />
+                  </section>
+                ))}
+              </Tabs.Panel>
+            ))}
+          </Tabs>
         )}
       </div>
 
@@ -227,23 +244,22 @@ function OutlineEditor({
       const currentPath = [...path, index];
       return (
         <div key={node.id} className="space-y-2" style={{ marginLeft: depth * 16 }}>
-          <div className="flex gap-2">
-            <input
+          <div className="flex items-center gap-2">
+            <Input
+              size="sm"
+              className="flex-1"
               value={node.text}
               placeholder={m.records_outline_level({ level: Math.min(depth + 1, 4) })}
-              onChange={(event) => updateNode(currentPath, event.target.value)}
+              onChange={(value) => updateNode(currentPath, value)}
               onBlur={onBlur}
-              className="h-10 min-w-0 flex-1 rounded-lg bg-secondary px-3 text-sm outline-none ring-1 ring-secondary ring-inset focus:ring-2 focus:ring-brand"
             />
-            <Button
-              type="button"
-              color="secondary"
+            <ButtonUtility
               size="sm"
+              color="secondary"
+              icon={Plus}
               aria-label={m.records_outline_add()}
-              onPress={() => addChild(currentPath)}
-            >
-              +
-            </Button>
+              onClick={() => addChild(currentPath)}
+            />
           </div>
           {node.children.length > 0 ? renderNodes(node.children, currentPath, depth + 1) : null}
         </div>
@@ -264,44 +280,46 @@ function HighlightDetail({ highlight }: { highlight: HighlightSubject["highlight
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <PageHeader
-          heading={highlight.title}
-          leading={<BackToRecords />}
-          meta={
-            <span className="text-sm text-tertiary">
-              {highlight.completedAt
-                ? m.records_highlight_completed({
-                    time: new Date(highlight.completedAt).toLocaleString(),
-                  })
-                : m.records_highlight_draft()}
-            </span>
-          }
-          actions={
+        <div className="flex shrink-0 flex-wrap items-center gap-4 border-b border-secondary px-4 py-3 sm:px-6">
+          <BackToRecords />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="truncate text-lg font-semibold text-primary">{highlight.title}</h1>
+              <Badge size="sm" color={highlight.completedAt ? "success" : "gray"}>
+                {highlight.completedAt
+                  ? m.records_highlight_status_completed()
+                  : m.records_highlight_status_draft()}
+              </Badge>
+            </div>
+            {highlight.completedAt && (
+              <p className="mt-0.5 text-sm text-tertiary">
+                {m.records_highlight_completed({
+                  time: new Date(highlight.completedAt).toLocaleString(),
+                })}
+              </p>
+            )}
+          </div>
+          <div className="ml-auto shrink-0">
             <ButtonUtility
-              icon={Message}
               size="sm"
               color="tertiary"
-              aria-label={m.records_side_chat()}
+              icon={Message}
               aria-pressed={sideOpen}
+              aria-label={m.records_side_chat()}
               onClick={() => setSideOpen((open) => !open)}
             />
-          }
-        />
-        <div className="flex items-center gap-3 border-b border-secondary px-4 py-4 sm:px-6">
-          <span className="flex size-12 items-center justify-center rounded-full bg-brand-secondary text-lg font-semibold text-brand-secondary">
-            {highlight.cycle.week}
-          </span>
-          <div className="font-semibold">{highlight.title}</div>
+          </div>
         </div>
-        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
+        <div className="min-h-0 flex-1 divide-y divide-secondary overflow-y-auto px-4 sm:px-6">
           {content.blocks.map((block, index) => (
-            <section key={block.id} className="space-y-2">
-              <h2 className="text-sm font-semibold">{block.heading}</h2>
-              <textarea
+            <section key={block.id} className="space-y-2 py-6">
+              <h2 className="text-sm font-semibold text-primary">{block.heading}</h2>
+              <TextArea
+                aria-label={block.heading}
                 value={block.paragraphs.join("\n")}
-                onChange={(event) => {
+                onChange={(value) => {
                   const next = structuredClone(contentRef.current);
-                  next.blocks[index]!.paragraphs = event.target.value.split("\n");
+                  next.blocks[index]!.paragraphs = value.split("\n");
                   setContent(next);
                   contentRef.current = next;
                 }}
@@ -311,7 +329,6 @@ function HighlightDetail({ highlight }: { highlight: HighlightSubject["highlight
                   })
                 }
                 rows={4}
-                className="w-full rounded-lg bg-secondary px-3 py-2 text-sm outline-none ring-1 ring-secondary ring-inset focus:ring-2 focus:ring-brand"
               />
             </section>
           ))}
