@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cx } from "@/utils/cx";
-import { MobileNavigationHeader } from "@/components/application/app-navigation/base-components/mobile-header";
+import { MobileNavigationHeader } from "@/components/layout/sidebar/mobile-header";
 import { NavItemBase } from "@/components/application/app-navigation/base-components/nav-item";
 import { NavList } from "@/components/application/app-navigation/base-components/nav-list";
 import type { NavItemType } from "@/components/application/app-navigation/config";

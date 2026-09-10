@@ -1,7 +1,7 @@
 import type { FC, ReactNode } from "react";
 import { LayoutLeft as PanelLeft } from "@untitledui/icons";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { MobileNavigationHeader } from "@/components/application/app-navigation/base-components/mobile-header";
+import { MobileNavigationHeader } from "@/components/layout/sidebar/mobile-header";
 import { NavButton } from "@/components/application/app-navigation/base-components/nav-button";
 import { NavList } from "@/components/application/app-navigation/base-components/nav-list";
 import type { NavItemType } from "@/components/application/app-navigation/config";
