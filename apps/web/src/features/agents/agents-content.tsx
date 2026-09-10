@@ -130,11 +130,61 @@ export function AgentsContent({
         <PageHeader
           heading={m.navigation_agents()}
           actions={
-            <Button size="sm" iconLeading={Plus} onPress={() => setOpen(true)}>
+            <Button size="sm" color="secondary" iconLeading={Plus} onPress={() => setOpen(true)}>
               {m.header_new_agent()}
             </Button>
           }
         />
+        {memberCount > 0 && (
+          <div className="flex h-11 shrink-0 items-center gap-3 border-b border-secondary px-4 sm:px-6">
+            <div
+              role="group"
+              aria-label={m.member_type_filter()}
+              className="flex h-9 max-w-full gap-0.5 rounded-lg bg-secondary p-0.5 ring-1 ring-secondary ring-inset"
+            >
+              {(["all", "human", "agent"] as const).map((type) => (
+                <Button
+                  key={type}
+                  aria-label={
+                    type === "all"
+                      ? m.filters_all()
+                      : type === "human"
+                        ? m.member_person()
+                        : m.member_agent()
+                  }
+                  color={memberType === type ? "secondary" : "tertiary"}
+                  className="h-8 gap-2 px-3 font-semibold aria-pressed:text-primary"
+                  aria-pressed={memberType === type}
+                  onPress={() => onMemberTypeChange(type)}
+                >
+                  {type === "all"
+                    ? m.filters_all()
+                    : type === "human"
+                      ? m.member_person()
+                      : m.member_agent()}
+                  <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium tabular-nums text-tertiary ring-1 ring-secondary ring-inset">
+                    {type === "all"
+                      ? memberCount
+                      : type === "human"
+                        ? directory.people.length
+                        : directory.agents.length}
+                  </span>
+                </Button>
+              ))}
+            </div>
+            <label className="flex h-9 w-full items-center gap-2 rounded-lg bg-primary px-3 text-sm shadow-xs ring-1 ring-secondary transition-shadow focus-within:ring-2 focus-within:ring-brand ring-inset sm:ml-auto sm:w-72">
+              <Search aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
+              <input
+                type="search"
+                aria-label={m.filters_search()}
+                placeholder={`${m.filters_search()}...`}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-tertiary"
+              />
+            </label>
+          </div>
+        )}
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6">
           {deferredStart && (
             <p
@@ -143,56 +193,6 @@ export function AgentsContent({
             >
               {m.agent_deferred_start_notice()}
             </p>
-          )}
-          {memberCount > 0 && (
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <div
-                role="group"
-                aria-label={m.member_type_filter()}
-                className="flex h-9 max-w-full gap-0.5 rounded-lg bg-secondary p-0.5 ring-1 ring-secondary ring-inset"
-              >
-                {(["all", "human", "agent"] as const).map((type) => (
-                  <Button
-                    key={type}
-                    aria-label={
-                      type === "all"
-                        ? m.filters_all()
-                        : type === "human"
-                          ? m.member_person()
-                          : m.member_agent()
-                    }
-                    color={memberType === type ? "secondary" : "tertiary"}
-                    className="h-8 gap-2 px-3 font-semibold aria-pressed:text-primary"
-                    aria-pressed={memberType === type}
-                    onPress={() => onMemberTypeChange(type)}
-                  >
-                    {type === "all"
-                      ? m.filters_all()
-                      : type === "human"
-                        ? m.member_person()
-                        : m.member_agent()}
-                    <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium tabular-nums text-tertiary ring-1 ring-secondary ring-inset">
-                      {type === "all"
-                        ? memberCount
-                        : type === "human"
-                          ? directory.people.length
-                          : directory.agents.length}
-                    </span>
-                  </Button>
-                ))}
-              </div>
-              <label className="flex h-9 w-full items-center gap-2 rounded-lg bg-primary px-3 text-sm shadow-xs ring-1 ring-secondary transition-shadow focus-within:ring-2 focus-within:ring-brand ring-inset sm:ml-auto sm:w-72">
-                <Search aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
-                <input
-                  type="search"
-                  aria-label={m.filters_search()}
-                  placeholder={`${m.filters_search()}...`}
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-tertiary"
-                />
-              </label>
-            </div>
           )}
           {filteredPeople.length + filteredAgents.length ? (
             <ul

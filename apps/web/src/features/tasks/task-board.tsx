@@ -78,7 +78,13 @@ export function TaskBoard({
         >
           <TaskLayoutToggle layout={layout} onChange={onLayoutChange} />
           {canMutate && onCreateTask && (
-            <Button type="button" size="sm" className="ml-auto" onPress={() => setCreateOpen(true)}>
+            <Button
+              type="button"
+              size="sm"
+              color="secondary"
+              className="ml-auto"
+              onPress={() => setCreateOpen(true)}
+            >
               {m.tasks_create()}
             </Button>
           )}
