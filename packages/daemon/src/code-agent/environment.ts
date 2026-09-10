@@ -17,6 +17,14 @@ const SAFE_INHERITED_ENVIRONMENT = [
   "TMP",
   "LANG",
   "LC_ALL",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "ALL_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "all_proxy",
+  "no_proxy",
 ] as const;
 
 const CLI_BIN_DIRECTORIES = [
