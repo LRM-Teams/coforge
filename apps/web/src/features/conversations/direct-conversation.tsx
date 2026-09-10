@@ -12,13 +12,13 @@ import { measureElement, observeElementRect, useVirtualizer } from "@tanstack/re
 import {
   ArrowDown,
   ArrowLeft,
+  ArrowUp,
   File02 as FileText,
   LayoutLeft as PanelLeft,
   List,
   Loading01 as LoaderCircle,
   MessageSquare01 as MessageSquare,
   Paperclip,
-  Send01,
   CheckSquare as ListTodo,
 } from "@untitledui/icons";
 import type { TaskView } from "@coforge/protocol";
@@ -967,7 +967,7 @@ export function ConversationPane({
             role="group"
             aria-label={m.conversation_message_navigation()}
             className={cn(
-              "absolute right-5 bottom-2 z-10 flex items-center rounded-full border border-secondary bg-primary p-0.5 shadow-md transition-opacity",
+              "absolute right-4 bottom-3 z-10 inline-flex items-center gap-0.5 rounded-full border border-secondary bg-primary p-0.5 shadow-xs transition-opacity",
               followingLatest &&
                 !ownMessagesOpen &&
                 "pointer-events-none opacity-0 group-hover/history:pointer-events-auto group-hover/history:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
@@ -1069,14 +1069,15 @@ export function ConversationPane({
               </Dropdown.Root>
             )}
             {ownMessages.length > 0 && !followingLatest && (
-              <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-secondary" />
+              <span aria-hidden="true" className="h-4 w-px bg-secondary" />
             )}
             {!followingLatest && (
               <span className="relative">
-                <Button
-                  color="secondary"
-                  size="sm"
-                  onPress={() => void showLatestMessages()}
+                <ButtonUtility
+                  icon={ArrowDown}
+                  size="xs"
+                  color="tertiary"
+                  onClick={() => void showLatestMessages()}
                   aria-label={
                     newMessageCount === 1
                       ? m.conversation_one_new_message()
@@ -1084,8 +1085,7 @@ export function ConversationPane({
                         ? m.conversation_new_messages({ count: newMessageCount })
                         : m.conversation_back_to_bottom()
                   }
-                  iconLeading={ArrowDown}
-                  className="rounded-full before:rounded-full"
+                  className="rounded-full"
                 />
                 {newMessageCount > 0 && (
                   <span
@@ -1167,7 +1167,7 @@ export function ConversationPane({
             )}
             <ButtonUtility
               type="submit"
-              icon={Send01}
+              icon={ArrowUp}
               size="sm"
               color="tertiary"
               isDisabled={sending || (!body.trim() && !file)}
