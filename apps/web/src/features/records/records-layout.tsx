@@ -199,10 +199,7 @@ export function RecordsLayout({
                             selected={item.id === selectedRecordId}
                             onSelect={() => setShowMobileList(false)}
                           >
-                            <Avatar
-                              people={[{ name: item.author.displayName }]}
-                              size="sm"
-                            />
+                            <Avatar people={[{ name: item.author.displayName }]} size="sm" />
                             <span className="truncate">{item.title}</span>
                           </RecordLink>
                         </li>
@@ -284,8 +281,7 @@ export function RecordsLayout({
                     <ul className="space-y-1">
                       {filteredMemberWeeks.map((week) => {
                         const expanded =
-                          expandedWeeks[week.id] ??
-                          (Boolean(query) && week.reports.length > 0);
+                          expandedWeeks[week.id] ?? (Boolean(query) && week.reports.length > 0);
                         return (
                           <li key={week.id} className="space-y-0.5">
                             <div className="flex min-w-0 items-center gap-1">
@@ -317,9 +313,7 @@ export function RecordsLayout({
                               </Button>
                               {week.templateReport?.id || week.highlight?.id ? (
                                 <RecordLink
-                                  recordId={
-                                    (week.templateReport?.id ?? week.highlight?.id)!
-                                  }
+                                  recordId={(week.templateReport?.id ?? week.highlight?.id)!}
                                   selected={
                                     week.templateReport?.id === selectedRecordId ||
                                     week.highlight?.id === selectedRecordId

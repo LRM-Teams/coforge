@@ -1,10 +1,6 @@
 import { useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import {
-  DotsHorizontal,
-  MessageChatCircle as Message,
-  Trash01 as Trash,
-} from "@untitledui/icons";
+import { DotsHorizontal, MessageChatCircle as Message, Trash01 as Trash } from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Avatar } from "@/components/ui/avatar";

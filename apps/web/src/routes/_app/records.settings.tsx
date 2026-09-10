@@ -7,10 +7,7 @@ import { loadWorkspaceMembers } from "@/features/workspaces/members.functions";
 
 export const Route = createFileRoute("/_app/records/settings")({
   loader: async () => {
-    const [templates, members] = await Promise.all([
-      loadWeeklyTemplates(),
-      loadWorkspaceMembers(),
-    ]);
+    const [templates, members] = await Promise.all([loadWeeklyTemplates(), loadWorkspaceMembers()]);
     return { templates, members: members.members };
   },
   errorComponent: PageLoadError,

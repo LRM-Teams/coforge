@@ -27,7 +27,9 @@ function asHighlightContent(value: unknown): HighlightContent {
 }
 
 function asStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 async function requireMembership(db: Db, workspaceId: string, userId: string) {
@@ -112,13 +114,14 @@ export class RecordCatalog {
             completedAt: cycle.highlight.completedAt?.toISOString() ?? null,
           }
         : null,
-      templateReport: cycle.reports
-        .filter((report) => report.kind === "template")
-        .map((report) => ({
-          id: report.id,
-          title: report.title,
-          status: report.status,
-        }))[0] ?? null,
+      templateReport:
+        cycle.reports
+          .filter((report) => report.kind === "template")
+          .map((report) => ({
+            id: report.id,
+            title: report.title,
+            status: report.status,
+          }))[0] ?? null,
       reports: cycle.reports
         .filter((report) => report.kind === "member")
         .map((report) => ({

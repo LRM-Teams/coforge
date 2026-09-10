@@ -119,8 +119,7 @@ export function normalizeReportContent(value: unknown): ReportContent {
         id: section.id || id(),
         key: section.key || "section",
         title: section.title ?? "",
-        roots:
-          (section.roots?.length ?? 0) > 0 ? section.roots! : [emptyOutlineRoot()],
+        roots: (section.roots?.length ?? 0) > 0 ? section.roots! : [emptyOutlineRoot()],
       })),
     };
   }
