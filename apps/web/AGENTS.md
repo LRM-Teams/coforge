@@ -342,3 +342,23 @@ instructions for the TanStack Start Web/backend modular monolith.
 - Follow the TanStack guidance listed in the repository-level `AGENTS.md`
   before making changes to routing, data loading, Server Functions, middleware,
   authentication, SSR, or code splitting.
+
+## Dev data seed and UI sweep
+
+`bun run seed:dev` (`scripts/seed-dev.ts`) fills the dev-skip-auth
+workspace's every page with a populated state: three Agents (two active,
+one inactive, three different runtimes), two Computers (one online with
+three detected runtimes and usage data, one offline), three public channels
+(one the dev user hasn't joined), a direct conversation with each Agent,
+~40 messages spanning several days with a few attachments and a 5-reply
+thread, six Tasks across every status, two Reminders, and a pending
+invitation plus two extra members. Every row is addressed by a deterministic
+id derived from a stable seed string, so rerunning the script updates
+existing rows rather than duplicating them — safe to run repeatedly against
+the same database. Two things it cannot create honestly because there is no
+live daemon in dev: an Agent's "active" status and a Computer's "online"
+status (plus runtime usage snapshots) live in Redis as short leases a real
+daemon connection renews continuously, so the seed writes those Redis keys
+directly with a ~24h TTL instead — they will look "inactive"/"offline"
+again if the dev environment sits idle for about a day, at which point
+rerunning the seed refreshes them.
