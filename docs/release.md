@@ -150,6 +150,28 @@ sidecar after bounded expansion. POSIX bootstrap requires the gzip utility;
 PowerShell uses .NET GZipStream. Compression does not reduce
 installed executable size and never permits overwriting a published version.
 
+Bootstrap and Computer install/upgrade use the same installer script source for
+downloads: `curl` on POSIX and `curl.exe` on Windows. Computer embeds these scripts
+at build time, pins their feed to its compiled environment, and invokes preparation
+mode under the existing machine mutation lock. It does not fetch a mutable remote
+script or maintain a separate binary downloader. Preparation writes bounded
+manifest/gzip files without executing the candidate or configuring PATH.
+Bootstrap additionally verifies the checksum sidecar before executing Computer's
+hidden `__install-local` entry with that local package directory. Computer verifies
+the local manifest and both artifact identities again, without downloading the
+gzip a second time. The directory's owner retains it until installation completes.
+
+Both entry points detect the platform before resolving the version. Normal output
+is limited to platform/version, curl download progress, installation location, and
+the final result. Bootstrap retains one setup command and, only when needed, a
+current-terminal PATH instruction; upgrade prints no onboarding instructions.
+Runtime switching and health checks are silent unless they fail;
+rollback outcome is reported on failure. Captured output keeps stage lines without
+the interactive progress bar. See curl's [progress-bar documentation](https://curl.se/docs/manpage.html#--progress-bar)
+and Bun's [text loader](https://bun.com/docs/bundler/loaders#text) for these mechanisms.
+New bootstrap scripts require a Computer release supporting `__install-local`;
+publish that candidate before deploying the Web build that embeds the new scripts.
+
 `<target>` is one of the existing `releaseTarget` values: `linux-x64`,
 `linux-arm64`, `darwin-x64`, `darwin-arm64`, `windows-x64`, `windows-arm64`.
 `manifest.json` uses `schema_version: 2`. For every supported target,
@@ -177,9 +199,8 @@ one line of hex and nothing else (not `sha256sum`'s two-field
 `computer` entry's `checksum` for the same `<version>/<target>` in
 `manifest.json` - the release workflow generates both from the same bytes in
 the same step (see "Main to staging" below) - and the two are never allowed to
-drift apart. `updater.ts`, which runs after Computer is already installed and
-has a real `JSON.parse`, keeps reading `manifest.json` directly and never
-reads the sidecar; only the two bootstrap scripts do.
+drift apart. `updater.ts`, which has a real `JSON.parse`, reads the locally
+prepared `manifest.json` and never reads the sidecar; only bootstrap does.
 
 Every publication ships the unified executable under one version identity;
 there is no mechanism to change only Computer or only Daemon while reusing

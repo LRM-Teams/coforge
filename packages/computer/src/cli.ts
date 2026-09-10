@@ -16,6 +16,7 @@ import {
 } from "./paths";
 import { ComputerUpdater, UpdateError } from "./updater";
 import { launchUpgradeCoordinator } from "./release/upgrade-coordinator";
+import { runInstallationSource } from "./release/installation-source";
 import { COFORGE_RELEASE_FEED_URL, COFORGE_SERVER_URL } from "./release-channel";
 import { FileComputerConfig, loadBuildProfile } from "./local-config";
 import { resolveComputerConfigDirectory } from "./paths";
@@ -55,7 +56,7 @@ export interface SetupCommand {
 export interface UpdateCommand {
   resolveVersion(selector: string): Promise<string>;
   getCurrentVersion(): Promise<string | null>;
-  install(version: string): Promise<void>;
+  install(version: string, localDirectory?: string): Promise<void>;
   upgrade(version: string): Promise<void>;
   rollback(): Promise<void>;
 }
@@ -164,6 +165,15 @@ export async function runCli(
         return updater[operation](options.version);
       });
   }
+  program
+    .command("__install-local", { hidden: true })
+    .requiredOption("--version <version>")
+    .requiredOption("--directory <directory>")
+    .action((options: { version: string; directory: string }) => {
+      if (options.version === "latest")
+        throw new Error("local installation requires a concrete version");
+      return requireUpdater(dependencies).install(options.version, options.directory);
+    });
   program
     .command("rollback")
     .description("Reactivate the previous locally verified Computer bundle without network access.")
@@ -506,7 +516,10 @@ function createLogsCommand(
   };
 }
 
-function createUpdateCommand(io: { stdout: (line: string) => void }): UpdateCommand {
+function createUpdateCommand(io: {
+  stdout: (line: string) => void;
+  stderr: (line: string) => void;
+}): UpdateCommand {
   const installRoot = resolveComputerInstallDirectory({
     platform: process.platform,
     homeDirectory: process.env.HOME ?? process.env.USERPROFILE ?? "",
@@ -523,16 +536,24 @@ function createUpdateCommand(io: { stdout: (line: string) => void }): UpdateComm
     target,
     installRoot,
     binaryDirectory,
+    onStage: (stage) => io.stderr(`==> ${stage}`),
   });
   const supervisorStatePath = resolveComputerStateDirectory({
     platform: process.platform,
     homeDirectory: homedir(),
     environment: Bun.env,
   });
-  const coordinate = (operation: "upgrade" | "rollback", selection: string) =>
+  const coordinate = (
+    operation: "upgrade" | "rollback",
+    selection: string,
+    localDirectory?: string,
+    quietHeader = false,
+  ) =>
     launchUpgradeCoordinator({
       operation,
       selection,
+      localDirectory,
+      quietHeader,
       installRoot,
       binaryDirectory,
       target,
@@ -544,17 +565,31 @@ function createUpdateCommand(io: { stdout: (line: string) => void }): UpdateComm
       }),
     });
   return {
-    resolveVersion: (selector) => updater.resolveVersion(selector),
+    resolveVersion: (selection) =>
+      runInstallationSource({ baseUrl: COFORGE_RELEASE_FEED_URL, target, selection }),
     getCurrentVersion: () => updater.getCurrentVersion(),
-    async install(version) {
+    async install(version, localDirectory) {
       const result = (await Bun.file(join(installRoot, "active.json")).exists())
-        ? await coordinate("upgrade", version)
-        : await updater.install(version);
-      io.stdout(`Installed ${result.version}`);
+        ? await coordinate("upgrade", version, localDirectory)
+        : await (
+            localDirectory
+              ? new ComputerUpdater({
+                  baseUrl: COFORGE_RELEASE_FEED_URL,
+                  target,
+                  installRoot,
+                  binaryDirectory,
+                  localDirectory,
+                  onStage: (stage) => io.stderr(`==> ${stage}`),
+                })
+              : updater
+          ).install(version);
+      if (!localDirectory) io.stdout(`CoForge Computer ${result.version} installed successfully.`);
     },
     async upgrade(version) {
-      const result = await coordinate("upgrade", version);
-      io.stdout(`Activated ${result.version}`);
+      const current = await updater.getCurrentVersion();
+      io.stderr(`==> Updating CoForge Computer${current ? ` from ${current}` : ""} to ${version}`);
+      const result = await coordinate("upgrade", version, undefined, true);
+      io.stdout(`CoForge Computer ${result.version} updated successfully.`);
     },
     async rollback() {
       const result = await coordinate("rollback", "latest");

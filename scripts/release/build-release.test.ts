@@ -303,12 +303,14 @@ test("the real install.sh installs successfully from the produced tree", async (
   const { exitCode, stderr } = await runInstallSh(baseUrl);
 
   expect(stderr).toContain(`CoForge Computer ${version} installed`);
-  expect(stderr).toContain('/.local/bin/coforge-computer" login');
+  expect(stderr).toContain('/.local/bin/coforge-computer" setup --workspace <slug>');
   expect(exitCode).toBe(0);
   expect((await readFile(log, "utf8")).trim().split("\n")).toEqual([
-    "install",
+    "__install-local",
     "--version",
     version,
+    "--directory",
+    expect.stringContaining("coforge-installer."),
   ]);
 });
 

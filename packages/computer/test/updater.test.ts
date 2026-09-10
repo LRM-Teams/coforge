@@ -125,6 +125,59 @@ function updater(input: Awaited<ReturnType<typeof fixture>>) {
   });
 }
 
+test("install consumes a local bootstrap package without downloading it again", async () => {
+  const input = await fixture();
+  const localDirectory = join(input.directory, "bootstrap");
+  await Bun.write(
+    join(localDirectory, "manifest.json"),
+    input.files.get(`/${input.version}/manifest.json`)!,
+  );
+  await Bun.write(
+    join(localDirectory, "coforge-computer.gz"),
+    input.files.get(`/${input.version}/${input.target}/coforge-computer.gz`)!,
+  );
+  const manager = new ComputerUpdater({
+    baseUrl: input.baseUrl,
+    target: input.target,
+    installRoot: input.directory,
+    localDirectory,
+  });
+  await manager.install(input.version);
+  expect(input.requested).toEqual([]);
+  expect(
+    await readFile(join(input.directory, "versions", input.version, "coforge-computer"), "utf8"),
+  ).toBe("computer-payload-v2");
+});
+
+test("a local bootstrap package is reverified and cannot activate corrupt or mismatched bytes", async () => {
+  for (const failure of ["gzip", "version"] as const) {
+    const input = await fixture();
+    const localDirectory = join(input.directory, "bootstrap");
+    await Bun.write(
+      join(localDirectory, "manifest.json"),
+      input.files.get(`/${input.version}/manifest.json`)!,
+    );
+    const gzip = input.files.get(`/${input.version}/${input.target}/coforge-computer.gz`)!;
+    await Bun.write(
+      join(localDirectory, "coforge-computer.gz"),
+      failure === "gzip" ? flipByte(Buffer.from(gzip)) : gzip,
+    );
+    const manager = new ComputerUpdater({
+      baseUrl: input.baseUrl,
+      target: input.target,
+      installRoot: input.directory,
+      localDirectory,
+    });
+    await expect(
+      manager.install(failure === "version" ? "2.0.1" : input.version),
+    ).rejects.toMatchObject({
+      code: failure === "gzip" ? "UPDATE_INTEGRITY_FAILED" : "UPDATE_FEED_INVALID",
+    });
+    expect(await manager.getCurrentVersion()).toBeNull();
+    expect(input.requested).toEqual([]);
+  }
+});
+
 test("gzip corruption, missing objects, invalid paths and oversized expansion never activate", async () => {
   for (const failure of [
     "checksum",
