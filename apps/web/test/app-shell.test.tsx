@@ -203,7 +203,7 @@ test("shows the primary navigation with Members selected", () => {
   expect(markup.indexOf("Tasks")).toBeLessThan(markup.indexOf("Records"));
   expect(markup.indexOf("Records")).toBeLessThan(markup.indexOf("Computers"));
   expect(markup).toContain('href="/en/messages"');
-  expect(markup).toContain('href="/en/records"');
+  expect(markup).toContain('href="/en/records?tab=weekly"');
   expect(markup).toContain('aria-label="Current user"');
   expect(markup).toContain(">F</span>");
 });
