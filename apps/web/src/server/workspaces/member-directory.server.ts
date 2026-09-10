@@ -119,6 +119,15 @@ export class WorkspaceMemberDirectory {
     return this.store.acceptInvitation(input);
   }
 
+  /** The invitee turning down their own pending invitation (no workspace membership required). */
+  async declineInvitation(input: { invitationId: string; userId: string }) {
+    const invitation = await this.store.getInvitation(input.invitationId);
+    if (!invitation) throw new AppError("NOT_FOUND");
+    if (invitation.inviteeUserId !== input.userId) throw new AppError("ACCESS_DENIED");
+    if (invitation.status !== "pending") throw new AppError("CONFLICT");
+    return this.store.revokeInvitation(input.invitationId);
+  }
+
   async revokeInvitation(input: {
     workspaceId: string;
     actorUserId: string;

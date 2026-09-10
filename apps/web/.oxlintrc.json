@@ -10,22 +10,24 @@
   "overrides": [
     {
       "files": [
-        "src/components/ui/button.tsx",
-        "src/components/ui/select.tsx",
-        "src/components/ui/tooltip.tsx"
+        "src/components/base/badges/badges.tsx",
+        "src/components/application/app-navigation/base-components/nav-account-card.tsx"
       ],
       "rules": {
         "coforge/no-native-button": "off"
       }
     },
     {
-      "files": ["test/**/*.{ts,tsx}"],
+      "files": ["src/components/base/select/select-native.tsx"],
       "rules": {
-        "coforge/no-native-button": "off"
+        "coforge/no-native-select": "off"
       }
     },
     {
-      "files": ["src/features/records/report-editor/**/*.{ts,tsx}"],
+      "files": [
+        "src/features/records/report-editor/**/*.{ts,tsx}",
+        "src/features/records/create-member-report-dialog.tsx"
+      ],
       "rules": {
         "coforge/no-native-button": "off",
         "coforge/no-native-title": "off"

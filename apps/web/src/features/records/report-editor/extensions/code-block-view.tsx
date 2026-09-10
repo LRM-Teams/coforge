@@ -7,15 +7,15 @@ import { NodeSelection } from "@tiptap/pm/state";
 import {
   Check,
   ChevronDown,
-  Code as CodeIcon,
-  Copy,
-  GripVertical,
-  Download,
+  Code01 as CodeIcon,
+  Copy01 as Copy,
+  Move as GripVertical,
+  Download01 as Download,
   Eye,
-  MoreHorizontal,
-  SquareSplitVertical,
+  DotsHorizontal as MoreHorizontal,
+  Columns02 as SquareSplitVertical,
   ZoomIn,
-} from "lucide-react";
+} from "@untitledui/icons";
 import { cn } from "@/lib/utils";
 import { copyText } from "../lib/clipboard";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../ui/tooltip";

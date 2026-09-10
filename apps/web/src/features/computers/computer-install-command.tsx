@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Check, Copy01 as Copy } from "@untitledui/icons";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { installCommands, loginCommand, setupCommand } from "@/features/install/install-commands";
 import { m } from "@/paraglide/messages";
 
@@ -47,7 +48,7 @@ export function ComputerInstallCommand({
 
   return (
     <div className="space-y-6 px-6 py-8 sm:px-8">
-      <div className="flex gap-2" role="tablist" aria-label={m.computer_operating_system()}>
+      <div className="flex gap-2" role="group" aria-label={m.computer_operating_system()}>
         {(
           [
             { id: "macos-linux", label: m.computer_os_macos_linux() },
@@ -57,16 +58,15 @@ export function ComputerInstallCommand({
           <Button
             key={id}
             type="button"
-            role="tab"
-            aria-selected={operatingSystem === id}
-            variant="outline"
+            aria-pressed={operatingSystem === id}
+            color="secondary"
             size="sm"
             className={
               operatingSystem === id
-                ? "border-brand bg-secondary text-brand hover:bg-secondary"
-                : "border-border bg-secondary text-muted-foreground hover:border-brand/60 hover:bg-secondary hover:text-brand"
+                ? "border-brand bg-secondary text-brand-secondary hover:bg-secondary"
+                : "border-secondary bg-secondary text-tertiary hover:border-brand/60 hover:bg-secondary hover:text-brand-secondary"
             }
-            onClick={() => {
+            onPress={() => {
               setOperatingSystem(id);
               setInstallCopied(false);
             }}
@@ -77,67 +77,62 @@ export function ComputerInstallCommand({
       </div>
       <div>
         <p className="text-sm font-medium">{m.computer_install_step()}</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {m.computer_install_step_description()}
-        </p>
-        <div className="mt-4 flex items-center gap-2 rounded-xl bg-terminal p-4 text-sm text-terminal-foreground">
-          <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap">{command}</code>
-          <Button
-            variant="secondary"
-            size="icon"
+        <p className="mt-1 text-sm text-tertiary">{m.computer_install_step_description()}</p>
+        <div className="mt-4 flex items-center gap-2 rounded-xl bg-terminal p-4 text-sm text-terminal-fg">
+          <code className="min-w-0 flex-1 break-all whitespace-pre-wrap">{command}</code>
+          <ButtonUtility
+            icon={installCopied ? Check : Copy}
+            size="sm"
+            color="secondary"
             aria-label={m.computer_copy_command()}
             onClick={copyInstallCommand}
-          >
-            {installCopied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-          </Button>
+          />
         </div>
         {installCopied && (
-          <p className="mt-2 text-xs text-success">{m.computer_command_copied()}</p>
+          <p className="mt-2 text-xs text-success-primary">{m.computer_command_copied()}</p>
         )}
       </div>
       <div>
         <p className="text-sm font-medium">{m.computer_login_step()}</p>
-        <p className="mt-1 text-sm text-muted-foreground">{m.computer_login_step_description()}</p>
-        <div className="mt-4 flex items-center gap-2 rounded-xl bg-terminal p-4 text-sm text-terminal-foreground">
+        <p className="mt-1 text-sm text-tertiary">{m.computer_login_step_description()}</p>
+        <div className="mt-4 flex items-center gap-2 rounded-xl bg-terminal p-4 text-sm text-terminal-fg">
           <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap">{signInCommand}</code>
-          <Button
-            variant="secondary"
-            size="icon"
+          <ButtonUtility
+            icon={loginCopied ? Check : Copy}
+            size="sm"
+            color="secondary"
             aria-label={m.computer_copy_login_command()}
             onClick={copyLoginCommand}
-          >
-            {loginCopied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-          </Button>
+          />
         </div>
         {loginCopied && (
-          <p className="mt-2 text-xs text-success">{m.computer_login_command_copied()}</p>
+          <p className="mt-2 text-xs text-success-primary">{m.computer_login_command_copied()}</p>
         )}
       </div>
       {joinCommand && (
         <div>
           <p className="text-sm font-medium">{m.computer_setup_step()}</p>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-sm text-tertiary">
             {m.computer_setup_step_description({
               workspace: workspaceSlug ?? "",
             })}
           </p>
-          <div className="mt-4 flex items-center gap-2 rounded-xl bg-terminal p-4 text-sm text-terminal-foreground">
+          <div className="mt-4 flex items-center gap-2 rounded-xl bg-terminal p-4 text-sm text-terminal-fg">
             <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap">{joinCommand}</code>
-            <Button
-              variant="secondary"
-              size="icon"
+            <ButtonUtility
+              icon={setupCopied ? Check : Copy}
+              size="sm"
+              color="secondary"
               aria-label={m.computer_copy_setup_command()}
               onClick={copySetupCommand}
-            >
-              {setupCopied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-            </Button>
+            />
           </div>
           {setupCopied && (
-            <p className="mt-2 text-xs text-success">{m.computer_setup_command_copied()}</p>
+            <p className="mt-2 text-xs text-success-primary">{m.computer_setup_command_copied()}</p>
           )}
         </div>
       )}
-      <div className="rounded-xl bg-muted p-4 text-sm leading-6 text-muted-foreground">
+      <div className="rounded-xl bg-secondary p-4 text-sm leading-6 text-tertiary">
         {m.computer_install_note()}
       </div>
     </div>

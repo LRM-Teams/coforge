@@ -8,7 +8,8 @@ import {
 } from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import {
   Empty,
   EmptyContent,
@@ -19,14 +20,24 @@ import {
 } from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
-import { computerLabel, type ComputerIdentity } from "./computer-identity";
+import {
+  computerLabel,
+  operatingSystemLabel,
+  type ComputerIdentity,
+  type ComputerPlatformInfo,
+} from "./computer-identity";
 import { ComputerTile } from "./computer-tile";
+import { Avatar } from "@/components/base/avatar/avatar";
+import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 
-export type ComputerListItem = ComputerIdentity & {
-  id: string;
-  online: boolean;
-  computerVersion?: string | null;
-};
+export type ComputerListItem = ComputerIdentity &
+  ComputerPlatformInfo & {
+    id: string;
+    online: boolean;
+    computerVersion?: string | null;
+    creator?: { username: string; displayName: string | null; avatarUrl: string | null } | null;
+  };
 
 /**
  * Lets the selected Computer put the "back to the list" control in its own
@@ -57,8 +68,8 @@ export function ComputerLayout({
 
   if (!computers.length) {
     return (
-      <main className="flex h-svh min-w-0 md:p-2">
-        <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card md:rounded-xl md:border">
+      <main className="flex h-svh min-w-0">
+        <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-primary">
           <PageHeader heading={m.computer_page_title()} />
           <div className="min-h-0 flex-1 overflow-y-auto">
             <NoComputers onAdd={onAdd} />
@@ -69,11 +80,11 @@ export function ComputerLayout({
   }
 
   return (
-    <main className="flex h-svh min-w-0 md:gap-2 md:p-2">
+    <main className="flex h-svh min-w-0">
       <nav
         aria-label={m.computer_connected_list()}
         className={cn(
-          "min-w-0 flex-col overflow-hidden bg-card md:flex md:w-80 md:shrink-0 md:rounded-xl md:border",
+          "min-w-0 flex-col overflow-hidden bg-primary md:flex md:w-80 md:shrink-0 md:border-r md:border-secondary",
           listHidden ? "hidden" : "flex w-full",
         )}
       >
@@ -91,10 +102,10 @@ export function ComputerLayout({
                   resetScroll={false}
                   onClick={() => setShowMobileList(false)}
                   className={cn(
-                    "group flex min-h-18 min-w-0 items-center gap-3 rounded-lg px-3 py-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                    "group flex min-h-18 min-w-0 items-center gap-3 rounded-lg px-3 py-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset",
                     selected
-                      ? "bg-secondary text-brand hover:bg-secondary-hover"
-                      : "hover:bg-muted",
+                      ? "bg-secondary text-brand-secondary hover:bg-secondary_hover"
+                      : "hover:bg-primary_hover",
                   )}
                 >
                   <ComputerTile computer={computer} online={computer.online} />
@@ -102,15 +113,40 @@ export function ComputerLayout({
                     <span className="truncate text-sm font-semibold">
                       {computerLabel(computer)}
                     </span>
-                    {computer.computerVersion && (
-                      <span
-                        className="truncate text-xs text-muted-foreground"
-                        aria-label={m.computer_version()}
-                      >
-                        v{computer.computerVersion}
+                    {computer.name && computer.name !== computerLabel(computer) ? (
+                      <span className="truncate font-mono text-xs text-tertiary">
+                        {computer.name}
+                      </span>
+                    ) : (
+                      <span className="truncate text-xs text-tertiary">
+                        {operatingSystemLabel(computer)}
                       </span>
                     )}
                   </span>
+                  {computer.creator && (
+                    <Tooltip
+                      title={m.computer_added_by_name({
+                        name: computer.creator.displayName || computer.creator.username,
+                      })}
+                    >
+                      <TooltipTrigger className="shrink-0 rounded-full">
+                        <Avatar
+                          size="xs"
+                          src={computer.creator.avatarUrl}
+                          alt=""
+                          initials={avatarInitial(
+                            computer.creator.displayName || computer.creator.username,
+                          )}
+                          contentClassName={avatarToneClassName(
+                            computer.creator.displayName || computer.creator.username,
+                          )}
+                        />
+                        <span className="sr-only">
+                          {computer.creator.displayName || computer.creator.username}
+                        </span>
+                      </TooltipTrigger>
+                    </Tooltip>
+                  )}
                 </Link>
               </li>
             );
@@ -120,7 +156,7 @@ export function ComputerLayout({
 
       <section
         className={cn(
-          "min-w-0 flex-1 flex-col overflow-hidden bg-card md:flex md:rounded-xl md:border",
+          "min-w-0 flex-1 flex-col overflow-hidden bg-primary md:flex",
           listHidden ? "flex" : "hidden",
         )}
       >
@@ -134,8 +170,7 @@ export function ComputerLayout({
 
 function AddComputer({ onAdd }: { onAdd: () => void }) {
   return (
-    <Button size="sm" variant="outline" onClick={onAdd}>
-      <Plus aria-hidden="true" data-icon="inline-start" />
+    <Button size="sm" color="secondary" iconLeading={Plus} onPress={onAdd}>
       {m.computer_add_title()}
     </Button>
   );
@@ -149,16 +184,14 @@ export function BackToComputers() {
   }
 
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
+    <ButtonUtility
+      color="tertiary"
+      size="sm"
       onClick={back}
       aria-label={m.computer_back_to_list()}
       className="-ml-2 size-11 shrink-0 md:hidden"
-    >
-      <ChevronLeft aria-hidden="true" className="size-5" />
-    </Button>
+      icon={ChevronLeft}
+    />
   );
 }
 
@@ -167,9 +200,9 @@ function NoComputers({ onAdd }: { onAdd: () => void }) {
     <Empty className="gap-6 px-6 pt-[clamp(3rem,12svh,7rem)] pb-10">
       <EmptyHeader className="max-w-xs gap-3">
         <EmptyMedia aria-hidden="true" className="relative mb-3 h-28 w-44">
-          <span className="absolute inset-x-2 top-0 h-24 rounded-full bg-muted/70" />
-          <LaptopMinimal className="relative size-28 text-muted-foreground" strokeWidth={1} />
-          <span className="absolute right-2 bottom-0 flex size-10 items-center justify-center rounded-xl border bg-card text-muted-foreground shadow-sm">
+          <span className="absolute inset-x-2 top-0 h-24 rounded-full bg-secondary/70" />
+          <LaptopMinimal className="relative size-28 text-tertiary" strokeWidth={1} />
+          <span className="absolute right-2 bottom-0 flex size-10 items-center justify-center rounded-xl border border-secondary bg-primary text-tertiary shadow-sm">
             <Cable className="size-5" strokeWidth={1.5} />
           </span>
         </EmptyMedia>
@@ -179,8 +212,7 @@ function NoComputers({ onAdd }: { onAdd: () => void }) {
         <EmptyDescription>{m.computer_empty_description()}</EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <Button className="h-11 px-5" onClick={onAdd}>
-          <Plus aria-hidden="true" data-icon="inline-start" />
+        <Button size="md" className="h-11 px-5" iconLeading={Plus} onPress={onAdd}>
           {m.computer_add_title()}
         </Button>
       </EmptyContent>

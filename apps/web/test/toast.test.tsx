@@ -5,6 +5,7 @@ import { act, cleanup, render, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
 
+import { Button } from "@/components/base/buttons/button";
 import { AppToastProvider, useAppToast } from "@/components/ui/toast";
 import { AppError } from "@/lib/app-error";
 
@@ -22,20 +23,15 @@ function ToastDemo() {
   const toast = useAppToast();
   return (
     <div>
-      <button type="button" onClick={() => toast.success("Profile saved.")}>
-        Success
-      </button>
-      <button type="button" onClick={() => toast.error("Could not save")}>
-        Error
-      </button>
-      <button
-        type="button"
-        onClick={() =>
+      <Button onPress={() => toast.success("Profile saved.")}>Success</Button>
+      <Button onPress={() => toast.error("Could not save")}>Error</Button>
+      <Button
+        onPress={() =>
           toast.error("Could not save", new AppError("INTERNAL_ERROR", { errorId: "sample-ref" }))
         }
       >
         Error with reference
-      </button>
+      </Button>
     </div>
   );
 }

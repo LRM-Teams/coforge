@@ -11,7 +11,8 @@ import {
   type OwnMessageIndexEntry,
 } from "@/features/conversations/direct-conversation";
 import { AppToastProvider } from "@/components/ui/toast";
-import { ConversationLayout } from "@/features/conversations/conversation-layout";
+import { ChannelSidebarVisibilityContext } from "@/components/app-shell";
+import { ConversationRealtimeProvider } from "@/features/conversations/conversation-layout";
 import { getRouter } from "@/router";
 import type { ActivityEntry } from "@/features/agents/agent-activity";
 import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
@@ -70,7 +71,7 @@ function renderConversation(
   const view = render(
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
-        <ConversationLayout
+        <ConversationRealtimeProvider
           agents={[
             {
               ...conversation.agent,
@@ -78,7 +79,6 @@ function renderConversation(
               display: onlineDisplay,
             },
           ]}
-          selectedAgentId={conversation.agent.id}
         >
           <DirectConversation
             conversation={conversation}
@@ -89,7 +89,7 @@ function renderConversation(
             onLoadMessageAround={onLoadMessageAround}
             onShowLatest={onShowLatest}
           />
-        </ConversationLayout>
+        </ConversationRealtimeProvider>
       </AppToastProvider>
     </RouterContextProvider>,
   );
@@ -100,7 +100,7 @@ function renderConversation(
       view.rerender(
         <RouterContextProvider router={getRouter()}>
           <AppToastProvider>
-            <ConversationLayout
+            <ConversationRealtimeProvider
               agents={[
                 {
                   ...nextConversation.agent,
@@ -108,7 +108,6 @@ function renderConversation(
                   display: onlineDisplay,
                 },
               ]}
-              selectedAgentId={nextConversation.agent.id}
             >
               <DirectConversation
                 conversation={nextConversation}
@@ -119,7 +118,7 @@ function renderConversation(
                 onLoadMessageAround={onLoadMessageAround}
                 onShowLatest={onShowLatest}
               />
-            </ConversationLayout>
+            </ConversationRealtimeProvider>
           </AppToastProvider>
         </RouterContextProvider>,
       );
@@ -170,7 +169,7 @@ test("thread replies stay out of main history and preserve separate drafts and m
   const threadButton = page.getByRole("button", { name: /1 reply/ });
   expect(threadButton.textContent).toContain("1 reply");
   expect(threadButton.closest("[data-message]")?.textContent).toContain(root.body);
-  expect(threadButton.querySelector("svg")).toBeTruthy();
+  expect(threadButton.querySelector("[data-avatar]")).toBeTruthy();
   await user.click(threadButton);
   expect(calls).toEqual([]);
   const discussion = within(page.getByRole("region", { name: "Thread" }));
@@ -190,7 +189,7 @@ test("thread replies stay out of main history and preserve separate drafts and m
   expect(calls[0]?.[0]).toBe("thread draft");
 });
 
-test("summarizes a thread and previews only its latest three replies", async () => {
+test("summarizes a thread with a compact avatar-stack-and-count preview", async () => {
   const user = userEvent.setup();
   const { page } = renderConversation({
     ...base,
@@ -206,20 +205,14 @@ test("summarizes a thread and previews only its latest three replies", async () 
       { ...firstMessage, id: "empty-root", sequence: 6, body: "No replies" },
     ],
   });
-  const preview = page.getByRole("group", { name: "Thread" });
-  const openThread = within(preview).getByRole("button", { name: "4 replies" });
-  const replies = within(preview).getAllByRole("listitem");
-  expect(replies.map((reply) => within(reply).getByText(/Reply/).textContent)).toEqual([
-    "Reply 3",
-    "Reply 4",
-    "Reply 5",
-  ]);
-  expect(
-    replies.every(
-      (reply) =>
-        reply.querySelector("time")?.dateTime === new Date(firstMessage.createdAt).toISOString(),
-    ),
-  ).toBe(true);
+  // The preview under the root message is one compact line — stacked
+  // avatars, a "N replies" count, and the last reply's time — not a list of
+  // individual replies.
+  const openThread = page.getByRole("button", { name: /4 replies/ });
+  expect(openThread.querySelectorAll("[data-avatar]").length).toBeGreaterThan(0);
+  expect(openThread.querySelector("time")?.dateTime).toBe(
+    new Date(firstMessage.createdAt).toISOString(),
+  );
   expect(page.queryByText("Reply 2")).toBeNull();
   await user.click(openThread);
   const discussion = within(page.getByRole("region", { name: "Thread" }));
@@ -231,11 +224,11 @@ test("renders the empty private conversation", () => {
   const { page, rerender } = renderConversation();
   expect(page.getByRole("heading", { name: "Release Helper" })).toBeTruthy();
   expect(
-    page.getAllByRole("button", {
+    page.getByRole("button", {
       name: "Release Helper, Online, Recent activity",
     }),
-  ).toHaveLength(2);
-  expect(page.getAllByText("@release-helper")).toHaveLength(2);
+  ).toBeTruthy();
+  expect(page.getByText("@release-helper")).toBeTruthy();
   const history = within(page.getByLabelText("Message history"));
   expect(history.getByRole("heading", { name: "Chat with Release Helper" })).toBeTruthy();
   expect(page.getAllByRole("textbox", { name: "Message" })).toHaveLength(1);
@@ -255,7 +248,7 @@ test("empty thread keeps its root and reply composer instead of the private-chat
   expect(thread.queryByText("Chat with Release Helper")).toBeNull();
 });
 
-test("shared chat activity updates header and sidebar, with matching hover dots", async () => {
+test("shared chat activity reaches the header from the app-wide realtime context", async () => {
   const entry = {
     launchId: "launch",
     clientSeq: 1,
@@ -279,9 +272,8 @@ test("shared chat activity updates header and sidebar, with matching hover dots"
   const tree = (activity: ActivityEntry[], display: AgentDisplaySnapshot = agent.display) => (
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
-        <ConversationLayout
+        <ConversationRealtimeProvider
           agents={[{ ...agent, display }]}
-          selectedAgentId={agent.id}
           activityView={{
             activity: { [agent.id]: activity },
             loading: false,
@@ -289,20 +281,19 @@ test("shared chat activity updates header and sidebar, with matching hover dots"
           }}
         >
           <DirectConversation conversation={base} agentStatus="active" onSend={refresh} />
-        </ConversationLayout>
+        </ConversationRealtimeProvider>
       </AppToastProvider>
     </RouterContextProvider>
   );
   const view = render(tree([entry]));
   const page = within(document.body);
   expect(page.getByRole("status").textContent).toBe("Running command…");
-  const avatars = page.getAllByRole("button", {
+  const avatar = page.getByRole("button", {
     name: /Release Helper, Running command/,
   });
-  expect(avatars).toHaveLength(2);
-  expect(avatars.every((avatar) => avatar.querySelector(".bg-amber-500"))).toBe(true);
+  expect(avatar.querySelector(".bg-amber-500")).toBeTruthy();
   expect(document.querySelector("a button")).toBeNull();
-  fireEvent.click(avatars[0]!);
+  fireEvent.click(avatar);
   const popup = await page.findByRole("dialog");
   expect(popup.querySelector("li .bg-amber-500")).not.toBeNull();
   fireEvent.keyDown(document, { key: "Escape" });
@@ -343,32 +334,34 @@ test("renders persisted messages in sequence order with distinct senders", () =>
   const messages = page.getByLabelText("Message history").querySelectorAll("[data-message]");
   expect(messages[0]?.textContent).toContain("Please check");
   expect(messages[1]?.textContent).toContain("Checked");
-  // Every bubble now shares one surface, so the sides are told apart by
-  // authorship: the viewer's own message is labelled and carries no avatar.
+  // Flat rows: authorship is told apart only by the "You" label and the
+  // `data-message` attribute — no right alignment, no fill, both rows carry
+  // an avatar (the official Avatar's root is marked `data-avatar`,
+  // base/avatar/avatar.tsx, unmodified).
   expect(messages[0]?.getAttribute("data-message")).toBe("own");
   expect(messages[1]?.getAttribute("data-message")).toBe("other");
   expect(messages[0]?.textContent).toContain("You");
-  expect(messages[0]?.querySelector(":scope > [aria-hidden]")).toBeNull();
-  expect(messages[1]?.querySelector(":scope > [aria-hidden]")).toBeTruthy();
+  expect(messages[0]?.querySelector("[data-avatar]")).toBeTruthy();
+  expect(messages[1]?.querySelector("[data-avatar]")).toBeTruthy();
+  expect(messages[0]?.className).not.toContain("items-end");
+  expect(messages[0]?.className).not.toContain("bg-brand-secondary");
   expect(messages[1]?.textContent).toContain("Release Helper");
   for (const body of ["Please check", "Checked"]) {
-    const bubble = page.getByText(body);
-    expect(bubble.className).toContain("w-fit");
-    expect(bubble.className).toContain("max-w-full");
-    expect(bubble.className).not.toMatch(/max-w-\[\d+%\]/);
+    const row = page.getByText(body);
+    expect(row.className).toContain("whitespace-pre-wrap");
+    expect(row.className).not.toMatch(/max-w-\[\d+%\]/);
   }
-  expect(page.getByText("Please check").parentElement?.className).toContain("w-full");
 });
 
-test("wraps an unbroken message inside its bubble", () => {
+test("wraps an unbroken message inside its row without a fixed bubble width", () => {
   const body = "INDEX_REFRESH_1725_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   const { page } = renderConversation({
     ...base,
     messages: [{ ...firstMessage, body }],
   });
 
-  const bubble = page.getByText(body);
-  expect(bubble.className).toContain("[overflow-wrap:anywhere]");
+  const row = page.getByText(body);
+  expect(row.className).toContain("[overflow-wrap:anywhere]");
 });
 
 test("keeps large histories to a bounded number of mounted message rows", async () => {
@@ -554,24 +547,11 @@ test("navigates loaded own messages from the floating history controls", async (
   expect(scrollTo).toHaveBeenCalled();
 });
 
-test("expands and collapses a compact day separator", async () => {
-  const user = userEvent.setup();
+test("shows a static day separator label with no expand control", () => {
   const { page } = renderConversation({ ...base, messages: [firstMessage] });
 
-  const compactDate = page.getByRole("button", { name: "Saturday" });
-  expect(compactDate.getAttribute("aria-expanded")).toBe("false");
-  expect(compactDate.className).toContain("cursor-pointer");
-
-  await user.click(compactDate);
-  const fullDate = page.getByRole("button", {
-    name: "Saturday, August 29, 2026",
-  });
-  expect(fullDate.getAttribute("aria-expanded")).toBe("true");
-
-  await user.click(fullDate);
-  expect(page.getByRole("button", { name: "Saturday" }).getAttribute("aria-expanded")).toBe(
-    "false",
-  );
+  expect(page.getByText("Saturday, August 29, 2026")).toBeTruthy();
+  expect(page.queryByRole("button", { name: /Saturday/ })).toBeNull();
 });
 
 test("keeps older loaded sent messages available in navigation", async () => {
@@ -968,4 +948,25 @@ test("shows a safe toast and reuses a requestId after failure until the draft ch
   await user.click(page.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(composer.value).toBe(""));
   expect(onSend.mock.calls[3]![1]).not.toBe(secondFailedRequestId);
+});
+
+test("shows a control to bring back a hidden channel sidebar", async () => {
+  const show = mock(() => {});
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <AppToastProvider>
+        <ChannelSidebarVisibilityContext value={{ hidden: true, show }}>
+          <DirectConversation
+            conversation={base}
+            agentStatus="active"
+            onSend={mock(async () => {})}
+          />
+        </ChannelSidebarVisibilityContext>
+      </AppToastProvider>
+    </RouterContextProvider>,
+  );
+  await userEvent
+    .setup()
+    .click(within(document.body).getByRole("button", { name: "Show sidebar" }));
+  expect(show).toHaveBeenCalledTimes(1);
 });

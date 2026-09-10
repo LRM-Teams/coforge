@@ -6,8 +6,9 @@ import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import { useState, type ComponentProps } from "react";
 
-import { AppShell } from "@/components/app-shell";
-import { MobileNavigationButton } from "@/components/layout/mobile-navigation";
+import { AppShell, useChannelSidebarVisibility } from "@/components/app-shell";
+import { Button } from "@/components/base/buttons/button";
+import { PageHeader } from "@/components/layout/page-header";
 import { AppToastProvider } from "@/components/ui/toast";
 import type { AgentView } from "@/features/agents/agents-content";
 import { AgentsContent as MembersContent } from "@/features/agents/agents-content";
@@ -15,6 +16,14 @@ import { overwriteGetLocale } from "@/paraglide/runtime";
 import { getRouter } from "@/router";
 
 const user = { name: "Frank An", email: "frank@example.com" };
+
+// The official Input/Select's accessible name always includes its required-indicator "*" in
+// this DOM environment (no stylesheet loads to hide it when not required), so match on the
+// label prefix rather than the exact visible text.
+const startsWith = (prefix: string) => (name: string) => name.startsWith(prefix);
+// The Model select's accessible name is "<value> Model" (or "<value> Model *"), which also
+// starts with "Model provider" for that sibling select, so exclude it explicitly.
+const isModelLabel = (name: string) => /\bModel\b/.test(name) && !/Model provider/.test(name);
 
 function AgentsContent(
   props: Omit<ComponentProps<typeof MembersContent>, "memberType" | "onMemberTypeChange">,
@@ -39,10 +48,6 @@ const agent = {
     model: "gpt-5",
   },
   status: { value: "inactive" as const, expiresAt: null },
-};
-const agentDirectory = {
-  people: [],
-  agents: [{ ...agent, description: "", computerName: "Office computer" }],
 };
 const computers = [
   {
@@ -152,7 +157,7 @@ function renderAgents(
   );
 }
 
-test("shows the icon-only CoForge brand and current Workspace", () => {
+test("shows the compact workspace switcher for the current Workspace", () => {
   render(
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
@@ -167,11 +172,11 @@ test("shows the icon-only CoForge brand and current Workspace", () => {
     </RouterContextProvider>,
   );
 
-  const brand = page().getByAltText("CoForge");
-  expect(brand.parentElement?.textContent).toBe("");
-  expect(page().getByRole("button", { name: "Current workspace" }).textContent).toContain(
-    "LRM-Team",
-  );
+  // The permanent icon rail's WorkspaceSwitcher trigger is icon-only
+  // (`compact`) — the Workspace name lives in its accessible name (there's
+  // no room for visible text at 68px), unlike the full switcher in the
+  // mobile drawer.
+  expect(page().getByRole("button", { name: "Current workspace: LRM-Team" })).toBeTruthy();
 });
 
 test("shows an icon with the Sign out action", async () => {
@@ -183,32 +188,34 @@ test("shows an icon with the Sign out action", async () => {
     </RouterContextProvider>,
   );
 
-  await userEvent.setup({ document }).click(page().getByRole("button", { name: "Current user" }));
+  await userEvent
+    .setup({ document })
+    .click(page().getByRole("button", { name: "Current user: Frank An" }));
   expect(
     (await page().findByRole("menuitem", { name: "Sign out" })).querySelector("svg"),
   ).toBeTruthy();
 });
 
-test("shows the primary navigation with Members selected", () => {
+test("shows the primary navigation with Chat first", () => {
   const markup = renderShell();
 
   expect(markup).toContain("<aside");
+  expect(markup).toContain("Chat");
   expect(markup).toContain("Members");
-  expect(markup).toContain("Messages");
   expect(markup).toContain("Tasks");
   expect(markup).toContain("Records");
   expect(markup).toContain("Computers");
-  expect(markup.indexOf("Members")).toBeLessThan(markup.indexOf("Messages"));
-  expect(markup.indexOf("Messages")).toBeLessThan(markup.indexOf("Tasks"));
+  expect(markup.indexOf("Chat")).toBeLessThan(markup.indexOf("Members"));
+  expect(markup.indexOf("Members")).toBeLessThan(markup.indexOf("Tasks"));
   expect(markup.indexOf("Tasks")).toBeLessThan(markup.indexOf("Records"));
   expect(markup.indexOf("Records")).toBeLessThan(markup.indexOf("Computers"));
   expect(markup).toContain('href="/en/messages"');
   expect(markup).toContain('href="/en/records?tab=weekly"');
-  expect(markup).toContain('aria-label="Current user"');
+  expect(markup).toContain('aria-label="Current user: Frank An"');
   expect(markup).toContain(">F</span>");
 });
 
-test("keeps Messages selected on a private conversation route", () => {
+test("keeps Chat selected on a private conversation route", () => {
   window.history.pushState({}, "", "/en/messages/agent-1");
   const router = getRouter();
   render(
@@ -219,11 +226,11 @@ test("keeps Messages selected on a private conversation route", () => {
     </RouterContextProvider>,
   );
 
-  expect(page().getByRole("link", { name: "Messages" }).getAttribute("aria-current")).toBe("page");
+  expect(page().getByRole("link", { name: "Chat" }).getAttribute("aria-current")).toBe("page");
   window.history.pushState({}, "", "/en");
 });
 
-test("keeps Tasks selected in expanded and collapsed navigation", async () => {
+test("keeps Tasks selected in the rail", () => {
   window.history.pushState({}, "", "/en/tasks");
   render(
     <RouterContextProvider router={getRouter()}>
@@ -234,12 +241,6 @@ test("keeps Tasks selected in expanded and collapsed navigation", async () => {
   );
 
   expect(page().getByRole("link", { name: "Tasks" }).getAttribute("aria-current")).toBe("page");
-  await userEvent.setup().click(page().getByRole("button", { name: "Hide sidebar" }));
-  const collapsedTask = page().getByRole("link", { name: "Tasks" });
-  expect(collapsedTask.getAttribute("aria-current")).toBe("page");
-  expect(collapsedTask.className).toContain("size-10");
-  expect(collapsedTask.closest("[data-sidebar-rail]")?.className).toContain("bg-transparent");
-  expect(collapsedTask.closest("[data-sidebar-rail]")?.className).not.toContain("border-r");
   window.history.pushState({}, "", "/en");
 });
 
@@ -309,6 +310,8 @@ test("shows Agent status on the avatar", () => {
   const inactiveCard = page().getByText("Research Helper").closest("li");
   if (!(activeCard instanceof HTMLElement) || !(inactiveCard instanceof HTMLElement))
     throw new Error("Agent cards were not rendered");
+  // The avatar's accessible name (AgentDisplayAvatar, role="img") carries the
+  // presence label; there is no separate visible "Online"/"Offline" text.
   expect(activeCard.textContent).not.toContain("Online");
   expect(inactiveCard.textContent).not.toContain("Offline");
   expect(within(activeCard).getByRole("img", { name: "Release Helper, Online" })).toBeTruthy();
@@ -430,7 +433,11 @@ test("loads model catalogs only when the creation dialog opens", async () => {
   fireEvent.click(page().getByRole("button", { name: "Cancel" }));
   fireEvent.click(page().getByRole("button", { name: "New agent" }));
   await act(async () => {});
-  expect(loadRuntimeCatalog).toHaveBeenCalledTimes(1);
+  // The official Modal/ModalOverlay (application/modals/modal.tsx, unmodified)
+  // fully unmounts its content on close — there's no "keep mounted, just
+  // hidden" option like the previous hand-adapted Dialog had (via React's
+  // experimental Activity API) — so reopening genuinely refetches.
+  expect(loadRuntimeCatalog).toHaveBeenCalledTimes(2);
 });
 
 test("offers to retry when a model catalog request fails", async () => {
@@ -448,25 +455,21 @@ test("offers to retry when a model catalog request fails", async () => {
 });
 
 test("submits a manual CoForge model when catalog loading fails", async () => {
+  const browserUser = userEvent.setup();
   const onCreate = mock(async () => ({ startPublished: true }));
   renderAgents([], onCreate, true, async () => {
     throw new Error("catalog unavailable");
   });
-  fireEvent.change(await page().findByLabelText("Name"), {
-    target: { value: "manual-agent" },
-  });
-  fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
-    target: { value: "Manual catalog fallback" },
-  });
+  await browserUser.type(await page().findByLabelText(startsWith("Name")), "manual-agent");
+  await browserUser.type(
+    page().getByPlaceholderText("What should this Agent help with?"),
+    "Manual catalog fallback",
+  );
   await waitFor(() =>
     expect(page().getByText(/Enter the provider and model ID manually/)).toBeTruthy(),
   );
-  fireEvent.change(page().getByLabelText("Model provider"), {
-    target: { value: "deepseek" },
-  });
-  fireEvent.change(page().getByLabelText("Model"), {
-    target: { value: "deepseek-chat" },
-  });
+  await browserUser.type(page().getByLabelText(startsWith("Model provider")), "deepseek");
+  await browserUser.type(page().getByLabelText(isModelLabel), "deepseek-chat");
   fireEvent.click(page().getByRole("button", { name: "Create agent" }));
   await waitFor(() =>
     expect(onCreate).toHaveBeenCalledWith({
@@ -485,13 +488,12 @@ test("submits the public creation form callback", async () => {
   const browserUser = userEvent.setup({ document });
   const onCreate = mock(async () => ({ startPublished: true }));
   renderAgents([], onCreate, true);
-  fireEvent.change(await page().findByLabelText("Name"), {
-    target: { value: "build-helper" },
-  });
-  fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
-    target: { value: "Build and release helper" },
-  });
-  await browserUser.click(page().getByRole("button", { name: "Runtime provider" }));
+  await browserUser.type(await page().findByLabelText(startsWith("Name")), "build-helper");
+  await browserUser.type(
+    page().getByPlaceholderText("What should this Agent help with?"),
+    "Build and release helper",
+  );
+  await browserUser.click(page().getByRole("button", { name: /Runtime provider/ }));
   await browserUser.click(page().getByRole("option", { name: "Claude Code" }));
   await browserUser.click(page().getByRole("button", { name: /Model/ }));
   await browserUser.click(page().getByRole("option", { name: "Sonnet" }));
@@ -511,11 +513,10 @@ test("submits the public creation form callback", async () => {
 });
 
 test("creates an Agent without a description", async () => {
+  const browserUser = userEvent.setup();
   const onCreate = mock(async () => ({ startPublished: true }));
   renderAgents([], onCreate, true);
-  fireEvent.change(await page().findByLabelText("Name"), {
-    target: { value: "build-helper" },
-  });
+  await browserUser.type(await page().findByLabelText(startsWith("Name")), "build-helper");
 
   const description = page().getByPlaceholderText("What should this Agent help with?");
   expect(description.hasAttribute("required")).toBe(false);
@@ -532,15 +533,14 @@ test("selects a CoForge model provider before its model", async () => {
   const browserUser = userEvent.setup({ document });
   const onCreate = mock(async () => ({ startPublished: true }));
   renderAgents([], onCreate, true);
-  fireEvent.change(await page().findByLabelText("Name"), {
-    target: { value: "model-helper" },
-  });
-  fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
-    target: { value: "Uses a selected model provider" },
-  });
-  await browserUser.click(page().getByRole("button", { name: "Model provider" }));
+  await browserUser.type(await page().findByLabelText(startsWith("Name")), "model-helper");
+  await browserUser.type(
+    page().getByPlaceholderText("What should this Agent help with?"),
+    "Uses a selected model provider",
+  );
+  await browserUser.click(page().getByRole("button", { name: /Model provider/ }));
   await browserUser.click(page().getByRole("option", { name: "anthropic" }));
-  await browserUser.click(page().getByRole("button", { name: "Model Optional" }));
+  await browserUser.click(page().getByRole("button", { name: isModelLabel }));
   await browserUser.click(page().getByRole("option", { name: "anthropic / Claude Sonnet" }));
   fireEvent.change(page().getByLabelText("anthropic API key"), {
     target: { value: "fixture-provider-key" },
@@ -559,65 +559,64 @@ test("selects a CoForge model provider before its model", async () => {
 });
 
 test("shows a deferred-start notice after creation", async () => {
+  const browserUser = userEvent.setup();
   renderAgents([], async () => ({ startPublished: false }), true);
-  fireEvent.change(await page().findByLabelText("Name"), {
-    target: { value: "helper" },
-  });
-  fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
-    target: { value: "General purpose helper" },
-  });
+  await browserUser.type(await page().findByLabelText(startsWith("Name")), "helper");
+  await browserUser.type(
+    page().getByPlaceholderText("What should this Agent help with?"),
+    "General purpose helper",
+  );
   fireEvent.click(page().getByRole("button", { name: "Create agent" }));
   expect((await page().findByRole("status")).textContent).toBe(
     "Agent created. It will start when Daemon reconnects.",
   );
 });
 
-test("collapsing the sidebar keeps navigation and the user menu reachable", () => {
+test("hiding the channel sidebar keeps the rail reachable and can be shown again from the content", () => {
+  window.history.pushState({}, "", "/en/messages/agent-1");
+  function ShowChannelsProbe() {
+    const { hidden, show } = useChannelSidebarVisibility();
+    return <Button onPress={show}>{hidden ? "channels hidden" : "channels visible"}</Button>;
+  }
   render(
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
-        <AppShell user={user}>
-          <AgentsContent
-            directory={agentDirectory}
-            agents={[agent]}
-            computers={computers}
-            onCreate={async () => ({ startPublished: true })}
-            onLoadRuntimeCatalog={async () => modelCatalogs}
-          />
+        <AppShell
+          user={user}
+          channels={[{ id: "channel-1", name: "general", joined: true }]}
+          agents={[agent]}
+        >
+          <ShowChannelsProbe />
         </AppShell>
       </AppToastProvider>
     </RouterContextProvider>,
   );
 
+  expect(page().getByRole("list", { name: "Channels" })).toBeTruthy();
+  expect(page().getByText("channels visible")).toBeTruthy();
+
   fireEvent.click(page().getByRole("button", { name: "Hide sidebar" }));
 
-  // Exactly one of each stays in the DOM, so the collapsed copies never
-  // duplicate the sidebar's links for assistive technology.
-  expect(page().getAllByRole("navigation", { name: "Primary navigation" }).length).toBe(1);
-  expect(page().getAllByLabelText("Current user").length).toBe(1);
-  for (const name of ["Members", "Messages", "Computers"]) {
+  expect(page().queryByRole("list", { name: "Channels" })).toBeNull();
+  expect(page().getByText("channels hidden")).toBeTruthy();
+  // The rail (Members, Tasks, Computers, Home) is a separate, permanent
+  // surface — hiding the Channels/Direct-messages panel doesn't touch it.
+  for (const name of ["Chat", "Members", "Tasks", "Computers"]) {
     expect(page().getByRole("link", { name }).getAttribute("href")).toBeTruthy();
   }
+
+  fireEvent.click(page().getByRole("button", { name: "channels hidden" }));
+  expect(page().getByRole("list", { name: "Channels" })).toBeTruthy();
+  expect(page().getByText("channels visible")).toBeTruthy();
+  window.history.pushState({}, "", "/en");
 });
 
-test("keeps main content state across desktop collapse and the mobile drawer", () => {
-  let mobile = false;
-  const media = jest.spyOn(window, "matchMedia").mockImplementation((query) => ({
-    matches: query === "(max-width: 767px)" && mobile,
-    media: query,
-    onchange: null,
-    addListener() {},
-    removeListener() {},
-    addEventListener() {},
-    removeEventListener() {},
-    dispatchEvent: () => true,
-  }));
-
+test("keeps main content state across the channel-sidebar toggle and the mobile drawer", async () => {
   function StatefulPage() {
     const [value, setValue] = useState("");
     return (
       <main>
-        <MobileNavigationButton />
+        <PageHeader heading="Page" />
         <input
           aria-label="Page state"
           value={value}
@@ -627,81 +626,46 @@ test("keeps main content state across desktop collapse and the mobile drawer", (
     );
   }
 
-  try {
-    render(
-      <RouterContextProvider router={getRouter()}>
-        <AppToastProvider>
-          <AppShell user={user}>
-            <StatefulPage />
-          </AppShell>
-        </AppToastProvider>
-      </RouterContextProvider>,
-    );
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <AppToastProvider>
+        <AppShell user={user}>
+          <StatefulPage />
+        </AppShell>
+      </AppToastProvider>
+    </RouterContextProvider>,
+  );
 
-    const state = page().getByRole("textbox", { name: "Page state" });
-    fireEvent.input(state, { target: { value: "preserved" } });
-    const separator = page().getByRole("separator", { name: "Resize sidebar" });
-    expect(separator.getAttribute("aria-orientation")).toBe("vertical");
-    expect(separator.getAttribute("tabindex")).toBe("0");
-    fireEvent.click(page().getByRole("button", { name: "Hide sidebar" }));
-    const rail = document.querySelector("[data-sidebar-rail]");
-    if (!(rail instanceof HTMLElement)) throw new Error("Collapsed sidebar was not rendered");
-    fireEvent.click(within(rail).getByRole("button", { name: "Show sidebar" }));
-
-    mobile = true;
-    const mainPanel = state.closest("#app-main-panel");
-    if (!(mainPanel instanceof HTMLElement)) throw new Error("Main panel was not rendered");
-    const mobileMenu = mainPanel.querySelector<HTMLButtonElement>(
-      'button[aria-controls="app-sidebar"]',
-    );
-    if (!mobileMenu) throw new Error("Mobile navigation button was not rendered");
-    fireEvent.click(mobileMenu);
-    expect(mobileMenu.getAttribute("aria-expanded")).toBe("true");
-    expect(page().getByRole("textbox", { name: "Page state" })).toBe(state);
-    expect((state as HTMLInputElement).value).toBe("preserved");
-  } finally {
-    media.mockRestore();
-  }
-});
-
-test("the page header opens navigation and closes it on selection or breakpoint change", () => {
-  const breakpoint = new EventTarget();
-  const media = jest.spyOn(window, "matchMedia").mockImplementation((query) => ({
-    matches: query === "(max-width: 767px)",
-    media: query,
-    onchange: null,
-    addListener() {},
-    removeListener() {},
-    addEventListener: breakpoint.addEventListener.bind(breakpoint),
-    removeEventListener: breakpoint.removeEventListener.bind(breakpoint),
-    dispatchEvent: () => true,
-  }));
-  try {
-    renderShell();
-    const menu = within(page().getByRole("main")).getByRole("button", { name: "Show sidebar" });
-    expect(menu.getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(menu);
-    expect(menu.getAttribute("aria-expanded")).toBe("true");
-    fireEvent.click(page().getByRole("link", { name: "Computers" }));
-    expect(menu.getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(menu);
-    expect(menu.getAttribute("aria-expanded")).toBe("true");
-    act(() => breakpoint.dispatchEvent(new Event("change")));
-    expect(menu.getAttribute("aria-expanded")).toBe("false");
-  } finally {
-    media.mockRestore();
-  }
-});
-
-test("choosing Personal Settings closes the mobile navigation drawer", async () => {
-  renderShell();
   const browserUser = userEvent.setup({ document });
-  const menu = within(page().getByRole("main")).getByRole("button", { name: "Show sidebar" });
-  await browserUser.click(menu);
-  expect(menu.getAttribute("aria-expanded")).toBe("true");
-  await browserUser.click(page().getByRole("button", { name: "Current user" }));
-  await browserUser.click(await page().findByRole("menuitem", { name: "Personal Settings" }));
-  expect(menu.getAttribute("aria-expanded")).toBe("false");
+  const state = page().getByRole("textbox", { name: "Page state" });
+  fireEvent.input(state, { target: { value: "preserved" } });
+
+  // Mod+B toggles the Channels/Direct-messages sidebar: `{children}` is
+  // rendered once, outside that conditional, so toggling never remounts it.
+  fireEvent.keyDown(document, { key: "b", code: "KeyB", ctrlKey: true });
+  fireEvent.keyUp(document, { key: "b", code: "KeyB", ctrlKey: true });
+  expect(page().getByRole("textbox", { name: "Page state" })).toBe(state);
+  expect((state as HTMLInputElement).value).toBe("preserved");
+  fireEvent.keyDown(document, { key: "b", code: "KeyB", ctrlKey: true });
+  fireEvent.keyUp(document, { key: "b", code: "KeyB", ctrlKey: true });
+
+  // Mobile drawer: the overlay is a portal beside `{children}`, not a remount,
+  // so opening it from the page header must not touch the page's state either.
+  await browserUser.click(page().getByRole("button", { name: "Open menu" }));
+  expect(page().getByRole("button", { name: "Close menu" })).toBeTruthy();
+  expect(page().getByRole("textbox", { name: "Page state" })).toBe(state);
+  expect((state as HTMLInputElement).value).toBe("preserved");
+});
+
+test("the mobile navigation menu opens from the page header and closes with its own button", async () => {
+  const browserUser = userEvent.setup({ document });
+  renderShell();
+
+  expect(page().queryByRole("button", { name: "Close menu" })).toBeNull();
+  await browserUser.click(page().getByRole("button", { name: "Open menu" }));
+  expect(page().getByRole("button", { name: "Close menu" })).toBeTruthy();
+  await browserUser.click(page().getByRole("button", { name: "Close menu" }));
+  expect(page().queryByRole("button", { name: "Close menu" })).toBeNull();
 });
 
 test("renders the same shell from the Simplified Chinese catalog", () => {

@@ -4,14 +4,15 @@ import { useServerFn } from "@tanstack/react-start";
 import { DotsHorizontal, MessageChatCircle as Message, Trash01 as Trash } from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { Avatar } from "@/components/ui/avatar";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Avatar } from "@/components/base/avatar/avatar";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
+import { Button, buttonVariants } from "./report-editor/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "./report-editor/ui/dropdown-menu";
 import { m } from "@/paraglide/messages";
 import { ReportSectionEditor } from "./report-editor/report-section-editor";
 import type { UploadResult } from "./report-editor/types";
@@ -169,7 +170,11 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
           leading={<BackToRecords />}
           meta={
             <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
-              <Avatar people={[{ name: report.author.displayName }]} size="sm" />
+              <Avatar
+                size="sm"
+                initials={avatarInitial(report.author.displayName)}
+                contentClassName={avatarToneClassName(report.author.displayName)}
+              />
               <span className="truncate">{report.author.displayName}</span>
               {saving ? (
                 <span className="shrink-0 text-xs">{m.records_report_saving()}</span>

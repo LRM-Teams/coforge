@@ -8,7 +8,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { SuggestionOptions } from "@tiptap/suggestion";
 import { PluginKey } from "@tiptap/pm/state";
-import { Code2, Sigma, Table2 } from "lucide-react";
+import { Calculator as Sigma, Code02 as Code2, Table as Table2 } from "@untitledui/icons";
 import { isImeComposing } from "../lib/ime";
 import { getLastInsertedCodeBlockLanguage } from "../code-block-language";
 import { createSuggestionPopupRender } from "./suggestion-popup";

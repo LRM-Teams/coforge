@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/base/buttons/button";
 import { m } from "@/paraglide/messages";
 
 export function ConversationTaskTabs({
@@ -19,19 +19,19 @@ export function ConversationTaskTabs({
     >
       <Button
         type="button"
-        variant={active === "chat" ? "secondary" : "ghost"}
+        color={active === "chat" ? "secondary" : "tertiary"}
         size="sm"
         aria-current={active === "chat" ? "page" : undefined}
-        onClick={onShowChat}
+        onPress={onShowChat}
       >
         {m.tasks_chat_tab()}
       </Button>
       <Button
         type="button"
-        variant={active === "tasks" ? "secondary" : "ghost"}
+        color={active === "tasks" ? "secondary" : "tertiary"}
         size="sm"
         aria-current={active === "tasks" ? "page" : undefined}
-        onClick={onShowTasks}
+        onPress={onShowTasks}
       >
         {m.tasks_tab()} {taskCount}
       </Button>

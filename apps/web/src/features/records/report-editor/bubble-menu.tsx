@@ -13,28 +13,28 @@ import type { Editor } from "@tiptap/core";
 import { useEditorState } from "@tiptap/react";
 import { NodeSelection } from "@tiptap/pm/state";
 import {
-  Bold,
+  Bold01 as Bold,
   Check,
+  CheckSquare as ListTodo,
   ChevronDown,
-  Code,
-  Heading1,
-  Heading2,
-  Heading3,
-  Heading4,
-  Heading5,
-  Highlighter,
-  Italic,
-  Link2,
+  Code01 as Code,
+  Heading01 as Heading1,
+  Heading02 as Heading2,
+  HeadingSquare as Heading3,
+  HeadingSquare as Heading4,
+  HeadingSquare as Heading5,
+  Brush01 as Highlighter,
+  Italic01 as Italic,
+  LeftIndent01 as Quote,
+  Link01 as Link2,
+  LinkBroken01 as Unlink,
   List,
-  ListOrdered,
-  ListTodo,
+  Rows01 as ListOrdered,
   Palette,
-  Quote,
-  Strikethrough,
-  Type,
-  Unlink,
+  Strikethrough01 as Strikethrough,
+  Type01 as Type,
   X,
-} from "lucide-react";
+} from "@untitledui/icons";
 
 import { cn } from "@/lib/utils";
 import {

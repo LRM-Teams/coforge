@@ -112,9 +112,9 @@ test("task layout controls use a third operation row below the primary tabs", ()
   const tabs = page.getByRole("navigation", { name: "Chat / Tasks" });
   const operations = page.getByRole("toolbar", { name: "Task layout" });
   expect(tabs.parentElement?.nextElementSibling).toBe(operations);
-  expect(within(tabs).queryByRole("button", { name: "Board" })).toBeNull();
-  expect(within(operations).getByRole("button", { name: "Board" })).toBeTruthy();
-  expect(within(operations).getByRole("button", { name: "List" })).toBeTruthy();
+  expect(within(tabs).queryByRole("radio", { name: "Board" })).toBeNull();
+  expect(within(operations).getByRole("radio", { name: "Board" })).toBeTruthy();
+  expect(within(operations).getByRole("radio", { name: "List" })).toBeTruthy();
 });
 
 test("unclaim sends the rendered revision and is hidden for terminal tasks", async () => {

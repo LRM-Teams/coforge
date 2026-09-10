@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -20,7 +20,9 @@ import {
 import type { AgentSessionOptions } from "../../../packages/agent/src/contract";
 
 test("cloud and daemon preserve Restart identity, reset sessions, fence Full Reset replay and report recovery", async () => {
-  const root = await mkdtemp(join(tmpdir(), "control-roundtrip-"));
+  // macOS resolves os.tmpdir() through the /var -> /private/var symlink, which the
+  // store's symlinked-ancestor guard rightly rejects; anchor the fixture on the real path.
+  const root = await mkdtemp(join(await realpath(tmpdir()), "control-roundtrip-"));
   const connection = { workspaceId: "w", computerId: "c", workspaceRoot: join(root, "workspaces") };
   let agent: AgentControlAgent = {
     id: "a",

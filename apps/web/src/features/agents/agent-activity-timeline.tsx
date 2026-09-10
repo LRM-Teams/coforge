@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { Activity as ActivityIcon, ChevronRight } from "@untitledui/icons";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/base/buttons/button";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
@@ -27,12 +27,12 @@ export function AgentActivityTimeline({
   );
   if (!rows.length)
     return (
-      <div className="my-8 flex flex-col items-center rounded-xl border px-6 py-12 text-center">
-        <span className="mb-4 rounded-xl border p-3 shadow-xs">
-          <ActivityIcon aria-hidden="true" className="size-6 text-muted-foreground" />
+      <div className="my-8 flex flex-col items-center rounded-xl border border-secondary px-6 py-12 text-center">
+        <span className="mb-4 rounded-xl border border-secondary p-3 shadow-xs">
+          <ActivityIcon aria-hidden="true" className="size-6 text-tertiary" />
         </span>
         <p className="font-medium">{m.agent_activity_empty()}</p>
-        <p className="mt-1 max-w-md text-sm leading-6 text-muted-foreground">
+        <p className="mt-1 max-w-md text-sm leading-6 text-tertiary">
           {m.agent_activity_empty_description()}
         </p>
       </div>
@@ -40,7 +40,7 @@ export function AgentActivityTimeline({
   return (
     <ol
       aria-label="Activity timeline"
-      className="mt-6 list-none divide-y rounded-xl border px-4 md:px-6"
+      className="mt-6 list-none divide-y divide-secondary rounded-xl border border-secondary px-4 md:px-6"
     >
       {rows.map(({ row, observedAtMs, key }) => (
         <ActivityTimelineRow key={key} row={row} observedAtMs={observedAtMs} timeZone={timeZone} />
@@ -66,7 +66,7 @@ function ActivityTimelineRow({
       <RelativeTime
         value={new Date(observedAtMs)}
         timeZone={timeZone}
-        className="whitespace-nowrap text-xs tabular-nums text-muted-foreground sm:pt-0.5"
+        className="whitespace-nowrap text-xs tabular-nums text-tertiary sm:pt-0.5"
       />
       <div className="flex min-w-0 items-start gap-2">
         <span
@@ -81,35 +81,37 @@ function ActivityTimelineRow({
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {canExpand ? (
               <Button
-                variant="ghost"
+                color="link-gray"
                 size="sm"
-                className="h-auto min-h-0 justify-start p-0 font-semibold"
+                className="font-semibold text-primary hover:text-primary"
                 aria-expanded={expanded}
                 aria-controls={contentId}
-                onClick={() => setExpanded(!expanded)}
+                onPress={() => setExpanded(!expanded)}
+                iconLeading={
+                  <ChevronRight
+                    aria-hidden="true"
+                    className={cn("size-3.5", expanded && "rotate-90")}
+                  />
+                }
               >
-                <ChevronRight
-                  aria-hidden="true"
-                  className={cn("size-3.5", expanded && "rotate-90")}
-                />
                 {row.label}
               </Button>
             ) : (
-              <span
-                className={cn("font-semibold", row.tone === "error" && "text-destructive-text")}
-              >
+              <span className={cn("font-semibold", row.tone === "error" && "text-error-primary")}>
                 {row.label}
               </span>
             )}
             {row.subagent && (
-              <span className="rounded border px-1 text-xs text-muted-foreground">Subagent</span>
+              <span className="rounded border border-secondary px-1 text-xs text-tertiary">
+                Subagent
+              </span>
             )}
             {!row.expandable && row.detail && (
               <span
                 className={cn(
-                  "select-text whitespace-pre-wrap break-words text-muted-foreground",
+                  "select-text whitespace-pre-wrap break-words text-tertiary",
                   row.monospace && "font-mono text-xs",
-                  row.tone === "error" && "text-destructive-text",
+                  row.tone === "error" && "text-error-primary",
                 )}
               >
                 {row.detail}
@@ -120,7 +122,7 @@ function ActivityTimelineRow({
             <p
               id={contentId}
               className={cn(
-                "mt-1 select-text whitespace-pre-wrap break-words font-mono text-xs leading-5 text-muted-foreground",
+                "mt-1 select-text whitespace-pre-wrap break-words font-mono text-xs leading-5 text-tertiary",
                 canExpand && !expanded && "line-clamp-2",
               )}
             >

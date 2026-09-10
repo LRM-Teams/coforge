@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/base/buttons/button";
 import { m } from "@/paraglide/messages";
 
 export type AgentEnvironmentEditorProps = {
@@ -55,16 +55,19 @@ export function AgentEnvironmentEditor({ onLoad, onSave }: AgentEnvironmentEdito
     }
   }
   const inputClass =
-    "h-10 min-w-0 w-full rounded-lg border bg-background px-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
+    "h-10 min-w-0 w-full rounded-lg border border-secondary bg-primary px-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-brand";
   return (
-    <section className="grid gap-5 py-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
-      <h2 className="text-base font-semibold">{m.agent_env_title()}</h2>
-      <div className="min-w-0 space-y-4">
-        {rows === null ? (
-          <Button variant="outline" size="sm" disabled={busy} onClick={() => void edit()}>
+    <section className="flex flex-col gap-4 py-6">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-base font-semibold">{m.agent_env_title()}</h2>
+        {rows === null && (
+          <Button color="secondary" size="sm" isDisabled={busy} onPress={() => void edit()}>
             {busy ? m.agent_env_loading() : m.agent_env_edit()}
           </Button>
-        ) : (
+        )}
+      </div>
+      <div className="min-w-0 space-y-4">
+        {rows === null ? null : (
           <form
             className="space-y-3"
             onSubmit={(event) => {
@@ -102,10 +105,10 @@ export function AgentEnvironmentEditor({ onLoad, onSave }: AgentEnvironmentEdito
                 />
                 <Button
                   type="button"
-                  variant="outline"
-                  disabled={busy}
+                  color="secondary"
+                  isDisabled={busy}
                   aria-label={m.agent_env_remove_label({ index: index + 1 })}
-                  onClick={() => setRows(rows.filter((_, i) => i !== index))}
+                  onPress={() => setRows(rows.filter((_, i) => i !== index))}
                 >
                   {m.agent_env_remove()}
                 </Button>
@@ -113,22 +116,22 @@ export function AgentEnvironmentEditor({ onLoad, onSave }: AgentEnvironmentEdito
             ))}
             <Button
               type="button"
-              variant="outline"
+              color="secondary"
               size="sm"
-              disabled={busy || rows.length >= 64}
-              onClick={() => setRows([...rows, { name: "", value: "" }])}
+              isDisabled={busy || rows.length >= 64}
+              onPress={() => setRows([...rows, { name: "", value: "" }])}
             >
               {m.agent_env_add()}
             </Button>
             <div className="flex flex-wrap gap-2">
-              <Button type="submit" disabled={busy}>
+              <Button type="submit" isDisabled={busy}>
                 {m.agent_env_save()}
               </Button>
               <Button
                 type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => {
+                color="secondary"
+                isDisabled={busy}
+                onPress={() => {
                   setRows(null);
                   setError("");
                 }}
@@ -139,12 +142,12 @@ export function AgentEnvironmentEditor({ onLoad, onSave }: AgentEnvironmentEdito
           </form>
         )}
         {error && (
-          <p role="alert" className="text-sm text-destructive-text">
+          <p role="alert" className="text-sm text-error-primary">
             {error}
           </p>
         )}
         {notice && (
-          <p role="status" className="text-sm text-muted-foreground">
+          <p role="status" className="text-sm text-tertiary">
             {notice}
           </p>
         )}

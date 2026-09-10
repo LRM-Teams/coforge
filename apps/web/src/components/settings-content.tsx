@@ -6,6 +6,7 @@ import {
   Clock as Clock3,
   Translate01 as Languages,
   Moon01 as Moon,
+  Share01,
   Sliders01 as SlidersHorizontal,
   Sun,
   SunSetting01 as SunMoon,
@@ -15,12 +16,18 @@ import {
 } from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { Avatar } from "@/components/ui/avatar";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Avatar } from "@/components/base/avatar/avatar";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Input } from "@/components/base/input/input";
+import { TextArea } from "@/components/base/textarea/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ComboBox } from "@/components/base/select/combobox";
 import { SelectItem } from "@/components/base/select/select-item";
+import { Toggle } from "@/components/base/toggle/toggle";
+import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
 import { WorkspaceMembersPanel } from "@/features/workspaces/workspace-members-panel";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
@@ -30,6 +37,9 @@ type Theme = "system" | "light" | "dark";
 type SettingsSection = "account" | "members" | "preferences" | "notifications";
 
 interface SettingsContentProps {
+  /** Controlled section; falls back to internal state when omitted (tests, previews). */
+  section?: SettingsSection;
+  onSectionChange?: (section: SettingsSection) => void;
   profile: {
     name: string;
     email: string;
@@ -60,6 +70,7 @@ interface SettingsContentProps {
   };
   locale: Locale;
   theme: Theme;
+  railLabels: boolean;
   timeZone: string | null;
   browserNotificationsEnabled: boolean;
   browserNotificationPermission: NotificationPermission | "unsupported";
@@ -70,6 +81,7 @@ interface SettingsContentProps {
   onAvatarRemove: () => Promise<void>;
   onLocaleChange: (locale: Locale) => void;
   onThemeChange: (theme: Theme) => void;
+  onRailLabelsChange: (show: boolean) => void;
   onTimeZoneChange: (timeZone: string) => void;
   onBrowserNotificationsChange: (enabled: boolean) => Promise<void>;
   onEnableBrowserNotifications: () => Promise<void>;
@@ -78,11 +90,11 @@ interface SettingsContentProps {
 
 export function SettingsPending() {
   return (
-    <main aria-busy="true" className="flex h-svh min-w-0 md:gap-2 md:p-2">
+    <main aria-busy="true" className="flex h-svh min-w-0">
       <p role="status" className="sr-only">
         {m.settings_loading()}
       </p>
-      <nav className="flex w-full min-w-0 flex-col overflow-hidden bg-card md:w-60 md:shrink-0 md:rounded-xl md:border">
+      <nav className="flex w-full min-w-0 flex-col overflow-hidden border-r border-secondary bg-primary md:w-60 md:shrink-0">
         <PageHeader heading={m.settings_title()} />
         <div className="space-y-5 overflow-y-auto p-3">
           {[
@@ -94,7 +106,7 @@ export function SettingsPending() {
           ].map((group) => (
             <SettingsNavigationGroup key={group.label} label={group.label}>
               {group.items.map((label) => (
-                <li key={label} className="flex h-11 items-center gap-3 px-3 text-sm font-medium">
+                <li key={label} className="flex h-9 items-center gap-3 px-3 text-sm font-medium">
                   <span>{label}</span>
                 </li>
               ))}
@@ -102,19 +114,22 @@ export function SettingsPending() {
           ))}
         </div>
       </nav>
-      <section className="@container/settings hidden min-w-0 flex-1 flex-col overflow-hidden bg-card md:flex md:rounded-xl md:border">
+      <section className="@container/settings hidden min-w-0 flex-1 flex-col overflow-hidden bg-primary md:flex">
         <PageHeader heading={m.settings_account()} />
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6">
           <section>
-            <header className="flex min-h-16 items-center pb-5">
+            <header className="flex min-h-12 items-center pb-4">
               <h2 className="text-lg font-semibold">{m.settings_profile()}</h2>
             </header>
-            <div aria-hidden="true" className="space-y-6 border-t py-6 motion-safe:animate-pulse">
+            <div
+              aria-hidden="true"
+              className="space-y-6 border-t border-secondary py-6 motion-safe:animate-pulse"
+            >
               <Skeleton className="size-20 rounded-full" />
               {["w-3/5", "w-4/5", "w-2/3"].map((width) => (
                 <div
                   key={width}
-                  className="grid gap-2 border-t pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8"
+                  className="grid gap-2 border-t border-secondary pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8"
                 >
                   <Skeleton className="h-3 w-16" />
                   <Skeleton className={`h-4 ${width}`} />
@@ -123,7 +138,7 @@ export function SettingsPending() {
             </div>
             <div
               aria-hidden="true"
-              className="grid gap-2 border-t py-5 motion-safe:animate-pulse @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8"
+              className="grid gap-2 border-t border-secondary py-5 motion-safe:animate-pulse @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8"
             >
               <Skeleton className="h-3 w-20" />
               <Skeleton className="h-4 w-3/5" />
@@ -136,7 +151,8 @@ export function SettingsPending() {
 }
 
 export function SettingsContent(props: SettingsContentProps) {
-  const [section, setSection] = useState<SettingsSection>("account");
+  const [internalSection, setInternalSection] = useState<SettingsSection>("account");
+  const section = props.section ?? internalSection;
   const [showList, setShowList] = useState(true);
   const sectionLabel =
     section === "account"
@@ -148,16 +164,17 @@ export function SettingsContent(props: SettingsContentProps) {
           : m.settings_notifications();
 
   function selectSection(next: SettingsSection) {
-    setSection(next);
+    setInternalSection(next);
+    props.onSectionChange?.(next);
     setShowList(false);
   }
 
   return (
-    <main className="flex h-svh min-w-0 md:gap-2 md:p-2">
+    <main className="flex h-svh min-w-0">
       <nav
         aria-label={m.settings_title()}
         className={cn(
-          "min-w-0 flex-col overflow-hidden bg-card md:flex md:w-60 md:shrink-0 md:rounded-xl md:border",
+          "min-w-0 flex-col overflow-hidden border-secondary bg-primary md:flex md:w-60 md:shrink-0 md:border-r",
           showList ? "flex w-full" : "hidden",
         )}
       >
@@ -166,19 +183,19 @@ export function SettingsContent(props: SettingsContentProps) {
           <SettingsNavigationGroup label={m.settings_personal_group()}>
             <SettingsNavigationButton
               active={section === "account"}
-              icon={<UserRound aria-hidden="true" />}
+              icon={UserRound}
               label={m.settings_account()}
               onClick={() => selectSection("account")}
             />
             <SettingsNavigationButton
               active={section === "preferences"}
-              icon={<SlidersHorizontal aria-hidden="true" />}
+              icon={SlidersHorizontal}
               label={m.settings_preferences()}
               onClick={() => selectSection("preferences")}
             />
             <SettingsNavigationButton
               active={section === "notifications"}
-              icon={<BellRing aria-hidden="true" />}
+              icon={BellRing}
               label={m.settings_notifications()}
               onClick={() => selectSection("notifications")}
             />
@@ -186,7 +203,7 @@ export function SettingsContent(props: SettingsContentProps) {
           <SettingsNavigationGroup label={m.settings_workspace_group()}>
             <SettingsNavigationButton
               active={section === "members"}
-              icon={<Users aria-hidden="true" />}
+              icon={Users}
               label={m.settings_members()}
               onClick={() => selectSection("members")}
             />
@@ -195,22 +212,21 @@ export function SettingsContent(props: SettingsContentProps) {
       </nav>
       <section
         className={cn(
-          "@container/settings min-w-0 flex-1 flex-col overflow-hidden bg-card md:flex md:rounded-xl md:border",
+          "@container/settings min-w-0 flex-1 flex-col overflow-hidden bg-primary md:flex",
           showList ? "hidden" : "flex",
         )}
       >
         <PageHeader
           heading={sectionLabel}
           leading={
-            <Button
-              variant="ghost"
-              size="icon"
+            <ButtonUtility
+              icon={ChevronLeft}
+              color="tertiary"
+              size="sm"
               className="-ml-2 size-11 md:hidden"
-              aria-label={m.settings_title()}
+              tooltip={m.settings_title()}
               onClick={() => setShowList(true)}
-            >
-              <ChevronLeft aria-hidden="true" className="size-5" />
-            </Button>
+            />
           }
         />
 
@@ -258,7 +274,9 @@ function SettingsNavigationGroup({
 }) {
   return (
     <div>
-      <h2 className="px-3 pt-2 pb-2 text-xs font-semibold text-muted-foreground">{label}</h2>
+      <h2 className="px-3 pt-2 pb-2 text-xs font-semibold text-quaternary uppercase tracking-wide">
+        {label}
+      </h2>
       <ul aria-label={label} className="space-y-1">
         {children}
       </ul>
@@ -273,7 +291,7 @@ function SettingsNavigationButton({
   onClick,
 }: {
   active: boolean;
-  icon: React.ReactNode;
+  icon: React.FC<{ className?: string }>;
   label: string;
   onClick: () => void;
 }) {
@@ -281,15 +299,15 @@ function SettingsNavigationButton({
     <li>
       <Button
         type="button"
-        variant="ghost"
+        color="tertiary"
+        iconLeading={icon}
         aria-current={active ? "page" : undefined}
-        onClick={onClick}
+        onPress={onClick}
         className={cn(
-          "h-11 w-full min-w-0 justify-start gap-3 rounded-lg px-3 text-sm font-medium",
-          active && "bg-brand/10 text-brand",
+          "h-9 w-full min-w-0 justify-start rounded-lg px-3 text-sm font-medium",
+          active && "bg-active text-brand-secondary",
         )}
       >
-        <span className="inline-flex shrink-0 [&_svg]:size-4">{icon}</span>
         <span className="truncate">{label}</span>
       </Button>
     </li>
@@ -311,6 +329,7 @@ function AccountSettings({
   const [removeAvatar, setRemoveAvatar] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!editing) {
@@ -388,10 +407,10 @@ function AccountSettings({
   return (
     <div className="w-full px-4 pb-8 sm:px-6">
       <section>
-        <header className="flex min-h-16 items-center justify-between gap-4 py-5">
+        <header className="flex min-h-12 items-center justify-between gap-4 py-3">
           <h2 className="text-lg font-semibold">{m.settings_profile()}</h2>
           {!editing && (
-            <Button type="button" variant="outline" onClick={startEditing}>
+            <Button type="button" color="secondary" onPress={startEditing}>
               {m.settings_profile_edit()}
             </Button>
           )}
@@ -399,42 +418,40 @@ function AccountSettings({
 
         {editing ? (
           <>
-            <div className="border-t py-6">
+            <div className="border-t border-secondary py-6">
               <div className="flex flex-wrap items-center gap-4">
                 <Avatar
-                  people={[
-                    {
-                      name: profile.name,
-                      src: removeAvatar ? null : profile.avatarUrl,
-                    },
-                  ]}
-                  size="xl"
-                  className="size-20 rounded-full text-xl"
+                  size="2xl"
+                  src={removeAvatar ? null : profile.avatarUrl}
+                  alt={profile.name}
+                  initials={avatarInitial(profile.name)}
+                  contentClassName={avatarToneClassName(profile.name)}
                 />
                 <div className="flex flex-wrap items-center gap-2">
-                  <label
-                    className={cn(
-                      buttonVariants({ variant: "outline" }),
-                      "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
-                    )}
+                  <Button
+                    type="button"
+                    color="secondary"
+                    iconLeading={Upload}
+                    isDisabled={saving}
+                    onPress={() => avatarInputRef.current?.click()}
                   >
-                    <Upload aria-hidden="true" />
                     {m.settings_avatar_change()}
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      aria-label={m.settings_avatar_change()}
-                      disabled={saving}
-                      className="sr-only"
-                      onChange={upload}
-                    />
-                  </label>
+                  </Button>
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    aria-label={m.settings_avatar_change()}
+                    disabled={saving}
+                    className="sr-only"
+                    onChange={upload}
+                  />
                   {profile.avatarUrl && !removeAvatar && (
                     <Button
                       type="button"
-                      variant="ghost"
-                      disabled={saving}
-                      onClick={() => {
+                      color="tertiary"
+                      isDisabled={saving}
+                      onPress={() => {
                         setPendingAvatar(null);
                         setRemoveAvatar(true);
                       }}
@@ -444,57 +461,46 @@ function AccountSettings({
                   )}
                 </div>
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">{m.settings_avatar_help()}</p>
+              <p className="mt-2 text-xs text-tertiary">{m.settings_avatar_help()}</p>
 
-              <div className="mt-6 grid gap-3 border-t pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
-                <label htmlFor="profile-name" className="text-sm font-semibold @2xl/settings:pt-2">
-                  {m.settings_name()}
-                </label>
-                <input
-                  id="profile-name"
+              <div className="mt-6 grid gap-6 border-t border-secondary pt-6 md:grid-cols-2 xl:grid-cols-3">
+                <Input
+                  label={m.settings_name()}
                   value={name}
                   maxLength={80}
-                  disabled={saving}
-                  onChange={(event) => setName(event.target.value)}
-                  className="h-10 w-full max-w-xl rounded-lg border bg-background px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-50"
+                  isDisabled={saving}
+                  hideRequiredIndicator
+                  onChange={setName}
                 />
-              </div>
 
-              <div className="mt-5 grid gap-3 border-t pt-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
-                <label
-                  htmlFor="profile-description"
-                  className="text-sm font-semibold @2xl/settings:pt-2"
-                >
-                  {m.settings_user_description()}
-                </label>
-                <div className="min-w-0 max-w-xl">
-                  <textarea
-                    id="profile-description"
+                <div className="flex flex-col gap-1.5 md:col-span-2 xl:col-span-3">
+                  <TextArea
+                    label={m.settings_user_description()}
                     value={description}
                     maxLength={280}
                     rows={4}
                     placeholder={m.settings_user_description_placeholder()}
-                    disabled={saving}
-                    onChange={(event) => setDescription(event.target.value)}
-                    className="w-full resize-none rounded-lg border bg-background px-3 py-2 text-sm shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-50"
+                    isDisabled={saving}
+                    hideRequiredIndicator
+                    onChange={setDescription}
                   />
-                  <p className="mt-2 text-right text-sm text-muted-foreground tabular-nums">
+                  <p className="text-right text-sm text-tertiary tabular-nums">
                     {description.length}/280
                   </p>
                 </div>
               </div>
             </div>
 
-            <footer className="flex flex-wrap items-center justify-end gap-3 border-t py-4">
+            <footer className="flex flex-wrap items-center justify-end gap-3 border-t border-secondary py-4">
               {saveError && (
-                <p role="alert" className="mr-auto text-sm text-destructive-text">
+                <p role="alert" className="mr-auto text-sm text-error-primary">
                   {saveError}
                 </p>
               )}
-              <Button type="button" variant="outline" disabled={saving} onClick={cancelEditing}>
+              <Button type="button" color="secondary" isDisabled={saving} onPress={cancelEditing}>
                 {m.settings_profile_cancel()}
               </Button>
-              <Button type="button" disabled={saving || !changed} onClick={save}>
+              <Button type="button" isDisabled={saving || !changed} onPress={save}>
                 {saving ? m.settings_profile_saving() : m.settings_profile_save()}
               </Button>
             </footer>
@@ -502,29 +508,32 @@ function AccountSettings({
         ) : (
           <>
             {saveSuccess && (
-              <p role="status" className="border-t py-3 text-sm text-muted-foreground">
+              <p role="status" className="border-t border-secondary py-3 text-sm text-tertiary">
                 <Check aria-hidden="true" className="mr-2 inline size-4 text-primary" />
                 {m.settings_profile_save_success()}
               </p>
             )}
-            <div className="flex min-w-0 items-center gap-4 border-t py-6">
+            <div className="flex min-w-0 items-center gap-4 border-t border-secondary py-6">
               <Avatar
-                people={[{ name: profile.name, src: profile.avatarUrl }]}
-                size="xl"
-                className="size-20 rounded-full text-xl"
+                size="2xl"
+                src={profile.avatarUrl}
+                alt={profile.name}
+                initials={avatarInitial(profile.name)}
+                contentClassName={avatarToneClassName(profile.name)}
               />
               <div className="min-w-0">
                 <p className="break-words text-lg font-semibold">{profile.name}</p>
-                <p className="break-words text-sm text-muted-foreground">@{profile.username}</p>
+                <p className="break-words text-sm text-tertiary">@{profile.username}</p>
               </div>
             </div>
-            <dl className="divide-y border-y">
+            <dl className="grid gap-x-8 gap-y-6 border-t border-secondary pt-6 md:grid-cols-2 xl:grid-cols-3">
               <ProfileValue label={m.settings_name()} value={profile.name} />
               <ProfileValue label={m.settings_email()} value={profile.email} />
-              <ProfileValue label={m.settings_username()} value={`@${profile.username}`} />
+              <ProfileValue label={m.settings_username()} value={`@${profile.username}`} mono />
               <ProfileValue
                 label={m.settings_user_description()}
                 value={profile.description || "-"}
+                full
               />
             </dl>
           </>
@@ -534,11 +543,29 @@ function AccountSettings({
   );
 }
 
-function ProfileValue({ label, value }: { label: string; value: string }) {
+function ProfileValue({
+  label,
+  value,
+  mono = false,
+  full = false,
+}: {
+  label: string;
+  value: string;
+  /** Identifiers (usernames, hostnames, versions, IDs, paths) render in the mono
+   * font; prose like an email address doesn't. */
+  mono?: boolean;
+  /** Long values (the description) span the full row. */
+  full?: boolean;
+}) {
   return (
-    <div className="grid min-w-0 gap-2 py-5 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
-      <dt className="text-sm font-semibold">{label}</dt>
-      <dd className="min-w-0 max-w-xl text-sm break-words whitespace-pre-wrap text-muted-foreground">
+    <div className={cn("flex min-w-0 flex-col gap-1", full && "md:col-span-2 xl:col-span-3")}>
+      <dt className="text-sm text-tertiary">{label}</dt>
+      <dd
+        className={cn(
+          "min-w-0 text-sm font-medium break-words whitespace-pre-wrap text-primary",
+          mono && "font-mono",
+        )}
+      >
         {value}
       </dd>
     </div>
@@ -551,36 +578,38 @@ function Preferences({
   timeZone,
   onLocaleChange,
   onThemeChange,
+  railLabels,
+  onRailLabelsChange,
   onTimeZoneChange,
 }: SettingsContentProps) {
   const timeZoneOptions = getTimeZoneOptions(m.preferences_system());
 
   return (
     <div className="w-full px-4 pb-8 sm:px-6">
-      <div className="divide-y border-b">
+      <div className="divide-y divide-secondary border-b border-secondary">
         <PreferenceSection
           icon={<Languages aria-hidden="true" />}
           heading={m.preferences_language()}
         >
-          <div className="grid gap-2 @lg/settings:grid-cols-2">
-            <PreferenceButton
-              selected={locale === "en"}
-              label={m.preferences_english()}
-              onClick={() => onLocaleChange("en")}
-            />
-            <PreferenceButton
-              selected={locale === "zh-CN"}
-              label={m.preferences_chinese()}
-              onClick={() => onLocaleChange("zh-CN")}
-            />
-          </div>
+          <ButtonGroup
+            aria-label={m.preferences_language()}
+            size="sm"
+            selectedKeys={[locale]}
+            disallowEmptySelection
+            onSelectionChange={(keys) => {
+              const next = [...keys][0];
+              if (next !== undefined) onLocaleChange(String(next) as typeof locale);
+            }}
+          >
+            <ButtonGroupItem id="en">{m.preferences_english()}</ButtonGroupItem>
+            <ButtonGroupItem id="zh-CN">{m.preferences_chinese()}</ButtonGroupItem>
+          </ButtonGroup>
         </PreferenceSection>
 
         <PreferenceSection icon={<Clock3 aria-hidden="true" />} heading={m.preferences_time_zone()}>
           <ComboBox
             aria-label={m.preferences_time_zone()}
-            className="untitled-ui"
-            popoverClassName="untitled-ui"
+            className="max-w-sm"
             placeholder={m.preferences_time_zone_search_placeholder()}
             shortcut={false}
             items={timeZoneOptions}
@@ -605,23 +634,41 @@ function Preferences({
           }
           heading={m.preferences_appearance()}
         >
-          <div className="grid gap-2 @lg/settings:grid-cols-3">
-            <PreferenceButton
-              selected={theme === "system"}
-              label={m.preferences_system()}
-              onClick={() => onThemeChange("system")}
+          <ButtonGroup
+            aria-label={m.preferences_appearance()}
+            size="sm"
+            selectedKeys={[theme]}
+            disallowEmptySelection
+            onSelectionChange={(keys) => {
+              const next = [...keys][0];
+              if (next !== undefined) onThemeChange(String(next) as typeof theme);
+            }}
+          >
+            <ButtonGroupItem id="system" iconLeading={SunMoon}>
+              {m.preferences_system()}
+            </ButtonGroupItem>
+            <ButtonGroupItem id="light" iconLeading={Sun}>
+              {m.preferences_light()}
+            </ButtonGroupItem>
+            <ButtonGroupItem id="dark" iconLeading={Moon}>
+              {m.preferences_dark()}
+            </ButtonGroupItem>
+          </ButtonGroup>
+          <label className="flex max-w-xl items-center justify-between gap-4 pt-2">
+            <span className="flex flex-col">
+              <span className="text-sm font-medium text-primary">
+                {m.preferences_rail_labels()}
+              </span>
+              <span className="text-sm text-tertiary">{m.preferences_rail_labels_hint()}</span>
+            </span>
+            <Toggle
+              size="sm"
+              className="shrink-0"
+              aria-label={m.preferences_rail_labels()}
+              isSelected={railLabels}
+              onChange={onRailLabelsChange}
             />
-            <PreferenceButton
-              selected={theme === "light"}
-              label={m.preferences_light()}
-              onClick={() => onThemeChange("light")}
-            />
-            <PreferenceButton
-              selected={theme === "dark"}
-              label={m.preferences_dark()}
-              onClick={() => onThemeChange("dark")}
-            />
-          </div>
+          </label>
         </PreferenceSection>
       </div>
     </div>
@@ -640,122 +687,110 @@ function NotificationSettings({
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testSent, setTestSent] = useState(false);
-  const status = !browserNotificationsConfigured
-    ? m.preferences_browser_notifications_unavailable()
+  const unavailableReason = !browserNotificationsConfigured
+    ? m.notifications_push_unconfigured()
     : browserNotificationPermission === "unsupported"
       ? m.preferences_browser_notifications_unsupported()
       : browserNotificationPermission === "denied"
         ? m.preferences_browser_notifications_blocked()
-        : browserNotificationsEnabled
-          ? m.preferences_browser_notifications_on()
-          : m.preferences_browser_notifications_off();
+        : null;
+  const toggleDisabled =
+    saving || !browserNotificationsConfigured || browserNotificationPermission === "unsupported";
+  const showActions = browserNotificationsEnabled && browserNotificationsConfigured;
 
   return (
-    <div className="w-full space-y-6 px-4 pb-8 sm:px-6">
-      <section className="border-b">
-        <div className="flex items-start justify-between gap-5 py-5">
-          <div className="min-w-0">
-            <h2 className="font-semibold">{m.notifications_push_title()}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {m.notifications_push_description()}
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            role="switch"
-            aria-label={m.preferences_browser_notifications()}
-            aria-checked={browserNotificationsEnabled}
-            disabled={
-              saving ||
-              !browserNotificationsConfigured ||
-              browserNotificationPermission === "unsupported"
-            }
-            onClick={async () => {
-              setSaving(true);
-              setTestSent(false);
-              try {
-                await onBrowserNotificationsChange(!browserNotificationsEnabled);
-              } finally {
-                setSaving(false);
-              }
-            }}
-            className={cn(
-              "relative mt-0.5 h-6 w-11 shrink-0 rounded-full p-0.5 ring-1 ring-border ring-inset transition-colors disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none",
-              browserNotificationsEnabled ? "bg-brand hover:bg-brand" : "bg-muted hover:bg-muted",
-            )}
-          >
-            <span
-              className={cn(
-                "absolute top-0.5 left-0.5 size-5 rounded-full bg-brand-foreground shadow-sm transition-transform motion-reduce:transition-none",
-                browserNotificationsEnabled ? "translate-x-5" : "translate-x-0",
-              )}
+    <div className="w-full px-4 pb-8 sm:px-6">
+      <div className="divide-y divide-secondary border-b border-secondary">
+        <div className="py-2">
+          <div className="flex min-h-14 items-center justify-between gap-5">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-primary">{m.notifications_push_title()}</h2>
+              <p className="mt-0.5 text-sm text-tertiary">
+                {unavailableReason ?? m.notifications_push_description()}
+              </p>
+            </div>
+            <Toggle
+              size="md"
+              className="shrink-0"
+              aria-label={m.preferences_browser_notifications()}
+              isSelected={browserNotificationsEnabled}
+              isDisabled={toggleDisabled}
+              onChange={async (isSelected) => {
+                setSaving(true);
+                setTestSent(false);
+                try {
+                  await onBrowserNotificationsChange(isSelected);
+                } finally {
+                  setSaving(false);
+                }
+              }}
             />
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 border-t py-4">
-          <span className="mr-auto text-sm text-muted-foreground">{status}</span>
-          {browserNotificationsEnabled &&
-            browserNotificationsConfigured &&
-            browserNotificationPermission === "default" && (
+          </div>
+          {showActions && (
+            <div className="flex flex-wrap items-center gap-3 pb-3">
+              {browserNotificationPermission === "default" && (
+                <Button
+                  type="button"
+                  color="secondary"
+                  size="sm"
+                  isDisabled={saving}
+                  onPress={async () => {
+                    setSaving(true);
+                    try {
+                      await onEnableBrowserNotifications();
+                    } finally {
+                      setSaving(false);
+                    }
+                  }}
+                >
+                  {m.preferences_browser_notifications_allow_browser()}
+                </Button>
+              )}
               <Button
                 type="button"
-                variant="outline"
+                color="secondary"
                 size="sm"
-                disabled={saving}
-                onClick={async () => {
-                  setSaving(true);
+                isDisabled={browserNotificationPermission !== "granted" || testing}
+                onPress={async () => {
+                  setTesting(true);
+                  setTestSent(false);
                   try {
-                    await onEnableBrowserNotifications();
+                    setTestSent(await onTestBrowserNotification());
                   } finally {
-                    setSaving(false);
+                    setTesting(false);
                   }
                 }}
               >
-                {m.preferences_browser_notifications_allow_browser()}
+                {testing
+                  ? m.preferences_browser_notifications_testing()
+                  : m.preferences_browser_notifications_test()}
               </Button>
-            )}
-          {browserNotificationsEnabled && browserNotificationsConfigured && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={browserNotificationPermission !== "granted" || testing}
-              onClick={async () => {
-                setTesting(true);
-                setTestSent(false);
-                try {
-                  setTestSent(await onTestBrowserNotification());
-                } finally {
-                  setTesting(false);
-                }
-              }}
-            >
-              {testing
-                ? m.preferences_browser_notifications_testing()
-                : m.preferences_browser_notifications_test()}
-            </Button>
-          )}
-          {testSent && (
-            <span role="status" className="text-xs text-muted-foreground">
-              {m.preferences_browser_notifications_test_sent()}
-            </span>
+              {testSent && (
+                <span role="status" className="text-xs text-tertiary">
+                  {m.preferences_browser_notifications_test_sent()}
+                </span>
+              )}
+            </div>
           )}
         </div>
-      </section>
+      </div>
       {showAddToHomeScreenGuide && (
-        <section className="rounded-xl border bg-muted/30 p-5 sm:p-6">
-          <h2 className="font-semibold">{m.notifications_home_screen_title()}</h2>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            {m.notifications_home_screen_description()}
-          </p>
-          <ol className="mt-4 list-decimal space-y-2 pl-5 text-sm">
-            <li>{m.notifications_home_screen_share()}</li>
-            <li>{m.notifications_home_screen_add()}</li>
-            <li>{m.notifications_home_screen_open()}</li>
-          </ol>
-        </section>
+        <div className="mt-6 flex items-start gap-3 rounded-lg border border-secondary bg-secondary px-4 py-4">
+          <Share01 aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-tertiary" />
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-primary">
+              {m.notifications_home_screen_title()}
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm text-tertiary">
+              {m.notifications_home_screen_description()}
+            </p>
+            <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-secondary">
+              <li>{m.notifications_home_screen_share()}</li>
+              <li>{m.notifications_home_screen_add()}</li>
+              <li>{m.notifications_home_screen_open()}</li>
+            </ol>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -771,10 +806,10 @@ function PreferenceSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="grid gap-4 py-6 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
-      <div className="flex items-start gap-3">
-        <span className="mt-0.5 text-muted-foreground [&_svg]:size-4">{icon}</span>
-        <h3 className="text-sm font-semibold">{heading}</h3>
+    <section className="flex flex-col gap-4 py-6">
+      <div className="flex items-center gap-2">
+        <span className="text-tertiary [&_svg]:size-4">{icon}</span>
+        <h3 className="text-sm font-semibold text-primary">{heading}</h3>
       </div>
       <div className="min-w-0 max-w-xl">{children}</div>
     </section>
@@ -838,30 +873,4 @@ function getUtcOffset(timeZone: string) {
     label: `UTC${match[1]}${match[2]}:${match[3]}`,
     minutes: sign * (Number(match[2]) * 60 + Number(match[3])),
   };
-}
-
-function PreferenceButton({
-  selected,
-  label,
-  onClick,
-}: {
-  selected: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      aria-pressed={selected}
-      onClick={onClick}
-      className={cn(
-        "min-h-12 min-w-0 w-full justify-start gap-3 bg-background px-4 text-left whitespace-normal shadow-xs",
-        selected && "border-brand bg-brand/5 text-accent-foreground ring-1 ring-brand",
-      )}
-    >
-      {label}
-      {selected && <Check aria-hidden="true" className="ml-auto size-4" />}
-    </Button>
-  );
 }

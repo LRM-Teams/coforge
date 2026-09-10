@@ -4,6 +4,7 @@ import { cleanup, render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChannelConversation } from "@/features/conversations/channel-conversation";
 import { AppToastProvider } from "@/components/ui/toast";
+import { ChannelSidebarVisibilityContext } from "@/components/app-shell";
 
 afterEach(cleanup);
 
@@ -207,7 +208,9 @@ test("channel threads keep replies out of the main flow and send to the selected
   await user.click(page.getByRole("button", { name: /1 reply/ }));
   const discussion = within(page.getByRole("region", { name: "Thread" }));
   expect(discussion.getByText("Only in the channel thread")).toBeTruthy();
-  expect(page.getByRole("button", { name: /@bob Only in the channel thread/ })).toBeTruthy();
+  // The preview under the root message is a compact avatar-stack-and-count
+  // line, not a list of individual replies.
+  expect(page.getByRole("button", { name: /1 reply/ }).querySelector("[data-avatar]")).toBeTruthy();
   await user.click(discussion.getByRole("button", { name: "Unfollow thread" }));
   expect(onThreadFollowedChange).toHaveBeenCalledWith(root.id, false);
   await user.type(discussion.getByLabelText("Message"), "Channel thread response");
@@ -218,4 +221,24 @@ test("channel threads keep replies out of the main flow and send to the selected
     undefined,
     root.id,
   );
+});
+
+test("shows a control to bring back a hidden channel sidebar", async () => {
+  const show = mock(() => {});
+  render(
+    <AppToastProvider>
+      <ChannelSidebarVisibilityContext value={{ hidden: true, show }}>
+        <ChannelConversation
+          conversation={history}
+          onSend={mock(async () => {})}
+          onJoin={async () => {}}
+          onMutedChange={mock(async () => {})}
+        />
+      </ChannelSidebarVisibilityContext>
+    </AppToastProvider>,
+  );
+  await userEvent
+    .setup()
+    .click(within(document.body).getByRole("button", { name: "Show sidebar" }));
+  expect(show).toHaveBeenCalledTimes(1);
 });

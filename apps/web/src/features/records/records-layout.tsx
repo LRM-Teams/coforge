@@ -14,14 +14,15 @@ import {
 } from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { Avatar } from "@/components/ui/avatar";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Avatar } from "@/components/base/avatar/avatar";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
+import { Button, buttonVariants } from "./report-editor/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "./report-editor/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { CreateMemberReportDialog } from "./create-member-report-dialog";
@@ -245,7 +246,11 @@ export function RecordsLayout({
                             selected={item.id === selectedRecordId}
                             onSelect={() => setShowMobileList(false)}
                           >
-                            <Avatar people={[{ name: item.author.displayName }]} size="sm" />
+                            <Avatar
+                              size="sm"
+                              initials={avatarInitial(item.author.displayName)}
+                              contentClassName={avatarToneClassName(item.author.displayName)}
+                            />
                             <span className="truncate">{item.title}</span>
                           </RecordLink>
                         </li>
@@ -420,8 +425,11 @@ export function RecordsLayout({
                                       onSelect={() => setShowMobileList(false)}
                                     >
                                       <Avatar
-                                        people={[{ name: submission.author.displayName }]}
                                         size="sm"
+                                        initials={avatarInitial(submission.author.displayName)}
+                                        contentClassName={avatarToneClassName(
+                                          submission.author.displayName,
+                                        )}
                                       />
                                       <span className="truncate">{submission.title}</span>
                                     </RecordLink>

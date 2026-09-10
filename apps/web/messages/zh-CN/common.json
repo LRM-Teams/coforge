@@ -7,11 +7,12 @@
   "navigation_conversations": "对话",
   "navigation_projects": "项目",
   "navigation_agents": "成员",
+  "navigation_chat": "聊天",
   "navigation_messages": "消息",
   "navigation_records": "记录",
   "navigation_computers": "电脑",
   "navigation_settings": "设置",
-  "navigation_personal_settings": "个人设置",
+  "navigation_personal_settings": "设置",
   "header_agents": "智能体",
   "content_title": "智能体汇总",
   "content_description": "搜索、查看并为团队创建智能体。",
@@ -44,5 +45,7 @@
   "workspace_unavailable_description": "当前账号还不是任何工作空间的成员。请退出后重新登录以创建，或请管理员授予访问权限。",
   "app_load_error": "页面无法加载。",
   "app_load_error_description": "服务可能暂时不可用，请稍后重试。",
-  "error_reference": "错误编号：{errorId}"
+  "error_reference": "错误编号：{errorId}",
+  "navigation_open_menu": "打开菜单",
+  "navigation_close_menu": "关闭菜单"
 }

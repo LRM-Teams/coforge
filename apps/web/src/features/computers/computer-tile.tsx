@@ -17,7 +17,7 @@ export function ComputerTile({
     <span className="relative flex shrink-0">
       <span
         aria-hidden="true"
-        className="flex size-9 items-center justify-center rounded-[10px] border bg-background text-muted-foreground"
+        className="flex size-9 items-center justify-center rounded-[10px] border border-secondary bg-primary text-tertiary"
       >
         <Icon className="size-4" />
       </span>
@@ -26,8 +26,8 @@ export function ComputerTile({
           <span
             aria-hidden="true"
             className={cn(
-              "absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-card",
-              online ? "bg-success" : "bg-offline",
+              "absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-primary",
+              online ? "bg-online" : "bg-offline",
             )}
           />
           <span className="sr-only">

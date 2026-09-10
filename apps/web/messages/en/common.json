@@ -7,11 +7,12 @@
   "navigation_conversations": "Conversations",
   "navigation_projects": "Projects",
   "navigation_agents": "Members",
+  "navigation_chat": "Chat",
   "navigation_messages": "Messages",
   "navigation_records": "Records",
   "navigation_computers": "Computers",
   "navigation_settings": "Settings",
-  "navigation_personal_settings": "Personal Settings",
+  "navigation_personal_settings": "Settings",
   "header_agents": "Agents",
   "content_title": "Agent overview",
   "content_description": "Search, review, and create Agents for your team.",
@@ -44,5 +45,7 @@
   "workspace_unavailable_description": "This account is not a member of a Workspace. Sign out and sign in again to create one, or ask an administrator for access.",
   "app_load_error": "This page could not be loaded.",
   "app_load_error_description": "The service may be temporarily unavailable. Try again in a moment.",
-  "error_reference": "Error reference: {errorId}"
+  "error_reference": "Error reference: {errorId}",
+  "navigation_open_menu": "Open menu",
+  "navigation_close_menu": "Close menu"
 }

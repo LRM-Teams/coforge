@@ -1,16 +1,10 @@
 import { useId, useRef, useState, type FormEvent } from "react";
 import { XClose as X } from "@untitledui/icons";
+import { Heading, Text } from "react-aria-components";
 
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogBackdrop,
-  DialogClose,
-  DialogDescription,
-  DialogPopup,
-  DialogPortal,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Button } from "@/components/base/buttons/button";
+import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { m } from "@/paraglide/messages";
 
 export function CreateTaskDialog({
@@ -55,44 +49,55 @@ export function CreateTaskDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(value) => !busy.current && onOpenChange(value)}>
-      <DialogPortal>
-        <DialogBackdrop />
-        <DialogPopup className="w-[calc(100vw-2rem)] max-w-md rounded-2xl border bg-card p-6 shadow-xl">
-          <DialogClose
-            aria-label={m.controls_close()}
-            className="absolute top-4 right-4 rounded-md p-1 hover:bg-muted"
-          >
-            <X className="size-4" />
-          </DialogClose>
-          <DialogTitle className="text-base font-semibold">{m.tasks_create()}</DialogTitle>
-          <DialogDescription className="mt-2 text-sm text-muted-foreground">
-            {m.tasks_create_description()}
-          </DialogDescription>
-          <form onSubmit={(event) => void submit(event)} className="mt-5 flex flex-col gap-3">
-            <label htmlFor={id} className="text-sm font-medium">
-              {m.tasks_title()}
-            </label>
-            <input
-              id={id}
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              required
-              maxLength={500}
-              disabled={saving}
-              className="h-10 rounded-lg border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-            />
-            {error && (
-              <p role="alert" className="text-sm text-destructive-text">
-                {error}
-              </p>
-            )}
-            <Button type="submit" disabled={saving || !title.trim()} className="mt-2 self-end">
-              {m.tasks_create()}
-            </Button>
-          </form>
-        </DialogPopup>
-      </DialogPortal>
-    </Dialog>
+    <ModalOverlay isOpen={open} onOpenChange={(value) => !busy.current && onOpenChange(value)}>
+      <Modal className="w-[calc(100vw-2rem)] max-w-md">
+        <Dialog className="p-6">
+          {({ close }) => (
+            <>
+              <ButtonUtility
+                aria-label={m.controls_close()}
+                icon={X}
+                size="sm"
+                color="tertiary"
+                className="absolute top-4 right-4"
+                onClick={close}
+              />
+              <Heading slot="title" className="text-base font-semibold text-primary">
+                {m.tasks_create()}
+              </Heading>
+              <Text slot="description" className="mt-2 text-sm text-tertiary">
+                {m.tasks_create_description()}
+              </Text>
+              <form onSubmit={(event) => void submit(event)} className="mt-5 flex flex-col gap-3">
+                <label htmlFor={id} className="text-sm font-medium">
+                  {m.tasks_title()}
+                </label>
+                <input
+                  id={id}
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  required
+                  maxLength={500}
+                  disabled={saving}
+                  className="h-10 rounded-lg border border-secondary bg-primary px-3 text-sm outline-none focus:ring-2 focus:ring-brand"
+                />
+                {error && (
+                  <p role="alert" className="text-sm text-error-primary">
+                    {error}
+                  </p>
+                )}
+                <Button
+                  type="submit"
+                  isDisabled={saving || !title.trim()}
+                  className="mt-2 self-end"
+                >
+                  {m.tasks_create()}
+                </Button>
+              </form>
+            </>
+          )}
+        </Dialog>
+      </Modal>
+    </ModalOverlay>
   );
 }

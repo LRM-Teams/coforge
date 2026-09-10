@@ -4,9 +4,16 @@ import { afterEach, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { Button } from "@/components/base/buttons/button";
 import { AgentRuntimeFields } from "@/features/agents/agent-runtime-fields";
 
 afterEach(cleanup);
+
+// The official Select's accessible name is "<value> <label> *" (the trailing "*" always
+// renders in this DOM environment, which has no stylesheet to hide it when not required), so
+// tests match on a name that contains "Model" but not "Model provider" rather than an exact
+// or prefixed string.
+const isModelSelect = (name: string) => /\bModel\b/.test(name) && !/Model provider/.test(name);
 
 const model = {
   id: "gpt-5",
@@ -29,7 +36,7 @@ test("loads on demand and only offers installed or currently configured runtimes
 
   view.rerender(<AgentRuntimeFields open computerId="computer-1" onLoad={load} />);
   await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
-  await user.click(within(document.body).getByRole("button", { name: "Runtime provider" }));
+  await user.click(within(document.body).getByRole("button", { name: /Runtime provider/ }));
   expect(within(document.body).getByRole("option", { name: "Codex" })).toBeTruthy();
   expect(within(document.body).queryByText("Claude Code")).toBeNull();
 });
@@ -58,7 +65,7 @@ test("replays the current catalog model and reasoning and submits no computer id
           catalogs: [{ provider: "coforge", models: [model] }],
         })}
       />
-      <button type="submit">Save</button>
+      <Button type="submit">Save</Button>
     </form>,
   );
   await waitFor(() => expect(document.body.textContent).toContain("openai / GPT 5"));
@@ -93,13 +100,13 @@ test("keeps a configured model visible when it is absent from the latest catalog
         }}
         onLoad={async () => ({ providers: ["pi"], catalogs: [] })}
       />
-      <button type="submit">Save</button>
+      <Button type="submit">Save</Button>
     </form>,
   );
 
   await waitFor(() =>
     expect(
-      within(document.body).getByRole("button", { name: /Model Optional/ }).textContent,
+      within(document.body).getByRole("button", { name: isModelSelect }).textContent,
     ).toContain("legacy-provider / legacy-model"),
   );
   fireEvent.click(within(document.body).getByRole("button", { name: "Save" }));
@@ -136,16 +143,16 @@ test("submits the model provider selected through an external runtime catalog", 
         }}
         onLoad={load}
       />
-      <button type="submit">Save</button>
+      <Button type="submit">Save</Button>
     </form>,
   );
   await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
 
-  await user.click(within(document.body).getByRole("button", { name: /Model Optional/ }));
+  await user.click(within(document.body).getByRole("button", { name: isModelSelect }));
   await user.click(within(document.body).getByRole("option", { name: "openai / GPT 5" }));
   await waitFor(() =>
     expect(
-      within(document.body).getByRole("button", { name: /Model Optional/ }).textContent,
+      within(document.body).getByRole("button", { name: isModelSelect }).textContent,
     ).toContain("openai / GPT 5"),
   );
   await user.click(within(document.body).getByRole("button", { name: "Save" }));
@@ -176,8 +183,16 @@ test("falls back to manual provider and model inputs and allows retry", async ()
   render(<AgentRuntimeFields open computerId="computer-1" onLoad={load} />);
 
   await waitFor(() => expect(within(document.body).getByRole("alert")).toBeTruthy());
-  expect(within(document.body).getByRole("textbox", { name: "Model provider" })).toBeTruthy();
-  expect(within(document.body).getByRole("textbox", { name: "Model" })).toBeTruthy();
+  expect(
+    within(document.body).getByRole("textbox", {
+      name: (name: string) => name.startsWith("Model provider"),
+    }),
+  ).toBeTruthy();
+  expect(
+    within(document.body).getByRole("textbox", {
+      name: (name: string) => name.startsWith("Model") && !name.startsWith("Model provider"),
+    }),
+  ).toBeTruthy();
   fireEvent.click(within(document.body).getByRole("button", { name: "Try again" }));
   await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
 });
@@ -207,13 +222,13 @@ test("Pi offers CoForge catalog providers and submits an optional isolated API k
           ],
         })}
       />
-      <button type="submit">Save</button>
+      <Button type="submit">Save</Button>
     </form>,
   );
   await waitFor(() =>
-    expect(within(document.body).getByRole("button", { name: "Model provider" })).toBeTruthy(),
+    expect(within(document.body).getByRole("button", { name: /Model provider/ })).toBeTruthy(),
   );
-  await user.click(within(document.body).getByRole("button", { name: /Model Optional/ }));
+  await user.click(within(document.body).getByRole("button", { name: isModelSelect }));
   await user.click(within(document.body).getByRole("option", { name: "openai / GPT 5" }));
   const key = within(document.body).getByLabelText("openai API key");
   expect(key.hasAttribute("required")).toBe(false);
@@ -245,13 +260,13 @@ test("clears a drafted API key when model provider changes", async () => {
     />,
   );
   await waitFor(() =>
-    expect(within(document.body).getByRole("button", { name: "Model provider" })).toBeTruthy(),
+    expect(within(document.body).getByRole("button", { name: /Model provider/ })).toBeTruthy(),
   );
-  await user.click(within(document.body).getByRole("button", { name: "Model provider" }));
+  await user.click(within(document.body).getByRole("button", { name: /Model provider/ }));
   await user.click(within(document.body).getByRole("option", { name: "openai" }));
   const key = within(document.body).getByLabelText("openai API key") as HTMLInputElement;
   await user.type(key, "secret-key");
-  await user.click(within(document.body).getByRole("button", { name: "Model provider" }));
+  await user.click(within(document.body).getByRole("button", { name: /Model provider/ }));
   await user.click(within(document.body).getByRole("option", { name: "anthropic" }));
   expect(within(document.body).getByLabelText("anthropic API key")).toBe(key);
   expect(key.value).toBe("");
@@ -277,7 +292,7 @@ test("requires a new credential after leaving the configured model provider", as
   expect(within(document.body).getByLabelText("openai API key").hasAttribute("required")).toBe(
     false,
   );
-  await user.click(within(document.body).getByRole("button", { name: "Model provider" }));
+  await user.click(within(document.body).getByRole("button", { name: /Model provider/ }));
   await user.click(within(document.body).getByRole("option", { name: "anthropic" }));
   expect(within(document.body).getByLabelText("anthropic API key").hasAttribute("required")).toBe(
     true,
@@ -298,9 +313,9 @@ test("external runtimes show their complete model catalog", async () => {
     />,
   );
   await waitFor(() =>
-    expect(within(document.body).getByRole("button", { name: /Model Optional/ })).toBeTruthy(),
+    expect(within(document.body).getByRole("button", { name: isModelSelect })).toBeTruthy(),
   );
-  await user.click(within(document.body).getByRole("button", { name: /Model Optional/ }));
+  await user.click(within(document.body).getByRole("button", { name: isModelSelect }));
   expect(within(document.body).getByRole("option", { name: "openai / GPT 5" })).toBeTruthy();
 });
 
@@ -327,15 +342,15 @@ test("Pi filters an explicit provider and deduplicates local models before CoFor
     />,
   );
   await waitFor(() =>
-    expect(within(document.body).getByRole("button", { name: "Model provider" })).toBeTruthy(),
+    expect(within(document.body).getByRole("button", { name: /Model provider/ })).toBeTruthy(),
   );
-  await user.click(within(document.body).getByRole("button", { name: /Model Optional/ }));
+  await user.click(within(document.body).getByRole("button", { name: isModelSelect }));
   expect(within(document.body).getAllByRole("option", { name: "openai / GPT 5" })).toHaveLength(1);
   expect(within(document.body).queryByText("Cloud duplicate")).toBeNull();
   await user.keyboard("{Escape}");
-  await user.click(within(document.body).getByRole("button", { name: "Model provider" }));
+  await user.click(within(document.body).getByRole("button", { name: /Model provider/ }));
   await user.click(within(document.body).getByRole("option", { name: "anthropic" }));
-  await user.click(within(document.body).getByRole("button", { name: /Model Optional/ }));
+  await user.click(within(document.body).getByRole("button", { name: isModelSelect }));
   expect(within(document.body).getByRole("option", { name: "anthropic / Claude" })).toBeTruthy();
   expect(within(document.body).queryByRole("option", { name: "openai / GPT 5" })).toBeNull();
 });
@@ -358,13 +373,13 @@ test("keeps a drafted API key when selecting another model from the same provide
     />,
   );
   await waitFor(() =>
-    expect(within(document.body).getByRole("button", { name: "Model provider" })).toBeTruthy(),
+    expect(within(document.body).getByRole("button", { name: /Model provider/ })).toBeTruthy(),
   );
-  await user.click(within(document.body).getByRole("button", { name: "Model provider" }));
+  await user.click(within(document.body).getByRole("button", { name: /Model provider/ }));
   await user.click(within(document.body).getByRole("option", { name: "openai" }));
   const key = within(document.body).getByLabelText("openai API key") as HTMLInputElement;
   await user.type(key, "secret-key");
-  await user.click(within(document.body).getByRole("button", { name: /Model Optional/ }));
+  await user.click(within(document.body).getByRole("button", { name: isModelSelect }));
   await user.click(within(document.body).getByRole("option", { name: "openai / GPT 5 mini" }));
   expect(key.value).toBe("secret-key");
 });
@@ -377,9 +392,9 @@ test("clears a drafted API key when the Computer changes", async () => {
   });
   const view = render(<AgentRuntimeFields open computerId="computer-1" onLoad={load} />);
   await waitFor(() =>
-    expect(within(document.body).getByRole("button", { name: "Model provider" })).toBeTruthy(),
+    expect(within(document.body).getByRole("button", { name: /Model provider/ })).toBeTruthy(),
   );
-  await user.click(within(document.body).getByRole("button", { name: "Model provider" }));
+  await user.click(within(document.body).getByRole("button", { name: /Model provider/ }));
   await user.click(within(document.body).getByRole("option", { name: "openai" }));
   const key = within(document.body).getByLabelText("openai API key") as HTMLInputElement;
   await user.type(key, "secret-key");

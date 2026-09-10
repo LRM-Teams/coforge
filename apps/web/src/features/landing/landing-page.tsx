@@ -5,13 +5,9 @@ import { Check, ChevronDown, Translate01 as Languages } from "@untitledui/icons"
 import { MotionConfig, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 
-import { buttonVariants } from "@/features/landing/controls/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/features/landing/controls/dropdown-menu";
+import { Button as AriaButton } from "react-aria-components";
+
+import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { AnimatedSpan, Terminal, TypingAnimation } from "@/components/magicui/terminal";
 import AnimatedGradient from "@/components/spell/animated-gradient";
 import { BlurReveal } from "@/components/spell/blur-reveal";
@@ -94,29 +90,34 @@ const locales = [
 function LocaleSwitch() {
   const active = getLocale();
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
+    <Dropdown.Root>
+      <AriaButton
         aria-label={m.landing_language()}
-        className="flex h-9 shrink-0 items-center gap-1.5 rounded-full px-2 text-xs font-medium text-white/70 hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        className="flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2 text-xs font-medium text-white/70 outline-none hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
       >
         <Languages aria-hidden="true" className="size-4" />
         {locales.find((locale) => locale.code === active)?.label}
         <ChevronDown aria-hidden="true" className="size-3" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="dark min-w-36">
-        {locales.map((locale) => (
-          <DropdownMenuItem
-            key={locale.code}
-            render={<a href={locale.href} />}
-            aria-label={locale.name()}
-            aria-current={locale.code === active ? "true" : undefined}
-          >
-            {locale.code === "en" ? "English" : "简体中文"}
-            {locale.code === active && <Check aria-hidden="true" className="ml-auto size-4" />}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </AriaButton>
+      <Dropdown.Popover placement="bottom end" className="dark-mode w-40">
+        <Dropdown.Menu
+          aria-label={m.landing_language()}
+          selectionMode="none"
+          items={locales.map((locale) => ({ ...locale }))}
+        >
+          {(locale) => (
+            <Dropdown.Item
+              id={locale.code}
+              href={locale.href}
+              aria-label={locale.name()}
+              data-current={locale.code === active ? "true" : undefined}
+              label={locale.code === "en" ? "English" : "简体中文"}
+              icon={locale.code === active ? Check : undefined}
+            />
+          )}
+        </Dropdown.Menu>
+      </Dropdown.Popover>
+    </Dropdown.Root>
   );
 }
 
@@ -171,7 +172,7 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
             </a>
             <a
               href="/auth/login"
-              className={buttonVariants({ size: "lg", className: "dark px-4" })}
+              className="flex h-9 items-center rounded-lg bg-white px-4 text-sm font-medium whitespace-nowrap text-gray-900 transition-colors hover:bg-white/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             >
               <span>{m.landing_action_sign_up()}</span>
             </a>

@@ -3,7 +3,7 @@ import "./dom-setup";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { useState } from "react";
 import { RouterContextProvider } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { AppShell } from "@/components/app-shell";
@@ -75,7 +75,7 @@ function renderSettings() {
     function changeTheme(nextTheme: "system" | "light" | "dark") {
       setTheme(nextTheme);
       localStorage.setItem("coforge-theme", nextTheme);
-      document.documentElement.classList.toggle("dark", nextTheme === "dark");
+      document.documentElement.classList.toggle("dark-mode", nextTheme === "dark");
     }
 
     return (
@@ -91,6 +91,8 @@ function renderSettings() {
         onAvatarRemove={async () => {}}
         onLocaleChange={() => {}}
         onThemeChange={changeTheme}
+        railLabels
+        onRailLabelsChange={() => {}}
         onTimeZoneChange={() => {}}
       />
     );
@@ -106,9 +108,7 @@ test("uses separate settings list and content panels with a way back that preser
   const surface = main?.querySelector(":scope > section");
 
   expect(main?.classList.contains("h-svh")).toBeTrue();
-  expect(main?.classList.contains("md:p-2")).toBeTrue();
-  expect(surface?.classList.contains("bg-card")).toBeTrue();
-  expect(surface?.classList.contains("md:rounded-xl")).toBeTrue();
+  expect(surface?.classList.contains("bg-primary")).toBeTrue();
   expect(surface?.querySelectorAll(":scope > header")).toHaveLength(1);
   const navigation = view.getByRole("navigation", { name: "Settings" });
   expect(navigation.parentElement).toBe(main);
@@ -122,14 +122,15 @@ test("uses separate settings list and content panels with a way back that preser
   expect(navigation.classList.contains("hidden")).toBeTrue();
   expect(surface?.classList.contains("hidden")).toBeFalse();
   await user.click(view.getByRole("button", { name: /Edit/ }));
-  const nameInput = view.getByLabelText("Name");
-  await user.clear(nameInput);
+  const nameInput = view.getByLabelText(/^Name/);
+  await user.tripleClick(nameInput);
+  await user.keyboard("{Backspace}");
   await user.type(nameInput, "Unsaved name");
   await user.click(view.getByRole("button", { name: "Settings" }));
   expect(navigation.classList.contains("hidden")).toBeFalse();
   expect(surface?.classList.contains("hidden")).toBeTrue();
   await user.click(view.getByRole("button", { name: "Account" }));
-  expect((view.getByLabelText("Name") as HTMLInputElement).value).toBe("Unsaved name");
+  expect((view.getByLabelText(/^Name/) as HTMLInputElement).value).toBe("Unsaved name");
   expect(view.container.querySelector(".max-w-6xl")).toBeNull();
 });
 
@@ -139,7 +140,7 @@ test("keeps the pending settings state in the same page surface", () => {
   const surface = main?.querySelector(":scope > section");
 
   expect(main?.getAttribute("aria-busy")).toBe("true");
-  expect(surface?.classList.contains("bg-card")).toBeTrue();
+  expect(surface?.classList.contains("bg-primary")).toBeTrue();
   expect(surface?.querySelectorAll(":scope > header")).toHaveLength(1);
   expect(main?.querySelector(":scope > nav ul")).toBeTruthy();
   expect(view.getByRole("list", { name: "Personal" }).textContent).toBe(
@@ -164,6 +165,8 @@ test("searches time zones by city and sends the IANA identifier to persistence",
       onAvatarRemove={async () => {}}
       onLocaleChange={() => {}}
       onThemeChange={() => {}}
+      railLabels
+      onRailLabelsChange={() => {}}
       onTimeZoneChange={(timeZone) => {
         selected = timeZone;
       }}
@@ -186,9 +189,9 @@ test("switches to dark mode and remembers the preference", async () => {
 
   expect(view.getByRole("heading", { name: "Settings" })).toBeTruthy();
   await user.click(view.getByRole("button", { name: "Preferences" }));
-  await user.click(view.getByRole("button", { name: "Dark" }));
+  await user.click(view.getByRole("radio", { name: "Dark" }));
 
-  expect(document.documentElement.classList.contains("dark")).toBeTrue();
+  expect(document.documentElement.classList.contains("dark-mode")).toBeTrue();
   expect(localStorage.getItem("coforge-theme")).toBe("dark");
 });
 
@@ -218,6 +221,8 @@ test("shows the global browser notification state and runs a test notification",
       onAvatarRemove={async () => {}}
       onLocaleChange={() => {}}
       onThemeChange={() => {}}
+      railLabels
+      onRailLabelsChange={() => {}}
       onTimeZoneChange={() => {}}
     />,
   );
@@ -226,7 +231,10 @@ test("shows the global browser notification state and runs a test notification",
   const notificationSwitch = view.getByRole("switch", {
     name: "Browser notifications",
   });
-  expect(notificationSwitch.getAttribute("aria-checked")).toBe("true");
+  // The official Toggle (base/toggle/toggle.tsx, unmodified) renders a real
+  // `<input type="checkbox" role="switch">` and conveys state via the native
+  // `checked` property rather than an `aria-checked` attribute.
+  expect((notificationSwitch as HTMLInputElement).checked).toBe(true);
   await user.click(view.getByRole("button", { name: "Send test notification" }));
   expect(tested).toBeTrue();
   expect(view.getByRole("status").textContent).toBe("Test notification sent.");
@@ -250,6 +258,8 @@ test("explains how to install the app before enabling notifications on iPhone an
       onAvatarRemove={async () => {}}
       onLocaleChange={() => {}}
       onThemeChange={() => {}}
+      railLabels
+      onRailLabelsChange={() => {}}
       onTimeZoneChange={() => {}}
     />,
   );
@@ -289,18 +299,22 @@ test("edits the profile name and description and uploads a profile image on save
       onAvatarRemove={async () => {}}
       onLocaleChange={() => {}}
       onThemeChange={() => {}}
+      railLabels
+      onRailLabelsChange={() => {}}
       onTimeZoneChange={() => {}}
     />,
   );
 
   expect(view.getByText("@frankan", { selector: "dd" })).toBeTruthy();
-  expect(view.queryByRole("textbox", { name: "Description" })).toBeNull();
+  expect(view.queryByRole("textbox", { name: /^Description/ })).toBeNull();
   await user.click(view.getByRole("button", { name: "Edit" }));
-  const name = view.getByRole("textbox", { name: "Name" });
-  await user.clear(name);
+  const name = view.getByRole("textbox", { name: /^Name/ });
+  await user.tripleClick(name);
+  await user.keyboard("{Backspace}");
   await user.type(name, "Frank An Updated");
-  const description = view.getByRole("textbox", { name: "Description" });
-  await user.clear(description);
+  const description = view.getByRole("textbox", { name: /^Description/ });
+  await user.tripleClick(description);
+  await user.keyboard("{Backspace}");
   await user.type(description, "Helping teams ship reliable software.");
 
   const file = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "avatar.png", {
@@ -312,7 +326,7 @@ test("edits the profile name and description and uploads a profile image on save
   expect(savedName).toBe("Frank An Updated");
   expect(savedDescription).toBe("Helping teams ship reliable software.");
   expect(uploadedFile).toBe(file);
-  expect(view.queryByRole("textbox", { name: "Description" })).toBeNull();
+  expect(view.queryByRole("textbox", { name: /^Description/ })).toBeNull();
 });
 
 test("keeps profile drafts and prevents duplicate saves while a failed save is pending", async () => {
@@ -338,13 +352,16 @@ test("keeps profile drafts and prevents duplicate saves while a failed save is p
       onAvatarRemove={async () => {}}
       onLocaleChange={() => {}}
       onThemeChange={() => {}}
+      railLabels
+      onRailLabelsChange={() => {}}
       onTimeZoneChange={() => {}}
     />,
   );
 
   await user.click(view.getByRole("button", { name: "Edit" }));
-  const name = view.getByRole("textbox", { name: "Name" });
-  await user.clear(name);
+  const name = view.getByRole("textbox", { name: /^Name/ });
+  await user.tripleClick(name);
+  await user.keyboard("{Backspace}");
   await user.type(name, "Unsaved name");
   const save = view.getByRole("button", { name: "Save" });
   await user.click(save);
@@ -354,8 +371,8 @@ test("keeps profile drafts and prevents duplicate saves while a failed save is p
   expect(save.hasAttribute("disabled")).toBeTrue();
   rejectSave(new Error("offline"));
   await waitFor(() => expect(view.getByRole("alert")).toBeTruthy());
-  expect(view.getByRole("textbox", { name: "Name" }).getAttribute("value")).toBe("Unsaved name");
-  expect(view.queryByRole("textbox", { name: "Description" })).toBeTruthy();
+  expect(view.getByRole("textbox", { name: /^Name/ }).getAttribute("value")).toBe("Unsaved name");
+  expect(view.queryByRole("textbox", { name: /^Description/ })).toBeTruthy();
 });
 
 test("does not repeat a successful avatar update when profile details are retried", async () => {
@@ -380,12 +397,14 @@ test("does not repeat a successful avatar update when profile details are retrie
       onAvatarRemove={async () => {}}
       onLocaleChange={() => {}}
       onThemeChange={() => {}}
+      railLabels
+      onRailLabelsChange={() => {}}
       onTimeZoneChange={() => {}}
     />,
   );
 
   await user.click(view.getByRole("button", { name: "Edit" }));
-  await user.type(view.getByRole("textbox", { name: "Name" }), " updated");
+  await user.type(view.getByRole("textbox", { name: /^Name/ }), " updated");
   await user.upload(
     view.getByLabelText("Replace picture"),
     new File(["image"], "avatar.png", { type: "image/png" }),
@@ -403,26 +422,12 @@ test("does not repeat a successful avatar update when profile details are retrie
 
 test("uses the current user avatar as the personal settings menu trigger without a tooltip", () => {
   const view = renderShell();
-  const trigger = view.getByRole("button", { name: "Current user" });
+  // The permanent icon rail's trigger is icon-only (compact) — the user's
+  // name lives in its accessible name rather than visible text.
+  const trigger = view.getByRole("button", { name: "Current user: Frank An" });
 
   expect(trigger.getAttribute("aria-haspopup")).toBe("true");
-  expect(trigger.hasAttribute("data-base-ui-tooltip-trigger")).toBeFalse();
   expect(trigger.querySelector("[data-avatar]")?.textContent).toBe("F");
-});
-
-test("collapses and restores the sidebar with the Mod-B shortcut", () => {
-  const view = renderShell();
-
-  expect(view.getByRole("complementary")).toBeTruthy();
-  fireEvent.keyDown(document, { key: "b", code: "KeyB", ctrlKey: true });
-  fireEvent.keyUp(document, { key: "b", code: "KeyB", ctrlKey: true });
-  expect(view.queryByRole("complementary")).toBeNull();
-  expect(view.getByRole("link", { name: "Messages" }).getAttribute("href")).toBe("/en/messages");
-  expect(view.getByRole("button", { name: "Current user" })).toBeTruthy();
-
-  fireEvent.keyDown(document, { key: "b", code: "KeyB", ctrlKey: true });
-  fireEvent.keyUp(document, { key: "b", code: "KeyB", ctrlKey: true });
-  expect(view.getByRole("complementary")).toBeTruthy();
 });
 
 test("opens and dismisses the sidebar as a mobile drawer", async () => {
@@ -430,9 +435,12 @@ test("opens and dismisses the sidebar as a mobile drawer", async () => {
   const user = userEvent.setup({ document });
   const view = renderShell();
 
-  await user.click(view.getByRole("button", { name: "Show sidebar" }));
-  expect(view.getAllByRole("button", { name: "Hide sidebar" })).toHaveLength(2);
+  // The official sidebar (SidebarNavigationSimple, unmodified) ships its own
+  // persistent mobile header with a hamburger button and a modal drawer;
+  // CoForge no longer maintains a separate custom drawer/toggle for this.
+  await user.click(view.getByRole("button", { name: "Open menu" }));
+  expect(view.getByRole("button", { name: "Close menu" })).toBeTruthy();
 
-  await user.click(view.getAllByRole("button", { name: "Hide sidebar" })[0]!);
-  expect(view.getAllByRole("button", { name: "Hide sidebar" })).toHaveLength(1);
+  await user.click(view.getByRole("button", { name: "Close menu" }));
+  expect(view.queryByRole("button", { name: "Close menu" })).toBeNull();
 });

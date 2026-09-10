@@ -1,109 +1,103 @@
 # CoForge 设计 Token 规范
 
-状态：Figma《Coforge UI 设计规范》映射，含已批准的产品主按钮例外
+状态：Untitled UI 官方 `theme.css` + CoForge 品牌覆盖层，替代此前手写的 shadcn token 映射（PR #156 之前）
 
 更新时间：2026-09-09
 
-适用范围：`apps/web` 的颜色 Token（`apps/web/src/styles.css`）
+适用范围：`apps/web` 的颜色 / 字体 Token
 
-## 1. 规范来源
+## 1. 现在的结构
 
-设计侧唯一来源是 Figma 文件 _River 新版设计方案_ 中的画板 **Coforge UI 设计规范**：
+自本次基础重建起，`apps/web` 的样式由三层构成，按导入顺序：
 
-- 文件：<https://www.figma.com/design/B0tLPylcm6pLiNzz1JXQnC/>
-- 画板节点：`2672:8421`（所在页面 `2672:6903`「2026.08.26 页面、规范与组件」）
+1. **`src/styles/theme.css`** — `npx untitledui@latest init` 生成，**不做任何手改**。定义 Untitled 官方的完整语义
+   token 命名空间（`--color-bg-*`、`--color-text-*`、`--color-border-*`、灰阶 / 品牌 / 功能色的 50–950 数值梯度等），
+   并通过 Tailwind v4 的 `--background-color-*`、`--text-color-*`、`--border-color-*`、`--ring-color-*`、
+   `--outline-color-*` 命名空间把它们映射成 `bg-primary`、`text-tertiary`、`border-secondary` 这类工具类。
+   暗色模式通过 `@layer base { .dark-mode { ... } }` 重新指向不同的梯度档位（例如 `--color-bg-brand-solid` 暗色下仍指向
+   `--color-brand-600`，只有 `--color-bg-brand-solid_hover` 改指 `--color-brand-500`），而不是重写梯度本身。
+2. **`src/styles/typography.css`** — 同样由 CLI 生成，未手改。
+3. **`src/styles/coforge-theme.css`** — **唯一**允许覆盖 Untitled token 或新增 CoForge 专属 token 的文件。只做两件事：
+   - 覆盖 `--color-brand-50…950` 梯度为 CoForge 紫（见下）；
+   - 新增 Untitled 没有对应概念的 token：侧边栏底色/强调色、终端底色、头像占位色、在线/离线圆点色。
 
-该画板标注了「⚠️ 持续更新！」。**当前规范仍只包含 Color 一节**，尚无字体、间距、圆角、阴影等章节；本文同步范围与之一致，不自行补充设计侧尚未确定的内容。
+`src/styles.css` 依次 `@import` 上述文件（`theme.css`、`typography.css` 在前，`coforge-theme.css` 最后），
+并保留必需的 `@plugin`、`@custom-variant dark`（现在指向 `.dark-mode` 而不是 `.dark`）、字体导入，以及仅供
+落地页使用的旧 token 兼容层（见 [§4](#4-落地页的隔离-token)）。**Figma 规范表已作废**——组件不再手写十六进制色值，
+一律使用 Untitled 的语义工具类；旧文档 §2/§3 的黑灰色/主色调/功能色映射表随 shadcn token 一并移除。
 
-## 2. 颜色 Token 映射
+## 2. CoForge 品牌梯度
 
-代码侧的 Token 定义在 `apps/web/src/styles.css` 的 `:root` 中，并通过 `@theme inline` 暴露为 Tailwind 的 `--color-*` 工具类。
+`coforge-theme.css` 覆盖的 `--color-brand-*`（色相约 254°，紫色）：
 
-### 黑灰色
+| 档位 | 取值      | 说明                                   |
+| ---- | --------- | -------------------------------------- |
+| 50   | `#f8f5ff` |                                        |
+| 100  | `#efe8ff` |                                        |
+| 200  | `#ded1ff` |                                        |
+| 300  | `#c9b3ff` |                                        |
+| 400  | `#a993ff` | 旧版暗色主按钮色，现用于强调/焦点环等 |
+| 500  | `#8f6ff2` |                                        |
+| 600  | `#5d36dc` | 品牌主色，`bg-brand-solid` 的取值      |
+| 700  | `#4c2ab8` |                                        |
+| 800  | `#3d2295` |                                        |
+| 900  | `#332073` |                                        |
+| 950  | `#21134d` |                                        |
 
-| 色值         | 使用场景（设计侧）                                 | CSS 变量                                                                                                      |
-| ------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `#101319`    | 标题 / 对话正文 / 未选中的导航名称 / 未选中的 icon | `--foreground`、`--card-foreground`、`--popover-foreground`、`--secondary-foreground`、`--sidebar-foreground` |
-| `#777D8D`    | 对话预览行 / tab 文字                              | `--muted-foreground`                                                                                          |
-| `#E0E5F1`    | 投影 / 边框 / 分割线                               | `--border`、`--input`、`--sidebar-border`                                                                     |
-| `#F4F6FA` ⚠️ | tab 背景 / 对话内容背景 / 对话选中背景             | `--secondary`、`--muted`                                                                                      |
+Untitled 自己的暗色模式规则是**不改梯度数值，只改语义 token 指向哪一档**（见 §1）。`coforge-theme.css` 延续这个
+机制，仅在 `.dark-mode` 下把 `--color-border-brand`、`--color-focus-ring` 指向 `--color-brand-400`
+（即 `#a993ff`），其余语义 token 沿用 Untitled 官方默认指向。
 
-> ⚠️ **规范表标注疑似笔误，待设计确认（截至 2026-09-03 画板上仍未修正）**：这一行的**文字标注写的是 `#F4FAF6`（偏绿）**，但**同一行的色块实际填充是 `#F4F6FA`（偏蓝）**，`FA` / `F6` 疑似写反。
-> 设计稿页面上量到的是 `#F3F6FA`（「电脑」标签、数据标签、分段控件底色三处一致），与色块只差 1/255。
-> 同组的 `#777D8D`、`#E0E5F1` 都是偏蓝的灰，`#F4FAF6` 是整张表里唯一偏绿的中性色。
-> **代码按色块实际填充取 `#F4F6FA`。**
-> 若设计确认应为页面上的 `#F3F6FA`，只需再改 `--secondary` / `--muted` 两处。
+> **已知偏差，待 Frank 确认**：原计划是暗色模式下品牌主按钮（`bg-brand-solid`）改用更亮的 `#a993ff`
+> 并配深色文字（“dark ink”），视觉上对应旧版 `--primary: #a993ff` / `--primary-foreground: #101319`。
+> 但官方 `Button` 组件（`src/components/base/buttons/button.tsx`，未做任何手改）对 `color="primary"`
+> 硬编码 `text-white`，没有可覆盖的文字 token。若把 `--color-bg-brand-solid` 在暗色下也改成 `#a993ff`，
+> 白色文字在这个偏亮的浅紫底上对比度不足。由于"官方组件不允许手改"是硬性要求，暗色下
+> `--color-bg-brand-solid` 保留 Untitled 官方默认（仍是 `--color-brand-600` = `#5d36dc`，白字对比度约 6.9:1），
+> `#a993ff` 只作为 `brand-400` 用在不放白字的场景（边框、焦点环、次要强调色块）。
 
-### 主色调
+## 3. CoForge 专属 token(Untitled 没有对应概念)
 
-| 色值      | 使用场景（设计侧）                                        | CSS 变量                                                                               |
-| --------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `#101319` | 标题 / 对话正文 / 按钮 / 未选中的导航名称 / 未选中的 icon | 文字与中性元素，主按钮例外见下文                                                       |
-| `#5D36DC` | 选中的导航名称 / 选中的 icon / 消息标签 / @用户名         | `--primary`、`--brand`、`--ring`、`--accent-foreground`、`--sidebar-accent-foreground` |
-| `#C5BAFE` | 用户发出的对话背景 / 代码高亮字段                         | `--accent`                                                                             |
+定义在 `coforge-theme.css` 的 `@theme` 块，随 `.dark-mode` 切换：
 
-> **用户批准的实现例外（2026-09-09）：产品主按钮改用品牌紫。** 这不是 Figma 画板更新；画板当前仍把
-> `#101319` 标为按钮色。代码将亮色 `--primary` 设为 `#5D36DC`，前景使用 `#FFFFFF`；暗色沿用现有
-> 品牌紫的提亮值 `#A993FF`，前景使用 `#101319`。`--accent` 继续为亮色 `#C5BAFE`，既有暗色强调色和
-> 所有功能／状态色均保持不变。公开首页通过 `.landing-page` 作用域继续使用原有中性浅色按钮，不随产品
-> 主按钮迁移。
+| Token                     | 亮色                                     | 暗色                                    | 用途                     |
+| ------------------------- | ----------------------------------------- | ---------------------------------------- | ------------------------ |
+| `--color-sidebar`          | `#f8f7fe`                                 | `#141720`                                | 侧边栏底色（`bg-sidebar`）|
+| `--color-sidebar-fg`       | `#101319`                                 | `#f4f6fb`                                | 侧边栏默认文字            |
+| `--color-sidebar-accent`   | `#ebeaf7`                                 | `#2b2544`                                | 侧边栏选中/hover 底色     |
+| `--color-sidebar-accent-fg`| `#5d36dc`                                 | `#c5bafe`                                | 侧边栏选中态文字/图标     |
+| `--sidebar-gradient`（非 `@theme`，仅供 `style` 使用）| `linear-gradient(180deg,#f6f5fe 0%,#faf9ff 100%)` | `linear-gradient(155deg,#21183b 0%,#171421 52%,#141720 100%)` | 侧边栏渐变背景，Tailwind 颜色工具类无法表达渐变，App Shell 通过内联 style 读取 |
+| `--color-terminal`         | `#171b23`                                 | `#171b23`（明暗一致）                    | 终端/命令块底色           |
+| `--color-terminal-fg`      | `#f4f6fb`                                 | `#f4f6fb`（明暗一致）                    | 终端/命令块文字           |
+| `--color-avatar-1…6`       | `#7556b9` `#d18a38` `#b65757` `#5268b7` `#497665` `#ba5937` | 同亮色 | 无头像时的占位底色（设计稿用真实头像图，未定义专门配色）|
+| `--color-online`           | `#1bb618`                                 | `#42c83f`                                | 在线/成功圆点             |
+| `--color-offline`          | `#afbccb`                                 | `#778393`                                | 离线圆点                  |
 
-### 功能色
+## 4. 落地页的隔离 token
 
-| 色值      | 使用场景（设计侧）            | CSS 变量                                                                  |
-| --------- | ----------------------------- | ------------------------------------------------------------------------- |
-| `#2D53FE` | 通知                          | `--info`                                                                  |
-| `#F6FFED` | 提示框底色                    | 暂无，见 [§3](#3-规范已定义但代码尚未落地)                                |
-| `#B7EB8F` | 提示框边框色                  | 暂无，见 [§3](#3-规范已定义但代码尚未落地)                                |
-| `#1BB618` | 在线 / 成功                   | `--success`                                                               |
-| `#AFBCCB` | 掉线                          | `--offline`                                                               |
-| `#F15341` | 未读消息 / 失败 / 警报 / 删除 | `--destructive`（填充 / 描边 / 图标）、`--destructive-text`（文字，见下） |
+`/`（`src/features/landing/**`）视觉冻结，不随本次迁移变化，继续使用自己的 Base UI 控件
+（`src/features/landing/controls/button.tsx`、`dropdown-menu.tsx`）。这些控件原先直接用
+`bg-primary`、`text-primary-foreground`、`bg-muted` 等 shadcn 风格工具类——这些类名现在被 Untitled
+占用并指向完全不同的颜色（Untitled 的 `bg-primary` 是"页面主背景"，不是品牌色）。为避免撞名，两个控件文件
+改成 Tailwind v4 的任意变量语法，如 `bg-(--primary)`、`text-(--primary-foreground)`，不再使用会被 Untitled
+覆写含义的工具类名。
 
-> **这个色拆成了填充色和文字色两个 Token。** `#F15341` 直接做小号正文色对比度不达标：
-> 白底上 **3.47:1**、`bg-destructive/10` 的同色浅底上 **3.08:1**，都低于 WCAG AA 对正常字号正文要求的 4.5:1。
-> 而 `.agents/skills/design-taste-frontend/SKILL.md` 把「错误文案通过 WCAG AA」列为强制项，
-> 也明确禁止回退既有的对比度，所以不能直接拿规范值给文字用。
->
-> - `--destructive` = `#F15341`，规范原值，用于填充、描边、图标、状态点、`bg-destructive/10` 之类的底色。这些用途 3:1 即可，规范值达标。
-> - `--destructive-text` = `color-mix(in oklch, var(--destructive), black 18%)`，解析为 `#B93E30`，用于文字：
->   `role="alert"` 的错误文案、`button.tsx` 的 `destructive` variant、`dropdown-menu.tsx` 的删除项、错误日志行。
->   白底 **5.53:1**、`bg-destructive/10` 上 **4.89:1**，达标（浏览器内实测，非估算）。
->
-> 顺带修掉了一个既有问题：代码此前自定的 `#DC2626` 白底上是 4.83:1，但在 `bg-destructive/10` 的浅底上只有
-> **4.12:1**，本来就没过 AA。拆分之后两种底色都达标。
->
-> 用 `color-mix` 而不是写死十六进制，是为了规范改动 `#F15341` 时文字色自动跟随（同 `--secondary-hover` 的做法）。
-> **待设计确认**：规范里 `#F15341` 是否真的会用于正文字号的文字。若设计侧确认它只做角标、圆点和浅底按钮，
-> 那 `--destructive-text` 就该由规范补一个正式的深色文字值来取代；若设计侧接受当前推导值，把它补进规范即可。
-> 暗色下不需要压深，`--destructive-text` 直接等于 `--destructive`（`#F97B69` 在暗底上最低也有 4.75:1，出现在 `bg-destructive/20` 的按钮底色上）。
+这些裸 `--primary`、`--background`、`--secondary` 等变量本身定义在 `src/styles.css` 的
+`.landing-page` / `.dark-mode .landing-page` 选择器里，取值是迁移前的旧 shadcn 取值原样保留
+（例如 `--primary` 亮暗两态都固定为中性浅色 `#f4f6fb`，配深色文字 `#101319`——落地页的主按钮设计上就是不跟随
+产品品牌色）。修改这些值会改变落地页的渲染结果，按规则**不应该改**，除非专门更新落地页视觉设计。
 
-## 3. 规范已定义但代码尚未落地
+## 5. 字体
 
-以下取值规范里有、代码里还没有对应 Token，因为暂时没有使用它们的组件。落地相关组件时按 [§5](#5-维护约定) 先补 Token 再使用：
+- `--font-body` / `--font-display`：Inter Variable（`@fontsource-variable/inter`），CJK 回退
+  `"PingFang SC"`、`"Microsoft YaHei"`、`"Noto Sans CJK SC"`。
+- `--font-mono`：Geist Mono Variable（`@fontsource-variable/geist-mono`）。
+- `--font-landing-display`：Geist Variable，仅落地页展示文字使用，产品其余部分不再用 Geist Sans。
 
-- **提示框底色 / 边框色**：`#F6FFED`、`#B7EB8F`。设计稿里用于「周报发送成功」「归档成功」一类的成功提示框，
-  代码目前没有提示框（toast / alert）组件。
-- **未读消息**：`#F15341` 的「未读消息」用途。代码目前没有未读计数或红点 UI。
+## 6. 维护约定
 
-## 4. 代码侧的扩展
-
-以下 Token 存在于代码中但**不在**当前 Figma 规范内，属于工程实现补齐的部分。设计侧补充规范后需回来对齐：
-
-- **暗色模式**：`styles.css` 中 `.dark` 的全部取值。规范目前只定义了亮色。
-  其中品牌色与功能色按同色相提亮、降饱和的方式从亮色推导（例如 `--destructive` 亮色 `#F15341` → 暗色 `#F97B69`）；
-  中性色（`--background`、`--foreground` 等）是明暗对调，不走这条推导；`--primary` 按上方已批准例外跟随品牌色。
-- **侧边导航**：`--sidebar`、`--sidebar-background`、`--sidebar-accent` 等（含渐变背景）。
-- **中性底色**：`--background`、`--card`、`--popover`（`#ffffff`）与亮色 `--primary-foreground`、`--brand-foreground`（`#ffffff`）。
-- **危险态文字**：`--destructive-text`。规范只给了一个 `#F15341`，没有区分填充与文字；这个 Token 是为满足
-  WCAG AA 正文对比度补的，取值由 `--destructive` 推导。设计侧补充文字用色后回来对齐。
-- **中性 hover**：`--secondary-hover`，由 `--secondary` 混入 5% `--foreground` 推导，明暗主题各自解析。
-- **终端/命令块**：`--terminal`、`--terminal-foreground`。明暗两种主题下都保持深色，取值同 `.dark` 的 `--card` / `--foreground`。
-- **头像占位色**：`--avatar-1` ~ `--avatar-6`。设计稿用的是真实头像图，这六个色只服务于占位数据。
-
-## 5. 维护约定
-
-- 规范画板更新后，先改本文的映射表，再改 `styles.css`，保证两边可对照。
-- 新增颜色一律先落到 `:root` 变量再使用，组件中不写死十六进制色值，也不写 `bg-[...]` 之类的任意值。
-- 同一语义只用一个 Token 名。`--secondary` 与 `--muted` 目前取值相同，中性 hover 统一用 `hover:bg-muted`，
-  按钮的 `secondary` variant 用 `hover:bg-secondary-hover`。
-- 除本文明确记录的已批准例外外，亮色取值以 Figma 为准；本文若与画板不一致，以画板为准并更新本文。
+- 颜色一律用 Untitled 的语义工具类（`bg-primary`、`text-tertiary`、`border-secondary`……),不写死十六进制,
+  不写 `bg-[...]` 任意值,新概念先加 token 再用。
+- 只在 `coforge-theme.css` 覆盖 `--color-brand-*` 或新增 CoForge 专属 token；`theme.css` / `typography.css`
+  保持 CLI 生成的原样,不手改,升级时直接用 `npx untitledui@latest init` 重新生成再对比 diff。
+- 落地页的 `.landing-page` 隔离层只服务于视觉冻结,新功能页面不要引用这里的变量。

@@ -1,11 +1,11 @@
 import { RefreshCw01 as RefreshCw } from "@untitledui/icons";
 import { useEffect, useRef, useState } from "react";
 import claudeCodeMark from "@lobehub/icons-static-svg/icons/claudecode-color.svg";
-import codexMark from "@lobehub/icons-static-svg/icons/codex.svg";
+import codexMark from "@lobehub/icons-static-svg/icons/codex-color.svg";
 import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
 
 import type { RuntimeProvider } from "@coforge/protocol";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/base/buttons/button";
 import { HoverPopover } from "@/components/ui/hover-popover";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { m } from "@/paraglide/messages";
@@ -44,19 +44,24 @@ const runtimeMarks = {
 export function RuntimeIdentity({ runtime }: { runtime: Runtime }) {
   return (
     <span className="flex min-w-0 items-center gap-3">
-      {runtime.provider === "claude-code" || runtime.provider === "coforge" ? (
+      {runtime.provider === "claude-code" ||
+      runtime.provider === "codex" ||
+      runtime.provider === "coforge" ? (
         <img src={runtimeMarks[runtime.provider]} alt="" className="size-6 shrink-0" />
       ) : (
         <span
           aria-hidden="true"
-          className="size-6 shrink-0 bg-foreground mask-contain mask-center mask-no-repeat"
-          style={{ maskImage: `url("${runtimeMarks[runtime.provider]}")` }}
+          className="size-6 shrink-0 bg-fg-primary mask-contain mask-center mask-no-repeat"
+          style={{
+            maskImage: `url("${runtimeMarks[runtime.provider]}")`,
+            WebkitMaskImage: `url("${runtimeMarks[runtime.provider]}")`,
+          }}
         />
       )}
       <span className="min-w-0">
-        <span className="block truncate font-medium">{runtime.displayName}</span>
-        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-          {m.computer_runtime_version({ version: runtime.version })}
+        <span className="block truncate font-medium text-primary">{runtime.displayName}</span>
+        <span className="mt-0.5 block truncate font-mono text-xs text-tertiary">
+          {runtime.version}
         </span>
       </span>
     </span>
@@ -77,9 +82,9 @@ export function RuntimeUsage({
 }) {
   const [scanning, setScanning] = useState(false);
   const [openCount, setOpenCount] = useState(0);
-  const scanButtonRef = useRef<HTMLButtonElement>(null);
+  const scanButtonWrapRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
-    if (openCount > 0) scanButtonRef.current?.focus();
+    if (openCount > 0) scanButtonWrapRef.current?.querySelector("button")?.focus();
   }, [openCount]);
   const unsupported =
     runtime.provider === "pi" || runtime.provider === "coforge" || usage?.status === "unsupported";
@@ -98,49 +103,48 @@ export function RuntimeUsage({
     <HoverPopover
       label={`${runtime.displayName} · ${m.computer_usage_title()}`}
       trigger={<RuntimeIdentity runtime={runtime} />}
-      triggerClassName="-m-1 min-w-0 rounded-lg p-1 text-left outline-none hover:bg-muted data-focus-visible:ring-2 data-focus-visible:ring-ring"
+      triggerClassName="-m-1 min-w-0 rounded-lg p-1 text-left outline-none hover:bg-primary_hover data-focus-visible:ring-2 data-focus-visible:ring-brand"
       className="p-4 text-sm"
       working={scanning}
       onOpen={() => setOpenCount((count) => count + 1)}
     >
-      <div className="flex items-center justify-between gap-3 border-b pb-3">
-        <h2 className="min-w-0 font-medium">
+      <div className="flex items-center justify-between gap-3 border-b border-secondary pb-3">
+        <h2 className="min-w-0 font-medium text-primary">
           {runtime.displayName} · {m.computer_usage_title()}
         </h2>
-        <Button
-          ref={scanButtonRef}
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => void scan()}
-          disabled={scanning}
-        >
-          <RefreshCw aria-hidden="true" className={scanning ? "size-3 animate-spin" : "size-3"} />
-          {scanning
-            ? m.computer_usage_scanning()
-            : usage?.snapshot
-              ? m.computer_usage_refresh()
-              : m.computer_usage_scan()}
-        </Button>
+        <span ref={scanButtonWrapRef}>
+          <Button
+            type="button"
+            color="secondary"
+            size="sm"
+            onPress={() => void scan()}
+            isDisabled={scanning}
+            iconLeading={RefreshCw}
+          >
+            {scanning
+              ? m.computer_usage_scanning()
+              : usage?.snapshot
+                ? m.computer_usage_refresh()
+                : m.computer_usage_scan()}
+          </Button>
+        </span>
       </div>
       {!usage ? (
-        <div className="mt-3 rounded-md bg-muted/50 px-3 py-4 text-center">
-          <p className="font-medium">{m.computer_usage_empty()}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {m.computer_usage_empty_description()}
-          </p>
+        <div className="mt-3 rounded-md bg-secondary px-3 py-4 text-center">
+          <p className="font-medium text-primary">{m.computer_usage_empty()}</p>
+          <p className="mt-1 text-xs text-tertiary">{m.computer_usage_empty_description()}</p>
         </div>
       ) : usage.status !== "available" ? (
-        <div className="mt-3 rounded-md border border-dashed px-3 py-3">
-          <p className="font-medium">{m.computer_usage_unavailable()}</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+        <div className="mt-3 rounded-md border border-dashed border-secondary px-3 py-3">
+          <p className="font-medium text-primary">{m.computer_usage_unavailable()}</p>
+          <p className="mt-1 text-xs leading-5 text-tertiary">
             {usageStatusDescription(usage.status)}
           </p>
         </div>
       ) : (
         <div className="mt-3">
           {usage.snapshot?.planType && (
-            <span className="inline-flex rounded-md bg-muted px-2 py-1 text-xs font-medium">
+            <span className="inline-flex rounded-md bg-secondary px-2 py-1 text-xs font-medium text-primary">
               {m.computer_usage_plan_name({
                 plan: formatPlan(usage.snapshot.planType),
               })}
@@ -190,10 +194,10 @@ function UsageWindow({
       : m.computer_usage_used_percent({ percent: window.usedPercent });
 
   return (
-    <div className="rounded-md border bg-muted/20 px-3 py-2.5">
+    <div className="rounded-md border border-secondary px-3 py-2.5">
       <div className="flex items-baseline justify-between gap-3">
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
-        <p className="font-medium tabular-nums">{value}</p>
+        <p className="text-xs font-medium text-tertiary">{label}</p>
+        <p className="font-medium text-primary tabular-nums">{value}</p>
       </div>
       {window.usedPercent !== undefined && (
         <div
@@ -202,17 +206,17 @@ function UsageWindow({
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={window.usedPercent}
-          className="mt-2 h-1 overflow-hidden rounded-full bg-muted"
+          className="mt-2 h-1 overflow-hidden rounded-full bg-secondary"
         >
           <div
-            className="h-full rounded-full bg-primary"
+            className="h-full rounded-full bg-brand-solid"
             style={{
               width: `${Math.min(100, Math.max(0, window.usedPercent))}%`,
             }}
           />
         </div>
       )}
-      <p className="mt-2 text-xs text-muted-foreground">
+      <p className="mt-2 text-xs text-tertiary">
         {m.computer_usage_resets()} <RelativeTime value={window.resetsAt} timeZone={timeZone} />
       </p>
     </div>

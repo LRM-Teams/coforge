@@ -67,8 +67,8 @@ test("shows conversation-local numbers with source, status, owner, and typed des
   expect(page.getAllByText("#3")).toHaveLength(2);
   expect(page.getByText("#general")).toBeTruthy();
   expect(page.getByRole("heading", { name: "In review 1" })).toBeTruthy();
-  expect(page.getByText(/Owner: Release Agent/)).toBeTruthy();
-  expect(page.getByText(/Owner: Unassigned/)).toBeTruthy();
+  expect(page.getByText("Release Agent")).toBeTruthy();
+  expect(page.getByText("Unassigned")).toBeTruthy();
   expect(page.getByRole("link", { name: /Prepare channel release/ }).getAttribute("href")).toBe(
     "/en/messages/channels/channel-conversation?view=tasks",
   );
@@ -86,10 +86,10 @@ test("filters displayed tasks and reports filter changes", async () => {
   expect(page.getAllByRole("region")).toHaveLength(1);
   expect(page.getByRole("region", { name: "To do" })).toBeTruthy();
   const user = userEvent.setup();
-  await user.click(page.getByRole("button", { name: "Status" }));
+  await user.click(page.getByRole("button", { name: /Status/ }));
   await user.click(page.getByRole("option", { name: "Done" }));
   expect(onStatusChange).toHaveBeenCalledWith("done");
-  await user.click(page.getByRole("button", { name: "Status" }));
+  await user.click(page.getByRole("button", { name: /Status/ }));
   await user.click(page.getByRole("option", { name: "All" }));
   expect(onStatusChange).toHaveBeenCalledWith(undefined);
 });
@@ -117,7 +117,7 @@ test("conflict feedback survives refreshed data removing the last filtered task"
   );
   const page = within(document.body);
   const user = userEvent.setup();
-  await user.click(page.getByRole("button", { name: "Change status" }));
+  await user.click(page.getByRole("button", { name: /Change status/ }));
   await user.click(page.getByRole("option", { name: "Done" }));
   expect(page.getByRole("alert").textContent).toContain("could not be updated");
   expect(page.getByText("No tasks match this status")).toBeTruthy();

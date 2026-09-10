@@ -1,54 +1,37 @@
-import { useEffect, useRef, useState } from "react";
-import { formatForDisplay, useHotkey } from "@tanstack/react-hotkeys";
-import { Link } from "@tanstack/react-router";
-import { Group, Panel, Separator } from "react-resizable-panels";
+import { createContext, useCallback, useContext, useState, type FC } from "react";
+import { useHotkey } from "@tanstack/react-hotkeys";
+import { useParams, useRouter, useRouterState } from "@tanstack/react-router";
 import {
-  UserCircle as CircleUserRound,
+  ChevronSelectorVertical,
   CheckSquare as ListTodo,
   File02 as FileText,
-  MessageCircle01 as MessageCircle,
-  Monitor01 as Monitor,
-  LayoutLeft as PanelLeft,
   LogOut01 as LogOut,
+  MessageChatSquare,
+  Monitor01 as Monitor,
+  Settings01,
   Users01 as Users,
 } from "@untitledui/icons";
+import { Button as AriaButton } from "react-aria-components";
 
-import { MobileNavigationContext } from "@/components/layout/mobile-navigation";
-import { Avatar } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
+import type { NavItemType } from "@/components/application/app-navigation/config";
+import { Avatar } from "@/components/base/avatar/avatar";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
+import type { SidebarChannel } from "@/components/layout/sidebar/sidebar-conversations";
+import { SidebarRail } from "@/components/layout/sidebar/sidebar-rail";
+import { MobileDrawerProvider } from "@/components/layout/sidebar/mobile-header";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+  ChannelSidebar,
+  SidebarMobileDrawer,
+  SIDEBAR_DEFAULT_WIDTH,
+} from "@/components/layout/sidebar/sidebar-channels";
+import { CreateChannelDialog } from "@/features/conversations/create-channel-dialog";
+import type { ConversationAgent } from "@/features/conversations/conversation-layout";
 import { WorkspaceSwitcher, type WorkspaceOption } from "@/features/workspaces/workspace-switcher";
-import { cn } from "@/lib/utils";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { m } from "@/paraglide/messages";
+import { localizeHref } from "@/paraglide/runtime";
 
-const sidebarShortcut = "Mod+B" as const;
-
-// Untitled UI SidebarNavigationSimple / NavItemBase, adapted to CoForge's
-// typed routing and existing 768px list/detail breakpoint (MIT; see ui notice).
-const navLinkClassName =
-  "flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-sidebar-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset";
-
-const navLinkActiveProps = {
-  className:
-    "flex h-10 items-center gap-3 rounded-lg bg-sidebar-accent px-3 text-sm font-semibold text-sidebar-accent-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-  "aria-current": "page",
-} as const;
-
-const railLinkClassName =
-  "relative flex size-10 items-center justify-center rounded-lg text-sidebar-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset";
-
-const railLinkActiveProps = {
-  className:
-    "relative flex size-10 items-center justify-center rounded-lg bg-sidebar-accent text-sidebar-accent-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-  "aria-current": "page",
-} as const;
+const channelSidebarShortcut = "Mod+B" as const;
 
 export type AppUser = {
   name: string;
@@ -56,387 +39,252 @@ export type AppUser = {
   avatarUrl?: string | null;
 };
 
+function useNavItems(): (NavItemType & { icon: FC<{ className?: string }>; bareHref: string })[] {
+  return [
+    {
+      label: m.navigation_chat(),
+      bareHref: "/messages",
+      href: localizeHref("/messages"),
+      icon: MessageChatSquare,
+    },
+    {
+      label: m.navigation_agents(),
+      bareHref: "/agents",
+      href: localizeHref("/agents"),
+      icon: Users,
+    },
+    { label: m.tasks_tab(), bareHref: "/tasks", href: localizeHref("/tasks"), icon: ListTodo },
+    {
+      label: m.navigation_records(),
+      bareHref: "/records",
+      href: localizeHref("/records?tab=weekly"),
+      icon: FileText,
+    },
+    {
+      label: m.navigation_computers(),
+      bareHref: "/computers",
+      href: localizeHref("/computers"),
+      icon: Monitor,
+    },
+  ];
+}
+
+/** Official nav components render plain `<a href>` with no onClick hook, so
+ * this routes same-origin, unmodified clicks through the router instead. */
+function useSpaNavigation() {
+  const router = useRouter();
+  return useCallback(
+    (event: React.MouseEvent<HTMLElement>) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      const anchor = (event.target as HTMLElement).closest("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      if (anchor.target && anchor.target !== "_self") return;
+      const url = new URL(anchor.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      event.preventDefault();
+      void router.navigate({ href: url.pathname + url.search + url.hash });
+    },
+    [router],
+  );
+}
+
+/** Lets a conversation header, rendered deep inside `children`, show its own
+ * "show channels" control when AppShell's sidebar is hidden. */
+export const ChannelSidebarVisibilityContext = createContext<{ hidden: boolean; show: () => void }>(
+  {
+    hidden: false,
+    show: () => {},
+  },
+);
+
+export function useChannelSidebarVisibility() {
+  return useContext(ChannelSidebarVisibilityContext);
+}
+
 export function AppShell({
   user,
   workspaces = [],
   currentWorkspace = null,
+  channels = [],
+  agents = [],
   onSelectWorkspace,
   onCreateWorkspace,
+  onCreateChannel,
   onSignOut,
   children,
 }: {
   user: AppUser;
   workspaces?: WorkspaceOption[];
   currentWorkspace?: WorkspaceOption | null;
+  /** Public channels, shown in the Channels sidebar (Slack model). */
+  channels?: SidebarChannel[];
+  /** Agents (with live status), shown as Direct messages under Channels. */
+  agents?: ConversationAgent[];
   onSelectWorkspace?: (slug: string) => Promise<void> | void;
   onCreateWorkspace?: (input: { name: string; slug: string }) => Promise<void>;
+  onCreateChannel?: (name: string) => Promise<void>;
   onSignOut?: () => Promise<void> | void;
   children: React.ReactNode;
 }) {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const expandedSidebarWidth = useRef(240);
+  const [channelSidebarWidth, setChannelSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
+  const [channelSidebarHidden, setChannelSidebarHidden] = useState(false);
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  // pathname is de-localized (src/router.tsx); item.href is localized, so we
+  // match on bareHref (with sub-route prefix matching) instead.
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const navItems = useNavItems();
+  const activeUrl = navItems.find(
+    (item) => pathname === item.bareHref || pathname.startsWith(`${item.bareHref}/`),
+  )?.href;
+  const isChatRoute = pathname === "/messages" || pathname.startsWith("/messages/");
+  const onSidebarClickCapture = useSpaNavigation();
+  const agentParams = useParams({ from: "/_app/messages/$agentId", shouldThrow: false });
+  const channelParams = useParams({
+    from: "/_app/messages/channels/$channelId",
+    shouldThrow: false,
+  });
 
-  useEffect(() => {
-    const breakpoint = window.matchMedia("(max-width: 767px)");
-    const closeDrawer = () => setMobileSidebarOpen(false);
-    breakpoint.addEventListener("change", closeDrawer);
-    return () => breakpoint.removeEventListener("change", closeDrawer);
-  }, []);
+  useHotkey(channelSidebarShortcut, () => setChannelSidebarHidden((hidden) => !hidden));
 
-  function toggleSidebar() {
-    if (window.matchMedia("(max-width: 767px)").matches) {
-      setMobileSidebarOpen((open) => !open);
-    } else {
-      setSidebarCollapsed((collapsed) => !collapsed);
-    }
-  }
-
-  useHotkey(sidebarShortcut, toggleSidebar);
-  useHotkey("Escape", () => setMobileSidebarOpen(false), { enabled: mobileSidebarOpen });
+  const conversationSections = {
+    channels,
+    agents,
+    selectedChannelId: channelParams?.channelId,
+    selectedAgentId: agentParams?.agentId,
+    onCreateChannel: onCreateChannel ? () => setCreateChannelOpen(true) : undefined,
+  };
 
   return (
-    <Group
-      id="app-shell"
-      orientation="horizontal"
-      className="min-h-svh bg-background font-sans antialiased max-md:[&>#app-sidebar-panel]:contents! max-md:[&>#app-sidebar-panel>div]:contents! max-md:[&>#app-sidebar-rail-panel]:hidden! max-md:[&>#app-main-panel]:flex-1! md:bg-muted/30"
-    >
-      {(!sidebarCollapsed || mobileSidebarOpen) && (
-        <Panel
-          id="app-sidebar-panel"
-          defaultSize={expandedSidebarWidth.current}
-          minSize={200}
-          maxSize={360}
-          groupResizeBehavior="preserve-pixel-size"
-          onResize={({ inPixels }) => {
-            if (inPixels >= 200) expandedSidebarWidth.current = inPixels;
-          }}
-        >
-          <aside
-            id="app-sidebar"
-            className={cn(
-              "fixed inset-y-0 left-0 z-40 w-[80vw] max-w-72 shrink-0 flex-col overflow-y-auto border-r border-sidebar-border bg-background px-4 pt-4 pb-5 shadow-xl md:sticky md:top-0 md:flex md:h-svh md:w-full md:max-w-none md:border-r-0 md:bg-transparent md:shadow-none",
-              mobileSidebarOpen ? "flex" : "hidden",
-              sidebarCollapsed && "md:hidden",
-            )}
-          >
-            <div className="flex h-12 items-center justify-between gap-3 px-1">
-              <img src="/logo.svg" alt="CoForge" className="size-8" />
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-11 md:size-8"
-                      aria-label={m.controls_hide_sidebar()}
-                      onClick={() => {
-                        if (window.matchMedia("(max-width: 767px)").matches) {
-                          setMobileSidebarOpen(false);
-                        } else {
-                          setSidebarCollapsed(true);
-                        }
-                      }}
-                    >
-                      <PanelLeft aria-hidden="true" />
-                    </Button>
-                  }
-                />
-                <TooltipContent>
-                  {m.controls_hide_sidebar()}
-                  <kbd data-slot="kbd">{formatForDisplay(sidebarShortcut)}</kbd>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-
-            <div className="mt-5">
+    <MobileDrawerProvider>
+      <div className="flex h-svh flex-col bg-primary font-body antialiased lg:flex-row">
+        {/* Each sidebar is `fixed` + a spacer div reserving its width in flow;
+          `contents` keeps that pair as direct flex items of this `lg:flex` shell. */}
+        <div onClickCapture={onSidebarClickCapture} className="contents">
+          <SidebarMobileDrawer
+            activeUrl={activeUrl}
+            items={navItems}
+            subheader={
               <WorkspaceSwitcher
                 workspaces={workspaces}
                 current={currentWorkspace}
                 onSelect={onSelectWorkspace}
                 onCreate={onCreateWorkspace}
               />
-            </div>
+            }
+            footer={<UserMenuCard user={user} onSignOut={onSignOut} />}
+            {...conversationSections}
+          />
 
-            <nav aria-label={m.navigation_label()} className="mt-5 flex flex-col gap-1">
-              <Link
-                to="/agents"
-                activeProps={navLinkActiveProps}
-                className={navLinkClassName}
-                onClick={() => setMobileSidebarOpen(false)}
-              >
-                <Users aria-hidden="true" className="size-4" />
-                {m.navigation_agents()}
-              </Link>
-              <Link
-                to="/messages"
-                activeProps={navLinkActiveProps}
-                className={navLinkClassName}
-                onClick={() => setMobileSidebarOpen(false)}
-              >
-                <MessageCircle aria-hidden="true" className="size-4" />
-                {m.navigation_messages()}
-              </Link>
-              <Link
-                to="/tasks"
-                activeProps={navLinkActiveProps}
-                className={navLinkClassName}
-                onClick={() => setMobileSidebarOpen(false)}
-              >
-                <ListTodo aria-hidden="true" className="size-4" />
-                {m.tasks_tab()}
-              </Link>
-              <Link
-                to="/records"
-                search={{ tab: "weekly" }}
-                activeProps={navLinkActiveProps}
-                className={navLinkClassName}
-                onClick={() => setMobileSidebarOpen(false)}
-              >
-                <FileText aria-hidden="true" className="size-4" />
-                {m.navigation_records()}
-              </Link>
-              <Link
-                to="/computers"
-                activeProps={navLinkActiveProps}
-                className={navLinkClassName}
-                onClick={() => setMobileSidebarOpen(false)}
-              >
-                <Monitor aria-hidden="true" className="size-4" />
-                {m.navigation_computers()}
-              </Link>
-            </nav>
-
-            <div className="mt-auto border-t pt-4">
-              <UserMenu
-                user={user}
-                expanded
-                onSignOut={onSignOut}
-                onNavigate={() => setMobileSidebarOpen(false)}
+          <SidebarRail
+            activeUrl={activeUrl}
+            items={navItems}
+            subheader={
+              <WorkspaceSwitcher
+                compact
+                workspaces={workspaces}
+                current={currentWorkspace}
+                onSelect={onSelectWorkspace}
+                onCreate={onCreateWorkspace}
               />
-            </div>
-          </aside>
-        </Panel>
-      )}
+            }
+            footer={<UserMenuCard compact user={user} onSignOut={onSignOut} />}
+          />
 
-      {!sidebarCollapsed && (
-        <Separator
-          id="app-sidebar-resize-handle"
-          aria-label={m.controls_resize_sidebar()}
-          className="relative z-20 hidden w-px bg-sidebar-border outline-none after:absolute after:inset-y-0 after:-left-1 after:w-2 hover:bg-ring focus-visible:bg-ring md:block"
-        />
-      )}
-
-      {sidebarCollapsed && (
-        <Panel id="app-sidebar-rail-panel" defaultSize={72} minSize={72} maxSize={72} disabled>
-          <div
-            data-sidebar-rail
-            className="hidden w-full shrink-0 flex-col items-center bg-transparent pt-4 pb-5 md:sticky md:top-0 md:flex md:h-svh"
-          >
-            <div className="flex h-12 items-center">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-11 md:size-8"
-                      aria-label={m.controls_show_sidebar()}
-                      onClick={() => {
-                        if (window.matchMedia("(max-width: 767px)").matches) {
-                          setMobileSidebarOpen(true);
-                        } else {
-                          setSidebarCollapsed(false);
-                        }
-                      }}
-                    >
-                      <PanelLeft aria-hidden="true" />
-                    </Button>
-                  }
-                />
-                <TooltipContent>
-                  {m.controls_show_sidebar()}
-                  <kbd data-slot="kbd">{formatForDisplay(sidebarShortcut)}</kbd>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-
-            {/* Collapsed navigation and user menu. Both are rendered only while
-              collapsed, so the DOM never holds two copies of the same links. */}
-            {sidebarCollapsed && (
-              <>
-                <nav
-                  aria-label={m.navigation_label()}
-                  className="mt-5 flex flex-col items-center gap-1"
-                >
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Link
-                          to="/agents"
-                          aria-label={m.navigation_agents()}
-                          activeProps={railLinkActiveProps}
-                          className={railLinkClassName}
-                        >
-                          <Users aria-hidden="true" className="size-4" />
-                        </Link>
-                      }
-                    />
-                    <TooltipContent side="right">{m.navigation_agents()}</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Link
-                          to="/messages"
-                          aria-label={m.navigation_messages()}
-                          activeProps={railLinkActiveProps}
-                          className={railLinkClassName}
-                        >
-                          <MessageCircle aria-hidden="true" className="size-4" />
-                        </Link>
-                      }
-                    />
-                    <TooltipContent side="right">{m.navigation_messages()}</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Link
-                          to="/tasks"
-                          aria-label={m.tasks_tab()}
-                          activeProps={railLinkActiveProps}
-                          className={railLinkClassName}
-                        >
-                          <ListTodo aria-hidden="true" className="size-4" />
-                        </Link>
-                      }
-                    />
-                    <TooltipContent side="right">{m.tasks_tab()}</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Link
-                          to="/records"
-                          search={{ tab: "weekly" }}
-                          aria-label={m.navigation_records()}
-                          activeProps={railLinkActiveProps}
-                          className={railLinkClassName}
-                        >
-                          <FileText aria-hidden="true" className="size-4" />
-                        </Link>
-                      }
-                    />
-                    <TooltipContent side="right">{m.navigation_records()}</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Link
-                          to="/computers"
-                          aria-label={m.navigation_computers()}
-                          activeProps={railLinkActiveProps}
-                          className={railLinkClassName}
-                        >
-                          <Monitor aria-hidden="true" className="size-4" />
-                        </Link>
-                      }
-                    />
-                    <TooltipContent side="right">{m.navigation_computers()}</TooltipContent>
-                  </Tooltip>
-                </nav>
-                <div className="mt-auto">
-                  <UserMenu user={user} />
-                </div>
-              </>
-            )}
-          </div>
-        </Panel>
-      )}
-
-      <Panel id="app-main-panel" minSize={0} groupResizeBehavior="preserve-relative-size">
-        <div className="flex min-w-0 flex-1 flex-col">
-          {mobileSidebarOpen && (
-            <Button
-              type="button"
-              variant="ghost"
-              aria-label={m.controls_hide_sidebar()}
-              className="fixed inset-0 z-30 h-auto rounded-none bg-black/50 p-0 hover:bg-black/50 md:hidden"
-              onClick={() => setMobileSidebarOpen(false)}
+          {isChatRoute && !channelSidebarHidden && (
+            <ChannelSidebar
+              workspaceName={currentWorkspace?.name}
+              onHide={() => setChannelSidebarHidden(true)}
+              width={channelSidebarWidth}
+              onWidthChange={setChannelSidebarWidth}
+              {...conversationSections}
             />
           )}
-          <MobileNavigationContext
-            value={{ open: mobileSidebarOpen, toggle: () => setMobileSidebarOpen((open) => !open) }}
-          >
-            {children}
-          </MobileNavigationContext>
         </div>
-      </Panel>
-    </Group>
+
+        <ChannelSidebarVisibilityContext
+          value={{
+            hidden: isChatRoute && channelSidebarHidden,
+            show: () => setChannelSidebarHidden(false),
+          }}
+        >
+          <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+        </ChannelSidebarVisibilityContext>
+        {onCreateChannel && (
+          <CreateChannelDialog
+            open={createChannelOpen}
+            onOpenChange={setCreateChannelOpen}
+            onCreate={onCreateChannel}
+          />
+        )}
+      </div>
+    </MobileDrawerProvider>
   );
 }
 
-function UserMenu({
+function UserMenuCard({
   user,
-  expanded = false,
   onSignOut,
-  onNavigate,
+  compact = false,
 }: {
   user: AppUser;
-  expanded?: boolean;
   onSignOut?: () => Promise<void> | void;
-  onNavigate?: () => void;
+  compact?: boolean;
 }) {
+  const avatar = (
+    <Avatar
+      size={compact ? "sm" : "md"}
+      src={user.avatarUrl}
+      alt={user.name}
+      initials={avatarInitial(user.name)}
+      contentClassName={avatarToneClassName(user.name)}
+    />
+  );
   return (
-    <DropdownMenu modal={false}>
-      <DropdownMenuTrigger
-        aria-label={m.controls_current_user()}
-        className={cn(
-          "flex items-center gap-3 rounded-lg p-2 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
-          expanded && "w-full",
-        )}
-      >
-        <Avatar people={[{ name: user.name, src: user.avatarUrl }]} size="lg" className="size-10" />
-        {expanded && (
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold">{user.name}</span>
-            <span className="block truncate text-xs text-muted-foreground">{user.email}</span>
-          </span>
-        )}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        side="top"
-        align="start"
-        sideOffset={8}
-        className="w-60 rounded-xl p-2 shadow-lg"
-      >
-        <div className="min-w-0 px-2 py-2">
-          <span className="block truncate text-sm font-medium text-popover-foreground">
+    <Dropdown.Root>
+      {compact ? (
+        <AriaButton
+          aria-label={`${m.controls_current_user()}: ${user.name}`}
+          className="relative flex size-8 items-center justify-center rounded-full outline-focus-ring transition duration-100 ease-linear focus-visible:outline-2 focus-visible:outline-offset-2"
+        >
+          {avatar}
+        </AriaButton>
+      ) : (
+        <AriaButton
+          aria-label={m.controls_current_user()}
+          className="relative flex w-full items-center gap-3 rounded-xl p-3 text-left outline-focus-ring ring-1 ring-secondary transition duration-100 ease-linear ring-inset hover:bg-primary_hover focus-visible:outline-2 focus-visible:outline-offset-2"
+        >
+          {avatar}
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-primary">
             {user.name}
           </span>
-          <span className="block truncate text-xs text-muted-foreground">{user.email}</span>
+          <ChevronSelectorVertical
+            aria-hidden="true"
+            className="size-4 shrink-0 text-fg-quaternary"
+          />
+        </AriaButton>
+      )}
+      <Dropdown.Popover placement={compact ? "right bottom" : "top left"} className="w-64">
+        <div className="border-b border-secondary px-3.5 py-3">
+          <p className="truncate text-sm font-semibold text-primary">{user.name}</p>
+          <p className="truncate text-xs text-tertiary">{user.email}</p>
         </div>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          className="h-11 gap-2 px-2 md:h-10"
-          href="/settings"
-          render={
-            <Link to="/settings" activeProps={{ "aria-current": "page" }} onClick={onNavigate}>
-              <CircleUserRound aria-hidden="true" />
-              {m.navigation_personal_settings()}
-            </Link>
-          }
-        />
-        <DropdownMenuItem
-          className="h-11 gap-2 px-2 md:h-10"
-          href={onSignOut ? undefined : "/auth/logout"}
-          onClick={onSignOut ? () => void onSignOut() : undefined}
+        <Dropdown.Menu
+          onAction={(key) => {
+            if (key === "sign-out") void onSignOut?.();
+          }}
         >
-          <LogOut aria-hidden="true" className="size-4 shrink-0" />
-          {m.controls_sign_out()}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          <Dropdown.Item
+            id="settings"
+            label={m.navigation_personal_settings()}
+            href={localizeHref("/settings")}
+            icon={Settings01}
+          />
+          <Dropdown.Separator />
+          <Dropdown.Item id="sign-out" label={m.controls_sign_out()} icon={LogOut} />
+        </Dropdown.Menu>
+      </Dropdown.Popover>
+    </Dropdown.Root>
   );
 }

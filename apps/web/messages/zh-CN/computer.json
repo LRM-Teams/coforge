@@ -43,15 +43,16 @@
   "computer_restart_completed": "重启完成。Daemon {version}，进程 {process}，已成功恢复。",
   "computer_restart_error": "重启未能在截止时间前完成，请重试。",
   "computer_status_offline": "离线",
-  "computer_overview": "概览",
+  "computer_overview": "详情",
   "computer_display_name": "显示名称",
   "computer_display_name_edit": "编辑显示名称",
   "computer_display_name_save": "保存",
   "computer_display_name_saving": "正在保存…",
   "computer_display_name_cancel": "取消",
   "computer_display_name_error": "无法保存显示名称，请重试。",
-  "computer_name": "Computer 名称",
-  "computer_connected_at": "加入工作区时间",
+  "computer_hostname": "主机名",
+  "computer_connected_at": "添加于",
+  "computer_added_by": "添加者",
   "computer_code_agents": "已检测到的运行时",
   "computer_not_found": "这台电脑不在当前工作区",
   "computer_not_found_description": "它可能已被移除，或者这个链接指向了别处。",
@@ -104,5 +105,6 @@
   "computer_login_step": "登录",
   "computer_login_step_description": "然后为这台电脑登录你的 CoForge 账号。终端会显示一个代码，在这里批准即可。",
   "computer_copy_login_command": "复制登录命令",
-  "computer_login_command_copied": "命令已复制"
+  "computer_login_command_copied": "命令已复制",
+  "computer_added_by_name": "由 {name} 添加"
 }

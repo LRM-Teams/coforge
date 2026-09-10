@@ -4,6 +4,7 @@ import { afterEach, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { AppToastProvider } from "@/components/ui/toast";
 import { ComputerDetail } from "@/features/computers/computer-detail";
 
 afterEach(() => {
@@ -58,11 +59,11 @@ test("overview shows observed metadata and original creator while offline", () =
     />,
   );
   const page = within(document.body);
-  expect(page.getByText("Computer Version")).toBeTruthy();
-  expect(page.getByText("4.5.6")).toBeTruthy();
+  // OS, Computer version, and "Added <when>" now live in the header's second
+  // line, not as their own labeled grid fields.
+  expect(page.getByText("v4.5.6")).toBeTruthy();
   expect(page.getByText("macOS 26.1")).toBeTruthy();
   expect(page.getByText("Alice Creator")).toBeTruthy();
-  expect(page.getByText("@alice")).toBeTruthy();
   expect(document.querySelector("img")?.getAttribute("src")).toBe(
     "/api/computers/computer-1/creator-avatar?workspaceId=w",
   );
@@ -77,7 +78,8 @@ test("legacy Computers show unknown metadata rather than inferring it from runti
       onSetRuntimePublic={async () => {}}
     />,
   );
-  expect(within(document.body).getAllByText("Unknown")).toHaveLength(3);
+  // OS and version in the header facts line.
+  expect(within(document.body).getAllByText("Unknown")).toHaveLength(2);
 });
 
 test("shows the machine and Code Agents with usage hidden until requested", async () => {
@@ -91,15 +93,17 @@ test("shows the machine and Code Agents with usage hidden until requested", asyn
   const page = within(document.body);
 
   expect(page.getByRole("heading", { name: "Frank’s MacBook Pro" })).toBeTruthy();
-  expect(page.getByText("Online")).toBeTruthy();
+  expect(page.getByText("Online", { selector: ".sr-only" })).toBeTruthy();
   expect(page.getByText("franks-macbook-pro")).toBeTruthy();
   expect(document.body.textContent).not.toContain("macos:9f2c");
   expect(page.getByText("Codex Runtime")).toBeTruthy();
-  expect(document.body.textContent).toContain("Version 0.151.0");
+  // The runtime row shows the version in mono, without the word "Version".
+  expect(document.body.textContent).toContain("0.151.0");
+  expect(document.body.textContent).not.toContain("Version 0.151.0");
   expect(page.queryByText("Models")).toBeNull();
   expect(page.queryByText("GPT-5")).toBeNull();
   expect(page.queryByText("Recommended")).toBeNull();
-  expect(page.getByRole("heading", { name: "Detected Runtimes" })).toBeTruthy();
+  expect(page.getByRole("heading", { name: "Detected runtimes" })).toBeTruthy();
   expect(page.queryByText("No snapshot yet")).toBeNull();
   fireEvent.click(page.getByRole("button", { name: "Codex Runtime · Usage" }));
   await page.findByRole("dialog");
@@ -149,46 +153,50 @@ test("labels publication acceptance as waiting for actual restart recovery", asy
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
   }));
   render(
-    <ComputerDetail
-      computer={computer}
-      onScanUsage={async () => undefined}
-      onSetRuntimePublic={async () => undefined}
-      onRestart={restart}
-    />,
+    <AppToastProvider>
+      <ComputerDetail
+        computer={computer}
+        onScanUsage={async () => undefined}
+        onSetRuntimePublic={async () => undefined}
+        onRestart={restart}
+      />
+    </AppToastProvider>,
   );
 
   fireEvent.click(within(document.body).getByRole("button", { name: "Restart" }));
   await waitFor(() => expect(restart).toHaveBeenCalledTimes(1));
-  expect((await within(document.body).findByRole("status")).textContent).toContain(
-    "this is not completion yet",
-  );
+  expect(
+    (await within(document.body).findByText(/this is not completion yet/)).textContent,
+  ).toContain("this is not completion yet");
 });
 
 test("shows the recovered daemon version and process identity after restart", async () => {
   render(
-    <ComputerDetail
-      computer={computer}
-      onScanUsage={async () => undefined}
-      onSetRuntimePublic={async () => undefined}
-      onRestart={async (requestId) => ({
-        requestId,
-        status: "accepted",
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      })}
-      onReadRestartStatus={async (requestId) => ({
-        requestId,
-        status: "completed",
-        completedAt: new Date().toISOString(),
-        workerInstanceId: "worker-new",
-        daemonVersion: "2.3.4",
-        startedAt: 2,
-      })}
-      restartPollIntervalMs={1}
-    />,
+    <AppToastProvider>
+      <ComputerDetail
+        computer={computer}
+        onScanUsage={async () => undefined}
+        onSetRuntimePublic={async () => undefined}
+        onRestart={async (requestId) => ({
+          requestId,
+          status: "accepted",
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        })}
+        onReadRestartStatus={async (requestId) => ({
+          requestId,
+          status: "completed",
+          completedAt: new Date().toISOString(),
+          workerInstanceId: "worker-new",
+          daemonVersion: "2.3.4",
+          startedAt: 2,
+        })}
+        restartPollIntervalMs={1}
+      />
+    </AppToastProvider>,
   );
   fireEvent.click(within(document.body).getByRole("button", { name: "Restart" }));
   await waitFor(() =>
-    expect(within(document.body).getByRole("status").textContent).toContain(
+    expect(within(document.body).getByText(/Restart completed/).textContent).toContain(
       "Daemon 2.3.4, process worker-new",
     ),
   );
@@ -196,26 +204,28 @@ test("shows the recovered daemon version and process identity after restart", as
 
 test("shows a bounded restart timeout as an error", async () => {
   render(
-    <ComputerDetail
-      computer={computer}
-      onScanUsage={async () => undefined}
-      onSetRuntimePublic={async () => undefined}
-      onRestart={async (requestId) => ({
-        requestId,
-        status: "accepted",
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      })}
-      onReadRestartStatus={async (requestId) => ({
-        requestId,
-        status: "accepted",
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      })}
-      restartPollIntervalMs={1}
-      restartMaxPolls={1}
-    />,
+    <AppToastProvider>
+      <ComputerDetail
+        computer={computer}
+        onScanUsage={async () => undefined}
+        onSetRuntimePublic={async () => undefined}
+        onRestart={async (requestId) => ({
+          requestId,
+          status: "accepted",
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        })}
+        onReadRestartStatus={async (requestId) => ({
+          requestId,
+          status: "accepted",
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        })}
+        restartPollIntervalMs={1}
+        restartMaxPolls={1}
+      />
+    </AppToastProvider>,
   );
   fireEvent.click(within(document.body).getByRole("button", { name: "Restart" }));
-  expect((await within(document.body).findByRole("alert")).textContent).toContain(
+  expect((await within(document.body).findByText(/did not complete/)).textContent).toContain(
     "did not complete before the deadline",
   );
 });
@@ -223,13 +233,15 @@ test("shows a bounded restart timeout as an error", async () => {
 test("scans usage for the runtime the User asked about", async () => {
   const scanned: string[] = [];
   render(
-    <ComputerDetail
-      computer={computer}
-      onScanUsage={async (provider) => {
-        scanned.push(provider);
-      }}
-      onSetRuntimePublic={async () => undefined}
-    />,
+    <AppToastProvider>
+      <ComputerDetail
+        computer={computer}
+        onScanUsage={async (provider) => {
+          scanned.push(provider);
+        }}
+        onSetRuntimePublic={async () => undefined}
+      />
+    </AppToastProvider>,
   );
 
   fireEvent.click(within(document.body).getByRole("button", { name: "Codex Runtime · Usage" }));
@@ -240,11 +252,13 @@ test("scans usage for the runtime the User asked about", async () => {
 test("allows the Computer owner to publish a private runtime", async () => {
   const setPublic = mock(async () => undefined);
   render(
-    <ComputerDetail
-      computer={computer}
-      onScanUsage={async () => undefined}
-      onSetRuntimePublic={setPublic}
-    />,
+    <AppToastProvider>
+      <ComputerDetail
+        computer={computer}
+        onScanUsage={async () => undefined}
+        onSetRuntimePublic={setPublic}
+      />
+    </AppToastProvider>,
   );
 
   fireEvent.click(
@@ -264,11 +278,13 @@ test("keeps runtime visibility unchanged, reports failures inline, and prevents 
       }),
   );
   render(
-    <ComputerDetail
-      computer={computer}
-      onScanUsage={async () => undefined}
-      onSetRuntimePublic={setPublic}
-    />,
+    <AppToastProvider>
+      <ComputerDetail
+        computer={computer}
+        onScanUsage={async () => undefined}
+        onSetRuntimePublic={setPublic}
+      />
+    </AppToastProvider>,
   );
   const publish = within(document.body).getByRole("button", {
     name: "Publish Codex Runtime",
@@ -299,23 +315,25 @@ test("tracks concurrent runtime visibility updates and failures independently", 
     return runtimeB.promise;
   });
   render(
-    <ComputerDetail
-      computer={{
-        ...computer,
-        runtimes: [
-          computer.runtimes[0]!,
-          {
-            id: "runtime-2",
-            provider: "claude-code" as const,
-            displayName: "Claude Runtime",
-            version: "1.0.0",
-            isPublic: false,
-          },
-        ],
-      }}
-      onScanUsage={async () => undefined}
-      onSetRuntimePublic={setPublic}
-    />,
+    <AppToastProvider>
+      <ComputerDetail
+        computer={{
+          ...computer,
+          runtimes: [
+            computer.runtimes[0]!,
+            {
+              id: "runtime-2",
+              provider: "claude-code" as const,
+              displayName: "Claude Runtime",
+              version: "1.0.0",
+              isPublic: false,
+            },
+          ],
+        }}
+        onScanUsage={async () => undefined}
+        onSetRuntimePublic={setPublic}
+      />
+    </AppToastProvider>,
   );
   const page = within(document.body);
   const publishA = page.getByRole("button", { name: "Publish Codex Runtime" });
@@ -346,15 +364,17 @@ test("tracks concurrent runtime visibility updates and failures independently", 
 
 test("does not expose owner-only runtime controls on a shared Computer", () => {
   render(
-    <ComputerDetail
-      computer={{
-        ...computer,
-        ownedByCurrentUser: false,
-        runtimes: [{ ...computer.runtimes[0]!, isPublic: true }],
-      }}
-      onScanUsage={async () => undefined}
-      onSetRuntimePublic={async () => undefined}
-    />,
+    <AppToastProvider>
+      <ComputerDetail
+        computer={{
+          ...computer,
+          ownedByCurrentUser: false,
+          runtimes: [{ ...computer.runtimes[0]!, isPublic: true }],
+        }}
+        onScanUsage={async () => undefined}
+        onSetRuntimePublic={async () => undefined}
+      />
+    </AppToastProvider>,
   );
 
   const page = within(document.body);

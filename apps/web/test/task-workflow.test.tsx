@@ -53,11 +53,11 @@ test("list and board toggle retain status groups and selected state", async () =
   }
   render(<Views />);
   const page = within(document.body);
-  await userEvent.setup().click(page.getByRole("button", { name: "List" }));
-  expect(page.getByRole("button", { name: "List" }).getAttribute("aria-pressed")).toBe("true");
+  await userEvent.setup().click(page.getByRole("radio", { name: "List" }));
+  expect(page.getByRole("radio", { name: "List" }).getAttribute("aria-checked")).toBe("true");
   expect(page.getByRole("heading", { name: "In progress 2" })).toBeTruthy();
   expect(page.getByRole("heading", { name: "Done 0" })).toBeTruthy();
-  expect(page.queryByRole("button", { name: "Change status" })).toBeNull();
+  expect(page.queryByRole("button", { name: /Change status/ })).toBeNull();
 });
 
 test("status menu submits the rendered revision and locks all movement while saving", async () => {
@@ -71,7 +71,7 @@ test("status menu submits the rendered revision and locks all movement while sav
   renderWorkflow(onMove);
   const page = within(document.body);
   const user = userEvent.setup();
-  await user.click(page.getAllByRole("button", { name: "Change status" })[0]!);
+  await user.click(page.getAllByRole("button", { name: /Change status/ })[0]!);
   await user.click(page.getByRole("option", { name: "In review" }));
   expect(onMove).toHaveBeenCalledWith(tasks[0], {
     operation: "update",
@@ -81,7 +81,7 @@ test("status menu submits the rendered revision and locks all movement while sav
   });
   expect(within(page.getByRole("region", { name: "In review" })).getByText("Work 1")).toBeTruthy();
   expect(page.getByRole("heading", { name: "In progress 1" })).toBeTruthy();
-  for (const control of page.getAllByRole("button", { name: "Change status" }))
+  for (const control of page.getAllByRole("button", { name: /Change status/ }))
     expect(control.hasAttribute("data-disabled")).toBe(true);
   await act(async () => finish());
 });
@@ -94,7 +94,7 @@ test("failed status writes keep original group and report the error", async () =
   );
   const page = within(document.body);
   const user = userEvent.setup();
-  await user.click(page.getAllByRole("button", { name: "Change status" })[0]!);
+  await user.click(page.getAllByRole("button", { name: /Change status/ })[0]!);
   await user.click(page.getByRole("option", { name: "Done" }));
   expect(page.getByRole("alert").textContent).toContain("could not be updated");
   expect(page.getByRole("heading", { name: "In progress 2" })).toBeTruthy();
@@ -104,7 +104,7 @@ test("failed status writes keep original group and report the error", async () =
 test("read-only views expose neither status controls nor drag handles", () => {
   renderWorkflow(undefined, true);
   const page = within(document.body);
-  expect(page.queryByRole("button", { name: "Change status" })).toBeNull();
+  expect(page.queryByRole("button", { name: /Change status/ })).toBeNull();
   expect(page.queryByRole("button", { name: /Move task/ })).toBeNull();
 });
 
@@ -119,7 +119,7 @@ test("failed optimistic move restores latest server data rather than the old sna
   const view = renderWorkflow(onMove);
   const page = within(document.body);
   const user = userEvent.setup();
-  await user.click(page.getAllByRole("button", { name: "Change status" })[0]!);
+  await user.click(page.getAllByRole("button", { name: /Change status/ })[0]!);
   await user.click(page.getByRole("option", { name: "In review" }));
   expect(within(page.getByRole("region", { name: "In review" })).getByText("Work 1")).toBeTruthy();
   view.rerender(

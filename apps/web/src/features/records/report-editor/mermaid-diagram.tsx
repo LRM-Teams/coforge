@@ -25,7 +25,7 @@ import {
   type CSSProperties,
   type Ref,
 } from "react";
-import { Maximize2 } from "lucide-react";
+import { Maximize02 as Maximize2 } from "@untitledui/icons";
 import { Dialog, DialogContent } from "./ui/dialog";
 import { useT } from "./i18n";
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip";

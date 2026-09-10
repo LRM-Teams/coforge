@@ -1,18 +1,17 @@
 import { Plus, SearchLg as Search } from "@untitledui/icons";
 import { PageHeader } from "@/components/layout/page-header";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/base/buttons/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { m } from "@/paraglide/messages";
 
 export function AgentsPending() {
   return (
-    <main className="flex h-svh min-w-0 md:p-2">
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-card md:rounded-xl md:border">
+    <main className="flex h-svh min-w-0">
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-primary">
         <PageHeader
           heading={m.navigation_agents()}
           actions={
-            <Button disabled className="h-11 md:h-10">
-              <Plus aria-hidden="true" data-icon="inline-start" />
+            <Button size="sm" iconLeading={Plus} isDisabled>
               {m.header_new_agent()}
             </Button>
           }
@@ -21,26 +20,26 @@ export function AgentsPending() {
           <div className="mt-6 flex flex-wrap items-center gap-4">
             <div
               aria-hidden="true"
-              className="flex gap-0.5 rounded-lg bg-muted p-1 ring-1 ring-border ring-inset"
+              className="flex gap-0.5 rounded-lg bg-secondary p-1 ring-1 ring-secondary ring-inset"
             >
               {[m.filters_all(), m.member_person(), m.member_agent()].map((label) => (
                 <span
                   key={label}
-                  className="flex h-11 items-center gap-2 px-3 text-sm font-semibold text-muted-foreground md:h-9"
+                  className="flex h-11 items-center gap-2 px-3 text-sm font-semibold text-tertiary md:h-9"
                 >
                   {label}
                   <Skeleton className="h-5 w-6 rounded-full" />
                 </span>
               ))}
             </div>
-            <label className="flex h-11 w-full items-center gap-2 rounded-lg bg-background px-3 text-sm shadow-xs ring-1 ring-border ring-inset sm:ml-auto sm:w-72">
-              <Search aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
+            <label className="flex h-11 w-full items-center gap-2 rounded-lg bg-primary px-3 text-sm shadow-xs ring-1 ring-secondary ring-inset sm:ml-auto sm:w-72">
+              <Search aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
               <input
                 type="search"
                 disabled
                 aria-label={m.filters_search()}
                 placeholder={`${m.filters_search()}...`}
-                className="min-w-0 flex-1 bg-transparent placeholder:text-muted-foreground"
+                className="min-w-0 flex-1 bg-transparent placeholder:text-tertiary"
               />
             </label>
           </div>
@@ -56,7 +55,7 @@ export function AgentsPending() {
               <div
                 key={index}
                 aria-hidden="true"
-                className="flex min-h-56 min-w-0 flex-col rounded-xl bg-card p-5 shadow-xs ring-1 ring-border ring-inset"
+                className="flex min-h-56 min-w-0 flex-col rounded-xl bg-primary p-5 shadow-xs ring-1 ring-secondary ring-inset"
               >
                 <div className="flex flex-1 flex-col motion-safe:animate-pulse">
                   <div className="flex items-center gap-3">

@@ -39,11 +39,9 @@
   "preferences_browser_notifications": "Browser notifications",
   "notifications_push_title": "Message notifications",
   "notifications_push_description": "DMs, @mentions, and new messages in unmuted channels.",
-  "preferences_browser_notifications_on": "On",
-  "preferences_browser_notifications_off": "Off",
   "preferences_browser_notifications_blocked": "Blocked by the browser. Allow it in site settings.",
   "preferences_browser_notifications_unsupported": "Notifications are not supported by this browser.",
-  "preferences_browser_notifications_unavailable": "Unavailable",
+  "notifications_push_unconfigured": "Push notifications are not configured for this workspace.",
   "preferences_browser_notifications_allow_browser": "Allow on this browser",
   "preferences_browser_notifications_test": "Send test notification",
   "preferences_browser_notifications_testing": "Sending test…",
@@ -55,5 +53,7 @@
   "notifications_home_screen_share": "Tap Share in the Safari toolbar.",
   "notifications_home_screen_add": "Choose Add to Home Screen.",
   "notifications_home_screen_open": "Open CoForge from its new Home Screen icon, then return here to turn on notifications.",
-  "settings_save_error": "The preference could not be saved. Try again."
+  "settings_save_error": "The preference could not be saved. Try again.",
+  "preferences_rail_labels": "Show labels in the sidebar",
+  "preferences_rail_labels_hint": "Text under the sidebar icons. Off keeps icons only."
 }

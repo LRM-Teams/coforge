@@ -6,16 +6,22 @@ instructions for the TanStack Start Web/backend modular monolith.
 ## Product design
 
 - Before designing or changing product UI, read and follow
-  [the product design guidance](../../docs/design.md), including progressive
-  disclosure, task-led hierarchy, and rendered verification.
-- That document is the maintained source for interaction rules. For similar
-  list/detail pages and empty states, apply sections 2.1–2.2 and 5.1, and run
-  the applicable acceptance checks in section 6. State why a different user
-  task requires an exception before implementing one. Do not duplicate these
-  rules in another design document or treat existing pages as automatic
-  exceptions; adapt the affected flow when changing it, without expanding into
-  unrelated page redesigns.
-- Reuse the existing UI primitives and the color ownership defined in
+  [the UI guidelines](../../docs/ui-guidelines.md). That is the authoritative
+  rulebook for page skeleton, field layout, information hierarchy, density,
+  color, and dark mode. It ranks Untitled UI's official components and
+  `theme.css` first, itself second; nothing else (Tailwind UI examples,
+  shadcn habits, personal preference) is a source of truth. Run its §12
+  checklist before calling a page done.
+- Components come only from `npx untitledui@latest add <name>`, installed
+  unmodified into `src/components/base/` and `src/components/application/`.
+  Change appearance via `className` at the call site, not by editing the
+  installed source. The only hand-written UI primitives are the ones listed
+  in [`src/components/ui/README.md`](src/components/ui/README.md), for cases
+  Untitled has no equivalent for (Empty, Skeleton, a Toast wrapper,
+  RelativeTime, InputOTP, HoverPopover) — keep that list in sync.
+- Color tokens are Untitled's semantic names (`bg-primary`, `text-tertiary`,
+  `border-secondary`, `bg-brand-solid`, …) plus the small CoForge brand/extra
+  token set in `src/styles/coforge-theme.css`; see the mapping in
   [design tokens](../../docs/design-tokens.md). Do not apply marketing-page
   defaults from `design-taste-frontend` to the product workspace.
 - Keep supplemental explanations behind accessible, on-demand help when
@@ -190,8 +196,9 @@ instructions for the TanStack Start Web/backend modular monolith.
   Native button leaves are allowed only in the shared Button/Select/Tooltip
   adapters that implement React Aria render semantics; feature code must use
   components. Official Tooltip `title` props are not native HTML title attributes.
-  `features/landing` retains its existing presentation and isolated legacy
-  controls; product changes must not alter the public homepage.
+  `features/landing` keeps its presentation (Spell and Magic UI motion pieces
+  under `components/spell` and `components/magicui` stay as installed); its
+  header controls use the official Dropdown, so no shadcn/Base UI remnants exist.
 - Loading placeholders belong to the feature whose content they represent:
   `features/agents/agents-pending.tsx` owns the Agent list;
   `features/agents/agent-detail-pending.tsx` owns Profile/Activity placeholders;
@@ -374,3 +381,42 @@ instructions for the TanStack Start Web/backend modular monolith.
 - Follow the TanStack guidance listed in the repository-level `AGENTS.md`
   before making changes to routing, data loading, Server Functions, middleware,
   authentication, SSR, or code splitting.
+
+## Dev data seed and UI sweep
+
+`bun run seed:dev` (`scripts/seed-dev.ts`) fills the dev-skip-auth
+workspace's every page with a populated state: three Agents (two active,
+one inactive, three different runtimes), two Computers (one online with
+three detected runtimes and usage data, one offline), three public channels
+(one the dev user hasn't joined), a direct conversation with each Agent,
+~40 messages spanning several days with a few attachments and a 5-reply
+thread, six Tasks across every status, two Reminders, and a pending
+invitation plus two extra members. Every row is addressed by a deterministic
+id derived from a stable seed string, so rerunning the script updates
+existing rows rather than duplicating them — safe to run repeatedly against
+the same database. Two things it cannot create honestly because there is no
+live daemon in dev: an Agent's "active" status and a Computer's "online"
+status (plus runtime usage snapshots) live in Redis as short leases a real
+daemon connection renews continuously, so the seed writes those Redis keys
+directly with a ~24h TTL instead — they will look "inactive"/"offline"
+again if the dev environment sits idle for about a day, at which point
+rerunning the seed refreshes them.
+
+`bun run ui:sweep` (`scripts/ui-sweep.mjs`, `UI_SWEEP_BASE` overrides the
+default `http://127.0.0.1:8795`) is the companion walkthrough: it drives a
+locally launched Chromium instance over the raw Chrome DevTools Protocol
+(auto-detected; override with `UI_SWEEP_CHROME_PATH`) — not the ego-browser
+skill, which is an interactive tool for an agent's own session rather than
+something a checked-in script can depend on — through every route, dialog,
+menu, and hover/resize state this seed populates, in light and dark at
+1440×900/1024×768/390×844, and writes screenshots plus `sweep/findings.json`,
+`sweep/findings.md`, and a `sweep/index.html` contact sheet to `UI_SWEEP_OUT`
+(default `apps/web/sweep/`, gitignored). It flags horizontal overflow,
+elements exceeding the viewport, hard-clipped text (ellipsis truncation is
+exempt — it is this app's deliberate affordance), fixed/absolute elements
+overlapping the page `<h1>`, undersized/oversized header controls, console
+errors and exceptions, hydration warnings, incomplete dialog overlays,
+out-of-viewport popovers, and forbidden classes (shadcn tokens, `dark:` with
+a literal color, hex colors in `style`). Run the seed first so the sweep has
+real content to check; a full run captures around 150 surface/theme/viewport
+combinations in about three minutes.

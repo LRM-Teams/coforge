@@ -13,7 +13,14 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Fragment } from "@tiptap/pm/model";
 import { NodeSelection } from "@tiptap/pm/state";
 import { columnResizingPluginKey } from "@tiptap/pm/tables";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Plus, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  Plus,
+  Trash01 as Trash2,
+} from "@untitledui/icons";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
