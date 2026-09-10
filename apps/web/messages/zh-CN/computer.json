@@ -105,5 +105,6 @@
   "computer_login_step": "登录",
   "computer_login_step_description": "然后为这台电脑登录你的 CoForge 账号。终端会显示一个代码，在这里批准即可。",
   "computer_copy_login_command": "复制登录命令",
-  "computer_login_command_copied": "命令已复制"
+  "computer_login_command_copied": "命令已复制",
+  "computer_added_by_name": "由 {name} 添加"
 }

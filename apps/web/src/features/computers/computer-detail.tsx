@@ -2,7 +2,10 @@ import { useRef, useState } from "react";
 import { Edit01 as Pencil, RefreshCw01 as RotateCw } from "@untitledui/icons";
 import type { RuntimeProvider } from "@coforge/protocol";
 
+import { Avatar } from "@/components/base/avatar/avatar";
 import { Button } from "@/components/base/buttons/button";
+import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
+import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { useAppToast } from "@/components/ui/toast";
 import { m } from "@/paraglide/messages";
@@ -185,6 +188,30 @@ export function ComputerDetail({
             <span>{operatingSystemLabel(computer)}</span>
             <span aria-hidden="true">·</span>
             <span>{computerVersionLabel(computer)}</span>
+            {computer.creator && (
+              <Tooltip
+                title={m.computer_added_by_name({
+                  name: computer.creator.displayName || computer.creator.username,
+                })}
+              >
+                <TooltipTrigger className="ml-1 rounded-full">
+                  <Avatar
+                    size="xs"
+                    src={computer.creator.avatarUrl}
+                    alt={computer.creator.displayName || computer.creator.username}
+                    initials={avatarInitial(
+                      computer.creator.displayName || computer.creator.username,
+                    )}
+                    contentClassName={avatarToneClassName(
+                      computer.creator.displayName || computer.creator.username,
+                    )}
+                  />
+                  <span className="sr-only">
+                    {computer.creator.displayName || computer.creator.username}
+                  </span>
+                </TooltipTrigger>
+              </Tooltip>
+            )}
           </p>
         </div>
         {onRestart && (
