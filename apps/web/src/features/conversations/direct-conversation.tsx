@@ -1073,11 +1073,10 @@ export function ConversationPane({
             )}
             {!followingLatest && (
               <span className="relative">
-                <ButtonUtility
-                  icon={ArrowDown}
-                  size="xs"
-                  color="tertiary"
-                  onClick={() => void showLatestMessages()}
+                <Button
+                  color="secondary"
+                  size="sm"
+                  onPress={() => void showLatestMessages()}
                   aria-label={
                     newMessageCount === 1
                       ? m.conversation_one_new_message()
@@ -1085,7 +1084,8 @@ export function ConversationPane({
                         ? m.conversation_new_messages({ count: newMessageCount })
                         : m.conversation_back_to_bottom()
                   }
-                  className="rounded-full"
+                  iconLeading={ArrowDown}
+                  className="rounded-full before:rounded-full"
                 />
                 {newMessageCount > 0 && (
                   <span
