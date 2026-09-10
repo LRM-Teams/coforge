@@ -208,7 +208,9 @@ test("channel threads keep replies out of the main flow and send to the selected
   await user.click(page.getByRole("button", { name: /1 reply/ }));
   const discussion = within(page.getByRole("region", { name: "Thread" }));
   expect(discussion.getByText("Only in the channel thread")).toBeTruthy();
-  expect(page.getByRole("button", { name: /@bob Only in the channel thread/ })).toBeTruthy();
+  // The preview under the root message is a compact avatar-stack-and-count
+  // line, not a list of individual replies.
+  expect(page.getByRole("button", { name: /1 reply/ }).querySelector("[data-avatar]")).toBeTruthy();
   await user.click(discussion.getByRole("button", { name: "Unfollow thread" }));
   expect(onThreadFollowedChange).toHaveBeenCalledWith(root.id, false);
   await user.type(discussion.getByLabelText("Message"), "Channel thread response");
