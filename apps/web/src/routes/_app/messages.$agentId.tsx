@@ -42,8 +42,8 @@ export const Route = createFileRoute("/_app/messages/$agentId")({
 function DirectConversationPage() {
   const latestConversation = Route.useLoaderData();
   const [conversation, setConversation] = useState(latestConversation);
-  const agentStatus = useConversationAgentStatus();
   const { agentId } = Route.useParams();
+  const agentStatus = useConversationAgentStatus(agentId);
   const { view, layout } = Route.useSearch();
   const router = useRouter();
   const send = useServerFn(sendDirectConversationMessage);

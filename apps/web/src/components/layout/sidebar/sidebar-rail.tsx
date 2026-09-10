@@ -1,10 +1,5 @@
 import type { FC, ReactNode } from "react";
-import { LayoutLeft as PanelLeft } from "@untitledui/icons";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { m } from "@/paraglide/messages";
-import { MobileNavigationHeader } from "@/components/layout/sidebar/mobile-header";
 import { NavButton } from "@/components/application/app-navigation/base-components/nav-button";
-import { NavList } from "@/components/application/app-navigation/base-components/nav-list";
 import type { NavItemType } from "@/components/application/app-navigation/config";
 
 // Adapted from Untitled UI's application/app-navigation/sidebar-navigation/
@@ -14,36 +9,39 @@ import type { NavItemType } from "@/components/application/app-navigation/config
 // sub-items CoForge doesn't have), so per docs/ui-guidelines.md §2 it's
 // copied here and adapted. Everything it calls into (base-components/**,
 // components/base/**) stays unmodified.
+//
+// Unlike the official template (and CoForge's own earlier iteration) this
+// rail is not a collapsed *state* of a wider sidebar any more — it's the
+// one permanent piece of chrome on every `/_app` page (Slack's leftmost
+// icon rail). The 240px Channels/Direct-messages sidebar is a separate,
+// conditional surface — see sidebar-channels.tsx — shown only on chat routes.
 
 export const SIDEBAR_RAIL_WIDTH = 68;
 
-interface SidebarCollapsedProps {
+interface SidebarRailProps {
   /** URL of the currently active item. */
   activeUrl?: string;
-  /** List of items to display. */
+  /** List of items to display, each with a short icon + caption. */
   items: (NavItemType & { icon: FC<{ className?: string }> })[];
-  /** List of footer items to display. */
+  /** List of footer items to display (icon-only, e.g. Settings). */
   footerItems?: (NavItemType & { icon: FC<{ className?: string }> })[];
-  /** Compact workspace switcher, rendered under the expand control. */
+  /** Compact workspace switcher, rendered in the top 48px band. */
   subheader?: ReactNode;
   /** Real avatar + user menu, rendered at the bottom of the rail. */
   footer: ReactNode;
-  /** Expands the sidebar back out. */
-  onExpand: () => void;
 }
 
-export const SidebarCollapsed = ({
+export const SidebarRail = ({
   activeUrl,
   items,
   footerItems = [],
   subheader,
   footer,
-  onExpand,
-}: SidebarCollapsedProps) => {
-  const mainSidebar = (
+}: SidebarRailProps) => {
+  const rail = (
     // data-sidebar retints NavButton's bg-primary/bg-secondary/text-secondary_hover/
     // text-fg-quaternary utilities via the [data-sidebar] rule in
-    // src/styles/coforge-theme.css — see sidebar-expanded.tsx and that file's
+    // src/styles/coforge-theme.css — see sidebar-channels.tsx and that file's
     // comment for why this can't be an inline `--color-bg-*` override.
     <aside
       data-sidebar
@@ -51,26 +49,23 @@ export const SidebarCollapsed = ({
       className="flex h-full max-h-full flex-col justify-between overflow-y-auto border-r border-secondary bg-sidebar pb-4"
     >
       <div className="flex flex-col items-center gap-3">
-        {/* Same 48px band as the expanded logo row and every page header. */}
-        <div className="flex h-12 shrink-0 items-center">
-          <ButtonUtility
-            icon={PanelLeft}
-            size="sm"
-            color="tertiary"
-            tooltip={m.controls_show_sidebar()}
-            onClick={onExpand}
-          />
-        </div>
-        {subheader}
-        <ul className="flex flex-col gap-0.5">
+        {/* Same 48px band as the channel sidebar's header row and every page header. */}
+        <div className="flex h-12 shrink-0 items-center justify-center">{subheader}</div>
+        <ul className="flex flex-col gap-3">
           {items.map((item) => (
-            <li key={item.label}>
+            <li key={item.label} className="flex flex-col items-center gap-1">
               <NavButton
                 current={item.href === activeUrl}
                 href={item.href}
                 label={item.label || ""}
                 icon={item.icon}
               />
+              {/* NavButton (official, unmodified) only supports a hover tooltip for
+                  its label, not a visible caption — so the caption lives here,
+                  alongside it, rather than inside that file. */}
+              <span aria-hidden="true" className="text-[10px] font-medium text-tertiary">
+                {item.label}
+              </span>
             </li>
           ))}
         </ul>
@@ -98,7 +93,7 @@ export const SidebarCollapsed = ({
   return (
     <>
       {/* Desktop sidebar navigation */}
-      <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:flex">{mainSidebar}</div>
+      <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:flex">{rail}</div>
 
       {/* Placeholder to take up physical space because the real sidebar has
           `fixed` position. */}
@@ -106,23 +101,6 @@ export const SidebarCollapsed = ({
         style={{ paddingLeft: SIDEBAR_RAIL_WIDTH }}
         className="invisible hidden lg:sticky lg:top-0 lg:bottom-0 lg:left-0 lg:block"
       />
-
-      {/* Mobile header navigation (official, unmodified — still shows
-          Untitled's own logo). On mobile there's no separate "collapsed"
-          state, so this shows the same full nav as the expanded sidebar. */}
-      <MobileNavigationHeader>
-        <aside
-          data-sidebar
-          className="flex h-full max-h-full w-full max-w-full flex-col justify-between overflow-y-auto bg-sidebar"
-        >
-          <div className="flex h-12 shrink-0 items-center gap-2 px-4">
-            <img src="/logo.svg" alt="" className="size-6 shrink-0" />
-            <span className="text-sm font-semibold text-primary">CoForge</span>
-          </div>
-          <NavList activeUrl={activeUrl} items={items} className="mt-2" />
-          <div className="mt-auto flex flex-col gap-3 p-4">{footer}</div>
-        </aside>
-      </MobileNavigationHeader>
     </>
   );
 };

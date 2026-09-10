@@ -4,38 +4,11 @@ import { Button } from "@/components/base/buttons/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
-import { BackToAgents } from "./conversation-layout";
 
 export function MessagesPending() {
   return (
-    <main className="flex h-svh min-w-0 bg-primary">
-      <nav
-        aria-busy="true"
-        aria-label={m.messages_agent_list_label()}
-        className="hidden w-72 shrink-0 flex-col overflow-hidden border-r border-secondary bg-primary md:flex xl:w-80"
-      >
-        <div className="flex h-12 shrink-0 items-center border-b border-secondary px-5">
-          <h1 className="text-base font-semibold">{m.messages_title()}</h1>
-        </div>
-        <div className="overflow-hidden px-3 py-4">
-          {[m.channels_title(), m.messages_agents_action()].map((label) => (
-            <div key={label} className="mb-6">
-              <h2 className="px-3 py-2 text-xs font-semibold text-tertiary">{label}</h2>
-              <div aria-hidden="true" className="space-y-1 motion-safe:animate-pulse">
-                {["w-3/5", "w-2/5", "w-1/2"].map((width) => (
-                  <div key={width} className="flex h-11 items-center gap-3 px-2.5">
-                    <Skeleton className="size-6 shrink-0 rounded-full" />
-                    <Skeleton className={`h-3 ${width}`} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </nav>
-      <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-primary">
-        <ConversationPending />
-      </section>
+    <main className="flex h-svh min-w-0 flex-col bg-primary">
+      <ConversationPending />
     </main>
   );
 }
@@ -44,7 +17,6 @@ export function ConversationPending() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-3 sm:px-5">
-        <BackToAgents />
         <p role="status" className="sr-only">
           {m.conversation_loading()}
         </p>
@@ -77,7 +49,6 @@ export function ConversationLoadError({ error }: { error: unknown }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-3 sm:px-5">
-        <BackToAgents />
         <h1 className="text-base font-semibold">{m.messages_title()}</h1>
       </header>
       <div className="grid flex-1 place-content-center gap-4 p-6 text-center">

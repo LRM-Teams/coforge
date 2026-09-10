@@ -26,10 +26,7 @@ import {
 import type { TaskView } from "@coforge/protocol";
 import { MenuItem as AriaMenuItem, Popover as AriaPopover } from "react-aria-components";
 
-import {
-  BackToAgents,
-  useConversationActivity,
-} from "@/features/conversations/conversation-layout";
+import { useConversationActivity } from "@/features/conversations/conversation-layout";
 import { AgentActivityAvatar, useAgentWorkingLabel } from "@/features/agents/agent-activity-avatar";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
@@ -137,7 +134,6 @@ export function DirectConversation(props: ConversationProps) {
   });
   const header = (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-3 sm:gap-3 sm:px-5">
-      <BackToAgents />
       <AgentActivityAvatar
         agent={conversation.agent}
         size="sm"

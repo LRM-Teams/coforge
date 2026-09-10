@@ -4,7 +4,6 @@ import type { TaskView } from "@coforge/protocol";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
-import { BackToAgents } from "./conversation-layout";
 import {
   ThreadedConversation,
   type DirectConversationView,
@@ -41,7 +40,6 @@ export function ChannelConversationHeader({
   return (
     <header className="shrink-0 border-b border-secondary px-3 sm:px-5">
       <div className="-mx-3 flex h-12 items-center gap-3 border-b border-secondary px-3 sm:-mx-5 sm:px-5">
-        <BackToAgents />
         <h1 className="truncate text-base font-semibold">#{conversation.name}</h1>
         <span className="ml-auto hidden rounded-md border border-secondary px-2 py-0.5 text-xs font-medium text-tertiary sm:block">
           {m.channel_public()}
