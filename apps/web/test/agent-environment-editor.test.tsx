@@ -22,7 +22,7 @@ test("loads only explicit overrides on demand, saves exact values and reloads pe
   await userEvent.type(page.getByLabelText("Value 1"), "  exact value  ");
   fireEvent.click(page.getByRole("button", { name: "Save and restart" }));
   await waitFor(() => expect(save).toHaveBeenCalledWith({ HTTPS_PROXY: "  exact value  " }));
-  await page.findByText("Environment saved. Restart requested.");
+  await page.findByText("Saved. Restart requested.");
   fireEvent.click(page.getByRole("button", { name: "Edit environment" }));
   expect((await page.findByLabelText<HTMLInputElement>("Value 1")).value).toBe("  exact value  ");
   expect(load).toHaveBeenCalledTimes(2);
