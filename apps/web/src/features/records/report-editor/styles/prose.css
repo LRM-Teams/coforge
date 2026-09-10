@@ -1,0 +1,517 @@
+/*
+ * Rich text prose typography.
+ *
+ * Design tier: "Compact" (same tier as Linear, Slack). Optimized for
+ * short-form content (issue descriptions, comments) that users scan, not
+ * long-form reading.
+ *
+ * Typography values benchmarked against (April 2026):
+ *   - github-markdown-css (GitHub's markdown renderer)
+ *   - @tailwindcss/typography prose-sm preset
+ *   - Linear's editor (Tiptap-based, 14px body)
+ *
+ * Key decisions:
+ *   Body: 14px (text-sm), line-height 1.625 (between GitHub 1.5 and Tailwind 1.714)
+ *   Headings: h1=22px (1.57x), h2=18px (1.29x), h3=15px (1.07x) — compact but
+ *     with clear hierarchy. Previous h3 was 14px (same as body = no differentiation).
+ *   Paragraph spacing: 10px (was 8px; GitHub uses 10px, Tailwind prose-sm uses 16px)
+ *   List indent: 20px for ul (was 16px; standard is 22-32px)
+ *   Code block margin: 12px (was 8px; gives breathing room between code and prose)
+ *   Blockquote border: 3px (was 2px; GitHub/Tailwind both use 4px)
+ *   Links: var(--brand) blue with 40% opacity underline (was var(--primary) near-black)
+ *
+ * Inline elements (mention cards, inline code) that exceed line-height:
+ *   The browser auto-expands the line box for lines containing taller inline
+ *   elements. Controlled via vertical-align on [data-node-view-wrapper] and
+ *   box-decoration-break: clone on inline code.
+ */
+
+/* Headings — compact but with clear visual hierarchy */
+.rich-text-editor h1 {
+  font-size: 1.375rem;
+  font-weight: 700;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.rich-text-editor h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.35;
+}
+
+.rich-text-editor h3 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.4;
+}
+
+/* Paragraphs */
+.rich-text-editor p {
+  margin-top: 0.625rem;
+  margin-bottom: 0.625rem;
+  line-height: 1.625;
+}
+
+/* First child should not have top margin */
+.rich-text-editor > *:first-child {
+  margin-top: 0;
+}
+
+/* Last child should not have bottom margin */
+.rich-text-editor > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Lists */
+.rich-text-editor ul {
+  list-style-type: disc;
+  padding-inline-start: 1.25rem;
+  padding-inline-end: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.rich-text-editor ol {
+  list-style-type: decimal;
+  padding-inline-start: 1.5rem;
+  margin: 0.5rem 0;
+}
+
+.rich-text-editor li {
+  margin: 0.25rem 0;
+  line-height: 1.625;
+}
+
+.rich-text-editor li + li {
+  margin-top: 0.25rem;
+}
+
+.rich-text-editor li::marker {
+  color: var(--muted-foreground);
+}
+
+/* Remove paragraph margins inside list items (Tiptap wraps li content in <p>) */
+.rich-text-editor li > p {
+  margin: 0;
+}
+
+.rich-text-editor li > p + p {
+  margin-top: 0.25rem;
+}
+
+.rich-text-editor .math-node {
+  display: inline-flex;
+  max-width: 100%;
+  overflow: visible;
+  vertical-align: middle;
+}
+
+.rich-text-editor .math-node.inline {
+  align-items: center;
+  line-height: normal;
+  padding-block: 0.125em;
+}
+
+.rich-text-editor .math-node.block {
+  display: block;
+  margin: 0.75rem 0;
+  overflow: visible;
+  padding-block: 0.125rem;
+}
+
+.rich-text-editor .math-node.block .katex-display {
+  margin: 0;
+}
+
+.rich-text-editor .math-node .katex {
+  max-width: 100%;
+}
+
+.rich-text-editor .math-node.inline.editing {
+  position: relative;
+  overflow: visible;
+}
+
+.rich-text-editor .math-node.block.editing {
+  display: block;
+  overflow: visible;
+}
+
+.rich-text-editor .math-node-popover {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  z-index: 30;
+  width: min(22rem, calc(100vw - 2rem));
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--popover);
+  padding: 0.25rem;
+  box-shadow:
+    0 8px 24px color-mix(in srgb, black 16%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+
+.rich-text-editor .math-node-input,
+.rich-text-editor .math-node-textarea {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--foreground) 14%, transparent);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  outline: none;
+}
+
+.rich-text-editor .math-node-input {
+  min-width: 10rem;
+  padding: 0.125rem 0.375rem;
+}
+
+.rich-text-editor .math-node-textarea {
+  min-height: 5rem;
+  resize: vertical;
+  padding: 0.5rem 0.625rem;
+}
+
+.rich-text-editor .math-node-input:focus,
+.rich-text-editor .math-node-textarea:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 20%, transparent);
+}
+
+.rich-text-editor .math-node-editor {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.rich-text-editor .math-node-preview {
+  overflow: visible;
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--muted);
+  padding: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+/* Nested lists — bullet style progression and tighter spacing */
+.rich-text-editor ul ul {
+  list-style-type: circle;
+  margin: 0.25rem 0;
+}
+
+.rich-text-editor ul ul ul {
+  list-style-type: square;
+}
+
+.rich-text-editor ol ol {
+  list-style-type: lower-alpha;
+  margin: 0.25rem 0;
+}
+
+.rich-text-editor ol ol ol {
+  list-style-type: lower-roman;
+}
+
+/*
+ * Task lists (checkboxes) — `- [ ]` / `- [x]`.
+ *
+ * The editor and readonly views emit DIFFERENT DOM, so they are styled
+ * separately rather than sharing a flex rule:
+ *
+ *   - Editor (Tiptap NodeView):
+ *       ul[data-type="taskList"] > li[data-checked]
+ *         > label(contenteditable) > input + span
+ *         > div(content) > p, [nested ul]
+ *     The item body is wrapped in a <div>, so the row is a flex layout and a
+ *     nested task list inside that <div> still stacks below the text.
+ *
+ *   - Readonly (remark-gfm):
+ *       ul.contains-task-list > li.task-list-item
+ *         > input[disabled] + text [ + nested ul ]
+ *     There is NO body wrapper — a nested <ul> is a direct sibling of the
+ *     checkbox and text. Flex here would pull the nested list onto the same
+ *     row, so the item stays a block and the checkbox is positioned inline.
+ */
+
+/* Shared: checkbox appearance. */
+.rich-text-editor input[type="checkbox"] {
+  width: 0.95rem;
+  height: 0.95rem;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
+/* --- Editor (Tiptap) --- */
+.rich-text-editor ul[data-type="taskList"] {
+  list-style: none;
+  padding-inline: 0;
+  margin: 0.5rem 0;
+}
+
+/* Child combinators keep these rules off nested plain bullet/ordered lists. */
+.rich-text-editor ul[data-type="taskList"] > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0;
+}
+
+/* Checkbox column. The top margin nudges the box onto the first text line
+   (line-height 1.625). */
+.rich-text-editor ul[data-type="taskList"] > li > label {
+  flex: 0 0 auto;
+  margin: 0.28rem 0 0;
+  user-select: none;
+}
+
+/* Content column fills the remaining width and may wrap/scroll. */
+.rich-text-editor ul[data-type="taskList"] > li > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.rich-text-editor ul[data-type="taskList"] > li > div > p {
+  margin: 0;
+}
+
+/* Completed editor item: muted text (no strikethrough), matching Linear. The
+   NodeView keeps `data-checked` on the <li> (but not data-type). */
+.rich-text-editor ul[data-type="taskList"] > li[data-checked="true"] > div {
+  color: var(--muted-foreground);
+}
+
+/* --- Readonly (remark-gfm) --- */
+.rich-text-editor ul.contains-task-list {
+  list-style: none;
+  padding-inline: 0;
+  margin: 0.5rem 0;
+}
+
+.rich-text-editor li.task-list-item {
+  padding-inline: 0;
+}
+
+/* Inline checkbox on the first text line; a nested <ul> stays block and drops
+   below the item instead of sharing the row. */
+.rich-text-editor li.task-list-item > input[type="checkbox"] {
+  margin: 0 0.5rem 0 0;
+  vertical-align: -0.1em;
+}
+
+/* Indent nested readonly task lists under their parent item. */
+.rich-text-editor li.task-list-item .contains-task-list {
+  padding-inline-start: 1.45rem;
+  margin: 0.25rem 0;
+}
+
+/* Completed readonly item: muted text, matched via :has(input:checked). The
+   reset keeps a completed parent from bleeding its muted color into the
+   (independently evaluated) nested items below it. */
+.rich-text-editor li.task-list-item:has(> input:checked) {
+  color: var(--muted-foreground);
+}
+
+.rich-text-editor li.task-list-item:has(> input:checked) .contains-task-list {
+  color: var(--foreground);
+}
+
+/* Tables — wrapper is full editor width so wide tables scroll inside it
+   instead of pushing the page. Cell borders form the visual grid.
+   Bottom margin leaves room for the add-row control below the scrollbar. */
+.rich-text-editor .tableWrapper {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  /* Bottom margin leaves room for the add-row control below the scrollbar.
+     Row handles sit in the overlay outside the grid — no left indent. */
+  margin: 1rem 0 1.75rem;
+}
+
+.rich-text-editor .tableWrapper.ProseMirror-selectednode {
+  outline: 1px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+.rich-text-editor table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  /* TipTap sets min-width from column sizes; never shrink below that. */
+  max-width: none;
+}
+
+.rich-text-editor thead {
+  background: color-mix(in srgb, var(--muted) 50%, transparent);
+}
+
+.rich-text-editor th,
+.rich-text-editor td {
+  position: relative;
+  box-sizing: border-box;
+  /* Don't set CSS min-width here — TipTap's cellMinWidth + <col> widths own
+     the resize contract. A CSS min-width fights colgroup during drag and makes
+     the resize handle jump. */
+  min-width: 0;
+  border: 1px solid var(--border);
+  text-align: left;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.875rem;
+  vertical-align: top;
+}
+
+.rich-text-editor th {
+  font-weight: 600;
+}
+
+/* Active cell while typing — thin brand border (CellSelection uses an overlay). */
+.rich-text-editor td:focus-within,
+.rich-text-editor th:focus-within {
+  outline: 1px solid var(--brand);
+  outline-offset: -1px;
+  z-index: 1;
+}
+
+/* CellSelection highlight is drawn as one outer rect in TableControls. */
+.rich-text-editor .selectedCell {
+  outline: none;
+}
+
+.rich-text-editor .selectedCell::after {
+  content: none;
+}
+
+.rich-text-editor .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  z-index: 20;
+  background: color-mix(in srgb, var(--brand) 55%, transparent);
+  pointer-events: none;
+}
+
+/* TipTap may leave min-width on <col> from earlier updates; width must win
+   during live resize or the edge stutters between two competing sizes. */
+.rich-text-editor col {
+  min-width: 0;
+}
+
+.rich-text-editor.resize-cursor {
+  cursor: col-resize;
+}
+
+/* Remove paragraph margin inside table cells */
+.rich-text-editor th p,
+.rich-text-editor td p {
+  margin: 0;
+}
+
+/* Blockquotes */
+.rich-text-editor blockquote {
+  border-left: 3px solid color-mix(in srgb, var(--muted-foreground) 30%, transparent);
+  padding-left: 0.75rem;
+  margin: 0.625rem 0;
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.rich-text-editor blockquote p {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.rich-text-editor blockquote > *:first-child {
+  margin-top: 0;
+}
+
+.rich-text-editor blockquote > *:last-child {
+  margin-bottom: 0;
+}
+
+.rich-text-editor blockquote blockquote {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+  border-left-color: color-mix(in srgb, var(--muted-foreground) 15%, transparent);
+}
+
+/* Horizontal rules */
+.rich-text-editor hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1rem 0;
+}
+
+/* Links */
+.rich-text-editor a {
+  color: var(--brand);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--brand) 40%, transparent);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.rich-text-editor a:hover {
+  text-decoration-color: var(--brand);
+}
+
+/* Issue mention cards — inline cards that sit within text flow */
+.rich-text-editor a.issue-mention {
+  color: inherit;
+  text-decoration: none;
+}
+
+.rich-text-editor a.issue-mention:hover {
+  text-decoration: none;
+}
+
+/* Mentions — layout/typography fallback. Visual color + soft rest fill come
+   from the shared `mentionTokenClassName` utilities (Slack soft-bg token, not
+   per-actor identity colors). Keep this block style-light so it does not
+   fight Tailwind. */
+.rich-text-editor .mention {
+  text-decoration: none;
+}
+
+/* Slash command pills */
+.rich-text-editor .slash-command {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+  margin: 0 0.125rem;
+}
+
+/* Strong / emphasis */
+.rich-text-editor strong {
+  font-weight: 600;
+}
+
+.rich-text-editor em {
+  font-style: italic;
+}
+
+.rich-text-editor s,
+.rich-text-editor del {
+  text-decoration: line-through;
+  color: var(--muted-foreground);
+}
+
+/* Text highlight (`==text==` → <mark>). Single yellow tint that stays legible
+   in both light and dark themes; `color: inherit` keeps the underlying text
+   color so highlighted links/code remain readable. box-decoration-break clones
+   the background across wrapped lines (same approach as inline code above). */
+.rich-text-editor mark {
+  background-color: color-mix(in srgb, #facc15 45%, transparent);
+  color: inherit;
+  border-radius: 0.2em;
+  padding: 0 0.15em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}

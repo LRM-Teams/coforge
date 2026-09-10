@@ -24,9 +24,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
+import { CreateMemberReportDialog } from "./create-member-report-dialog";
+import { currentIsoWeek, memberReportTitle, memberWeekTitle } from "./records-content";
 import {
-  addCurrentWeeklyCycle,
-  deleteWeeklyCycle,
+  createMemberWeeklyReport,
+  createTemplateWeeklyReport,
+  createWeeklyHighlight,
+  deleteTemplateWeeklyReport,
   type loadRecordsCatalog,
 } from "./records.functions";
 export type RecordsTab = "weekly" | "notes";
@@ -42,6 +46,16 @@ const BackToRecordsContext = createContext<(() => void) | undefined>(undefined);
 function matchesQuery(text: string, query: string) {
   if (!query) return true;
   return text.toLowerCase().includes(query.toLowerCase());
+}
+
+function defaultMemberReportTitle(displayName: string) {
+  const { year, week } = currentIsoWeek();
+  return memberReportTitle(displayName || "Member", year, week);
+}
+
+function defaultTemplateReportTitle() {
+  const { year, week } = currentIsoWeek();
+  return memberWeekTitle(year, week);
 }
 
 export function RecordsLayout({
@@ -61,18 +75,25 @@ export function RecordsLayout({
 }) {
   const navigate = useNavigate();
   const router = useRouter();
-  const addCycle = useServerFn(addCurrentWeeklyCycle);
-  const removeCycle = useServerFn(deleteWeeklyCycle);
+  const createHighlight = useServerFn(createWeeklyHighlight);
+  const createMemberReport = useServerFn(createMemberWeeklyReport);
+  const createTemplateReport = useServerFn(createTemplateWeeklyReport);
+  const removeTemplate = useServerFn(deleteTemplateWeeklyReport);
   const [showMobileList, setShowMobileList] = useState(!selectedRecordId && !selectedPanel);
   const [query, setQuery] = useState("");
   const [favoritesOpen, setFavoritesOpen] = useState(true);
   const [highlightsOpen, setHighlightsOpen] = useState(true);
   const [myReportsOpen, setMyReportsOpen] = useState(true);
   const [membersOpen, setMembersOpen] = useState(true);
-  const [expandedWeeks, setExpandedWeeks] = useState<Record<string, boolean>>({});
+  const [expandedTemplates, setExpandedTemplates] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
+  const [createReportKind, setCreateReportKind] = useState<"member" | "template" | null>(null);
   const detailOpen = Boolean(selectedRecordId || selectedPanel);
   const listHidden = detailOpen && !showMobileList;
+  const createReportDefaultTitle =
+    createReportKind === "template"
+      ? defaultTemplateReportTitle()
+      : defaultMemberReportTitle(catalog.actorDisplayName);
 
   const filteredFavorites = useMemo(
     () => catalog.favorites.filter((item) => matchesQuery(item.title, query)),
@@ -86,20 +107,23 @@ export function RecordsLayout({
     () => catalog.myReports.filter((item) => matchesQuery(item.title, query)),
     [catalog.myReports, query],
   );
-  const filteredMemberWeeks = useMemo(
+  const filteredMemberTemplates = useMemo(
     () =>
-      catalog.memberWeeks
-        .map((week) => ({
-          ...week,
-          reports: week.reports.filter(
-            (report) => matchesQuery(report.title, query) || matchesQuery(week.title, query),
+      catalog.memberTemplates
+        .map((template) => ({
+          ...template,
+          submissions: template.submissions.filter(
+            (submission) =>
+              matchesQuery(submission.title, query) ||
+              matchesQuery(submission.author.displayName, query) ||
+              matchesQuery(template.title, query),
           ),
         }))
-        .filter((week) => {
+        .filter((template) => {
           if (!query) return true;
-          return matchesQuery(week.title, query) || week.reports.length > 0;
+          return matchesQuery(template.title, query) || template.submissions.length > 0;
         }),
-    [catalog.memberWeeks, query],
+    [catalog.memberTemplates, query],
   );
   const filteredNotes = useMemo(
     () =>
@@ -109,25 +133,47 @@ export function RecordsLayout({
     [catalog.notes, query],
   );
 
-  async function onAddCycle() {
+  async function openCreatedRecord(recordId: string) {
+    setShowMobileList(false);
+    await router.invalidate({ sync: true });
+    void navigate({
+      to: "/records/$recordId",
+      params: { recordId },
+      search: (previous) => ({ tab: recordsTabSearch(previous.tab) }),
+    });
+  }
+
+  async function onCreateHighlight() {
     if (busy) return;
     setBusy(true);
     try {
-      await addCycle();
-      setMembersOpen(true);
-      await router.invalidate({ sync: true });
+      const result = await createHighlight();
+      setHighlightsOpen(true);
+      await openCreatedRecord(result.id);
     } finally {
       setBusy(false);
     }
   }
 
-  async function onDeleteCycle(cycleId: string) {
+  async function onCreateReport(title: string) {
+    if (createReportKind === "template") {
+      const result = await createTemplateReport({ data: { title } });
+      setMembersOpen(true);
+      void openCreatedRecord(result.id);
+      return;
+    }
+    const result = await createMemberReport({ data: { title } });
+    setMyReportsOpen(true);
+    void openCreatedRecord(result.id);
+  }
+
+  async function onDeleteTemplate(reportId: string) {
     if (busy) return;
     setBusy(true);
     try {
-      await removeCycle({ data: { cycleId } });
+      await removeTemplate({ data: { reportId } });
       await router.invalidate({ sync: true });
-      if (selectedRecordId) {
+      if (selectedRecordId === reportId) {
         void navigate({
           to: "/records",
           search: (previous) => ({ tab: recordsTabSearch(previous.tab) }),
@@ -212,6 +258,18 @@ export function RecordsLayout({
                   title={m.records_section_highlights()}
                   open={highlightsOpen}
                   onOpenChange={setHighlightsOpen}
+                  actions={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={m.records_add_highlight()}
+                      disabled={busy}
+                      onClick={() => void onCreateHighlight()}
+                    >
+                      <Plus aria-hidden="true" className="size-4" />
+                    </Button>
+                  }
                 >
                   {filteredHighlights.length === 0 ? (
                     <EmptyHint />
@@ -237,6 +295,17 @@ export function RecordsLayout({
                   title={m.records_section_mine()}
                   open={myReportsOpen}
                   onOpenChange={setMyReportsOpen}
+                  actions={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={m.records_add_my_report()}
+                      onClick={() => setCreateReportKind("member")}
+                    >
+                      <Plus aria-hidden="true" className="size-4" />
+                    </Button>
+                  }
                 >
                   {filteredMyReports.length === 0 ? (
                     <EmptyHint />
@@ -268,90 +337,93 @@ export function RecordsLayout({
                       variant="ghost"
                       size="icon-xs"
                       aria-label={m.records_add_member_week()}
-                      disabled={busy}
-                      onClick={() => void onAddCycle()}
+                      onClick={() => setCreateReportKind("template")}
                     >
                       <Plus aria-hidden="true" className="size-4" />
                     </Button>
                   }
                 >
-                  {filteredMemberWeeks.length === 0 ? (
+                  {filteredMemberTemplates.length === 0 ? (
                     <EmptyHint />
                   ) : (
                     <ul className="space-y-1">
-                      {filteredMemberWeeks.map((week) => {
+                      {filteredMemberTemplates.map((template) => {
+                        const hasSubmissions = template.submissions.length > 0;
                         const expanded =
-                          expandedWeeks[week.id] ?? (Boolean(query) && week.reports.length > 0);
+                          expandedTemplates[template.id] ?? (Boolean(query) && hasSubmissions);
+                        const selected =
+                          template.id === selectedRecordId ||
+                          template.submissions.some((item) => item.id === selectedRecordId);
                         return (
-                          <li key={week.id} className="space-y-0.5">
-                            <div className="flex min-w-0 items-center gap-1">
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon-xs"
-                                className="size-7 shrink-0"
-                                aria-expanded={expanded}
-                                aria-label={
-                                  expanded
-                                    ? m.records_collapse_week({ week: week.title })
-                                    : m.records_expand_week({ week: week.title })
-                                }
-                                onClick={() =>
-                                  setExpandedWeeks((current) => ({
-                                    ...current,
-                                    [week.id]: !expanded,
-                                  }))
-                                }
-                              >
-                                <ChevronDown
-                                  aria-hidden="true"
-                                  className={cn(
-                                    "size-4 transition-transform",
-                                    expanded && "rotate-180",
-                                  )}
-                                />
-                              </Button>
-                              {week.templateReport?.id || week.highlight?.id ? (
-                                <RecordLink
-                                  recordId={(week.templateReport?.id ?? week.highlight?.id)!}
-                                  selected={
-                                    week.templateReport?.id === selectedRecordId ||
-                                    week.highlight?.id === selectedRecordId
-                                  }
-                                  onSelect={() => setShowMobileList(false)}
-                                  className="min-w-0 flex-1"
-                                >
-                                  <span className="truncate font-medium">{week.title}</span>
-                                  {week.latestTemplate && (
-                                    <span className="ml-auto shrink-0 rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-medium text-brand">
-                                      {m.records_latest_template()}
-                                    </span>
-                                  )}
-                                </RecordLink>
-                              ) : (
-                                <div className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm">
-                                  <span className="truncate font-medium">{week.title}</span>
-                                </div>
+                          <li key={template.id} className="space-y-0.5">
+                            <div
+                              className={cn(
+                                "flex min-w-0 items-center gap-1 rounded-lg",
+                                selected && "ring-1 ring-ring",
                               )}
-                              <WeekActionsMenu
-                                weekTitle={week.title}
-                                onDelete={() => void onDeleteCycle(week.id)}
+                            >
+                              {hasSubmissions ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  className="size-7 shrink-0"
+                                  aria-expanded={expanded}
+                                  aria-label={
+                                    expanded
+                                      ? m.records_collapse_week({ week: template.title })
+                                      : m.records_expand_week({ week: template.title })
+                                  }
+                                  onClick={() =>
+                                    setExpandedTemplates((current) => ({
+                                      ...current,
+                                      [template.id]: !expanded,
+                                    }))
+                                  }
+                                >
+                                  <ChevronDown
+                                    aria-hidden="true"
+                                    className={cn(
+                                      "size-4 transition-transform",
+                                      expanded && "rotate-180",
+                                    )}
+                                  />
+                                </Button>
+                              ) : (
+                                <span className="size-7 shrink-0" aria-hidden="true" />
+                              )}
+                              <RecordLink
+                                recordId={template.id}
+                                selected={template.id === selectedRecordId}
+                                onSelect={() => setShowMobileList(false)}
+                                className="min-w-0 flex-1"
+                              >
+                                <span className="truncate font-medium">{template.title}</span>
+                                {template.latestTemplate && (
+                                  <span className="ml-auto shrink-0 rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-medium text-brand">
+                                    {m.records_latest_template()}
+                                  </span>
+                                )}
+                              </RecordLink>
+                              <TemplateActionsMenu
+                                title={template.title}
+                                onDelete={() => void onDeleteTemplate(template.id)}
                               />
                             </div>
-                            {expanded && (
+                            {hasSubmissions && expanded && (
                               <ul className="ml-7 space-y-0.5">
-                                {week.reports.map((report) => (
-                                  <li key={report.id}>
+                                {template.submissions.map((submission) => (
+                                  <li key={submission.id}>
                                     <RecordLink
-                                      recordId={report.id}
-                                      selected={report.id === selectedRecordId}
+                                      recordId={submission.id}
+                                      selected={submission.id === selectedRecordId}
                                       onSelect={() => setShowMobileList(false)}
                                     >
                                       <Avatar
-                                        people={[{ name: report.author.displayName }]}
+                                        people={[{ name: submission.author.displayName }]}
                                         size="sm"
                                       />
-                                      <span className="truncate">{report.title}</span>
+                                      <span className="truncate">{submission.title}</span>
                                     </RecordLink>
                                   </li>
                                 ))}
@@ -439,6 +511,15 @@ export function RecordsLayout({
           {children}
         </BackToRecordsContext>
       </section>
+
+      <CreateMemberReportDialog
+        open={createReportKind !== null}
+        onOpenChange={(open) => {
+          if (!open) setCreateReportKind(null);
+        }}
+        defaultTitle={createReportDefaultTitle}
+        onCreate={onCreateReport}
+      />
     </main>
   );
 }
@@ -513,11 +594,11 @@ function CollapsibleSection({
   );
 }
 
-function WeekActionsMenu({ weekTitle, onDelete }: { weekTitle: string; onDelete: () => void }) {
+function TemplateActionsMenu({ title, onDelete }: { title: string; onDelete: () => void }) {
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger
-        aria-label={`${m.records_week_actions()}: ${weekTitle}`}
+        aria-label={`${m.records_week_actions()}: ${title}`}
         className={buttonVariants({
           variant: "ghost",
           size: "icon-xs",

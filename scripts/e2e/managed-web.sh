@@ -41,4 +41,4 @@ cd "$root/apps/web"
 bun run db:migrate:deploy
 NODE_ENV=production bun run build
 bun run ./scripts/seed-dev-data.ts
-exec bun run ./scripts/dev-backend.ts
+exec bun run ./scripts/start-server.ts

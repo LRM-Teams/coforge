@@ -1,16 +1,13 @@
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import {
-  alignReportContentToTemplate,
   currentIsoWeek,
   emptyHighlightContent,
   emptyReportContent,
   highlightTitle,
   isValidTemplateName,
-  memberReportTitle,
   memberWeekTitle,
   normalizeReportContent,
-  templateDraftTitle,
   type HighlightContent,
   type ReportContent,
 } from "../../features/records/records-content";
@@ -39,22 +36,6 @@ async function requireMembership(db: Db, workspaceId: string, userId: string) {
   });
   if (!row) throw new AppError("ACCESS_DENIED");
   return row;
-}
-
-/** Latest Workspace send-template drives report tab dimensions / section titles. */
-async function latestTemplateOutline(
-  db: Db,
-  workspaceId: string,
-): Promise<{ dimensions: string[]; mainTitles: string[] }> {
-  const template = await db.weeklyReportTemplate.findFirst({
-    where: { workspaceId },
-    orderBy: { createdAt: "desc" },
-    select: { dimensions: true, mainTitles: true },
-  });
-  return {
-    dimensions: asStringArray(template?.dimensions),
-    mainTitles: asStringArray(template?.mainTitles),
-  };
 }
 
 export class RecordCatalog {
@@ -101,37 +82,48 @@ export class RecordCatalog {
       }),
     ]);
 
-    const memberWeeks = cycles.map((cycle, index) => ({
-      id: cycle.id,
-      year: cycle.year,
-      week: cycle.week,
-      title: cycle.title,
-      latestTemplate: index === 0,
-      highlight: cycle.highlight
-        ? {
-            id: cycle.highlight.id,
-            title: cycle.highlight.title,
-            completedAt: cycle.highlight.completedAt?.toISOString() ?? null,
-          }
-        : null,
-      templateReport:
+    const highlights = cycles
+      .filter((cycle) => cycle.highlight)
+      .map((cycle) => ({
+        id: cycle.highlight!.id,
+        cycleId: cycle.id,
+        week: cycle.week,
+        title: cycle.highlight!.title,
+        completedAt: cycle.highlight!.completedAt?.toISOString() ?? null,
+      }));
+
+    const templateEntries = cycles
+      .flatMap((cycle) =>
         cycle.reports
           .filter((report) => report.kind === "template")
-          .map((report) => ({
-            id: report.id,
-            title: report.title,
-            status: report.status,
-          }))[0] ?? null,
-      reports: cycle.reports
-        .filter((report) => report.kind === "member")
-        .map((report) => ({
-          id: report.id,
-          title: report.title,
-          status: report.status,
+          .map((report) => ({ cycle, report })),
+      )
+      .sort((left, right) => right.report.createdAt.getTime() - left.report.createdAt.getTime());
+    const latestTemplateId = templateEntries[0]?.report.id;
+
+    const memberTemplates = templateEntries.map(({ cycle, report }) => ({
+      id: report.id,
+      title: report.title,
+      status: report.status,
+      year: cycle.year,
+      week: cycle.week,
+      cycleId: cycle.id,
+      latestTemplate: report.id === latestTemplateId,
+      submissions: cycle.reports
+        .filter(
+          (candidate) =>
+            candidate.kind === "member" &&
+            candidate.sourceTemplateId === report.id &&
+            (candidate.status === "submitted" || candidate.status === "shared"),
+        )
+        .map((submission) => ({
+          id: submission.id,
+          title: submission.title,
+          status: submission.status,
           author: {
-            userId: report.author.id,
-            username: report.author.username,
-            displayName: report.author.displayName ?? report.author.username,
+            userId: submission.author.id,
+            username: submission.author.username,
+            displayName: submission.author.displayName ?? submission.author.username,
           },
         })),
     }));
@@ -148,15 +140,7 @@ export class RecordCatalog {
           displayName: row.report.author.displayName ?? row.report.author.username,
         },
       })),
-      highlights: memberWeeks
-        .filter((week) => week.highlight)
-        .map((week) => ({
-          id: week.highlight!.id,
-          cycleId: week.id,
-          week: week.week,
-          title: week.highlight!.title,
-          completedAt: week.highlight!.completedAt,
-        })),
+      highlights,
       myReports: cycles.flatMap((cycle) =>
         cycle.reports
           .filter((report) => report.kind === "member" && report.authorId === input.userId)
@@ -168,7 +152,7 @@ export class RecordCatalog {
             week: cycle.week,
           })),
       ),
-      memberWeeks,
+      memberTemplates,
       notes: notes.map((note) => ({
         id: note.id,
         title: note.title,
@@ -179,64 +163,158 @@ export class RecordCatalog {
     };
   }
 
-  async addCurrentCycle(input: { workspaceId: string; userId: string; now?: Date }) {
+  async ensureCurrentCycle(input: {
+    workspaceId: string;
+    userId: string;
+    now?: Date;
+  }): Promise<{ id: string; year: number; week: number; title: string; created: boolean }> {
     await requireMembership(this.db, input.workspaceId, input.userId);
     const { year, week } = currentIsoWeek(input.now ?? new Date());
     const title = memberWeekTitle(year, week);
-    const user = await this.db.user.findUniqueOrThrow({
-      where: { id: input.userId },
-      select: { displayName: true, username: true },
+    const existing = await this.db.weeklyReportCycle.findUnique({
+      where: { workspaceId_year_week: { workspaceId: input.workspaceId, year, week } },
+      select: { id: true, year: true, week: true, title: true },
     });
-
-    const outline = await latestTemplateOutline(this.db, input.workspaceId);
-    const reportContent = emptyReportContent(outline.dimensions, outline.mainTitles);
-
-    return this.db.$transaction(async (tx) => {
-      const existing = await tx.weeklyReportCycle.findUnique({
-        where: { workspaceId_year_week: { workspaceId: input.workspaceId, year, week } },
-      });
-      if (existing) {
-        return { cycleId: existing.id, year, week, title: existing.title, created: false };
-      }
-
-      const cycle = await tx.weeklyReportCycle.create({
-        data: {
-          workspaceId: input.workspaceId,
-          year,
-          week,
-          title,
-          createdById: input.userId,
-          highlight: {
-            create: {
-              workspaceId: input.workspaceId,
-              title: highlightTitle(year, week),
-              content: emptyHighlightContent() as unknown as Prisma.InputJsonValue,
-            },
-          },
-          reports: {
-            create: [
-              {
-                workspaceId: input.workspaceId,
-                authorId: input.userId,
-                kind: "template",
-                title: templateDraftTitle(year, week),
-                status: "draft",
-                content: reportContent as unknown as Prisma.InputJsonValue,
-              },
-              {
-                workspaceId: input.workspaceId,
-                authorId: input.userId,
-                kind: "member",
-                title: memberReportTitle(user.displayName ?? user.username, year, week),
-                status: "draft",
-                content: reportContent as unknown as Prisma.InputJsonValue,
-              },
-            ],
-          },
-        },
-      });
-      return { cycleId: cycle.id, year, week, title: cycle.title, created: true };
+    if (existing) {
+      return {
+        id: existing.id,
+        year: existing.year,
+        week: existing.week,
+        title: existing.title,
+        created: false,
+      };
+    }
+    const cycle = await this.db.weeklyReportCycle.create({
+      data: {
+        workspaceId: input.workspaceId,
+        year,
+        week,
+        title,
+        createdById: input.userId,
+      },
+      select: { id: true, year: true, week: true, title: true },
     });
+    return { id: cycle.id, year: cycle.year, week: cycle.week, title: cycle.title, created: true };
+  }
+
+  /** Create a highlight for the current ISO week only — does not create reports. */
+  async createHighlight(input: { workspaceId: string; userId: string; now?: Date }) {
+    const cycle = await this.ensureCurrentCycle(input);
+    const existing = await this.db.weeklyReportHighlight.findUnique({
+      where: { cycleId: cycle.id },
+      select: { id: true, title: true },
+    });
+    if (existing) {
+      return {
+        id: existing.id,
+        cycleId: cycle.id,
+        title: existing.title,
+        year: cycle.year,
+        week: cycle.week,
+        created: false,
+      };
+    }
+    const highlight = await this.db.weeklyReportHighlight.create({
+      data: {
+        workspaceId: input.workspaceId,
+        cycleId: cycle.id,
+        title: highlightTitle(cycle.year, cycle.week),
+        content: emptyHighlightContent() as unknown as Prisma.InputJsonValue,
+      },
+      select: { id: true, title: true },
+    });
+    return {
+      id: highlight.id,
+      cycleId: cycle.id,
+      title: highlight.title,
+      year: cycle.year,
+      week: cycle.week,
+      created: true,
+    };
+  }
+
+  /**
+   * Create a personal member weekly report with an explicit title.
+   * Appears under “我的周报”; duplicate titles are allowed.
+   */
+  async createMemberReport(input: {
+    workspaceId: string;
+    userId: string;
+    title: string;
+    now?: Date;
+  }) {
+    const title = input.title.trim();
+    if (!title) throw new AppError("INVALID_INPUT");
+    const cycle = await this.ensureCurrentCycle(input);
+    const report = await this.db.weeklyReport.create({
+      data: {
+        workspaceId: input.workspaceId,
+        cycleId: cycle.id,
+        authorId: input.userId,
+        kind: "member",
+        title,
+        status: "draft",
+        content: emptyReportContent() as unknown as Prisma.InputJsonValue,
+      },
+      select: { id: true, title: true },
+    });
+    return {
+      id: report.id,
+      cycleId: cycle.id,
+      title: report.title,
+      year: cycle.year,
+      week: cycle.week,
+      kind: "member" as const,
+      created: true,
+    };
+  }
+
+  /**
+   * Create a cycle template weekly-report document (kind=template).
+   * Used by “成员周报 +”; does not appear under “我的周报”.
+   * Titles may duplicate (Multica Notes-style); identity is the report UUID.
+   */
+  async createTemplateReport(input: {
+    workspaceId: string;
+    userId: string;
+    title: string;
+    now?: Date;
+  }) {
+    const title = input.title.trim();
+    if (!title) throw new AppError("INVALID_INPUT");
+    const cycle = await this.ensureCurrentCycle(input);
+    const report = await this.db.weeklyReport.create({
+      data: {
+        workspaceId: input.workspaceId,
+        cycleId: cycle.id,
+        authorId: input.userId,
+        kind: "template",
+        title,
+        status: "draft",
+        content: emptyReportContent() as unknown as Prisma.InputJsonValue,
+      },
+      select: { id: true, title: true },
+    });
+    return {
+      id: report.id,
+      cycleId: cycle.id,
+      title: report.title,
+      year: cycle.year,
+      week: cycle.week,
+      kind: "template" as const,
+      created: true,
+    };
+  }
+
+  async deleteTemplateReport(input: { workspaceId: string; userId: string; reportId: string }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const report = await this.db.weeklyReport.findFirst({
+      where: { id: input.reportId, workspaceId: input.workspaceId, kind: "template" },
+      select: { id: true },
+    });
+    if (!report) throw new AppError("NOT_FOUND");
+    await this.db.weeklyReport.delete({ where: { id: report.id } });
+    return { ok: true as const };
   }
 
   async deleteCycle(input: { workspaceId: string; userId: string; cycleId: string }) {
@@ -260,25 +338,7 @@ export class RecordCatalog {
       },
     });
     if (report) {
-      let content = asReportContent(report.content);
-      // Draft reports follow the latest template dimensions (tabs), not hardcoded labels.
-      if (report.status === "draft") {
-        const outline = await latestTemplateOutline(this.db, input.workspaceId);
-        const aligned = alignReportContentToTemplate(
-          content,
-          outline.dimensions,
-          outline.mainTitles,
-        );
-        const before = JSON.stringify(content.tabs);
-        const after = JSON.stringify(aligned.tabs);
-        if (before !== after) {
-          await this.db.weeklyReport.update({
-            where: { id: report.id },
-            data: { content: aligned as unknown as Prisma.InputJsonValue },
-          });
-          content = aligned;
-        }
-      }
+      const content = asReportContent(report.content);
       return {
         type: "report" as const,
         report: {

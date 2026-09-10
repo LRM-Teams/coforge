@@ -31,7 +31,7 @@ const emptyCatalog: RecordsCatalog = {
   favorites: [],
   highlights: [],
   myReports: [],
-  memberWeeks: [],
+  memberTemplates: [],
   notes: [],
 };
 
@@ -62,20 +62,20 @@ const sampleCatalog: RecordsCatalog = {
       week: 36,
     },
   ],
-  memberWeeks: [
+  memberTemplates: [
     {
-      id: "c1",
+      id: "tpl-1",
+      title: "2026 W35 工作周报",
+      status: "draft",
       year: 2026,
       week: 35,
-      title: "2026 W35 工作周报",
+      cycleId: "c1",
       latestTemplate: true,
-      highlight: { id: "hl-1", title: "2026 W35 周报要点", completedAt: null },
-      templateReport: { id: "tpl-1", title: "2026 W35 周报模板", status: "draft" },
-      reports: [
+      submissions: [
         {
           id: "r1",
           title: "姜海鹏 2026 W35 工作周报",
-          status: "draft",
+          status: "submitted",
           author: { userId: "u3", username: "jiang", displayName: "姜海鹏" },
         },
       ],
@@ -127,14 +127,16 @@ test("renders empty weekly sections without hardcoded demo people", () => {
   expect(page().getAllByText("暂无内容，可通过上方操作添加。").length).toBeGreaterThan(0);
 });
 
-test("renders catalog rows from props", () => {
-  renderRecords(sampleCatalog, "hl-1");
+test("renders template nodes as editable leaves with submissions as children", () => {
+  renderRecords(sampleCatalog, "tpl-1");
 
   expect(page().getByText("张亚红 2026 W36 工作周报")).toBeTruthy();
   expect(page().getByText("2026 W35 周报要点")).toBeTruthy();
   expect(page().getByText("最新模板")).toBeTruthy();
-  const selected = page().getByRole("link", { name: /2026 W35 周报要点/ });
-  expect(selected.getAttribute("aria-current")).toBe("page");
+  const template = page().getByRole("link", { name: /2026 W35 工作周报/ });
+  expect(template.getAttribute("aria-current")).toBe("page");
+  expect(template.getAttribute("href")).toContain("/records/tpl-1");
+  expect(page().queryByText("2026 W35 周报模板")).toBeNull();
 });
 
 test("switches to the notes tab", () => {
@@ -152,6 +154,14 @@ test("filters the weekly list by search query", async () => {
   await user.type(page().getByPlaceholderText("搜索..."), "姜海鹏");
   expect(page().getByText("姜海鹏 2026 W35 工作周报")).toBeTruthy();
   expect(page().queryByText("张亚红 2026 W36 工作周报")).toBeNull();
+});
+
+test("exposes independent create actions for highlights and reports", () => {
+  renderRecords();
+
+  expect(page().getByRole("button", { name: "添加当周周报要点" })).toBeTruthy();
+  expect(page().getByRole("button", { name: "添加我的周报" })).toBeTruthy();
+  expect(page().getByRole("button", { name: "添加成员周报" })).toBeTruthy();
 });
 
 test("exposes weekly tools menu for stats and settings", async () => {
