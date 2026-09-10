@@ -925,11 +925,17 @@ test("shows a control to bring back a hidden channel sidebar", async () => {
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
         <ChannelSidebarVisibilityContext value={{ hidden: true, show }}>
-          <DirectConversation conversation={base} agentStatus="active" onSend={mock(async () => {})} />
+          <DirectConversation
+            conversation={base}
+            agentStatus="active"
+            onSend={mock(async () => {})}
+          />
         </ChannelSidebarVisibilityContext>
       </AppToastProvider>
     </RouterContextProvider>,
   );
-  await userEvent.setup().click(within(document.body).getByRole("button", { name: "Show sidebar" }));
+  await userEvent
+    .setup()
+    .click(within(document.body).getByRole("button", { name: "Show sidebar" }));
   expect(show).toHaveBeenCalledTimes(1);
 });

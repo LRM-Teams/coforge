@@ -96,10 +96,12 @@ function useSpaNavigation() {
  * inside `children`, on a chat route — show a "show channels" control of its
  * own when the sidebar is hidden, without threading the setter through props.
  */
-export const ChannelSidebarVisibilityContext = createContext<{ hidden: boolean; show: () => void }>({
-  hidden: false,
-  show: () => {},
-});
+export const ChannelSidebarVisibilityContext = createContext<{ hidden: boolean; show: () => void }>(
+  {
+    hidden: false,
+    show: () => {},
+  },
+);
 
 /** For a conversation header to show its own "show channels" control when
  * AppShell's Channels/Direct-messages sidebar is hidden. */
@@ -236,7 +238,10 @@ export function AppShell({
       </div>
 
       <ChannelSidebarVisibilityContext
-        value={{ hidden: isChatRoute && channelSidebarHidden, show: () => setChannelSidebarHidden(false) }}
+        value={{
+          hidden: isChatRoute && channelSidebarHidden,
+          show: () => setChannelSidebarHidden(false),
+        }}
       >
         <div className="flex min-w-0 flex-1 flex-col">{children}</div>
       </ChannelSidebarVisibilityContext>

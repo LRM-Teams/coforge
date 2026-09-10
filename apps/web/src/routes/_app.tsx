@@ -48,8 +48,7 @@ export const Route = createFileRoute("/_app")({
 });
 
 function AppLayout() {
-  const { user, workspaces, currentWorkspace, agents, channels, timeZone } =
-    Route.useLoaderData();
+  const { user, workspaces, currentWorkspace, agents, channels, timeZone } = Route.useLoaderData();
   const router = useRouter();
   const select = useServerFn(selectWorkspace);
   const create = useServerFn(createWorkspace);
