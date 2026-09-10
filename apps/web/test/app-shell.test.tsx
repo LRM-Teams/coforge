@@ -6,7 +6,7 @@ import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import { useState, type ComponentProps } from "react";
 
-import { AppShell } from "@/components/app-shell";
+import { AppShell, useChannelSidebarVisibility } from "@/components/app-shell";
 import { AppToastProvider } from "@/components/ui/toast";
 import type { AgentView } from "@/features/agents/agents-content";
 import { AgentsContent as MembersContent } from "@/features/agents/agents-content";
@@ -38,10 +38,6 @@ const agent = {
     model: "gpt-5",
   },
   status: { value: "inactive" as const, expiresAt: null },
-};
-const agentDirectory = {
-  people: [],
-  agents: [{ ...agent, description: "", computerName: "Office computer" }],
 };
 const computers = [
   {
@@ -151,7 +147,7 @@ function renderAgents(
   );
 }
 
-test("shows the icon-only CoForge brand and current Workspace", () => {
+test("shows the compact workspace switcher for the current Workspace", () => {
   render(
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
@@ -166,15 +162,11 @@ test("shows the icon-only CoForge brand and current Workspace", () => {
     </RouterContextProvider>,
   );
 
-  // NOTE: the official SidebarNavigationSimple (unmodified) always renders
-  // Untitled's own `<UntitledLogo>` wordmark internally, with no prop to
-  // replace it with CoForge's brand mark — a known, flagged limitation of
-  // the official component (see the report). There's nothing app-shell.tsx
-  // can do about the logo without editing that file, so this test only
-  // covers what CoForge actually controls: the workspace switcher.
-  expect(page().getByRole("button", { name: "Current workspace" }).textContent).toContain(
-    "LRM-Team",
-  );
+  // The permanent icon rail's WorkspaceSwitcher trigger is icon-only
+  // (`compact`) — the Workspace name lives in its accessible name (there's
+  // no room for visible text at 68px), unlike the full switcher in the
+  // mobile drawer.
+  expect(page().getByRole("button", { name: "Current workspace: LRM-Team" })).toBeTruthy();
 });
 
 test("shows an icon with the Sign out action", async () => {
@@ -186,29 +178,31 @@ test("shows an icon with the Sign out action", async () => {
     </RouterContextProvider>,
   );
 
-  await userEvent.setup({ document }).click(page().getByRole("button", { name: "Current user" }));
+  await userEvent
+    .setup({ document })
+    .click(page().getByRole("button", { name: "Current user: Frank An" }));
   expect(
     (await page().findByRole("menuitem", { name: "Sign out" })).querySelector("svg"),
   ).toBeTruthy();
 });
 
-test("shows the primary navigation with Members selected", () => {
+test("shows the primary navigation with Home first", () => {
   const markup = renderShell();
 
   expect(markup).toContain("<aside");
+  expect(markup).toContain("Home");
   expect(markup).toContain("Members");
-  expect(markup).toContain("Messages");
   expect(markup).toContain("Tasks");
   expect(markup).toContain("Computers");
-  expect(markup.indexOf("Members")).toBeLessThan(markup.indexOf("Messages"));
-  expect(markup.indexOf("Messages")).toBeLessThan(markup.indexOf("Tasks"));
+  expect(markup.indexOf("Home")).toBeLessThan(markup.indexOf("Members"));
+  expect(markup.indexOf("Members")).toBeLessThan(markup.indexOf("Tasks"));
   expect(markup.indexOf("Tasks")).toBeLessThan(markup.indexOf("Computers"));
   expect(markup).toContain('href="/en/messages"');
-  expect(markup).toContain('aria-label="Current user"');
+  expect(markup).toContain('aria-label="Current user: Frank An"');
   expect(markup).toContain(">F</span>");
 });
 
-test("keeps Messages selected on a private conversation route", () => {
+test("keeps Home selected on a private conversation route", () => {
   window.history.pushState({}, "", "/en/messages/agent-1");
   const router = getRouter();
   render(
@@ -219,11 +213,13 @@ test("keeps Messages selected on a private conversation route", () => {
     </RouterContextProvider>,
   );
 
-  expect(page().getByRole("link", { name: "Messages" }).getAttribute("aria-current")).toBe("page");
+  // The rail's NavButton (official, unmodified) has no `aria-current` — it
+  // marks the current item visually only, with a bg-secondary class.
+  expect(page().getByRole("link", { name: "Home" }).className).toContain("bg-secondary");
   window.history.pushState({}, "", "/en");
 });
 
-test("keeps Tasks selected in expanded and collapsed navigation", async () => {
+test("keeps Tasks selected in the rail", () => {
   window.history.pushState({}, "", "/en/tasks");
   render(
     <RouterContextProvider router={getRouter()}>
@@ -233,14 +229,9 @@ test("keeps Tasks selected in expanded and collapsed navigation", async () => {
     </RouterContextProvider>,
   );
 
-  expect(page().getByRole("link", { name: "Tasks" }).getAttribute("aria-current")).toBe("page");
-  fireEvent.keyDown(document, { key: "b", code: "KeyB", ctrlKey: true });
-  fireEvent.keyUp(document, { key: "b", code: "KeyB", ctrlKey: true });
-  const collapsedTask = page().getByRole("link", { name: "Tasks" });
-  // Official SidebarNavigationSlim's NavButton (base-components/nav-button.tsx,
-  // unmodified) has no `aria-current` — it marks the current item visually only,
-  // with a bg-secondary class.
-  expect(collapsedTask.className).toContain("bg-secondary");
+  // The rail's NavButton (official, unmodified) has no `aria-current` — it
+  // marks the current item visually only, with a bg-secondary class.
+  expect(page().getByRole("link", { name: "Tasks" }).className).toContain("bg-secondary");
   window.history.pushState({}, "", "/en");
 });
 
@@ -532,36 +523,46 @@ test("shows a deferred-start notice after creation", async () => {
   );
 });
 
-test("collapsing the sidebar keeps navigation and the user menu reachable", () => {
+test("hiding the channel sidebar keeps the rail reachable and can be shown again from the content", () => {
+  window.history.pushState({}, "", "/en/messages/agent-1");
+  function ShowChannelsProbe() {
+    const { hidden, show } = useChannelSidebarVisibility();
+    return <button onClick={show}>{hidden ? "channels hidden" : "channels visible"}</button>;
+  }
   render(
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
-        <AppShell user={user}>
-          <AgentsContent
-            directory={agentDirectory}
-            agents={[agent]}
-            computers={computers}
-            onCreate={async () => ({ startPublished: true })}
-            onLoadRuntimeCatalog={async () => modelCatalogs}
-          />
+        <AppShell
+          user={user}
+          channels={[{ id: "channel-1", name: "general", joined: true }]}
+          agents={[agent]}
+        >
+          <ShowChannelsProbe />
         </AppShell>
       </AppToastProvider>
     </RouterContextProvider>,
   );
 
+  expect(page().getByRole("list", { name: "Channels" })).toBeTruthy();
+  expect(page().getByText("channels visible")).toBeTruthy();
+
   fireEvent.click(page().getByRole("button", { name: "Hide sidebar" }));
 
-  // The official SidebarNavigationSlim (unmodified) has no `<nav>` landmark
-  // around its item list and no "Current user" trigger (see the note on the
-  // other collapsed-sidebar tests) — only one aside stays in the DOM, and
-  // its links remain reachable.
-  expect(page().getAllByRole("complementary").length).toBe(1);
-  for (const name of ["Members", "Messages", "Computers"]) {
+  expect(page().queryByRole("list", { name: "Channels" })).toBeNull();
+  expect(page().getByText("channels hidden")).toBeTruthy();
+  // The rail (Members, Tasks, Computers, Home) is a separate, permanent
+  // surface — hiding the Channels/Direct-messages panel doesn't touch it.
+  for (const name of ["Home", "Members", "Tasks", "Computers"]) {
     expect(page().getByRole("link", { name }).getAttribute("href")).toBeTruthy();
   }
+
+  fireEvent.click(page().getByRole("button", { name: "channels hidden" }));
+  expect(page().getByRole("list", { name: "Channels" })).toBeTruthy();
+  expect(page().getByText("channels visible")).toBeTruthy();
+  window.history.pushState({}, "", "/en");
 });
 
-test("keeps main content state across desktop collapse and the mobile drawer", async () => {
+test("keeps main content state across the channel-sidebar toggle and the mobile drawer", async () => {
   function StatefulPage() {
     const [value, setValue] = useState("");
     return (
@@ -589,8 +590,8 @@ test("keeps main content state across desktop collapse and the mobile drawer", a
   const state = page().getByRole("textbox", { name: "Page state" });
   fireEvent.input(state, { target: { value: "preserved" } });
 
-  // Desktop collapse: `{children}` is rendered once, outside the
-  // expanded/collapsed sidebar conditional, so toggling never remounts it.
+  // Mod+B toggles the Channels/Direct-messages sidebar: `{children}` is
+  // rendered once, outside that conditional, so toggling never remounts it.
   fireEvent.keyDown(document, { key: "b", code: "KeyB", ctrlKey: true });
   fireEvent.keyUp(document, { key: "b", code: "KeyB", ctrlKey: true });
   expect(page().getByRole("textbox", { name: "Page state" })).toBe(state);

@@ -11,7 +11,8 @@ import {
   type OwnMessageIndexEntry,
 } from "@/features/conversations/direct-conversation";
 import { AppToastProvider } from "@/components/ui/toast";
-import { ConversationLayout } from "@/features/conversations/conversation-layout";
+import { ChannelSidebarVisibilityContext } from "@/components/app-shell";
+import { ConversationRealtimeProvider } from "@/features/conversations/conversation-layout";
 import { getRouter } from "@/router";
 
 afterEach(cleanup);
@@ -218,7 +219,7 @@ test("empty thread keeps its root and reply composer instead of the private-chat
   expect(thread.queryByText("Chat with Release Helper")).toBeNull();
 });
 
-test("shared chat activity updates header and sidebar, with matching hover dots", async () => {
+test("shared chat activity reaches the header from the app-wide realtime context", async () => {
   const entry = {
     launchId: "launch",
     clientSeq: 1,
@@ -235,9 +236,8 @@ test("shared chat activity updates header and sidebar, with matching hover dots"
   const tree = (activity: (typeof entry)[]) => (
     <RouterContextProvider router={getRouter()}>
       <AppToastProvider>
-        <ConversationLayout
+        <ConversationRealtimeProvider
           agents={[agent]}
-          selectedAgentId={agent.id}
           activityView={{
             activity: { [agent.id]: activity },
             loading: false,
@@ -245,20 +245,19 @@ test("shared chat activity updates header and sidebar, with matching hover dots"
           }}
         >
           <DirectConversation conversation={base} agentStatus="active" onSend={refresh} />
-        </ConversationLayout>
+        </ConversationRealtimeProvider>
       </AppToastProvider>
     </RouterContextProvider>
   );
   const view = render(tree([entry]));
   const page = within(document.body);
   expect(page.getByRole("status").textContent).toBe("Running command…");
-  const avatars = page.getAllByRole("button", {
+  const avatar = page.getByRole("button", {
     name: /Release Helper, Online, Running command/,
   });
-  expect(avatars).toHaveLength(2);
-  expect(avatars.every((avatar) => avatar.querySelector(".bg-amber-500"))).toBe(true);
+  expect(avatar.querySelector(".bg-amber-500")).toBeTruthy();
   expect(document.querySelector("a button")).toBeNull();
-  fireEvent.click(avatars[0]!);
+  fireEvent.click(avatar);
   const popup = await page.findByRole("dialog");
   expect(popup.querySelector("li .bg-amber-500")).not.toBeNull();
   view.rerender(tree([{ ...entry, clientSeq: 2, detailKind: "idle" }]));
@@ -918,4 +917,19 @@ test("shows a safe toast and reuses a requestId after failure until the draft ch
   await user.click(page.getByRole("button", { name: "Send" }));
   await waitFor(() => expect(composer.value).toBe(""));
   expect(onSend.mock.calls[3]![1]).not.toBe(secondFailedRequestId);
+});
+
+test("shows a control to bring back a hidden channel sidebar", async () => {
+  const show = mock(() => {});
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <AppToastProvider>
+        <ChannelSidebarVisibilityContext value={{ hidden: true, show }}>
+          <DirectConversation conversation={base} agentStatus="active" onSend={mock(async () => {})} />
+        </ChannelSidebarVisibilityContext>
+      </AppToastProvider>
+    </RouterContextProvider>,
+  );
+  await userEvent.setup().click(within(document.body).getByRole("button", { name: "Show sidebar" }));
+  expect(show).toHaveBeenCalledTimes(1);
 });

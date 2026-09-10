@@ -18,8 +18,23 @@ type HistoryActivity = {
 };
 
 let detailOnline = false;
-let publishActivity = (_publication: { channel: string; data: Uint8Array }) => {};
-let connectActivity = () => {};
+// AppLayout's own workspace-wide activity subscription (hoisted into
+// src/routes/_app.tsx, for the sidebar's Direct-messages hover previews) is
+// mounted on every route now, alongside any page's own activity subscription
+// (e.g. the Agent detail page's per-Agent feed) — both are live at once, on
+// the same "activity:<workspaceId>" channel, exactly as two independent
+// real Centrifuge clients would be. So the mock fans a publish out to every
+// registered subscription instead of keeping only the most recently
+// registered one.
+type ActivityPublication = { channel: string; data: Uint8Array };
+const activityPublicationListeners = new Set<(publication: ActivityPublication) => void>();
+const activityConnectedListeners = new Set<() => void>();
+const publishActivity = (publication: ActivityPublication) => {
+  for (const listener of activityPublicationListeners) listener(publication);
+};
+const connectActivity = () => {
+  for (const listener of activityConnectedListeners) listener();
+};
 let detailReadCount = 0;
 let historyBlock: Promise<void> | undefined;
 let extraHistory: HistoryActivity[] = [];
@@ -112,6 +127,7 @@ const sendDirectConversationMessage = mock(
   }),
 );
 const loadPublicChannelUpdates = mock(async () => []);
+const listPublicChannels = mock(async () => [{ id: "channel-1", name: "general", joined: true }]);
 const loadPublicChannel = mock(async () => ({
   conversationId: "channel-1",
   name: "general",
@@ -199,7 +215,7 @@ mock.module("@/features/conversations/conversations.functions", () => ({
   sendDirectConversationMessage,
 }));
 mock.module("@/features/conversations/channels.functions", () => ({
-  listPublicChannels: mock(async () => [{ id: "channel-1", name: "general", joined: true }]),
+  listPublicChannels,
   loadPublicChannel,
   loadPublicChannelUpdates,
   createPublicChannel: mock(async () => ({ id: "channel-1" })),
@@ -284,14 +300,25 @@ mock.module("centrifuge", () => ({
 }));
 mock.module("centrifuge/build/protobuf", () => ({
   Centrifuge: class {
-    on(event: string, listener: typeof publishActivity) {
-      if (event === "publication") publishActivity = listener;
-      if (event === "connected")
-        connectActivity = () => listener({ channel: "", data: new Uint8Array() });
+    #publicationListener?: (publication: ActivityPublication) => void;
+    #connectedListener?: () => void;
+    on(event: string, listener: (publication: ActivityPublication) => void) {
+      if (event === "publication") {
+        this.#publicationListener = listener;
+        activityPublicationListeners.add(listener);
+      }
+      if (event === "connected") {
+        const connected = () => listener(undefined as unknown as ActivityPublication);
+        this.#connectedListener = connected;
+        activityConnectedListeners.add(connected);
+      }
       return this;
     }
     connect() {}
-    disconnect() {}
+    disconnect() {
+      if (this.#publicationListener) activityPublicationListeners.delete(this.#publicationListener);
+      if (this.#connectedListener) activityConnectedListeners.delete(this.#connectedListener);
+    }
   },
 }));
 
@@ -342,9 +369,9 @@ test("settings first load uses placeholders and refresh preserves the active edi
   }
 });
 
-test("switching conversations keeps navigation while showing only the target loading state", async () => {
+test("switching conversations keeps the sidebar while showing only the target loading state", async () => {
   const { router, page } = await renderRoute("/messages/agent-1");
-  const navigation = page.getByRole("navigation", { name: "Agent conversations" });
+  const directMessages = page.getByRole("list", { name: "Direct messages" });
   const gate = Promise.withResolvers<DirectConversationView>();
   loadDirectConversation.mockImplementationOnce(() => gate.promise);
   let navigationDone: Promise<void> | undefined;
@@ -356,7 +383,9 @@ test("switching conversations keeps navigation while showing only the target loa
       });
     });
     await waitFor(() => expect(page.getByRole("status").textContent).toContain("Loading messages"));
-    expect(page.getByRole("navigation", { name: "Agent conversations" })).toBe(navigation);
+    // The Direct-messages list lives in AppShell, outside the route Outlet —
+    // switching conversations never remounts it.
+    expect(page.getByRole("list", { name: "Direct messages" })).toBe(directMessages);
     expect(page.getByRole("link", { name: /First Agent/ })).toBeTruthy();
     expect(page.queryByRole("heading", { name: "First Agent" })).toBeNull();
     expect(page.queryByRole("textbox", { name: "Message" })).toBeNull();
@@ -385,8 +414,11 @@ test("switching conversations keeps navigation while showing only the target loa
 afterEach(() => {
   cleanup();
   detailOnline = false;
-  publishActivity = () => {};
-  connectActivity = () => {};
+  // Belt-and-suspenders: each subscription's own `disconnect()` (its effect
+  // cleanup) already removes its listener, but clear here too so a test that
+  // doesn't fully unwind never leaks a listener into the next test.
+  activityPublicationListeners.clear();
+  activityConnectedListeners.clear();
   detailReadCount = 0;
   historyBlock = undefined;
   extraHistory = [];
@@ -395,6 +427,7 @@ afterEach(() => {
   loadDirectConversationUpdates.mockClear();
   sendDirectConversationMessage.mockClear();
   loadPublicChannelUpdates.mockClear();
+  listPublicChannels.mockClear();
   sendPublicChannelMessage.mockClear();
   getUserProfile.mockClear();
   loadWorkspaceSwitcher.mockClear();
@@ -499,39 +532,20 @@ test("Agent list loads in place then keeps its cards and filter during refresh",
   }
 });
 
-test("the messages index selects the first Agent", async () => {
+test("the messages index redirects to the first joined channel", async () => {
   const { router, page } = await renderRoute("/messages");
-  await waitFor(() => expect(router.state.location.pathname).toBe("/messages/agent-1"));
-  expect(page.getByRole("heading", { name: "First Agent" })).toBeTruthy();
-  expect(loadDirectConversation).toHaveBeenCalledWith({
-    data: { agentId: "agent-1" },
-  });
+  await waitFor(() => expect(router.state.location.pathname).toBe("/messages/channels/channel-1"));
+  expect(page.getByRole("heading", { name: "#general", level: 1 })).toBeTruthy();
+  expect(loadPublicChannel).toHaveBeenCalledWith({ data: { channelId: "channel-1" } });
 });
 
-test("entering messages shows its layout while the conversation list is loading", async () => {
-  const { router, page } = await renderRoute("/agents");
-  const gate = Promise.withResolvers<typeof agents>();
-  listAgents.mockImplementationOnce(() => gate.promise);
-  let navigationDone: Promise<void> | undefined;
-  try {
-    await act(async () => {
-      navigationDone = router.navigate({
-        to: "/messages/$agentId",
-        params: { agentId: "agent-1" },
-      });
-    });
-    await waitFor(() => expect(page.getByRole("heading", { name: "Messages" })).toBeTruthy());
-    expect(page.getByRole("status").textContent).toContain("Loading messages");
-    expect(
-      page.getByRole("navigation", { name: "Agent conversations" }).getAttribute("aria-busy"),
-    ).toBe("true");
-  } finally {
-    await act(async () => {
-      gate.resolve(agents);
-      await navigationDone;
-    });
-  }
-  expect(page.getByRole("heading", { name: "First Agent" })).toBeTruthy();
+test("the messages index shows the empty state when no channel is joined", async () => {
+  listPublicChannels.mockImplementationOnce(async () => [
+    { id: "channel-1", name: "general", joined: false },
+  ]);
+  const { router, page } = await renderRoute("/messages");
+  await waitFor(() => expect(router.state.location.pathname).toBe("/messages"));
+  expect(page.getByText("No Agents available for private messages")).toBeTruthy();
 });
 
 test("a direct URL renders the second Agent through the Outlet and highlights it", async () => {
@@ -644,7 +658,6 @@ test("channel Tasks keeps channel operations and can return to Chat", async () =
   );
   expect(page.getByRole("heading", { name: "#general", level: 1 })).toBeTruthy();
   expect(page.getByText("Workspace public")).toBeTruthy();
-  expect(page.getByRole("button", { name: "Messages" })).toBeTruthy();
   expect(page.getByRole("button", { name: "Mute channel notifications" })).toBeTruthy();
   await user.click(page.getByRole("button", { name: "Chat" }));
   expect(page.getByRole("textbox", { name: "Message" })).toBeTruthy();

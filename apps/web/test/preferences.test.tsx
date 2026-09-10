@@ -3,7 +3,7 @@ import "./dom-setup";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { useState } from "react";
 import { RouterContextProvider } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { AppShell } from "@/components/app-shell";
@@ -404,31 +404,13 @@ test("does not repeat a successful avatar update when profile details are retrie
 
 test("uses the current user avatar as the personal settings menu trigger without a tooltip", () => {
   const view = renderShell();
-  const trigger = view.getByRole("button", { name: "Current user" });
+  // The permanent icon rail's trigger is icon-only (compact) — the user's
+  // name lives in its accessible name rather than visible text.
+  const trigger = view.getByRole("button", { name: "Current user: Frank An" });
 
   expect(trigger.getAttribute("aria-haspopup")).toBe("true");
   expect(trigger.hasAttribute("data-base-ui-tooltip-trigger")).toBeFalse();
   expect(trigger.querySelector("[data-avatar]")?.textContent).toBe("F");
-});
-
-test("collapses and restores the sidebar with the Mod-B shortcut", () => {
-  const view = renderShell();
-
-  // Expanded: the official SidebarNavigationSimple renders a real, working
-  // user menu (see UserMenuCard in app-shell.tsx). The collapsed rail
-  // (SidebarNavigationSlim) has no such slot, so its absence/presence is a
-  // reliable signal for which sidebar variant is currently rendered.
-  expect(view.getByRole("button", { name: "Current user" })).toBeTruthy();
-  expect(view.getByRole("link", { name: "Messages" })).toBeTruthy();
-
-  fireEvent.keyDown(document, { key: "b", code: "KeyB", ctrlKey: true });
-  fireEvent.keyUp(document, { key: "b", code: "KeyB", ctrlKey: true });
-  expect(view.queryByRole("button", { name: "Current user" })).toBeNull();
-  expect(view.getByRole("link", { name: "Messages" })).toBeTruthy();
-
-  fireEvent.keyDown(document, { key: "b", code: "KeyB", ctrlKey: true });
-  fireEvent.keyUp(document, { key: "b", code: "KeyB", ctrlKey: true });
-  expect(view.getByRole("button", { name: "Current user" })).toBeTruthy();
 });
 
 test("opens and dismisses the sidebar as a mobile drawer", async () => {
