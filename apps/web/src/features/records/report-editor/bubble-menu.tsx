@@ -20,12 +20,15 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  Heading4,
+  Heading5,
   Highlighter,
   Italic,
   Link2,
   List,
   ListOrdered,
   ListTodo,
+  Palette,
   Quote,
   Strikethrough,
   Type,
@@ -34,6 +37,15 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import {
+  NOTE_COLORS,
+  NOTE_FONT_SIZES,
+  cssToNoteFontSize,
+  fontSizeToCss,
+  hexToNoteColor,
+  noteColorToHex,
+  type NoteColor,
+} from "./utils/text-style";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
@@ -116,6 +128,18 @@ function HeadingDropdown({
       active: activeLevel === 3,
       action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
     },
+    {
+      label: "Heading 4",
+      icon: Heading4,
+      active: activeLevel === 4,
+      action: () => editor.chain().focus().toggleHeading({ level: 4 }).run(),
+    },
+    {
+      label: "Heading 5",
+      icon: Heading5,
+      active: activeLevel === 5,
+      action: () => editor.chain().focus().toggleHeading({ level: 5 }).run(),
+    },
   ];
 
   const handleOpenChange = useCallback(
@@ -157,6 +181,145 @@ function HeadingDropdown({
   );
 }
 
+function ColorDropdown({
+  editor,
+  onOpenChange,
+  activeColor,
+}: {
+  editor: Editor;
+  onOpenChange: (open: boolean) => void;
+  activeColor: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = hexToNoteColor(activeColor);
+
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      setOpen(next);
+      onOpenChange(next);
+    },
+    [onOpenChange],
+  );
+
+  const apply = (color: NoteColor) => {
+    const hex = noteColorToHex(color);
+    if (hex) editor.chain().focus().setTextColor(hex).run();
+    else editor.chain().focus().unsetTextColor().run();
+    handleOpenChange(false);
+  };
+
+  return (
+    <Popover modal={false} open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger
+        className="inline-flex h-7 items-center gap-0.5 rounded-md px-1.5 text-xs font-medium hover:bg-muted"
+        aria-label="Text color"
+        onMouseDown={(event) => event.preventDefault()}
+      >
+        <Palette className="size-3.5" />
+        <span
+          className="size-2 rounded-full border border-border"
+          style={{ backgroundColor: noteColorToHex(current) ?? "var(--foreground)" }}
+        />
+      </PopoverTrigger>
+      <PopoverContent
+        side="bottom"
+        sideOffset={8}
+        align="start"
+        className="flex w-auto gap-1 p-1.5"
+      >
+        {NOTE_COLORS.map((color) => {
+          const hex = noteColorToHex(color);
+          const selected = current === color;
+          return (
+            <button
+              key={color}
+              type="button"
+              aria-label={color}
+              aria-pressed={selected}
+              className="flex size-6 items-center justify-center rounded-md hover:bg-accent"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                apply(color);
+              }}
+            >
+              <span
+                className={cn(
+                  "size-3.5 rounded-full border border-border",
+                  selected && "ring-2 ring-ring ring-offset-1",
+                )}
+                style={{ backgroundColor: hex ?? "var(--foreground)" }}
+              />
+            </button>
+          );
+        })}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function FontSizeDropdown({
+  editor,
+  onOpenChange,
+  activeSize,
+}: {
+  editor: Editor;
+  onOpenChange: (open: boolean) => void;
+  activeSize: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = cssToNoteFontSize(activeSize);
+  const label = current ?? "Size";
+
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      setOpen(next);
+      onOpenChange(next);
+    },
+    [onOpenChange],
+  );
+
+  return (
+    <Popover modal={false} open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger
+        className="inline-flex h-7 items-center gap-0.5 rounded-md px-1.5 text-xs font-medium hover:bg-muted"
+        onMouseDown={(event) => event.preventDefault()}
+      >
+        {label}
+        <ChevronDown className="size-3" />
+      </PopoverTrigger>
+      <PopoverContent side="bottom" sideOffset={8} align="start" className="w-auto min-w-24 p-1">
+        <button
+          type="button"
+          className="flex w-full cursor-default items-center gap-2 rounded-md px-1.5 py-1 text-xs outline-hidden select-none hover:bg-accent hover:text-accent-foreground"
+          onMouseDown={(event) => {
+            event.preventDefault();
+            editor.chain().focus().unsetFontSize().run();
+            handleOpenChange(false);
+          }}
+        >
+          Default
+          {!current ? <Check className="ml-auto size-3.5" /> : null}
+        </button>
+        {NOTE_FONT_SIZES.map((size) => (
+          <button
+            key={size}
+            type="button"
+            className="flex w-full cursor-default items-center gap-2 rounded-md px-1.5 py-1 text-xs outline-hidden select-none hover:bg-accent hover:text-accent-foreground"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              editor.chain().focus().setFontSize(fontSizeToCss(size)).run();
+              handleOpenChange(false);
+            }}
+          >
+            {size}
+            {current === size ? <Check className="ml-auto size-3.5" /> : null}
+          </button>
+        ))}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export function EditorBubbleMenu({ editor }: { editor: Editor }) {
   const floatingRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
@@ -180,6 +343,10 @@ export function EditorBubbleMenu({ editor }: { editor: Editor }) {
       heading1: ed.isActive("heading", { level: 1 }),
       heading2: ed.isActive("heading", { level: 2 }),
       heading3: ed.isActive("heading", { level: 3 }),
+      heading4: ed.isActive("heading", { level: 4 }),
+      heading5: ed.isActive("heading", { level: 5 }),
+      fontSize: (ed.getAttributes("textStyle").fontSize as string | null) ?? null,
+      textColor: (ed.getAttributes("textStyle").color as string | null) ?? null,
     }),
   });
 
@@ -251,7 +418,9 @@ export function EditorBubbleMenu({ editor }: { editor: Editor }) {
 
   if (typeof document === "undefined") return null;
 
-  const activeLevel = fmt.heading1 ? 1 : fmt.heading2 ? 2 : fmt.heading3 ? 3 : undefined;
+  const activeLevel = ([1, 2, 3, 4, 5] as const).find(
+    (level) => fmt[`heading${level}` as keyof typeof fmt],
+  );
 
   return createPortal(
     <div
@@ -330,6 +499,8 @@ export function EditorBubbleMenu({ editor }: { editor: Editor }) {
       ) : (
         <>
           <HeadingDropdown editor={editor} activeLevel={activeLevel} onOpenChange={setMenuOpen} />
+          <ColorDropdown editor={editor} activeColor={fmt.textColor} onOpenChange={setMenuOpen} />
+          <FontSizeDropdown editor={editor} activeSize={fmt.fontSize} onOpenChange={setMenuOpen} />
 
           <Separator orientation="vertical" className="mx-0.5 h-5" />
 

@@ -137,7 +137,7 @@ export function createEditorExtensions(options: EditorExtensionsOptions): AnyExt
 
   return [
     StarterKit.configure({
-      heading: { levels: [1, 2, 3] },
+      heading: { levels: [1, 2, 3, 4, 5] },
       link: false,
       codeBlock: false,
       listItem: false,
