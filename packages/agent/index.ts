@@ -2,7 +2,7 @@ import { RUNTIME_PROVIDER } from "@coforge/protocol";
 
 export const provider = RUNTIME_PROVIDER.COFORGE;
 export { RUNTIME_PROVIDER };
-export { COFORGE_MODEL_PROVIDER_API_KEY_ENV } from "./src/runtime-provider";
+export { API_KEY_ENV_BY_PROVIDER } from "./src/runtime-provider";
 export {
   createSession,
   discoverModels,
