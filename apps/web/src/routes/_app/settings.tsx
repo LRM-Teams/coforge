@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, getRouteApi, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { z } from "zod";
 
 import { SettingsContent, SettingsPending } from "@/components/settings-content";
 import { useAppToast } from "@/components/ui/toast";
@@ -28,7 +29,12 @@ type Theme = "system" | "light" | "dark";
 
 const appRoute = getRouteApi("/_app");
 
+const settingsSections = ["account", "members", "preferences", "notifications"] as const;
+
 export const Route = createFileRoute("/_app/settings")({
+  // The section lives in the URL so it survives the full reload a locale
+  // switch triggers and so a settings link can open a specific section.
+  validateSearch: z.object({ section: z.enum(settingsSections).optional().catch(undefined) }),
   loader: async () => {
     const [preferences, members, incomingInvitations] = await Promise.all([
       getUserPreferences(),
@@ -59,6 +65,8 @@ export const Route = createFileRoute("/_app/settings")({
 
 function SettingsPage() {
   const [theme, setTheme] = useState<Theme>("system");
+  const { section } = Route.useSearch();
+  const navigate = Route.useNavigate();
   const { timeZone: savedTimeZone, members } = Route.useLoaderData();
   const { user: profile, notifications } = appRoute.useLoaderData();
   const [timeZone, setTimeZone] = useState(savedTimeZone);
@@ -202,6 +210,8 @@ function SettingsPage() {
 
   return (
     <SettingsContent
+      section={section}
+      onSectionChange={(next) => void navigate({ search: { section: next }, replace: true })}
       profile={profile}
       members={members}
       locale={locale}

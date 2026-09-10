@@ -34,6 +34,9 @@ type Theme = "system" | "light" | "dark";
 type SettingsSection = "account" | "members" | "preferences" | "notifications";
 
 interface SettingsContentProps {
+  /** Controlled section; falls back to internal state when omitted (tests, previews). */
+  section?: SettingsSection;
+  onSectionChange?: (section: SettingsSection) => void;
   profile: {
     name: string;
     email: string;
@@ -143,7 +146,8 @@ export function SettingsPending() {
 }
 
 export function SettingsContent(props: SettingsContentProps) {
-  const [section, setSection] = useState<SettingsSection>("account");
+  const [internalSection, setInternalSection] = useState<SettingsSection>("account");
+  const section = props.section ?? internalSection;
   const [showList, setShowList] = useState(true);
   const sectionLabel =
     section === "account"
@@ -155,7 +159,8 @@ export function SettingsContent(props: SettingsContentProps) {
           : m.settings_notifications();
 
   function selectSection(next: SettingsSection) {
-    setSection(next);
+    setInternalSection(next);
+    props.onSectionChange?.(next);
     setShowList(false);
   }
 
