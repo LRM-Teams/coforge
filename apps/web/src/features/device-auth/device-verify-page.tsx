@@ -7,6 +7,7 @@ import {
 } from "@untitledui/icons";
 
 import { Button } from "@/components/base/buttons/button";
+import { HintText } from "@/components/base/input/hint-text";
 import {
   InputOTP,
   InputOTPGroup,
@@ -88,10 +89,10 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
         ) : (
           <>
             <div
-              className={`mx-auto mb-6 flex size-14 items-center justify-center rounded-xl border shadow-xs ${
+              className={`mx-auto mb-6 flex size-14 items-center justify-center rounded-xl shadow-xs ${
                 stage.name === "confirm"
-                  ? "border-brand bg-primary text-brand-secondary"
-                  : "border-secondary bg-primary text-primary"
+                  ? "bg-primary text-brand-secondary ring-1 ring-brand"
+                  : "bg-primary text-primary ring-1 ring-secondary"
               }`}
             >
               {stage.name === "confirm" ? (
@@ -101,10 +102,10 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
               )}
             </div>
 
-            <h1 className="text-center text-2xl font-semibold tracking-tight sm:text-3xl">
+            <h1 className="text-center text-display-xs font-semibold text-primary">
               {stage.name === "confirm" ? m.device_verify_confirm_title() : m.device_verify_title()}
             </h1>
-            <p className="mt-3 text-center text-base leading-6 text-tertiary">
+            <p className="mt-2 text-center text-sm text-tertiary">
               {stage.name === "confirm"
                 ? m.device_verify_confirm_description({ code: formatUserCode(stage.code) })
                 : m.device_verify_description()}
@@ -140,7 +141,7 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
                         <InputOTPSlot
                           key={index}
                           index={index}
-                          className="h-12 w-7 rounded-lg border text-lg shadow-xs sm:h-14 sm:w-10 sm:text-xl"
+                          className="h-12 w-7 text-lg sm:h-14 sm:w-10 sm:text-xl"
                         />
                       ))}
                     </InputOTPGroup>
@@ -150,23 +151,21 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
                         <InputOTPSlot
                           key={index}
                           index={index}
-                          className="h-12 w-7 rounded-lg border text-lg shadow-xs sm:h-14 sm:w-10 sm:text-xl"
+                          className="h-12 w-7 text-lg sm:h-14 sm:w-10 sm:text-xl"
                         />
                       ))}
                     </InputOTPGroup>
                   </InputOTP>
                 </div>
                 {problem ? (
-                  <p
-                    role="alert"
-                    className="mt-4 rounded-xl border border-error_subtle bg-error-primary p-4 text-sm leading-5 text-error-primary"
-                  >
+                  <HintText isInvalid role="alert" className="mt-4 text-center">
                     {problem}
-                  </p>
+                  </HintText>
                 ) : null}
                 <Button
                   type="button"
-                  className="mt-6 h-11 w-full rounded-lg text-base font-semibold"
+                  size="lg"
+                  className="mt-6 w-full"
                   isDisabled={busy || !complete}
                   onPress={() => submitCode()}
                 >
@@ -178,7 +177,8 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
                 <Button
                   type="button"
                   color="secondary"
-                  className="h-11 flex-1 rounded-lg text-base font-semibold"
+                  size="lg"
+                  className="flex-1"
                   isDisabled={busy}
                   onPress={() => settle(false)}
                 >
@@ -186,7 +186,8 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
                 </Button>
                 <Button
                   type="button"
-                  className="h-11 flex-1 rounded-lg text-base font-semibold"
+                  size="lg"
+                  className="flex-1"
                   isDisabled={busy}
                   onPress={() => settle(true)}
                 >
@@ -195,7 +196,7 @@ export function DeviceVerifyPage({ email, initialCode }: { email: string; initia
               </div>
             )}
 
-            <p className="mt-8 text-center text-sm leading-5 break-words text-tertiary">
+            <p className="mt-8 text-center text-sm break-words text-tertiary">
               {m.device_verify_signed_in_as({ email })}
             </p>
           </>
@@ -221,10 +222,10 @@ function Settled({ approved }: { approved: boolean }) {
           <X className="size-7" aria-hidden="true" />
         )}
       </div>
-      <h1 className="mt-8 text-2xl font-semibold tracking-tight sm:text-3xl">
+      <h1 className="mt-6 text-display-xs font-semibold text-primary">
         {approved ? m.device_verify_approved_title() : m.device_verify_denied_title()}
       </h1>
-      <p className="mt-3 text-base leading-6 text-tertiary">
+      <p className="mt-2 text-sm text-tertiary">
         {approved ? m.device_verify_approved_description() : m.device_verify_denied_description()}
       </p>
     </div>

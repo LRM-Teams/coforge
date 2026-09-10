@@ -9,6 +9,12 @@ import { AgentRuntimeFields } from "@/features/agents/agent-runtime-fields";
 
 afterEach(cleanup);
 
+// The official Select's accessible name is "<value> <label> *" (the trailing "*" always
+// renders in this DOM environment, which has no stylesheet to hide it when not required), so
+// tests match on a name that contains "Model" but not "Model provider" rather than an exact
+// or prefixed string.
+const isModelSelect = (name: string) => /\bModel\b/.test(name) && !/Model provider/.test(name);
+
 const model = {
   id: "gpt-5",
   displayName: "GPT 5",
@@ -98,7 +104,7 @@ test("keeps a configured model visible when it is absent from the latest catalog
 
   await waitFor(() =>
     expect(
-      within(document.body).getByRole("button", { name: /Model Optional/ }).textContent,
+      within(document.body).getByRole("button", { name: isModelSelect }).textContent,
     ).toContain("legacy-provider / legacy-model"),
   );
   fireEvent.click(within(document.body).getByRole("button", { name: "Save" }));
@@ -140,11 +146,11 @@ test("submits the model provider selected through an external runtime catalog", 
   );
   await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
 
-  await user.click(within(document.body).getByRole("button", { name: /Model Optional/ }));
+  await user.click(within(document.body).getByRole("button", { name: isModelSelect }));
   await user.click(within(document.body).getByRole("option", { name: "openai / GPT 5" }));
   await waitFor(() =>
     expect(
-      within(document.body).getByRole("button", { name: /Model Optional/ }).textContent,
+      within(document.body).getByRole("button", { name: isModelSelect }).textContent,
     ).toContain("openai / GPT 5"),
   );
   await user.click(within(document.body).getByRole("button", { name: "Save" }));
@@ -175,8 +181,16 @@ test("falls back to manual provider and model inputs and allows retry", async ()
   render(<AgentRuntimeFields open computerId="computer-1" onLoad={load} />);
 
   await waitFor(() => expect(within(document.body).getByRole("alert")).toBeTruthy());
-  expect(within(document.body).getByRole("textbox", { name: "Model provider" })).toBeTruthy();
-  expect(within(document.body).getByRole("textbox", { name: "Model" })).toBeTruthy();
+  expect(
+    within(document.body).getByRole("textbox", {
+      name: (name: string) => name.startsWith("Model provider"),
+    }),
+  ).toBeTruthy();
+  expect(
+    within(document.body).getByRole("textbox", {
+      name: (name: string) => name.startsWith("Model") && !name.startsWith("Model provider"),
+    }),
+  ).toBeTruthy();
   fireEvent.click(within(document.body).getByRole("button", { name: "Try again" }));
   await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
 });

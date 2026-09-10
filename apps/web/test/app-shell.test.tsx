@@ -16,6 +16,14 @@ import { getRouter } from "@/router";
 
 const user = { name: "Frank An", email: "frank@example.com" };
 
+// The official Input/Select's accessible name always includes its required-indicator "*" in
+// this DOM environment (no stylesheet loads to hide it when not required), so match on the
+// label prefix rather than the exact visible text.
+const startsWith = (prefix: string) => (name: string) => name.startsWith(prefix);
+// The Model select's accessible name is "<value> Model" (or "<value> Model *"), which also
+// starts with "Model provider" for that sibling select, so exclude it explicitly.
+const isModelLabel = (name: string) => /\bModel\b/.test(name) && !/Model provider/.test(name);
+
 function AgentsContent(
   props: Omit<ComponentProps<typeof MembersContent>, "memberType" | "onMemberTypeChange">,
 ) {
@@ -422,25 +430,21 @@ test("offers to retry when a model catalog request fails", async () => {
 });
 
 test("submits a manual CoForge model when catalog loading fails", async () => {
+  const browserUser = userEvent.setup();
   const onCreate = mock(async () => ({ startPublished: true }));
   renderAgents([], onCreate, true, async () => {
     throw new Error("catalog unavailable");
   });
-  fireEvent.change(await page().findByLabelText("Name"), {
-    target: { value: "manual-agent" },
-  });
-  fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
-    target: { value: "Manual catalog fallback" },
-  });
+  await browserUser.type(await page().findByLabelText(startsWith("Name")), "manual-agent");
+  await browserUser.type(
+    page().getByPlaceholderText("What should this Agent help with?"),
+    "Manual catalog fallback",
+  );
   await waitFor(() =>
     expect(page().getByText(/Enter the provider and model ID manually/)).toBeTruthy(),
   );
-  fireEvent.change(page().getByLabelText("Model provider"), {
-    target: { value: "deepseek" },
-  });
-  fireEvent.change(page().getByLabelText("Model"), {
-    target: { value: "deepseek-chat" },
-  });
+  await browserUser.type(page().getByLabelText(startsWith("Model provider")), "deepseek");
+  await browserUser.type(page().getByLabelText(isModelLabel), "deepseek-chat");
   fireEvent.click(page().getByRole("button", { name: "Create agent" }));
   await waitFor(() =>
     expect(onCreate).toHaveBeenCalledWith({
@@ -459,12 +463,11 @@ test("submits the public creation form callback", async () => {
   const browserUser = userEvent.setup({ document });
   const onCreate = mock(async () => ({ startPublished: true }));
   renderAgents([], onCreate, true);
-  fireEvent.change(await page().findByLabelText("Name"), {
-    target: { value: "build-helper" },
-  });
-  fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
-    target: { value: "Build and release helper" },
-  });
+  await browserUser.type(await page().findByLabelText(startsWith("Name")), "build-helper");
+  await browserUser.type(
+    page().getByPlaceholderText("What should this Agent help with?"),
+    "Build and release helper",
+  );
   await browserUser.click(page().getByRole("button", { name: /Runtime provider/ }));
   await browserUser.click(page().getByRole("option", { name: "Claude Code" }));
   await browserUser.click(page().getByRole("button", { name: /Model/ }));
@@ -488,15 +491,14 @@ test("selects a CoForge model provider before its model", async () => {
   const browserUser = userEvent.setup({ document });
   const onCreate = mock(async () => ({ startPublished: true }));
   renderAgents([], onCreate, true);
-  fireEvent.change(await page().findByLabelText("Name"), {
-    target: { value: "model-helper" },
-  });
-  fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
-    target: { value: "Uses a selected model provider" },
-  });
+  await browserUser.type(await page().findByLabelText(startsWith("Name")), "model-helper");
+  await browserUser.type(
+    page().getByPlaceholderText("What should this Agent help with?"),
+    "Uses a selected model provider",
+  );
   await browserUser.click(page().getByRole("button", { name: /Model provider/ }));
   await browserUser.click(page().getByRole("option", { name: "anthropic" }));
-  await browserUser.click(page().getByRole("button", { name: /Model Optional/ }));
+  await browserUser.click(page().getByRole("button", { name: isModelLabel }));
   await browserUser.click(page().getByRole("option", { name: "anthropic / Claude Sonnet" }));
   fireEvent.click(page().getByRole("button", { name: "Create agent" }));
   await waitFor(() =>
@@ -511,13 +513,13 @@ test("selects a CoForge model provider before its model", async () => {
 });
 
 test("shows a deferred-start notice after creation", async () => {
+  const browserUser = userEvent.setup();
   renderAgents([], async () => ({ startPublished: false }), true);
-  fireEvent.change(await page().findByLabelText("Name"), {
-    target: { value: "helper" },
-  });
-  fireEvent.change(page().getByPlaceholderText("What should this Agent help with?"), {
-    target: { value: "General purpose helper" },
-  });
+  await browserUser.type(await page().findByLabelText(startsWith("Name")), "helper");
+  await browserUser.type(
+    page().getByPlaceholderText("What should this Agent help with?"),
+    "General purpose helper",
+  );
   fireEvent.click(page().getByRole("button", { name: "Create agent" }));
   expect((await page().findByRole("status")).textContent).toBe(
     "Agent created. It will start when Daemon reconnects.",

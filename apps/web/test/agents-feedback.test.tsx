@@ -74,12 +74,20 @@ test("create submission cannot duplicate or dismiss its draft while saving", asy
     </RouterContextProvider>,
   );
   const dialog = within(await within(document.body).findByRole("dialog"));
-  fireEvent.change(dialog.getByRole("textbox", { name: "Name" }), {
-    target: { value: "builder" },
-  });
-  fireEvent.change(dialog.getByPlaceholderText("What should this Agent help with?"), {
-    target: { value: "Build releases" },
-  });
+  // The official Input's accessible name always includes its required-indicator "*" in this
+  // DOM environment (no stylesheet loads to hide it when not required), so match on the label
+  // prefix rather than the exact visible text. The official Input/TextArea also only pick up
+  // typed text through `userEvent` (a plain `fireEvent.change`/`.input` sets the DOM value but
+  // doesn't reach React Aria's own controlled state, so the value is lost on the next render).
+  const browserUser = userEvent.setup();
+  await browserUser.type(
+    dialog.getByRole("textbox", { name: (name: string) => name.startsWith("Name") }),
+    "builder",
+  );
+  await browserUser.type(
+    dialog.getByPlaceholderText("What should this Agent help with?"),
+    "Build releases",
+  );
   const form = dialog.getByRole("button", { name: "Create agent" }).closest("form")!;
   fireEvent.submit(form);
   fireEvent.submit(form);

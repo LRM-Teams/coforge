@@ -25,7 +25,10 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
+import { HintText } from "@/components/base/input/hint-text";
+import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
+import { TextArea } from "@/components/base/textarea/textarea";
 import { m } from "@/paraglide/messages";
 import type { AgentStatusView } from "./agent-status-realtime";
 import { AgentRuntimeFields, type RuntimeCatalog } from "./agent-runtime-fields";
@@ -297,54 +300,47 @@ export function AgentsContent({
                       onClick={close}
                     />
                   </div>
-                  <div className="grid gap-5 px-6 py-6 sm:grid-cols-2">
-                    <div className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
-                      <span>{m.agent_form_computer()}</span>
-                      <Select
-                        name="computerId"
-                        isRequired
-                        size="lg"
-                        className="min-w-0 rounded-lg shadow-xs"
-                        aria-label={m.agent_form_computer()}
-                        selectedKey={computerId}
-                        onSelectionChange={(key) => {
-                          if (key !== null) setComputerId(String(key));
-                        }}
-                      >
-                        {computers.map((computer) => (
-                          <Select.Item
-                            key={computer.id}
-                            id={computer.id}
-                            label={computer.displayName}
-                            supportingText={
-                              computer.online
-                                ? m.computer_status_online()
-                                : m.computer_status_offline()
-                            }
-                          />
-                        ))}
-                      </Select>
-                    </div>
-                    <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
-                      {m.agent_form_name()}
-                      <input
-                        name="name"
-                        required
-                        pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-                        placeholder="release-fix"
-                        className="h-11 min-w-0 rounded-lg bg-primary px-3 shadow-xs ring-1 ring-secondary outline-none transition-shadow ring-inset focus:ring-2 focus:ring-brand"
-                      />
-                    </label>
-                    <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
-                      {m.agent_form_description()}
-                      <textarea
-                        name="description"
-                        required
-                        rows={3}
-                        placeholder={m.agent_form_description_placeholder()}
-                        className="min-w-0 resize-y rounded-lg bg-primary px-3 py-2.5 shadow-xs ring-1 ring-secondary outline-none transition-shadow ring-inset focus:ring-2 focus:ring-brand"
-                      />
-                    </label>
+                  <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
+                    <Select
+                      name="computerId"
+                      isRequired
+                      size="md"
+                      label={m.agent_form_computer()}
+                      className="min-w-0 sm:col-span-2"
+                      selectedKey={computerId}
+                      onSelectionChange={(key) => {
+                        if (key !== null) setComputerId(String(key));
+                      }}
+                    >
+                      {computers.map((computer) => (
+                        <Select.Item
+                          key={computer.id}
+                          id={computer.id}
+                          label={computer.displayName}
+                          supportingText={
+                            computer.online
+                              ? m.computer_status_online()
+                              : m.computer_status_offline()
+                          }
+                        />
+                      ))}
+                    </Select>
+                    <Input
+                      label={m.agent_form_name()}
+                      name="name"
+                      isRequired
+                      pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+                      placeholder="release-fix"
+                      className="min-w-0 sm:col-span-2"
+                    />
+                    <TextArea
+                      label={m.agent_profile_description()}
+                      name="description"
+                      isRequired
+                      rows={3}
+                      placeholder={m.agent_form_description_placeholder()}
+                      className="min-w-0 sm:col-span-2"
+                    />
                     <AgentRuntimeFields
                       key={computerId}
                       open={open}
@@ -358,22 +354,22 @@ export function AgentsContent({
                       })}
                     />
                     {error && (
-                      <p role="alert" className="text-sm text-error-primary sm:col-span-2">
+                      <HintText isInvalid role="alert" className="sm:col-span-2">
                         {error}
-                      </p>
+                      </HintText>
                     )}
                   </div>
                   <div className="grid grid-cols-2 gap-3 border-t border-secondary px-6 py-4 sm:flex sm:justify-end">
                     <Button
                       type="button"
                       color="secondary"
-                      className="h-11"
+                      size="lg"
                       isDisabled={submitting}
                       onPress={() => setOpen(false)}
                     >
                       {m.controls_cancel()}
                     </Button>
-                    <Button type="submit" className="h-11" isDisabled={submitting}>
+                    <Button type="submit" size="lg" isDisabled={submitting}>
                       {submitting ? m.agent_form_submitting() : m.agent_form_submit()}
                     </Button>
                   </div>
