@@ -139,7 +139,7 @@ export function AgentsContent({
           }
         />
         {memberCount > 0 && (
-          <div className="flex h-11 shrink-0 items-center gap-3 border-b border-secondary px-4 sm:px-6">
+          <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-secondary px-4 py-2 sm:px-6 md:h-11 md:flex-nowrap md:py-0">
             <div
               role="group"
               aria-label={m.member_type_filter()}

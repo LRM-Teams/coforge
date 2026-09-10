@@ -342,7 +342,7 @@ test("settings first load uses placeholders and refresh preserves the active edi
       await navigation;
     });
     await userEvent.setup().click(page.getByRole("button", { name: "Edit" }));
-    const draft = page.getByRole("textbox", { name: "Description" });
+    const draft = page.getByRole("textbox", { name: /^Description/ });
     await userEvent.setup().type(draft, "Unsaved settings draft");
     const refresh = Promise.withResolvers<{ timeZone: null }>();
     route.options.loader = () => refresh.promise;
@@ -351,7 +351,7 @@ test("settings first load uses placeholders and refresh preserves the active edi
       await act(async () => {
         refreshed = router.invalidate();
       });
-      expect(page.getByRole("textbox", { name: "Description" })).toBe(draft);
+      expect(page.getByRole("textbox", { name: /^Description/ })).toBe(draft);
       expect(page.queryByRole("status")).toBeNull();
     } finally {
       await act(async () => {
@@ -359,7 +359,7 @@ test("settings first load uses placeholders and refresh preserves the active edi
         await refreshed;
       });
     }
-    expect(page.getByRole("textbox", { name: "Description" })).toBe(draft);
+    expect(page.getByRole("textbox", { name: /^Description/ })).toBe(draft);
     expect(page.getByDisplayValue("Unsaved settings draft")).toBe(draft);
     expect(draft.getAttribute("disabled")).toBeNull();
   } finally {

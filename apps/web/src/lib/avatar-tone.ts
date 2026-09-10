@@ -10,7 +10,8 @@
 const TONE_COUNT = 6;
 
 export function avatarInitial(name: string): string {
-  return name.trim().charAt(0).toUpperCase() || "?";
+  // Sender names arrive as "@handle"; the glyph is the first letter, not the "@".
+  return name.trim().replace(/^@+/, "").charAt(0).toUpperCase() || "?";
 }
 
 export function avatarToneClassName(name: string): string {
