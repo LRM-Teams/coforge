@@ -60,7 +60,6 @@ export function AgentEnvironmentEditor({ onLoad, onSave }: AgentEnvironmentEdito
     <section className="grid gap-5 py-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
       <h2 className="text-base font-semibold">{m.agent_env_title()}</h2>
       <div className="min-w-0 space-y-4">
-        <p className="text-sm text-muted-foreground">{m.agent_env_description()}</p>
         {rows === null ? (
           <Button variant="outline" size="sm" disabled={busy} onClick={() => void edit()}>
             {busy ? m.agent_env_loading() : m.agent_env_edit()}
@@ -121,7 +120,6 @@ export function AgentEnvironmentEditor({ onLoad, onSave }: AgentEnvironmentEdito
             >
               {m.agent_env_add()}
             </Button>
-            <p className="text-xs text-muted-foreground">{m.agent_env_hint()}</p>
             <div className="flex flex-wrap gap-2">
               <Button type="submit" disabled={busy}>
                 {m.agent_env_save()}
