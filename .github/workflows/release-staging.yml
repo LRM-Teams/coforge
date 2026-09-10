@@ -1,4 +1,5 @@
-name: Release staging
+name: Publish Computer (staging)
+run-name: Publish Computer ${{ inputs.version || format('0.1.0-dev.{0}', github.run_number) }} to staging
 
 # Publishing a local Computer distribution is manual, never automatic on a push to main - see
 # docs/release.md's "Local Computer distribution model": a client release leaves a persistent
@@ -23,22 +24,24 @@ concurrency:
 
 jobs:
   gates:
-    name: Local distribution gates
+    name: Validate
     if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/ci.yml
     with:
       track: local
 
   publish:
-    name: Publish to the staging release feed
+    name: Build and publish Computer
     needs: gates
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - name: Set up mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: "2026.9.2"
           install: false
@@ -52,7 +55,7 @@ jobs:
       - name: Generate protocol sources
         run: bun run --cwd packages/protocol generate
 
-      - name: Resolve release version
+      - name: Select release version
         id: version
         # inputs.version and github.run_number are interpolated into env vars, not directly into
         # the shell script body: a workflow_dispatch string input is caller-controlled, and
@@ -70,7 +73,7 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Publish release
+      - name: Build six platforms, upload, and verify release
         env:
           ALIYUN_OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
           ALIYUN_OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
@@ -82,10 +85,17 @@ jobs:
             --commit "$RELEASE_COMMIT" \
             --feed-url "https://releases-staging.coforge.cn"
 
-      - name: Record the published version
+      - name: Summarize published release
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
-          echo "Published version ${RELEASE_VERSION} (commit ${RELEASE_COMMIT}) to the staging feed." \
-            >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Computer published to staging"
+            echo ""
+            echo "- Version: ${RELEASE_VERSION}"
+            echo "- Source commit: ${RELEASE_COMMIT}"
+            echo "- Platforms: Linux, macOS, Windows (x64 and arm64)"
+            echo "- Verified: uploaded bytes, checksums, private storage access, and latest version selector"
+            echo "- CDN delivery and complete install/upgrade/rollback acceptance are separate checks."
+          } >> "$GITHUB_STEP_SUMMARY"
