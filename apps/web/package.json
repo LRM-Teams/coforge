@@ -12,6 +12,7 @@
     "dev:backend": "bun run ./scripts/dev-backend.ts",
     "generate-i18n": "bun run ./scripts/generate-i18n.ts",
     "seed:dev": "bun run ./scripts/seed-dev.ts",
+    "ui:sweep": "bun run ./scripts/ui-sweep.mjs",
     "build": "bun --bun vite build",
     "start": "bun run .output/server/index.mjs",
     "preview": "bun --bun vite preview",

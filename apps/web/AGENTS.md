@@ -362,3 +362,22 @@ daemon connection renews continuously, so the seed writes those Redis keys
 directly with a ~24h TTL instead — they will look "inactive"/"offline"
 again if the dev environment sits idle for about a day, at which point
 rerunning the seed refreshes them.
+
+`bun run ui:sweep` (`scripts/ui-sweep.mjs`, `UI_SWEEP_BASE` overrides the
+default `http://127.0.0.1:8795`) is the companion walkthrough: it drives a
+locally launched Chromium instance over the raw Chrome DevTools Protocol
+(auto-detected; override with `UI_SWEEP_CHROME_PATH`) — not the ego-browser
+skill, which is an interactive tool for an agent's own session rather than
+something a checked-in script can depend on — through every route, dialog,
+menu, and hover/resize state this seed populates, in light and dark at
+1440×900/1024×768/390×844, and writes screenshots plus `sweep/findings.json`,
+`sweep/findings.md`, and a `sweep/index.html` contact sheet to `UI_SWEEP_OUT`
+(default `apps/web/sweep/`, gitignored). It flags horizontal overflow,
+elements exceeding the viewport, hard-clipped text (ellipsis truncation is
+exempt — it is this app's deliberate affordance), fixed/absolute elements
+overlapping the page `<h1>`, undersized/oversized header controls, console
+errors and exceptions, hydration warnings, incomplete dialog overlays,
+out-of-viewport popovers, and forbidden classes (shadcn tokens, `dark:` with
+a literal color, hex colors in `style`). Run the seed first so the sweep has
+real content to check; a full run captures around 150 surface/theme/viewport
+combinations in about three minutes.
