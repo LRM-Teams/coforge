@@ -12,9 +12,12 @@ import type { NavItemType } from "@/components/application/app-navigation/config
 // §2 it's copied here and adapted rather than composed. Everything it calls
 // into (base-components/**, components/base/**) stays unmodified.
 
-export const SIDEBAR_MIN_WIDTH = 240;
-export const SIDEBAR_MAX_WIDTH = 360;
-export const SIDEBAR_DEFAULT_WIDTH = 280;
+// Four short top-level items do not need Untitled's 280px default (sized for a
+// search box and nested sections); 240 matches Linear/Notion and the range keeps
+// the drag handle useful without letting the nav labels wrap.
+export const SIDEBAR_MIN_WIDTH = 200;
+export const SIDEBAR_MAX_WIDTH = 320;
+export const SIDEBAR_DEFAULT_WIDTH = 240;
 
 interface SidebarExpandedProps {
   /** URL of the currently active item. */
