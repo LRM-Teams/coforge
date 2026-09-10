@@ -291,4 +291,3 @@ approves the schema gate (ADR 0009). Tables:
 - `record_notes` — notes tab placeholder
 - `record_comments` — side-panel comments with `authorType`
   `user` | `system` | `assistant` for future AI
-

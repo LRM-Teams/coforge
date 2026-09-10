@@ -1,6 +1,6 @@
 # ADR 0009: Workspace Records (weekly reports)
 
-Status: proposed (schema gate — needs Frank approval before merge to main)  
+Status: proposed (schema gate — needs Frank approval before merge to main)
 Date: 2026-09-10
 
 ## Context
