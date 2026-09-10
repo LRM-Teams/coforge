@@ -108,7 +108,7 @@ function TaskOverviewLink({
   // Board columns are narrow, so the card shows the owner's avatar only and
   // keeps the name for the tooltip and assistive tech; list rows have room for it.
   const owner = (
-    <p className="flex min-w-0 items-center gap-2 text-xs text-secondary">
+    <div className="flex min-w-0 items-center gap-2 text-xs text-secondary">
       <span className="sr-only">{m.tasks_overview_owner()}: </span>
       {task.owner ? (
         list ? (
@@ -127,7 +127,7 @@ function TaskOverviewLink({
       ) : (
         <span className="text-tertiary">{m.tasks_unassigned()}</span>
       )}
-    </p>
+    </div>
   );
   const linkClass =
     "min-w-0 flex-1 rounded-md outline-none focus-visible:ring-3 focus-visible:ring-brand/50";
