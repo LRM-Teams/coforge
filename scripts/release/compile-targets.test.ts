@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -15,6 +15,10 @@ test.each([
     const target = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
     if (!isReleaseTarget(target)) throw new Error(`unsupported test host: ${target}`);
     const directory = await mkdtemp(join(tmpdir(), "coforge-release-version-"));
+    const executable = join(
+      directory,
+      `${target}-coforge-computer${process.platform === "win32" ? ".exe" : ""}`,
+    );
     const processes: Record<string, unknown> = { testPid: process.pid };
     try {
       const options = {
@@ -37,10 +41,6 @@ test.each([
       );
       expect(build.stderr.toString()).toBe("");
       expect(build.exitCode).toBe(0);
-      const executable = join(
-        directory,
-        `${target}-coforge-computer${process.platform === "win32" ? ".exe" : ""}`,
-      );
       // Keep executable handles in a worker whose OS lifetime we can await.
       // Bun's exited subprocess handles otherwise remain owned by the test VM.
       const probe = Bun.spawn(
@@ -77,6 +77,11 @@ test.each([
       expect(observed.requests.join("\n")).not.toContain("invalid.example");
     } finally {
       try {
+        // Bun's direct unlink uses libuv on Windows; recursive rm uses a
+        // different native deletion path. Delete the known executable directly
+        // after its worker exits, retaining strict cleanup without retries.
+        if (process.platform === "win32" && (await Bun.file(executable).exists()))
+          await unlink(executable);
         await rm(directory, { recursive: true, force: true });
       } catch (error) {
         // Diagnose the first failure without retrying deletion or changing process lifetime.
