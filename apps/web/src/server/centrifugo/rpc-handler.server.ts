@@ -694,12 +694,29 @@ function decodeUsageSnapshot(
       ? { hasCredits: credits.hasCredits, unlimited: credits.unlimited }
       : undefined;
   if (snapshot.credits !== undefined && !parsedCredits) return undefined;
+  const amounts = record(snapshot.creditUsage);
+  const creditUsage =
+    amounts &&
+    typeof amounts.used === "number" &&
+    Number.isFinite(amounts.used) &&
+    amounts.used >= 0 &&
+    typeof amounts.limit === "number" &&
+    Number.isFinite(amounts.limit) &&
+    amounts.limit > 0 &&
+    amounts.used <= amounts.limit &&
+    typeof amounts.overage === "number" &&
+    Number.isFinite(amounts.overage) &&
+    amounts.overage >= 0
+      ? { used: amounts.used, limit: amounts.limit, overage: amounts.overage }
+      : undefined;
+  if (snapshot.creditUsage !== undefined && (!creditUsage || !primary)) return undefined;
   return {
     provider: expectedProvider,
     ...(typeof planType === "string" ? { planType } : {}),
     ...(primary ? { primary } : {}),
     ...(secondary ? { secondary } : {}),
     ...(parsedCredits ? { credits: parsedCredits } : {}),
+    ...(creditUsage ? { creditUsage } : {}),
   };
 }
 
@@ -750,7 +767,7 @@ function usageStatus(
 
 function validModelCatalogs(catalogs: CodeAgentModelCatalog[]): boolean {
   if (
-    catalogs.length > 3 ||
+    catalogs.length > 5 ||
     new Set(catalogs.map((catalog) => catalog.provider)).size !== catalogs.length
   )
     return false;

@@ -50,7 +50,8 @@ function request(value: {
     provider !== "coforge" &&
     provider !== "pi" &&
     provider !== "codex" &&
-    provider !== "claude-code"
+    provider !== "claude-code" &&
+    provider !== "kiro"
   )
     throw new Error("Invalid Skills provider");
   return {

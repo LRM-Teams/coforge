@@ -54,7 +54,7 @@ function bounded(bytes: Uint8Array): Uint8Array {
 }
 
 function provider(value: string): RuntimeProvider {
-  if (!["coforge", "codex", "claude-code", "pi"].includes(value))
+  if (!["coforge", "codex", "claude-code", "kiro", "pi"].includes(value))
     throw new Error("Invalid Agent lifecycle provider");
   return value as RuntimeProvider;
 }

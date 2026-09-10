@@ -6,6 +6,7 @@ import { DaemonRuntime } from "../src/daemon-runtime/runtime";
 import {
   AGENT_RUNTIME_EVENT_TYPE,
   AgentProcessCleanupError,
+  UsageUnavailableError,
   type AgentRuntimeConfig,
   type AgentRuntimeEvent,
   type AgentDriver,
@@ -523,6 +524,8 @@ async function messageHarness(
         agentMessage: respond,
       }),
     },
+    undefined,
+    async () => ({ runtimes: [], catalogs: [] }),
   );
   await runtime.start(connection);
   await runtime.startAgent("agent-a", config);
@@ -1520,6 +1523,48 @@ describe("DaemonRuntime", () => {
       },
     });
     await runtime.stop();
+  });
+
+  test("scans Kiro quota and distinguishes an unrepresentable window from expired authentication", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const snapshot = {
+      provider: "kiro" as const,
+      primary: {
+        usedPercent: 37,
+        windowDurationMinutes: 43200,
+        resetsAt: "2026-10-01T00:00:00.000Z",
+      },
+    };
+    let outcome: "available" | "unavailable" | "reauth" = "available";
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "kiro",
+        async readUsage() {
+          if (outcome === "unavailable") throw new UsageUnavailableError();
+          if (outcome === "reauth") return null;
+          return snapshot;
+        },
+        async createAgentSession() {
+          return sessionSpy();
+        },
+      }),
+      credentials,
+      { create: () => ({ async start() {}, async ready() {}, async stop() {} }) },
+    );
+    await runtime.start(connection);
+    try {
+      const result = await runtime.scanUsage("kiro");
+      expect(result.status).toBe("available");
+      expect(JSON.parse(new TextDecoder().decode(result.snapshotJson))).toEqual(snapshot);
+      outcome = "unavailable";
+      expect((await runtime.scanUsage("kiro")).status).toBe("unavailable");
+      outcome = "reauth";
+      expect((await runtime.scanUsage("kiro")).status).toBe("reauth");
+    } finally {
+      await runtime.stop();
+    }
   });
 
   test("does not expose a usage driver exception in the scan response", async () => {

@@ -9,19 +9,19 @@ test("Skills metadata distinguishes native global and workspace roots and reread
   const home = join(root, "home"),
     cwd = join(root, "agent");
   try {
-    for (const dir of [".claude/skills", ".agents/skills", ".pi/agent/skills"]) {
+    for (const dir of [".claude/skills", ".agents/skills", ".pi/agent/skills", ".kiro/skills"]) {
       await Bun.write(
         join(home, dir, "review/SKILL.md"),
         "---\nname: review\ndescription: 'Global: review'\n---\nNEVER REPORT BODY",
       );
     }
-    for (const dir of [".claude/skills", ".agents/skills", ".pi/skills"]) {
+    for (const dir of [".claude/skills", ".agents/skills", ".pi/skills", ".kiro/skills"]) {
       await Bun.write(
         join(cwd, dir, "review/SKILL.md"),
         "---\nname: review\ndescription: >\n  Workspace review\n---\nBODY",
       );
     }
-    for (const provider of ["claude-code", "codex", "pi", "coforge"] as const) {
+    for (const provider of ["claude-code", "codex", "kiro", "pi", "coforge"] as const) {
       const result = await listAgentSkills({
         provider,
         agentWorkspaceDirectory: cwd,
@@ -53,6 +53,34 @@ test("Skills metadata distinguishes native global and workspace roots and reread
       ).global.entries[0]?.description,
     ).toBe("Updated");
     expect(await Bun.file(file).text()).toBe(content);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Kiro Skills use KIRO_HOME without scanning the fallback home root", async () => {
+  const root = await mkdtemp(join(tmpdir(), "kiro-skills-"));
+  const cwd = join(root, "agent"),
+    home = join(root, "home"),
+    kiroHome = join(root, "configured-kiro");
+  try {
+    const skill = "---\nname: kiro-review\ndescription: Kiro review\n---\nprivate";
+    await Bun.write(join(cwd, ".kiro/skills/local/SKILL.md"), skill);
+    await Bun.write(join(kiroHome, "skills/global/SKILL.md"), skill);
+    await Bun.write(join(home, ".kiro/skills/must-not-scan/SKILL.md"), skill);
+
+    const result = await listAgentSkills({
+      provider: "kiro",
+      agentWorkspaceDirectory: cwd,
+      environment: { HOME: home, KIRO_HOME: kiroHome },
+    });
+
+    expect(result.workspace.entries.map((entry) => entry.sourcePath)).toEqual([
+      ".kiro/skills/local/SKILL.md",
+    ]);
+    expect(result.global.entries.map((entry) => entry.sourcePath)).toEqual([
+      "$KIRO_HOME/skills/global/SKILL.md",
+    ]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

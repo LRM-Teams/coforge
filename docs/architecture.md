@@ -448,6 +448,38 @@ displayName（缺失回退 username）和 @username；Daemon 不上传或修改 
 
 ### daemon-owned Agent runtime 与 code-agent driver
 
+2026-09-10 用户批准新增外部 `kiro` provider，只支持 Kiro v3 engine。
+Daemon 启动用户安装的 `kiro-cli acp --agent-engine v3 --auth-method cli`，复用宿主认证、
+配置和环境，不随 Computer 分发 Kiro。官方 ACP SDK 1.4.0 仅属于 adapter 的协议实现。
+每次 launch 创建独立命名的 native Agent profile，注入 standing instructions、显式的
+Global/Workspace Skills resources 和全权限 allow policy；dispose 后清理该生成文件，
+不改写用户已有 profile、HOME 配置或 Skills。恢复后重新选择本次 profile 和模型配置。
+原生 Session 留在 Kiro 自身存储，云端沿用已有绑定和恢复 scope。
+
+Kiro v3 busy prompt 会取消当前轮并启动新轮，不是 Codex 的 turn/steer。
+`notify` 串行等待每个输入的原生 admission 观测，不等待整轮完成；接受边界是实测的
+`session_info_update._meta.kiro.kind = user_message_id_assigned`，要求非空新 ID。
+这是 Kiro 私有兼容依赖，不是 ACP 标准 ACK；缺失/超时拒绝并清理 runtime，避免晚到
+观测被误记为下一输入。旧轮取消不能把新轮标成 idle 或 failed。
+ACP permission callbacks 优先选择 allow_always，仅未提供时回退 allow_once，未知会话/无允许选项返回 cancelled；
+强制 deny 不可覆盖。`session/cancel` 用于中断，Stop/Reset 仍须确认整个进程树退出。
+模型与 effort 来自 v3 configOptions。用户另行批准按需读取本机 Kiro 账户额度：
+`kiro/usage.ts` 在只读 SQLite 事务中读取 CLI 当前 token/profile，不扫描其他账号、
+不写入或刷新凭据，登录刷新仍由 Kiro CLI 负责。只允许固定的 us-east-1 与
+eu-central-1 AWS HTTPS endpoint，禁止重定向。token/profile 仅发送到该 AWS 额度接口，
+不上传 CoForge 云端、不写日志；原始响应同样不上传 CoForge 云端。
+这是参考 CodexBar 的私有 CLI store/GetUsageLimits 兼容路径，不是官方稳定 ACP API；
+仅归一化月度套餐额度、重置时间和套餐名称。超额用量从套餐用量中扣除；无法分离的
+赠送/试用额度、未知 schema、缺失/过期认证均不生成猜测百分比。错误只返回脱敏状态。
+Web 沿用现有 Usage scan，把 Kiro primary 标记为每月额度，不标为会话配额。
+用户批准 Usage JSON 增加可选 `creditUsage: { used, limit, overage }`，分别表示套餐内
+已用 credits、套餐额度和独立超额用量；保留小数，不从四舍五入后的百分比反算。
+Web 验证有限非负数、正额度及 `used <= limit`，主显示已用/总 credits，有超额时单列。
+字段缺失时保留旧百分比显示，原有 Codex `credits` 布尔语义不变；无需修改 protobuf
+envelope 或数据库 schema。先部署 Web，再更新 Daemon，否则旧 Web 会丢弃新增 JSON 字段。
+新增 provider 值需要兼容 Web/Daemon，数据库 String provider 字段无需迁移。
+决策、官方来源、探测基线及回滚见 [ADR 0010](adr/0010-kiro-v3-acp.md)。
+
 Provider identity 的唯一来源是 shared protocol/domain 的 `RUNTIME_PROVIDER`
 常量及其 `RuntimeProvider` 类型；`RuntimeMetadata.kind` 仍独立区分
 `builtin` 与 `external`。Daemon 负责检测外部 Code Agent；Computer 注册不再承担

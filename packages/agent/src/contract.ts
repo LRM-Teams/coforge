@@ -46,6 +46,8 @@ export type UsageSnapshot = Readonly<{
   primary?: UsageWindow;
   secondary?: UsageWindow;
   credits?: Readonly<{ hasCredits: boolean; unlimited: boolean }>;
+  /** Included credits consumed, included limit, and separately billed overage. */
+  creditUsage?: Readonly<{ used: number; limit: number; overage: number }>;
 }>;
 export type AgentSessionIdentity = Readonly<{
   sessionId: string;

@@ -78,6 +78,7 @@ export const RUNTIME_PROVIDER = {
   COFORGE: "coforge",
   CODEX: "codex",
   CLAUDE_CODE: "claude-code",
+  KIRO: "kiro",
   PI: "pi",
 } as const;
 export type RuntimeProvider = (typeof RUNTIME_PROVIDER)[keyof typeof RUNTIME_PROVIDER];

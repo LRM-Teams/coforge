@@ -56,6 +56,10 @@ export async function listAgentSkills(options: {
           { path: "/etc/codex/skills", label: "$SYSTEM_CODEX_SKILLS" },
         ];
       break;
+    case "kiro":
+      locals = [local(".kiro/skills")];
+      if (home) globals = [native("KIRO_HOME", ".kiro", "skills")];
+      break;
     case "pi":
       locals = [local(".pi/skills", "pi"), local(".agents/skills")];
       if (home)

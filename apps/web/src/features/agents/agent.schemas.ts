@@ -32,7 +32,7 @@ const agentInputShape = {
     .max(48)
     .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   description: z.string().trim().max(500).default(""),
-  provider: z.enum(["coforge", "pi", "codex", "claude-code"]),
+  provider: z.enum(["coforge", "pi", "codex", "claude-code", "kiro"]),
   model: z.string().trim().max(200).optional(),
   modelProvider: z.string().trim().max(100).optional(),
   reasoning: z.string().trim().max(50).optional(),

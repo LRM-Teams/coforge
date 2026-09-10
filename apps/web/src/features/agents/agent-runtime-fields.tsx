@@ -144,6 +144,7 @@ export function AgentRuntimeFields({
         {providers.has("pi") && <Select.Item id="pi" label="Pi" />}
         {providers.has("codex") && <Select.Item id="codex" label="Codex" />}
         {providers.has("claude-code") && <Select.Item id="claude-code" label="Claude Code" />}
+        {providers.has("kiro") && <Select.Item id="kiro" label="Kiro" />}
       </Select>
       {failed ? (
         <Input
@@ -300,7 +301,8 @@ export function AgentRuntimeFields({
 }
 
 function runtimeProvider(value: string): RuntimeProvider {
-  if (value === "pi" || value === "codex" || value === "claude-code") return value;
+  if (value === "pi" || value === "codex" || value === "claude-code" || value === "kiro")
+    return value;
   return "coforge";
 }
 

@@ -93,7 +93,7 @@ test("reads as Chinese rather than English word order in the Chinese catalog", a
   overwriteGetLocale(() => "zh-CN");
   render(
     <RuntimeUsage
-      runtime={codex}
+      runtime={{ ...codex, provider: "kiro" }}
       usage={{
         status: "available",
         snapshot: {
@@ -111,6 +111,7 @@ test("reads as Chinese rather than English word order in the Chinese catalog", a
   expect(document.body.textContent).not.toContain("42% 已使用");
   expect(document.body.textContent).toContain("Pro 套餐");
   expect(within(document.body).getByText(codex.version)).toBeTruthy();
+  expect(document.body.textContent).toContain("每月额度");
   expect(document.body.textContent).toContain("重置于");
 });
 
@@ -171,6 +172,53 @@ test("names the runtime and offers a first scan when there is no snapshot", asyn
   await within(document.body).findByRole("dialog");
   expect(document.body.textContent).toContain("No snapshot yet");
   expect(within(document.body).getByRole("button", { name: "Scan" })).toBeTruthy();
+});
+
+test("Kiro offers an explicit first usage scan", async () => {
+  const user = userEvent.setup();
+  let scans = 0;
+  render(
+    <RuntimeUsage
+      runtime={{ provider: "kiro", version: "1", displayName: "Kiro" }}
+      onScan={() => {
+        scans += 1;
+      }}
+    />,
+  );
+
+  const page = within(document.body);
+  await user.click(page.getByRole("button", { name: "Kiro · Usage" }));
+  const dialog = await page.findByRole("dialog");
+  expect(within(dialog).getByText("No snapshot yet")).toBeTruthy();
+  await user.click(within(dialog).getByRole("button", { name: "Scan" }));
+  await waitFor(() => expect(scans).toBe(1));
+});
+
+test("Kiro presents its primary quota as monthly included credits", async () => {
+  render(
+    <RuntimeUsage
+      runtime={{ provider: "kiro", version: "1", displayName: "Kiro" }}
+      usage={{
+        status: "available",
+        snapshot: {
+          planType: "pro",
+          creditUsage: { used: 74, limit: 200, overage: 2.5 },
+          primary: { usedPercent: 37, resetsAt: "2026-10-01T00:00:00Z" },
+        },
+      }}
+      onScan={() => undefined}
+    />,
+  );
+
+  fireEvent.click(within(document.body).getByRole("button", { name: "Kiro · Usage" }));
+  const dialog = await within(document.body).findByRole("dialog");
+  expect(within(dialog).getByText("Monthly credits")).toBeTruthy();
+  expect(within(dialog).getByText("74 / 200 credits used")).toBeTruthy();
+  expect(within(dialog).getByText("Overage: 2.5 credits")).toBeTruthy();
+  expect(within(dialog).getByText("37% used")).toBeTruthy();
+  expect(within(dialog).getByRole("progressbar", { name: "Monthly credits" })).toBeTruthy();
+  expect(within(dialog).queryByText("Session")).toBeNull();
+  expect(within(dialog).queryByText("Weekly")).toBeNull();
 });
 
 test.each(["pi", "coforge"] as const)("%s has no usage controls before any scan", (provider) => {

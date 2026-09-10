@@ -15,7 +15,7 @@ const stateSchema = z
     workspaceId: z.string().min(1),
     computerId: z.string().min(1),
     agentId: z.string().min(1),
-    provider: z.enum(["pi", "coforge", "codex", "claude-code"]),
+    provider: z.enum(["pi", "coforge", "codex", "claude-code", "kiro"]),
     epoch: z
       .number()
       .int()

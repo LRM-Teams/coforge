@@ -274,7 +274,13 @@ describe("CentrifugoRpcHandler", () => {
       workspaceId: "workspace-1",
       computerId: "computer-1",
       runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
-      catalogs: [{ provider: "codex", models: [] }],
+      catalogs: [
+        { provider: "coforge", models: [] },
+        { provider: "pi", models: [] },
+        { provider: "codex", models: [] },
+        { provider: "claude-code", models: [] },
+        { provider: "kiro", models: [] },
+      ],
     });
 
     expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
@@ -282,7 +288,13 @@ describe("CentrifugoRpcHandler", () => {
       {
         scope: { workspaceId: "workspace-1", computerId: "computer-1" },
         runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
-        catalogs: [{ provider: "codex", models: [] }],
+        catalogs: [
+          { provider: "coforge", models: [] },
+          { provider: "pi", models: [] },
+          { provider: "codex", models: [] },
+          { provider: "claude-code", models: [] },
+          { provider: "kiro", models: [] },
+        ],
       },
     ]);
     expect(
@@ -437,6 +449,65 @@ describe("CentrifugoRpcHandler", () => {
         snapshot,
       },
     ]);
+  });
+
+  test("preserves numeric credits and rejects invalid credit amounts at the usage boundary", async () => {
+    const records: unknown[] = [];
+    const method = createDaemonRuntimeUsageScanResultMethod({
+      async put(record) {
+        records.push(record);
+      },
+      async get() {
+        return undefined;
+      },
+    });
+    const send = (creditUsage: unknown, includePrimary = true) =>
+      method(
+        encodeDaemonRuntimeUsageScanResponse({
+          protocolMajor: 1,
+          requestId: "usage-credits",
+          workspaceId: "workspace-1",
+          computerId: "computer-1",
+          provider: "kiro",
+          accepted: true,
+          status: "available",
+          snapshotJson: new TextEncoder().encode(
+            JSON.stringify({
+              provider: "kiro",
+              creditUsage,
+              ...(includePrimary
+                ? {
+                    primary: {
+                      usedPercent: 2.55,
+                      windowDurationMinutes: 43200,
+                      resetsAt: "2026-10-01T00:00:00.000Z",
+                    },
+                  }
+                : {}),
+            }),
+          ),
+        }),
+        { principal: principal() },
+      );
+    expect(await send({ used: 12.75, limit: 500, overage: 1.25 })).toBeInstanceOf(Uint8Array);
+    expect(records).toMatchObject([
+      { snapshot: { creditUsage: { used: 12.75, limit: 500, overage: 1.25 } } },
+    ]);
+    expect(await send({ used: 12.75, limit: 500, overage: 1.25 }, false)).toEqual({
+      code: 400,
+      message: "invalid usage scan result",
+    });
+    for (const creditUsage of [
+      null,
+      {},
+      { used: -1, limit: 500, overage: 0 },
+      { used: 501, limit: 500, overage: 0 },
+      { used: 0, limit: 0, overage: 0 },
+      { used: 0, limit: 500, overage: "1" },
+    ]) {
+      expect(await send(creditUsage)).toEqual({ code: 400, message: "invalid usage scan result" });
+    }
+    expect(records).toHaveLength(1);
   });
 
   test("rejects an invalid Daemon usage snapshot", async () => {

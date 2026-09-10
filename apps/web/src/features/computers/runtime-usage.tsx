@@ -14,6 +14,7 @@ export type UsageView = {
   status: "available" | "unavailable" | "reauth" | "error" | "unsupported";
   snapshot?: {
     planType?: string;
+    creditUsage?: { used: number; limit: number; overage: number };
     primary?: {
       usedPercent?: number;
       status?: "available" | "rate-limited";
@@ -39,14 +40,21 @@ const runtimeMarks = {
   codex: codexMark,
   pi: piMark,
   coforge: "/logo.svg",
-} satisfies Record<RuntimeProvider, string>;
+} satisfies Partial<Record<RuntimeProvider, string>>;
 
 export function RuntimeIdentity({ runtime }: { runtime: Runtime }) {
   return (
     <span className="flex min-w-0 items-center gap-3">
-      {runtime.provider === "claude-code" ||
-      runtime.provider === "codex" ||
-      runtime.provider === "coforge" ? (
+      {runtime.provider === "kiro" ? (
+        <span
+          aria-hidden="true"
+          className="flex size-6 shrink-0 items-center justify-center rounded-md bg-brand-solid text-sm font-semibold text-white"
+        >
+          K
+        </span>
+      ) : runtime.provider === "claude-code" ||
+        runtime.provider === "codex" ||
+        runtime.provider === "coforge" ? (
         <img src={runtimeMarks[runtime.provider]} alt="" className="size-6 shrink-0" />
       ) : (
         <span
@@ -157,8 +165,15 @@ export function RuntimeUsage({
               return (
                 <UsageWindow
                   key={key}
-                  label={key === "primary" ? m.computer_usage_session() : m.computer_usage_weekly()}
+                  label={
+                    key === "primary"
+                      ? runtime.provider === "kiro"
+                        ? m.computer_usage_monthly_credits()
+                        : m.computer_usage_session()
+                      : m.computer_usage_weekly()
+                  }
                   window={window}
+                  creditUsage={key === "primary" ? usage.snapshot?.creditUsage : undefined}
                   timeZone={timeZone}
                 />
               );
@@ -180,10 +195,12 @@ function usageStatusDescription(status: Exclude<UsageView["status"], "available"
 function UsageWindow({
   label,
   window,
+  creditUsage,
   timeZone,
 }: {
   label: string;
   window: NonNullable<NonNullable<UsageView["snapshot"]>["primary"]>;
+  creditUsage?: NonNullable<UsageView["snapshot"]>["creditUsage"];
   timeZone: string | null;
 }) {
   const value =
@@ -197,8 +214,21 @@ function UsageWindow({
     <div className="rounded-md border border-secondary px-3 py-2.5">
       <div className="flex items-baseline justify-between gap-3">
         <p className="text-xs font-medium text-tertiary">{label}</p>
-        <p className="font-medium text-primary tabular-nums">{value}</p>
+        <p
+          className={
+            creditUsage
+              ? "text-xs text-tertiary tabular-nums"
+              : "font-medium text-primary tabular-nums"
+          }
+        >
+          {value}
+        </p>
       </div>
+      {creditUsage && (
+        <p className="mt-2 font-medium tabular-nums">
+          {m.computer_usage_credit_amounts({ used: creditUsage.used, limit: creditUsage.limit })}
+        </p>
+      )}
       {window.usedPercent !== undefined && (
         <div
           role="progressbar"
@@ -215,6 +245,11 @@ function UsageWindow({
             }}
           />
         </div>
+      )}
+      {creditUsage && creditUsage.overage > 0 && (
+        <p className="mt-2 text-xs tabular-nums">
+          {m.computer_usage_credit_overage({ overage: creditUsage.overage })}
+        </p>
       )}
       <p className="mt-2 text-xs text-tertiary">
         {m.computer_usage_resets()} <RelativeTime value={window.resetsAt} timeZone={timeZone} />

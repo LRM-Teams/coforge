@@ -595,7 +595,8 @@ function Profile({
 }
 
 function runtimeProviderValue(value: FormDataEntryValue | null): UpdateAgentInput["provider"] {
-  if (value === "pi" || value === "codex" || value === "claude-code") return value;
+  if (value === "pi" || value === "codex" || value === "claude-code" || value === "kiro")
+    return value;
   return "coforge";
 }
 
@@ -617,6 +618,7 @@ function providerLabel(provider: string) {
   if (provider === "pi") return "Pi";
   if (provider === "codex") return "Codex";
   if (provider === "claude-code") return "Claude Code";
+  if (provider === "kiro") return "Kiro";
   return provider;
 }
 

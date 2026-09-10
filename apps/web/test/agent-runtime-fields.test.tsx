@@ -319,6 +319,47 @@ test("external runtimes show their complete model catalog", async () => {
   expect(within(document.body).getByRole("option", { name: "openai / GPT 5" })).toBeTruthy();
 });
 
+test("offers Kiro and selects catalog models without a model provider", async () => {
+  let submitted: FormData | undefined;
+  const user = userEvent.setup();
+  render(
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        submitted = new FormData(event.currentTarget);
+      }}
+    >
+      <AgentRuntimeFields
+        open
+        computerId="computer-1"
+        onLoad={async () => ({
+          providers: ["kiro"],
+          catalogs: [{ provider: "kiro", models: [{ ...model, modelProvider: "" }] }],
+        })}
+      />
+      <Button type="submit">Save</Button>
+    </form>,
+  );
+  await waitFor(() =>
+    expect(within(document.body).getByRole("button", { name: /Runtime provider/ })).toBeTruthy(),
+  );
+  await user.click(within(document.body).getByRole("button", { name: /Runtime provider/ }));
+  await user.click(within(document.body).getByRole("option", { name: "Kiro" }));
+  await user.click(within(document.body).getByRole("button", { name: isModelSelect }));
+  await user.click(within(document.body).getByRole("option", { name: "GPT 5" }));
+  expect(within(document.body).getByRole("button", { name: isModelSelect }).textContent).toBe(
+    "GPT 5",
+  );
+  await user.click(within(document.body).getByRole("button", { name: "Save" }));
+
+  expect(Object.fromEntries(submitted!)).toMatchObject({
+    provider: "kiro",
+    modelProvider: "",
+    model: "gpt-5",
+  });
+  expect(within(document.body).queryByLabelText(/API key/)).toBeNull();
+});
+
 test("Pi filters an explicit provider and deduplicates local models before CoForge models", async () => {
   const user = userEvent.setup();
   render(
