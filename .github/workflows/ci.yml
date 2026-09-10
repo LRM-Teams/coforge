@@ -286,9 +286,48 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Generate protocol
         run: bun run --cwd packages/protocol generate
+      - name: Prepare file-handle diagnostics
+        shell: pwsh
+        run: |
+          $name = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'handle64a.exe' } else { 'handle64.exe' }
+          $url = if ($name -eq 'handle64a.exe') { "https://live.sysinternals.com/Tools/arm64/$name" } else { "https://live.sysinternals.com/$name" }
+          $tool = Join-Path $env:RUNNER_TEMP $name
+          Invoke-WebRequest $url -OutFile $tool
+          $signature = Get-AuthenticodeSignature $tool
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft Corporation') { throw 'Invalid diagnostic tool signature' }
+          "COFORGE_TEST_HANDLE_EXE=$tool" >> $env:GITHUB_ENV
+      - name: Start file access trace
+        shell: pwsh
+        run: |
+          $name = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'Procmon64a.exe' } else { 'Procmon64.exe' }
+          $tool = Join-Path $env:RUNNER_TEMP $name
+          $url = if ($name -eq 'Procmon64a.exe') { "https://live.sysinternals.com/Tools/arm64/$name" } else { "https://live.sysinternals.com/$name" }
+          Invoke-WebRequest $url -OutFile $tool
+          $signature = Get-AuthenticodeSignature $tool
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft Corporation') { throw 'Invalid trace tool signature' }
+          $trace = Join-Path $env:RUNNER_TEMP 'release-files.pml'
+          Start-Process $tool -ArgumentList @('/AcceptEula', '/Quiet', '/Minimized', '/BackingFile', $trace)
+          & $tool /WaitForIdle
+          "COFORGE_TEST_PROCMON=$tool" >> $env:GITHUB_ENV
       - name: Test compiled version and server configuration
         # Every repetition must pass; this detects Windows process/pipe cleanup races.
-        run: bun test scripts/release/compile-targets.test.ts --test-name-pattern "published Computer" --rerun-each 10
+        run: bun test scripts/release/compile-targets.test.ts --test-name-pattern "published Computer" --rerun-each 50 --bail
+      - name: Report only failed release file accesses
+        if: always() && env.COFORGE_TEST_PROCMON != ''
+        shell: pwsh
+        run: |
+          $tool = $env:COFORGE_TEST_PROCMON
+          & $tool /Terminate
+          $failed = @(Get-ChildItem "$env:TEMP/coforge-release-version-*/*coforge-computer.exe" -ErrorAction SilentlyContinue | ForEach-Object { $_.Directory.Name })
+          Write-Output "Remaining executable directories: $($failed -join ', ')"
+          if ($failed.Count -gt 0) {
+            $trace = Join-Path $env:RUNNER_TEMP 'release-files.pml'
+            $csv = Join-Path $env:RUNNER_TEMP 'release-files.csv'
+            Start-Process $tool -ArgumentList @('/AcceptEula', '/Quiet', '/OpenLog', $trace, '/SaveAs', $csv) -Wait
+            foreach ($name in $failed) {
+              Import-Csv $csv | Where-Object { $_.Path -like "*$name*coforge-computer.exe" -and $_.Operation -in @('CreateFile', 'CloseFile', 'Cleanup', 'CreateFileMapping', 'SetDispositionInformationFile', 'Load Image') } | Select-Object -Last 200 | ConvertTo-Csv -NoTypeInformation
+            }
+          }
 
   # install.sh is gated by shellcheck in the Computer job; install.ps1 had no machine gate at all,
   # which is how a top-level `exit` - fatal under the documented `irm ... | iex` entry point,

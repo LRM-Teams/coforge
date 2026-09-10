@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { LocalDaemonLauncher } from "../../packages/daemon";
 import { isReleaseTarget, resolveBunCompileTarget } from "./compile-targets";
@@ -88,6 +88,23 @@ test.each([
           error,
           remainingPaths: await readdir(directory, { recursive: true }).catch(String),
         });
+        if (process.platform === "win32" && Bun.env.COFORGE_TEST_HANDLE_EXE) {
+          const handles = Bun.spawnSync(
+            [
+              Bun.env.COFORGE_TEST_HANDLE_EXE,
+              "-accepteula",
+              "-nobanner",
+              "-a",
+              basename(directory),
+            ],
+            { stdout: "pipe", stderr: "pipe", timeout: 10000 },
+          );
+          console.error("[DEBUG-release-lock] matching handles", {
+            exitCode: handles.exitCode,
+            stdout: handles.stdout.toString(),
+            stderr: handles.stderr.toString(),
+          });
+        }
         if (process.platform === "win32") {
           try {
             const snapshot = Bun.spawnSync(
