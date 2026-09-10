@@ -91,6 +91,8 @@ function renderSettings() {
         onAvatarRemove={async () => {}}
         onLocaleChange={() => {}}
         onThemeChange={changeTheme}
+        railLabels
+        onRailLabelsChange={() => {}}
         onTimeZoneChange={() => {}}
       />
     );
@@ -163,6 +165,8 @@ test("searches time zones by city and sends the IANA identifier to persistence",
       onAvatarRemove={async () => {}}
       onLocaleChange={() => {}}
       onThemeChange={() => {}}
+      railLabels
+      onRailLabelsChange={() => {}}
       onTimeZoneChange={(timeZone) => {
         selected = timeZone;
       }}
@@ -217,6 +221,8 @@ test("shows the global browser notification state and runs a test notification",
       onAvatarRemove={async () => {}}
       onLocaleChange={() => {}}
       onThemeChange={() => {}}
+      railLabels
+      onRailLabelsChange={() => {}}
       onTimeZoneChange={() => {}}
     />,
   );
@@ -252,6 +258,8 @@ test("explains how to install the app before enabling notifications on iPhone an
       onAvatarRemove={async () => {}}
       onLocaleChange={() => {}}
       onThemeChange={() => {}}
+      railLabels
+      onRailLabelsChange={() => {}}
       onTimeZoneChange={() => {}}
     />,
   );
@@ -291,6 +299,8 @@ test("edits the profile name and description and uploads a profile image on save
       onAvatarRemove={async () => {}}
       onLocaleChange={() => {}}
       onThemeChange={() => {}}
+      railLabels
+      onRailLabelsChange={() => {}}
       onTimeZoneChange={() => {}}
     />,
   );
@@ -342,6 +352,8 @@ test("keeps profile drafts and prevents duplicate saves while a failed save is p
       onAvatarRemove={async () => {}}
       onLocaleChange={() => {}}
       onThemeChange={() => {}}
+      railLabels
+      onRailLabelsChange={() => {}}
       onTimeZoneChange={() => {}}
     />,
   );
@@ -385,6 +397,8 @@ test("does not repeat a successful avatar update when profile details are retrie
       onAvatarRemove={async () => {}}
       onLocaleChange={() => {}}
       onThemeChange={() => {}}
+      railLabels
+      onRailLabelsChange={() => {}}
       onTimeZoneChange={() => {}}
     />,
   );

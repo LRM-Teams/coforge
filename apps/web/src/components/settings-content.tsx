@@ -70,6 +70,7 @@ interface SettingsContentProps {
   };
   locale: Locale;
   theme: Theme;
+  railLabels: boolean;
   timeZone: string | null;
   browserNotificationsEnabled: boolean;
   browserNotificationPermission: NotificationPermission | "unsupported";
@@ -80,6 +81,7 @@ interface SettingsContentProps {
   onAvatarRemove: () => Promise<void>;
   onLocaleChange: (locale: Locale) => void;
   onThemeChange: (theme: Theme) => void;
+  onRailLabelsChange: (show: boolean) => void;
   onTimeZoneChange: (timeZone: string) => void;
   onBrowserNotificationsChange: (enabled: boolean) => Promise<void>;
   onEnableBrowserNotifications: () => Promise<void>;
@@ -576,6 +578,8 @@ function Preferences({
   timeZone,
   onLocaleChange,
   onThemeChange,
+  railLabels,
+  onRailLabelsChange,
   onTimeZoneChange,
 }: SettingsContentProps) {
   const timeZoneOptions = getTimeZoneOptions(m.preferences_system());
@@ -650,6 +654,21 @@ function Preferences({
               {m.preferences_dark()}
             </ButtonGroupItem>
           </ButtonGroup>
+          <label className="flex max-w-xl items-center justify-between gap-4 pt-2">
+            <span className="flex flex-col">
+              <span className="text-sm font-medium text-primary">
+                {m.preferences_rail_labels()}
+              </span>
+              <span className="text-sm text-tertiary">{m.preferences_rail_labels_hint()}</span>
+            </span>
+            <Toggle
+              size="sm"
+              className="shrink-0"
+              aria-label={m.preferences_rail_labels()}
+              isSelected={railLabels}
+              onChange={onRailLabelsChange}
+            />
+          </label>
         </PreferenceSection>
       </div>
     </div>

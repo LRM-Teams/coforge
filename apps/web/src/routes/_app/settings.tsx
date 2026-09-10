@@ -23,6 +23,7 @@ import {
   loadWorkspaceMembers,
 } from "@/features/workspaces/members.functions";
 import { getLocale, setLocale } from "@/paraglide/runtime";
+import { readRailLabels, writeRailLabels } from "@/features/settings/rail-labels";
 import { m } from "@/paraglide/messages";
 
 type Theme = "system" | "light" | "dark";
@@ -65,6 +66,7 @@ export const Route = createFileRoute("/_app/settings")({
 
 function SettingsPage() {
   const [theme, setTheme] = useState<Theme>("system");
+  const [railLabels, setRailLabels] = useState(true);
   const { section } = Route.useSearch();
   const navigate = Route.useNavigate();
   const { timeZone: savedTimeZone, members } = Route.useLoaderData();
@@ -94,6 +96,7 @@ function SettingsPage() {
         : "system";
     setTheme(initialTheme);
     applyTheme(initialTheme);
+    setRailLabels(readRailLabels());
   }, []);
 
   useEffect(() => {
@@ -123,6 +126,11 @@ function SettingsPage() {
       nextTheme === "dark" ||
       (nextTheme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
     document.documentElement.classList.toggle("dark-mode", dark);
+  }
+
+  function changeRailLabels(show: boolean) {
+    setRailLabels(show);
+    writeRailLabels(show);
   }
 
   function changeTheme(nextTheme: Theme) {
@@ -226,6 +234,8 @@ function SettingsPage() {
       onAvatarRemove={removeAvatar}
       onLocaleChange={setLocale}
       onThemeChange={changeTheme}
+      railLabels={railLabels}
+      onRailLabelsChange={changeRailLabels}
       onTimeZoneChange={changeTimeZone}
       onBrowserNotificationsChange={changeBrowserNotifications}
       onEnableBrowserNotifications={enableBrowserNotifications}
