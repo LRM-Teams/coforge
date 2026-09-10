@@ -226,17 +226,17 @@ export function RecordsLayout({
               if (next !== undefined) selectToolbar(String(next));
             }}
           >
-            <ButtonGroupItem id="weekly" iconLeading={FileText}>
-              {m.records_tab_weekly()}
+            <ButtonGroupItem id="weekly" iconLeading={FileText} aria-label={m.records_tab_weekly()}>
+              <span className="sr-only">{m.records_tab_weekly()}</span>
             </ButtonGroupItem>
-            <ButtonGroupItem id="notes" iconLeading={Edit}>
-              {m.records_tab_notes()}
+            <ButtonGroupItem id="notes" iconLeading={Edit} aria-label={m.records_tab_notes()}>
+              <span className="sr-only">{m.records_tab_notes()}</span>
             </ButtonGroupItem>
-            <ButtonGroupItem id="stats" iconLeading={LineChart}>
-              {m.records_stats()}
+            <ButtonGroupItem id="stats" iconLeading={LineChart} aria-label={m.records_stats()}>
+              <span className="sr-only">{m.records_stats()}</span>
             </ButtonGroupItem>
-            <ButtonGroupItem id="settings" iconLeading={Settings}>
-              {m.records_settings()}
+            <ButtonGroupItem id="settings" iconLeading={Settings} aria-label={m.records_settings()}>
+              <span className="sr-only">{m.records_settings()}</span>
             </ButtonGroupItem>
           </ButtonGroup>
         </div>

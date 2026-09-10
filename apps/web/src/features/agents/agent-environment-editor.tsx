@@ -57,14 +57,17 @@ export function AgentEnvironmentEditor({ onLoad, onSave }: AgentEnvironmentEdito
   const inputClass =
     "h-10 min-w-0 w-full rounded-lg border border-secondary bg-primary px-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-brand";
   return (
-    <section className="grid gap-5 py-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
-      <h2 className="text-base font-semibold">{m.agent_env_title()}</h2>
-      <div className="min-w-0 space-y-4">
-        {rows === null ? (
+    <section className="flex flex-col gap-4 py-6">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-base font-semibold">{m.agent_env_title()}</h2>
+        {rows === null && (
           <Button color="secondary" size="sm" isDisabled={busy} onPress={() => void edit()}>
             {busy ? m.agent_env_loading() : m.agent_env_edit()}
           </Button>
-        ) : (
+        )}
+      </div>
+      <div className="min-w-0 space-y-4">
+        {rows === null ? null : (
           <form
             className="space-y-3"
             onSubmit={(event) => {

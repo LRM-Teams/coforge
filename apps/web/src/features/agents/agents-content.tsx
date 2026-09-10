@@ -425,7 +425,7 @@ function MemberCard({
   ownedAgent?: AgentView;
 }) {
   return (
-    <li className="grid min-w-0 grid-cols-[3rem_minmax(0,1fr)_auto] grid-rows-[auto_auto_auto] items-start gap-x-3 gap-y-3 rounded-xl bg-primary p-5 shadow-xs ring-1 ring-secondary ring-inset">
+    <li className="grid min-w-0 grid-cols-[3rem_minmax(0,1fr)_auto] grid-rows-[auto_3rem_auto] items-start gap-x-3 gap-y-3 rounded-xl bg-primary p-5 shadow-xs ring-1 ring-secondary ring-inset">
       {ownedAgent ? (
         <AgentDisplayAvatar name={member.displayName} display={ownedAgent.display} size="xl" />
       ) : (
@@ -453,7 +453,8 @@ function MemberCard({
         </h2>
         <p className="mt-0.5 truncate text-sm text-tertiary">@{member.name}</p>
       </div>
-      <div className="col-span-3 row-start-2 min-w-0">
+      {/* Fixed two-line slot so every card in the grid is the same height. */}
+      <div className="col-span-3 row-start-2 min-h-12 min-w-0">
         {member.description && (
           <p className="line-clamp-2 break-words text-sm leading-6 text-tertiary">
             {member.description}
