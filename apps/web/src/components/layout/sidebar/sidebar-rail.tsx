@@ -1,102 +1,89 @@
 import type { FC, ReactNode } from "react";
-import { NavButton } from "@/components/application/app-navigation/base-components/nav-button";
 import type { NavItemType } from "@/components/application/app-navigation/config";
+import { cx } from "@/utils/cx";
 
-// Adapted from Untitled UI's application/app-navigation/sidebar-navigation/
-// sidebar-slim.tsx (official, MIT) — a demo template, not a parameterized
-// component (hardcoded Untitled logo, a fake "Olivia Rhye" account card and
-// menu with no override props, and a hover-flyout secondary sidebar for
-// sub-items CoForge doesn't have), so per docs/ui-guidelines.md §2 it's
-// copied here and adapted. Everything it calls into (base-components/**,
-// components/base/**) stays unmodified.
-//
-// Unlike the official template (and CoForge's own earlier iteration) this
-// rail is not a collapsed *state* of a wider sidebar any more — it's the
-// one permanent piece of chrome on every `/_app` page (Slack's leftmost
-// icon rail). The 240px Channels/Direct-messages sidebar is a separate,
-// conditional surface — see sidebar-channels.tsx — shown only on chat routes.
+// Adapted from Untitled's sidebar-slim.tsx (MIT; docs/ui-guidelines.md §2) —
+// the demo hardcodes Untitled's own logo/account card with no override
+// props. This is the app's one permanent piece of chrome, not a collapsed
+// state of a wider sidebar; the 240px Channels/DMs surface is separate
+// (sidebar-channels.tsx), shown only on chat routes.
 
-export const SIDEBAR_RAIL_WIDTH = 68;
+export const SIDEBAR_RAIL_WIDTH = 70;
+
+type RailItemType = NavItemType & { icon: FC<{ className?: string }>; current?: boolean };
+
+function RailItem({ href, icon: Icon, label, current }: RailItemType) {
+  return (
+    <a
+      href={href}
+      aria-label={label}
+      aria-current={current ? "page" : undefined}
+      className="group flex h-14 flex-col items-center justify-center gap-1 rounded-lg px-0.5 outline-focus-ring focus-visible:outline-2 focus-visible:outline-offset-2"
+    >
+      <span
+        className={cx(
+          "flex size-10 items-center justify-center rounded-lg transition-colors duration-100 ease-linear",
+          current ? "bg-sidebar-accent" : "group-hover:bg-sidebar-accent",
+        )}
+      >
+        <Icon
+          aria-hidden="true"
+          className={cx(
+            "size-5 transition-colors duration-100 ease-linear",
+            current ? "text-brand-secondary" : "text-tertiary group-hover:text-secondary",
+          )}
+        />
+      </span>
+      <span
+        className={cx(
+          "text-[10px] leading-3 font-medium tracking-normal whitespace-nowrap transition-colors duration-100 ease-linear",
+          current
+            ? "font-semibold text-brand-secondary"
+            : "text-tertiary group-hover:text-secondary",
+        )}
+      >
+        {label}
+      </span>
+    </a>
+  );
+}
 
 interface SidebarRailProps {
-  /** URL of the currently active item. */
   activeUrl?: string;
-  /** List of items to display, each with a short icon + caption. */
-  items: (NavItemType & { icon: FC<{ className?: string }> })[];
-  /** List of footer items to display (icon-only, e.g. Settings). */
-  footerItems?: (NavItemType & { icon: FC<{ className?: string }> })[];
-  /** Compact workspace switcher, rendered in the top 48px band. */
+  items: RailItemType[];
+  /** Compact workspace switcher, in the top 48px band. */
   subheader?: ReactNode;
-  /** Real avatar + user menu, rendered at the bottom of the rail. */
+  /** Avatar + user menu at the bottom — the only Settings entry point. */
   footer: ReactNode;
 }
 
-export const SidebarRail = ({
-  activeUrl,
-  items,
-  footerItems = [],
-  subheader,
-  footer,
-}: SidebarRailProps) => {
+export const SidebarRail = ({ activeUrl, items, subheader, footer }: SidebarRailProps) => {
   const rail = (
-    // data-sidebar retints NavButton's bg-primary/bg-secondary/text-secondary_hover/
-    // text-fg-quaternary utilities via the [data-sidebar] rule in
-    // src/styles/coforge-theme.css — see sidebar-channels.tsx and that file's
-    // comment for why this can't be an inline `--color-bg-*` override.
+    // [data-sidebar] retints official components' bg-primary/bg-secondary/etc
+    // via src/styles/coforge-theme.css.
     <aside
       data-sidebar
       style={{ width: SIDEBAR_RAIL_WIDTH }}
-      className="flex h-full max-h-full flex-col justify-between overflow-y-auto border-r border-secondary bg-sidebar pb-4"
+      className="flex h-full max-h-full flex-col items-center justify-between overflow-y-auto border-r border-secondary bg-sidebar pb-4"
     >
       <div className="flex flex-col items-center gap-3">
-        {/* Same 48px band as the channel sidebar's header row and every page header. */}
         <div className="flex h-12 shrink-0 items-center justify-center">{subheader}</div>
-        <ul className="flex flex-col gap-3">
+        <ul className="flex flex-col gap-1">
           {items.map((item) => (
-            <li key={item.label} className="flex flex-col items-center gap-1">
-              <NavButton
-                current={item.href === activeUrl}
-                href={item.href}
-                label={item.label || ""}
-                icon={item.icon}
-              />
-              {/* NavButton (official, unmodified) only supports a hover tooltip for
-                  its label, not a visible caption — so the caption lives here,
-                  alongside it, rather than inside that file. */}
-              <span aria-hidden="true" className="text-[10px] font-medium text-tertiary">
-                {item.label}
-              </span>
+            <li key={item.label}>
+              <RailItem {...item} current={item.href === activeUrl} />
             </li>
           ))}
         </ul>
       </div>
-      <div className="flex flex-col items-center gap-3">
-        {footerItems.length > 0 && (
-          <ul className="flex flex-col gap-0.5">
-            {footerItems.map((item) => (
-              <li key={item.label}>
-                <NavButton
-                  current={item.href === activeUrl}
-                  label={item.label || ""}
-                  href={item.href}
-                  icon={item.icon}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-        {footer}
-      </div>
+      {footer}
     </aside>
   );
 
   return (
     <>
-      {/* Desktop sidebar navigation */}
       <div className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:flex">{rail}</div>
-
-      {/* Placeholder to take up physical space because the real sidebar has
-          `fixed` position. */}
+      {/* Spacer: the real aside is `fixed`, so this reserves its width in flow. */}
       <div
         style={{ paddingLeft: SIDEBAR_RAIL_WIDTH }}
         className="invisible hidden lg:sticky lg:top-0 lg:bottom-0 lg:left-0 lg:block"

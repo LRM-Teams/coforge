@@ -8,27 +8,14 @@ import {
   SidebarConversations,
   type SidebarChannel,
 } from "@/components/layout/sidebar/sidebar-conversations";
-import { NavItemBase } from "@/components/application/app-navigation/base-components/nav-item";
 import { NavList } from "@/components/application/app-navigation/base-components/nav-list";
 import type { NavItemType } from "@/components/application/app-navigation/config";
 import type { ConversationAgent } from "@/features/conversations/conversation-layout";
 import { m } from "@/paraglide/messages";
 
-// Adapted from Untitled UI's application/app-navigation/sidebar-navigation/
-// sidebar-simple.tsx (official, MIT) — that file is a demo template, not a
-// parameterized component (it hardcodes Untitled's own logo, a search box,
-// and a fake account card with no override props), so per docs/ui-guidelines.md
-// §2 it's copied here and adapted. Everything it calls into (base-components/**,
-// components/base/**) stays unmodified.
-//
-// This file now covers two different surfaces that used to share one
-// "expanded sidebar" component:
-//  - `ChannelSidebar`: the desktop-only, resizable Channels/Direct-messages
-//    panel, shown only on chat routes next to the permanent icon rail
-//    (sidebar-rail.tsx). It carries no top-level nav — that lives in the rail.
-//  - `SidebarMobileDrawer`: the full mobile drawer (nav items, workspace
-//    switcher, Channels/Direct messages, footer) shown below the `lg`
-//    breakpoint regardless of route, since there's no separate rail on mobile.
+// Adapted from Untitled's sidebar-simple.tsx (MIT; docs/ui-guidelines.md §2).
+// Two surfaces: `ChannelSidebar` (desktop, chat routes only, no top-level nav
+// — that's in the rail) and `SidebarMobileDrawer` (everything, below `lg`).
 
 export const SIDEBAR_MIN_WIDTH = 200;
 export const SIDEBAR_MAX_WIDTH = 320;
@@ -54,12 +41,8 @@ interface ChannelSidebarProps extends ConversationSectionsProps {
   onWidthChange: (width: number) => void;
 }
 
-/**
- * The Channels/Direct-messages panel, shown only on `/messages/**` routes
- * next to the permanent icon rail. Its header row carries the current
- * Workspace's name (the rail's compact WorkspaceSwitcher is the place to
- * change Workspaces) and a control to hide the panel.
- */
+/** Channels/Direct-messages panel next to the rail; header carries the
+ * Workspace name (switching lives in the rail's compact switcher) + hide. */
 export const ChannelSidebar = ({
   workspaceName,
   onHide,
@@ -95,21 +78,13 @@ export const ChannelSidebar = ({
 
   return (
     <>
-      {/* The resize handle is a sibling of the `aside`, not a child of it —
-          the aside is `overflow-auto` (it scrolls its own conversation
-          lists), which clips any absolutely-positioned descendant that
-          pokes outside its box, including the handle. Living outside the
-          scroll container keeps it hit-testable across the full height. */}
+      {/* The handle lives outside the `aside` — it's `overflow-auto` and
+          would clip an absolutely-positioned child that pokes past its box. */}
       <div
         style={{ "--width": `${width}px`, left: SIDEBAR_RAIL_WIDTH } as CSSProperties}
         className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-(--width)"
       >
-        {/* data-sidebar retints the official NavItemBase's bg-primary/bg-secondary/
-            text-secondary/text-fg-quaternary utilities via the [data-sidebar] rule
-            in src/styles/coforge-theme.css, rather than editing that base-component
-            file. See the comment there for why this has to target the
-            second-namespace `--background-color-*`/`--text-color-*` variables and
-            not `--color-bg-*` directly. */}
+        {/* [data-sidebar] retints official components via src/styles/coforge-theme.css. */}
         <aside
           data-sidebar
           style={{ "--width": `${width}px` } as CSSProperties}
@@ -132,8 +107,7 @@ export const ChannelSidebar = ({
           </div>
         </aside>
 
-        {/* Invisible resize handle: 8px hit area centered on the hairline,
-            shows a 2px brand line on hover/drag. */}
+        {/* Invisible 8px hit area on the hairline; a 2px brand line shows on hover/drag. */}
         <div
           role="separator"
           aria-orientation="vertical"
@@ -149,8 +123,7 @@ export const ChannelSidebar = ({
         />
       </div>
 
-      {/* Placeholder to take up physical space because the real sidebar has
-          `fixed` position — follows the live (resized) width. */}
+      {/* Spacer following the live (resized) width — the real sidebar is `fixed`. */}
       <div
         style={{ paddingLeft: width }}
         className="invisible hidden lg:sticky lg:top-0 lg:bottom-0 lg:left-0 lg:block"
@@ -162,20 +135,16 @@ export const ChannelSidebar = ({
 interface SidebarMobileDrawerProps extends ConversationSectionsProps {
   activeUrl?: string;
   items: NavItemType[];
-  footerItems?: NavItemType[];
   subheader?: ReactNode;
+  /** Avatar + user menu — the only Settings entry point. */
   footer: ReactNode;
 }
 
-/**
- * The full mobile drawer: below `lg` there's no separate rail, so this shows
- * everything — nav items, workspace switcher, Channels, Direct messages, and
- * the user's footer card — regardless of which route is open.
- */
+/** The full mobile drawer — below `lg` there's no rail, so this carries
+ * everything regardless of route. */
 export const SidebarMobileDrawer = ({
   activeUrl,
   items,
-  footerItems = [],
   subheader,
   footer,
   ...conversations
@@ -189,31 +158,13 @@ export const SidebarMobileDrawer = ({
       {subheader && <div className="shrink-0 px-4 pt-1 lg:px-5">{subheader}</div>}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <NavList activeUrl={activeUrl} items={items} className="mt-3" />
+        {/* NavList's own pt-5 (official, unmodified) overshoots the 8px gap
+            the workspace row needs below it; -mt-3 pulls it back. */}
+        <NavList activeUrl={activeUrl} items={items} className="-mt-3" />
         <SidebarConversations {...conversations} />
       </div>
 
-      <div className="mt-auto flex shrink-0 flex-col gap-3 px-4 py-4 lg:py-5">
-        {footerItems.length > 0 && (
-          <ul className="flex flex-col">
-            {footerItems.map((item) => (
-              <li key={item.label} className="py-px">
-                <NavItemBase
-                  badge={item.badge}
-                  icon={item.icon}
-                  href={item.href}
-                  type="link"
-                  current={item.href === activeUrl}
-                >
-                  {item.label}
-                </NavItemBase>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {footer}
-      </div>
+      <div className="mt-auto shrink-0 px-4 py-4 lg:py-5">{footer}</div>
     </aside>
   </MobileNavigationHeader>
 );

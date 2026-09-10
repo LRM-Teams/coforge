@@ -40,7 +40,7 @@ export type AppUser = {
 function useNavItems(): (NavItemType & { icon: FC<{ className?: string }>; bareHref: string })[] {
   return [
     {
-      label: m.navigation_home(),
+      label: m.navigation_chat(),
       bareHref: "/messages",
       href: localizeHref("/messages"),
       icon: MessageChatSquare,
@@ -61,15 +61,8 @@ function useNavItems(): (NavItemType & { icon: FC<{ className?: string }>; bareH
   ];
 }
 
-/**
- * Untitled's NavItemBase/NavButton (official, unmodified) render plain
- * `<a href>` tags with no per-item onClick hook, so clicking them would
- * trigger a full browser navigation instead of a TanStack Router
- * client-side transition. This intercepts same-origin, unmodified left
- * clicks on any link inside the sidebar and routes them through the
- * router instead, leaving modifier-clicks (open in new tab, etc.) to the
- * browser's native handling.
- */
+/** Official nav components render plain `<a href>` with no onClick hook, so
+ * this routes same-origin, unmodified clicks through the router instead. */
 function useSpaNavigation() {
   const router = useRouter();
   return useCallback(
@@ -89,13 +82,8 @@ function useSpaNavigation() {
   );
 }
 
-/**
- * Whether the 240px Channels/Direct-messages sidebar is hidden, and how to
- * bring it back. AppShell owns the actual state (it renders the sidebar and
- * its own hide control); this lets a conversation header — rendered deep
- * inside `children`, on a chat route — show a "show channels" control of its
- * own when the sidebar is hidden, without threading the setter through props.
- */
+/** Lets a conversation header, rendered deep inside `children`, show its own
+ * "show channels" control when AppShell's sidebar is hidden. */
 export const ChannelSidebarVisibilityContext = createContext<{ hidden: boolean; show: () => void }>(
   {
     hidden: false,
@@ -103,8 +91,6 @@ export const ChannelSidebarVisibilityContext = createContext<{ hidden: boolean; 
   },
 );
 
-/** For a conversation header to show its own "show channels" control when
- * AppShell's Channels/Direct-messages sidebar is hidden. */
 export function useChannelSidebarVisibility() {
   return useContext(ChannelSidebarVisibilityContext);
 }
@@ -137,22 +123,13 @@ export function AppShell({
   const [channelSidebarWidth, setChannelSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   const [channelSidebarHidden, setChannelSidebarHidden] = useState(false);
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
-  // The router's own `location.pathname` is de-localized (see the `rewrite.input`
-  // hook in src/router.tsx, which strips the locale prefix for internal route
-  // matching) while each nav item's `href` is the localized, user-facing string
-  // (see `bareHref` below). Match against the de-localized pathname, but hand
-  // NavList back the item's own (localized) href — NavItemBase/NavList (official,
-  // unmodified) mark an item current via a plain `item.href === activeUrl` string
-  // equality, with no prefix matching for sub-routes (e.g. /messages/agent-1
-  // under the Home item), so resolve the matching item ourselves.
+  // pathname is de-localized (src/router.tsx); item.href is localized, so we
+  // match on bareHref (with sub-route prefix matching) instead.
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const navItems = useNavItems();
   const activeUrl = navItems.find(
     (item) => pathname === item.bareHref || pathname.startsWith(`${item.bareHref}/`),
   )?.href;
-  // The Channels/Direct-messages sidebar only makes sense next to a chat
-  // conversation — everywhere else (Members, Tasks, Computers, Settings)
-  // the rail is the only sidebar and content takes the full remaining width.
   const isChatRoute = pathname === "/messages" || pathname.startsWith("/messages/");
   const onSidebarClickCapture = useSpaNavigation();
   const agentParams = useParams({ from: "/_app/messages/$agentId", shouldThrow: false });
@@ -162,12 +139,6 @@ export function AppShell({
   });
 
   useHotkey(channelSidebarShortcut, () => setChannelSidebarHidden((hidden) => !hidden));
-
-  const settingsFooterItem: NavItemType & { icon: FC<{ className?: string }> } = {
-    label: m.navigation_personal_settings(),
-    href: localizeHref("/settings"),
-    icon: Settings01,
-  };
 
   const conversationSections = {
     channels,
@@ -179,23 +150,12 @@ export function AppShell({
 
   return (
     <div className="min-h-svh bg-primary font-body antialiased lg:flex">
-      {/*
-        SidebarRail/ChannelSidebar render their real sidebar `position: fixed`
-        and rely on an invisible sibling "spacer" div (padding equal to the sidebar's
-        width) to reserve room for it in normal flow — but that only works when the
-        spacer's parent is a flex row, which is why this shell is `lg:flex` rather
-        than plain block. The `contents` wrapper keeps each sidebar's own fragment
-        (fixed sidebar + spacer) as direct flex items here instead of being boxed
-        inside an extra div.
-      */}
+      {/* Each sidebar is `fixed` + a spacer div reserving its width in flow;
+          `contents` keeps that pair as direct flex items of this `lg:flex` shell. */}
       <div onClickCapture={onSidebarClickCapture} className="contents">
-        {/* The mobile drawer always shows everything — the rail items, workspace
-            switcher, Channels/Direct messages, and footer — since below `lg`
-            there's no separate permanent rail to carry any of it. */}
         <SidebarMobileDrawer
           activeUrl={activeUrl}
           items={navItems}
-          footerItems={[settingsFooterItem]}
           subheader={
             <WorkspaceSwitcher
               workspaces={workspaces}
@@ -208,12 +168,9 @@ export function AppShell({
           {...conversationSections}
         />
 
-        {/* The icon rail is permanent on desktop — it's not a collapsed state
-            of a wider sidebar any more, there's nothing to expand it into. */}
         <SidebarRail
           activeUrl={activeUrl}
           items={navItems}
-          footerItems={[settingsFooterItem]}
           subheader={
             <WorkspaceSwitcher
               compact
@@ -279,7 +236,7 @@ function UserMenuCard({
       {compact ? (
         <AriaButton
           aria-label={`${m.controls_current_user()}: ${user.name}`}
-          className="relative flex size-9 items-center justify-center rounded-full outline-focus-ring transition duration-100 ease-linear focus-visible:outline-2 focus-visible:outline-offset-2"
+          className="relative flex size-8 items-center justify-center rounded-full outline-focus-ring transition duration-100 ease-linear focus-visible:outline-2 focus-visible:outline-offset-2"
         >
           {avatar}
         </AriaButton>
@@ -299,6 +256,10 @@ function UserMenuCard({
         </AriaButton>
       )}
       <Dropdown.Popover placement={compact ? "right bottom" : "top left"} className="w-64">
+        <div className="border-b border-secondary px-3.5 py-3">
+          <p className="truncate text-sm font-semibold text-primary">{user.name}</p>
+          <p className="truncate text-xs text-tertiary">{user.email}</p>
+        </div>
         <Dropdown.Menu
           onAction={(key) => {
             if (key === "sign-out") void onSignOut?.();

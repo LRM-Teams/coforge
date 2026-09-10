@@ -62,16 +62,20 @@ export function WorkspaceSwitcher({
         {compact ? (
           <AriaButton
             aria-label={`${m.workspace_switcher()}: ${label}`}
-            className="flex size-9 items-center justify-center rounded-lg bg-transparent outline-none transition-colors hover:bg-primary_hover focus-visible:ring-2 focus-visible:ring-brand"
+            className="flex size-8 items-center justify-center rounded-lg bg-transparent outline-none transition-colors hover:bg-primary_hover focus-visible:ring-2 focus-visible:ring-brand"
           >
             <WorkspaceMark />
           </AriaButton>
         ) : (
           <AriaButton
             aria-label={m.workspace_switcher()}
-            className="flex h-12 w-full items-center gap-2 bg-transparent px-2 text-left outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset"
+            className="flex h-12 w-full items-center px-2 text-left outline-none transition-colors hover:text-primary focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset"
           >
-            <WorkspaceMark />
+            {/* size-5 column matches every sidebar row's icon column, so the
+                name below lines up with row text even though the mark itself is 24px. */}
+            <span className="mr-2 flex size-5 shrink-0 items-center justify-center">
+              <WorkspaceMark />
+            </span>
             <span data-workspace-name className="min-w-0 flex-1 truncate text-[13px] font-semibold">
               {label}
             </span>
