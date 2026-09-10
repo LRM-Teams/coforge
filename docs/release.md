@@ -667,6 +667,23 @@ documented timeout:
 Compose health is necessary but does not replace external or functional
 verification. Capture failure diagnostics without secrets.
 
+The Web Docker build also starts the isolated runtime payload as its runtime
+user, with networking disabled and fixture configuration only, and checks
+`/health` plus both Computer installer responses before publication. The
+`apps/web/test/production.integration.ts` check catches SSR initialization errors
+that a successful bundle build cannot detect. Nitro's documented
+[`inlineDynamicImports`](https://nitro.build/config#inlinedynamicimports) option
+currently avoids cyclic server-chunk initialization; browser splitting is unchanged.
+This workaround does not replace staging checks with real dependencies.
+
+Before automatic rollback, `remote-deploy.sh` reports allowlisted container
+state, exit/restart counts, health state, loopback HTTP status, and fixed startup
+error signatures. It examines at most 80 log lines from five minutes, capped at
+16 KiB; raw logs, health bodies, URLs, and arbitrary error text are never printed.
+Three Docker reads each have a five-second deadline plus one-second forced-kill
+grace period; the HTTP probe has a five-second timeout. Missing diagnostics do
+not prevent rollback or alter its outcome.
+
 ### Local Computer distribution
 
 Staging development publication and production readiness are separate gates.

@@ -51,7 +51,13 @@ const config = defineConfig({
     },
     paraglideVitePlugin(paraglideOptions),
     tanstackStart(),
-    nitro({ preset: "bun" }),
+    nitro({
+      preset: "bun",
+      // Avoid cyclic SSR chunks evaluating server functions before createSsrRpc
+      // initializes. Keep client splitting; only the final server bundle is inlined.
+      // https://github.com/TanStack/router/issues/8031
+      inlineDynamicImports: true,
+    }),
     tailwindcss(),
     viteReact(),
   ],

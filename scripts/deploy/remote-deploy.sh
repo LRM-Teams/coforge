@@ -232,10 +232,44 @@ rollback() {
 	return 1
 }
 
+# Read only bounded candidate evidence before rollback destroys the container.
+# Never print raw logs, inspect JSON, health output, URLs, or error messages:
+# any can contain credentials or user data not known to this deployment script.
+# Each Docker call has a 5s deadline plus a 1s forced-kill grace period.
+# Unavailable diagnostics cannot block rollback.
+candidate_diagnostics() {
+	local container state logs status
+	printf 'candidate diagnostics (allowlisted metadata and startup signatures only)\n' >&2
+	container="$(timeout --kill-after=1s 5s docker ps --filter "label=com.docker.compose.project=$project" \
+		--filter label=com.docker.compose.service=web --all --format '{{.ID}}' 2>/dev/null | head -n 1)" || true
+	if [[ "$container" =~ ^[0-9a-f]{6,64}$ ]]; then
+		state="$(timeout --kill-after=1s 5s docker inspect --format '{{.State.Status}} {{.State.ExitCode}} {{.RestartCount}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null)" || true
+		if [[ "$state" =~ ^(created|running|paused|restarting|removing|exited|dead)\ [0-9]+\ [0-9]+\ (none|starting|healthy|unhealthy)$ ]]; then
+			printf 'candidate state/exit/restarts/health: %s\n' "$state" >&2
+		fi
+		logs="$(timeout --kill-after=1s 5s docker logs --tail 80 --since 5m "$container" 2>&1 | head -c 16384)" || true
+		if [[ "$logs" == *'createSsrRpc is not a function'* ]]; then
+			printf 'startup_signature=createSsrRpc\n' >&2
+		elif [[ "$logs" == *'Cannot find module'* || "$logs" == *'ModuleNotFound'* ]]; then
+			printf 'startup_signature=missing_module\n' >&2
+		elif [[ "$logs" == *'SyntaxError'* || "$logs" == *'ReferenceError'* || "$logs" == *'TypeError'* ]]; then
+			printf 'startup_signature=javascript_initialization_error\n' >&2
+		else
+			printf 'startup_signature=unclassified_or_unavailable\n' >&2
+		fi
+	fi
+	status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 "$web_health_url" 2>/dev/null)" || true
+	if [[ "$status" =~ ^[0-9]{3}$ ]]; then
+		printf 'candidate loopback health HTTP status: %s\n' "$status" >&2
+	fi
+	return 0
+}
+
 # One failure path for every failed check: roll back to the last healthy
 # digest, or restore the verified empty state when there is none.
 fail_deployment() {
 	local reason="$1"
+	candidate_diagnostics || true
 	if rollback "$last_healthy"; then
 		public_health || true
 		report "$last_healthy" "$reason" "rolled_back" "$last_healthy"

@@ -54,6 +54,11 @@ COPY --from=migrate --chown=bun:bun /migrate .migrate
 RUN mkdir -p /data/attachments && chown -R bun:bun /data
 
 USER bun
+# Exercise the actual isolated runtime payload before an image can be published.
+# No source tree, workspace dependencies, or deployment secrets are available.
+RUN --network=none --mount=type=bind,source=apps/web/test/production.integration.ts,target=/tmp/production.integration.ts \
+    bun test /tmp/production.integration.ts
+
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:3000/health
 CMD ["bun", ".output/server/index.mjs"]
