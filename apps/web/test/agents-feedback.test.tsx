@@ -178,17 +178,27 @@ test("runtime credential dialog clears its password after cancel and successful 
   const page = within(document.body);
   await userEvent.click(page.getByRole("button", { name: "Edit runtime config" }));
   let dialog = within(await page.findByRole("dialog", { name: "Edit runtime config" }));
-  await userEvent.type(dialog.getByPlaceholderText("Enter a new API key"), "first-key");
+  await userEvent.type(
+    dialog.getByPlaceholderText("Enter the API key issued by openai"),
+    "first-key",
+  );
   await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
 
   await userEvent.click(page.getByRole("button", { name: "Edit runtime config" }));
   dialog = within(await page.findByRole("dialog", { name: "Edit runtime config" }));
-  expect((dialog.getByPlaceholderText("Enter a new API key") as HTMLInputElement).value).toBe("");
-  await userEvent.type(dialog.getByPlaceholderText("Enter a new API key"), "second-key");
+  expect(
+    (dialog.getByPlaceholderText("Enter the API key issued by openai") as HTMLInputElement).value,
+  ).toBe("");
+  await userEvent.type(
+    dialog.getByPlaceholderText("Enter the API key issued by openai"),
+    "second-key",
+  );
   await userEvent.click(dialog.getByRole("button", { name: "Save runtime config" }));
   await waitFor(() => expect(onSave).toHaveBeenCalledWith("second-key"));
 
   await userEvent.click(page.getByRole("button", { name: "Edit runtime config" }));
   dialog = within(await page.findByRole("dialog", { name: "Edit runtime config" }));
-  expect((dialog.getByPlaceholderText("Enter a new API key") as HTMLInputElement).value).toBe("");
+  expect(
+    (dialog.getByPlaceholderText("Enter the API key issued by openai") as HTMLInputElement).value,
+  ).toBe("");
 });

@@ -270,18 +270,18 @@ export function AgentRuntimeFields({
       {(provider === "coforge" || provider === "pi") &&
         KEYED_MODEL_PROVIDERS.has(modelProvider) && (
           <label className="grid min-w-0 gap-1.5 text-sm sm:col-span-2">
-            {m.agent_runtime_api_key()}
+            {m.agent_runtime_api_key({ provider: modelProvider })}
             <input
               name="apiKey"
               type="password"
-              aria-label={m.agent_runtime_api_key()}
+              aria-label={m.agent_runtime_api_key({ provider: modelProvider })}
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
               required={provider === "coforge" && !matchingConfiguredCredential}
               minLength={8}
               maxLength={4096}
               autoComplete="new-password"
-              placeholder={m.agent_runtime_api_key_placeholder()}
+              placeholder={m.agent_runtime_api_key_placeholder({ provider: modelProvider })}
               className="h-10 rounded-lg border bg-background px-3 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
             <span className="text-xs font-normal text-muted-foreground">
