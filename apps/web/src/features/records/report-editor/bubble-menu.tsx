@@ -221,7 +221,12 @@ function ColorDropdown({
           style={{ backgroundColor: noteColorToHex(current) ?? "var(--foreground)" }}
         />
       </PopoverTrigger>
-      <PopoverContent side="bottom" sideOffset={8} align="start" className="flex w-auto gap-1 p-1.5">
+      <PopoverContent
+        side="bottom"
+        sideOffset={8}
+        align="start"
+        className="flex w-auto gap-1 p-1.5"
+      >
         {NOTE_COLORS.map((color) => {
           const hex = noteColorToHex(color);
           const selected = current === color;
@@ -494,16 +499,8 @@ export function EditorBubbleMenu({ editor }: { editor: Editor }) {
       ) : (
         <>
           <HeadingDropdown editor={editor} activeLevel={activeLevel} onOpenChange={setMenuOpen} />
-          <ColorDropdown
-            editor={editor}
-            activeColor={fmt.textColor}
-            onOpenChange={setMenuOpen}
-          />
-          <FontSizeDropdown
-            editor={editor}
-            activeSize={fmt.fontSize}
-            onOpenChange={setMenuOpen}
-          />
+          <ColorDropdown editor={editor} activeColor={fmt.textColor} onOpenChange={setMenuOpen} />
+          <FontSizeDropdown editor={editor} activeSize={fmt.fontSize} onOpenChange={setMenuOpen} />
 
           <Separator orientation="vertical" className="mx-0.5 h-5" />
 
