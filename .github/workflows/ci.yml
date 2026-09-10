@@ -287,7 +287,11 @@ jobs:
       - name: Generate protocol
         run: bun run --cwd packages/protocol generate
       - name: Test compiled version and server configuration
-        # Every repetition must pass; this detects Windows process/pipe cleanup races.
+        env:
+          # GitHub empties runner.temp at job boundaries. Each test creates a unique
+          # subdirectory; external Windows readers must not fail functional tests.
+          COFORGE_RELEASE_TEST_ARTIFACT_ROOT: ${{ runner.temp }}
+        # Every repetition must pass; retain native executable behavior coverage.
         run: bun test scripts/release/compile-targets.test.ts --test-name-pattern "published Computer" --rerun-each 10
 
   # install.sh is gated by shellcheck in the Computer job; install.ps1 had no machine gate at all,
