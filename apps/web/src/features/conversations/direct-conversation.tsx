@@ -13,7 +13,6 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowUp,
-  File02 as FileText,
   LayoutLeft as PanelLeft,
   List,
   Loading01 as LoaderCircle,
@@ -21,6 +20,7 @@ import {
   Paperclip,
   CheckSquare as ListTodo,
 } from "@untitledui/icons";
+import { FileIcon } from "@untitledui/file-icons";
 import type { TaskView } from "@coforge/protocol";
 import { MenuItem as AriaMenuItem, Popover as AriaPopover } from "react-aria-components";
 
@@ -1123,7 +1123,13 @@ export function ConversationPane({
           />
           {file && (
             <p className="flex items-center gap-2 text-xs text-tertiary">
-              <FileText aria-hidden="true" className="size-3.5" />
+              <FileIcon
+                aria-hidden="true"
+                type={file.type || "empty"}
+                variant="gray"
+                size={16}
+                className="shrink-0"
+              />
               <span className="truncate">{file.name}</span>
               <Button
                 color="tertiary"
@@ -1197,9 +1203,13 @@ function AttachmentCard({
       rel="noreferrer"
       className="mt-1 flex max-w-sm min-w-0 items-center gap-3 rounded-lg border border-secondary px-3 py-2 hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
     >
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-secondary text-tertiary">
-        <FileText aria-hidden="true" className="size-4" />
-      </span>
+      <FileIcon
+        aria-hidden="true"
+        type={attachment.contentType || "empty"}
+        variant="gray"
+        size={32}
+        className="shrink-0"
+      />
       <span className="flex min-w-0 flex-col">
         <span className="truncate text-sm font-medium text-primary">{attachment.fileName}</span>
         <span className="text-xs text-tertiary">{Math.ceil(attachment.sizeBytes / 1024)} KB</span>
