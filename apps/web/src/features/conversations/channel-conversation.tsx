@@ -9,6 +9,7 @@ import type { TaskView } from "@coforge/protocol";
 import { useChannelSidebarVisibility } from "@/components/app-shell";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { MobileNavigationButton } from "@/components/layout/sidebar/mobile-header";
 import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
 import {
   ThreadedConversation,
@@ -57,6 +58,7 @@ export function ChannelConversationHeader({
             className="hidden lg:inline-flex"
           />
         )}
+        <MobileNavigationButton />
         <h1 className="truncate text-base font-semibold">#{conversation.name}</h1>
         <span className="ml-auto hidden rounded-md border border-secondary px-2 py-0.5 text-xs font-medium text-tertiary sm:block">
           {m.channel_public()}

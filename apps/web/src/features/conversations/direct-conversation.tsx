@@ -18,7 +18,6 @@ import {
   Loading01 as LoaderCircle,
   MessageSquare01 as MessageSquare,
   Paperclip,
-  CheckSquare as ListTodo,
 } from "@untitledui/icons";
 import { FileIcon } from "@untitledui/file-icons";
 import type { TaskView } from "@coforge/protocol";
@@ -32,6 +31,7 @@ import { Avatar } from "@/components/base/avatar/avatar";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { MobileNavigationButton } from "@/components/layout/sidebar/mobile-header";
 import { Toggle } from "@/components/base/toggle/toggle";
 import {
   Empty,
@@ -145,6 +145,7 @@ export function DirectConversation(props: ConversationProps) {
             className="hidden lg:inline-flex"
           />
         )}
+        <MobileNavigationButton />
         <AgentActivityAvatar
           agent={conversation.agent}
           size="sm"

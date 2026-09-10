@@ -8,6 +8,7 @@ import { useState, type ComponentProps } from "react";
 
 import { AppShell, useChannelSidebarVisibility } from "@/components/app-shell";
 import { Button } from "@/components/base/buttons/button";
+import { PageHeader } from "@/components/layout/page-header";
 import { AppToastProvider } from "@/components/ui/toast";
 import type { AgentView } from "@/features/agents/agents-content";
 import { AgentsContent as MembersContent } from "@/features/agents/agents-content";
@@ -566,6 +567,7 @@ test("keeps main content state across the channel-sidebar toggle and the mobile 
     const [value, setValue] = useState("");
     return (
       <main>
+        <PageHeader heading="Page" />
         <input
           aria-label="Page state"
           value={value}
@@ -598,33 +600,23 @@ test("keeps main content state across the channel-sidebar toggle and the mobile 
   fireEvent.keyDown(document, { key: "b", code: "KeyB", ctrlKey: true });
   fireEvent.keyUp(document, { key: "b", code: "KeyB", ctrlKey: true });
 
-  // Mobile drawer: the official sidebar's own modal overlay is a sibling of
-  // `{children}` (a React portal, not a remount of it), so opening it must
-  // not touch the page's state either.
-  await browserUser.click(page().getByRole("button", { name: "Expand navigation menu" }));
-  expect(page().getByRole("button", { name: "Close navigation menu" })).toBeTruthy();
+  // Mobile drawer: the overlay is a portal beside `{children}`, not a remount,
+  // so opening it from the page header must not touch the page's state either.
+  await browserUser.click(page().getByRole("button", { name: "Open menu" }));
+  expect(page().getByRole("button", { name: "Close menu" })).toBeTruthy();
   expect(page().getByRole("textbox", { name: "Page state" })).toBe(state);
   expect((state as HTMLInputElement).value).toBe("preserved");
 });
 
-test("the mobile navigation menu opens and closes with its own hamburger button", async () => {
+test("the mobile navigation menu opens from the page header and closes with its own button", async () => {
   const browserUser = userEvent.setup({ document });
   renderShell();
 
-  // The official sidebar (SidebarNavigationSimple, unmodified) ships its own
-  // persistent mobile header with a hamburger trigger and a modal drawer;
-  // CoForge no longer maintains a separate per-page toggle for this. NOTE:
-  // unlike the previous hand-built drawer, the official NavList/NavItemBase
-  // render plain links with no per-item onClick hook, so selecting a nav
-  // link (or a Personal Settings menu item) no longer auto-closes the
-  // drawer — there's no prop/slot on the official component to hook a
-  // close call into. Closing is manual, via the drawer's own X button.
-  const menu = page().getByRole("button", { name: "Expand navigation menu" });
-  expect(menu.getAttribute("aria-expanded")).toBe("false");
-  await browserUser.click(menu);
-  expect(menu.getAttribute("aria-expanded")).toBe("true");
-  await browserUser.click(page().getByRole("button", { name: "Close navigation menu" }));
-  expect(menu.getAttribute("aria-expanded")).toBe("false");
+  expect(page().queryByRole("button", { name: "Close menu" })).toBeNull();
+  await browserUser.click(page().getByRole("button", { name: "Open menu" }));
+  expect(page().getByRole("button", { name: "Close menu" })).toBeTruthy();
+  await browserUser.click(page().getByRole("button", { name: "Close menu" }));
+  expect(page().queryByRole("button", { name: "Close menu" })).toBeNull();
 });
 
 test("renders the same shell from the Simplified Chinese catalog", () => {

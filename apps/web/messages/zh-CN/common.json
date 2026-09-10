@@ -43,5 +43,7 @@
   "workspace_unavailable_description": "当前账号还不是任何工作空间的成员。请退出后重新登录以创建，或请管理员授予访问权限。",
   "app_load_error": "页面无法加载。",
   "app_load_error_description": "服务可能暂时不可用，请稍后重试。",
-  "error_reference": "错误编号：{errorId}"
+  "error_reference": "错误编号：{errorId}",
+  "navigation_open_menu": "打开菜单",
+  "navigation_close_menu": "关闭菜单"
 }

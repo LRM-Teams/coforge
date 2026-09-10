@@ -1,36 +1,39 @@
 // Copied from the official app-navigation/base-components/mobile-header.tsx template
-// (see docs/ui-guidelines.md §2): only the logo slot is adapted to CoForge.
-import type { PropsWithChildren } from "react";
+// (see docs/ui-guidelines.md §2), adapted so the drawer opens from each page's own
+// header instead of a separate app header: one 48px band per page on mobile.
+import { createContext, useContext, useState, type PropsWithChildren } from "react";
 import { X as CloseIcon, Menu02 } from "@untitledui/icons";
 import {
   Button as AriaButton,
   Dialog as AriaDialog,
-  DialogTrigger as AriaDialogTrigger,
   Modal as AriaModal,
   ModalOverlay as AriaModalOverlay,
 } from "react-aria-components";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { m } from "@/paraglide/messages";
 import { cx } from "@/utils/cx";
 
+const MobileDrawerContext = createContext<{
+  isOpen: boolean;
+  setOpen: (open: boolean) => void;
+} | null>(null);
+
+/** Wraps the whole shell so any page header can open the drawer. */
+export const MobileDrawerProvider = ({ children }: PropsWithChildren) => {
+  const [isOpen, setOpen] = useState(false);
+  return <MobileDrawerContext value={{ isOpen, setOpen }}>{children}</MobileDrawerContext>;
+};
+
 export const MobileNavigationHeader = ({ children }: PropsWithChildren) => {
+  const drawer = useContext(MobileDrawerContext);
+  const isOpen = drawer?.isOpen ?? false;
+  const setOpen = drawer?.setOpen ?? (() => {});
   return (
-    <AriaDialogTrigger>
-      <header className="flex h-14 items-center justify-between border-b border-secondary bg-primary p-3 pl-4 lg:hidden">
-        <a href="/" className="flex items-center gap-2">
-          <img src="/logo.svg" alt="CoForge" className="size-6" />
-          <span className="text-sm font-semibold text-primary">CoForge</span>
-        </a>
-
-        <AriaButton
-          aria-label="Expand navigation menu"
-          className="group flex items-center justify-center rounded-lg bg-primary p-2 text-fg-secondary outline-focus-ring hover:bg-primary_hover hover:text-fg-secondary_hover focus-visible:outline-2 focus-visible:outline-offset-2"
-        >
-          <Menu02 className="size-6 transition duration-200 ease-in-out group-aria-expanded:opacity-0" />
-          <CloseIcon className="absolute size-6 opacity-0 transition duration-200 ease-in-out group-aria-expanded:opacity-100" />
-        </AriaButton>
-      </header>
-
+    <>
       <AriaModalOverlay
         isDismissable
+        isOpen={isOpen}
+        onOpenChange={setOpen}
         className={({ isEntering, isExiting }) =>
           cx(
             "fixed inset-0 z-50 cursor-pointer bg-overlay/70 pr-16 backdrop-blur-md lg:hidden",
@@ -42,7 +45,7 @@ export const MobileNavigationHeader = ({ children }: PropsWithChildren) => {
         {({ state }) => (
           <>
             <AriaButton
-              aria-label="Close navigation menu"
+              aria-label={m.navigation_close_menu()}
               onPress={() => state.close()}
               className="fixed top-2.5 right-3 flex cursor-pointer items-center justify-center rounded-lg p-2 text-fg-white/70 outline-focus-ring hover:bg-white/10 hover:text-fg-white focus-visible:outline-2 focus-visible:outline-offset-2"
             >
@@ -57,6 +60,22 @@ export const MobileNavigationHeader = ({ children }: PropsWithChildren) => {
           </>
         )}
       </AriaModalOverlay>
-    </AriaDialogTrigger>
+    </>
   );
 };
+
+/** Opens the mobile drawer; renders nothing on lg+ and outside the drawer host. */
+export function MobileNavigationButton({ className }: { className?: string }) {
+  const drawer = useContext(MobileDrawerContext);
+  if (!drawer) return null;
+  return (
+    <ButtonUtility
+      icon={Menu02}
+      size="sm"
+      color="tertiary"
+      aria-label={m.navigation_open_menu()}
+      onClick={() => drawer.setOpen(true)}
+      className={cx("-ml-2 shrink-0 lg:hidden", className)}
+    />
+  );
+}

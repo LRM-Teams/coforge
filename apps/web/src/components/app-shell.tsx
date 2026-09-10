@@ -17,6 +17,7 @@ import { Avatar } from "@/components/base/avatar/avatar";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import type { SidebarChannel } from "@/components/layout/sidebar/sidebar-conversations";
 import { SidebarRail } from "@/components/layout/sidebar/sidebar-rail";
+import { MobileDrawerProvider } from "@/components/layout/sidebar/mobile-header";
 import {
   ChannelSidebar,
   SidebarMobileDrawer,
@@ -149,67 +150,69 @@ export function AppShell({
   };
 
   return (
-    <div className="min-h-svh bg-primary font-body antialiased lg:flex">
-      {/* Each sidebar is `fixed` + a spacer div reserving its width in flow;
+    <MobileDrawerProvider>
+      <div className="flex h-svh flex-col bg-primary font-body antialiased lg:flex-row">
+        {/* Each sidebar is `fixed` + a spacer div reserving its width in flow;
           `contents` keeps that pair as direct flex items of this `lg:flex` shell. */}
-      <div onClickCapture={onSidebarClickCapture} className="contents">
-        <SidebarMobileDrawer
-          activeUrl={activeUrl}
-          items={navItems}
-          subheader={
-            <WorkspaceSwitcher
-              workspaces={workspaces}
-              current={currentWorkspace}
-              onSelect={onSelectWorkspace}
-              onCreate={onCreateWorkspace}
-            />
-          }
-          footer={<UserMenuCard user={user} onSignOut={onSignOut} />}
-          {...conversationSections}
-        />
-
-        <SidebarRail
-          activeUrl={activeUrl}
-          items={navItems}
-          subheader={
-            <WorkspaceSwitcher
-              compact
-              workspaces={workspaces}
-              current={currentWorkspace}
-              onSelect={onSelectWorkspace}
-              onCreate={onCreateWorkspace}
-            />
-          }
-          footer={<UserMenuCard compact user={user} onSignOut={onSignOut} />}
-        />
-
-        {isChatRoute && !channelSidebarHidden && (
-          <ChannelSidebar
-            workspaceName={currentWorkspace?.name}
-            onHide={() => setChannelSidebarHidden(true)}
-            width={channelSidebarWidth}
-            onWidthChange={setChannelSidebarWidth}
+        <div onClickCapture={onSidebarClickCapture} className="contents">
+          <SidebarMobileDrawer
+            activeUrl={activeUrl}
+            items={navItems}
+            subheader={
+              <WorkspaceSwitcher
+                workspaces={workspaces}
+                current={currentWorkspace}
+                onSelect={onSelectWorkspace}
+                onCreate={onCreateWorkspace}
+              />
+            }
+            footer={<UserMenuCard user={user} onSignOut={onSignOut} />}
             {...conversationSections}
+          />
+
+          <SidebarRail
+            activeUrl={activeUrl}
+            items={navItems}
+            subheader={
+              <WorkspaceSwitcher
+                compact
+                workspaces={workspaces}
+                current={currentWorkspace}
+                onSelect={onSelectWorkspace}
+                onCreate={onCreateWorkspace}
+              />
+            }
+            footer={<UserMenuCard compact user={user} onSignOut={onSignOut} />}
+          />
+
+          {isChatRoute && !channelSidebarHidden && (
+            <ChannelSidebar
+              workspaceName={currentWorkspace?.name}
+              onHide={() => setChannelSidebarHidden(true)}
+              width={channelSidebarWidth}
+              onWidthChange={setChannelSidebarWidth}
+              {...conversationSections}
+            />
+          )}
+        </div>
+
+        <ChannelSidebarVisibilityContext
+          value={{
+            hidden: isChatRoute && channelSidebarHidden,
+            show: () => setChannelSidebarHidden(false),
+          }}
+        >
+          <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+        </ChannelSidebarVisibilityContext>
+        {onCreateChannel && (
+          <CreateChannelDialog
+            open={createChannelOpen}
+            onOpenChange={setCreateChannelOpen}
+            onCreate={onCreateChannel}
           />
         )}
       </div>
-
-      <ChannelSidebarVisibilityContext
-        value={{
-          hidden: isChatRoute && channelSidebarHidden,
-          show: () => setChannelSidebarHidden(false),
-        }}
-      >
-        <div className="flex min-w-0 flex-1 flex-col">{children}</div>
-      </ChannelSidebarVisibilityContext>
-      {onCreateChannel && (
-        <CreateChannelDialog
-          open={createChannelOpen}
-          onOpenChange={setCreateChannelOpen}
-          onCreate={onCreateChannel}
-        />
-      )}
-    </div>
+    </MobileDrawerProvider>
   );
 }
 

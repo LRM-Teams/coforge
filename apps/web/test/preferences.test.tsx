@@ -439,9 +439,9 @@ test("opens and dismisses the sidebar as a mobile drawer", async () => {
   // The official sidebar (SidebarNavigationSimple, unmodified) ships its own
   // persistent mobile header with a hamburger button and a modal drawer;
   // CoForge no longer maintains a separate custom drawer/toggle for this.
-  await user.click(view.getByRole("button", { name: "Expand navigation menu" }));
-  expect(view.getByRole("button", { name: "Close navigation menu" })).toBeTruthy();
+  await user.click(view.getByRole("button", { name: "Open menu" }));
+  expect(view.getByRole("button", { name: "Close menu" })).toBeTruthy();
 
-  await user.click(view.getByRole("button", { name: "Close navigation menu" }));
-  expect(view.queryByRole("button", { name: "Close navigation menu" })).toBeNull();
+  await user.click(view.getByRole("button", { name: "Close menu" }));
+  expect(view.queryByRole("button", { name: "Close menu" })).toBeNull();
 });
