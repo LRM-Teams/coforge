@@ -1,6 +1,18 @@
-import { chmod, mkdir, readFile, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { acquireProcessLock } from "@coforge/daemon";
+import { runInstallationSource } from "./release/installation-source";
 
 const CHECKSUM_PATTERN = /^[0-9a-f]{64}$/;
 // Matches the pointer file, a version directory, and a manifest.json platform entry: a bare
@@ -74,7 +86,9 @@ export interface ComputerUpdaterOptions {
   target: string;
   installRoot: string;
   binaryDirectory?: string;
-  fetch?: typeof globalThis.fetch;
+  localDirectory?: string;
+  onStage?: (stage: string) => void;
+  quietHeader?: boolean;
 }
 
 export interface LockedComputerUpdater {
@@ -89,7 +103,9 @@ export class ComputerUpdater {
   readonly #target: string;
   readonly #installRoot: string;
   readonly #binaryDirectory: string;
-  readonly #fetch: typeof globalThis.fetch;
+  readonly #localDirectory: string | undefined;
+  readonly #onStage: (stage: string) => void;
+  readonly #quietHeader: boolean;
 
   constructor(options: ComputerUpdaterOptions) {
     this.#baseUrl = new URL(
@@ -98,24 +114,18 @@ export class ComputerUpdater {
     this.#target = options.target;
     this.#installRoot = options.installRoot;
     this.#binaryDirectory = options.binaryDirectory ?? join(options.installRoot, "bin");
-    this.#fetch = options.fetch ?? globalThis.fetch;
+    this.#localDirectory = options.localDirectory;
+    this.#onStage = options.onStage ?? (() => {});
+    this.#quietHeader = options.quietHeader ?? false;
   }
 
   async install(selection: string): Promise<{ version: string; previous: string | null }> {
     return this.withExclusiveOperation(async () => {
       const version = await this.resolveVersion(selection);
-      const manifest = this.#parseManifest(
-        await this.#download(`${version}/manifest.json`),
+      const computerBytes = await this.#prepareArtifact(
         version,
+        selection === "latest" || selection === "",
       );
-      const platform = manifest.platforms[this.#target];
-      if (!platform) {
-        throw new UpdateError(
-          "UPDATE_UNSUPPORTED_TARGET",
-          `manifest has no platform entry for ${this.#target}`,
-        );
-      }
-      const computerBytes = await this.#downloadArtifact(version, platform.computer);
 
       const previousState = await this.#readJson<ActiveState>("active.json");
       await this.#installVersion(version, computerBytes);
@@ -138,20 +148,15 @@ export class ComputerUpdater {
 
   async #prepare(selection: string): Promise<PreparedUpdate> {
     const version = await this.resolveVersion(selection);
-    const manifest = this.#parseManifest(await this.#download(`${version}/manifest.json`), version);
-    const platform = manifest.platforms[this.#target];
-    if (!platform) {
-      throw new UpdateError(
-        "UPDATE_UNSUPPORTED_TARGET",
-        `manifest has no platform entry for ${this.#target}`,
-      );
-    }
     const active = await this.#readJson<ActiveState>("active.json");
     if (active?.current) {
       this.#assertVersion(active.current, "active version is invalid");
       await this.#assertInstalled(active.current);
     }
-    await this.#installVersion(version, await this.#downloadArtifact(version, platform.computer));
+    await this.#installVersion(
+      version,
+      await this.#prepareArtifact(version, selection === "latest" || selection === ""),
+    );
     return {
       version,
       previous: active?.current ?? null,
@@ -239,8 +244,19 @@ export class ComputerUpdater {
    * string; there is no "test" or "sha256:" selection mode any more. */
   async resolveVersion(selection: string): Promise<string> {
     if (selection === "latest" || selection === "") {
-      const bytes = await this.#download("latest");
-      const version = new TextDecoder().decode(bytes).trim();
+      let version: string;
+      try {
+        version = await runInstallationSource({
+          baseUrl: this.#baseUrl.href,
+          target: this.#target,
+          selection: "latest",
+        });
+      } catch (error) {
+        throw new UpdateError(
+          "UPDATE_FEED_INVALID",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
       this.#assertVersion(version, "latest pointer does not contain a valid version");
       if (version === "latest") {
         throw new UpdateError("UPDATE_FEED_INVALID", "latest pointer must name a concrete version");
@@ -301,12 +317,62 @@ export class ComputerUpdater {
     }
   }
 
-  async #downloadArtifact(version: string, artifact: PlatformArtifact): Promise<Uint8Array> {
+  async #prepareArtifact(version: string, resolvedLatest: boolean): Promise<Uint8Array> {
+    const directory = this.#localDirectory ?? (await mkdtemp(join(tmpdir(), "coforge-candidate-")));
+    try {
+      if (!this.#localDirectory) {
+        await runInstallationSource({
+          baseUrl: this.#baseUrl.href,
+          target: this.#target,
+          selection: version,
+          directory,
+          quietHeader: resolvedLatest || this.#quietHeader,
+          phase: "manifest",
+        });
+      }
+      const manifestFile = Bun.file(join(directory, "manifest.json"));
+      if (manifestFile.size > 1024 * 1024)
+        throw new UpdateError("UPDATE_FEED_INVALID", "manifest exceeds size limit");
+      const manifest = this.#parseManifest(
+        new Uint8Array(await manifestFile.arrayBuffer()),
+        version,
+      );
+      const platform = manifest.platforms[this.#target];
+      if (!platform)
+        throw new UpdateError(
+          "UPDATE_UNSUPPORTED_TARGET",
+          `manifest has no platform entry for ${this.#target}`,
+        );
+      if (!this.#localDirectory) {
+        await runInstallationSource({
+          baseUrl: this.#baseUrl.href,
+          target: this.#target,
+          selection: version,
+          directory,
+          quietHeader: true,
+          phase: "artifact",
+        });
+      }
+      return await this.#verifyArtifact(directory, platform.computer);
+    } catch (error) {
+      if (error instanceof UpdateError) throw error;
+      throw new UpdateError(
+        "UPDATE_FEED_INVALID",
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      if (!this.#localDirectory) await rm(directory, { recursive: true, force: true });
+    }
+  }
+
+  async #verifyArtifact(directory: string, artifact: PlatformArtifact): Promise<Uint8Array> {
     const download = artifact.gzip;
-    let bytes = await this.#download(
-      `${version}/${this.#target}/${download.binary}`,
-      download.size,
-    );
+    const file = Bun.file(join(directory, download.binary));
+    if (file.size > download.size)
+      throw integrity(`release object is larger than its recorded size: ${download.binary}`);
+    if (file.size !== download.size)
+      throw integrity(`downloaded artifact failed integrity: ${download.binary}`);
+    let bytes = new Uint8Array(await file.arrayBuffer());
     if (!matchesIdentity(bytes, download)) {
       throw integrity(`downloaded artifact failed integrity: ${download.binary}`);
     }
@@ -335,40 +401,10 @@ export class ComputerUpdater {
     return bytes;
   }
 
-  async #download(path: string, expectedSize?: number): Promise<Uint8Array> {
-    const url = new URL(path, this.#baseUrl);
-    if (url.origin !== this.#baseUrl.origin || !url.pathname.startsWith(this.#baseUrl.pathname)) {
-      throw new UpdateError("UPDATE_FEED_INVALID", "release URL escapes the configured feed");
-    }
-    let response: Response;
-    try {
-      response = await this.#fetch(url);
-    } catch {
-      throw new UpdateError("UPDATE_FEED_INVALID", `could not download ${path}`);
-    }
-    if (!response.ok || response.redirected) {
-      throw new UpdateError(
-        "UPDATE_FEED_INVALID",
-        `release object unavailable without a trusted redirect: ${path}`,
-      );
-    }
-    // The manifest states the exact size, so a body that exceeds it is already known to be
-    // wrong and there is no reason to buffer the rest of it. Without this a malicious or
-    // compromised feed could exhaust memory before the checksum check ever runs.
-    const declared = Number(response.headers.get("content-length"));
-    if (expectedSize !== undefined && Number.isFinite(declared) && declared > expectedSize) {
-      throw integrity(`release object is larger than its recorded size: ${path}`);
-    }
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (expectedSize !== undefined && bytes.byteLength > expectedSize) {
-      throw integrity(`release object is larger than its recorded size: ${path}`);
-    }
-    return bytes;
-  }
-
   async #installVersion(version: string, computer: Uint8Array): Promise<void> {
     const versions = join(this.#installRoot, "versions");
     const destination = join(versions, version);
+    this.#onStage(`Installing CoForge Computer to ${destination}`);
     try {
       await stat(destination);
       await this.#assertInstalled(version);

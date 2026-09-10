@@ -80,6 +80,10 @@ async function probe(executable: string, directory: string, serverUrl: string) {
       new Response(login.stderr).text(),
     ]);
     return {
+      processes: {
+        daemon: { pid: daemon.pid, exitCode: daemonCode, pipesDrained: true },
+        login: { pid: login.pid, exitCode: code, pipesDrained: true },
+      },
       daemonCode,
       daemonOutput,
       daemonError,

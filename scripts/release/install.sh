@@ -11,8 +11,24 @@ feed_url=${COFORGE_RELEASE_FEED_URL:-$default_feed_url}
 feed_url=${feed_url%/}
 
 version=latest
+prepare_directory=
+target=
+resolve_only=0
+quiet_header=0
+prepare_phase=all
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --prepare-directory|--target|--prepare-phase)
+      [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "install.sh: $1 requires a value" >&2; exit 2; }
+      case "$1" in
+        --prepare-directory) prepare_directory=$2 ;;
+        --target) target=$2 ;;
+        --prepare-phase) prepare_phase=$2 ;;
+      esac
+      shift 2
+      ;;
+    --resolve-only) resolve_only=1; shift ;;
+    --quiet-header) quiet_header=1; shift ;;
     --version)
       [ "$#" -ge 2 ] || { echo "install.sh: --version requires a value" >&2; exit 2; }
       version=$2
@@ -71,11 +87,14 @@ case "$feed_url" in
     ;;
 esac
 
+if [ -z "$prepare_directory" ] && [ "$resolve_only" -eq 0 ]; then
 command -v gzip >/dev/null 2>&1 || {
   echo "install.sh: gzip is required to install CoForge Computer" >&2
   exit 1
 }
+fi
 
+if [ -z "$target" ]; then
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64) target=linux-x64 ;;
   Linux-aarch64|Linux-arm64) target=linux-arm64 ;;
@@ -83,25 +102,44 @@ case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) target=darwin-arm64 ;;
   *) echo "install.sh: unsupported platform" >&2; exit 1 ;;
 esac
+fi
+case "$target" in
+  linux-x64) platform='Linux x64' ;;
+  linux-arm64) platform='Linux ARM64' ;;
+  darwin-x64) platform='macOS (Intel)' ;;
+  darwin-arm64) platform='macOS (Apple Silicon)' ;;
+  windows-x64) platform='Windows x64' ;;
+  windows-arm64) platform='Windows ARM64' ;;
+  *) echo "install.sh: unsupported release target: $target" >&2; exit 2 ;;
+esac
+case "$prepare_phase" in
+  all) ;;
+  manifest|artifact) [ -n "$prepare_directory" ] || { echo "install.sh: preparation phase requires a directory" >&2; exit 2; } ;;
+  *) echo "install.sh: invalid preparation phase" >&2; exit 2 ;;
+esac
 
+if [ -n "$prepare_directory" ]; then
+  [ -d "$prepare_directory" ] || { echo "install.sh: preparation directory must already exist" >&2; exit 2; }
+  temporary_directory=$prepare_directory
+else
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/coforge-installer.XXXXXX")
 trap 'rm -rf "$temporary_directory"' EXIT HUP INT TERM
+fi
 
 is_interactive=0
-if [ -t 2 ] && [ "${COFORGE_INSTALLER_NO_COLOR:-}" != "1" ]; then
+if [ -t 2 ]; then
   is_interactive=1
 else
   is_interactive=0
 fi
 
-if [ "$is_interactive" -eq 1 ]; then
+if [ "$is_interactive" -eq 1 ] && [ "${COFORGE_INSTALLER_NO_COLOR:-}" != "1" ] && [ -z "${NO_COLOR:-}" ]; then
   bold='\033[1m'
-  muted='\033[2m'
   accent='\033[36m'
   success='\033[32m'
   reset='\033[0m'
 else
-  bold=''; muted=''; accent=''; success=''; reset=''
+  bold=''; accent=''; success=''; reset=''
 fi
 
 step() {
@@ -113,18 +151,27 @@ done_step() {
 }
 
 fetch() {
-  # Do not use curl's progress meter here. The installer already reports the bounded,
-  # meaningful steps below; curl's meter writes frequent carriage-return updates to stderr,
-  # which become a large stream of lines when stderr is captured by a terminal wrapper.
-  curl --fail --silent --show-error --location --proto "$curl_proto" --tlsv1.2 "$@"
+  # Metadata must not follow redirects. --fail alone accepts 3xx responses.
+  status=$(curl --fail --silent --show-error --proto "$curl_proto" --tlsv1.2 --write-out '%{http_code}' "$@") || return 1
+  case "$status" in
+    2??) ;;
+    *) echo "install.sh: download returned HTTP $status (redirects are not followed)" >&2; return 1 ;;
+  esac
 }
 
 fetch_binary() {
+  progress=--silent
   if [ "$is_interactive" -eq 1 ] && [ "${COFORGE_INSTALLER_PROGRESS:-}" != "0" ]; then
-    curl --fail --progress-bar --show-error --location --proto "$curl_proto" --tlsv1.2 "$@"
-  else
-    fetch "$@"
+    progress=--progress-bar
   fi
+  # Preserve bootstrap's HTTPS-only redirects; updater preparation refuses every redirect.
+  redirects=--location
+  [ -z "$prepare_directory" ] || redirects=
+  status=$(curl --fail "$progress" --show-error $redirects --proto "$curl_proto" --proto-redir "$curl_proto" --tlsv1.2 --write-out '%{http_code}' "$@") || return 1
+  case "$status" in
+    2??) ;;
+    *) echo "install.sh: download returned HTTP $status" >&2; return 1 ;;
+  esac
 }
 
 # `latest` and the checksum sidecar (below) are both tiny, feed-controlled text objects with no
@@ -132,36 +179,43 @@ fetch_binary() {
 # curl's max-filesize option treats a literal zero as "unlimited", so neither constant below may
 # ever be zero.
 max_pointer_bytes=4096
-# The manifest never travels through this script at all (see docs/release.md and the sidecar
-# comment below), so there is no per-download size to enforce for the binary either. This
-# generous constant only bounds memory/disk against an unbounded stream; the checksum comparison
-# below is what actually proves the payload correct.
+max_manifest_bytes=1048576
+# Fixed transport ceiling; the updater checks exact compressed and expanded manifest sizes.
 max_binary_bytes=536870912
 
+[ "$quiet_header" -eq 1 ] || step "Detected platform: $platform"
 if [ "$version" = "latest" ]; then
-  step "Finding the latest CoForge Computer version"
-  latest_pointer=$(fetch --max-filesize "$max_pointer_bytes" "$feed_url/latest" | tr -d '[:space:]')
-  is_valid_version "$latest_pointer" || {
+  [ "$quiet_header" -eq 1 ] || step "Finding the latest CoForge Computer version"
+  fetch --max-filesize "$max_pointer_bytes" --output "$temporary_directory/latest" "$feed_url/latest"
+  latest_pointer=$(tr -d '[:space:]' < "$temporary_directory/latest")
+  rm "$temporary_directory/latest"
+  if [ "$latest_pointer" = latest ] || ! is_valid_version "$latest_pointer"; then
     echo "install.sh: the latest pointer did not return a valid version" >&2
     exit 1
-  }
+  fi
   version=$latest_pointer
 fi
 
-if [ "$is_interactive" -eq 1 ]; then
-  printf '%b\n' "${muted}   CoForge Computer · $target · $version${reset}" >&2
+[ "$quiet_header" -eq 1 ] || step "Resolved version: $version"
+if [ "$resolve_only" -eq 1 ]; then
+  printf '%s\n' "$version"
+  exit 0
 fi
 
-# Integrity for the binary comes from a sidecar checksum file, not a parsed manifest: POSIX sed
-# cannot parse JSON correctly - an unanchored regex over the whole document can be made to match
-# a different value than a real JSON parser would pick, so a jq-available branch and a sed
-# fallback branch built from the same manifest bytes are not guaranteed to agree on what they
-# extract. The feed instead publishes one line of bare lowercase hex per platform binary at
-# "<version>/<target>/coforge-computer.sha256", which needs no parser at all. The updater in
-# packages/computer/src/updater.ts is a real TypeScript/JSON.parse consumer and keeps reading
-# manifest.json directly; that file is unaffected by this script.
+if [ "$prepare_phase" != artifact ]; then
+  fetch --max-filesize "$max_manifest_bytes" --output "$temporary_directory/manifest.json" "$feed_url/$version/manifest.json"
+fi
+[ "$prepare_phase" != manifest ] || exit 0
+compressed_path="$temporary_directory/coforge-computer.gz"
+step "Downloading CoForge Computer"
+fetch_binary --max-filesize "$max_binary_bytes" --output "$compressed_path" "$feed_url/$version/$target/coforge-computer.gz"
+printf '%s\n' "$version" > "$temporary_directory/version"
+if [ -n "$prepare_directory" ]; then
+  exit 0
+fi
+
+# Bootstrap checks the sidecar before executing code; the local installer parses the manifest.
 sidecar_path="$temporary_directory/coforge-computer.sha256"
-step "Preparing the download"
 fetch --max-filesize "$max_pointer_bytes" --output "$sidecar_path" "$feed_url/$version/$target/coforge-computer.sha256"
 expected_sha256=$(tr -d '[:space:]' < "$sidecar_path")
 case "$expected_sha256" in
@@ -173,13 +227,8 @@ if [ -z "$expected_sha256" ] || [ "${#expected_sha256}" -ne 64 ]; then
 fi
 
 computer_path="$temporary_directory/coforge-computer"
-compressed_path="$temporary_directory/coforge-computer.gz"
-step "Downloading CoForge Computer"
-fetch_binary --max-filesize "$max_binary_bytes" --output "$compressed_path" "$feed_url/$version/$target/coforge-computer.gz"
-done_step "Download complete"
 # Limit the output both while expanding and after completion. POSIX ulimit -f is measured
 # in 512-byte blocks, so this matches max_binary_bytes without trusting gzip metadata.
-step "Unpacking and verifying"
 (ulimit -f 1048576; gzip -dc "$compressed_path" > "$computer_path") || {
   echo "install.sh: compressed binary could not be decompressed safely" >&2
   exit 1
@@ -200,15 +249,13 @@ fi
   echo "install.sh: downloaded binary failed its checksum check" >&2
   exit 1
 }
-done_step "Checksum verified"
 
 chmod 700 "$computer_path"
 # A plain (non-exec) invocation runs the binary as a child process, so the EXIT trap above still
 # fires once it returns and the temporary directory - including the ~138 MB binary - is removed.
 # `exec` would replace this shell with the child and skip the trap entirely, leaking that binary
 # into $TMPDIR on every single install.
-step "Installing CoForge Computer"
-"$computer_path" install --version "$version"
+"$computer_path" __install-local --version "$version" --directory "$temporary_directory"
 
 # This must resolve the shim directory by exactly the rule
 # packages/computer/src/paths.ts:resolveComputerBinaryDirectory applies, because the binary
@@ -252,13 +299,9 @@ fi
 # fallback below, when the directory really is absent from PATH.
 case ":${PATH:-}:" in
   *":$bin_directory:"*)
+    step "$bin_directory is already on PATH"
     done_step "CoForge Computer $version installed and ready to use"
-    printf '%b\n' "" >&2
-    # Sign in first: `setup` registers this Computer against an account, so it has nothing to
-    # register as until `login` has stored a credential.
-    printf '%s\n' "Sign in, then connect this computer to a workspace:" >&2
-    printf '%b\n' "  ${accent}coforge-computer login${reset}" >&2
-    printf '%b\n' "  ${accent}coforge-computer setup --workspace <slug>${reset}" >&2
+    printf '%b\n' "Next: ${accent}coforge-computer setup --workspace <slug>${reset}" >&2
     exit 0
     ;;
 esac
@@ -325,11 +368,5 @@ else
 fi
 
 done_step "CoForge Computer $version installed"
-printf '%b\n' "" >&2
-printf '%s\n' "New shells will find CoForge Computer. To use it in this one, run:" >&2
-printf '%b\n' "  ${accent}$session_command${reset}" >&2
-printf '%s\n' "Then sign in and connect this computer to a workspace:" >&2
-printf '%b\n' "  ${accent}coforge-computer login${reset}" >&2
-printf '%b\n' "  ${accent}coforge-computer setup --workspace <slug>${reset}" >&2
-printf '%s\n' "Or leave PATH alone and use the full path:" >&2
-printf '%s\n' "  \"$bin_directory/coforge-computer\" login" >&2
+printf '%b\n' "Current terminal: ${accent}$session_command${reset}" >&2
+printf '%s\n' "Next: \"$bin_directory/coforge-computer\" setup --workspace <slug>" >&2

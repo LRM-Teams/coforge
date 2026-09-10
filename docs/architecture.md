@@ -1105,6 +1105,13 @@ version，以及每个原运行 binding 的新 child process identity；失败�
 恢复同一集合并重新验证，若两侧均不健康则保持 launch hold 供显式恢复。显式 foreground 模式由外部
 supervisor 所有，当前升级实现不能停止它，必须先从外部停止后再升级。
 
+首次安装和升级共用 release installer script 的 curl 下载实现（Windows 为 curl.exe）。Computer
+在构建时嵌入同一份脚本，以编译时确定的 feed 调用准备模式，不执行远程可变脚本。Bootstrap
+下载一次 gzip 后，将本地 manifest/gzip 交给内部安装入口；Updater 重新验证这些 bytes、写入
+staging 并激活，不另行下载大包。升级协调进程仍持有完整变更锁并负责运行时切换和回滚；终端
+进度仅供展示，持久化 result 文件仍是完成依据。平台检测先于版本解析，正常输出只保留简短的
+平台、版本、下载、安装和结果提示，失败才展开回滚结果。
+
 Web frontend 只提供 Workspace-scoped Daemon restart，不提供整机 restart/upgrade。远端全局所有权和
 machine-owner 授权模型仍未解决；在形成并批准该安全边界前，不得从单个 Workspace admin 权限推断
 整机控制权，也不得增加远端全局操作入口。
