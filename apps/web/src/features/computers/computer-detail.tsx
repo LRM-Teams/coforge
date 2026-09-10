@@ -4,10 +4,10 @@ import type { RuntimeProvider } from "@coforge/protocol";
 
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Badge } from "@/components/base/badges/badges";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { RelativeTime } from "@/components/ui/relative-time";
+import { useAppToast } from "@/components/ui/toast";
 import { m } from "@/paraglide/messages";
 import { BackToComputers } from "./computer-layout";
 import { computerLabel, operatingSystemLabel, type ComputerIdentity } from "./computer-identity";
@@ -71,10 +71,10 @@ export function ComputerDetail({
   const [displayNameDraft, setDisplayNameDraft] = useState(computer.displayName);
   const [savingDisplayName, setSavingDisplayName] = useState(false);
   const [displayNameError, setDisplayNameError] = useState(false);
+  const toast = useAppToast();
   const [restartState, setRestartState] = useState<
     "idle" | "pending" | "accepted" | "completed" | "error"
   >("idle");
-  const [restartResult, setRestartResult] = useState<ComputerRestartStatus>();
   const setRuntimePublic = async (runtimeId: string, isPublic: boolean) => {
     if (updatingRuntimeIds.current.has(runtimeId)) return;
     updatingRuntimeIds.current.add(runtimeId);
@@ -102,7 +102,7 @@ export function ComputerDetail({
     <>
       <div className="flex shrink-0 flex-wrap items-center gap-4 border-b border-secondary px-4 py-3 sm:px-6">
         <BackToComputers />
-        <ComputerTile computer={computer} />
+        <ComputerTile computer={computer} online={computer.online} />
         <div className="min-w-0 flex-1">
           {editingDisplayName ? (
             <form
@@ -166,9 +166,6 @@ export function ComputerDetail({
               <h1 className="truncate text-lg font-semibold text-primary">
                 {computerLabel(computer)}
               </h1>
-              <Badge color={computer.online ? "success" : "gray"} size="sm">
-                {computer.online ? m.computer_status_online() : m.computer_status_offline()}
-              </Badge>
               {computer.ownedByCurrentUser && onUpdateDisplayName && (
                 <ButtonUtility
                   type="button"
@@ -235,29 +232,40 @@ export function ComputerDetail({
                 const requestId = crypto.randomUUID();
                 void onRestart(requestId)
                   .then(async (initial) => {
-                    setRestartResult(initial);
-                    if (initial.status !== "accepted" || !onReadRestartStatus) return initial;
+                    if (initial.status !== "accepted") return initial;
                     setRestartState("accepted");
+                    toast.success(m.computer_restart_accepted());
+                    if (!onReadRestartStatus) return initial;
                     for (let poll = 0; poll < restartMaxPolls; poll += 1) {
                       await new Promise((resolve) =>
                         window.setTimeout(resolve, restartPollIntervalMs),
                       );
                       const result = await onReadRestartStatus(requestId);
-                      setRestartResult(result);
                       if (result.status !== "accepted") return result;
                     }
                     return { requestId, status: "failed" as const, reason: "timeout" as const };
                   })
                   .then(
-                    (result) =>
-                      setRestartState(
-                        result.status === "completed"
-                          ? "completed"
-                          : result.status === "accepted"
-                            ? "accepted"
-                            : "error",
-                      ),
-                    () => setRestartState("error"),
+                    (result) => {
+                      if (result.status === "completed") {
+                        setRestartState("completed");
+                        toast.success(
+                          m.computer_restart_completed({
+                            version: result.daemonVersion,
+                            process: result.workerInstanceId,
+                          }),
+                        );
+                      } else if (result.status === "accepted") {
+                        setRestartState("accepted");
+                      } else {
+                        setRestartState("error");
+                        toast.error(m.computer_restart_error());
+                      }
+                    },
+                    () => {
+                      setRestartState("error");
+                      toast.error(m.computer_restart_error());
+                    },
                   );
               }}
             >
@@ -270,33 +278,6 @@ export function ComputerDetail({
       </div>
 
       <div className="@container min-h-0 flex-1 space-y-8 overflow-y-auto p-4 sm:p-6 lg:p-8">
-        {restartState === "accepted" && (
-          <p
-            role="status"
-            className="rounded-lg border border-secondary bg-success-primary p-3 text-sm text-success-primary"
-          >
-            {m.computer_restart_accepted()}
-          </p>
-        )}
-        {restartState === "completed" && restartResult?.status === "completed" && (
-          <p
-            role="status"
-            className="rounded-lg border border-secondary bg-success-primary p-3 text-sm text-success-primary"
-          >
-            {m.computer_restart_completed({
-              version: restartResult.daemonVersion,
-              process: restartResult.workerInstanceId,
-            })}
-          </p>
-        )}
-        {restartState === "error" && (
-          <p
-            role="alert"
-            className="rounded-lg border border-error_subtle bg-error-primary p-3 text-sm text-error-primary"
-          >
-            {m.computer_restart_error()}
-          </p>
-        )}
         <section aria-labelledby="computer-code-agents">
           <h2 id="computer-code-agents" className="text-lg font-semibold tracking-tight">
             {m.computer_code_agents()}
