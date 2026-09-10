@@ -79,7 +79,7 @@ export function ComputerInstallCommand({
         <p className="text-sm font-medium">{m.computer_install_step()}</p>
         <p className="mt-1 text-sm text-tertiary">{m.computer_install_step_description()}</p>
         <div className="mt-4 flex items-center gap-2 rounded-xl bg-terminal p-4 text-sm text-terminal-fg">
-          <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap">{command}</code>
+          <code className="min-w-0 flex-1 break-all whitespace-pre-wrap">{command}</code>
           <ButtonUtility
             icon={installCopied ? Check : Copy}
             size="sm"

@@ -28,16 +28,21 @@ export function RelativeTime({
    */
   plain?: boolean;
 }) {
-  const [now, setNow] = useState(() => new Date());
+  // `now`, the locale and the browser time zone all differ between the server
+  // and the client, so anything derived from them is rendered only after mount;
+  // the server markup carries the ISO instant, which hydrates without a mismatch.
+  const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
+    setNow(new Date());
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
 
   const instant = new Date(value);
   const locale = getLocale();
-  const exactTime = formatDateForDisplay(instant, timeZone, locale);
+  const exactTime = now ? formatDateForDisplay(instant, timeZone, locale) : instant.toISOString();
+  const relative = now ? formatRelativeTime(instant, now, locale) : instant.toISOString();
   const timeElement = (
     <time
       dateTime={instant.toISOString()}
@@ -45,7 +50,7 @@ export function RelativeTime({
       aria-label={plain ? exactTime : undefined}
       className={plain ? className : undefined}
     >
-      {formatRelativeTime(instant, now, locale)}
+      {relative}
       {showExact && <span className="ml-1.5">· {exactTime}</span>}
     </time>
   );
