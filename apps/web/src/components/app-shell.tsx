@@ -5,6 +5,7 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import {
   UserCircle as CircleUserRound,
   CheckSquare as ListTodo,
+  File02 as FileText,
   MessageCircle01 as MessageCircle,
   Monitor01 as Monitor,
   LayoutLeft as PanelLeft,
@@ -186,6 +187,16 @@ export function AppShell({
                 {m.tasks_tab()}
               </Link>
               <Link
+                to="/records"
+                search={{ tab: "weekly" }}
+                activeProps={navLinkActiveProps}
+                className={navLinkClassName}
+                onClick={() => setMobileSidebarOpen(false)}
+              >
+                <FileText aria-hidden="true" className="size-4" />
+                {m.navigation_records()}
+              </Link>
+              <Link
                 to="/computers"
                 activeProps={navLinkActiveProps}
                 className={navLinkClassName}
@@ -302,6 +313,22 @@ export function AppShell({
                       }
                     />
                     <TooltipContent side="right">{m.tasks_tab()}</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Link
+                          to="/records"
+                          search={{ tab: "weekly" }}
+                          aria-label={m.navigation_records()}
+                          activeProps={railLinkActiveProps}
+                          className={railLinkClassName}
+                        >
+                          <FileText aria-hidden="true" className="size-4" />
+                        </Link>
+                      }
+                    />
+                    <TooltipContent side="right">{m.navigation_records()}</TooltipContent>
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger

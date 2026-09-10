@@ -14,7 +14,8 @@
       "./messages/{locale}/settings.json",
       "./messages/{locale}/computer.json",
       "./messages/{locale}/workspace.json",
-      "./messages/{locale}/landing.json"
+      "./messages/{locale}/landing.json",
+      "./messages/{locale}/records.json"
     ]
   }
 }

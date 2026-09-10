@@ -122,6 +122,15 @@ instructions for the TanStack Start Web/backend modular monolith.
   reuse `executeTask`, with claim semantics and revision-checked updates;
   overview membership metadata only controls available UI actions.
 
+- Workspace Records (weekly reports) belong to `features/records/` (list/detail,
+  settings, stats, side comments, and Server Functions) and
+  `server/records/record-catalog.server.ts` (cycles, reports, highlights,
+  templates, favorites, notes, and comments). Persistence is Prisma under
+  Workspace membership. Report bodies use lightweight outline JSON keyed by
+  template-dimension tabs. MVP writes only human `user` comments; `assistant`
+  authorType and comment `payload` are reserved for later AI side panels.
+  Schema merge requires Frank approval (see ADR 0009).
+
 - Browser realtime connection ownership belongs to `features/realtime/`. The
   `_app` layout owns one Centrifuge connection for the selected Workspace;
   feature modules may subscribe to authorized channels but must not create

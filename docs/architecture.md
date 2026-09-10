@@ -226,6 +226,9 @@ PostgreSQL 的首要领域对象是：
 - `conversation`
 - `participant`
 - `message`
+- Workspace Records（周报）：`weekly_report_cycles`、`weekly_reports`、
+  `weekly_report_highlights`、`weekly_report_favorites`、`weekly_report_templates`、
+  `record_notes`、`record_comments`（见 ADR 0009；合入 main 前需 Frank 批准 schema）
 
 `run` 表示一次 Agent 执行，`event` 表示执行中的流式片段、工具或状态记录；二者不是 delivery 的核心，不应在骨架阶段过早锁死。最终表名、字段、索引与 migration 内容由 backend 设计评审确定，数据访问标准为 Prisma。
 

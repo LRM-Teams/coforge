@@ -87,6 +87,37 @@ belongs to the Message's Thread; a Task is not an Agent run or a scheduled job.
 The User or Agent who has claimed responsibility for a Task, distinct from the
 Task's message author or the User who owns the Agent.
 
+**Record**:
+A Workspace collaboration surface for durable written work outside chat:
+weekly-report cycles, member reports, highlights, favorites, send templates,
+and notes. It is not a Message inbox or an Agent run.
+_Avoid_: Message, Task, Agent Activity
+
+**WeeklyReportCycle**:
+One ISO week bucket inside a Workspace that groups that week's template,
+member reports, and highlight.
+_Avoid_: Calendar month, chat thread
+
+**WeeklyReport**:
+One User-authored weekly-report document in a WeeklyReportCycle, either the
+cycle template draft or a member submission, carrying structured outline
+content and a submission status.
+_Avoid_: Message body, Task
+
+**WeeklyReportHighlight**:
+The Workspace-level key-points document for one WeeklyReportCycle.
+_Avoid_: Member WeeklyReport, channel summary
+
+**WeeklyReportTemplate**:
+Reusable Workspace send configuration for weekly reports (name, dimensions,
+recipients, frequency, and send time), distinct from a cycle's template draft.
+_Avoid_: WeeklyReport content, Message template
+
+**RecordComment**:
+A comment attached to a Record subject (report, highlight, or cycle). Authors
+may be a User now, or later a system/assistant identity for AI side panels.
+_Avoid_: Message, Agent Activity
+
 **Agent status**:
 The volatile two-value lease status derived from the local Agent runtime process: `online` while the process is running and `offline` after it exits or is stopped. Lease renewals may replay the same logical status. Records carry daemon instance, client sequence, and the daemon instance start time in `observedAtMs`; same-instance records order by sequence and cross-instance records order by that instance rank. Browser snapshots and live events use the same merge rule.
 _Avoid_: starting, ready, degraded, failed
