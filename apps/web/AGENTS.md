@@ -187,8 +187,9 @@ instructions for the TanStack Start Web/backend modular monolith.
   Native button leaves are allowed only in the shared Button/Select/Tooltip
   adapters that implement React Aria render semantics; feature code must use
   components. Official Tooltip `title` props are not native HTML title attributes.
-  `features/landing` retains its existing presentation and isolated legacy
-  controls; product changes must not alter the public homepage.
+  `features/landing` keeps its presentation (Spell and Magic UI motion pieces
+  under `components/spell` and `components/magicui` stay as installed); its
+  header controls use the official Dropdown, so no shadcn/Base UI remnants exist.
 - Loading placeholders belong to the feature whose content they represent:
   `features/agents/agents-pending.tsx` owns the Agent list;
   `features/agents/agent-detail-pending.tsx` owns Profile/Activity placeholders;
