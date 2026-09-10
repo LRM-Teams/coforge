@@ -60,7 +60,7 @@ test("overview shows observed metadata and original creator while offline", () =
   const page = within(document.body);
   // OS, Computer version, and "Added <when>" now live in the header's second
   // line, not as their own labeled grid fields.
-  expect(page.getByText("4.5.6")).toBeTruthy();
+  expect(page.getByText("v4.5.6")).toBeTruthy();
   expect(page.getByText("macOS 26.1")).toBeTruthy();
   expect(page.getByText("Added by")).toBeTruthy();
   expect(page.getByText("Alice Creator")).toBeTruthy();
@@ -102,7 +102,7 @@ test("shows the machine and Code Agents with usage hidden until requested", asyn
   expect(page.queryByText("Models")).toBeNull();
   expect(page.queryByText("GPT-5")).toBeNull();
   expect(page.queryByText("Recommended")).toBeNull();
-  expect(page.getByRole("heading", { name: "Detected Runtimes" })).toBeTruthy();
+  expect(page.getByRole("heading", { name: "Detected runtimes" })).toBeTruthy();
   expect(page.queryByText("No snapshot yet")).toBeNull();
   fireEvent.click(page.getByRole("button", { name: "Codex Runtime · Usage" }));
   await page.findByRole("dialog");

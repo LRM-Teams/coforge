@@ -50,7 +50,7 @@
   "computer_display_name_saving": "正在保存…",
   "computer_display_name_cancel": "取消",
   "computer_display_name_error": "无法保存显示名称，请重试。",
-  "computer_name": "Computer 名称",
+  "computer_hostname": "主机名",
   "computer_connected_at": "添加于",
   "computer_added_by": "添加者",
   "computer_code_agents": "已检测到的运行时",

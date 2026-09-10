@@ -17,6 +17,7 @@ import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Badge } from "@/components/base/badges/badges";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { m } from "@/paraglide/messages";
@@ -80,10 +81,21 @@ export function AgentDetail({
             status={online === undefined ? undefined : online ? "online" : "offline"}
           />
           <div className="min-w-0">
-            <h1 className="break-words text-2xl font-semibold md:text-3xl">{detail.displayName}</h1>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-tertiary">
-              <p className="break-all">@{detail.name}</p>
-              <p className="border-l border-secondary pl-3">{statusLabel}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="break-words text-2xl font-semibold md:text-3xl">
+                {detail.displayName}
+              </h1>
+              <Badge color={online ? "success" : "gray"} size="sm">
+                {statusLabel}
+              </Badge>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-tertiary">
+              <span className="break-all">@{detail.name}</span>
+              <span aria-hidden="true">·</span>
+              <span>
+                {m.agent_profile_created()}{" "}
+                <RelativeTime value={detail.createdAt} timeZone={timeZone} />
+              </span>
             </div>
           </div>
         </div>
@@ -142,7 +154,6 @@ export function AgentDetail({
         {tab === "profile" ? (
           <Profile
             detail={detail}
-            timeZone={timeZone}
             onSaveRuntimeCredential={onSaveRuntimeCredential}
             onDeleteRuntimeCredential={onDeleteRuntimeCredential}
             onUpdate={onUpdate}
@@ -167,7 +178,6 @@ export function AgentDetail({
 
 function Profile({
   detail,
-  timeZone,
   onSaveRuntimeCredential,
   onDeleteRuntimeCredential,
   onUpdate,
@@ -176,7 +186,6 @@ function Profile({
   onExecuteControl,
 }: {
   detail: Detail;
-  timeZone: string | null;
   onSaveRuntimeCredential: (apiKey: string) => Promise<void>;
   onDeleteRuntimeCredential: () => Promise<void>;
   onUpdate: (input: UpdateAgentInput) => Promise<void>;
@@ -195,18 +204,19 @@ function Profile({
   const providerId = nestedConfigValue(detail.runtimeConfig, "provider", "providerId");
   const canConfigureCredential =
     detail.ownedByCurrentUser && providerKind === "coforge" && Boolean(providerId);
+  const nameMatchesDisplayName = detail.name === detail.displayName;
   const fields = [
-    { label: m.agent_profile_id(), value: detail.id, mono: true },
-    { label: m.agent_profile_name(), value: detail.name, mono: true },
-    { label: m.agent_profile_display_name(), value: detail.displayName },
+    { label: m.agent_profile_id(), value: detail.id, mono: true, breakAll: true },
+    ...(nameMatchesDisplayName
+      ? []
+      : [
+          { label: m.agent_profile_name(), value: detail.name, mono: true },
+          { label: m.agent_profile_display_name(), value: detail.displayName },
+        ]),
     ...(detail.description
       ? [{ label: m.agent_profile_description(), value: detail.description }]
       : []),
     { label: m.agent_profile_owner(), value: `@${detail.owner.username}` },
-    {
-      label: m.agent_profile_created(),
-      value: <RelativeTime value={detail.createdAt} timeZone={timeZone} />,
-    },
   ];
   return (
     <div className="divide-y divide-secondary">
@@ -227,12 +237,13 @@ function Profile({
           )}
         </div>
         <dl className="mt-5 grid gap-x-8 gap-y-6 md:grid-cols-2 xl:grid-cols-3">
-          {fields.map(({ label, value, mono }) => (
+          {fields.map(({ label, value, mono, breakAll }) => (
             <div key={label} className="min-w-0">
               <dt className="text-sm text-tertiary">{label}</dt>
               <dd
                 className={cn(
-                  "mt-1 min-w-0 text-sm font-medium whitespace-pre-wrap break-words text-primary",
+                  "mt-1 min-w-0 text-sm font-medium whitespace-pre-wrap text-primary",
+                  breakAll ? "break-all" : "break-words",
                   mono && "font-mono",
                 )}
               >
@@ -384,22 +395,6 @@ function Profile({
             label={m.agent_runtime_field()}
             value={providerKind === "coforge" ? m.agent_provider_pi_builtin() : runtime}
           />
-          {providerKind === "coforge" && (
-            <>
-              <RuntimeField
-                label={m.agent_runtime_provider_field()}
-                value={providerId || m.agent_form_provider_default()}
-              />
-              <RuntimeField
-                label={m.agent_runtime_api_key()}
-                value={
-                  detail.ownedByCurrentUser
-                    ? detail.runtimeCredential?.hint || m.agent_runtime_api_key_not_configured()
-                    : m.agent_runtime_api_key_private()
-                }
-              />
-            </>
-          )}
           <RuntimeField
             label={m.agent_form_model()}
             value={configValue(detail.runtimeConfig, "model") || m.agent_form_provider_default()}

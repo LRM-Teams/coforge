@@ -2,16 +2,15 @@ import { useRef, useState } from "react";
 import { Edit01 as Pencil, RefreshCw01 as RotateCw } from "@untitledui/icons";
 import type { RuntimeProvider } from "@coforge/protocol";
 
-import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Badge } from "@/components/base/badges/badges";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { RelativeTime } from "@/components/ui/relative-time";
-import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { BackToComputers } from "./computer-layout";
-import { computerLabel, type ComputerIdentity } from "./computer-identity";
+import { computerLabel, operatingSystemLabel, type ComputerIdentity } from "./computer-identity";
 import { ComputerTile } from "./computer-tile";
 import { RuntimeIdentity, RuntimeUsage, type UsageView } from "./runtime-usage";
 import type { ComputerRestartStatus } from "./computer.schemas";
@@ -101,17 +100,31 @@ export function ComputerDetail({
 
   return (
     <>
-      <PageHeader
-        leading={
-          <>
-            <BackToComputers />
-            <ComputerTile computer={computer} />
-          </>
-        }
-        heading={computerLabel(computer)}
-        meta={<StatusPill online={computer.online} />}
-        actions={
-          onRestart ? (
+      <div className="flex shrink-0 flex-wrap items-center gap-4 border-b border-secondary px-4 py-3 sm:px-6">
+        <BackToComputers />
+        <ComputerTile computer={computer} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="truncate text-lg font-semibold text-primary">
+              {computerLabel(computer)}
+            </h1>
+            <Badge color={computer.online ? "success" : "gray"} size="sm">
+              {computer.online ? m.computer_status_online() : m.computer_status_offline()}
+            </Badge>
+          </div>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-sm text-tertiary">
+            <span>{operatingSystemLabel(computer)}</span>
+            <span aria-hidden="true">·</span>
+            <span>{computerVersionLabel(computer)}</span>
+            <span aria-hidden="true">·</span>
+            <span>
+              {m.computer_connected_at()}{" "}
+              <RelativeTime value={computer.connectedAt} timeZone={timeZone} plain />
+            </span>
+          </p>
+        </div>
+        {onRestart && (
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             <Button
               type="button"
               size="md"
@@ -153,18 +166,8 @@ export function ComputerDetail({
                 ? m.computer_restart_requesting()
                 : m.computer_restart_action()}
             </Button>
-          ) : undefined
-        }
-      />
-      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 border-b border-secondary px-4 py-2 text-sm text-tertiary sm:px-6">
-        <span>{operatingSystemLabel(computer)}</span>
-        <span aria-hidden="true">·</span>
-        <span>{computer.computerVersion || m.computer_metadata_unknown()}</span>
-        <span aria-hidden="true">·</span>
-        <span>
-          {m.computer_connected_at()}{" "}
-          <RelativeTime value={computer.connectedAt} timeZone={timeZone} />
-        </span>
+          </div>
+        )}
       </div>
 
       <div className="@container min-h-0 flex-1 space-y-8 overflow-y-auto p-4 sm:p-6 lg:p-8">
@@ -284,7 +287,7 @@ export function ComputerDetail({
               </dd>
             </div>
             <div className="min-w-0">
-              <dt className="text-sm text-tertiary">{m.computer_name()}</dt>
+              <dt className="text-sm text-tertiary">{m.computer_hostname()}</dt>
               <dd className="mt-1 font-mono text-sm font-medium break-words text-primary [overflow-wrap:anywhere]">
                 {computer.name}
               </dd>
@@ -382,28 +385,6 @@ export function ComputerDetail({
   );
 }
 
-function operatingSystemLabel(computer: ComputerDetailView) {
-  const name =
-    computer.platform === "darwin"
-      ? "macOS"
-      : computer.platform === "linux"
-        ? "Linux"
-        : computer.platform === "win32"
-          ? "Windows"
-          : undefined;
-  return name
-    ? `${name} ${computer.osVersion || m.computer_metadata_unknown()}`
-    : m.computer_metadata_unknown();
-}
-
-function StatusPill({ online }: { online: boolean }) {
-  return (
-    <span className="flex shrink-0 items-center gap-1.5 rounded-md border border-secondary bg-primary px-2 py-0.5 text-xs font-medium text-primary shadow-xs">
-      <span
-        aria-hidden="true"
-        className={cn("size-2 rounded-full", online ? "bg-fg-success-primary" : "bg-offline")}
-      />
-      {online ? m.computer_status_online() : m.computer_status_offline()}
-    </span>
-  );
+function computerVersionLabel(computer: ComputerDetailView) {
+  return computer.computerVersion ? `v${computer.computerVersion}` : m.computer_metadata_unknown();
 }

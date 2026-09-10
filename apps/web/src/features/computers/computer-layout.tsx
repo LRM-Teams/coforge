@@ -20,14 +20,20 @@ import {
 } from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
-import { computerLabel, type ComputerIdentity } from "./computer-identity";
+import {
+  computerLabel,
+  operatingSystemLabel,
+  type ComputerIdentity,
+  type ComputerPlatformInfo,
+} from "./computer-identity";
 import { ComputerTile } from "./computer-tile";
 
-export type ComputerListItem = ComputerIdentity & {
-  id: string;
-  online: boolean;
-  computerVersion?: string | null;
-};
+export type ComputerListItem = ComputerIdentity &
+  ComputerPlatformInfo & {
+    id: string;
+    online: boolean;
+    computerVersion?: string | null;
+  };
 
 /**
  * Lets the selected Computer put the "back to the list" control in its own
@@ -103,9 +109,13 @@ export function ComputerLayout({
                     <span className="truncate text-sm font-semibold">
                       {computerLabel(computer)}
                     </span>
-                    {computer.name && computer.name !== computerLabel(computer) && (
+                    {computer.name && computer.name !== computerLabel(computer) ? (
                       <span className="truncate font-mono text-xs text-tertiary">
                         {computer.name}
+                      </span>
+                    ) : (
+                      <span className="truncate text-xs text-tertiary">
+                        {operatingSystemLabel(computer)}
                       </span>
                     )}
                   </span>
