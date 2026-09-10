@@ -41,15 +41,6 @@ test.each([
         directory,
         `${target}-coforge-computer${process.platform === "win32" ? ".exe" : ""}`,
       );
-      const result = Bun.spawnSync([executable, "--cli-version"], {
-        env: { ...Bun.env, COFORGE_COMPUTER_VERSION: "0.0.0-wrong" },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout.toString()).toBe("9.8.7-rc.6\n");
-      expect(result.stderr.toString()).toBe("");
-      processes.version = { pid: result.pid, exitCode: result.exitCode };
       // Keep executable handles in a worker whose OS lifetime we can await.
       // Bun's exited subprocess handles otherwise remain owned by the test VM.
       const probe = Bun.spawn(
@@ -72,6 +63,9 @@ test.each([
       expect(probeCode).toBe(0);
       const observed = JSON.parse(probeOutput);
       processes.children = observed.processes;
+      expect(observed.version.exitCode).toBe(0);
+      expect(observed.version.stdout).toBe("9.8.7-rc.6\n");
+      expect(observed.version.stderr).toBe("");
       expect(observed.daemonCode).toBe(1);
       expect(observed.daemonOutput).toBe("");
       expect(observed.daemonError).toContain("does not match this daemon build");

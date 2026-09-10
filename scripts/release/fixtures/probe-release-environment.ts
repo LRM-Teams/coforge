@@ -4,6 +4,11 @@ import { join } from "node:path";
 // This worker owns all handles to the compiled executable. Its OS exit releases
 // them before the parent test removes the executable, without relying on GC.
 async function probe(executable: string, directory: string, serverUrl: string) {
+  const version = Bun.spawnSync([executable, "--cli-version"], {
+    env: { ...Bun.env, COFORGE_COMPUTER_VERSION: "0.0.0-wrong" },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const otherServer = serverUrl.includes("staging")
     ? "https://coforge.cn"
     : "https://staging.coforge.cn";
@@ -80,7 +85,13 @@ async function probe(executable: string, directory: string, serverUrl: string) {
       new Response(login.stderr).text(),
     ]);
     return {
+      version: {
+        exitCode: version.exitCode,
+        stdout: version.stdout.toString(),
+        stderr: version.stderr.toString(),
+      },
       processes: {
+        version: { pid: version.pid, exitCode: version.exitCode },
         daemon: { pid: daemon.pid, exitCode: daemonCode, pipesDrained: true },
         login: { pid: login.pid, exitCode: code, pipesDrained: true },
       },
