@@ -21,6 +21,15 @@ const config = defineConfig({
     tsconfigPaths: true,
     alias: workspaceAliases,
   },
+  // Bun builtins (`import … from "bun"`) are not npm packages. Without this,
+  // Vite's client dependency scan fails when it crawls server modules that use
+  // RedisClient / other Bun APIs, and skips pre-bundling after lockfile changes.
+  optimizeDeps: {
+    exclude: ["bun"],
+  },
+  ssr: {
+    external: ["bun"],
+  },
   server: {
     allowedHosts: [".onamp.dev"],
     host: "127.0.0.1",
@@ -31,6 +40,15 @@ const config = defineConfig({
     },
   },
   plugins: [
+    {
+      name: "externalize-bun-builtin",
+      enforce: "pre",
+      resolveId(id) {
+        if (id === "bun" || id.startsWith("bun:")) {
+          return { id, external: true };
+        }
+      },
+    },
     paraglideVitePlugin(paraglideOptions),
     tanstackStart(),
     nitro({ preset: "bun" }),

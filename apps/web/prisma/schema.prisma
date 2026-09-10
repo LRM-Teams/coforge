@@ -28,6 +28,12 @@ model Workspace {
   reminderEvents      ReminderEvent[]
   attachments         Attachment[]
   tasks               Task[]
+  weeklyReportCycles  WeeklyReportCycle[]
+  weeklyReports       WeeklyReport[]
+  weeklyHighlights    WeeklyReportHighlight[]
+  weeklyTemplates     WeeklyReportTemplate[]
+  recordNotes         RecordNote[]
+  recordComments      RecordComment[]
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 
@@ -56,6 +62,12 @@ model User {
   webPushSubscriptions        WebPushSubscription[]
   attachments                 Attachment[]
   deviceAuthorizations        DeviceAuthorization[]
+  weeklyReportCyclesCreated   WeeklyReportCycle[]       @relation("WeeklyReportCycleCreator")
+  weeklyReportsAuthored       WeeklyReport[]            @relation("WeeklyReportAuthor")
+  weeklyReportFavorites       WeeklyReportFavorite[]
+  weeklyTemplateRecipients    WeeklyReportTemplateRecipient[]
+  recordNotesAuthored         RecordNote[]              @relation("RecordNoteAuthor")
+  recordCommentsAuthored      RecordComment[]           @relation("RecordCommentAuthor")
 
   @@map("users")
 }
@@ -579,4 +591,154 @@ model ReminderFireReceipt {
 
   @@id([reminderId, requestId])
   @@map("reminder_fire_receipts")
+}
+
+/// ISO week bucket for Workspace Records (成员周报 / 周报要点 grouping).
+model WeeklyReportCycle {
+  id          String                 @id @default(uuid()) @db.Uuid
+  workspaceId String                 @db.Uuid
+  year        Int
+  week        Int
+  title       String
+  createdById String                 @db.Uuid
+  createdAt   DateTime               @default(now())
+  workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User                   @relation("WeeklyReportCycleCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  reports     WeeklyReport[]
+  highlight   WeeklyReportHighlight?
+  comments    RecordComment[]        @relation("CycleComments")
+
+  @@unique([workspaceId, year, week])
+  @@index([workspaceId, year, week])
+  @@map("weekly_report_cycles")
+}
+
+/// Member or cycle-template weekly report document with structured outline JSON.
+model WeeklyReport {
+  id          String                 @id @default(uuid()) @db.Uuid
+  workspaceId String                 @db.Uuid
+  cycleId     String                 @db.Uuid
+  authorId    String                 @db.Uuid
+  /// member | template
+  kind        String
+  title       String
+  /// draft | submitted | shared
+  status      String                 @default("draft")
+  content     Json
+  submittedAt DateTime?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  cycle       WeeklyReportCycle      @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  author      User                   @relation("WeeklyReportAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  favorites   WeeklyReportFavorite[]
+  comments    RecordComment[]        @relation("ReportComments")
+
+  @@unique([cycleId, authorId, kind])
+  @@index([workspaceId, authorId])
+  @@index([cycleId, kind])
+  @@map("weekly_reports")
+}
+
+model WeeklyReportHighlight {
+  id          String            @id @default(uuid()) @db.Uuid
+  workspaceId String            @db.Uuid
+  cycleId     String            @unique @db.Uuid
+  title       String
+  content     Json
+  completedAt DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  cycle       WeeklyReportCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  comments    RecordComment[]   @relation("HighlightComments")
+
+  @@index([workspaceId])
+  @@map("weekly_report_highlights")
+}
+
+model WeeklyReportFavorite {
+  userId    String       @db.Uuid
+  reportId  String       @db.Uuid
+  createdAt DateTime     @default(now())
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  report    WeeklyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@id([userId, reportId])
+  @@index([reportId])
+  @@map("weekly_report_favorites")
+}
+
+/// Reusable Workspace send configuration (周报设置 templates).
+model WeeklyReportTemplate {
+  id          String                          @id @default(uuid()) @db.Uuid
+  workspaceId String                          @db.Uuid
+  name        String
+  /// weekly
+  frequency   String                          @default("weekly")
+  sendTime    String                          @default("15:00")
+  dimensions  Json
+  mainTitles  Json
+  allMembers  Boolean                         @default(false)
+  createdAt   DateTime                        @default(now())
+  updatedAt   DateTime                        @updatedAt
+  workspace   Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  recipients  WeeklyReportTemplateRecipient[]
+
+  @@index([workspaceId])
+  @@map("weekly_report_templates")
+}
+
+model WeeklyReportTemplateRecipient {
+  templateId String               @db.Uuid
+  userId     String               @db.Uuid
+  template   WeeklyReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([templateId, userId])
+  @@index([userId])
+  @@map("weekly_report_template_recipients")
+}
+
+model RecordNote {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  authorId    String    @db.Uuid
+  title       String
+  body        String    @default("")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  author      User      @relation("RecordNoteAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, authorId])
+  @@map("record_notes")
+}
+
+/// Side-panel comments on Record subjects; assistant authorType reserved for future AI.
+model RecordComment {
+  id           String                 @id @default(uuid()) @db.Uuid
+  workspaceId  String                 @db.Uuid
+  /// report | highlight | cycle
+  subjectType  String
+  reportId     String?                @db.Uuid
+  highlightId  String?                @db.Uuid
+  cycleId      String?                @db.Uuid
+  /// user | system | assistant
+  authorType   String
+  authorUserId String?                @db.Uuid
+  body         String
+  payload      Json?
+  createdAt    DateTime               @default(now())
+  workspace    Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  authorUser   User?                  @relation("RecordCommentAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  report       WeeklyReport?          @relation("ReportComments", fields: [reportId], references: [id], onDelete: Cascade)
+  highlight    WeeklyReportHighlight? @relation("HighlightComments", fields: [highlightId], references: [id], onDelete: Cascade)
+  cycle        WeeklyReportCycle?     @relation("CycleComments", fields: [cycleId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, subjectType, createdAt])
+  @@index([reportId])
+  @@index([highlightId])
+  @@index([cycleId])
+  @@map("record_comments")
 }

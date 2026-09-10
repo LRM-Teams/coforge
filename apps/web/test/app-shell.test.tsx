@@ -196,11 +196,14 @@ test("shows the primary navigation with Members selected", () => {
   expect(markup).toContain("Members");
   expect(markup).toContain("Messages");
   expect(markup).toContain("Tasks");
+  expect(markup).toContain("Records");
   expect(markup).toContain("Computers");
   expect(markup.indexOf("Members")).toBeLessThan(markup.indexOf("Messages"));
   expect(markup.indexOf("Messages")).toBeLessThan(markup.indexOf("Tasks"));
-  expect(markup.indexOf("Tasks")).toBeLessThan(markup.indexOf("Computers"));
+  expect(markup.indexOf("Tasks")).toBeLessThan(markup.indexOf("Records"));
+  expect(markup.indexOf("Records")).toBeLessThan(markup.indexOf("Computers"));
   expect(markup).toContain('href="/en/messages"');
+  expect(markup).toContain('href="/en/records?tab=weekly"');
   expect(markup).toContain('aria-label="Current user"');
   expect(markup).toContain(">F</span>");
 });

@@ -16,6 +16,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as DotwellKnownOauthAuthorizationServerRouteImport } from './routes/[.]well-known.oauth-authorization-server'
 import { Route as AppComputersRouteImport } from './routes/_app/computers'
 import { Route as AppMessagesRouteImport } from './routes/_app/messages'
+import { Route as AppRecordsRouteImport } from './routes/_app/records'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppTasksRouteImport } from './routes/_app/tasks'
 import { Route as ApiAgentApiKeysRouteImport } from './routes/api/agent-api-keys'
@@ -38,6 +39,10 @@ import { Route as AppComputersIndexRouteImport } from './routes/_app/computers.i
 import { Route as AppComputersComputerIdRouteImport } from './routes/_app/computers.$computerId'
 import { Route as AppMessagesIndexRouteImport } from './routes/_app/messages.index'
 import { Route as AppMessagesAgentIdRouteImport } from './routes/_app/messages.$agentId'
+import { Route as AppRecordsIndexRouteImport } from './routes/_app/records.index'
+import { Route as AppRecordsRecordIdRouteImport } from './routes/_app/records.$recordId'
+import { Route as AppRecordsSettingsRouteImport } from './routes/_app/records.settings'
+import { Route as AppRecordsStatsRouteImport } from './routes/_app/records.stats'
 import { Route as ApiAgentAttachmentUploadCapabilitiesRouteImport } from './routes/api/agent/attachment-upload-capabilities'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments.$attachmentId'
 import { Route as ApiInternalCentrifugoRouteImport } from './routes/api/internal/centrifugo'
@@ -83,6 +88,11 @@ const AppComputersRoute = AppComputersRouteImport.update({
 const AppMessagesRoute = AppMessagesRouteImport.update({
   id: '/messages',
   path: '/messages',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRecordsRoute = AppRecordsRouteImport.update({
+  id: '/records',
+  path: '/records',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
@@ -195,6 +205,26 @@ const AppMessagesAgentIdRoute = AppMessagesAgentIdRouteImport.update({
   path: '/$agentId',
   getParentRoute: () => AppMessagesRoute,
 } as any)
+const AppRecordsIndexRoute = AppRecordsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppRecordsRoute,
+} as any)
+const AppRecordsRecordIdRoute = AppRecordsRecordIdRouteImport.update({
+  id: '/$recordId',
+  path: '/$recordId',
+  getParentRoute: () => AppRecordsRoute,
+} as any)
+const AppRecordsSettingsRoute = AppRecordsSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRecordsRoute,
+} as any)
+const AppRecordsStatsRoute = AppRecordsStatsRouteImport.update({
+  id: '/stats',
+  path: '/stats',
+  getParentRoute: () => AppRecordsRoute,
+} as any)
 const ApiAgentAttachmentUploadCapabilitiesRoute =
   ApiAgentAttachmentUploadCapabilitiesRouteImport.update({
     id: '/api/agent/attachment-upload-capabilities',
@@ -265,6 +295,7 @@ export interface FileRoutesByFullPath {
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
   '/computers': typeof AppComputersRouteWithChildren
   '/messages': typeof AppMessagesRouteWithChildren
+  '/records': typeof AppRecordsRouteWithChildren
   '/settings': typeof AppSettingsRoute
   '/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
@@ -284,6 +315,9 @@ export interface FileRoutesByFullPath {
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/computers/$computerId': typeof AppComputersComputerIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
+  '/records/$recordId': typeof AppRecordsRecordIdRoute
+  '/records/settings': typeof AppRecordsSettingsRoute
+  '/records/stats': typeof AppRecordsStatsRoute
   '/api/agent/attachment-upload-capabilities': typeof ApiAgentAttachmentUploadCapabilitiesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
@@ -294,6 +328,7 @@ export interface FileRoutesByFullPath {
   '/agents/': typeof AppAgentsIndexRoute
   '/computers/': typeof AppComputersIndexRoute
   '/messages/': typeof AppMessagesIndexRoute
+  '/records/': typeof AppRecordsIndexRoute
   '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
   '/api/computers/$computerId/creator-avatar': typeof ApiComputersComputerIdCreatorAvatarRoute
@@ -323,6 +358,9 @@ export interface FileRoutesByTo {
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/computers/$computerId': typeof AppComputersComputerIdRoute
   '/messages/$agentId': typeof AppMessagesAgentIdRoute
+  '/records/$recordId': typeof AppRecordsRecordIdRoute
+  '/records/settings': typeof AppRecordsSettingsRoute
+  '/records/stats': typeof AppRecordsStatsRoute
   '/api/agent/attachment-upload-capabilities': typeof ApiAgentAttachmentUploadCapabilitiesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
@@ -333,6 +371,7 @@ export interface FileRoutesByTo {
   '/agents': typeof AppAgentsIndexRoute
   '/computers': typeof AppComputersIndexRoute
   '/messages': typeof AppMessagesIndexRoute
+  '/records': typeof AppRecordsIndexRoute
   '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
   '/api/computers/$computerId/creator-avatar': typeof ApiComputersComputerIdCreatorAvatarRoute
@@ -347,6 +386,7 @@ export interface FileRoutesById {
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
   '/_app/computers': typeof AppComputersRouteWithChildren
   '/_app/messages': typeof AppMessagesRouteWithChildren
+  '/_app/records': typeof AppRecordsRouteWithChildren
   '/_app/settings': typeof AppSettingsRoute
   '/_app/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
@@ -366,6 +406,9 @@ export interface FileRoutesById {
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/_app/computers/$computerId': typeof AppComputersComputerIdRoute
   '/_app/messages/$agentId': typeof AppMessagesAgentIdRoute
+  '/_app/records/$recordId': typeof AppRecordsRecordIdRoute
+  '/_app/records/settings': typeof AppRecordsSettingsRoute
+  '/_app/records/stats': typeof AppRecordsStatsRoute
   '/api/agent/attachment-upload-capabilities': typeof ApiAgentAttachmentUploadCapabilitiesRoute
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
@@ -376,6 +419,7 @@ export interface FileRoutesById {
   '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/computers/': typeof AppComputersIndexRoute
   '/_app/messages/': typeof AppMessagesIndexRoute
+  '/_app/records/': typeof AppRecordsIndexRoute
   '/_app/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
   '/api/computers/$computerId/creator-avatar': typeof ApiComputersComputerIdCreatorAvatarRoute
@@ -390,6 +434,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-authorization-server'
     | '/computers'
     | '/messages'
+    | '/records'
     | '/settings'
     | '/tasks'
     | '/api/agent-api-keys'
@@ -409,6 +454,9 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/computers/$computerId'
     | '/messages/$agentId'
+    | '/records/$recordId'
+    | '/records/settings'
+    | '/records/stats'
     | '/api/agent/attachment-upload-capabilities'
     | '/api/attachments/$attachmentId'
     | '/api/internal/centrifugo'
@@ -419,6 +467,7 @@ export interface FileRouteTypes {
     | '/agents/'
     | '/computers/'
     | '/messages/'
+    | '/records/'
     | '/messages/channels/$channelId'
     | '/api/agent/attachments/$attachmentId'
     | '/api/computers/$computerId/creator-avatar'
@@ -448,6 +497,9 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/computers/$computerId'
     | '/messages/$agentId'
+    | '/records/$recordId'
+    | '/records/settings'
+    | '/records/stats'
     | '/api/agent/attachment-upload-capabilities'
     | '/api/attachments/$attachmentId'
     | '/api/internal/centrifugo'
@@ -458,6 +510,7 @@ export interface FileRouteTypes {
     | '/agents'
     | '/computers'
     | '/messages'
+    | '/records'
     | '/messages/channels/$channelId'
     | '/api/agent/attachments/$attachmentId'
     | '/api/computers/$computerId/creator-avatar'
@@ -471,6 +524,7 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-authorization-server'
     | '/_app/computers'
     | '/_app/messages'
+    | '/_app/records'
     | '/_app/settings'
     | '/_app/tasks'
     | '/api/agent-api-keys'
@@ -490,6 +544,9 @@ export interface FileRouteTypes {
     | '/_app/agents/$agentId'
     | '/_app/computers/$computerId'
     | '/_app/messages/$agentId'
+    | '/_app/records/$recordId'
+    | '/_app/records/settings'
+    | '/_app/records/stats'
     | '/api/agent/attachment-upload-capabilities'
     | '/api/attachments/$attachmentId'
     | '/api/internal/centrifugo'
@@ -500,6 +557,7 @@ export interface FileRouteTypes {
     | '/_app/agents/'
     | '/_app/computers/'
     | '/_app/messages/'
+    | '/_app/records/'
     | '/_app/messages/channels/$channelId'
     | '/api/agent/attachments/$attachmentId'
     | '/api/computers/$computerId/creator-avatar'
@@ -585,6 +643,13 @@ declare module '@tanstack/react-router' {
       path: '/messages'
       fullPath: '/messages'
       preLoaderRoute: typeof AppMessagesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/records': {
+      id: '/_app/records'
+      path: '/records'
+      fullPath: '/records'
+      preLoaderRoute: typeof AppRecordsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings': {
@@ -741,6 +806,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppMessagesAgentIdRouteImport
       parentRoute: typeof AppMessagesRoute
     }
+    '/_app/records/': {
+      id: '/_app/records/'
+      path: '/'
+      fullPath: '/records/'
+      preLoaderRoute: typeof AppRecordsIndexRouteImport
+      parentRoute: typeof AppRecordsRoute
+    }
+    '/_app/records/$recordId': {
+      id: '/_app/records/$recordId'
+      path: '/$recordId'
+      fullPath: '/records/$recordId'
+      preLoaderRoute: typeof AppRecordsRecordIdRouteImport
+      parentRoute: typeof AppRecordsRoute
+    }
+    '/_app/records/settings': {
+      id: '/_app/records/settings'
+      path: '/settings'
+      fullPath: '/records/settings'
+      preLoaderRoute: typeof AppRecordsSettingsRouteImport
+      parentRoute: typeof AppRecordsRoute
+    }
+    '/_app/records/stats': {
+      id: '/_app/records/stats'
+      path: '/stats'
+      fullPath: '/records/stats'
+      preLoaderRoute: typeof AppRecordsStatsRouteImport
+      parentRoute: typeof AppRecordsRoute
+    }
     '/api/agent/attachment-upload-capabilities': {
       id: '/api/agent/attachment-upload-capabilities'
       path: '/api/agent/attachment-upload-capabilities'
@@ -851,9 +944,28 @@ const AppMessagesRouteWithChildren = AppMessagesRoute._addFileChildren(
   AppMessagesRouteChildren,
 )
 
+interface AppRecordsRouteChildren {
+  AppRecordsRecordIdRoute: typeof AppRecordsRecordIdRoute
+  AppRecordsSettingsRoute: typeof AppRecordsSettingsRoute
+  AppRecordsStatsRoute: typeof AppRecordsStatsRoute
+  AppRecordsIndexRoute: typeof AppRecordsIndexRoute
+}
+
+const AppRecordsRouteChildren: AppRecordsRouteChildren = {
+  AppRecordsRecordIdRoute: AppRecordsRecordIdRoute,
+  AppRecordsSettingsRoute: AppRecordsSettingsRoute,
+  AppRecordsStatsRoute: AppRecordsStatsRoute,
+  AppRecordsIndexRoute: AppRecordsIndexRoute,
+}
+
+const AppRecordsRouteWithChildren = AppRecordsRoute._addFileChildren(
+  AppRecordsRouteChildren,
+)
+
 interface AppRouteChildren {
   AppComputersRoute: typeof AppComputersRouteWithChildren
   AppMessagesRoute: typeof AppMessagesRouteWithChildren
+  AppRecordsRoute: typeof AppRecordsRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRoute
   AppTasksRoute: typeof AppTasksRoute
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
@@ -863,6 +975,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppComputersRoute: AppComputersRouteWithChildren,
   AppMessagesRoute: AppMessagesRouteWithChildren,
+  AppRecordsRoute: AppRecordsRouteWithChildren,
   AppSettingsRoute: AppSettingsRoute,
   AppTasksRoute: AppTasksRoute,
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
