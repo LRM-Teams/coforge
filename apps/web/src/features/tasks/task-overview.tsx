@@ -2,6 +2,7 @@ import { TASK_STATUSES, type TaskStatus, type TaskView } from "@coforge/protocol
 import { Link } from "@tanstack/react-router";
 import { FilterLines as ListFilter } from "@untitledui/icons";
 import { Avatar } from "@/components/base/avatar/avatar";
+import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Select } from "@/components/base/select/select";
@@ -104,14 +105,25 @@ function TaskOverviewLink({
       </p>
     </div>
   );
+  // Board columns are narrow, so the card shows the owner's avatar only and
+  // keeps the name for the tooltip and assistive tech; list rows have room for it.
   const owner = (
     <p className="flex min-w-0 items-center gap-2 text-xs text-secondary">
       <span className="sr-only">{m.tasks_overview_owner()}: </span>
       {task.owner ? (
-        <>
-          <Avatar size="xs" initials={task.owner.name.trim().charAt(0).toUpperCase()} alt="" />
-          <span className="truncate">{task.owner.name}</span>
-        </>
+        list ? (
+          <>
+            <Avatar size="xs" initials={task.owner.name.trim().charAt(0).toUpperCase()} alt="" />
+            <span className="truncate">{task.owner.name}</span>
+          </>
+        ) : (
+          <Tooltip title={task.owner.name}>
+            <TooltipTrigger className="rounded-full">
+              <Avatar size="xs" initials={task.owner.name.trim().charAt(0).toUpperCase()} alt="" />
+              <span className="sr-only">{task.owner.name}</span>
+            </TooltipTrigger>
+          </Tooltip>
+        )
       ) : (
         <span className="text-tertiary">{m.tasks_unassigned()}</span>
       )}
