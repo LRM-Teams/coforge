@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ChevronRight,
   File02 as FileText,
+  LayoutLeft as PanelLeft,
   List,
   Loading01 as LoaderCircle,
   MessageSquare01 as MessageSquare,
@@ -26,6 +27,7 @@ import {
 import type { TaskView } from "@coforge/protocol";
 import { MenuItem as AriaMenuItem, Popover as AriaPopover } from "react-aria-components";
 
+import { useChannelSidebarVisibility } from "@/components/app-shell";
 import { useConversationActivity } from "@/features/conversations/conversation-layout";
 import { AgentActivityAvatar, useAgentWorkingLabel } from "@/features/agents/agent-activity-avatar";
 import { Avatar } from "@/components/base/avatar/avatar";
@@ -132,8 +134,19 @@ export function DirectConversation(props: ConversationProps) {
     ...activity,
     status: agentStatus,
   });
+  const channelSidebar = useChannelSidebarVisibility();
   const header = (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-secondary px-3 sm:gap-3 sm:px-5">
+      {channelSidebar.hidden && (
+        <ButtonUtility
+          icon={PanelLeft}
+          size="sm"
+          color="tertiary"
+          tooltip={m.controls_show_sidebar()}
+          onClick={channelSidebar.show}
+          className="hidden lg:inline-flex"
+        />
+      )}
       <AgentActivityAvatar
         agent={conversation.agent}
         size="sm"

@@ -1,6 +1,12 @@
 import { useState } from "react";
-import { Bell01 as Bell, BellOff01 as BellOff, Hash01 as Hash } from "@untitledui/icons";
+import {
+  Bell01 as Bell,
+  BellOff01 as BellOff,
+  Hash01 as Hash,
+  LayoutLeft as PanelLeft,
+} from "@untitledui/icons";
 import type { TaskView } from "@coforge/protocol";
+import { useChannelSidebarVisibility } from "@/components/app-shell";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
@@ -37,9 +43,20 @@ export function ChannelConversationHeader({
   onMutedChange: (muted: boolean) => Promise<void>;
 }) {
   const [savingMute, setSavingMute] = useState(false);
+  const channelSidebar = useChannelSidebarVisibility();
   return (
     <header className="shrink-0 border-b border-secondary px-3 sm:px-5">
       <div className="-mx-3 flex h-12 items-center gap-3 border-b border-secondary px-3 sm:-mx-5 sm:px-5">
+        {channelSidebar.hidden && (
+          <ButtonUtility
+            icon={PanelLeft}
+            size="sm"
+            color="tertiary"
+            tooltip={m.controls_show_sidebar()}
+            onClick={channelSidebar.show}
+            className="hidden lg:inline-flex"
+          />
+        )}
         <h1 className="truncate text-base font-semibold">#{conversation.name}</h1>
         <span className="ml-auto hidden rounded-md border border-secondary px-2 py-0.5 text-xs font-medium text-tertiary sm:block">
           {m.channel_public()}
