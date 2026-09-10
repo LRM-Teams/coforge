@@ -21,7 +21,7 @@ export function ReminderNotice({ notice }: { notice: ReminderNoticeView }) {
       <BellRing aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-info" />
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <span className="text-[11px] font-semibold tracking-wide text-tertiary">
+          <span className="text-xs font-semibold tracking-wide text-tertiary">
             SYSTEM REMINDER
           </span>
           <span aria-hidden="true" className="text-tertiary">
