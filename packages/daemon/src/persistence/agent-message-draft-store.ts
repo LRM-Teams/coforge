@@ -1,4 +1,4 @@
-import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -63,12 +63,29 @@ export class AgentMessageDraftStore {
   }
 
   #serialized<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.#operation.then(operation, operation);
+    const guarded = async () => {
+      await this.#prepareDirectories();
+      return operation();
+    };
+    const result = this.#operation.then(guarded, guarded);
     this.#operation = result.then(
       () => undefined,
       () => undefined,
     );
     return result;
+  }
+
+  async #prepareDirectories(): Promise<void> {
+    for (const directory of [dirname(dirname(this.#path)), dirname(this.#path)]) {
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      const status = await lstat(directory);
+      if (status.isSymbolicLink() || !status.isDirectory())
+        throw new Error("Agent message draft directory must be a real directory");
+      const uid = process.geteuid?.();
+      if (uid !== undefined && status.uid !== uid)
+        throw new Error("Agent message draft directory must be owned by the current user");
+      await chmod(directory, 0o700);
+    }
   }
 
   async #read(): Promise<AgentMessageDraft[]> {
@@ -89,8 +106,6 @@ export class AgentMessageDraftStore {
       await rm(this.#path, { force: true });
       return;
     }
-    await mkdir(dirname(this.#path), { recursive: true, mode: 0o700 });
-    await chmod(dirname(this.#path), 0o700);
     const temporary = `${this.#path}.${crypto.randomUUID()}.tmp`;
     try {
       await writeFile(temporary, JSON.stringify({ version: 1, drafts }) + "\n", { mode: 0o600 });

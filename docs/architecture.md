@@ -761,7 +761,7 @@ start 插入 stop 与替代 start 之间；metadata-only 写入不得覆盖 runt
 
 当前 MVP 不引入本地 durable message inbox/outbox 或完整的 per-Agent delivery ledger。云端 canonical Message 与每个参与者的 read boundary 是消息恢复真相；Agent Activity 不进入本地 spool，也不 replay。
 
-Daemon 仅为被 Web/backend 暂缓的 Agent response 保存短期 continuation draft，使明确的 `--send-draft` 在 Daemon 重启后仍可继续。每个 Agent 使用 `${COFORGE_CLI_DRAFT_STATE_DIR:-<OS temp>}/coforge-cli-attested-send-<os-user-id>/<encoded-agent-id>/continue-state.json` 私有原子替换文件；`os-user-id` 在 POSIX 使用 effective UID，Windows 使用编码后的系统用户名，同一临时根目录中的不同系统用户不共享草稿目录。旧的无用户后缀目录不迁移；versioned envelope 内的 draft 只含 target、body、opaque hold token 和 `savedAt`，并在 10 分钟后过期。普通 send 总是以新 body 创建或替换 draft 并移除旧 token；Web/backend 接受 send 后立即清除对应 draft。该状态不包含 API key、canonical Message、request id、delivery state 或重试队列，不会自动发送，因此不是 durable message outbox；过期或缺失 draft 的明确发送会失败。
+Daemon 仅为被 Web/backend 暂缓的 Agent response 保存短期 continuation draft，使明确的 `--send-draft` 在 Daemon 重启后仍可继续。每个 Agent 使用 `${COFORGE_CLI_DRAFT_STATE_DIR:-<OS temp>}/coforge-cli-attested-send-<os-user-id>/<encoded-agent-id>/continue-state.json` 私有原子替换文件；`os-user-id` 在 POSIX 使用 effective UID，Windows 使用编码后的系统用户名，同一临时根目录中的不同系统用户不共享草稿目录。每次草稿操作前检查用户目录和 Agent 目录：拒绝符号链接及非目录，POSIX 拒绝归属其他 effective UID 的目录，然后收紧目录权限为 `0700`；Windows 保留平台 ACL 语义，不将 POSIX mode 当作 ACL 隔离证明。旧的无用户后缀目录不迁移；versioned envelope 内的 draft 只含 target、body、opaque hold token 和 `savedAt`，并在 10 分钟后过期。普通 send 总是以新 body 创建或替换 draft 并移除旧 token；Web/backend 接受 send 后立即清除对应 draft。该状态不包含 API key、canonical Message、request id、delivery state 或重试队列，不会自动发送，因此不是 durable message outbox；过期或缺失 draft 的明确发送会失败。
 
 稳定身份分为：
 
