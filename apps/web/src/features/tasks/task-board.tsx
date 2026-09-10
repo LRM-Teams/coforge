@@ -62,7 +62,7 @@ export function TaskBoard({
                 <h1 className="truncate text-base font-medium">{conversationName}</h1>
               </div>
             )}
-            <div className="border-t border-secondary py-2">
+            <div className="flex h-11 items-center border-t border-secondary">
               <ConversationTaskTabs
                 active="tasks"
                 taskCount={tasks.length}
@@ -74,7 +74,7 @@ export function TaskBoard({
         <div
           role="toolbar"
           aria-label={m.tasks_layout()}
-          className="flex flex-wrap items-center gap-2 border-t border-secondary py-2"
+          className="flex h-11 items-center gap-2 border-t border-secondary"
         >
           <TaskLayoutToggle layout={layout} onChange={onLayoutChange} />
           {canMutate && onCreateTask && (

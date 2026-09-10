@@ -145,11 +145,11 @@ export function AgentsContent({
             </p>
           )}
           {memberCount > 0 && (
-            <div className="mt-6 flex flex-wrap items-center gap-4">
+            <div className="mt-4 flex flex-wrap items-center gap-3">
               <div
                 role="group"
                 aria-label={m.member_type_filter()}
-                className="flex max-w-full gap-0.5 rounded-lg bg-secondary p-1 ring-1 ring-secondary ring-inset"
+                className="flex h-9 max-w-full gap-0.5 rounded-lg bg-secondary p-0.5 ring-1 ring-secondary ring-inset"
               >
                 {(["all", "human", "agent"] as const).map((type) => (
                   <Button
@@ -162,7 +162,7 @@ export function AgentsContent({
                           : m.member_agent()
                     }
                     color={memberType === type ? "secondary" : "tertiary"}
-                    className="h-11 gap-2 px-3 font-semibold md:h-9 aria-pressed:text-primary"
+                    className="h-8 gap-2 px-3 font-semibold aria-pressed:text-primary"
                     aria-pressed={memberType === type}
                     onPress={() => onMemberTypeChange(type)}
                   >
@@ -181,7 +181,7 @@ export function AgentsContent({
                   </Button>
                 ))}
               </div>
-              <label className="flex h-11 w-full items-center gap-2 rounded-lg bg-primary px-3 text-sm shadow-xs ring-1 ring-secondary transition-shadow focus-within:ring-2 focus-within:ring-brand ring-inset sm:ml-auto sm:w-72">
+              <label className="flex h-9 w-full items-center gap-2 rounded-lg bg-primary px-3 text-sm shadow-xs ring-1 ring-secondary transition-shadow focus-within:ring-2 focus-within:ring-brand ring-inset sm:ml-auto sm:w-72">
                 <Search aria-hidden="true" className="size-5 shrink-0 text-tertiary" />
                 <input
                   type="search"

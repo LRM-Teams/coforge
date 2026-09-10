@@ -42,7 +42,7 @@ export function TaskOverview({
         heading={m.tasks_tab()}
         actions={<TaskLayoutToggle layout={layout} onChange={onLayoutChange} />}
       />
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-secondary px-4 py-4 md:px-6">
+      <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-secondary px-4 md:px-6">
         <Select
           aria-label={m.tasks_overview_status()}
           size="sm"

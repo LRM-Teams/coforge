@@ -65,7 +65,7 @@ export function ChannelConversationHeader({
         )}
       </div>
       {(onShowChat || onShowTasks) && (
-        <div className="-mx-3 px-3 py-2 sm:-mx-5 sm:px-5">
+        <div className="-mx-3 flex h-11 items-center px-3 sm:-mx-5 sm:px-5">
           <ConversationTaskTabs
             active={active}
             taskCount={tasks?.length ?? 0}
