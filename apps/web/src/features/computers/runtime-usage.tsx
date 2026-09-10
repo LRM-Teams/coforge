@@ -1,7 +1,7 @@
 import { RefreshCw01 as RefreshCw } from "@untitledui/icons";
 import { useEffect, useRef, useState } from "react";
 import claudeCodeMark from "@lobehub/icons-static-svg/icons/claudecode-color.svg";
-import codexMark from "@lobehub/icons-static-svg/icons/codex.svg";
+import codexMark from "@lobehub/icons-static-svg/icons/codex-color.svg";
 import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
 
 import type { RuntimeProvider } from "@coforge/protocol";
@@ -44,7 +44,9 @@ const runtimeMarks = {
 export function RuntimeIdentity({ runtime }: { runtime: Runtime }) {
   return (
     <span className="flex min-w-0 items-center gap-3">
-      {runtime.provider === "claude-code" || runtime.provider === "coforge" ? (
+      {runtime.provider === "claude-code" ||
+      runtime.provider === "codex" ||
+      runtime.provider === "coforge" ? (
         <img src={runtimeMarks[runtime.provider]} alt="" className="size-6 shrink-0" />
       ) : (
         <span

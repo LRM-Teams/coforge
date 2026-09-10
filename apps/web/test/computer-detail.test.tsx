@@ -78,7 +78,8 @@ test("legacy Computers show unknown metadata rather than inferring it from runti
       onSetRuntimePublic={async () => {}}
     />,
   );
-  expect(within(document.body).getAllByText("Unknown")).toHaveLength(3);
+  // OS and version in the header facts line; the creator is known in this fixture.
+  expect(within(document.body).getAllByText("Unknown")).toHaveLength(2);
 });
 
 test("shows the machine and Code Agents with usage hidden until requested", async () => {

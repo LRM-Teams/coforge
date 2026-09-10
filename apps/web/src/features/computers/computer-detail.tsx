@@ -104,15 +104,90 @@ export function ComputerDetail({
         <BackToComputers />
         <ComputerTile computer={computer} />
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="truncate text-lg font-semibold text-primary">
-              {computerLabel(computer)}
-            </h1>
-            <Badge color={computer.online ? "success" : "gray"} size="sm">
-              {computer.online ? m.computer_status_online() : m.computer_status_offline()}
-            </Badge>
-          </div>
+          {editingDisplayName ? (
+            <form
+              className="max-w-sm"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                if (!onUpdateDisplayName) return;
+                setSavingDisplayName(true);
+                setDisplayNameError(false);
+                try {
+                  await onUpdateDisplayName(displayNameDraft);
+                  setEditingDisplayName(false);
+                } catch {
+                  setDisplayNameError(true);
+                } finally {
+                  setSavingDisplayName(false);
+                }
+              }}
+            >
+              <label className="sr-only" htmlFor={`display-name-${computer.id}`}>
+                {m.computer_display_name()}
+              </label>
+              <input
+                id={`display-name-${computer.id}`}
+                autoFocus
+                required
+                maxLength={200}
+                value={displayNameDraft}
+                disabled={savingDisplayName}
+                onChange={(event) => setDisplayNameDraft(event.currentTarget.value)}
+                className="h-9 w-full rounded-md border border-secondary bg-primary px-3 outline-none focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/50"
+              />
+              <div className="mt-2 flex gap-2">
+                <Button type="submit" size="sm" isDisabled={savingDisplayName}>
+                  {savingDisplayName
+                    ? m.computer_display_name_saving()
+                    : m.computer_display_name_save()}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  color="secondary"
+                  isDisabled={savingDisplayName}
+                  onPress={() => {
+                    setDisplayNameDraft(computer.displayName);
+                    setDisplayNameError(false);
+                    setEditingDisplayName(false);
+                  }}
+                >
+                  {m.computer_display_name_cancel()}
+                </Button>
+              </div>
+              {displayNameError && (
+                <p role="alert" className="mt-2 text-sm text-error-primary">
+                  {m.computer_display_name_error()}
+                </p>
+              )}
+            </form>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="truncate text-lg font-semibold text-primary">
+                {computerLabel(computer)}
+              </h1>
+              <Badge color={computer.online ? "success" : "gray"} size="sm">
+                {computer.online ? m.computer_status_online() : m.computer_status_offline()}
+              </Badge>
+              {computer.ownedByCurrentUser && onUpdateDisplayName && (
+                <ButtonUtility
+                  type="button"
+                  size="sm"
+                  color="tertiary"
+                  icon={Pencil}
+                  aria-label={m.computer_display_name_edit()}
+                  onClick={() => {
+                    setDisplayNameDraft(computer.displayName);
+                    setDisplayNameError(false);
+                    setEditingDisplayName(true);
+                  }}
+                />
+              )}
+            </div>
+          )}
           <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-sm text-tertiary">
+            <span className="font-mono">{computer.name}</span>
+            <span aria-hidden="true">·</span>
             <span>{operatingSystemLabel(computer)}</span>
             <span aria-hidden="true">·</span>
             <span>{computerVersionLabel(computer)}</span>
@@ -120,6 +195,30 @@ export function ComputerDetail({
             <span>
               {m.computer_connected_at()}{" "}
               <RelativeTime value={computer.connectedAt} timeZone={timeZone} plain />
+            </span>
+            <span aria-hidden="true">·</span>
+            <span className="flex min-w-0 items-center gap-1.5">
+              {m.computer_added_by()}
+              {computer.creator ? (
+                <>
+                  <Avatar
+                    size="xs"
+                    src={computer.creator.avatarUrl}
+                    alt={computer.creator.displayName || computer.creator.username}
+                    initials={avatarInitial(
+                      computer.creator.displayName || computer.creator.username,
+                    )}
+                    contentClassName={avatarToneClassName(
+                      computer.creator.displayName || computer.creator.username,
+                    )}
+                  />
+                  <span className="truncate text-primary">
+                    {computer.creator.displayName || computer.creator.username}
+                  </span>
+                </>
+              ) : (
+                m.computer_metadata_unknown()
+              )}
             </span>
           </p>
         </div>
@@ -198,125 +297,6 @@ export function ComputerDetail({
             {m.computer_restart_error()}
           </p>
         )}
-        <section aria-label={m.computer_overview()}>
-          <dl className="grid gap-x-8 gap-y-6 md:grid-cols-2 xl:grid-cols-3">
-            <div className="min-w-0">
-              <dt className="text-sm text-tertiary">{m.computer_display_name()}</dt>
-              <dd className="mt-1 text-sm font-medium text-primary">
-                {editingDisplayName ? (
-                  <form
-                    className="max-w-sm"
-                    onSubmit={async (event) => {
-                      event.preventDefault();
-                      if (!onUpdateDisplayName) return;
-                      setSavingDisplayName(true);
-                      setDisplayNameError(false);
-                      try {
-                        await onUpdateDisplayName(displayNameDraft);
-                        setEditingDisplayName(false);
-                      } catch {
-                        setDisplayNameError(true);
-                      } finally {
-                        setSavingDisplayName(false);
-                      }
-                    }}
-                  >
-                    <label className="sr-only" htmlFor={`display-name-${computer.id}`}>
-                      {m.computer_display_name()}
-                    </label>
-                    <input
-                      id={`display-name-${computer.id}`}
-                      autoFocus
-                      required
-                      maxLength={200}
-                      value={displayNameDraft}
-                      disabled={savingDisplayName}
-                      onChange={(event) => setDisplayNameDraft(event.currentTarget.value)}
-                      className="h-9 w-full rounded-md border border-secondary bg-primary px-3 outline-none focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/50"
-                    />
-                    <div className="mt-2 flex gap-2">
-                      <Button type="submit" size="sm" isDisabled={savingDisplayName}>
-                        {savingDisplayName
-                          ? m.computer_display_name_saving()
-                          : m.computer_display_name_save()}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        color="secondary"
-                        isDisabled={savingDisplayName}
-                        onPress={() => {
-                          setDisplayNameDraft(computer.displayName);
-                          setDisplayNameError(false);
-                          setEditingDisplayName(false);
-                        }}
-                      >
-                        {m.computer_display_name_cancel()}
-                      </Button>
-                    </div>
-                    {displayNameError && (
-                      <p role="alert" className="mt-2 text-sm text-error-primary">
-                        {m.computer_display_name_error()}
-                      </p>
-                    )}
-                  </form>
-                ) : (
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="break-words [overflow-wrap:anywhere]">
-                      {computer.displayName}
-                    </span>
-                    {computer.ownedByCurrentUser && onUpdateDisplayName && (
-                      <ButtonUtility
-                        type="button"
-                        size="sm"
-                        color="tertiary"
-                        icon={Pencil}
-                        aria-label={m.computer_display_name_edit()}
-                        onClick={() => {
-                          setDisplayNameDraft(computer.displayName);
-                          setDisplayNameError(false);
-                          setEditingDisplayName(true);
-                        }}
-                      />
-                    )}
-                  </span>
-                )}
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-sm text-tertiary">{m.computer_hostname()}</dt>
-              <dd className="mt-1 font-mono text-sm font-medium break-words text-primary [overflow-wrap:anywhere]">
-                {computer.name}
-              </dd>
-            </div>
-            <div className="min-w-0">
-              <dt className="text-sm text-tertiary">{m.computer_added_by()}</dt>
-              <dd className="mt-1 flex min-w-0 items-center gap-2 text-sm font-medium text-primary">
-                {computer.creator ? (
-                  <>
-                    <Avatar
-                      size="xs"
-                      src={computer.creator.avatarUrl}
-                      alt={computer.creator.displayName || computer.creator.username}
-                      initials={avatarInitial(
-                        computer.creator.displayName || computer.creator.username,
-                      )}
-                      contentClassName={avatarToneClassName(
-                        computer.creator.displayName || computer.creator.username,
-                      )}
-                    />
-                    <span className="truncate">
-                      {computer.creator.displayName || computer.creator.username}
-                    </span>
-                  </>
-                ) : (
-                  m.computer_metadata_unknown()
-                )}
-              </dd>
-            </div>
-          </dl>
-        </section>
-
         <section aria-labelledby="computer-code-agents">
           <h2 id="computer-code-agents" className="text-lg font-semibold tracking-tight">
             {m.computer_code_agents()}
