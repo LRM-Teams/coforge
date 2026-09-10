@@ -283,7 +283,8 @@ jobs:
       - name: Generate protocol
         run: bun run --cwd packages/protocol generate
       - name: Verify native release identity and environment binding
-        run: bun test scripts/release/compile-targets.test.ts --test-name-pattern "published Computer"
+        # Every repetition must pass; this detects Windows process/pipe cleanup races.
+        run: bun test scripts/release/compile-targets.test.ts --test-name-pattern "published Computer" --rerun-each 10
 
   # install.sh is gated by shellcheck in the Computer job; install.ps1 had no machine gate at all,
   # which is how a top-level `exit` - fatal under the documented `irm ... | iex` entry point,

@@ -83,11 +83,15 @@ test.each([
           timeout: 5000,
         },
       );
-      const [daemonCode, daemonError] = await Promise.all([
+      // Process exit does not imply EOF on every pipe. Drain both before
+      // removing the executable and its state directory, especially on Windows.
+      const [daemonCode, daemonOutput, daemonError] = await Promise.all([
         daemon.exited,
+        new Response(daemon.stdout).text(),
         new Response(daemon.stderr).text(),
       ]);
       expect(daemonCode).toBe(1);
+      expect(daemonOutput).toBe("");
       expect(daemonError).toContain("does not match this daemon build");
       const requests: string[] = [];
       const proxy = Bun.listen({
@@ -131,7 +135,17 @@ test.each([
         proxy.stop(true);
       }
     } finally {
-      await rm(directory, { recursive: true, force: true });
+      try {
+        await rm(directory, { recursive: true, force: true });
+      } catch (error) {
+        // Filenames only: retain evidence if Windows still holds a file after
+        // every child has exited and its captured output has reached EOF.
+        console.error(
+          "Release test cleanup remaining paths:",
+          await readdir(directory, { recursive: true }).catch(() => []),
+        );
+        throw error;
+      }
     }
   },
   60_000,
