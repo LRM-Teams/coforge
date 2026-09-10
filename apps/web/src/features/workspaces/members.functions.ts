@@ -88,6 +88,16 @@ export const acceptWorkspaceInvitation = createServerFn({ method: "POST" })
     });
   });
 
+export const declineWorkspaceInvitation = createServerFn({ method: "POST" })
+  .validator(invitationIdInputSchema)
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    return directory().directory.declineInvitation({
+      invitationId: data.invitationId,
+      userId: user.id,
+    });
+  });
+
 export const revokeWorkspaceInvitation = createServerFn({ method: "POST" })
   .validator(invitationIdInputSchema)
   .handler(async ({ data }) => {

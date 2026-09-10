@@ -120,14 +120,15 @@ test("uses separate settings list and content panels with a way back that preser
   expect(navigation.classList.contains("hidden")).toBeTrue();
   expect(surface?.classList.contains("hidden")).toBeFalse();
   await user.click(view.getByRole("button", { name: /Edit/ }));
-  const nameInput = view.getByLabelText("Name");
-  await user.clear(nameInput);
+  const nameInput = view.getByLabelText(/^Name/);
+  await user.tripleClick(nameInput);
+  await user.keyboard("{Backspace}");
   await user.type(nameInput, "Unsaved name");
   await user.click(view.getByRole("button", { name: "Settings" }));
   expect(navigation.classList.contains("hidden")).toBeFalse();
   expect(surface?.classList.contains("hidden")).toBeTrue();
   await user.click(view.getByRole("button", { name: "Account" }));
-  expect((view.getByLabelText("Name") as HTMLInputElement).value).toBe("Unsaved name");
+  expect((view.getByLabelText(/^Name/) as HTMLInputElement).value).toBe("Unsaved name");
   expect(view.container.querySelector(".max-w-6xl")).toBeNull();
 });
 
@@ -295,13 +296,15 @@ test("edits the profile name and description and uploads a profile image on save
   );
 
   expect(view.getByText("@frankan", { selector: "dd" })).toBeTruthy();
-  expect(view.queryByRole("textbox", { name: "Description" })).toBeNull();
+  expect(view.queryByRole("textbox", { name: /^Description/ })).toBeNull();
   await user.click(view.getByRole("button", { name: "Edit" }));
-  const name = view.getByRole("textbox", { name: "Name" });
-  await user.clear(name);
+  const name = view.getByRole("textbox", { name: /^Name/ });
+  await user.tripleClick(name);
+  await user.keyboard("{Backspace}");
   await user.type(name, "Frank An Updated");
-  const description = view.getByRole("textbox", { name: "Description" });
-  await user.clear(description);
+  const description = view.getByRole("textbox", { name: /^Description/ });
+  await user.tripleClick(description);
+  await user.keyboard("{Backspace}");
   await user.type(description, "Helping teams ship reliable software.");
 
   const file = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "avatar.png", {
@@ -313,7 +316,7 @@ test("edits the profile name and description and uploads a profile image on save
   expect(savedName).toBe("Frank An Updated");
   expect(savedDescription).toBe("Helping teams ship reliable software.");
   expect(uploadedFile).toBe(file);
-  expect(view.queryByRole("textbox", { name: "Description" })).toBeNull();
+  expect(view.queryByRole("textbox", { name: /^Description/ })).toBeNull();
 });
 
 test("keeps profile drafts and prevents duplicate saves while a failed save is pending", async () => {
@@ -344,8 +347,9 @@ test("keeps profile drafts and prevents duplicate saves while a failed save is p
   );
 
   await user.click(view.getByRole("button", { name: "Edit" }));
-  const name = view.getByRole("textbox", { name: "Name" });
-  await user.clear(name);
+  const name = view.getByRole("textbox", { name: /^Name/ });
+  await user.tripleClick(name);
+  await user.keyboard("{Backspace}");
   await user.type(name, "Unsaved name");
   const save = view.getByRole("button", { name: "Save" });
   await user.click(save);
@@ -355,8 +359,8 @@ test("keeps profile drafts and prevents duplicate saves while a failed save is p
   expect(save.hasAttribute("disabled")).toBeTrue();
   rejectSave(new Error("offline"));
   await waitFor(() => expect(view.getByRole("alert")).toBeTruthy());
-  expect(view.getByRole("textbox", { name: "Name" }).getAttribute("value")).toBe("Unsaved name");
-  expect(view.queryByRole("textbox", { name: "Description" })).toBeTruthy();
+  expect(view.getByRole("textbox", { name: /^Name/ }).getAttribute("value")).toBe("Unsaved name");
+  expect(view.queryByRole("textbox", { name: /^Description/ })).toBeTruthy();
 });
 
 test("does not repeat a successful avatar update when profile details are retried", async () => {
@@ -386,7 +390,7 @@ test("does not repeat a successful avatar update when profile details are retrie
   );
 
   await user.click(view.getByRole("button", { name: "Edit" }));
-  await user.type(view.getByRole("textbox", { name: "Name" }), " updated");
+  await user.type(view.getByRole("textbox", { name: /^Name/ }), " updated");
   await user.upload(
     view.getByLabelText("Replace picture"),
     new File(["image"], "avatar.png", { type: "image/png" }),
