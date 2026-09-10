@@ -201,6 +201,8 @@ test("a recreated daemon waits for cloud start and forwards the cloud-selected s
           },
         }),
       },
+      undefined,
+      async () => ({ runtimes: [], catalogs: [] }),
     );
   const original = make();
   await original.start(connection);
@@ -2894,6 +2896,23 @@ describe("DaemonRuntime", () => {
     ]);
     expect(activities[6]!.detail).toBe("request timed out: Bearer fixture-private-token");
 
+    sessions[0]!.event({
+      type: "activity",
+      activity: {
+        detailKind: "runtime_reconnecting",
+        level: "info",
+        detail: "Codex reconnecting to provider…",
+        observedAtMs: Date.now(),
+        entries: [{ kind: "text", text: "Reconnecting... 3/5" }],
+      },
+    });
+    expect(activities[7]).toMatchObject({
+      detailKind: "runtime_reconnecting",
+      level: "info",
+      detail: "Codex reconnecting to provider…",
+      entries: [{ kind: "text", text: "Reconnecting... 3/5" }],
+    });
+
     const stopping = runtime.stopAgent("agent-a");
     sessions[0]!.event({
       type: "activity",
@@ -2913,6 +2932,7 @@ describe("DaemonRuntime", () => {
       "tool_started",
       "tool_started",
       "runtime_error",
+      "runtime_reconnecting",
       "stopped",
     ]);
 

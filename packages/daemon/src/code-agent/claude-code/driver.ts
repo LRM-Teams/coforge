@@ -67,7 +67,9 @@ export class ClaudeCodeDriver implements AgentDriver {
         new JsonlProcess(
           command(sessionId, freshSessionId),
           options.agentWorkspaceDirectory,
-          agentEnvironment(options.environment),
+          agentEnvironment(options.environment, Bun.env, undefined, {
+            envVars: options.runtime?.envVars,
+          }),
         );
       process = spawn(options.sessionId, initialFreshSessionId);
       const session = new ClaudeCodeAgentSession(

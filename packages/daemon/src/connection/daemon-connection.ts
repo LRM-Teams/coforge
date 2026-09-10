@@ -80,6 +80,7 @@ import { getLogger } from "@logtape/logtape";
 export type AgentLaunchConfig = {
   agentApiKey: string;
   providerConfig?: AgentRuntimeProviderConfig;
+  envVars?: Record<string, string>;
 };
 
 const AGENT_STATUS_REFRESH_MS = 30_000;
@@ -666,13 +667,19 @@ export class DaemonConnection implements DaemonConnectionClient {
       body: JSON.stringify(input),
     });
     if (!response.ok) throw new Error(`Agent launch config request failed (${response.status})`);
-    const value = (await response.json()) as { apiKey?: unknown; providerConfig?: unknown };
+    const value = (await response.json()) as {
+      apiKey?: unknown;
+      providerConfig?: unknown;
+      envVars?: unknown;
+    };
     if (typeof value.apiKey !== "string" || !isAgentApiKey(value.apiKey))
       throw new Error("invalid Agent API key response");
     const providerConfig = parseAgentRuntimeProviderConfig(value.providerConfig);
+    const envVars = parseAgentEnvironment(value.envVars);
     return {
       agentApiKey: value.apiKey,
       ...(providerConfig ? { providerConfig } : {}),
+      envVars,
     };
   }
 
@@ -1016,6 +1023,29 @@ function rpcData(reply: unknown): Uint8Array {
   const data = (reply as { data?: unknown }).data;
   if (!(data instanceof Uint8Array)) throw new Error("invalid RPC response payload");
   return data;
+}
+
+function parseAgentEnvironment(value: unknown): Record<string, string> {
+  if (value === undefined) return {};
+  const invalid = () => new Error("invalid Agent environment response");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
+  const entries = Object.entries(value);
+  if (entries.length > 64 || JSON.stringify(value).length > 131_072) throw invalid();
+  const envVars: Record<string, string> = Object.create(null);
+  for (const [name, entry] of entries) {
+    if (
+      !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ||
+      name.length > 128 ||
+      name.toUpperCase() === "PATH" ||
+      name.toUpperCase().startsWith("COFORGE_") ||
+      typeof entry !== "string" ||
+      entry.includes("\0") ||
+      entry.length > 32_768
+    )
+      throw invalid();
+    envVars[name] = entry;
+  }
+  return envVars;
 }
 
 function parseAgentRuntimeProviderConfig(value: unknown): AgentRuntimeProviderConfig | undefined {

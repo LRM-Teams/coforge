@@ -142,11 +142,15 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   Message outbox, or provider parser.
 - `code-agent/` adapts provider runtimes into the provider-neutral
   contract. Higher layers must consume normalized status and activity messages and
-  must not parse Claude, Codex, or Pi output. This module inventories external
-  Codex and Claude Code installations from Daemon's effective PATH at startup
-  and after reconnect. Pi and built-in CoForge Agent are reported from their embedded SDK/version
-  rather than scanned from PATH. It also discovers the model catalog available to embedded Pi
-  from the user's Pi resources,
+  must not parse Claude, Codex, or Pi output. `codex/driver.ts` owns retry
+  classification: structured `willRetry: true` notifications remain internal
+  diagnostics, while numbered stderr reconnect lines become informational
+  `runtime_reconnecting` Activity, matching Raft 1.0.17. Other errors keep their
+  existing handling. This module inventories external Codex and Claude Code
+  installations from Daemon's effective PATH at startup and after reconnect.
+  Pi and built-in CoForge Agent are reported from their embedded SDK/version
+  rather than scanned from PATH. It also discovers the model catalog available
+  to embedded Pi from the user's Pi resources,
   and Codex accounts, reports the maintained Claude Code model catalog when
   Claude Code is installed, and translates persisted model/reasoning selections
   into each provider's native startup configuration. Claude Code model
@@ -162,7 +166,7 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   metadata discovery at provider-native roots. `daemon-runtime/` resolves the
   stable Agent directory and routes query/results; it does not parse skill files.
   A metadata query never launches a provider, reloads a session, copies global
-  skills, or expands the runtime environment allowlist.
+  skills, or changes the established runtime environment composition.
 - Keep the standing CoForge Agent instructions in one provider-neutral source.
   `AgentProcessManager` builds them once per session and supplies them through
   the required `AgentSessionOptions.instructions` field. Every code-agent driver

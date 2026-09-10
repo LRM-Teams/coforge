@@ -21,6 +21,7 @@ import { getAgentRuntimeLock } from "#/server/agents/agent-runtime-lock.server";
 import { createCentrifugoServerApi } from "#/server/centrifugo/server-api.server";
 import { ComputerRuntimeVisibility } from "#/server/computers/computer-runtime-visibility.server";
 import { PrismaComputerRuntimeRepository } from "#/server/db/repositories/computer-runtime.repositories.server";
+import { decryptAgentEnvironment } from "#/server/agents/agent-environment.server";
 
 const createAgentApiKeyInputSchema = z.object({
   agentId: z.string().min(1),
@@ -104,10 +105,22 @@ export const Route = createFileRoute("/api/agent-api-keys")({
         } catch {
           return Response.json({ error: "forbidden" }, { status: 403 });
         }
-        const providerConfig = await new AgentRuntimeCredentials(
-          new PrismaAgentRuntimeCredentialRepository(db),
-          readOptionalAgentRuntimeCredentialEncryptionKey(process.env),
-        ).launchProviderConfig(agent.id, parseAgentRuntimeConfig(agent.runtimeConfig));
+        let providerConfig;
+        let envVars;
+        try {
+          const config = parseAgentRuntimeConfig(agent.runtimeConfig);
+          const encryptionKey = readOptionalAgentRuntimeCredentialEncryptionKey(Bun.env);
+          providerConfig = await new AgentRuntimeCredentials(
+            new PrismaAgentRuntimeCredentialRepository(db),
+            encryptionKey,
+          ).launchProviderConfig(agent.id, config);
+          envVars = await decryptAgentEnvironment(agent.id, config.environment, encryptionKey);
+        } catch {
+          return Response.json(
+            { error: "service unavailable" },
+            { status: 503, headers: { "cache-control": "no-store" } },
+          );
+        }
         const apiKey = await createAgentApiKey({
           agentId: agent.id,
           workspaceId: agent.workspaceId,
@@ -116,7 +129,7 @@ export const Route = createFileRoute("/api/agent-api-keys")({
           repository: new PrismaAgentApiKeyRepository(db),
         });
         return Response.json(
-          { apiKey, providerConfig },
+          { apiKey, providerConfig, envVars },
           { headers: { "cache-control": "no-store" } },
         );
       },

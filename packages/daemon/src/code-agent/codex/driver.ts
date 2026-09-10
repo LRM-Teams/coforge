@@ -40,7 +40,10 @@ export class CodexDriver implements AgentDriver {
     const process = new JsonlProcess(
       this.#command,
       options.agentWorkspaceDirectory,
-      agentEnvironment(options.environment),
+      agentEnvironment(options.environment, Bun.env, undefined, {
+        envVars: options.runtime?.envVars,
+        extraEnv: { NO_COLOR: "1" },
+      }),
     );
     try {
       await process.request({
@@ -166,6 +169,16 @@ class CodexAgentSession implements AgentSession {
       state: resumed ? "resumable" : "empty",
     };
     process.onRecord((record) => this.#accept(record));
+    process.onStderr((text) => {
+      if (!/Reconnecting\.\.\.\s*\d+\s*\/\s*\d+/i.test(text)) return;
+      this.#emit({
+        type: "activity",
+        activity: {
+          ...createAgentActivity("runtime_reconnecting", "info", "Codex reconnecting to provider…"),
+          entries: [{ kind: "text", text: scrubError(text) }],
+        },
+      });
+    });
     process.onFailure((error) =>
       this.#emit({
         type: "activity",
@@ -305,6 +318,14 @@ class CodexAgentSession implements AgentSession {
         typeof error?.message !== "string"
       )
         return;
+      if (params.willRetry) {
+        logger.debug("Codex is retrying a provider request", {
+          event: "codex.request.retrying",
+          agent_id: this.#agentId,
+          runtime_id: this.#runtimeId,
+        });
+        return;
+      }
       this.#emit({
         type: "activity",
         activity: createAgentActivity("runtime_error", "error", error.message, eventTime(record)),

@@ -320,38 +320,94 @@ async function waitForEvent(
   throw new Error(`timed out waiting for ${type}`);
 }
 
-test("Codex reports retry errors as activity without ending the active turn", async () => {
-  const session = await fixtureAdapter().createAgentSession({
-    agentWorkspaceDirectory: tmpdir(),
-    instructions: TEST_AGENT_INSTRUCTIONS,
-  });
-  const events: AgentRuntimeEvent[] = [];
-  const observed = new Promise<void>((resolve) => {
-    session.subscribe((event) => {
-      events.push(event);
-      if (event.type === "text-delta" && event.text === "retry observed") resolve();
+test.each([true, false])(
+  "Codex preserves the active turn and only hides retryable errors (willRetry=%s)",
+  async (willRetry) => {
+    const session = await fixtureAdapter().createAgentSession({
+      agentWorkspaceDirectory: tmpdir(),
+      instructions: TEST_AGENT_INSTRUCTIONS,
     });
-  });
-  try {
-    await session.sendMessage("retry-error");
-    await observed;
-    expect(events.filter((event) => event.type === "activity")).toEqual([
-      {
+    const events: AgentRuntimeEvent[] = [];
+    const observed = new Promise<void>((resolve) => {
+      session.subscribe((event) => {
+        events.push(event);
+        if (event.type === "text-delta" && event.text === "retry observed") resolve();
+      });
+    });
+    try {
+      await session.sendMessage(willRetry ? "retry-error" : "final-error");
+      await observed;
+      expect(events.filter((event) => event.type === "activity")).toEqual(
+        willRetry
+          ? []
+          : [
+              {
+                type: "activity",
+                activity: expect.objectContaining({
+                  detailKind: "runtime_error",
+                  level: "error",
+                  detail: "request timed out: Bearer fixture-private-token",
+                }),
+              },
+            ],
+      );
+      expect(events.some((event) => event.type === "completed")).toBe(false);
+      await session.notify!("retry accepted");
+      await expect(session.sendMessage("overlap")).rejects.toThrow("already running");
+    } finally {
+      await session.dispose();
+    }
+  },
+);
+
+test.each([
+  ["plain", "Reconnecting... 3/5", "Reconnecting... 3/5"],
+  [
+    "redacted",
+    "Reconnecting... 2/5: Bearer fixture-private-token sk-fixture123456789 (502 Bad Gateway)",
+    "Reconnecting... 2/5: Bearer [redacted] [redacted] (502 Bad Gateway)",
+  ],
+  [
+    "499 characters",
+    "Reconnecting... 1/5 " + "x".repeat(479),
+    "Reconnecting... 1/5 " + "x".repeat(479),
+  ],
+  [
+    "500 characters",
+    "Reconnecting... 1/5 " + "x".repeat(480),
+    "Reconnecting... 1/5 " + "x".repeat(480),
+  ],
+  [
+    "501 characters",
+    "Reconnecting... 1/5 " + "x".repeat(480) + "Z",
+    "Reconnecting... 1/5 " + "x".repeat(480),
+  ],
+])(
+  "Codex presents safe, bounded reconnect stderr as working activity (%s)",
+  async (_, diagnostic, expected) => {
+    const session = await fixtureAdapter().createAgentSession({
+      agentWorkspaceDirectory: tmpdir(),
+      instructions: TEST_AGENT_INSTRUCTIONS,
+    });
+    const observed = new Promise<AgentRuntimeEvent>((resolve) => {
+      session.subscribe((event) => {
+        if (event.type === "activity") resolve(event);
+      });
+    });
+    try {
+      await session.sendMessage(`reconnect-stderr:${diagnostic}`);
+      expect(await observed).toEqual({
         type: "activity",
         activity: expect.objectContaining({
-          detailKind: "runtime_error",
-          level: "error",
-          detail: "request timed out: Bearer fixture-private-token",
+          detailKind: "runtime_reconnecting",
+          level: "info",
+          detail: "Codex reconnecting to provider…",
+          entries: [{ kind: "text", text: expected }],
         }),
-      },
-    ]);
-    for (const event of events) {
-      if (event.type === "activity") expect(event.activity.runtimeError).toBeUndefined();
+      });
+      await expect(session.sendMessage("overlap")).rejects.toThrow("already running");
+    } finally {
+      await session.dispose();
     }
-    expect(events.some((event) => event.type === "completed")).toBe(false);
-    await session.notify!("retry accepted");
-    await expect(session.sendMessage("overlap")).rejects.toThrow("already running");
-  } finally {
-    await session.dispose();
-  }
-});
+  },
+);

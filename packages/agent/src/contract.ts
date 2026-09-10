@@ -10,6 +10,7 @@ export type AgentActivityType =
   | "idle"
   | "running_command"
   | "tool_started"
+  | "runtime_reconnecting"
   | "runtime_error"
   | "warning";
 export type AgentActivityLevel = "info" | "warning" | "error";
@@ -31,6 +32,7 @@ export type AgentRuntimeConfig = Readonly<{
   modelProvider?: string;
   reasoning: string;
   providerConfig?: AgentRuntimeProviderConfig;
+  envVars?: Readonly<Record<string, string>>;
 }>;
 export type UsageWindow = Readonly<{
   usedPercent?: number;

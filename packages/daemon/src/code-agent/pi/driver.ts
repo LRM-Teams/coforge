@@ -29,8 +29,10 @@ export class PiDriver implements AgentDriver {
       throw new Error("Pi runtime provider does not match the selected model");
     if (credential?.apiKey && !runtime?.modelProvider)
       throw new Error("Pi model provider is required for an Agent API key");
-    const environment = agentEnvironment(options.environment);
-    const hostAgentDir = options.environment?.PI_CODING_AGENT_DIR ?? getAgentDir();
+    const environment = agentEnvironment(options.environment, Bun.env, process.platform, {
+      envVars: runtime?.envVars,
+    });
+    const hostAgentDir = environment.PI_CODING_AGENT_DIR ?? getAgentDir();
     const created = await createSession({
       cwd: options.agentWorkspaceDirectory,
       agentDir: hostAgentDir,
@@ -83,7 +85,9 @@ export class CoforgeDriver extends PiDriver {
       reasoning: runtime.reasoning,
       apiKey: runtime.providerConfig.apiKey,
       instructions: options.instructions,
-      environment: agentEnvironment(options.environment),
+      environment: agentEnvironment(options.environment, Bun.env, process.platform, {
+        envVars: runtime.envVars,
+      }),
     });
     try {
       await options.onSessionId?.(session.sessionId, session.replacedSessionId);

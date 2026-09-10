@@ -18,6 +18,7 @@ const workingKinds = new Set([
   "working",
   "freshness_hold",
   "runtime_progress",
+  "runtime_reconnecting",
   "runtime_starting",
   "starting",
   "checking_messages",

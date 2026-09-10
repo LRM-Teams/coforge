@@ -7,6 +7,12 @@ export type EncryptedRuntimeApiKey = {
   hint: string;
 };
 
+export type EncryptedAgentEnvironment = {
+  keyId: string;
+  ciphertext: string;
+  nonce: string;
+};
+
 export type AgentRuntimeProviderConfig =
   | { kind: "default" }
   | {
@@ -21,6 +27,7 @@ export type AgentRuntimeConfig = {
   model: string;
   modelProvider: string;
   reasoning: string;
+  environment?: EncryptedAgentEnvironment;
 };
 
 export function parseAgentRuntimeConfig(value: unknown): AgentRuntimeConfig {
@@ -30,6 +37,7 @@ export function parseAgentRuntimeConfig(value: unknown): AgentRuntimeConfig {
   const model = Reflect.get(value, "model");
   const modelProvider = Reflect.get(value, "modelProvider");
   const reasoning = Reflect.get(value, "reasoning");
+  const environment = parseEncryptedEnvironment(Reflect.get(value, "environment"));
   if (
     !runtime ||
     typeof model !== "string" ||
@@ -43,12 +51,14 @@ export function parseAgentRuntimeConfig(value: unknown): AgentRuntimeConfig {
     model,
     modelProvider: modelProvider ?? "",
     reasoning,
+    ...(environment ? { environment } : {}),
   };
 }
 
 export function publicAgentRuntimeConfig(config: AgentRuntimeConfig): AgentRuntimeConfig {
+  const { environment: _environment, ...publicConfig } = config;
   return {
-    ...config,
+    ...publicConfig,
     provider:
       config.provider.kind === "coforge"
         ? {
@@ -57,6 +67,18 @@ export function publicAgentRuntimeConfig(config: AgentRuntimeConfig): AgentRunti
           }
         : config.provider,
   };
+}
+
+function parseEncryptedEnvironment(value: unknown): EncryptedAgentEnvironment | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("invalid encrypted Agent environment");
+  const keyId = Reflect.get(value, "keyId");
+  const ciphertext = Reflect.get(value, "ciphertext");
+  const nonce = Reflect.get(value, "nonce");
+  if (typeof keyId !== "string" || typeof ciphertext !== "string" || typeof nonce !== "string")
+    throw new Error("invalid encrypted Agent environment");
+  return { keyId, ciphertext, nonce };
 }
 
 function parseProviderConfig(value: unknown): AgentRuntimeProviderConfig {

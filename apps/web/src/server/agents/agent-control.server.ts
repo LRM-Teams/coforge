@@ -117,6 +117,18 @@ function sameScope(a: AgentControlScope, b: AgentControlScope) {
   );
 }
 
+function operationFence(state: AgentControlState | null) {
+  if (!state) return null;
+  const {
+    identity: _identity,
+    sessionSequence: _sessionSequence,
+    launchIdentityBound: _launchIdentityBound,
+    recovered: _recovered,
+    ...fence
+  } = state;
+  return fence;
+}
+
 /** Shared authorization for control results and independent Session snapshots. */
 export async function requireCurrentAgentScope(
   store: AgentControlStore,
@@ -208,7 +220,12 @@ export class AgentControl {
       throw new Error("Agent is not authorized or assigned");
     return agent;
   }
-  private async begin(agent: AgentControlAgent, action: AgentControlAction, requestId: string) {
+  private async begin(
+    agent: AgentControlAgent,
+    action: AgentControlAction,
+    requestId: string,
+    attempt = 1,
+  ): Promise<AgentControlState> {
     const old = agent.state;
     if (old?.requestId === requestId) {
       if (old.action !== action || !current(agent, old)) throw new Error("Operation scope changed");
@@ -241,8 +258,26 @@ export class AgentControl {
       sessionSequence: 0,
       ...(identity ? { identity } : {}),
     };
-    if (!(await this.store.replace(agent, state))) throw new Error("Agent configuration changed");
-    return state;
+    if (await this.store.replace(agent, state)) return state;
+
+    // Session reports do not take the runtime lock. Reauthorize and rebuild from
+    // their fresh identity, but never absorb a configuration or operation change.
+    const refreshed = await this.authorized(agent.ownerId, agent.workspaceId, agent.id);
+    if (
+      refreshed.computerId !== agent.computerId ||
+      !Bun.deepEquals(refreshed.runtimeConfig, agent.runtimeConfig, true) ||
+      !Bun.deepEquals(
+        refreshed.storedRuntimeConfig ?? refreshed.runtimeConfig,
+        agent.storedRuntimeConfig ?? agent.runtimeConfig,
+        true,
+      ) ||
+      !Bun.deepEquals(operationFence(refreshed.state), operationFence(old), true) ||
+      (refreshed.state?.sessionSequence ?? 0) < (old?.sessionSequence ?? 0)
+    )
+      throw new Error("Agent configuration or control operation changed");
+    if (attempt === 3)
+      throw new Error("Agent control could not begin after 3 compare-and-swap attempts");
+    return this.begin(refreshed, action, requestId, attempt + 1);
   }
 
   /** Caller already holds the existing Agent runtime lock (create/update/recovery). */
