@@ -14,7 +14,7 @@ export function MessagesPending() {
         aria-label={m.messages_agent_list_label()}
         className="hidden w-72 shrink-0 flex-col overflow-hidden border-r border-secondary bg-primary md:flex xl:w-80"
       >
-        <div className="flex h-14 shrink-0 items-center border-b border-secondary px-5">
+        <div className="flex h-12 shrink-0 items-center border-b border-secondary px-5">
           <h1 className="text-base font-semibold">{m.messages_title()}</h1>
         </div>
         <div className="overflow-hidden px-3 py-4">
@@ -43,7 +43,7 @@ export function MessagesPending() {
 export function ConversationPending() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-secondary px-3 sm:px-5">
+      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-3 sm:px-5">
         <BackToAgents />
         <p role="status" className="sr-only">
           {m.conversation_loading()}
@@ -76,7 +76,7 @@ export function ConversationLoadError({ error }: { error: unknown }) {
   const routeId = useMatch({ strict: false, select: (match) => match.routeId });
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-secondary px-3 sm:px-5">
+      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-3 sm:px-5">
         <BackToAgents />
         <h1 className="text-base font-semibold">{m.messages_title()}</h1>
       </header>

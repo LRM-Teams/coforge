@@ -58,7 +58,7 @@ export function TaskBoard({
         {!header && (
           <>
             {conversationName && (
-              <div className="-mx-3 flex h-14 items-center border-b border-secondary px-3 sm:-mx-5 sm:px-5">
+              <div className="-mx-3 flex h-12 items-center border-b border-secondary px-3 sm:-mx-5 sm:px-5">
                 <h1 className="truncate text-base font-medium">{conversationName}</h1>
               </div>
             )}

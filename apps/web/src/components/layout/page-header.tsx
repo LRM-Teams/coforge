@@ -18,7 +18,7 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-secondary px-4 sm:px-6">
+    <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-4 sm:px-6">
       {leading}
       <h1 className="truncate text-lg font-semibold text-primary">{heading}</h1>
       {meta}

@@ -48,8 +48,8 @@ export const SidebarCollapsed = ({
       className="flex h-full max-h-full flex-col justify-between overflow-y-auto border-r border-secondary bg-sidebar pb-4"
     >
       <div className="flex flex-col items-center gap-3">
-        {/* Same 56px band as the expanded logo row and every page header. */}
-        <div className="flex h-14 shrink-0 items-center">
+        {/* Same 48px band as the expanded logo row and every page header. */}
+        <div className="flex h-12 shrink-0 items-center">
           <ButtonUtility
             icon={PanelLeft}
             size="sm"
@@ -111,7 +111,7 @@ export const SidebarCollapsed = ({
           data-sidebar
           className="flex h-full max-h-full w-full max-w-full flex-col justify-between overflow-y-auto bg-sidebar"
         >
-          <div className="flex h-14 shrink-0 items-center gap-2 px-4">
+          <div className="flex h-12 shrink-0 items-center gap-2 px-4">
             <img src="/logo.svg" alt="" className="size-6 shrink-0" />
             <span className="text-sm font-semibold text-primary">CoForge</span>
           </div>

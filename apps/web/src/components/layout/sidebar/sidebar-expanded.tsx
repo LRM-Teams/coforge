@@ -80,8 +80,8 @@ export const SidebarExpanded = ({
       style={{ "--width": `${width}px` } as CSSProperties}
       className="relative flex h-full w-full max-w-full flex-col justify-between overflow-auto bg-sidebar lg:w-(--width) lg:border-r lg:border-secondary"
     >
-      {/* Same 56px band as every page header, so the logo and page titles share a baseline. */}
-      <div className="flex h-14 shrink-0 items-center gap-2 px-4 lg:px-5">
+      {/* Same 48px band as every page header, so the logo and page titles share a baseline. */}
+      <div className="flex h-12 shrink-0 items-center gap-2 px-4 lg:px-5">
         <img src="/logo.svg" alt="" className="size-6 shrink-0" />
         <span className="text-sm font-semibold text-primary">CoForge</span>
         {headerAction && <div className="ml-auto">{headerAction}</div>}

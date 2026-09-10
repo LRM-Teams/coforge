@@ -113,7 +113,7 @@ export function SettingsPending() {
         <PageHeader heading={m.settings_account()} />
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6">
           <section>
-            <header className="flex min-h-14 items-center pb-4">
+            <header className="flex min-h-12 items-center pb-4">
               <h2 className="text-lg font-semibold">{m.settings_profile()}</h2>
             </header>
             <div
@@ -400,7 +400,7 @@ function AccountSettings({
   return (
     <div className="w-full px-4 pb-8 sm:px-6">
       <section>
-        <header className="flex min-h-14 items-center justify-between gap-4 py-4">
+        <header className="flex min-h-12 items-center justify-between gap-4 py-3">
           <h2 className="text-lg font-semibold">{m.settings_profile()}</h2>
           {!editing && (
             <Button type="button" color="secondary" onPress={startEditing}>

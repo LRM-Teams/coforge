@@ -16,7 +16,7 @@ export function ComputersPending() {
         aria-label={m.computer_connected_list()}
         className="hidden w-80 shrink-0 flex-col overflow-hidden border-r border-secondary bg-primary md:flex"
       >
-        <div className="flex h-14 shrink-0 items-center border-b border-secondary px-5">
+        <div className="flex h-12 shrink-0 items-center border-b border-secondary px-5">
           <h1 className="text-base font-medium">{m.computer_page_title()}</h1>
         </div>
         <div aria-hidden="true" className="space-y-1 p-3 motion-safe:animate-pulse">
@@ -45,7 +45,7 @@ export function ComputerDetailPending() {
 function ComputerDetailSkeleton({ announce }: { announce: boolean }) {
   return (
     <div aria-busy={announce ? "true" : undefined} className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-secondary px-3 sm:px-5">
+      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-3 sm:px-5">
         <BackToComputers />
         {announce && (
           <p role="status" className="sr-only">
@@ -89,7 +89,7 @@ export function ComputerDetailLoadError({ error }: { error: unknown }) {
   void error;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-secondary px-3 sm:px-5">
+      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-secondary px-3 sm:px-5">
         <BackToComputers />
         <h1 className="text-base font-medium">{m.computer_page_title()}</h1>
       </header>
