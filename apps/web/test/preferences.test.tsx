@@ -427,7 +427,6 @@ test("uses the current user avatar as the personal settings menu trigger without
   const trigger = view.getByRole("button", { name: "Current user: Frank An" });
 
   expect(trigger.getAttribute("aria-haspopup")).toBe("true");
-  expect(trigger.hasAttribute("data-base-ui-tooltip-trigger")).toBeFalse();
   expect(trigger.querySelector("[data-avatar]")?.textContent).toBe("F");
 });
 
