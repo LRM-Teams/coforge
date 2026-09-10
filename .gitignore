@@ -16,6 +16,9 @@ infra/secrets/
 .DS_Store
 *.log
 
+# Claude Code worktrees are local checkout state.
+/.claude/worktrees/
+
 # Local cross-thread transfer archives (not product source).
 /coforge-coherent-snapshot*.tar.gz
 /coforge-lifecycle-*-delta.tar.gz
