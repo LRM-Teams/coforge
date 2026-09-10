@@ -17,17 +17,29 @@ AI drafting/side-chat replies are deferred; storage must still allow a future
 ## Decision
 
 1. **WeeklyReportCycle** is the week bucket (`year` + `week`) in one Workspace.
-   Creating a cycle (UI “+”) inserts the cycle and an empty **WeeklyReportHighlight**.
-2. **WeeklyReport** is one document per `(cycle, author)` with `kind`
-   `member` | `template`. Structured body is `content` JSON (tabs → sections →
-   outline nodes). Tab labels come from the latest **WeeklyReportTemplate**
-   `dimensions`; section titles come from that template's `mainTitles`. Draft
-   reports realign tab keys to the latest template dimensions when opened.
-   Report editing uses a lightweight outline editor (tabs → sections → nodes).
-   A heavier BlockNote editor was evaluated and rejected for client latency.
-3. **WeeklyReportTemplate** is Workspace-level send configuration (name,
-   dimensions, titles, frequency, time, recipients). Recipients reference Users
-   in the Workspace, or the sentinel `all` via a boolean `allMembers`.
+   Cycles are created on demand when a highlight, personal member report, or
+   cycle template report is added for the current ISO week. Highlight create,
+   “我的周报” create, and “成员周报” create remain independent UI actions.
+2. **WeeklyReport** has `kind` `member` | `template`.
+   - `member`: personal reports listed under “我的周报”. Multiple per
+     `(cycle, author)` and duplicate titles are allowed.
+   - `template`: listed as flat top-level nodes under “成员周报”. Clicking a
+     template opens its editor. Creating via “成员周报 +” adds a **sibling**
+     template node (default title like `2026 W37 工作周报`). Titles may
+     duplicate (Multica Notes-style); identity and navigation use the report
+     UUID. Templates are **not** listed under “我的周报”.
+   - **Submissions**: after a template is sent to workgroup colleagues and they
+     submit, those member reports reference `sourceTemplateId` and appear as
+     **children** of that template node (status `submitted` | `shared`).
+   Body is `content` JSON `{ markdown: string }` — one TipTap Markdown document
+   (Notes-style), not tabs/sections. Draft opening does not realign body
+   structure from send templates. Legacy tab/section / outline JSON is
+   flattened to Markdown on read. Creating either kind does **not** create the
+   other, nor a highlight.
+3. **WeeklyReportTemplate** is Workspace-level **send** configuration (name,
+   frequency, time, recipients). `dimensions` / `mainTitles` may still be
+   stored for settings UI compatibility but do **not** drive report body
+   structure.
 4. **WeeklyReportFavorite** is per-User favorites of member reports.
 5. **RecordComment** attaches to a subject (`report` | `highlight` | `cycle`) with
    `authorType` `user` | `system` | `assistant` and optional `payload` JSON for
@@ -38,8 +50,10 @@ AI drafting/side-chat replies are deferred; storage must still allow a future
 
 ## Rejected alternatives
 
-- Storing report body as Markdown only: rejected; designs need nested outline
-  editing and tabbed sections.
+- Tabbed sections driven by template dimensions/mainTitles: superseded — product
+  wants a single Markdown document like Multica Notes.
+- Storing report body outside JSON (plain text column): deferred; Json keeps
+  migration of legacy shapes without a schema rewrite.
 - Coupling templates to Message/Task: rejected; Records is not chat delivery.
 - Embedding Centrifugo for report comments in MVP: deferred; HTTPS server
   functions are enough until live co-editing is required.
@@ -50,4 +64,8 @@ AI drafting/side-chat replies are deferred; storage must still allow a future
 - Domain ownership: `src/server/records/*`; browser seam: `src/features/records/*`.
 - Demo catalogs must not ship; empty Workspace shows empty sections until users
   create cycles/templates/reports.
+- `WeeklyReport` no longer enforces uniqueness on `(cycleId, authorId, kind)`;
+  member and template reports may share titles within a cycle.
+- Member submissions may set optional `sourceTemplateId` to hang under a
+  template node in “成员周报”.
 - Merge to `main` requires Frank’s schema approval per AGENTS.md decision gates.

@@ -1,24 +1,7 @@
-/** Structured weekly-report body: dimension tabs → outline sections. */
-
-export type OutlineNode = {
-  id: string;
-  text: string;
-  children: OutlineNode[];
-};
-
-export type ReportSection = {
-  id: string;
-  key: string;
-  title: string;
-  roots: OutlineNode[];
-};
-
-export type ReportTab = {
-  sections: ReportSection[];
-};
+/** Weekly-report body: one Markdown document (Notes-style). */
 
 export type ReportContent = {
-  tabs: Record<string, ReportTab>;
+  markdown: string;
 };
 
 export type HighlightBlock = {
@@ -32,106 +15,103 @@ export type HighlightContent = {
   blocks: HighlightBlock[];
 };
 
-function id() {
-  return crypto.randomUUID();
+/** @deprecated Legacy outline node; only used when migrating old persisted JSON. */
+type LegacyOutlineNode = {
+  id?: string;
+  text?: string;
+  children?: LegacyOutlineNode[];
+};
+
+type LegacySection = {
+  title?: string;
+  markdown?: unknown;
+  roots?: LegacyOutlineNode[];
+};
+
+function outlineNodesToMarkdown(nodes: LegacyOutlineNode[], depth = 0): string {
+  const lines: string[] = [];
+  for (const node of nodes) {
+    const text = (node.text ?? "").trimEnd();
+    const indent = "  ".repeat(depth);
+    if (text.length > 0 || (node.children?.length ?? 0) > 0) {
+      lines.push(`${indent}- ${text}`);
+    }
+    if (node.children?.length) {
+      const nested = outlineNodesToMarkdown(node.children, depth + 1);
+      if (nested) lines.push(nested);
+    }
+  }
+  return lines.join("\n");
 }
 
-function emptyOutlineRoot(): OutlineNode {
-  return { id: id(), text: "", children: [] };
+function sectionBody(section: LegacySection): string {
+  if (typeof section.markdown === "string" && section.markdown.length > 0) {
+    return section.markdown;
+  }
+  if (Array.isArray(section.roots) && section.roots.length > 0) {
+    return outlineNodesToMarkdown(section.roots);
+  }
+  return "";
 }
 
-/** One tab body: sections come from template main titles (主要标题). */
-export function emptyReportTab(mainTitles: string[] = []): ReportTab {
-  const titles = mainTitles.map((title) => title.trim()).filter(Boolean);
-  const sectionTitles = titles.length > 0 ? titles : [""];
-  return {
-    sections: sectionTitles.map((title, index) => ({
-      id: id(),
-      key: `section_${index}`,
-      title,
-      roots: [emptyOutlineRoot()],
-    })),
-  };
+/** Flatten legacy tabs/sections into one Markdown document. */
+function legacyTabsToMarkdown(tabs: Record<string, { sections?: LegacySection[] }>): string {
+  const parts: string[] = [];
+  for (const [tabName, tab] of Object.entries(tabs)) {
+    const sections = tab?.sections ?? [];
+    if (sections.length === 0) continue;
+    const tabTrim = tabName.trim();
+    if (tabTrim) parts.push(`# ${tabTrim}`);
+    for (const section of sections) {
+      const title = (section.title ?? "").trim();
+      const body = sectionBody(section).trim();
+      if (title) parts.push(`## ${title}`);
+      if (body) parts.push(body);
+    }
+  }
+  return parts.join("\n\n").trim();
+}
+
+/** Empty report document (template settings no longer shape the body). */
+export function emptyReportContent(): ReportContent {
+  return { markdown: "" };
 }
 
 /**
- * Build report body from WeeklyReportTemplate shape.
- * `dimensions` → editor tabs; `mainTitles` → sections under each tab.
+ * @deprecated Template dimensions no longer drive report body.
+ * Kept as a no-op normalize for any remaining callers.
  */
-export function emptyReportContent(
-  dimensions: string[] = [],
-  mainTitles: string[] = [],
-): ReportContent {
-  const tabs: Record<string, ReportTab> = {};
-  for (const key of dimensions) {
-    const name = key.trim();
-    if (!name || tabs[name]) continue;
-    tabs[name] = emptyReportTab(mainTitles);
-  }
-  return { tabs };
+export function alignReportContentToTemplate(content: ReportContent): ReportContent {
+  return normalizeReportContent(content);
 }
 
-/** Keep matching tab bodies; drop tabs removed from dimensions; add missing ones. */
-export function alignReportContentToTemplate(
-  content: ReportContent,
-  dimensions: string[],
-  mainTitles: string[] = [],
-): ReportContent {
-  const normalized = normalizeReportContent(content);
-  const tabs: Record<string, ReportTab> = {};
-  for (const key of dimensions) {
-    const name = key.trim();
-    if (!name || tabs[name]) continue;
-    tabs[name] = normalized.tabs[name] ?? emptyReportTab(mainTitles);
-  }
-  return { tabs };
+/** Clear the document body. */
+export function clearReportContent(_content?: ReportContent): ReportContent {
+  return { markdown: "" };
 }
 
-/** Clear outline text while keeping tab and section structure. */
-export function clearReportContent(content: ReportContent): ReportContent {
-  const normalized = normalizeReportContent(content);
-  const tabs: Record<string, ReportTab> = {};
-  for (const [name, tab] of Object.entries(normalized.tabs)) {
-    tabs[name] = {
-      sections: tab.sections.map((section) => ({
-        ...section,
-        roots: [emptyOutlineRoot()],
-      })),
-    };
-  }
-  return { tabs };
-}
-
-/** Normalize persisted JSON into outline tabs. */
+/** Normalize persisted JSON into a single markdown document. */
 export function normalizeReportContent(value: unknown): ReportContent {
   if (!value || typeof value !== "object") return emptyReportContent();
   const record = value as {
-    tabs?: Record<string, { sections?: ReportSection[] }>;
+    markdown?: unknown;
+    tabs?: Record<string, { sections?: LegacySection[] }>;
   };
-  const tabs: Record<string, ReportTab> = {};
-  for (const [name, tab] of Object.entries(record.tabs ?? {})) {
-    if (!tab || !Array.isArray(tab.sections) || tab.sections.length === 0) {
-      tabs[name] = emptyReportTab();
-      continue;
-    }
-    tabs[name] = {
-      sections: tab.sections.map((section) => ({
-        id: section.id || id(),
-        key: section.key || "section",
-        title: section.title ?? "",
-        roots: (section.roots?.length ?? 0) > 0 ? section.roots! : [emptyOutlineRoot()],
-      })),
-    };
+  if (typeof record.markdown === "string") {
+    return { markdown: record.markdown };
   }
-  return { tabs };
+  if (record.tabs && typeof record.tabs === "object") {
+    return { markdown: legacyTabsToMarkdown(record.tabs) };
+  }
+  return emptyReportContent();
 }
 
 export function emptyHighlightContent(): HighlightContent {
   return {
     blocks: [
-      { id: id(), heading: "本周工作进展", paragraphs: [], items: [] },
-      { id: id(), heading: "下周计划", paragraphs: [], items: [] },
-      { id: id(), heading: "要点总结", paragraphs: [], items: [] },
+      { id: crypto.randomUUID(), heading: "本周工作进展", paragraphs: [], items: [] },
+      { id: crypto.randomUUID(), heading: "下周计划", paragraphs: [], items: [] },
+      { id: crypto.randomUUID(), heading: "要点总结", paragraphs: [], items: [] },
     ],
   };
 }

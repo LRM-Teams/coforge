@@ -38,16 +38,21 @@ in `.env`, source, logs, or browser configuration. All backend replicas for an
 environment must use the same pair; changing it requires browsers to
 resubscribe.
 
-Local Web UI and Web/backend are the same TanStack Start package. Use the
-frontend script for daily development and the backend script to run the
-production Nitro server. Neither script uses port 3000.
+Local Web UI and Web/backend are the same TanStack Start package. Compile
+once, then start the production Nitro processes. Neither script uses port 3000.
 
 ```bash
 mise install
 mise run setup
-./scripts/dev-frontend.sh    # http://127.0.0.1:8788
-./scripts/dev-backend.sh     # http://127.0.0.1:8789 after a production build
+./scripts/build-prod.sh      # protocol generate + vite/nitro production build
+./scripts/start-web.sh       # http://127.0.0.1:8788 (compiled Nitro)
+./scripts/start-server.sh    # http://127.0.0.1:8789 (compiled Nitro)
 ```
+
+`./scripts/dev-frontend.sh` and `./scripts/dev-backend.sh` are aliases for
+`start-web` / `start-server`. They require a prior `build-prod` and no longer
+auto-compile. For Vite HMR while iterating on UI (and for
+`COFORGE_DEV_SKIP_AUTH`), use `./scripts/dev-web-hmr.sh` instead.
 
 The scripts find the mise Bun install if `bun` is not on PATH. Re-running a
 script replaces whatever is already listening on that port.
@@ -63,9 +68,10 @@ bun run --cwd apps/web check
 bun run --cwd apps/web build
 ```
 
-Development runs directly on Bun/Vite with hot module replacement. Docker is
-reserved for production builds and container verification. The production
-server uses Nitro's Bun preset:
+Production local serving uses `./scripts/build-prod.sh` then `start-web` /
+`start-server`. Vite HMR remains available via `./scripts/dev-web-hmr.sh`.
+Docker is reserved for production builds and container verification. The
+production server uses Nitro's Bun preset:
 
 ```bash
 docker build -f apps/web/Dockerfile -t coforge-web .

@@ -22,6 +22,16 @@
       "rules": {
         "coforge/no-native-select": "off"
       }
+    },
+    {
+      "files": [
+        "src/features/records/report-editor/**/*.{ts,tsx}",
+        "src/features/records/create-member-report-dialog.tsx"
+      ],
+      "rules": {
+        "coforge/no-native-button": "off",
+        "coforge/no-native-title": "off"
+      }
     }
   ]
 }

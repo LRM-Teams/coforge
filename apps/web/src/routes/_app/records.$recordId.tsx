@@ -6,6 +6,11 @@ import { loadRecordSubject } from "@/features/records/records.functions";
 import { isAppError } from "@/lib/app-error";
 
 export const Route = createFileRoute("/_app/records/$recordId")({
+  // Loader may run on the server; TipTap must not SSR (Multica Notes is client-only).
+  ssr: "data-only",
+  // Always revalidate when entering a report so saves from a previous visit win
+  // over the first-load loader snapshot.
+  staleTime: 0,
   loader: async ({ params }) => {
     try {
       return await loadRecordSubject({ data: { id: params.recordId } });
