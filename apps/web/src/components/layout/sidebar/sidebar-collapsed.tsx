@@ -1,6 +1,7 @@
 import type { FC, ReactNode } from "react";
 import { LayoutLeft as PanelLeft } from "@untitledui/icons";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { m } from "@/paraglide/messages";
 import { MobileNavigationHeader } from "@/components/layout/sidebar/mobile-header";
 import { NavButton } from "@/components/application/app-navigation/base-components/nav-button";
 import { NavList } from "@/components/application/app-navigation/base-components/nav-list";
@@ -44,16 +45,19 @@ export const SidebarCollapsed = ({
     <aside
       data-sidebar
       style={{ width: SIDEBAR_RAIL_WIDTH }}
-      className="flex h-full max-h-full flex-col justify-between overflow-y-auto border-r border-secondary bg-sidebar py-4"
+      className="flex h-full max-h-full flex-col justify-between overflow-y-auto border-r border-secondary bg-sidebar pb-4"
     >
       <div className="flex flex-col items-center gap-3">
-        <ButtonUtility
-          icon={PanelLeft}
-          size="sm"
-          color="tertiary"
-          tooltip="Expand sidebar"
-          onClick={onExpand}
-        />
+        {/* Same 56px band as the expanded logo row and every page header. */}
+        <div className="flex h-14 shrink-0 items-center">
+          <ButtonUtility
+            icon={PanelLeft}
+            size="sm"
+            color="tertiary"
+            tooltip={m.controls_show_sidebar()}
+            onClick={onExpand}
+          />
+        </div>
         <ul className="flex flex-col gap-0.5">
           {items.map((item) => (
             <li key={item.label}>
@@ -105,13 +109,13 @@ export const SidebarCollapsed = ({
       <MobileNavigationHeader>
         <aside
           data-sidebar
-          className="flex h-full max-h-full w-full max-w-full flex-col justify-between overflow-y-auto bg-sidebar pt-4"
+          className="flex h-full max-h-full w-full max-w-full flex-col justify-between overflow-y-auto bg-sidebar"
         >
-          <div className="flex items-center gap-2 px-4">
+          <div className="flex h-14 shrink-0 items-center gap-2 px-4">
             <img src="/logo.svg" alt="" className="size-6 shrink-0" />
             <span className="text-sm font-semibold text-primary">CoForge</span>
           </div>
-          <NavList activeUrl={activeUrl} items={items} className="mt-5" />
+          <NavList activeUrl={activeUrl} items={items} className="mt-2" />
           <div className="mt-auto flex flex-col gap-3 p-4">{footer}</div>
         </aside>
       </MobileNavigationHeader>

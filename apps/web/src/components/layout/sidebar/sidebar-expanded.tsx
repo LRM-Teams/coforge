@@ -78,15 +78,16 @@ export const SidebarExpanded = ({
     <aside
       data-sidebar
       style={{ "--width": `${width}px` } as CSSProperties}
-      className="relative flex h-full w-full max-w-full flex-col justify-between overflow-auto bg-sidebar pt-4 lg:w-(--width) lg:border-r lg:border-secondary lg:pt-5"
+      className="relative flex h-full w-full max-w-full flex-col justify-between overflow-auto bg-sidebar lg:w-(--width) lg:border-r lg:border-secondary"
     >
-      <div className="flex items-center gap-2 px-4 lg:px-5">
+      {/* Same 56px band as every page header, so the logo and page titles share a baseline. */}
+      <div className="flex h-14 shrink-0 items-center gap-2 px-4 lg:px-5">
         <img src="/logo.svg" alt="" className="size-6 shrink-0" />
         <span className="text-sm font-semibold text-primary">CoForge</span>
         {headerAction && <div className="ml-auto">{headerAction}</div>}
       </div>
 
-      <NavList activeUrl={activeUrl} items={items} className="mt-5" />
+      <NavList activeUrl={activeUrl} items={items} className="mt-2" />
 
       <div className="mt-auto flex flex-col gap-3 px-4 py-4 lg:py-5">
         {footerItems.length > 0 && (

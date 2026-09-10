@@ -40,7 +40,7 @@
 - 内容区 `bg-primary`，贴边铺满。页面内的多个面板（列表 + 详情、对话 + thread）之间只用 1px `border-secondary` 分隔。
 - **不用**卡片岛屿：页面级面板没有 `rounded`、没有 `border` 包边、没有 gutter、没有阴影。卡片只用于内容里真正独立的对象（一个附件、一条运行时）。
 - 侧栏可拖拽：默认 280，范围 240 到 360。手柄不可见，热区 6 到 8px 压在分隔线上，hover 或拖拽时显示 2px 品牌色线。
-- 页头高度 64px，标题 `text-lg font-semibold`，右侧放主操作。
+- 页头高度 56px（`h-14`），标题 `text-lg font-semibold`，右侧放主操作。侧栏 logo 行同高，logo 和页面标题共一条基线。
 
 ## 4. 字段展示：label 在上，value 在下
 
