@@ -8,7 +8,7 @@ import { getDatabaseClient } from "../../server/db/client.server";
 import { requireExistingWorkspaceId } from "../../server/workspaces/enrollment.server";
 import { preferredWorkspaceSlugFromRequest } from "../../server/workspaces/selection.server";
 import { recordCatalog } from "../../server/records/record-catalog.server";
-import { normalizeReportContent, type OutlineNode, type ReportContent } from "./records-content";
+import { normalizeReportContent, type ReportContent } from "./records-content";
 
 function catalog() {
   const db = getDatabaseClient();
@@ -25,28 +25,8 @@ async function currentWorkspaceId(userId: string) {
   return requireExistingWorkspaceId(db, userId, preferredWorkspaceSlugFromRequest());
 }
 
-const outlineNodeSchema: z.ZodType<OutlineNode> = z.lazy(() =>
-  z.object({
-    id: z.string().min(1),
-    text: z.string(),
-    children: z.array(outlineNodeSchema),
-  }),
-);
-
 const reportContentSchema: z.ZodType<ReportContent> = z.object({
-  tabs: z.record(
-    z.string(),
-    z.object({
-      sections: z.array(
-        z.object({
-          id: z.string().min(1),
-          key: z.string().min(1),
-          title: z.string(),
-          roots: z.array(outlineNodeSchema),
-        }),
-      ),
-    }),
-  ),
+  markdown: z.string(),
 });
 
 const highlightContentSchema = z.object({
@@ -66,11 +46,47 @@ export const loadRecordsCatalog = createServerFn({ method: "GET" }).handler(asyn
   return catalog().catalog.loadCatalog({ workspaceId, userId: user.id });
 });
 
-export const addCurrentWeeklyCycle = createServerFn({ method: "POST" }).handler(async () => {
+export const createWeeklyHighlight = createServerFn({ method: "POST" }).handler(async () => {
   const user = currentUser();
   const workspaceId = await currentWorkspaceId(user.id);
-  return catalog().catalog.addCurrentCycle({ workspaceId, userId: user.id });
+  return catalog().catalog.createHighlight({ workspaceId, userId: user.id });
 });
+
+export const createMemberWeeklyReport = createServerFn({ method: "POST" })
+  .validator(z.object({ title: z.string().trim().min(1).max(120) }))
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    const workspaceId = await currentWorkspaceId(user.id);
+    return catalog().catalog.createMemberReport({
+      workspaceId,
+      userId: user.id,
+      title: data.title,
+    });
+  });
+
+export const createTemplateWeeklyReport = createServerFn({ method: "POST" })
+  .validator(z.object({ title: z.string().trim().min(1).max(120) }))
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    const workspaceId = await currentWorkspaceId(user.id);
+    return catalog().catalog.createTemplateReport({
+      workspaceId,
+      userId: user.id,
+      title: data.title,
+    });
+  });
+
+export const deleteTemplateWeeklyReport = createServerFn({ method: "POST" })
+  .validator(z.object({ reportId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    const workspaceId = await currentWorkspaceId(user.id);
+    return catalog().catalog.deleteTemplateReport({
+      workspaceId,
+      userId: user.id,
+      reportId: data.reportId,
+    });
+  });
 
 export const deleteWeeklyCycle = createServerFn({ method: "POST" })
   .validator(z.object({ cycleId: z.string().uuid() }))

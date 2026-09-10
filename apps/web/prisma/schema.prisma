@@ -613,30 +613,35 @@ model WeeklyReportCycle {
   @@map("weekly_report_cycles")
 }
 
-/// Member or cycle-template weekly report document with structured outline JSON.
+/// Member or cycle-template weekly report document with Markdown JSON body.
 model WeeklyReport {
-  id          String                 @id @default(uuid()) @db.Uuid
-  workspaceId String                 @db.Uuid
-  cycleId     String                 @db.Uuid
-  authorId    String                 @db.Uuid
+  id               String                 @id @default(uuid()) @db.Uuid
+  workspaceId      String                 @db.Uuid
+  cycleId          String                 @db.Uuid
+  authorId         String                 @db.Uuid
+  /// When kind=member, optional template this submission was written against.
+  sourceTemplateId String?                @db.Uuid
   /// member | template
-  kind        String
-  title       String
+  kind             String
+  title            String
   /// draft | submitted | shared
-  status      String                 @default("draft")
-  content     Json
-  submittedAt DateTime?
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
-  workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  cycle       WeeklyReportCycle      @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  author      User                   @relation("WeeklyReportAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  favorites   WeeklyReportFavorite[]
-  comments    RecordComment[]        @relation("ReportComments")
+  status           String                 @default("draft")
+  content          Json
+  submittedAt      DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  workspace        Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  cycle            WeeklyReportCycle      @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  author           User                   @relation("WeeklyReportAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  sourceTemplate   WeeklyReport?          @relation("TemplateSubmissions", fields: [sourceTemplateId], references: [id], onDelete: SetNull)
+  submissions      WeeklyReport[]         @relation("TemplateSubmissions")
+  favorites        WeeklyReportFavorite[]
+  comments         RecordComment[]        @relation("ReportComments")
 
-  @@unique([cycleId, authorId, kind])
   @@index([workspaceId, authorId])
   @@index([cycleId, kind])
+  @@index([cycleId, authorId, kind])
+  @@index([sourceTemplateId])
   @@map("weekly_reports")
 }
 

@@ -1,5 +1,5 @@
 # shellcheck shell=sh
-# Shared helpers for scripts/dev-frontend.sh and scripts/dev-backend.sh.
+# Shared helpers for local Web start scripts (start-web, start-server, HMR).
 # Sourced, not executed.
 
 validate_local_web_port() {

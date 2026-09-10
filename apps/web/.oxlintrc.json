@@ -23,6 +23,13 @@
       "rules": {
         "coforge/no-native-button": "off"
       }
+    },
+    {
+      "files": ["src/features/records/report-editor/**/*.{ts,tsx}"],
+      "rules": {
+        "coforge/no-native-button": "off",
+        "coforge/no-native-title": "off"
+      }
     }
   ]
 }

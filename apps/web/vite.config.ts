@@ -26,6 +26,23 @@ const config = defineConfig({
   // RedisClient / other Bun APIs, and skips pre-bundling after lockfile changes.
   optimizeDeps: {
     exclude: ["bun"],
+    // TipTap stack is opened from Records; pre-bundle so the first report open
+    // does not stall on dependency discovery (Multica Notes keeps this eager).
+    include: [
+      "@tiptap/react",
+      "@tiptap/starter-kit",
+      "@tiptap/markdown",
+      "@tiptap/extension-placeholder",
+      "@tiptap/extension-table",
+      "@tiptap/extension-link",
+      "@tiptap/extension-image",
+      "@tiptap/extension-task-list",
+      "@tiptap/extension-task-item",
+      "@tiptap/extension-highlight",
+      "@tiptap/extension-typography",
+      "katex",
+      "lowlight",
+    ],
   },
   ssr: {
     external: ["bun"],

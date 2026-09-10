@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { DotsHorizontal, MessageChatCircle as Message, Trash01 as Trash } from "@untitledui/icons";
 
@@ -11,15 +12,20 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
+import { ReportSectionEditor } from "./report-editor/report-section-editor";
+import type { UploadResult } from "./report-editor/types";
+import {
+  readReportDraft,
+  trackReportSave,
+  waitForReportSave,
+  writeReportDraft,
+} from "./report-draft-cache";
 import { saveWeeklyHighlightContent, saveWeeklyReportContent } from "./records.functions";
 import {
   clearReportContent,
-  emptyReportTab,
   normalizeReportContent,
   type HighlightContent,
-  type OutlineNode,
   type ReportContent,
 } from "./records-content";
 import { BackToRecords } from "./records-layout";
@@ -51,35 +57,109 @@ type HighlightSubject = {
 
 export function RecordDetail({ subject }: { subject: ReportSubject | HighlightSubject }) {
   if (subject.type === "highlight") {
-    return <HighlightDetail highlight={subject.highlight} />;
+    return <HighlightDetail key={subject.highlight.id} highlight={subject.highlight} />;
   }
-  return <ReportDetail report={subject.report} />;
+  return <ReportDetail key={subject.report.id} report={subject.report} />;
+}
+
+async function fileToDataUrlUpload(file: File): Promise<UploadResult | null> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+    reader.readAsDataURL(file);
+  });
+  if (!dataUrl) return null;
+  return {
+    id: crypto.randomUUID(),
+    link: dataUrl,
+    markdownLink: dataUrl,
+    fileName: file.name || "file",
+    contentType: file.type || "application/octet-stream",
+  };
 }
 
 function ReportDetail({ report }: { report: ReportSubject["report"] }) {
+  const router = useRouter();
   const save = useServerFn(saveWeeklyReportContent);
-  const [content, setContent] = useState(() => normalizeReportContent(report.content));
+  const [content, setContent] = useState(
+    () => readReportDraft(report.id) ?? normalizeReportContent(report.content),
+  );
   const contentRef = useRef(content);
   contentRef.current = content;
-  const tabNames = Object.keys(content.tabs);
-  const [selectedTab, setSelectedTab] = useState(tabNames[0] ?? "");
-  const activeTab = tabNames.includes(selectedTab) ? selectedTab : (tabNames[0] ?? "");
+  const reportIdRef = useRef(report.id);
+  reportIdRef.current = report.id;
   const [sideOpen, setSideOpen] = useState(true);
   const [saving, setSaving] = useState(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  async function persist(next: ReportContent, status?: "draft" | "submitted" | "shared") {
+  async function persist(
+    next: ReportContent,
+    status?: "draft" | "submitted" | "shared",
+    reportId = reportIdRef.current,
+  ) {
     setSaving(true);
+    const normalized = normalizeReportContent(next);
+    writeReportDraft(reportId, normalized);
+    const savePromise = save({ data: { reportId, content: normalized, status } });
+    trackReportSave(reportId, savePromise);
     try {
-      const normalized = normalizeReportContent(next);
-      await save({ data: { reportId: report.id, content: normalized, status } });
-      setContent(normalized);
-      contentRef.current = normalized;
+      await savePromise;
+      if (reportId === reportIdRef.current) {
+        setContent(normalized);
+        contentRef.current = normalized;
+      }
     } finally {
-      setSaving(false);
+      if (reportId === reportIdRef.current) setSaving(false);
     }
   }
 
-  const tab = content.tabs[activeTab] ?? emptyReportTab();
+  function schedulePersist(next: ReportContent) {
+    setContent(next);
+    contentRef.current = next;
+    writeReportDraft(reportIdRef.current, next);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    const reportId = reportIdRef.current;
+    // Match Multica Notes autosave delay (900ms).
+    saveTimerRef.current = setTimeout(() => {
+      void persist(contentRef.current, undefined, reportId);
+    }, 900);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    void waitForReportSave(report.id)?.then(() => {
+      if (cancelled) return;
+      const draft = readReportDraft(report.id);
+      if (draft) {
+        setContent(draft);
+        contentRef.current = draft;
+      }
+      void router.invalidate();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [report.id, router]);
+
+  useEffect(() => {
+    return () => {
+      if (!saveTimerRef.current) return;
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = undefined;
+      const normalized = normalizeReportContent(contentRef.current);
+      writeReportDraft(report.id, normalized);
+      trackReportSave(
+        report.id,
+        save({
+          data: {
+            reportId: report.id,
+            content: normalized,
+          },
+        }),
+      );
+    };
+  }, [report.id, save]);
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -91,6 +171,9 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
             <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
               <Avatar people={[{ name: report.author.displayName }]} size="sm" />
               <span className="truncate">{report.author.displayName}</span>
+              {saving ? (
+                <span className="shrink-0 text-xs">{m.records_report_saving()}</span>
+              ) : null}
             </div>
           }
           actions={
@@ -115,8 +198,8 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem
                     variant="destructive"
-                    disabled={saving || tabNames.length === 0}
-                    onClick={() => void persist(clearReportContent(contentRef.current), "draft")}
+                    disabled={saving}
+                    onClick={() => void persist(clearReportContent(), "draft")}
                   >
                     <Trash aria-hidden="true" />
                     {m.records_report_clear()}
@@ -127,59 +210,28 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
           }
         />
 
-        {tabNames.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-muted-foreground">
-            {m.records_tabs_from_dimensions_empty()}
-          </div>
-        ) : (
-          <>
-            <div className="flex gap-4 border-b px-4 sm:px-6">
-              {tabNames.map((name) => (
-                <Button
-                  key={name}
-                  type="button"
-                  variant="ghost"
-                  aria-pressed={name === activeTab}
-                  className={cn(
-                    "-mb-px h-10 rounded-none border-b-2 px-1",
-                    name === activeTab
-                      ? "border-brand text-brand"
-                      : "border-transparent text-muted-foreground",
-                  )}
-                  onClick={() => setSelectedTab(name)}
-                >
-                  {name}
-                </Button>
-              ))}
-            </div>
-
-            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
-              {tab.sections.map((section, sectionIndex) => (
-                <section key={section.id} className="space-y-3">
-                  <h2 className="flex items-center gap-2 text-sm font-semibold">
-                    <span className="size-2 rounded-full bg-brand" aria-hidden="true" />
-                    {section.title || m.records_section_untitled()}
-                  </h2>
-                  <OutlineEditor
-                    roots={section.roots}
-                    onChange={(roots) => {
-                      const next = structuredClone(contentRef.current);
-                      const target = next.tabs[activeTab]?.sections[sectionIndex];
-                      if (target) target.roots = roots;
-                      setContent(next);
-                      contentRef.current = next;
-                    }}
-                    onBlur={() => void persist(contentRef.current)}
-                  />
-                </section>
-              ))}
-            </div>
-          </>
-        )}
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
+          <h1 className="mb-6 text-3xl font-semibold tracking-tight md:text-4xl">{report.title}</h1>
+          <ReportSectionEditor
+            key={report.id}
+            defaultValue={content.markdown}
+            placeholder={m.records_report_body_placeholder()}
+            className="min-h-[55vh] pb-[30vh]"
+            onUploadFile={fileToDataUrlUpload}
+            onUpdate={(markdown) => {
+              schedulePersist({ markdown });
+            }}
+            onBlur={() => {
+              if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+              void persist(contentRef.current);
+            }}
+          />
+        </div>
       </div>
 
       {sideOpen ? (
         <RecordSidePanel
+          key={report.id}
           subjectType="report"
           subjectId={report.id}
           onClose={() => setSideOpen(false)}
@@ -187,65 +239,6 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
       ) : null}
     </div>
   );
-}
-
-function OutlineEditor({
-  roots,
-  onChange,
-  onBlur,
-}: {
-  roots: OutlineNode[];
-  onChange: (roots: OutlineNode[]) => void;
-  onBlur: () => void;
-}) {
-  function updateNode(path: number[], text: string) {
-    const next = structuredClone(roots);
-    let cursor: OutlineNode[] = next;
-    for (let i = 0; i < path.length - 1; i += 1) {
-      cursor = cursor[path[i]!]!.children;
-    }
-    cursor[path[path.length - 1]!]!.text = text;
-    onChange(next);
-  }
-
-  function addChild(path: number[]) {
-    const next = structuredClone(roots);
-    let cursor: OutlineNode = next[path[0]!]!;
-    for (let i = 1; i < path.length; i += 1) cursor = cursor.children[path[i]!]!;
-    cursor.children.push({ id: crypto.randomUUID(), text: "", children: [] });
-    onChange(next);
-  }
-
-  function renderNodes(nodes: OutlineNode[], path: number[], depth: number) {
-    return nodes.map((node, index) => {
-      const currentPath = [...path, index];
-      return (
-        <div key={node.id} className="space-y-2" style={{ marginLeft: depth * 16 }}>
-          <div className="flex gap-2">
-            <input
-              value={node.text}
-              placeholder={m.records_outline_level({ level: Math.min(depth + 1, 4) })}
-              onChange={(event) => updateNode(currentPath, event.target.value)}
-              onBlur={onBlur}
-              className="h-10 min-w-0 flex-1 rounded-lg bg-muted/60 px-3 text-sm outline-none ring-1 ring-border/60 ring-inset focus:ring-2 focus:ring-ring"
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              aria-label={m.records_outline_add()}
-              onClick={() => addChild(currentPath)}
-            >
-              +
-            </Button>
-          </div>
-          {node.children.length > 0 ? renderNodes(node.children, currentPath, depth + 1) : null}
-        </div>
-      );
-    });
-  }
-
-  return <div className="space-y-2">{renderNodes(roots, [], 0)}</div>;
 }
 
 function HighlightDetail({ highlight }: { highlight: HighlightSubject["highlight"] }) {

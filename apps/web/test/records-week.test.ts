@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 
 import {
-  alignReportContentToTemplate,
   clearReportContent,
   currentIsoWeek,
   emptyReportContent,
@@ -31,46 +30,9 @@ test("validates template name budget", () => {
   expect(isValidTemplateName("")).toBe(false);
 });
 
-test("builds outline tabs from template dimensions", () => {
-  expect(Object.keys(emptyReportContent().tabs)).toEqual([]);
-  const content = emptyReportContent(["Summary", "Research"], ["Current Work", "Next Steps"]);
-  expect(Object.keys(content.tabs)).toEqual(["Summary", "Research"]);
-  expect(content.tabs.Summary?.sections.map((section) => section.title)).toEqual([
-    "Current Work",
-    "Next Steps",
-  ]);
-});
-
-test("aligns draft content to updated template dimensions", () => {
-  const previous = emptyReportContent(["Summary", "Legacy"], ["A"]);
-  previous.tabs.Summary!.sections[0]!.roots[0]!.text = "kept";
-  const aligned = alignReportContentToTemplate(previous, ["Summary", "Research"], ["A", "B"]);
-  expect(Object.keys(aligned.tabs)).toEqual(["Summary", "Research"]);
-  expect(aligned.tabs.Summary?.sections[0]?.roots[0]?.text).toBe("kept");
-  expect(aligned.tabs.Research?.sections.map((section) => section.title)).toEqual(["A", "B"]);
-  expect(aligned.tabs.Legacy).toBeUndefined();
-});
-
-test("normalizes outline JSON and clears text without dropping sections", () => {
-  const content = normalizeReportContent({
-    tabs: {
-      Summary: {
-        sections: [
-          {
-            id: "sec_1",
-            key: "section_0",
-            title: "Current Work",
-            roots: [{ id: "root_1", text: "done item", children: [] }],
-          },
-        ],
-      },
-    },
-  });
-  expect(content.tabs.Summary?.sections[0]?.title).toBe("Current Work");
-  expect(content.tabs.Summary?.sections[0]?.roots[0]?.text).toBe("done item");
-
-  const cleared = clearReportContent(content);
-  expect(cleared.tabs.Summary?.sections[0]?.title).toBe("Current Work");
-  expect(cleared.tabs.Summary?.sections[0]?.roots).toHaveLength(1);
-  expect(cleared.tabs.Summary?.sections[0]?.roots[0]?.text).toBe("");
+test("report body is a single markdown document independent of template settings", () => {
+  expect(emptyReportContent()).toEqual({ markdown: "" });
+  const content = normalizeReportContent({ markdown: "done item" });
+  expect(content.markdown).toBe("done item");
+  expect(clearReportContent(content)).toEqual({ markdown: "" });
 });
