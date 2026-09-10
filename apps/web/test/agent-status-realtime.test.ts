@@ -1,5 +1,5 @@
 import "./dom-setup";
-import { expect, mock, test } from "bun:test";
+import { expect, jest, mock, test } from "bun:test";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, StrictMode, type ReactNode } from "react";
 
@@ -237,29 +237,52 @@ test("an expired display high-water cannot be revived by an equal or lower revis
 });
 
 test("display expiry asks the backend to reduce current state without inferring a replacement", async () => {
+  jest.useFakeTimers();
   const expiring = agents.map((agent) => ({
     ...agent,
     computerId: "computer-1",
-    display: display({ expiresAt: Date.now() + 20 }),
+    // Exercise the slow-render case explicitly: expiry precedes effect setup.
+    display: display({ expiresAt: Date.now() }),
   }));
-  let attempts = 0;
-  const refresh = mock(async () => {
-    attempts += 1;
-    if (attempts === 1) throw new Error("temporarily unavailable");
-    return expiring.map((agent) => ({
-      ...agent,
-      display: display({ revision: 3, activityKind: "online", expiresAt: Date.now() + 10_000 }),
-    }));
-  });
+  const retryResult = Promise.withResolvers<typeof expiring>();
+  const refresh = mock<() => Promise<typeof expiring>>()
+    .mockRejectedValueOnce(new Error("temporarily unavailable"))
+    .mockImplementation(() => retryResult.promise);
   const { result, unmount } = renderHook(() =>
     useAgentStatuses({ agents: expiring, workspaceId: "workspace-1", refresh }),
   );
 
-  await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
-  expect(result.current[0]?.display?.activityKind).toBe("working");
-  await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2), { timeout: 2_000 });
-  await waitFor(() => expect(result.current[0]?.display?.activityKind).toBe("online"));
-  unmount();
+  try {
+    expect(refresh).not.toHaveBeenCalled();
+    await act(async () => {
+      jest.advanceTimersToNextTimer();
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(result.current[0]?.display?.activityKind).toBe("working");
+    await act(async () => {
+      jest.advanceTimersToNextTimer();
+    });
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(result.current[0]?.display?.activityKind).toBe("working");
+    await act(async () => {
+      retryResult.resolve(
+        expiring.map((agent) => ({
+          ...agent,
+          display: display({ revision: 3, activityKind: "online", expiresAt: null }),
+        })),
+      );
+      await retryResult.promise;
+    });
+    expect(result.current[0]?.display?.activityKind).toBe("online");
+  } finally {
+    retryResult.resolve(expiring);
+    try {
+      unmount();
+      jest.runOnlyPendingTimers();
+    } finally {
+      jest.useRealTimers();
+    }
+  }
 });
 
 test("an expired display is retained while a successful incomplete refresh retries at the failure pace", async () => {
