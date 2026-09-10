@@ -175,14 +175,16 @@ export function AppShell({
                   onCreate={onCreateWorkspace}
                 />
                 <UserMenuCard user={user} onSignOut={onSignOut} />
-                <ButtonUtility
-                  icon={PanelLeft}
-                  size="sm"
-                  color="tertiary"
-                  tooltip={m.controls_hide_sidebar()}
-                  onClick={() => setSidebarCollapsed(true)}
-                />
               </div>
+            }
+            headerAction={
+              <ButtonUtility
+                icon={PanelLeft}
+                size="sm"
+                color="tertiary"
+                tooltip={m.controls_hide_sidebar()}
+                onClick={() => setSidebarCollapsed(true)}
+              />
             }
           />
         )}

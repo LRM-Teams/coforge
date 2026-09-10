@@ -184,7 +184,7 @@ test("switches to dark mode and remembers the preference", async () => {
 
   expect(view.getByRole("heading", { name: "Settings" })).toBeTruthy();
   await user.click(view.getByRole("button", { name: "Preferences" }));
-  await user.click(view.getByRole("button", { name: "Dark" }));
+  await user.click(view.getByRole("radio", { name: "Dark" }));
 
   expect(document.documentElement.classList.contains("dark-mode")).toBeTrue();
   expect(localStorage.getItem("coforge-theme")).toBe("dark");

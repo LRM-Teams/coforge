@@ -25,6 +25,8 @@ interface SidebarExpandedProps {
   footerItems?: NavItemType[];
   /** Workspace switcher + user menu + collapse control. */
   footer: ReactNode;
+  /** Control rendered at the right end of the logo row (the collapse button). */
+  headerAction?: ReactNode;
   /** Current width in pixels (controlled). */
   width: number;
   /** Called while the user drags the resize handle, with the next clamped width. */
@@ -35,6 +37,7 @@ export const SidebarExpanded = ({
   activeUrl,
   items,
   footerItems = [],
+  headerAction,
   footer,
   width,
   onWidthChange,
@@ -80,6 +83,7 @@ export const SidebarExpanded = ({
       <div className="flex items-center gap-2 px-4 lg:px-5">
         <img src="/logo.svg" alt="" className="size-6 shrink-0" />
         <span className="text-sm font-semibold text-primary">CoForge</span>
+        {headerAction && <div className="ml-auto">{headerAction}</div>}
       </div>
 
       <NavList activeUrl={activeUrl} items={items} className="mt-5" />

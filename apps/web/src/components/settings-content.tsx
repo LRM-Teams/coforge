@@ -22,6 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ComboBox } from "@/components/base/select/combobox";
 import { SelectItem } from "@/components/base/select/select-item";
 import { Toggle } from "@/components/base/toggle/toggle";
+import { RadioButton, RadioGroup } from "@/components/base/radio-buttons/radio-buttons";
 import { WorkspaceMembersPanel } from "@/features/workspaces/workspace-members-panel";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
@@ -584,23 +585,21 @@ function Preferences({
           icon={<Languages aria-hidden="true" />}
           heading={m.preferences_language()}
         >
-          <div className="grid gap-2 @lg/settings:grid-cols-2">
-            <PreferenceButton
-              selected={locale === "en"}
-              label={m.preferences_english()}
-              onClick={() => onLocaleChange("en")}
-            />
-            <PreferenceButton
-              selected={locale === "zh-CN"}
-              label={m.preferences_chinese()}
-              onClick={() => onLocaleChange("zh-CN")}
-            />
-          </div>
+          <RadioGroup
+            aria-label={m.preferences_language()}
+            value={locale}
+            onChange={(value) => onLocaleChange(value as typeof locale)}
+            className="flex-row flex-wrap gap-x-8 gap-y-3"
+          >
+            <RadioButton value="en" label={m.preferences_english()} />
+            <RadioButton value="zh-CN" label={m.preferences_chinese()} />
+          </RadioGroup>
         </PreferenceSection>
 
         <PreferenceSection icon={<Clock3 aria-hidden="true" />} heading={m.preferences_time_zone()}>
           <ComboBox
             aria-label={m.preferences_time_zone()}
+            className="max-w-sm"
             placeholder={m.preferences_time_zone_search_placeholder()}
             shortcut={false}
             items={timeZoneOptions}
@@ -625,23 +624,16 @@ function Preferences({
           }
           heading={m.preferences_appearance()}
         >
-          <div className="grid gap-2 @lg/settings:grid-cols-3">
-            <PreferenceButton
-              selected={theme === "system"}
-              label={m.preferences_system()}
-              onClick={() => onThemeChange("system")}
-            />
-            <PreferenceButton
-              selected={theme === "light"}
-              label={m.preferences_light()}
-              onClick={() => onThemeChange("light")}
-            />
-            <PreferenceButton
-              selected={theme === "dark"}
-              label={m.preferences_dark()}
-              onClick={() => onThemeChange("dark")}
-            />
-          </div>
+          <RadioGroup
+            aria-label={m.preferences_appearance()}
+            value={theme}
+            onChange={(value) => onThemeChange(value as typeof theme)}
+            className="flex-row flex-wrap gap-x-8 gap-y-3"
+          >
+            <RadioButton value="system" label={m.preferences_system()} />
+            <RadioButton value="light" label={m.preferences_light()} />
+            <RadioButton value="dark" label={m.preferences_dark()} />
+          </RadioGroup>
         </PreferenceSection>
       </div>
     </div>
@@ -776,10 +768,10 @@ function PreferenceSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="grid gap-4 py-6 @2xl/settings:grid-cols-[240px_minmax(0,1fr)] @2xl/settings:gap-8">
-      <div className="flex items-start gap-3">
-        <span className="mt-0.5 text-tertiary [&_svg]:size-4">{icon}</span>
-        <h3 className="text-sm font-semibold">{heading}</h3>
+    <section className="flex flex-col gap-4 py-6">
+      <div className="flex items-center gap-2">
+        <span className="text-tertiary [&_svg]:size-4">{icon}</span>
+        <h3 className="text-sm font-semibold text-primary">{heading}</h3>
       </div>
       <div className="min-w-0 max-w-xl">{children}</div>
     </section>
@@ -843,30 +835,4 @@ function getUtcOffset(timeZone: string) {
     label: `UTC${match[1]}${match[2]}:${match[3]}`,
     minutes: sign * (Number(match[2]) * 60 + Number(match[3])),
   };
-}
-
-function PreferenceButton({
-  selected,
-  label,
-  onClick,
-}: {
-  selected: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <Button
-      type="button"
-      color="secondary"
-      aria-pressed={selected}
-      onPress={onClick}
-      className={cn(
-        "min-h-12 min-w-0 w-full justify-start gap-3 bg-primary px-4 text-left whitespace-normal shadow-xs",
-        selected && "border-brand bg-active text-brand-secondary ring-1 ring-brand",
-      )}
-    >
-      {label}
-      {selected && <Check aria-hidden="true" className="ml-auto size-4" />}
-    </Button>
-  );
 }
