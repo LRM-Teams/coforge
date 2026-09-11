@@ -6,32 +6,5 @@
     "coforge/no-native-button": "error",
     "coforge/no-native-select": "error",
     "coforge/no-native-title": "error"
-  },
-  "overrides": [
-    {
-      "files": [
-        "src/components/base/badges/badges.tsx",
-        "src/components/application/app-navigation/base-components/nav-account-card.tsx"
-      ],
-      "rules": {
-        "coforge/no-native-button": "off"
-      }
-    },
-    {
-      "files": ["src/components/base/select/select-native.tsx"],
-      "rules": {
-        "coforge/no-native-select": "off"
-      }
-    },
-    {
-      "files": [
-        "src/features/records/report-editor/**/*.{ts,tsx}",
-        "src/features/records/create-member-report-dialog.tsx"
-      ],
-      "rules": {
-        "coforge/no-native-button": "off",
-        "coforge/no-native-title": "off"
-      }
-    }
-  ]
+  }
 }

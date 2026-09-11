@@ -124,7 +124,10 @@ instructions for the TanStack Start Web/backend modular monolith.
   `features/tasks/task-overview.tsx` renders it. Task views share status-grouped
   Board/List layout and drag interactions under `features/tasks/`; dnd-kit owns
   pointer/keyboard mechanics, never authorization or persistence. The `/tasks`
-  and conversation routes own validated view search state. All status edits
+  and conversation routes own validated view search state. `task-workflow.tsx`
+  owns the shared responsive default: below 768px use List, otherwise Board;
+  an explicit `layout` search parameter always wins. Initial hydration matches
+  the server before applying the viewport default. All status edits
   reuse `executeTask`, with claim semantics and revision-checked updates;
   overview membership metadata only controls available UI actions.
 

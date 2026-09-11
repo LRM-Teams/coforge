@@ -24,6 +24,7 @@ import { DEV_BROWSER_USER } from "../src/server/auth/dev-skip-auth.server";
 import { getDatabaseClient } from "../src/server/db/client.server";
 import { workspaceIdForUser } from "../src/server/workspaces/enrollment.server";
 import { fileStoragePath } from "../src/server/files/file-storage.server";
+import { assignMissingSeedSequences, orderSeedMessages, seedTimestamp } from "./seed-dev-time";
 
 const dbOrUndefined = getDatabaseClient();
 if (!dbOrUndefined) throw new Error("DATABASE_URL is required to seed development data");
@@ -52,11 +53,10 @@ function stableId(seed: string): string {
   ].join("-");
 }
 
+const capturedNow = new Date();
+
 function daysAgo(days: number, hour = 12, minute = 0): Date {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - days);
-  d.setUTCHours(hour, minute, 0, 0);
-  return d;
+  return seedTimestamp(capturedNow, days, hour, minute);
 }
 
 function hoursFromNow(hours: number): Date {
@@ -507,32 +507,23 @@ async function ensureMessage(opts: {
   conversationId: string;
   senderMemberId: string;
   body: string;
-  sequence: number;
   createdAt: Date;
   threadRootId?: string;
 }): Promise<string> {
   const id = stableId(`message:${opts.key}`);
-  await db.message.upsert({
-    where: { id },
-    create: {
-      id,
-      conversationId: opts.conversationId,
-      workspaceId,
-      senderMemberId: opts.senderMemberId,
-      body: opts.body,
-      sequence: opts.sequence,
-      createdAt: opts.createdAt,
-      threadRootId: opts.threadRootId,
-    },
-    update: {
-      body: opts.body,
-      senderMemberId: opts.senderMemberId,
-      threadRootId: opts.threadRootId,
-      createdAt: opts.createdAt,
-    },
-  });
+  pendingMessages.push({ ...opts, id });
   return id;
 }
+
+const pendingMessages: Array<{
+  id: string;
+  key: string;
+  conversationId: string;
+  senderMemberId: string;
+  body: string;
+  createdAt: Date;
+  threadRootId?: string;
+}> = [];
 
 async function ensureAttachment(opts: {
   key: string;
@@ -548,26 +539,39 @@ async function ensureAttachment(opts: {
   const path = fileStoragePath(objectKey);
   await mkdir(dirname(path), { recursive: true });
   await Bun.write(path, opts.bytes);
-  await db.attachment.upsert({
-    where: { id },
-    create: {
-      id,
-      workspaceId,
-      conversationId: opts.conversationId,
-      uploaderId: opts.uploaderId,
-      messageId: opts.messageId,
-      objectKey,
-      fileName: opts.fileName,
-      contentType: opts.contentType,
-      sizeBytes: opts.bytes.length,
-    },
-    update: {
-      messageId: opts.messageId,
-      fileName: opts.fileName,
-      contentType: opts.contentType,
-      sizeBytes: opts.bytes.length,
-    },
+  pendingAttachments.push({
+    id,
+    objectKey,
+    ...opts,
   });
+}
+
+const pendingAttachments: Array<
+  Parameters<typeof ensureAttachment>[0] & { id: string; objectKey: string }
+> = [];
+
+async function insertPendingAttachments() {
+  for (const opts of pendingAttachments)
+    await db.attachment.upsert({
+      where: { id: opts.id },
+      create: {
+        id: opts.id,
+        workspaceId,
+        conversationId: opts.conversationId,
+        uploaderId: opts.uploaderId,
+        messageId: opts.messageId,
+        objectKey: opts.objectKey,
+        fileName: opts.fileName,
+        contentType: opts.contentType,
+        sizeBytes: opts.bytes.length,
+      },
+      update: {
+        messageId: opts.messageId,
+        fileName: opts.fileName,
+        contentType: opts.contentType,
+        sizeBytes: opts.bytes.length,
+      },
+    });
 }
 
 // 1x1 transparent PNG.
@@ -580,13 +584,6 @@ const PNG_1PX = Uint8Array.from(
 const TEXT_FILE = new TextEncoder().encode(
   "release-notes.txt\n\n- Fixed sidebar resize jank\n- Added dark mode to the task board\n",
 );
-
-let generalSeq = 0;
-let productSeq = 0;
-let randomSeq = 0;
-let dmAtlasSeq = 0;
-let dmNovaSeq = 0;
-let dmEchoSeq = 0;
 
 // #general — 10 messages, one with a PNG attachment.
 const generalMsgs: string[] = [];
@@ -607,8 +604,7 @@ for (const [key, senderMemberId, body, dayOffset] of [
     conversationId: generalId,
     senderMemberId,
     body,
-    sequence: ++generalSeq,
-    createdAt: daysAgo(dayOffset, 9 + (generalSeq % 6)),
+    createdAt: daysAgo(dayOffset, 9 + (generalMsgs.length % 6)),
   });
   generalMsgs.push(id);
   if (key === "g6") {
@@ -639,8 +635,7 @@ for (const [key, senderMemberId, body, dayOffset] of [
     conversationId: productId,
     senderMemberId,
     body,
-    sequence: ++productSeq,
-    createdAt: daysAgo(dayOffset, 10 + (productSeq % 5)),
+    createdAt: daysAgo(dayOffset, 10 + (productMsgs.length % 5)),
   });
   productMsgs.push(id);
   if (key === "p5") {
@@ -661,7 +656,6 @@ const threadRootId = await ensureMessage({
   conversationId: productId,
   senderMemberId: devInProduct,
   body: "Thread: how should we badge tasks converted from a message?",
-  sequence: ++productSeq,
   createdAt: daysAgo(3, 11),
 });
 productMsgs.push(threadRootId);
@@ -677,7 +671,6 @@ for (const [key, senderMemberId, body] of [
     conversationId: productId,
     senderMemberId,
     body,
-    sequence: ++productSeq,
     createdAt: daysAgo(3, 12),
     threadRootId,
   });
@@ -695,7 +688,6 @@ for (const [key, senderMemberId, body, dayOffset] of [
     conversationId: productId,
     senderMemberId,
     body,
-    sequence: ++productSeq,
     createdAt: daysAgo(dayOffset, 14),
   });
   productMsgs.push(id);
@@ -715,7 +707,6 @@ for (const [key, senderMemberId, body, dayOffset] of [
     conversationId: randomId,
     senderMemberId,
     body,
-    sequence: ++randomSeq,
     createdAt: daysAgo(dayOffset, 15),
   });
   randomMsgs.push(id);
@@ -740,7 +731,6 @@ for (const [key, senderMemberId, body, dayOffset] of [
     conversationId: dmAtlasId,
     senderMemberId,
     body,
-    sequence: ++dmAtlasSeq,
     createdAt: daysAgo(dayOffset, 16),
   });
   dmAtlasMsgs.push(id);
@@ -769,7 +759,6 @@ for (const [key, senderMemberId, body, dayOffset] of [
     conversationId: dmNovaId,
     senderMemberId,
     body,
-    sequence: ++dmNovaSeq,
     createdAt: daysAgo(dayOffset, 13),
   });
   dmNovaMsgs.push(id);
@@ -786,7 +775,6 @@ for (const [key, senderMemberId, body, dayOffset] of [
     conversationId: dmEchoId,
     senderMemberId,
     body,
-    sequence: ++dmEchoSeq,
     createdAt: daysAgo(dayOffset, 8),
   });
   dmEchoMsgs.push(id);
@@ -817,28 +805,34 @@ async function ensureTask(opts: {
     conversationId: opts.conversationId,
     senderMemberId: opts.senderMemberId,
     body: opts.title,
-    sequence: opts.conversationId === generalId ? ++generalSeq : ++productSeq,
     createdAt: daysAgo(opts.dayOffset, 17),
   });
-  await db.task.upsert({
-    where: { messageId },
-    create: {
-      messageId,
-      conversationId: opts.conversationId,
-      workspaceId,
-      number: opts.number,
-      title: opts.title,
-      status: opts.status,
-      creatorMemberId: opts.creatorMemberId,
-      ownerMemberId: opts.ownerMemberId,
-      requestId: stableId(`task-request:${opts.key}`),
-    },
-    update: {
-      title: opts.title,
-      status: opts.status,
-      ownerMemberId: opts.ownerMemberId ?? null,
-    },
-  });
+  pendingTasks.push({ messageId, ...opts });
+}
+
+const pendingTasks: Array<Parameters<typeof ensureTask>[0] & { messageId: string }> = [];
+
+async function insertPendingTasks() {
+  for (const opts of pendingTasks)
+    await db.task.upsert({
+      where: { messageId: opts.messageId },
+      create: {
+        messageId: opts.messageId,
+        conversationId: opts.conversationId,
+        workspaceId,
+        number: opts.number,
+        title: opts.title,
+        status: opts.status,
+        creatorMemberId: opts.creatorMemberId,
+        ownerMemberId: opts.ownerMemberId,
+        requestId: stableId(`task-request:${opts.key}`),
+      },
+      update: {
+        title: opts.title,
+        status: opts.status,
+        ownerMemberId: opts.ownerMemberId ?? null,
+      },
+    });
 }
 
 await ensureTask({
@@ -906,6 +900,58 @@ await ensureTask({
   senderMemberId: jordanInGeneral,
   dayOffset: 6,
 });
+
+const orderedMessages = orderSeedMessages(pendingMessages);
+await db.$transaction(async (tx) => {
+  const conversationIds = [
+    ...new Set(orderedMessages.map(({ conversationId }) => conversationId)),
+  ].sort();
+  for (const conversationId of conversationIds)
+    await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${conversationId}::uuid FOR UPDATE`;
+
+  const existingMessages = await tx.message.findMany({
+    where: { conversationId: { in: conversationIds } },
+    select: { id: true, conversationId: true, sequence: true },
+  });
+  const existingIds = new Set(existingMessages.map(({ id }) => id));
+  const newSequences = new Map(
+    assignMissingSeedSequences(orderedMessages, existingMessages).map(({ id, sequence }) => [
+      id,
+      sequence,
+    ]),
+  );
+
+  for (const message of orderedMessages) {
+    if (existingIds.has(message.id)) {
+      await tx.message.update({
+        where: { id: message.id },
+        data: {
+          body: message.body,
+          senderMemberId: message.senderMemberId,
+          threadRootId: message.threadRootId,
+        },
+      });
+    } else {
+      const sequence = newSequences.get(message.id);
+      if (sequence === undefined)
+        throw new Error(`Missing sequence for seed message ${message.key}`);
+      await tx.message.create({
+        data: {
+          id: message.id,
+          conversationId: message.conversationId,
+          workspaceId,
+          senderMemberId: message.senderMemberId,
+          body: message.body,
+          sequence,
+          createdAt: message.createdAt,
+          threadRootId: message.threadRootId,
+        },
+      });
+    }
+  }
+});
+await insertPendingAttachments();
+await insertPendingTasks();
 
 console.log("Tasks: todo (unowned), todo (owned), in_progress, in_review, done, closed");
 

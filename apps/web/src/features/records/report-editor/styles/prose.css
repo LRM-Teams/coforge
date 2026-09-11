@@ -20,7 +20,7 @@
  *   List indent: 20px for ul (was 16px; standard is 22-32px)
  *   Code block margin: 12px (was 8px; gives breathing room between code and prose)
  *   Blockquote border: 3px (was 2px; GitHub/Tailwind both use 4px)
- *   Links: var(--brand) blue with 40% opacity underline (was var(--primary) near-black)
+ *   Links: brand text with 40% opacity underline
  *
  * Inline elements (mention cards, inline code) that exceed line-height:
  *   The browser auto-expands the line box for lines containing taller inline
@@ -118,7 +118,7 @@
 }
 
 .rich-text-editor li::marker {
-  color: var(--muted-foreground);
+  color: var(--color-text-tertiary);
 }
 
 /* Remove paragraph margins inside list items (Tiptap wraps li content in <p>) */
@@ -174,21 +174,21 @@
   left: 0;
   z-index: 30;
   width: min(22rem, calc(100vw - 2rem));
-  border-radius: calc(var(--radius) - 2px);
-  background: var(--popover);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
   padding: 0.25rem;
   box-shadow:
     0 8px 24px color-mix(in srgb, black 16%, transparent),
-    0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--color-text-primary) 10%, transparent);
 }
 
 .rich-text-editor .math-node-input,
 .rich-text-editor .math-node-textarea {
   width: 100%;
-  border: 1px solid color-mix(in srgb, var(--foreground) 14%, transparent);
-  border-radius: calc(var(--radius) - 2px);
-  background: var(--background);
-  color: var(--foreground);
+  border: 1px solid color-mix(in srgb, var(--color-text-primary) 14%, transparent);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
   font-family: var(--font-mono, monospace);
   font-size: 0.875rem;
   line-height: 1.5;
@@ -208,8 +208,8 @@
 
 .rich-text-editor .math-node-input:focus,
 .rich-text-editor .math-node-textarea:focus {
-  border-color: var(--ring);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 20%, transparent);
+  border-color: var(--color-focus-ring);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-focus-ring) 20%, transparent);
 }
 
 .rich-text-editor .math-node-editor {
@@ -219,10 +219,10 @@
 
 .rich-text-editor .math-node-preview {
   overflow: visible;
-  border-radius: calc(var(--radius) - 2px);
-  background: var(--muted);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
   padding: 0.75rem;
-  color: var(--muted-foreground);
+  color: var(--color-text-tertiary);
 }
 
 /* Nested lists — bullet style progression and tighter spacing */
@@ -269,7 +269,7 @@
 .rich-text-editor input[type="checkbox"] {
   width: 0.95rem;
   height: 0.95rem;
-  accent-color: var(--brand);
+  accent-color: var(--color-bg-brand-solid);
   cursor: pointer;
 }
 
@@ -309,7 +309,7 @@
 /* Completed editor item: muted text (no strikethrough), matching Linear. The
    NodeView keeps `data-checked` on the <li> (but not data-type). */
 .rich-text-editor ul[data-type="taskList"] > li[data-checked="true"] > div {
-  color: var(--muted-foreground);
+  color: var(--color-text-tertiary);
 }
 
 /* --- Readonly (remark-gfm) --- */
@@ -340,11 +340,11 @@
    reset keeps a completed parent from bleeding its muted color into the
    (independently evaluated) nested items below it. */
 .rich-text-editor li.task-list-item:has(> input:checked) {
-  color: var(--muted-foreground);
+  color: var(--color-text-tertiary);
 }
 
 .rich-text-editor li.task-list-item:has(> input:checked) .contains-task-list {
-  color: var(--foreground);
+  color: var(--color-text-primary);
 }
 
 /* Tables — wrapper is full editor width so wide tables scroll inside it
@@ -360,9 +360,9 @@
 }
 
 .rich-text-editor .tableWrapper.ProseMirror-selectednode {
-  outline: 1px solid var(--ring);
+  outline: 1px solid var(--color-focus-ring);
   outline-offset: 2px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
 }
 
 .rich-text-editor table {
@@ -373,7 +373,7 @@
 }
 
 .rich-text-editor thead {
-  background: color-mix(in srgb, var(--muted) 50%, transparent);
+  background: color-mix(in srgb, var(--color-bg-secondary) 50%, transparent);
 }
 
 .rich-text-editor th,
@@ -384,7 +384,7 @@
      the resize contract. A CSS min-width fights colgroup during drag and makes
      the resize handle jump. */
   min-width: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border-secondary);
   text-align: left;
   padding: 0.375rem 0.5rem;
   font-size: 0.875rem;
@@ -398,7 +398,7 @@
 /* Active cell while typing — thin brand border (CellSelection uses an overlay). */
 .rich-text-editor td:focus-within,
 .rich-text-editor th:focus-within {
-  outline: 1px solid var(--brand);
+  outline: 1px solid var(--color-border-brand);
   outline-offset: -1px;
   z-index: 1;
 }
@@ -419,7 +419,7 @@
   bottom: 0;
   width: 3px;
   z-index: 20;
-  background: color-mix(in srgb, var(--brand) 55%, transparent);
+  background: color-mix(in srgb, var(--color-bg-brand-solid) 55%, transparent);
   pointer-events: none;
 }
 
@@ -441,10 +441,10 @@
 
 /* Blockquotes */
 .rich-text-editor blockquote {
-  border-left: 3px solid color-mix(in srgb, var(--muted-foreground) 30%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--color-text-tertiary) 30%, transparent);
   padding-left: 0.75rem;
   margin: 0.625rem 0;
-  color: var(--muted-foreground);
+  color: var(--color-text-tertiary);
   font-style: italic;
 }
 
@@ -464,27 +464,27 @@
 .rich-text-editor blockquote blockquote {
   margin-top: 0.25rem;
   margin-bottom: 0.25rem;
-  border-left-color: color-mix(in srgb, var(--muted-foreground) 15%, transparent);
+  border-left-color: color-mix(in srgb, var(--color-text-tertiary) 15%, transparent);
 }
 
 /* Horizontal rules */
 .rich-text-editor hr {
   border: none;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--color-border-secondary);
   margin: 1rem 0;
 }
 
 /* Links */
 .rich-text-editor a {
-  color: var(--brand);
+  color: var(--color-text-brand-secondary);
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--brand) 40%, transparent);
+  text-decoration-color: color-mix(in srgb, var(--color-text-brand-secondary) 40%, transparent);
   text-underline-offset: 2px;
   cursor: pointer;
 }
 
 .rich-text-editor a:hover {
-  text-decoration-color: var(--brand);
+  text-decoration-color: var(--color-text-brand-secondary);
 }
 
 /* Issue mention cards — inline cards that sit within text flow */
@@ -507,7 +507,7 @@
 
 /* Slash command pills */
 .rich-text-editor .slash-command {
-  color: var(--primary);
+  color: var(--color-text-primary);
   font-weight: 600;
   text-decoration: none;
   margin: 0 0.125rem;
@@ -525,7 +525,7 @@
 .rich-text-editor s,
 .rich-text-editor del {
   text-decoration: line-through;
-  color: var(--muted-foreground);
+  color: var(--color-text-tertiary);
 }
 
 /* Text highlight (`==text==` → <mark>). Single yellow tint that stays legible

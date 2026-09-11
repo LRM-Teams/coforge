@@ -21,15 +21,10 @@ import {
   Plus,
   Trash01 as Trash2,
 } from "@untitledui/icons";
+import { Button as AriaButton } from "react-aria-components";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
+import { Tooltip } from "@/components/base/tooltip/tooltip";
 import { cn } from "@/lib/utils";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
-import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip";
 import { useT } from "./i18n";
 import {
   deleteColumnAt,
@@ -201,9 +196,9 @@ function AxisHandle({ axis, active }: { axis: Axis; active?: boolean }) {
     <span
       aria-hidden
       className={cn(
-        "flex items-center justify-center rounded-sm bg-muted-foreground/35 transition-colors",
+        "flex items-center justify-center rounded-sm bg-quaternary transition-colors",
         axis === "row" ? "h-5 w-2 flex-col gap-[2px]" : "h-2 w-5 flex-row gap-[2px]",
-        active ? "bg-brand" : "group-hover/handle:bg-muted-foreground/55",
+        active ? "bg-secondary-solid" : "group-hover/handle:bg-secondary-solid",
       )}
     >
       <span className="size-[3px] rounded-full bg-white" />
@@ -214,8 +209,8 @@ function AxisHandle({ axis, active }: { axis: Axis; active?: boolean }) {
 
 function edgeAddClass() {
   return cn(
-    "flex items-center justify-center rounded-md text-muted-foreground/50",
-    "hover:bg-muted hover:text-muted-foreground",
+    "flex items-center justify-center rounded-md text-quaternary",
+    "hover:bg-primary_hover hover:text-tertiary",
   );
 }
 
@@ -481,13 +476,13 @@ export function TableControls({
         className="pointer-events-auto absolute flex items-center gap-1"
         style={{ left: Math.max(0, tableLeft - 2), top: Math.max(0, tableTop - 26) }}
       >
-        <Tooltip>
-          <TooltipTrigger
+        <Tooltip title={t(($) => $.table_controls.select_table)}>
+          <AriaButton
             type="button"
             className={cn(
-              "flex size-5 items-center justify-center rounded-md text-muted-foreground/40",
-              "hover:bg-muted hover:text-muted-foreground",
-              activeTable.selected && "bg-muted text-foreground",
+              "flex size-5 items-center justify-center rounded-md text-quaternary",
+              "hover:bg-primary_hover hover:text-tertiary",
+              activeTable.selected && "bg-primary_hover text-primary",
             )}
             aria-label={t(($) => $.table_controls.select_table)}
             onMouseDown={(event) => event.preventDefault()}
@@ -506,14 +501,13 @@ export function TableControls({
               <span className="size-1 rounded-[1px] bg-current opacity-70" />
               <span className="size-1 rounded-[1px] bg-current opacity-70" />
             </span>
-          </TooltipTrigger>
-          <TooltipContent side="top">{t(($) => $.table_controls.select_table)}</TooltipContent>
+          </AriaButton>
         </Tooltip>
         {activeTable.selected && (
-          <Tooltip>
-            <TooltipTrigger
+          <Tooltip title={t(($) => $.table_controls.delete_table)}>
+            <AriaButton
               type="button"
-              className="flex size-5 items-center justify-center rounded-md text-muted-foreground/50 hover:bg-muted hover:text-destructive"
+              className="flex size-5 items-center justify-center rounded-md text-quaternary hover:bg-primary_hover hover:text-error-primary"
               aria-label={t(($) => $.table_controls.delete_table)}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
@@ -525,14 +519,13 @@ export function TableControls({
               }}
             >
               <Trash2 className="size-3.5" />
-            </TooltipTrigger>
-            <TooltipContent side="top">{t(($) => $.table_controls.delete_table)}</TooltipContent>
+            </AriaButton>
           </Tooltip>
         )}
       </div>
 
-      <Tooltip>
-        <TooltipTrigger
+      <Tooltip title={t(($) => $.table_controls.add_column)}>
+        <AriaButton
           type="button"
           className={cn("pointer-events-auto absolute", edgeAddClass())}
           style={addColumnStyle}
@@ -541,12 +534,11 @@ export function TableControls({
           onClick={() => insertColumnAt(editor, activeTable.pos, activeTable.cols)}
         >
           <Plus className="size-3.5" />
-        </TooltipTrigger>
-        <TooltipContent side="top">{t(($) => $.table_controls.add_column)}</TooltipContent>
+        </AriaButton>
       </Tooltip>
 
-      <Tooltip>
-        <TooltipTrigger
+      <Tooltip title={t(($) => $.table_controls.add_row)}>
+        <AriaButton
           type="button"
           className={cn("pointer-events-auto absolute", edgeAddClass())}
           style={addRowStyle}
@@ -555,8 +547,7 @@ export function TableControls({
           onClick={() => insertRowAt(editor, activeTable.pos, activeTable.rows)}
         >
           <Plus className="size-3.5" />
-        </TooltipTrigger>
-        <TooltipContent side="top">{t(($) => $.table_controls.add_row)}</TooltipContent>
+        </AriaButton>
       </Tooltip>
 
       {activeTable.colRects.map((rect, col) => {
@@ -582,70 +573,66 @@ export function TableControls({
               height: COL_HANDLE_OUTSET,
             }}
           >
-            <DropdownMenu
-              open={menuOpen}
+            <Dropdown.Root
+              isOpen={menuOpen}
               onOpenChange={(open) => {
                 if (!open) setOpenMenu(null);
               }}
             >
-              <DropdownMenuTrigger
-                render={
-                  <button
-                    type="button"
-                    className={cn(
-                      "group/handle pointer-events-auto absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center opacity-0 transition-opacity",
-                      "hover:opacity-100 focus-visible:opacity-100",
-                      (menuOpen || dropTarget) && "opacity-100",
-                    )}
-                    aria-label={t(($) => $.table_controls.column_menu)}
-                    onPointerDown={(event) => onHandlePointerDown(event, "column", col)}
-                    onPointerMove={onHandlePointerMove}
-                    onPointerUp={(event) => onHandlePointerUp(event, "column", col)}
-                    onClick={(event) => {
-                      event.preventDefault();
-                    }}
-                  />
-                }
+              <AriaButton
+                type="button"
+                className={cn(
+                  "group/handle pointer-events-auto absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center opacity-0 transition-opacity",
+                  "hover:opacity-100 focus-visible:opacity-100",
+                  (menuOpen || dropTarget) && "opacity-100",
+                )}
+                aria-label={t(($) => $.table_controls.column_menu)}
+                onPointerDown={(event) => onHandlePointerDown(event, "column", col)}
+                onPointerMove={onHandlePointerMove}
+                onPointerUp={(event) => onHandlePointerUp(event, "column", col)}
+                onPress={(event) => {
+                  if (event.pointerType === "keyboard" || event.pointerType === "virtual") {
+                    setOpenMenu({ type: "column", index: col, tablePos: activeTable.pos });
+                  }
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                }}
               >
                 <AxisHandle axis="column" active={menuOpen || Boolean(dropTarget)} />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="center"
-                sideOffset={6}
-                finalFocus={false}
+              </AriaButton>
+              <Dropdown.Popover
+                placement="bottom"
+                offset={6}
                 onMouseDown={(event) => event.preventDefault()}
               >
-                <DropdownMenuItem
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    runMenuAction(() => insertColumnAt(editor, menuTablePos, col));
-                  }}
-                >
-                  <ArrowLeft className="size-4" />
-                  {t(($) => $.table_controls.insert_column_left)}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    runMenuAction(() => insertColumnAt(editor, menuTablePos, col + 1));
-                  }}
-                >
-                  <ArrowRight className="size-4" />
-                  {t(($) => $.table_controls.insert_column_right)}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  variant="destructive"
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    runMenuAction(() => deleteColumnAt(editor, menuTablePos, col));
-                  }}
-                >
-                  <Trash2 className="size-4" />
-                  {t(($) => $.table_controls.delete_column)}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                <Dropdown.Menu>
+                  <Dropdown.Item
+                    label={t(($) => $.table_controls.insert_column_left)}
+                    icon={ArrowLeft}
+                    onAction={() => {
+                      runMenuAction(() => insertColumnAt(editor, menuTablePos, col));
+                    }}
+                  />
+                  <Dropdown.Item
+                    label={t(($) => $.table_controls.insert_column_right)}
+                    icon={ArrowRight}
+                    onAction={() => {
+                      runMenuAction(() => insertColumnAt(editor, menuTablePos, col + 1));
+                    }}
+                  />
+                  <Dropdown.Separator />
+                  <Dropdown.Item
+                    label={t(($) => $.table_controls.delete_column)}
+                    icon={Trash2}
+                    className="text-error-primary"
+                    onAction={() => {
+                      runMenuAction(() => deleteColumnAt(editor, menuTablePos, col));
+                    }}
+                  />
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown.Root>
           </div>
         );
       })}
@@ -670,71 +657,66 @@ export function TableControls({
               height: rect.height,
             }}
           >
-            <DropdownMenu
-              open={menuOpen}
+            <Dropdown.Root
+              isOpen={menuOpen}
               onOpenChange={(open) => {
                 if (!open) setOpenMenu(null);
               }}
             >
-              <DropdownMenuTrigger
-                render={
-                  <button
-                    type="button"
-                    className={cn(
-                      "group/handle pointer-events-auto absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center opacity-0 transition-opacity",
-                      "hover:opacity-100 focus-visible:opacity-100",
-                      (menuOpen || dropTarget) && "opacity-100",
-                    )}
-                    aria-label={t(($) => $.table_controls.row_menu)}
-                    onPointerDown={(event) => onHandlePointerDown(event, "row", row)}
-                    onPointerMove={onHandlePointerMove}
-                    onPointerUp={(event) => onHandlePointerUp(event, "row", row)}
-                    onClick={(event) => {
-                      event.preventDefault();
-                    }}
-                  />
-                }
+              <AriaButton
+                type="button"
+                className={cn(
+                  "group/handle pointer-events-auto absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center opacity-0 transition-opacity",
+                  "hover:opacity-100 focus-visible:opacity-100",
+                  (menuOpen || dropTarget) && "opacity-100",
+                )}
+                aria-label={t(($) => $.table_controls.row_menu)}
+                onPointerDown={(event) => onHandlePointerDown(event, "row", row)}
+                onPointerMove={onHandlePointerMove}
+                onPointerUp={(event) => onHandlePointerUp(event, "row", row)}
+                onPress={(event) => {
+                  if (event.pointerType === "keyboard" || event.pointerType === "virtual") {
+                    setOpenMenu({ type: "row", index: row, tablePos: activeTable.pos });
+                  }
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                }}
               >
                 <AxisHandle axis="row" active={menuOpen || Boolean(dropTarget)} />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                side="left"
-                sideOffset={6}
-                finalFocus={false}
+              </AriaButton>
+              <Dropdown.Popover
+                placement="left top"
+                offset={6}
                 onMouseDown={(event) => event.preventDefault()}
               >
-                <DropdownMenuItem
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    runMenuAction(() => insertRowAt(editor, menuTablePos, row));
-                  }}
-                >
-                  <ArrowUp className="size-4" />
-                  {t(($) => $.table_controls.insert_row_above)}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    runMenuAction(() => insertRowAt(editor, menuTablePos, row + 1));
-                  }}
-                >
-                  <ArrowDown className="size-4" />
-                  {t(($) => $.table_controls.insert_row_below)}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  variant="destructive"
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    runMenuAction(() => deleteRowAt(editor, menuTablePos, row));
-                  }}
-                >
-                  <Trash2 className="size-4" />
-                  {t(($) => $.table_controls.delete_row)}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                <Dropdown.Menu>
+                  <Dropdown.Item
+                    label={t(($) => $.table_controls.insert_row_above)}
+                    icon={ArrowUp}
+                    onAction={() => {
+                      runMenuAction(() => insertRowAt(editor, menuTablePos, row));
+                    }}
+                  />
+                  <Dropdown.Item
+                    label={t(($) => $.table_controls.insert_row_below)}
+                    icon={ArrowDown}
+                    onAction={() => {
+                      runMenuAction(() => insertRowAt(editor, menuTablePos, row + 1));
+                    }}
+                  />
+                  <Dropdown.Separator />
+                  <Dropdown.Item
+                    label={t(($) => $.table_controls.delete_row)}
+                    icon={Trash2}
+                    className="text-error-primary"
+                    onAction={() => {
+                      runMenuAction(() => deleteRowAt(editor, menuTablePos, row));
+                    }}
+                  />
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown.Root>
           </div>
         );
       })}

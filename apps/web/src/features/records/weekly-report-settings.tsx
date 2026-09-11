@@ -33,7 +33,10 @@ function recipientSummary(template: WeeklyTemplateList[number]) {
   }
   const names = template.recipients.map((row) => row.displayName);
   const visible = names.slice(0, 3);
-  return { label: visible.join(", "), more: Math.max(0, names.length - visible.length) };
+  return {
+    label: visible.join(", "),
+    more: Math.max(0, names.length - visible.length),
+  };
 }
 
 export function WeeklyReportSettings({
@@ -66,14 +69,15 @@ export function WeeklyReportSettings({
 
   useEffect(() => {
     if (!openCreateOnMount) return;
-    openCreate();
+    setEditing(null);
+    setDialogOpen(true);
     void navigate({
       replace: true,
-      search: (previous) => ({ tab: previous.tab === "notes" ? "notes" : "weekly" }),
+      search: (previous) => ({
+        tab: previous.tab === "notes" ? "notes" : "weekly",
+      }),
     });
-    // Only ever runs for the mount that carries the `create` search flag.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [openCreateOnMount, navigate]);
 
   return (
     <>
@@ -86,7 +90,7 @@ export function WeeklyReportSettings({
           </Button>
         }
       />
-      <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
+      <div className="min-h-0 flex-1 overflow-auto bg-primary">
         {templates.length === 0 ? (
           <Empty className="py-10">
             <EmptyHeader>
@@ -94,25 +98,29 @@ export function WeeklyReportSettings({
             </EmptyHeader>
           </Empty>
         ) : (
-          <ul className="overflow-hidden rounded-xl border border-secondary shadow-xs">
+          <ul className="divide-y divide-secondary">
             {templates.map((template) => {
               const summary = recipientSummary(template);
               return (
                 <li
                   key={template.id}
-                  className="flex min-h-14 items-center gap-4 border-t border-secondary px-4 py-3 first:border-t-0 sm:px-5"
+                  className="flex min-h-14 items-center gap-4 px-4 py-3 sm:px-8"
                 >
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-primary">{template.name}</p>
                     <p className="truncate text-xs text-tertiary">
                       {summary.label}
                       {summary.more > 0
-                        ? m.records_template_recipients_more({ count: summary.more })
+                        ? m.records_template_recipients_more({
+                            count: summary.more,
+                          })
                         : null}
                       {" · "}
                       {m.records_template_frequency_weekly()}
                       {" · "}
-                      {m.records_template_send_friday({ time: template.sendTime })}
+                      {m.records_template_send_friday({
+                        time: template.sendTime,
+                      })}
                     </p>
                   </div>
                   <Dropdown.Root>
@@ -131,7 +139,9 @@ export function WeeklyReportSettings({
                             void (async () => {
                               setBusy(true);
                               try {
-                                await remove({ data: { templateId: template.id } });
+                                await remove({
+                                  data: { templateId: template.id },
+                                });
                                 await router.invalidate({ sync: true });
                               } finally {
                                 setBusy(false);

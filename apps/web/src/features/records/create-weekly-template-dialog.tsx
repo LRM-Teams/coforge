@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useState, type FormEvent, type Key, type ReactNode } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useState,
+  type FormEvent,
+  type Key,
+  type ReactNode,
+} from "react";
 import { Plus, XClose as X } from "@untitledui/icons";
 import { Heading } from "react-aria-components";
 
@@ -100,11 +108,11 @@ export function CreateWeeklyTemplateDialog({
     setSaving(false);
   }
 
+  const resetDraft = useEffectEvent(() => applyInitial(initial));
+  const initialId = initial?.id;
   useEffect(() => {
-    if (!open) return;
-    applyInitial(initial);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initial?.id]);
+    if (open) resetDraft();
+  }, [open, initialId]);
 
   function addDimension() {
     const value = dimensionDraft.trim();

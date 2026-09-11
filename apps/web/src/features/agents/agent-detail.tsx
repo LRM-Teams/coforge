@@ -424,7 +424,7 @@ function Profile({
         </div>
       </section>
       {detail.ownedByCurrentUser && environment && (
-        <AgentEnvironmentEditor key={detail.id} {...environment} />
+        <AgentEnvironmentEditor key={`environment:${detail.id}`} {...environment} />
       )}
       {detail.ownedByCurrentUser && onLoadSkills && (
         <AgentSkills
@@ -435,7 +435,7 @@ function Profile({
       )}
       {detail.ownedByCurrentUser && onExecuteControl && (
         <AgentControl
-          key={detail.id}
+          key={`control:${detail.id}`}
           agentId={detail.id}
           agentName={detail.displayName}
           onExecute={onExecuteControl}

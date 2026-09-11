@@ -1,8 +1,8 @@
 /* Mermaid diagrams */
 .rich-text-editor .mermaid-diagram {
-  background: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-secondary);
+  border-radius: var(--radius-lg);
   margin: 0.75rem 0;
   overflow-x: auto;
   padding: 1rem;
@@ -18,7 +18,7 @@
 
 .rich-text-editor .mermaid-diagram-loading,
 .rich-text-editor .mermaid-diagram-error p {
-  color: var(--muted-foreground);
+  color: var(--color-text-tertiary);
   font-size: 0.8125rem;
   margin: 0;
 }
@@ -37,7 +37,7 @@
   padding: 0.25rem;
   background: color-mix(in srgb, black 75%, transparent);
   backdrop-filter: blur(8px);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   opacity: 0;
   transition: opacity 0.15s;
   z-index: 1;
@@ -54,7 +54,7 @@
   justify-content: center;
   width: 1.75rem;
   height: 1.75rem;
-  border-radius: calc(var(--radius) - 2px);
+  border-radius: var(--radius-md);
   color: white;
   transition: background 0.15s;
 }
@@ -69,5 +69,5 @@
 .mermaid-diagram-lightbox-frame {
   border: 0;
   display: block;
-  background: var(--muted);
+  background: var(--color-bg-secondary);
 }

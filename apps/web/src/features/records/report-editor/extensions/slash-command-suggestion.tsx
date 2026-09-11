@@ -9,6 +9,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import type { SuggestionOptions } from "@tiptap/suggestion";
 import { PluginKey } from "@tiptap/pm/state";
 import { Calculator as Sigma, Code02 as Code2, Table as Table2 } from "@untitledui/icons";
+import { Button } from "@/components/base/buttons/button";
 import { isImeComposing } from "../lib/ime";
 import { getLastInsertedCodeBlockLanguage } from "../code-block-language";
 import { createSuggestionPopupRender } from "./suggestion-popup";
@@ -36,19 +37,16 @@ export interface SlashCommandListRef {
 }
 
 function slashCommandIcon(item: SlashCommandItem) {
-  if (item.icon === "code")
-    return <Code2 className="mt-0.5 size-4 text-muted-foreground" aria-hidden />;
-  if (item.icon === "table")
-    return <Table2 className="mt-0.5 size-4 text-muted-foreground" aria-hidden />;
-  if (item.icon === "formula")
-    return <Sigma className="mt-0.5 size-4 text-muted-foreground" aria-hidden />;
+  if (item.icon === "code") return <Code2 className="mt-0.5 size-4 text-tertiary" aria-hidden />;
+  if (item.icon === "table") return <Table2 className="mt-0.5 size-4 text-tertiary" aria-hidden />;
+  if (item.icon === "formula") return <Sigma className="mt-0.5 size-4 text-tertiary" aria-hidden />;
   return null;
 }
 
 export const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandListProps>(
   function SlashCommandList({ items, query, command, hideOnEmpty = false }, ref) {
     const [selectedIndex, setSelectedIndex] = useState(0);
-    const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+    const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
     useEffect(() => {
       setSelectedIndex(0);
@@ -92,31 +90,36 @@ export const SlashCommandList = forwardRef<SlashCommandListRef, SlashCommandList
     if (items.length === 0) {
       if (hideOnEmpty) return null;
       return (
-        <div className="rounded-md border bg-popover p-2 text-xs text-muted-foreground shadow-md">
+        <div className="rounded-md border border-secondary bg-primary p-2 text-sm text-tertiary shadow-md">
           {query.trim() ? "No matching commands" : "No commands"}
         </div>
       );
     }
 
     return (
-      <div className="max-h-[300px] w-72 overflow-y-auto rounded-md border bg-popover py-1 shadow-md">
+      <div className="max-h-[300px] w-72 overflow-y-auto rounded-md border border-secondary bg-primary py-1 shadow-md">
         {items.map((item, index) => (
-          <button
+          <div
             key={item.id}
             ref={(el) => {
               itemRefs.current[index] = el;
             }}
-            type="button"
-            className={`flex w-full items-start gap-2 px-3 py-1.5 text-left text-xs transition-colors ${
-              selectedIndex === index ? "bg-accent" : "hover:bg-accent/50"
-            }`}
-            onClick={() => selectItem(index)}
           >
-            {slashCommandIcon(item)}
-            <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="font-medium">{item.label}</span>
-            </span>
-          </button>
+            <Button
+              color="tertiary"
+              size="sm"
+              type="button"
+              className={`flex w-full items-start justify-start gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
+                selectedIndex === index ? "bg-primary_hover" : "hover:bg-primary_hover"
+              }`}
+              onClick={() => selectItem(index)}
+            >
+              {slashCommandIcon(item)}
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="font-medium">{item.label}</span>
+              </span>
+            </Button>
+          </div>
         ))}
       </div>
     );

@@ -1,6 +1,6 @@
 import "./dom-setup";
 
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { RouterContextProvider } from "@tanstack/react-router";
 import { render, within } from "@testing-library/react";
 
@@ -40,6 +40,30 @@ const detail = {
   ownedByCurrentUser: false,
   runtimeCredential: null,
 };
+
+test("owned Agent environment and controls render without duplicate child identities", () => {
+  const errors = spyOn(console, "error");
+  try {
+    render(
+      <RouterContextProvider router={getRouter()}>
+        <AgentDetail
+          detail={{ ...detail, ownedByCurrentUser: true }}
+          tab="profile"
+          timeZone="UTC"
+          onSaveRuntimeCredential={async () => undefined}
+          onDeleteRuntimeCredential={async () => undefined}
+          onUpdate={async () => undefined}
+          onLoadRuntimeOptions={async () => ({ providers: [], catalogs: [] })}
+          environment={{ onLoad: async () => ({}), onSave: async () => ({ restart: "deferred" }) }}
+          onExecuteControl={async () => {}}
+        />
+      </RouterContextProvider>,
+    );
+    expect(errors.mock.calls.filter((args) => String(args[0]).includes("same key"))).toEqual([]);
+  } finally {
+    errors.mockRestore();
+  }
+});
 
 test("keeps the Agent heading and tabs outside the long Activity scroll region", () => {
   render(

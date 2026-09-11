@@ -54,6 +54,6 @@
   "notifications_home_screen_add": "Choose Add to Home Screen.",
   "notifications_home_screen_open": "Open CoForge from its new Home Screen icon, then return here to turn on notifications.",
   "settings_save_error": "The preference could not be saved. Try again.",
-  "preferences_rail_labels": "Show labels in the sidebar",
-  "preferences_rail_labels_hint": "Text under the sidebar icons. Off keeps icons only."
+  "preferences_sidebar": "Sidebar",
+  "preferences_rail_labels": "Show labels in the sidebar"
 }

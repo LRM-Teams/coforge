@@ -1,11 +1,80 @@
 import "./dom-setup";
-import { afterEach, expect, mock, test } from "bun:test";
+import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { act, cleanup, render, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { TaskLayoutToggle, TaskWorkflow, type TaskLayout } from "@/features/tasks/task-workflow";
+import { renderToString } from "react-dom/server";
+import {
+  TaskLayoutToggle,
+  TaskWorkflow,
+  useTaskLayout,
+  type TaskLayout,
+} from "@/features/tasks/task-workflow";
 
 afterEach(cleanup);
+
+function ResponsiveLayout({ layout }: { layout?: TaskLayout }) {
+  return <output>{useTaskLayout(layout)}</output>;
+}
+
+test("task layout defaults to mobile list but explicit URL choices win across viewport changes", () => {
+  const media = window.matchMedia("(min-width: 768px)");
+  const matchMedia = spyOn(window, "matchMedia").mockReturnValue(media);
+  Object.defineProperty(media, "matches", { configurable: true, value: false });
+  try {
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(<ResponsiveLayout />);
+    expect(container.textContent).toBe("board");
+    const onRecoverableError = mock();
+    const page = render(<ResponsiveLayout />, { container, hydrate: true, onRecoverableError });
+    expect(page.getByRole("status").textContent).toBe("list");
+    expect(onRecoverableError).not.toHaveBeenCalled();
+    page.rerender(<ResponsiveLayout layout="board" />);
+    expect(page.getByRole("status").textContent).toBe("board");
+    act(() => {
+      Object.defineProperty(media, "matches", { configurable: true, value: true });
+      media.dispatchEvent(new Event("change"));
+    });
+    page.rerender(<ResponsiveLayout layout="list" />);
+    expect(page.getByRole("status").textContent).toBe("list");
+    page.rerender(<ResponsiveLayout />);
+    expect(page.getByRole("status").textContent).toBe("board");
+    page.unmount();
+  } finally {
+    matchMedia.mockRestore();
+  }
+});
+
+test("drag instructions have stable IDs across independent server renders", () => {
+  const workflow = (
+    <TaskWorkflow
+      tasks={[
+        {
+          messageId: "task",
+          conversationId: "chat",
+          number: 1,
+          title: "Task",
+          status: "todo",
+          revision: 1,
+          owner: null,
+        },
+      ]}
+      layout="board"
+      currentMemberId={() => "me"}
+      onMove={async () => {}}
+      renderTask={(task, controls) => (
+        <article>
+          {task.title}
+          {controls}
+        </article>
+      )}
+    />
+  );
+  const first = renderToString(workflow).match(/aria-describedby="([^"]+)"/g);
+  const second = renderToString(workflow).match(/aria-describedby="([^"]+)"/g);
+  expect(first).not.toBeNull();
+  expect(second).toEqual(first);
+});
 
 const tasks = [1, 2].map((number) => ({
   messageId: `message-${number}`,

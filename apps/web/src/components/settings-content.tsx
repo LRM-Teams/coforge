@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   Clock as Clock3,
   Translate01 as Languages,
+  LayoutLeft,
   Moon01 as Moon,
   Share01,
   Sliders01 as SlidersHorizontal,
@@ -654,21 +655,19 @@ function Preferences({
               {m.preferences_dark()}
             </ButtonGroupItem>
           </ButtonGroup>
-          <label className="flex max-w-xl items-center justify-between gap-4 pt-2">
-            <span className="flex flex-col">
-              <span className="text-sm font-medium text-primary">
-                {m.preferences_rail_labels()}
-              </span>
-              <span className="text-sm text-tertiary">{m.preferences_rail_labels_hint()}</span>
-            </span>
-            <Toggle
-              size="sm"
-              className="shrink-0"
-              aria-label={m.preferences_rail_labels()}
-              isSelected={railLabels}
-              onChange={onRailLabelsChange}
-            />
-          </label>
+        </PreferenceSection>
+
+        <PreferenceSection
+          icon={<LayoutLeft aria-hidden="true" />}
+          heading={m.preferences_sidebar()}
+        >
+          <Toggle
+            size="sm"
+            className="max-w-full"
+            label={m.preferences_rail_labels()}
+            isSelected={railLabels}
+            onChange={onRailLabelsChange}
+          />
         </PreferenceSection>
       </div>
     </div>

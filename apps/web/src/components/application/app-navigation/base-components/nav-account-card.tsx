@@ -1,9 +1,9 @@
-import type { FC, HTMLAttributes } from "react";
+import type { FC } from "react";
 import { useCallback, useEffect, useRef } from "react";
 import type { Placement } from "@react-types/overlays";
 import { BookOpen01, ChevronSelectorVertical, LogOut01, Plus, Settings01, User01 } from "@untitledui/icons";
 import { useFocusManager } from "react-aria";
-import type { DialogProps as AriaDialogProps } from "react-aria-components";
+import type { ButtonProps as AriaButtonProps, DialogProps as AriaDialogProps } from "react-aria-components";
 import { Button as AriaButton, Dialog as AriaDialog, DialogTrigger as AriaDialogTrigger, Popover as AriaPopover } from "react-aria-components";
 import { AvatarLabelGroup } from "@/components/base/avatar/avatar-label-group";
 import { Button } from "@/components/base/buttons/button";
@@ -93,7 +93,7 @@ export const NavAccountMenu = ({
 
                     <div className="flex flex-col gap-0.5 px-1.5">
                         {placeholderAccounts.map((account) => (
-                            <button
+                            <AriaButton
                                 key={account.id}
                                 className={cx(
                                     "relative w-full cursor-pointer rounded-md px-2 py-1.5 text-left outline-focus-ring transition duration-100 ease-linear hover:bg-primary_hover focus:z-10 focus-visible:outline-2 focus-visible:outline-offset-2",
@@ -103,7 +103,7 @@ export const NavAccountMenu = ({
                                 <AvatarLabelGroup status="online" size="md" src={account.avatar} title={account.name} subtitle={account.email} />
 
                                 <RadioButtonBase isSelected={account.id === selectedAccountId} className="absolute top-2 right-2" />
-                            </button>
+                            </AriaButton>
                         ))}
                     </div>
                 </div>
@@ -130,9 +130,9 @@ const NavAccountCardMenuItem = ({
     icon?: FC<{ className?: string }>;
     label: string;
     shortcut?: string;
-} & HTMLAttributes<HTMLButtonElement>) => {
+} & Omit<AriaButtonProps, "className"> & { className?: string }) => {
     return (
-        <button {...buttonProps} className={cx("group/item w-full cursor-pointer px-1.5 focus:outline-hidden", buttonProps.className)}>
+        <AriaButton {...buttonProps} className={cx("group/item w-full cursor-pointer px-1.5 focus:outline-hidden", buttonProps.className)}>
             <div
                 className={cx(
                     "flex w-full items-center justify-between gap-3 rounded-md p-2 group-hover/item:bg-primary_hover",
@@ -148,7 +148,7 @@ const NavAccountCardMenuItem = ({
                     <kbd className="flex rounded px-1 py-px font-body text-xs font-medium text-tertiary ring-1 ring-secondary ring-inset">{shortcut}</kbd>
                 )}
             </div>
-        </button>
+        </AriaButton>
     );
 };
 

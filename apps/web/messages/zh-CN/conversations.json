@@ -25,6 +25,8 @@
   "conversation_empty_title": "与 {name} 的对话",
   "conversation_empty_description": "这是你与智能体的私聊。在下方描述任务、提出问题，或发送第一条消息。",
   "conversation_message_label": "消息",
+  "conversation_message_actions": "消息操作",
+  "conversation_composer_actions": "添加到消息",
   "conversation_message_placeholder": "输入消息…",
   "conversation_send": "发送",
   "conversation_sending": "发送中…",

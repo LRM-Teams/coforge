@@ -1,5 +1,6 @@
-import type { MouseEventHandler, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { X as CloseX } from "@untitledui/icons";
+import { Button as AriaButton, type ButtonProps as AriaButtonProps } from "react-aria-components";
 import { Dot } from "@/components/foundations/dot-icon";
 import { cx } from "@/utils/cx";
 import type { BadgeColors, BadgeTypeToColorMap, BadgeTypes, FlagTypes, IconComponentType, Sizes } from "./badge-types";
@@ -332,7 +333,7 @@ interface BadgeWithButtonProps<T extends BadgeTypes> {
     /**
      * The click event handler for the button.
      */
-    onButtonClick?: MouseEventHandler<HTMLButtonElement>;
+    onButtonClick?: AriaButtonProps["onClick"];
 }
 
 export const BadgeWithButton = <T extends BadgeTypes>(props: BadgeWithButtonProps<T>) => {
@@ -360,7 +361,7 @@ export const BadgeWithButton = <T extends BadgeTypes>(props: BadgeWithButtonProp
     return (
         <span className={cx(colors.common, sizes[type][size], colors.styles[color].root)}>
             {children}
-            <button
+            <AriaButton
                 type="button"
                 aria-label={buttonLabel}
                 onClick={props.onButtonClick}
@@ -371,7 +372,7 @@ export const BadgeWithButton = <T extends BadgeTypes>(props: BadgeWithButtonProp
                 )}
             >
                 <Icon className="size-3 stroke-[3px] transition-inherit-all" />
-            </button>
+            </AriaButton>
         </span>
     );
 };

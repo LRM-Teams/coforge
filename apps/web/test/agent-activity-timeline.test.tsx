@@ -92,8 +92,8 @@ test("renders flattened labels, separate tool details, aliases, lineage, and sem
   expect(rows[2]?.textContent).toContain("Subagent");
   expect(rows[3]?.textContent).toContain("Output");
   expect(rows[3]?.textContent).toContain("Finished safely");
-  expect(rows[4]?.querySelector(".bg-success")).not.toBeNull();
-  expect(rows[5]?.querySelector(".bg-destructive")).not.toBeNull();
+  expect(rows[4]?.querySelector(".bg-success-solid")).not.toBeNull();
+  expect(rows[5]?.querySelector(".bg-error-solid")).not.toBeNull();
   expect(rows[6]?.querySelector(".bg-offline")).not.toBeNull();
   expect(rows[0]?.querySelector(".bg-amber-500")).not.toBeNull();
   expect(rows[2]?.querySelector(".bg-amber-500")).not.toBeNull();

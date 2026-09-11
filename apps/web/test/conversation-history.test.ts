@@ -156,7 +156,10 @@ describe("ConversationHistory", () => {
       body: id,
       createdAt: new Date(sequence),
       attachment: null,
-      sender: { userId: "user-1", user: { username: "alice" }, agent: null },
+      sender:
+        sequence === 11
+          ? { userId: null, user: null, agent: { name: "builder", displayName: "Build Assistant" } }
+          : { userId: "user-1", user: { username: "alice" }, agent: null },
       replies: [],
     });
     const db = {
@@ -209,6 +212,11 @@ describe("ConversationHistory", () => {
       ["message-9", 9, "user-member-1"],
       ["message-10", 10, "user-member-1"],
       ["message-11", 11, "user-member-1"],
+    ]);
+    expect(page.messages.map(({ senderName }) => senderName)).toEqual([
+      "@alice",
+      "@alice",
+      "@builder",
     ]);
   });
 });

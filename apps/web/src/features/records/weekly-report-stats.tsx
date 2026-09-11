@@ -60,13 +60,13 @@ export function WeeklyReportStats({
           </div>
         }
       />
-      <div className="min-h-0 flex-1 overflow-auto p-4 md:p-6">
+      <div className="min-h-0 flex-1 overflow-auto bg-primary">
         {stats.members.length === 0 ? (
           <p className="py-10 text-center text-sm text-tertiary">{m.records_stats_empty()}</p>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-secondary shadow-xs">
+          <div className="overflow-x-auto">
             <table className="w-full min-w-[40rem] border-collapse text-left text-sm">
-              <thead className="bg-secondary text-tertiary">
+              <thead className="border-b border-secondary bg-primary text-tertiary">
                 <tr>
                   <th className="px-4 py-3 text-xs font-semibold sm:px-5">
                     {m.records_stats_member()}

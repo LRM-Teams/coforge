@@ -41,7 +41,7 @@ function mapBrowserMessage(message: BrowserMessageRow) {
     senderKind: message.sender.userId ? ("user" as const) : ("agent" as const),
     senderName: message.sender.userId
       ? `@${message.sender.user?.username}`
-      : message.sender.agent?.displayName || message.sender.agent?.name || "Agent",
+      : `@${message.sender.agent?.name}`,
     body: message.body,
     createdAt: message.createdAt,
     attachment: message.attachment ?? undefined,

@@ -25,6 +25,8 @@
   "conversation_empty_title": "Chat with {name}",
   "conversation_empty_description": "Just you and this agent. Share a task, ask a question, or send your first message below.",
   "conversation_message_label": "Message",
+  "conversation_message_actions": "Message actions",
+  "conversation_composer_actions": "Add to message",
   "conversation_message_placeholder": "Write a message…",
   "conversation_send": "Send",
   "conversation_sending": "Sending…",

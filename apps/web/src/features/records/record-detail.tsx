@@ -5,14 +5,10 @@ import { DotsHorizontal, MessageChatCircle as Message, Trash01 as Trash } from "
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Avatar } from "@/components/base/avatar/avatar";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
+import { TextArea } from "@/components/base/textarea/textarea";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { Button, buttonVariants } from "./report-editor/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "./report-editor/ui/dropdown-menu";
 import { m } from "@/paraglide/messages";
 import { ReportSectionEditor } from "./report-editor/report-section-editor";
 import type { UploadResult } from "./report-editor/types";
@@ -90,7 +86,7 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
   contentRef.current = content;
   const reportIdRef = useRef(report.id);
   reportIdRef.current = report.id;
-  const [sideOpen, setSideOpen] = useState(true);
+  const [sideOpen, setSideOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -102,7 +98,9 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
     setSaving(true);
     const normalized = normalizeReportContent(next);
     writeReportDraft(reportId, normalized);
-    const savePromise = save({ data: { reportId, content: normalized, status } });
+    const savePromise = save({
+      data: { reportId, content: normalized, status },
+    });
     trackReportSave(reportId, savePromise);
     try {
       await savePromise;
@@ -164,12 +162,14 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
 
   return (
     <div className="flex min-h-0 flex-1">
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div
+        className={`${sideOpen ? "hidden md:flex" : "flex"} min-w-0 flex-1 flex-col overflow-hidden`}
+      >
         <PageHeader
           heading={report.title}
           leading={<BackToRecords />}
           meta={
-            <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex min-w-0 items-center gap-2 text-sm text-tertiary">
               <Avatar
                 size="sm"
                 initials={avatarInitial(report.author.displayName)}
@@ -183,40 +183,33 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
           }
           actions={
             <div className="flex items-center gap-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
+              <ButtonUtility
+                size="sm"
+                color="tertiary"
+                icon={Message}
                 aria-label={m.records_side_chat()}
                 aria-pressed={sideOpen}
                 onClick={() => setSideOpen((open) => !open)}
-              >
-                <Message aria-hidden="true" />
-              </Button>
-              <DropdownMenu modal={false}>
-                <DropdownMenuTrigger
+              />
+              <Dropdown.Root>
+                <ButtonUtility
+                  size="sm"
+                  color="tertiary"
+                  icon={DotsHorizontal}
                   aria-label={m.records_report_actions()}
-                  className={buttonVariants({ variant: "ghost", size: "icon-xs" })}
-                >
-                  <DotsHorizontal aria-hidden="true" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    variant="destructive"
-                    disabled={saving}
-                    onClick={() => void persist(clearReportContent(), "draft")}
-                  >
-                    <Trash aria-hidden="true" />
-                    {m.records_report_clear()}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                  isDisabled={saving}
+                />
+                <Dropdown.Popover placement="bottom end" className="w-44">
+                  <Dropdown.Menu onAction={() => void persist(clearReportContent(), "draft")}>
+                    <Dropdown.Item id="clear" icon={Trash} label={m.records_report_clear()} />
+                  </Dropdown.Menu>
+                </Dropdown.Popover>
+              </Dropdown.Root>
             </div>
           }
         />
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
-          <h1 className="mb-6 text-3xl font-semibold tracking-tight md:text-4xl">{report.title}</h1>
           <ReportSectionEditor
             key={report.id}
             defaultValue={content.markdown}
@@ -251,16 +244,18 @@ function HighlightDetail({ highlight }: { highlight: HighlightSubject["highlight
   const [content, setContent] = useState(highlight.content);
   const contentRef = useRef(content);
   contentRef.current = content;
-  const [sideOpen, setSideOpen] = useState(true);
+  const [sideOpen, setSideOpen] = useState(false);
 
   return (
     <div className="flex min-h-0 flex-1">
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div
+        className={`${sideOpen ? "hidden md:flex" : "flex"} min-w-0 flex-1 flex-col overflow-hidden`}
+      >
         <PageHeader
           heading={highlight.title}
           leading={<BackToRecords />}
           meta={
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm text-tertiary">
               {highlight.completedAt
                 ? m.records_highlight_completed({
                     time: new Date(highlight.completedAt).toLocaleString(),
@@ -269,43 +264,37 @@ function HighlightDetail({ highlight }: { highlight: HighlightSubject["highlight
             </span>
           }
           actions={
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
+            <ButtonUtility
+              size="sm"
+              color="tertiary"
+              icon={Message}
               aria-label={m.records_side_chat()}
               aria-pressed={sideOpen}
               onClick={() => setSideOpen((open) => !open)}
-            >
-              <Message aria-hidden="true" />
-            </Button>
+            />
           }
         />
-        <div className="flex items-center gap-3 border-b px-4 py-4 sm:px-6">
-          <span className="flex size-12 items-center justify-center rounded-full bg-brand/15 text-lg font-semibold text-brand">
-            {highlight.cycle.week}
-          </span>
-          <div className="font-semibold">{highlight.title}</div>
-        </div>
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
           {content.blocks.map((block, index) => (
             <section key={block.id} className="space-y-2">
-              <h2 className="text-sm font-semibold">{block.heading}</h2>
-              <textarea
+              <h2 className="text-sm font-semibold text-primary">{block.heading}</h2>
+              <TextArea
                 value={block.paragraphs.join("\n")}
-                onChange={(event) => {
+                onChange={(value) => {
                   const next = structuredClone(contentRef.current);
-                  next.blocks[index]!.paragraphs = event.target.value.split("\n");
+                  next.blocks[index]!.paragraphs = value.split("\n");
                   setContent(next);
                   contentRef.current = next;
                 }}
                 onBlur={() =>
                   void save({
-                    data: { highlightId: highlight.id, content: contentRef.current },
+                    data: {
+                      highlightId: highlight.id,
+                      content: contentRef.current,
+                    },
                   })
                 }
                 rows={4}
-                className="w-full rounded-lg bg-muted/50 px-3 py-2 text-sm outline-none ring-1 ring-border ring-inset focus:ring-2 focus:ring-ring"
               />
             </section>
           ))}

@@ -72,6 +72,7 @@ function renderShell() {
 function renderSettings() {
   function SettingsTestPage() {
     const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
+    const [railLabels, setRailLabels] = useState(true);
     function changeTheme(nextTheme: "system" | "light" | "dark") {
       setTheme(nextTheme);
       localStorage.setItem("coforge-theme", nextTheme);
@@ -91,8 +92,8 @@ function renderSettings() {
         onAvatarRemove={async () => {}}
         onLocaleChange={() => {}}
         onThemeChange={changeTheme}
-        railLabels
-        onRailLabelsChange={() => {}}
+        railLabels={railLabels}
+        onRailLabelsChange={setRailLabels}
         onTimeZoneChange={() => {}}
       />
     );
@@ -100,6 +101,23 @@ function renderSettings() {
 
   return render(<SettingsTestPage />);
 }
+
+test("sidebar labels are an independent preference with an operable labeled switch", async () => {
+  const user = userEvent.setup({ document });
+  const page = renderSettings();
+  await user.click(page.getByRole("button", { name: "Preferences" }));
+  const sidebarSection = page.getByRole("heading", { name: "Sidebar" }).closest("section");
+  const appearanceSection = page.getByRole("heading", { name: "Appearance" }).closest("section");
+  const toggle = page.getByRole("switch", { name: "Show labels in the sidebar" });
+  expect(sidebarSection?.contains(toggle)).toBe(true);
+  expect(appearanceSection?.contains(toggle)).toBe(false);
+  expect(toggle).toHaveProperty("checked", true);
+  await user.click(page.getByText("Show labels in the sidebar", { exact: true }));
+  expect(toggle).toHaveProperty("checked", false);
+  toggle.focus();
+  await user.keyboard(" ");
+  expect(toggle).toHaveProperty("checked", true);
+});
 
 test("uses separate settings list and content panels with a way back that preserves drafts", async () => {
   const user = userEvent.setup({ document });
