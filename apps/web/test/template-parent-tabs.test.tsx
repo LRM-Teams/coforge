@@ -60,6 +60,13 @@ test("template parent detail exposes overview and template editor tabs", async (
   );
   expect(page().queryByRole("link", { name: "Alice" })).toBeNull();
   expect(page().getByRole("button", { name: "Summary" })).toBeTruthy();
+  expect(page().getByRole("button", { name: "+ 一级标题" })).toBeTruthy();
+
+  await user.click(page().getByRole("button", { name: "+ 一级标题" }));
+  expect(page().getByDisplayValue("一级标题")).toBeTruthy();
+  expect(page().getAllByRole("button", { name: "+ 二级标题" }).length).toBeGreaterThan(0);
+  await user.click(page().getAllByRole("button", { name: "+ 二级标题" })[0]!);
+  expect(page().getByDisplayValue("二级标题")).toBeTruthy();
 
   await user.click(page().getByRole("button", { name: "添加显示页" }));
   expect(page().getByRole("button", { name: "新页面" })).toBeTruthy();
