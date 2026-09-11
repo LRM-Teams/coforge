@@ -7,52 +7,54 @@ import {
   normalizeReportContent,
 } from "@/features/records/records-content";
 
-test("emptyReportContent is a blank markdown document", () => {
-  expect(emptyReportContent()).toEqual({ markdown: "" });
-});
-
-test("normalizeReportContent keeps a single markdown document", () => {
-  expect(normalizeReportContent({ markdown: "## Hello\n\n$body$" })).toEqual({
-    markdown: "## Hello\n\n$body$",
-  });
-});
-
-test("normalizeReportContent flattens legacy tabs and sections into one document", () => {
-  const normalized = normalizeReportContent({
+test("emptyReportContent creates named display pages", () => {
+  expect(emptyReportContent(["Summary", "Research"])).toEqual({
     tabs: {
-      进展: {
-        sections: [
-          {
-            id: "sec-1",
-            key: "section_0",
-            title: "工作内容",
-            markdown: "完成登录",
-          },
-        ],
-      },
-      风险: {
-        sections: [
-          {
-            id: "sec-2",
-            key: "section_0",
-            title: "阻塞",
-            roots: [{ id: "n1", text: "缺环境", children: [] }],
-          },
-        ],
-      },
+      Summary: { markdown: "" },
+      Research: { markdown: "" },
     },
   });
-
-  expect(normalized.markdown).toBe(
-    ["# 进展", "## 工作内容", "完成登录", "# 风险", "## 阻塞", "- 缺环境"].join("\n\n"),
-  );
 });
 
-test("clearReportContent clears markdown", () => {
-  expect(clearReportContent({ markdown: "hello" })).toEqual({ markdown: "" });
+test("normalizeReportContent migrates a single markdown document to Summary", () => {
+  expect(normalizeReportContent({ markdown: "## Hello\n\n$body$" })).toEqual({
+    tabs: { Summary: { markdown: "## Hello\n\n$body$" } },
+  });
 });
 
-test("alignReportContentToTemplate no longer reshapes the body from settings", () => {
-  const content = { markdown: "keep me" };
-  expect(alignReportContentToTemplate(content)).toEqual({ markdown: "keep me" });
+test("normalizeReportContent preserves independent page documents", () => {
+  expect(
+    normalizeReportContent({
+      tabs: {
+        Summary: { markdown: "Current work" },
+        Research: { markdown: "Open questions" },
+      },
+    }),
+  ).toEqual({
+    tabs: {
+      Summary: { markdown: "Current work" },
+      Research: { markdown: "Open questions" },
+    },
+  });
+});
+
+test("alignReportContentToTemplate adds and removes display pages without losing matching content", () => {
+  expect(
+    alignReportContentToTemplate(
+      { tabs: { Summary: { markdown: "keep" }, Old: { markdown: "remove" } } },
+      ["Summary", "Research"],
+    ),
+  ).toEqual({
+    tabs: { Summary: { markdown: "keep" }, Research: { markdown: "" } },
+  });
+});
+
+test("clearReportContent clears every page and keeps its names", () => {
+  expect(
+    clearReportContent({
+      tabs: { Summary: { markdown: "one" }, Research: { markdown: "two" } },
+    }),
+  ).toEqual({
+    tabs: { Summary: { markdown: "" }, Research: { markdown: "" } },
+  });
 });

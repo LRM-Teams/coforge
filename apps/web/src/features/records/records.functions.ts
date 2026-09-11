@@ -26,7 +26,8 @@ async function currentWorkspaceId(userId: string) {
 }
 
 const reportContentSchema: z.ZodType<ReportContent> = z.object({
-  markdown: z.string(),
+  tabs: z.record(z.string(), z.object({ markdown: z.string() })),
+  markdown: z.string().optional(),
 });
 
 const highlightContentSchema = z.object({

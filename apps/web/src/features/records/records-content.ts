@@ -1,7 +1,13 @@
-/** Weekly-report body: one Markdown document (Notes-style). */
+/** Weekly-report body: named display pages with one rich-text document per page. */
+
+export type ReportTab = {
+  markdown: string;
+};
 
 export type ReportContent = {
-  markdown: string;
+  tabs?: Record<string, ReportTab>;
+  /** Temporary compatibility field used by the Notes draft cache. */
+  markdown?: string;
 };
 
 export type HighlightBlock = {
@@ -15,10 +21,8 @@ export type HighlightContent = {
   blocks: HighlightBlock[];
 };
 
-/** @deprecated Legacy outline node; only used when migrating old persisted JSON. */
 type LegacyOutlineNode = {
-  id?: string;
-  text?: string;
+  text?: unknown;
   children?: LegacyOutlineNode[];
 };
 
@@ -28,80 +32,95 @@ type LegacySection = {
   roots?: LegacyOutlineNode[];
 };
 
-function outlineNodesToMarkdown(nodes: LegacyOutlineNode[], depth = 0): string {
-  const lines: string[] = [];
-  for (const node of nodes) {
-    const text = (node.text ?? "").trimEnd();
-    const indent = "  ".repeat(depth);
-    if (text.length > 0 || (node.children?.length ?? 0) > 0) {
-      lines.push(`${indent}- ${text}`);
-    }
-    if (node.children?.length) {
-      const nested = outlineNodesToMarkdown(node.children, depth + 1);
-      if (nested) lines.push(nested);
-    }
-  }
-  return lines.join("\n");
+function newTabName() {
+  return "Summary";
 }
 
-function sectionBody(section: LegacySection): string {
-  if (typeof section.markdown === "string" && section.markdown.length > 0) {
-    return section.markdown;
-  }
-  if (Array.isArray(section.roots) && section.roots.length > 0) {
-    return outlineNodesToMarkdown(section.roots);
-  }
-  return "";
+function legacyOutlineToMarkdown(nodes: LegacyOutlineNode[], depth = 0): string {
+  return nodes
+    .flatMap((node) => {
+      const text = typeof node.text === "string" ? node.text.trimEnd() : "";
+      const line = text || (node.children?.length ?? 0) > 0 ? `${"  ".repeat(depth)}- ${text}` : "";
+      const children = node.children?.length
+        ? legacyOutlineToMarkdown(node.children, depth + 1)
+        : "";
+      return [line, children].filter(Boolean);
+    })
+    .join("\n");
 }
 
-/** Flatten legacy tabs/sections into one Markdown document. */
-function legacyTabsToMarkdown(tabs: Record<string, { sections?: LegacySection[] }>): string {
-  const parts: string[] = [];
-  for (const [tabName, tab] of Object.entries(tabs)) {
-    const sections = tab?.sections ?? [];
-    if (sections.length === 0) continue;
-    const tabTrim = tabName.trim();
-    if (tabTrim) parts.push(`# ${tabTrim}`);
-    for (const section of sections) {
+function legacySectionsToMarkdown(sections: LegacySection[]): string {
+  return sections
+    .flatMap((section) => {
       const title = (section.title ?? "").trim();
-      const body = sectionBody(section).trim();
-      if (title) parts.push(`## ${title}`);
-      if (body) parts.push(body);
-    }
+      const body =
+        typeof section.markdown === "string" && section.markdown.length > 0
+          ? section.markdown
+          : legacyOutlineToMarkdown(section.roots ?? []);
+      return [title ? `## ${title}` : "", body].filter(Boolean);
+    })
+    .join("\n\n")
+    .trim();
+}
+
+/** Create a blank report with one page when no template pages have been configured. */
+export function emptyReportContent(dimensions: string[] = []): ReportContent {
+  const names = dimensions.map((name) => name.trim()).filter(Boolean);
+  const uniqueNames = [...new Set(names.length > 0 ? names : [newTabName()])];
+  return {
+    tabs: Object.fromEntries(uniqueNames.map((name) => [name, { markdown: "" }])),
+  };
+}
+
+/** Keep page content while applying a template's current page names. */
+export function alignReportContentToTemplate(
+  content: ReportContent,
+  dimensions: string[],
+): ReportContent {
+  const normalized = normalizeReportContent(content);
+  const next = emptyReportContent(dimensions);
+  const normalizedTabs = normalized.tabs ?? {};
+  for (const name of Object.keys(next.tabs ?? {})) {
+    next.tabs![name] = normalizedTabs[name] ?? { markdown: "" };
   }
-  return parts.join("\n\n").trim();
+  return next;
 }
 
-/** Empty report document (template settings no longer shape the body). */
-export function emptyReportContent(): ReportContent {
-  return { markdown: "" };
+/** Clear every display page without removing the page structure. */
+export function clearReportContent(content: ReportContent): ReportContent {
+  const normalized = normalizeReportContent(content);
+  return {
+    tabs: Object.fromEntries(
+      Object.keys(normalized.tabs ?? {}).map((name) => [name, { markdown: "" }]),
+    ),
+  };
 }
 
-/**
- * @deprecated Template dimensions no longer drive report body.
- * Kept as a no-op normalize for any remaining callers.
- */
-export function alignReportContentToTemplate(content: ReportContent): ReportContent {
-  return normalizeReportContent(content);
-}
-
-/** Clear the document body. */
-export function clearReportContent(_content?: ReportContent): ReportContent {
-  return { markdown: "" };
-}
-
-/** Normalize persisted JSON into a single markdown document. */
+/** Normalize persisted JSON, including the former single-markdown representation. */
 export function normalizeReportContent(value: unknown): ReportContent {
   if (!value || typeof value !== "object") return emptyReportContent();
   const record = value as {
     markdown?: unknown;
-    tabs?: Record<string, { sections?: LegacySection[] }>;
+    tabs?: Record<string, { markdown?: unknown; sections?: LegacySection[] }>;
   };
-  if (typeof record.markdown === "string") {
-    return { markdown: record.markdown };
-  }
+
   if (record.tabs && typeof record.tabs === "object") {
-    return { markdown: legacyTabsToMarkdown(record.tabs) };
+    const tabs = Object.fromEntries(
+      Object.entries(record.tabs).map(([name, tab]) => [
+        name,
+        {
+          markdown:
+            typeof tab?.markdown === "string"
+              ? tab.markdown
+              : legacySectionsToMarkdown(tab?.sections ?? []),
+        },
+      ]),
+    );
+    return Object.keys(tabs).length > 0 ? { tabs } : emptyReportContent();
+  }
+
+  if (typeof record.markdown === "string") {
+    return { tabs: { [newTabName()]: { markdown: record.markdown } } };
   }
   return emptyReportContent();
 }

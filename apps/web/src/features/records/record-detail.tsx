@@ -10,6 +10,7 @@ import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { m } from "@/paraglide/messages";
 import { ReportSectionEditor } from "./report-editor/report-section-editor";
+import { ReportTabsEditor } from "./report-tabs-editor";
 import type { UploadResult } from "./report-editor/types";
 import {
   readReportDraft,
@@ -214,7 +215,9 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
                   isDisabled={saving}
                 />
                 <Dropdown.Popover placement="bottom end" className="w-44">
-                  <Dropdown.Menu onAction={() => void persist(clearReportContent(), "draft")}>
+                  <Dropdown.Menu
+                    onAction={() => void persist(clearReportContent(contentRef.current), "draft")}
+                  >
                     <Dropdown.Item id="clear" icon={Trash} label={m.records_report_clear()} />
                   </Dropdown.Menu>
                 </Dropdown.Popover>
@@ -223,22 +226,16 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
           }
         />
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
-          <ReportSectionEditor
-            key={report.id}
-            defaultValue={content.markdown}
-            placeholder={m.records_report_body_placeholder()}
-            className="min-h-[55vh] pb-[30vh]"
-            onUploadFile={fileToDataUrlUpload}
-            onUpdate={(markdown) => {
-              schedulePersist({ markdown });
-            }}
-            onBlur={() => {
-              if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-              void persist(contentRef.current);
-            }}
-          />
-        </div>
+        <ReportTabsEditor
+          content={content}
+          placeholder={m.records_report_body_placeholder()}
+          onUploadFile={fileToDataUrlUpload}
+          onChange={schedulePersist}
+          onBlur={() => {
+            if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+            void persist(contentRef.current);
+          }}
+        />
       </div>
 
       {sideOpen ? (
@@ -366,7 +363,9 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
                   isDisabled={saving}
                 />
                 <Dropdown.Popover placement="bottom end" className="w-44">
-                  <Dropdown.Menu onAction={() => void persist(clearReportContent(), "draft")}>
+                  <Dropdown.Menu
+                    onAction={() => void persist(clearReportContent(contentRef.current), "draft")}
+                  >
                     <Dropdown.Item id="clear" icon={Trash} label={m.records_report_clear()} />
                   </Dropdown.Menu>
                 </Dropdown.Popover>
@@ -403,26 +402,23 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
           ))}
         </nav>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
-          {parentTab === "overview" ? (
+        {parentTab === "overview" ? (
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
             <TemplateChildrenTable children={report.children ?? []} />
-          ) : (
-            <ReportSectionEditor
-              key={`${report.id}-template`}
-              defaultValue={content.markdown}
-              placeholder={m.records_report_body_placeholder()}
-              className="min-h-[55vh] pb-[30vh]"
-              onUploadFile={fileToDataUrlUpload}
-              onUpdate={(markdown) => {
-                schedulePersist({ markdown });
-              }}
-              onBlur={() => {
-                if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-                void persist(contentRef.current);
-              }}
-            />
-          )}
-        </div>
+          </div>
+        ) : (
+          <ReportTabsEditor
+            content={content}
+            editableTabs
+            placeholder={m.records_report_body_placeholder()}
+            onUploadFile={fileToDataUrlUpload}
+            onChange={schedulePersist}
+            onBlur={() => {
+              if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+              void persist(contentRef.current);
+            }}
+          />
+        )}
       </div>
 
       {sideOpen ? (
