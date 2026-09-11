@@ -3,18 +3,20 @@ import { Plus, XClose as X } from "@untitledui/icons";
 
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { m } from "@/paraglide/messages";
 
-const MAX_LEVEL = 3;
-type HeadingLevel = 1 | 2 | 3;
+const MAX_LEVEL = 5;
+type HeadingLevel = 1 | 2 | 3 | 4 | 5;
 type OutlineNode =
   | { id: number; kind: "heading"; level: HeadingLevel; text: string }
   | { id: number; kind: "body"; text: string };
 
 function parseOutline(markdown: string): OutlineNode[] {
   if (!markdown) return [];
-  return markdown.split("\n").map((line, id) => {
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+  const lines = markdown.endsWith("\n") ? markdown.slice(0, -1).split("\n") : markdown.split("\n");
+  return lines.map((line, id) => {
+    const heading = line.match(/^(#{1,5})\s+(.+)$/);
     if (!heading) return { id, kind: "body", text: line };
     return {
       id,
@@ -26,27 +28,46 @@ function parseOutline(markdown: string): OutlineNode[] {
 }
 
 function serializeOutline(nodes: OutlineNode[]) {
-  return nodes
+  const markdown = nodes
     .map((node) => (node.kind === "body" ? node.text : `${"#".repeat(node.level)} ${node.text}`))
     .join("\n");
+  return nodes.at(-1)?.kind === "body" && nodes.at(-1)?.text === "" ? `${markdown}\n` : markdown;
 }
 
 function defaultHeading(level: HeadingLevel) {
   if (level === 1) return m.records_template_heading_level_one();
   if (level === 2) return m.records_template_heading_level_two();
-  return m.records_template_heading_level_three();
+  if (level === 3) return m.records_template_heading_level_three();
+  if (level === 4) return m.records_template_heading_level_four();
+  return m.records_template_heading_level_five();
 }
 
 function addLabel(level: HeadingLevel) {
   if (level === 1) return m.records_template_add_heading_level_one();
   if (level === 2) return m.records_template_add_heading_level_two();
-  return m.records_template_add_heading_level_three();
+  if (level === 3) return m.records_template_add_heading_level_three();
+  if (level === 4) return m.records_template_add_heading_level_four();
+  return m.records_template_add_heading_level_five();
 }
 
 function headingClass(level: HeadingLevel) {
   if (level === 1) return "text-2xl font-semibold leading-tight";
   if (level === 2) return "text-xl font-semibold leading-tight";
-  return "text-lg font-semibold leading-tight";
+  if (level === 3) return "text-lg font-semibold leading-tight";
+  if (level === 4) return "text-base font-semibold leading-tight";
+  return "text-sm font-semibold leading-tight";
+}
+
+function depthAt(nodes: OutlineNode[], index: number) {
+  const stack: HeadingLevel[] = [];
+  for (const node of nodes.slice(0, index + 1)) {
+    if (node.kind === "body") continue;
+    while (stack.length > 0 && stack[stack.length - 1]! >= node.level) stack.pop();
+    stack.push(node.level);
+  }
+  const current = nodes[index];
+  if (current?.kind === "body") return stack.length;
+  return Math.max(0, stack.length - 1);
 }
 
 export function ReportTemplateOutlineEditor({
@@ -127,20 +148,30 @@ export function ReportTemplateOutlineEditor({
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
       <div className="flex w-full flex-col gap-1">
-        <div className="flex flex-wrap items-center gap-1 pb-2">
-          {([1, 2, 3] as const).map((level) => (
+        <div className="flex items-center gap-2 pb-2">
+          <Dropdown.Root>
             <Button
-              key={level}
               type="button"
               size="sm"
               color="link-gray"
               iconLeading={Plus}
-              onPress={() => addHeading(level)}
               className="w-fit px-1 text-brand-secondary"
             >
-              {addLabel(level)}
+              {m.records_template_add_heading()}
             </Button>
-          ))}
+            <Dropdown.Popover placement="bottom start" className="w-44">
+              <Dropdown.Menu
+                onAction={(key) => {
+                  const level = Number(String(key).replace("heading-", "")) as HeadingLevel;
+                  addHeading(level);
+                }}
+              >
+                {([1, 2, 3, 4, 5] as const).map((level) => (
+                  <Dropdown.Item key={level} id={`heading-${level}`} label={addLabel(level)} />
+                ))}
+              </Dropdown.Menu>
+            </Dropdown.Popover>
+          </Dropdown.Root>
           <Button
             type="button"
             size="sm"
@@ -159,6 +190,7 @@ export function ReportTemplateOutlineEditor({
               <div
                 key={node.id}
                 className="group flex min-h-9 w-full items-center gap-1 rounded-md bg-secondary px-2"
+                style={{ paddingLeft: `${0.5 + depthAt(nodes, nodes.indexOf(node)) * 1.75}rem` }}
               >
                 <input
                   aria-label={m.records_template_body_label()}
@@ -186,7 +218,7 @@ export function ReportTemplateOutlineEditor({
             <div
               key={node.id}
               className="group flex min-h-11 w-full items-center gap-1 rounded-md bg-secondary px-2"
-              style={{ paddingLeft: `${0.5 + (node.level - 1) * 1.75}rem` }}
+              style={{ paddingLeft: `${0.5 + depthAt(nodes, nodes.indexOf(node)) * 1.75}rem` }}
             >
               <input
                 aria-label={`${m.records_template_heading_label()} ${node.level}`}
