@@ -6,6 +6,7 @@ import {
   emptyReportContent,
   highlightTitle,
   isValidTemplateName,
+  memberReportTitle,
   memberWeekTitle,
   normalizeReportContent,
   type HighlightContent,
@@ -71,9 +72,9 @@ export class RecordCatalog {
         take: 50,
       }),
       this.db.recordNote.findMany({
-        where: { workspaceId: input.workspaceId },
+        where: { workspaceId: input.workspaceId, authorId: input.userId },
         orderBy: { updatedAt: "desc" },
-        take: 50,
+        take: 100,
         select: { id: true, title: true, body: true, authorId: true, updatedAt: true },
       }),
       this.db.user.findUnique({
@@ -111,10 +112,7 @@ export class RecordCatalog {
       latestTemplate: report.id === latestTemplateId,
       submissions: cycle.reports
         .filter(
-          (candidate) =>
-            candidate.kind === "member" &&
-            candidate.sourceTemplateId === report.id &&
-            (candidate.status === "submitted" || candidate.status === "shared"),
+          (candidate) => candidate.kind === "member" && candidate.sourceTemplateId === report.id,
         )
         .map((submission) => ({
           id: submission.id,
@@ -143,7 +141,12 @@ export class RecordCatalog {
       highlights,
       myReports: cycles.flatMap((cycle) =>
         cycle.reports
-          .filter((report) => report.kind === "member" && report.authorId === input.userId)
+          .filter(
+            (report) =>
+              report.kind === "member" &&
+              report.authorId === input.userId &&
+              report.sourceTemplateId == null,
+          )
           .map((report) => ({
             id: report.id,
             title: report.title,
@@ -306,6 +309,60 @@ export class RecordCatalog {
     };
   }
 
+  /**
+   * Create a member report hanging under a template node in “成员周报”.
+   * Uses the template's cycle and copies its body as the starting document.
+   */
+  async createSubmissionUnderTemplate(input: {
+    workspaceId: string;
+    userId: string;
+    templateId: string;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const template = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.templateId,
+        workspaceId: input.workspaceId,
+        kind: "template",
+      },
+      select: {
+        id: true,
+        content: true,
+        cycle: { select: { id: true, year: true, week: true } },
+      },
+    });
+    if (!template) throw new AppError("NOT_FOUND");
+    const author = await this.db.user.findUnique({
+      where: { id: input.userId },
+      select: { displayName: true, username: true },
+    });
+    const displayName = author?.displayName ?? author?.username ?? "Member";
+    const title = memberReportTitle(displayName, template.cycle.year, template.cycle.week);
+    const report = await this.db.weeklyReport.create({
+      data: {
+        workspaceId: input.workspaceId,
+        cycleId: template.cycle.id,
+        authorId: input.userId,
+        kind: "member",
+        sourceTemplateId: template.id,
+        title,
+        status: "draft",
+        content: template.content as Prisma.InputJsonValue,
+      },
+      select: { id: true, title: true },
+    });
+    return {
+      id: report.id,
+      cycleId: template.cycle.id,
+      title: report.title,
+      year: template.cycle.year,
+      week: template.cycle.week,
+      kind: "member" as const,
+      sourceTemplateId: template.id,
+      created: true,
+    };
+  }
+
   async deleteTemplateReport(input: { workspaceId: string; userId: string; reportId: string }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
     const report = await this.db.weeklyReport.findFirst({
@@ -339,6 +396,34 @@ export class RecordCatalog {
     });
     if (report) {
       const content = asReportContent(report.content);
+      const children =
+        report.kind === "template"
+          ? (
+              await this.db.weeklyReport.findMany({
+                where: {
+                  workspaceId: input.workspaceId,
+                  sourceTemplateId: report.id,
+                  kind: "member",
+                },
+                orderBy: { createdAt: "asc" },
+                select: {
+                  id: true,
+                  title: true,
+                  status: true,
+                  author: { select: { id: true, username: true, displayName: true } },
+                },
+              })
+            ).map((child) => ({
+              id: child.id,
+              title: child.title,
+              status: child.status,
+              author: {
+                userId: child.author.id,
+                username: child.author.username,
+                displayName: child.author.displayName ?? child.author.username,
+              },
+            }))
+          : [];
       return {
         type: "report" as const,
         report: {
@@ -355,6 +440,7 @@ export class RecordCatalog {
             displayName: report.author.displayName ?? report.author.username,
           },
           cycle: report.cycle,
+          children,
         },
       };
     }
@@ -376,7 +462,108 @@ export class RecordCatalog {
       };
     }
 
+    const note = await this.db.recordNote.findFirst({
+      where: { id: input.id, workspaceId: input.workspaceId },
+      include: {
+        author: { select: { id: true, username: true, displayName: true } },
+      },
+    });
+    if (note) {
+      if (note.authorId !== input.userId) throw new AppError("ACCESS_DENIED");
+      return {
+        type: "note" as const,
+        note: {
+          id: note.id,
+          title: note.title,
+          body: note.body,
+          updatedAt: note.updatedAt.toISOString(),
+          author: {
+            userId: note.author.id,
+            username: note.author.username,
+            displayName: note.author.displayName ?? note.author.username,
+          },
+        },
+      };
+    }
+
     throw new AppError("NOT_FOUND");
+  }
+
+  /** Create a personal workspace note (Markdown body). */
+  async createNote(input: { workspaceId: string; userId: string; title?: string }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const title = (input.title?.trim() || "Untitled").slice(0, 200);
+    const note = await this.db.recordNote.create({
+      data: {
+        workspaceId: input.workspaceId,
+        authorId: input.userId,
+        title,
+        body: "",
+      },
+      select: { id: true, title: true, updatedAt: true },
+    });
+    return {
+      id: note.id,
+      title: note.title,
+      updatedAt: note.updatedAt.toISOString(),
+      created: true as const,
+    };
+  }
+
+  async saveNote(input: {
+    workspaceId: string;
+    userId: string;
+    noteId: string;
+    title?: string;
+    body?: string;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const note = await this.db.recordNote.findFirst({
+      where: { id: input.noteId, workspaceId: input.workspaceId },
+      select: { id: true, authorId: true },
+    });
+    if (!note) throw new AppError("NOT_FOUND");
+    if (note.authorId !== input.userId) throw new AppError("ACCESS_DENIED");
+    const data: { title?: string; body?: string } = {};
+    if (input.title !== undefined) {
+      const title = input.title.trim();
+      if (!title) throw new AppError("INVALID_INPUT");
+      data.title = title.slice(0, 200);
+    }
+    if (input.body !== undefined) data.body = input.body;
+    if (!Object.keys(data).length) {
+      const current = await this.db.recordNote.findUniqueOrThrow({
+        where: { id: note.id },
+        select: { id: true, title: true, updatedAt: true },
+      });
+      return {
+        id: current.id,
+        title: current.title,
+        updatedAt: current.updatedAt.toISOString(),
+      };
+    }
+    const updated = await this.db.recordNote.update({
+      where: { id: note.id },
+      data,
+      select: { id: true, title: true, updatedAt: true },
+    });
+    return {
+      id: updated.id,
+      title: updated.title,
+      updatedAt: updated.updatedAt.toISOString(),
+    };
+  }
+
+  async deleteNote(input: { workspaceId: string; userId: string; noteId: string }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const note = await this.db.recordNote.findFirst({
+      where: { id: input.noteId, workspaceId: input.workspaceId },
+      select: { id: true, authorId: true },
+    });
+    if (!note) throw new AppError("NOT_FOUND");
+    if (note.authorId !== input.userId) throw new AppError("ACCESS_DENIED");
+    await this.db.recordNote.delete({ where: { id: note.id } });
+    return { ok: true as const };
   }
 
   async saveReportContent(input: {

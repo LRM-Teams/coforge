@@ -28,9 +28,12 @@ AI drafting/side-chat replies are deferred; storage must still allow a future
      template node (default title like `2026 W37 工作周报`). Titles may
      duplicate (Multica Notes-style); identity and navigation use the report
      UUID. Templates are **not** listed under “我的周报”.
-   - **Submissions**: after a template is sent to workgroup colleagues and they
-     submit, those member reports reference `sourceTemplateId` and appear as
-     **children** of that template node (status `submitted` | `shared`).
+   - **Submissions / child pages**: member reports with `sourceTemplateId`
+     appear as **children** of that template node (any status, including draft).
+     Creating via the row “+” after the actions menu adds a child under that
+     template (copies the template body, uses the template’s cycle). Opening a
+     template shows an overview table of children; the **name** column is bound
+     to each child’s author display name (other columns deferred).
    Body is `content` JSON `{ markdown: string }` — one TipTap Markdown document
    (Notes-style), not tabs/sections. Draft opening does not realign body
    structure from send templates. Legacy tab/section / outline JSON is
@@ -44,7 +47,10 @@ AI drafting/side-chat replies are deferred; storage must still allow a future
 5. **RecordComment** attaches to a subject (`report` | `highlight` | `cycle`) with
    `authorType` `user` | `system` | `assistant` and optional `payload` JSON for
    future assistant cards. MVP only writes `user` comments from the browser.
-6. Notes tab remains a thin **RecordNote** table for later; empty in MVP UI.
+6. **RecordNote** is a personal Markdown note in the Records Notes tab. Body is
+   plain Markdown text (same TipTap editor as weekly reports). MVP supports
+   create / rename / edit / delete for the author's own notes; no tree, share,
+   trash, or AI features yet.
 7. Statistics are derived from cycles + report `status` (`draft` | `submitted` |
    `shared`), not a separate ledger.
 

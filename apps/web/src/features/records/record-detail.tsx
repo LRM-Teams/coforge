@@ -4,11 +4,10 @@ import { useServerFn } from "@tanstack/react-start";
 import { DotsHorizontal, MessageChatCircle as Message, Trash01 as Trash } from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { Avatar } from "@/components/base/avatar/avatar";
+import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { TextArea } from "@/components/base/textarea/textarea";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { m } from "@/paraglide/messages";
 import { ReportSectionEditor } from "./report-editor/report-section-editor";
 import type { UploadResult } from "./report-editor/types";
@@ -18,7 +17,12 @@ import {
   waitForReportSave,
   writeReportDraft,
 } from "./report-draft-cache";
-import { saveWeeklyHighlightContent, saveWeeklyReportContent } from "./records.functions";
+import {
+  deleteRecordNote,
+  saveRecordNote,
+  saveWeeklyHighlightContent,
+  saveWeeklyReportContent,
+} from "./records.functions";
 import {
   clearReportContent,
   normalizeReportContent,
@@ -27,6 +31,7 @@ import {
 } from "./records-content";
 import { BackToRecords } from "./records-layout";
 import { RecordSidePanel } from "./record-side-panel";
+import { TemplateChildrenTable, type TemplateChild } from "./template-children-table";
 
 type ReportSubject = {
   type: "report";
@@ -38,6 +43,7 @@ type ReportSubject = {
     content: ReportContent;
     author: { userId: string; username: string; displayName: string };
     cycle: { id: string; year: number; week: number; title: string };
+    children?: TemplateChild[];
   };
 };
 
@@ -52,9 +58,27 @@ type HighlightSubject = {
   };
 };
 
-export function RecordDetail({ subject }: { subject: ReportSubject | HighlightSubject }) {
+type NoteSubject = {
+  type: "note";
+  note: {
+    id: string;
+    title: string;
+    body: string;
+    updatedAt: string;
+    author: { userId: string; username: string; displayName: string };
+  };
+};
+
+export function RecordDetail({
+  subject,
+}: {
+  subject: ReportSubject | HighlightSubject | NoteSubject;
+}) {
   if (subject.type === "highlight") {
     return <HighlightDetail key={subject.highlight.id} highlight={subject.highlight} />;
+  }
+  if (subject.type === "note") {
+    return <NoteDetail key={subject.note.id} note={subject.note} />;
   }
   return <ReportDetail key={subject.report.id} report={subject.report} />;
 }
@@ -168,19 +192,6 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
         <PageHeader
           heading={report.title}
           leading={<BackToRecords />}
-          meta={
-            <div className="flex min-w-0 items-center gap-2 text-sm text-tertiary">
-              <Avatar
-                size="sm"
-                initials={avatarInitial(report.author.displayName)}
-                contentClassName={avatarToneClassName(report.author.displayName)}
-              />
-              <span className="truncate">{report.author.displayName}</span>
-              {saving ? (
-                <span className="shrink-0 text-xs">{m.records_report_saving()}</span>
-              ) : null}
-            </div>
-          }
           actions={
             <div className="flex items-center gap-1">
               <ButtonUtility
@@ -210,6 +221,11 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
         />
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
+          {report.kind === "template" ? (
+            <div className="mb-8">
+              <TemplateChildrenTable children={report.children ?? []} />
+            </div>
+          ) : null}
           <ReportSectionEditor
             key={report.id}
             defaultValue={content.markdown}
@@ -307,6 +323,188 @@ function HighlightDetail({ highlight }: { highlight: HighlightSubject["highlight
           onClose={() => setSideOpen(false)}
         />
       ) : null}
+    </div>
+  );
+}
+
+function NoteDetail({ note }: { note: NoteSubject["note"] }) {
+  const router = useRouter();
+  const save = useServerFn(saveRecordNote);
+  const remove = useServerFn(deleteRecordNote);
+  const [title, setTitle] = useState(note.title);
+  const [body, setBody] = useState(() => readReportDraft(note.id)?.markdown ?? note.body);
+  const titleRef = useRef(title);
+  const bodyRef = useRef(body);
+  titleRef.current = title;
+  bodyRef.current = body;
+  const noteIdRef = useRef(note.id);
+  noteIdRef.current = note.id;
+  const [saving, setSaving] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  async function persist(next: { title?: string; body?: string }, noteId = noteIdRef.current) {
+    setSaving(true);
+    try {
+      writeReportDraft(noteId, { markdown: next.body ?? bodyRef.current });
+      await trackReportSave(
+        noteId,
+        save({
+          data: {
+            noteId,
+            title: next.title,
+            body: next.body,
+          },
+        }),
+      );
+      void router.invalidate();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function schedulePersist(nextBody: string) {
+    setBody(nextBody);
+    bodyRef.current = nextBody;
+    writeReportDraft(noteIdRef.current, { markdown: nextBody });
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = undefined;
+      void persist({ body: bodyRef.current });
+    }, 900);
+  }
+
+  async function commitTitle() {
+    const next = titleRef.current.trim();
+    setEditingTitle(false);
+    if (!next) {
+      setTitle(note.title);
+      titleRef.current = note.title;
+      return;
+    }
+    if (next === note.title) return;
+    setTitle(next);
+    await persist({ title: next });
+  }
+
+  async function clearBody() {
+    setBody("");
+    bodyRef.current = "";
+    writeReportDraft(noteIdRef.current, { markdown: "" });
+    await persist({ body: "" });
+  }
+
+  async function removeNote() {
+    setSaving(true);
+    try {
+      await remove({ data: { noteId: note.id } });
+      await router.invalidate({ sync: true });
+      void router.navigate({ to: "/records", search: { tab: "notes" } });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = undefined;
+      writeReportDraft(note.id, { markdown: bodyRef.current });
+      trackReportSave(
+        note.id,
+        save({
+          data: {
+            noteId: note.id,
+            title: titleRef.current.trim() || note.title,
+            body: bodyRef.current,
+          },
+        }),
+      );
+    };
+  }, [note.id, note.title, save]);
+
+  return (
+    <div className="flex min-h-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <PageHeader
+          heading={title}
+          leading={<BackToRecords />}
+          actions={
+            <Dropdown.Root>
+              <ButtonUtility
+                size="sm"
+                color="tertiary"
+                icon={DotsHorizontal}
+                aria-label={m.records_note_actions()}
+                isDisabled={saving}
+              />
+              <Dropdown.Popover placement="bottom end" className="w-44">
+                <Dropdown.Menu
+                  onAction={(key) => {
+                    if (key === "clear") void clearBody();
+                    if (key === "delete") void removeNote();
+                  }}
+                >
+                  <Dropdown.Item id="clear" icon={Trash} label={m.records_report_clear()} />
+                  <Dropdown.Item id="delete" icon={Trash} label={m.records_note_delete()} />
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown.Root>
+          }
+        />
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
+          {editingTitle ? (
+            <input
+              autoFocus
+              value={title}
+              aria-label={m.records_note_title()}
+              onChange={(event) => {
+                const next = event.target.value;
+                setTitle(next);
+                titleRef.current = next;
+              }}
+              onBlur={() => void commitTitle()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void commitTitle();
+                }
+                if (event.key === "Escape") {
+                  setTitle(note.title);
+                  titleRef.current = note.title;
+                  setEditingTitle(false);
+                }
+              }}
+              className="mb-6 w-full bg-transparent text-3xl font-semibold tracking-tight text-primary outline-none md:text-4xl"
+            />
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              color="tertiary"
+              onPress={() => setEditingTitle(true)}
+              className="mb-6 h-auto w-full justify-start px-0 py-0 text-left text-3xl font-semibold tracking-tight text-primary md:text-4xl"
+            >
+              {title}
+            </Button>
+          )}
+          <ReportSectionEditor
+            key={note.id}
+            defaultValue={body}
+            placeholder={m.records_note_body_placeholder()}
+            className="min-h-[55vh] pb-[30vh]"
+            onUploadFile={fileToDataUrlUpload}
+            onUpdate={(markdown) => {
+              schedulePersist(markdown);
+            }}
+            onBlur={() => {
+              if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+              void persist({ body: bodyRef.current });
+            }}
+          />
+        </div>
+      </div>
     </div>
   );
 }

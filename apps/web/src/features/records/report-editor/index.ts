@@ -4,6 +4,8 @@
  * Enabled features:
  * - Markdown persistence via @tiptap/markdown
  * - Headings (H1–H5), selection color / font size, lists, task lists, quotes, highlight, links
+ *
+ * Shared by weekly reports and personal Notes (`RecordNote.body` Markdown).
  * - Inline / block KaTeX formulas ($ / $$)
  * - Tables with column resize controls
  * - Images + file cards (paste/drop upload)

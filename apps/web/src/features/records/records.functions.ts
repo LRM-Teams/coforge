@@ -76,6 +76,18 @@ export const createTemplateWeeklyReport = createServerFn({ method: "POST" })
     });
   });
 
+export const createTemplateChildReport = createServerFn({ method: "POST" })
+  .validator(z.object({ templateId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    const workspaceId = await currentWorkspaceId(user.id);
+    return catalog().catalog.createSubmissionUnderTemplate({
+      workspaceId,
+      userId: user.id,
+      templateId: data.templateId,
+    });
+  });
+
 export const deleteTemplateWeeklyReport = createServerFn({ method: "POST" })
   .validator(z.object({ reportId: z.string().uuid() }))
   .handler(async ({ data }) => {
@@ -106,6 +118,50 @@ export const loadRecordSubject = createServerFn({ method: "GET" })
     const user = currentUser();
     const workspaceId = await currentWorkspaceId(user.id);
     return catalog().catalog.getSubject({ workspaceId, userId: user.id, id: data.id });
+  });
+
+export const createRecordNote = createServerFn({ method: "POST" })
+  .validator(z.object({ title: z.string().trim().max(200).optional() }))
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    const workspaceId = await currentWorkspaceId(user.id);
+    return catalog().catalog.createNote({
+      workspaceId,
+      userId: user.id,
+      title: data.title,
+    });
+  });
+
+export const saveRecordNote = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      noteId: z.string().uuid(),
+      title: z.string().trim().min(1).max(200).optional(),
+      body: z.string().optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    const workspaceId = await currentWorkspaceId(user.id);
+    return catalog().catalog.saveNote({
+      workspaceId,
+      userId: user.id,
+      noteId: data.noteId,
+      title: data.title,
+      body: data.body,
+    });
+  });
+
+export const deleteRecordNote = createServerFn({ method: "POST" })
+  .validator(z.object({ noteId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    const workspaceId = await currentWorkspaceId(user.id);
+    return catalog().catalog.deleteNote({
+      workspaceId,
+      userId: user.id,
+      noteId: data.noteId,
+    });
   });
 
 export const saveWeeklyReportContent = createServerFn({ method: "POST" })
