@@ -39,6 +39,22 @@ async function latestTemplatePages(db: Db, workspaceId: string): Promise<string[
   return asStringArray(template?.dimensions);
 }
 
+async function latestTemplateContent(db: Db, workspaceId: string): Promise<ReportContent | null> {
+  const template = await db.weeklyReport.findFirst({
+    where: { workspaceId, kind: "template" },
+    orderBy: { createdAt: "desc" },
+    select: { content: true },
+  });
+  return template ? asReportContent(template.content) : null;
+}
+
+async function newReportContent(db: Db, workspaceId: string): Promise<ReportContent> {
+  return (
+    (await latestTemplateContent(db, workspaceId)) ??
+    emptyReportContent(await latestTemplatePages(db, workspaceId))
+  );
+}
+
 async function requireMembership(db: Db, workspaceId: string, userId: string) {
   const row = await db.workspaceMembership.findUnique({
     where: { workspaceId_userId: { workspaceId, userId } },
@@ -266,9 +282,10 @@ export class RecordCatalog {
         kind: "member",
         title,
         status: "draft",
-        content: emptyReportContent(
-          await latestTemplatePages(this.db, input.workspaceId),
-        ) as unknown as Prisma.InputJsonValue,
+        content: (await newReportContent(
+          this.db,
+          input.workspaceId,
+        )) as unknown as Prisma.InputJsonValue,
       },
       select: { id: true, title: true },
     });
