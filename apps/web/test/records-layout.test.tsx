@@ -124,7 +124,7 @@ test("renders empty weekly sections without hardcoded demo people", () => {
   expect(page().getByText("我的周报")).toBeTruthy();
   expect(page().getByText("成员周报")).toBeTruthy();
   expect(page().queryByText("张亚红 2026 W36 工作周报")).toBeNull();
-  expect(page().getAllByText("暂无内容，可通过上方操作添加。").length).toBeGreaterThan(0);
+  expect(page().queryByText("暂无内容，可通过上方操作添加。")).toBeNull();
 });
 
 test("renders template nodes as editable leaves with submissions as children", () => {
