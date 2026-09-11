@@ -235,9 +235,7 @@ export function RecordsLayout({
                   open={favoritesOpen}
                   onOpenChange={setFavoritesOpen}
                 >
-                  {filteredFavorites.length === 0 ? (
-                    <EmptyHint />
-                  ) : (
+                  {filteredFavorites.length === 0 ? null : (
                     <ul className="space-y-0.5">
                       {filteredFavorites.map((item) => (
                         <li key={item.id}>
@@ -276,9 +274,7 @@ export function RecordsLayout({
                     </Button>
                   }
                 >
-                  {filteredHighlights.length === 0 ? (
-                    <EmptyHint />
-                  ) : (
+                  {filteredHighlights.length === 0 ? null : (
                     <ul className="space-y-0.5">
                       {filteredHighlights.map((item) => (
                         <li key={item.id}>
@@ -312,9 +308,7 @@ export function RecordsLayout({
                     </Button>
                   }
                 >
-                  {filteredMyReports.length === 0 ? (
-                    <EmptyHint />
-                  ) : (
+                  {filteredMyReports.length === 0 ? null : (
                     <ul className="space-y-0.5">
                       {filteredMyReports.map((item) => (
                         <li key={item.id}>
@@ -348,9 +342,7 @@ export function RecordsLayout({
                     </Button>
                   }
                 >
-                  {filteredMemberTemplates.length === 0 ? (
-                    <EmptyHint />
-                  ) : (
+                  {filteredMemberTemplates.length === 0 ? null : (
                     <ul className="space-y-1">
                       {filteredMemberTemplates.map((template) => {
                         const hasSubmissions = template.submissions.length > 0;
@@ -530,10 +522,6 @@ export function RecordsLayout({
       />
     </main>
   );
-}
-
-function EmptyHint() {
-  return <p className="px-1 py-2 text-xs text-muted-foreground">{m.records_section_empty()}</p>;
 }
 
 function TabButton({
