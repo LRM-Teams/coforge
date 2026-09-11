@@ -30,9 +30,9 @@ test("validates template name budget", () => {
   expect(isValidTemplateName("")).toBe(false);
 });
 
-test("report body is a single markdown document independent of template settings", () => {
-  expect(emptyReportContent()).toEqual({ markdown: "" });
+test("report body is split into named display pages", () => {
+  expect(emptyReportContent()).toEqual({ tabs: { Summary: { markdown: "" } } });
   const content = normalizeReportContent({ markdown: "done item" });
-  expect(content.markdown).toBe("done item");
-  expect(clearReportContent(content)).toEqual({ markdown: "" });
+  expect(content.tabs?.Summary?.markdown).toBe("done item");
+  expect(clearReportContent(content)).toEqual({ tabs: { Summary: { markdown: "" } } });
 });
