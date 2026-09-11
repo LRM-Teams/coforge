@@ -27,6 +27,8 @@
   "records_template_col_submitted": "Submitted",
   "records_template_col_submit_time": "submit time",
   "records_template_col_key_points": "Key Points",
+  "records_parent_tab_overview": "Overview",
+  "records_parent_tab_template": "Weekly template",
   "records_empty_title": "Select a record",
   "records_empty_description": "Choose a weekly report or note from the list to open it here.",
   "records_notes_empty": "No notes yet.",

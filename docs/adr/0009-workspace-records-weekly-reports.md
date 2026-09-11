@@ -31,9 +31,9 @@ AI drafting/side-chat replies are deferred; storage must still allow a future
    - **Submissions / child pages**: member reports with `sourceTemplateId`
      appear as **children** of that template node (any status, including draft).
      Creating via the row “+” after the actions menu adds a child under that
-     template (copies the template body, uses the template’s cycle). Opening a
-     template shows an overview table of children; the **name** column is bound
-     to each child’s author display name (other columns deferred).
+     template (copies the template body, uses the template’s cycle).      Opening a template shows tabs: an overview table of children (name column
+     bound to each child’s author display name; other columns deferred) and a
+     template editor. Creating a child copies the latest saved template body.
    Body is `content` JSON `{ markdown: string }` — one TipTap Markdown document
    (Notes-style), not tabs/sections. Draft opening does not realign body
    structure from send templates. Legacy tab/section / outline JSON is

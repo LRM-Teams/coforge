@@ -27,6 +27,8 @@
   "records_template_col_submitted": "Submitted",
   "records_template_col_submit_time": "submit time",
   "records_template_col_key_points": "Key Points",
+  "records_parent_tab_overview": "概览",
+  "records_parent_tab_template": "周报模板",
   "records_empty_title": "选择一条记录",
   "records_empty_description": "从左侧列表选择周报或笔记，内容会显示在这里。",
   "records_notes_empty": "还没有笔记。",
