@@ -112,8 +112,7 @@ export class RecordCatalog {
       latestTemplate: report.id === latestTemplateId,
       submissions: cycle.reports
         .filter(
-          (candidate) =>
-            candidate.kind === "member" && candidate.sourceTemplateId === report.id,
+          (candidate) => candidate.kind === "member" && candidate.sourceTemplateId === report.id,
         )
         .map((submission) => ({
           id: submission.id,
