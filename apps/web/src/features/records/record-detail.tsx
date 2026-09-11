@@ -385,19 +385,21 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
               { id: "template", label: m.records_parent_tab_template() },
             ] as const
           ).map((item) => (
-            <button
+            <Button
               key={item.id}
               type="button"
+              size="sm"
+              color="link-gray"
               aria-current={parentTab === item.id ? "page" : undefined}
               onClick={() => setParentTab(item.id)}
-              className={`inline-flex shrink-0 items-center border-b-2 px-0.5 pt-1 pb-3.5 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset ${
+              className={`rounded-none border-b-2 px-0.5 pt-1 pb-3.5 ${
                 parentTab === item.id
-                  ? "border-brand text-brand-secondary"
+                  ? "border-brand text-brand-secondary hover:text-brand-secondary"
                   : "border-transparent text-tertiary hover:border-brand hover:text-brand-secondary"
               }`}
             >
               {item.label}
-            </button>
+            </Button>
           ))}
         </nav>
 
