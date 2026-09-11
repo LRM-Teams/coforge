@@ -60,9 +60,31 @@ test("template parent detail exposes overview and template editor tabs", async (
   );
   expect(page().queryByRole("link", { name: "Alice" })).toBeNull();
   expect(page().getByRole("button", { name: "Summary" })).toBeTruthy();
+  expect(page().getByRole("button", { name: "添加标题" })).toBeTruthy();
+  expect(page().getByRole("button", { name: "+ 正文" })).toBeTruthy();
+
+  await user.click(page().getByRole("button", { name: "添加标题" }));
+  await user.click(page().getByRole("menuitem", { name: "+ 二级标题" }));
+  const secondLevel = page().getByDisplayValue("二级标题");
+  expect(secondLevel.className).toContain("text-xl");
+  expect(secondLevel.parentElement?.style.paddingLeft).toBe("2.25rem");
+  expect(page().getByRole("button", { name: "+ 三级标题" })).toBeTruthy();
+
+  await user.click(page().getByRole("button", { name: "+ 三级标题" }));
+  const thirdLevel = page().getByDisplayValue("三级标题");
+  expect(thirdLevel.className).toContain("text-lg");
+  expect(thirdLevel.parentElement?.style.paddingLeft).toBe("4rem");
+  await user.click(page().getByRole("button", { name: "+ 正文" }));
+  expect(page().getByPlaceholderText("正文内容")).toBeTruthy();
 
   await user.click(page().getByRole("button", { name: "添加显示页" }));
   expect(page().getByRole("button", { name: "新页面" })).toBeTruthy();
+
+  await user.click(page().getByRole("button", { name: "添加标题" }));
+  await user.click(page().getByRole("menuitem", { name: "+ 五级标题" }));
+  const fifthLevel = page().getByDisplayValue("五级标题");
+  expect(fifthLevel.className).toContain("text-sm");
+  expect(fifthLevel.parentElement?.style.paddingLeft).toBe("0.5rem");
 
   await user.dblClick(page().getByRole("button", { name: "新页面" }));
   const pageNameInput = page().getByRole("textbox", { name: "显示页: 新页面" });

@@ -5,6 +5,7 @@ import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { m } from "@/paraglide/messages";
 import { ReportSectionEditor } from "./report-editor/report-section-editor";
+import { ReportTemplateOutlineEditor } from "./report-template-outline-editor";
 import type { ReportContent } from "./records-content";
 import { cn } from "@/lib/utils";
 import type { UploadResult } from "./report-editor/types";
@@ -210,17 +211,26 @@ export function ReportTabsEditor({
         ) : null}
       </nav>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
-        <ReportSectionEditor
+      {editableTabs ? (
+        <ReportTemplateOutlineEditor
           key={activeTab}
           defaultValue={activeContent}
-          placeholder={placeholder}
-          className="min-h-[55vh] pb-[30vh]"
-          onUploadFile={onUploadFile}
           onUpdate={updateMarkdown}
           onBlur={onBlur}
         />
-      </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
+          <ReportSectionEditor
+            key={activeTab}
+            defaultValue={activeContent}
+            placeholder={placeholder}
+            className="min-h-[55vh] pb-[30vh]"
+            onUploadFile={onUploadFile}
+            onUpdate={updateMarkdown}
+            onBlur={onBlur}
+          />
+        </div>
+      )}
     </div>
   );
 }
