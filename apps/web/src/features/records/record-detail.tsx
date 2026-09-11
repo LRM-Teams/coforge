@@ -80,6 +80,9 @@ export function RecordDetail({
   if (subject.type === "note") {
     return <NoteDetail key={subject.note.id} note={subject.note} />;
   }
+  if (subject.report.kind === "template") {
+    return <TemplateReportDetail key={subject.report.id} report={subject.report} />;
+  }
   return <ReportDetail key={subject.report.id} report={subject.report} />;
 }
 
@@ -221,11 +224,6 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
         />
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
-          {report.kind === "template" ? (
-            <div className="mb-8">
-              <TemplateChildrenTable children={report.children ?? []} />
-            </div>
-          ) : null}
           <ReportSectionEditor
             key={report.id}
             defaultValue={content.markdown}
@@ -240,6 +238,188 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
               void persist(contentRef.current);
             }}
           />
+        </div>
+      </div>
+
+      {sideOpen ? (
+        <RecordSidePanel
+          key={report.id}
+          subjectType="report"
+          subjectId={report.id}
+          onClose={() => setSideOpen(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+type TemplateParentTab = "overview" | "template";
+
+function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
+  const router = useRouter();
+  const save = useServerFn(saveWeeklyReportContent);
+  const [content, setContent] = useState(
+    () => readReportDraft(report.id) ?? normalizeReportContent(report.content),
+  );
+  const contentRef = useRef(content);
+  contentRef.current = content;
+  const reportIdRef = useRef(report.id);
+  reportIdRef.current = report.id;
+  const [sideOpen, setSideOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [parentTab, setParentTab] = useState<TemplateParentTab>("overview");
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  async function persist(
+    next: ReportContent,
+    status?: "draft" | "submitted" | "shared",
+    reportId = reportIdRef.current,
+  ) {
+    setSaving(true);
+    const normalized = normalizeReportContent(next);
+    writeReportDraft(reportId, normalized);
+    const savePromise = save({
+      data: { reportId, content: normalized, status },
+    });
+    trackReportSave(reportId, savePromise);
+    try {
+      await savePromise;
+      if (reportId === reportIdRef.current) {
+        setContent(normalized);
+        contentRef.current = normalized;
+      }
+    } finally {
+      if (reportId === reportIdRef.current) setSaving(false);
+    }
+  }
+
+  function schedulePersist(next: ReportContent) {
+    setContent(next);
+    contentRef.current = next;
+    writeReportDraft(reportIdRef.current, next);
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    const reportId = reportIdRef.current;
+    saveTimerRef.current = setTimeout(() => {
+      void persist(contentRef.current, undefined, reportId);
+    }, 900);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    void waitForReportSave(report.id)?.then(() => {
+      if (cancelled) return;
+      const draft = readReportDraft(report.id);
+      if (draft) {
+        setContent(draft);
+        contentRef.current = draft;
+      }
+      void router.invalidate();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [report.id, router]);
+
+  useEffect(() => {
+    return () => {
+      if (!saveTimerRef.current) return;
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = undefined;
+      const normalized = normalizeReportContent(contentRef.current);
+      writeReportDraft(report.id, normalized);
+      trackReportSave(
+        report.id,
+        save({
+          data: {
+            reportId: report.id,
+            content: normalized,
+          },
+        }),
+      );
+    };
+  }, [report.id, save]);
+
+  return (
+    <div className="flex min-h-0 flex-1">
+      <div
+        className={`${sideOpen ? "hidden md:flex" : "flex"} min-w-0 flex-1 flex-col overflow-hidden`}
+      >
+        <PageHeader
+          heading={report.title}
+          leading={<BackToRecords />}
+          actions={
+            <div className="flex items-center gap-1">
+              <ButtonUtility
+                size="sm"
+                color="tertiary"
+                icon={Message}
+                aria-label={m.records_side_chat()}
+                aria-pressed={sideOpen}
+                onClick={() => setSideOpen((open) => !open)}
+              />
+              <Dropdown.Root>
+                <ButtonUtility
+                  size="sm"
+                  color="tertiary"
+                  icon={DotsHorizontal}
+                  aria-label={m.records_report_actions()}
+                  isDisabled={saving}
+                />
+                <Dropdown.Popover placement="bottom end" className="w-44">
+                  <Dropdown.Menu onAction={() => void persist(clearReportContent(), "draft")}>
+                    <Dropdown.Item id="clear" icon={Trash} label={m.records_report_clear()} />
+                  </Dropdown.Menu>
+                </Dropdown.Popover>
+              </Dropdown.Root>
+            </div>
+          }
+        />
+
+        <nav
+          aria-label={report.title}
+          className="flex shrink-0 gap-5 border-b border-secondary px-4 pt-4 sm:gap-6 sm:px-8 sm:pt-5"
+        >
+          {(
+            [
+              { id: "overview", label: m.records_parent_tab_overview() },
+              { id: "template", label: m.records_parent_tab_template() },
+            ] as const
+          ).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              aria-current={parentTab === item.id ? "page" : undefined}
+              onClick={() => setParentTab(item.id)}
+              className={`inline-flex shrink-0 items-center border-b-2 px-0.5 pt-1 pb-3.5 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset ${
+                parentTab === item.id
+                  ? "border-brand text-brand-secondary"
+                  : "border-transparent text-tertiary hover:border-brand hover:text-brand-secondary"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
+          {parentTab === "overview" ? (
+            <TemplateChildrenTable children={report.children ?? []} />
+          ) : (
+            <ReportSectionEditor
+              key={`${report.id}-template`}
+              defaultValue={content.markdown}
+              placeholder={m.records_report_body_placeholder()}
+              className="min-h-[55vh] pb-[30vh]"
+              onUploadFile={fileToDataUrlUpload}
+              onUpdate={(markdown) => {
+                schedulePersist({ markdown });
+              }}
+              onBlur={() => {
+                if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+                void persist(contentRef.current);
+              }}
+            />
+          )}
         </div>
       </div>
 

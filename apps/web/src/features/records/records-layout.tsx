@@ -24,12 +24,14 @@ import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { CreateMemberReportDialog } from "./create-member-report-dialog";
 import { currentIsoWeek, memberReportTitle, memberWeekTitle } from "./records-content";
+import { readReportDraft, waitForReportSave } from "./report-draft-cache";
 import {
   createMemberWeeklyReport,
   createRecordNote,
   createTemplateChildReport,
   createTemplateWeeklyReport,
   deleteTemplateWeeklyReport,
+  saveWeeklyReportContent,
   type loadRecordsCatalog,
 } from "./records.functions";
 export type RecordsTab = "weekly" | "notes";
@@ -78,6 +80,7 @@ export function RecordsLayout({
   const createTemplateReport = useServerFn(createTemplateWeeklyReport);
   const createTemplateChild = useServerFn(createTemplateChildReport);
   const createNote = useServerFn(createRecordNote);
+  const saveTemplateContent = useServerFn(saveWeeklyReportContent);
   const removeTemplate = useServerFn(deleteTemplateWeeklyReport);
   const [showMobileList, setShowMobileList] = useState(!selectedRecordId && !selectedPanel);
   const [query, setQuery] = useState("");
@@ -184,6 +187,11 @@ export function RecordsLayout({
     if (busy) return;
     setBusy(true);
     try {
+      await waitForReportSave(templateId);
+      const draft = readReportDraft(templateId);
+      if (draft) {
+        await saveTemplateContent({ data: { reportId: templateId, content: draft } });
+      }
       const result = await createTemplateChild({ data: { templateId } });
       setMembersOpen(true);
       setExpandedTemplates((current) => ({ ...current, [templateId]: true }));
