@@ -5,6 +5,27 @@
  * and editor-only floating controls. Rich prose typography lives in prose.css.
  */
 
+/*
+ * Bridge Multica/shadcn CSS variables onto Untitled UI semantic tokens.
+ * Without this, `var(--border)` / `var(--foreground)` etc. are undefined and
+ * declarations like `border: 1px solid var(--border)` become invalid — table
+ * grids and other chrome borders disappear.
+ */
+.rich-text-editor,
+.bubble-menu,
+.bubble-menu-link-edit,
+.link-hover-card {
+  --foreground: var(--color-text-primary);
+  --muted-foreground: var(--color-text-tertiary);
+  --muted: var(--color-bg-secondary);
+  --border: var(--color-border-secondary);
+  --ring: var(--color-focus-ring);
+  --brand: var(--color-brand-600);
+  --popover: var(--color-bg-primary);
+  --background: var(--color-bg-primary);
+  --radius: var(--radius-md);
+}
+
 .rich-text-editor.ProseMirror {
   color: var(--color-text-primary);
   caret-color: var(--color-text-primary);

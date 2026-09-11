@@ -26,8 +26,9 @@ import { CreateMemberReportDialog } from "./create-member-report-dialog";
 import { currentIsoWeek, memberReportTitle, memberWeekTitle } from "./records-content";
 import {
   createMemberWeeklyReport,
+  createRecordNote,
+  createTemplateChildReport,
   createTemplateWeeklyReport,
-  createWeeklyHighlight,
   deleteTemplateWeeklyReport,
   type loadRecordsCatalog,
 } from "./records.functions";
@@ -73,16 +74,17 @@ export function RecordsLayout({
 }) {
   const navigate = useNavigate();
   const router = useRouter();
-  const createHighlight = useServerFn(createWeeklyHighlight);
   const createMemberReport = useServerFn(createMemberWeeklyReport);
   const createTemplateReport = useServerFn(createTemplateWeeklyReport);
+  const createTemplateChild = useServerFn(createTemplateChildReport);
+  const createNote = useServerFn(createRecordNote);
   const removeTemplate = useServerFn(deleteTemplateWeeklyReport);
   const [showMobileList, setShowMobileList] = useState(!selectedRecordId && !selectedPanel);
   const [query, setQuery] = useState("");
   const [favoritesOpen, setFavoritesOpen] = useState(true);
-  const [highlightsOpen, setHighlightsOpen] = useState(true);
   const [myReportsOpen, setMyReportsOpen] = useState(true);
   const [membersOpen, setMembersOpen] = useState(true);
+  const [notesOpen, setNotesOpen] = useState(true);
   const [expandedTemplates, setExpandedTemplates] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
   const [createReportKind, setCreateReportKind] = useState<"member" | "template" | null>(null);
@@ -96,10 +98,6 @@ export function RecordsLayout({
   const filteredFavorites = useMemo(
     () => catalog.favorites.filter((item) => matchesQuery(item.title, query)),
     [catalog.favorites, query],
-  );
-  const filteredHighlights = useMemo(
-    () => catalog.highlights.filter((item) => matchesQuery(item.title, query)),
-    [catalog.highlights, query],
   );
   const filteredMyReports = useMemo(
     () => catalog.myReports.filter((item) => matchesQuery(item.title, query)),
@@ -141,18 +139,6 @@ export function RecordsLayout({
     });
   }
 
-  async function onCreateHighlight() {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const result = await createHighlight();
-      setHighlightsOpen(true);
-      await openCreatedRecord(result.id);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function onCreateReport(title: string) {
     if (createReportKind === "template") {
       const result = await createTemplateReport({ data: { title } });
@@ -177,6 +163,31 @@ export function RecordsLayout({
           search: (previous) => ({ tab: recordsTabSearch(previous.tab) }),
         });
       }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onCreateNote() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await createNote({ data: { title: m.records_note_untitled() } });
+      setNotesOpen(true);
+      void openCreatedRecord(result.id);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onCreateTemplateChild(templateId: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await createTemplateChild({ data: { templateId } });
+      setMembersOpen(true);
+      setExpandedTemplates((current) => ({ ...current, [templateId]: true }));
+      void openCreatedRecord(result.id);
     } finally {
       setBusy(false);
     }
@@ -245,39 +256,6 @@ export function RecordsLayout({
                               initials={avatarInitial(item.author.displayName)}
                               contentClassName={avatarToneClassName(item.author.displayName)}
                             />
-                            <span className="truncate">{item.title}</span>
-                          </RecordLink>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </CollapsibleSection>
-
-                <CollapsibleSection
-                  title={m.records_section_highlights()}
-                  open={highlightsOpen}
-                  onOpenChange={setHighlightsOpen}
-                  actions={
-                    <ButtonUtility
-                      size="sm"
-                      color="tertiary"
-                      icon={Plus}
-                      aria-label={m.records_add_highlight()}
-                      isDisabled={busy}
-                      onClick={() => void onCreateHighlight()}
-                    />
-                  }
-                >
-                  {filteredHighlights.length === 0 ? null : (
-                    <ul className="space-y-0.5">
-                      {filteredHighlights.map((item) => (
-                        <li key={item.id}>
-                          <RecordLink
-                            recordId={item.id}
-                            selected={item.id === selectedRecordId}
-                            onSelect={() => setShowMobileList(false)}
-                          >
-                            <WeekBadge week={item.week} />
                             <span className="truncate">{item.title}</span>
                           </RecordLink>
                         </li>
@@ -381,6 +359,7 @@ export function RecordsLayout({
                                 onSelect={() => setShowMobileList(false)}
                                 className="min-w-0 flex-1"
                               >
+                                <WeekBadge week={template.week} />
                                 <span className="truncate font-medium">{template.title}</span>
                                 {template.latestTemplate && (
                                   <span className="ml-auto shrink-0 rounded-full bg-brand-primary px-2 py-0.5 text-xs font-medium text-brand-secondary">
@@ -391,6 +370,15 @@ export function RecordsLayout({
                               <TemplateActionsMenu
                                 title={template.title}
                                 onDelete={() => void onDeleteTemplate(template.id)}
+                              />
+                              <ButtonUtility
+                                size="xs"
+                                color="tertiary"
+                                icon={Plus}
+                                className="size-7 shrink-0"
+                                aria-label={m.records_add_template_child()}
+                                isDisabled={busy}
+                                onClick={() => void onCreateTemplateChild(template.id)}
                               />
                             </div>
                             {hasSubmissions && expanded && (
@@ -422,19 +410,45 @@ export function RecordsLayout({
                   )}
                 </CollapsibleSection>
               </div>
-            ) : filteredNotes.length === 0 ? (
-              <p className="px-1 py-6 text-sm text-tertiary">{m.records_notes_empty()}</p>
             ) : (
-              <ul className="space-y-0.5">
-                {filteredNotes.map((note) => (
-                  <li key={note.id}>
-                    <div className="rounded-lg px-2.5 py-2 text-sm">
-                      <div className="font-medium">{note.title}</div>
-                      <div className="text-xs text-tertiary">{note.preview}</div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <CollapsibleSection
+                title={m.records_notes_mine()}
+                open={notesOpen}
+                onOpenChange={setNotesOpen}
+                actions={
+                  <ButtonUtility
+                    size="sm"
+                    color="tertiary"
+                    icon={Plus}
+                    aria-label={m.records_add_note()}
+                    isDisabled={busy}
+                    onClick={() => void onCreateNote()}
+                  />
+                }
+              >
+                {filteredNotes.length === 0 ? (
+                  <p className="px-1 py-4 text-sm text-tertiary">{m.records_notes_empty()}</p>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {filteredNotes.map((note) => (
+                      <li key={note.id}>
+                        <RecordLink
+                          recordId={note.id}
+                          selected={note.id === selectedRecordId}
+                          onSelect={() => setShowMobileList(false)}
+                        >
+                          <Avatar
+                            size="sm"
+                            initials={avatarInitial(catalog.actorDisplayName)}
+                            contentClassName={avatarToneClassName(catalog.actorDisplayName)}
+                          />
+                          <span className="truncate">{note.title}</span>
+                        </RecordLink>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CollapsibleSection>
             )}
           </div>
 
