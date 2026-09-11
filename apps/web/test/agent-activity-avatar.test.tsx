@@ -48,7 +48,7 @@ test("changes current state only when a new cloud display revision is rendered",
   );
   let trigger = within(document.body).getByRole("button", { name: /Dax, Online/ });
   expect(trigger.getAttribute("data-working")).toBe("false");
-  expect(trigger.querySelector(".bg-success")).not.toBeNull();
+  expect(trigger.querySelector(".bg-success-solid")).not.toBeNull();
 
   view.rerender(
     <AgentActivityAvatar
@@ -115,7 +115,7 @@ test("error and loading history do not erase the cloud current state", async () 
     name: /Dax, Error: Provider failed/,
   });
   expect(trigger.getAttribute("data-working")).toBe("false");
-  expect(trigger.querySelector(".bg-destructive")).not.toBeNull();
+  expect(trigger.querySelector(".bg-error-solid")).not.toBeNull();
   fireEvent.click(trigger);
   const popup = await within(document.body).findByRole("dialog");
   expect(popup.textContent).toContain("Error: Provider failed");

@@ -18,24 +18,31 @@
 //   UI_SWEEP_OUT          output directory (default ./sweep next to this script's cwd)
 //   UI_SWEEP_CHROME_PATH  explicit path to a Chromium/Chrome binary
 //   UI_SWEEP_LOCALE       locale path prefix (default "en")
+//   UI_SWEEP_THEMES       comma-separated theme names (light,dark)
+//   UI_SWEEP_VIEWPORTS    comma-separated viewport names (1440,1024,390)
 
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, writeFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { filterSweepOptions, isInsideViewportScroller } from "./ui-sweep-helpers.mjs";
 
 const BASE_URL = (process.env.UI_SWEEP_BASE ?? "http://127.0.0.1:8795").replace(/\/$/, "");
 const LOCALE = process.env.UI_SWEEP_LOCALE ?? "en";
 const OUT_DIR = process.env.UI_SWEEP_OUT ?? path.join(process.cwd(), "sweep");
 const START = Date.now();
 
-const THEMES = ["light", "dark"];
-const VIEWPORTS = [
-  { name: "1440", width: 1440, height: 900 },
-  { name: "1024", width: 1024, height: 768 },
-  { name: "390", width: 390, height: 844 },
-];
+const THEMES = filterSweepOptions(["light", "dark"], process.env.UI_SWEEP_THEMES, "theme");
+const VIEWPORTS = filterSweepOptions(
+  [
+    { name: "1440", width: 1440, height: 900 },
+    { name: "1024", width: 1024, height: 768 },
+    { name: "390", width: 390, height: 844 },
+  ],
+  process.env.UI_SWEEP_VIEWPORTS,
+  "viewport",
+);
 
 const FORBIDDEN_CLASS_PATTERNS = [
   {
@@ -418,6 +425,7 @@ const CHECKS_EXPR = `
   const findings = [];
   const vw = window.innerWidth;
   const vh = window.innerHeight;
+  const isInsideViewportScroller = ${isInsideViewportScroller.toString()};
 
   function locator(el) {
     if (!el) return null;
@@ -444,7 +452,12 @@ const CHECKS_EXPR = `
     const style = getComputedStyle(el);
     if (style.display === "none" || style.visibility === "hidden") continue;
     const rect = el.getBoundingClientRect();
-    if (rect.width > 0 && rect.right > vw + 2 && oversizedCount < 8) {
+    if (
+      rect.width > 0 &&
+      rect.right > vw + 2 &&
+      !isInsideViewportScroller(el, vw) &&
+      oversizedCount < 8
+    ) {
       findings.push({ check: "element-exceeds-viewport", detail: \`right=\${Math.round(rect.right)} viewport=\${vw}\`, locator: locator(el) });
       oversizedCount++;
     }
@@ -1150,4 +1163,4 @@ function printSummary(results) {
   console.log(`  - ${path.join(OUT_DIR, "index.html")}`);
 }
 
-await main();
+if (import.meta.main) await main();

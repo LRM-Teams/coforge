@@ -11,7 +11,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { Columns03 as Columns3, DotsGrid as GripVertical, List } from "@untitledui/icons";
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
@@ -21,6 +21,19 @@ import { getTaskMoveCommand } from "./task-move";
 
 export type TaskLayout = "board" | "list";
 export type TaskMoveCommand = NonNullable<ReturnType<typeof getTaskMoveCommand>>;
+
+export function useTaskLayout(layout: TaskLayout | undefined): TaskLayout {
+  // Keep SSR and initial hydration identical; viewport defaults apply after mount.
+  const [defaultLayout, setDefaultLayout] = useState<TaskLayout>("board");
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 768px)");
+    const update = () => setDefaultLayout(desktop.matches ? "board" : "list");
+    update();
+    desktop.addEventListener("change", update);
+    return () => desktop.removeEventListener("change", update);
+  }, []);
+  return layout ?? defaultLayout;
+}
 
 export function TaskLayoutToggle({
   layout,
@@ -67,6 +80,7 @@ export function TaskWorkflow<T extends TaskView>({
   onMove: (task: T, command: TaskMoveCommand) => Promise<void>;
   renderTask: (task: T, controls: ReactNode) => ReactNode;
 }) {
+  const id = useId();
   const [active, setActive] = useState<T>();
   const [pending, setPending] = useState<{
     messageId: string;
@@ -120,6 +134,7 @@ export function TaskWorkflow<T extends TaskView>({
 
   return (
     <DndContext
+      id={id}
       sensors={sensors}
       onDragStart={({ active: item }) =>
         setActive(tasks.find((task) => task.messageId === item.id))

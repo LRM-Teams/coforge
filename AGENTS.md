@@ -135,6 +135,12 @@ These instructions apply to the entire repository.
 - For each broad or difficult-to-reverse technical proposal, cite its official sources and state the problem, candidates, maturity, license, runtime compatibility, operational cost, migration/rollback impact, recommendation, and unresolved risks. Mark experimental or undocumented behavior explicitly.
 - Do not add or change a repository license without Frank's explicit approval.
 - Establish formatting and lint checks before feature implementation, and make them required CR checks once adopted.
+- Do not add or broaden lint, formatting, type-check, or test exemptions without
+  the user's explicit prior approval, including exemptions for official upstream
+  components. This covers configuration overrides, ignore patterns, inline
+  disable comments, and skipped checks. Fix the underlying code instead; an
+  existing exemption is not permission to add another. When requesting approval,
+  name the exact files, rules, reason, and verification being bypassed.
 
 ## Collaboration and delivery
 

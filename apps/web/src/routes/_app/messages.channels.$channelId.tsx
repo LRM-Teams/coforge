@@ -14,6 +14,7 @@ import { createConversationReconciler } from "@/features/conversations/conversat
 import { useConversationRealtime } from "@/features/conversations/conversation-realtime-client";
 import { loadReminderNotices } from "@/features/conversations/reminder-notices.functions";
 import { TaskBoard } from "@/features/tasks/task-board";
+import { useTaskLayout } from "@/features/tasks/task-workflow";
 import { useConversationTasks } from "@/features/tasks/use-conversation-tasks";
 import {
   loadConversationAround,
@@ -50,6 +51,7 @@ function ChannelPage() {
   const [conversation, setConversation] = useState(latestConversation);
   const { channelId } = Route.useParams();
   const { view, layout } = Route.useSearch();
+  const taskLayout = useTaskLayout(layout);
   const router = useRouter();
   const send = useServerFn(sendPublicChannelMessage);
   const join = useServerFn(joinPublicChannel);
@@ -148,7 +150,7 @@ function ChannelPage() {
             onMutedChange={changeMuted}
           />
         }
-        layout={layout ?? "board"}
+        layout={taskLayout}
         onLayoutChange={(nextLayout) =>
           void router.navigate({
             from: Route.fullPath,

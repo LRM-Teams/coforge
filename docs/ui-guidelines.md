@@ -15,6 +15,10 @@
 ## 2. 组件：只用官方
 
 - 组件通过 `npx untitledui@latest add <name>` 安装到 `src/components/base/` 和 `src/components/application/`，**源码不改**。要改外观，在调用处传 `className`；要改行为，改调用方。
+- 用户明确要求移除历史 lint 豁免后，仅有两处限定修补：`base/badges/badges.tsx` 和
+  `application/app-navigation/base-components/nav-account-card.tsx` 的原生按钮替换为
+  React Aria Button，保留官方样式和公开接口；未使用的 `base/select/select-native.tsx` 已移除。
+  这不是任意修改官方源码的许可；升级时保留这两处限定修补并重新验证。
 - 例外：`application/app-navigation/sidebar-navigation/` 下的 `sidebar-simple.tsx`、`sidebar-slim.tsx`
   和 `base-components/mobile-header.tsx` 是官方的**演示模板**（写死 Untitled 自己的 logo、搜索框、假账号卡片、固定像素宽度），不是可参数化的
   组件。这两个文件允许复制到 `src/components/layout/sidebar/` 后按需修改；复制之后就是 CoForge 自己
@@ -25,11 +29,10 @@
 - 允许自写的只有官方没有对应物的原语，放在 `src/components/ui/`：Empty、Skeleton、Toast 包装、RelativeTime、InputOTP、HoverPopover。自写原语只能组合 React Aria 和官方组件，不能复制官方文件再改。
 - `src/components/ui/README.md` 维护"偏离官方组件清单"：每个自写文件一行，写明为什么官方没有。清单之外不允许出现非官方组件。
 - 图标只用 `@untitledui/icons`。厂商 logo（Claude Code、Codex 等）用 `@lobehub/icons-static-svg`。
-- `.oxlintrc.json` / `scripts/oxlint-plugin.js` 只允许一种改动：给 `src/components/base/**`、
-  `src/components/application/**` 下**未改动的官方文件**豁免 CoForge 自定义规则
-  （`coforge/no-native-button`、`coforge/no-native-select`、`coforge/no-native-title`），每条豁免
-  写明具体文件，理由写进提交信息。绝不豁免产品代码（`src/features/**`、`src/components/ui/**`、
-  `src/components/layout/**`、路由、测试）——命中规则就改代码，不要放宽规则；任何地方都不写
+- `.oxlintrc.json` / `scripts/oxlint-plugin.js` 不得新增或扩大豁免，除非事先获得用户明确同意，
+  官方组件也不例外。申请时写明具体文件、规则、原因和失去的检查；历史豁免不构成授权。
+  产品代码（`src/features/**`、`src/components/ui/**`、`src/components/layout/**`、路由、测试）
+  命中规则就改代码，不要放宽规则；任何地方都不写
   `oxlint-disable`、`@ts-ignore`、`@ts-expect-error` 注释。
 
 ## 3. 页面骨架：平铺，一条发丝线
@@ -77,6 +80,15 @@
 - 列表行高 40 到 48px，字段行高 44px，表格行高 44px。
 - section 之间 `border-secondary`，section 内边距 `py-6 px-8`。
 - 页面能一屏看完的，不要让它两屏。
+
+### 聊天消息流
+
+用户确认参考 Slack 消息流：采用保留头像的 [Clean 布局](https://slack.com/help/articles/213893898-Change-how-messages-are-displayed)，不是隐藏头像的 Compact 模式或左右气泡。
+消息、附件和任务引用沿正文列左对齐；同一发送者五分钟内的连续消息合组，跨日期不合组。
+短日期分隔与时分时间戳承担辅助信息，已有 thread 才在消息下显示回复摘要。
+[Slack thread 示例](https://slack.com/help/articles/115000769927-Use-threads-to-organize-discussions)是按需消息操作的参考；Web 的触摸适配保留无描边的消息菜单入口，不能只靠 hover。
+输入区与附件排版参考 [Untitled Messaging examples](https://www.untitledui.com/react/components/messaging)，继续组合已安装的官方基础组件，不复制受 PRO 授权限制的源码。
+“作为任务发送”放在输入区次级菜单，开启后显示可取消的模式标签，成功发送后恢复普通消息。
 
 ## 8. 颜色
 

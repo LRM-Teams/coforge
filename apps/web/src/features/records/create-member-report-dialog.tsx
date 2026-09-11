@@ -3,6 +3,8 @@ import { XClose as X } from "@untitledui/icons";
 import { Heading } from "react-aria-components";
 
 import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Input } from "@/components/base/input/input";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { m } from "@/paraglide/messages";
 
@@ -55,39 +57,33 @@ export function CreateMemberReportDialog({
         if (!busy.current) onOpenChange(value);
       }}
     >
-      <Modal className="w-[calc(100vw-2rem)] max-w-md rounded-xl border bg-card p-6 shadow-xl">
+      <Modal className="w-[calc(100vw-2rem)] max-w-md rounded-xl bg-primary p-6 shadow-xl ring-1 ring-secondary">
         <Dialog>
           {({ close }) => (
             <>
-              <button
-                type="button"
+              <ButtonUtility
+                size="sm"
+                color="tertiary"
+                icon={X}
                 aria-label={m.controls_close()}
-                className="absolute top-4 right-4 rounded-lg p-2 text-muted-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                className="absolute top-4 right-4"
                 onClick={close}
-              >
-                <X className="size-4" />
-              </button>
-              <Heading slot="title" className="pr-8 text-lg font-semibold">
+              />
+              <Heading slot="title" className="pr-8 text-lg font-semibold text-primary">
                 {m.records_create_report_title()}
               </Heading>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {m.records_create_report_description()}
-              </p>
               <form onSubmit={(event) => void submit(event)} className="mt-5 flex flex-col gap-2">
-                <label htmlFor={id} className="text-sm font-medium">
-                  {m.records_create_report_name()}
-                </label>
-                <input
+                <Input
                   id={id}
+                  label={m.records_create_report_name()}
                   value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  required
+                  onChange={setTitle}
+                  isRequired
                   maxLength={120}
                   placeholder={m.records_create_report_name_placeholder()}
-                  className="h-10 rounded-lg border bg-background px-3 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
                   autoFocus
                 />
-                {error ? <p className="text-sm text-destructive">{error}</p> : null}
+                {error ? <p className="text-sm text-error-primary">{error}</p> : null}
                 <div className="mt-3 flex justify-end gap-2">
                   <Button
                     type="button"

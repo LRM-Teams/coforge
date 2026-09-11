@@ -47,9 +47,9 @@ export function CodeBlockIframe({
       // sandbox per the HTML spec (notes on the sandbox attribute).
       srcDoc={html}
       sandbox="allow-scripts"
-      title={title}
+      aria-label={title}
       className={cn(
-        "w-full rounded-md border border-border bg-background",
+        "w-full rounded-md border border-secondary bg-primary",
         heightClassName,
         className,
       )}

@@ -223,7 +223,7 @@ export function LandingPage({ installOrigin }: { installOrigin: string }) {
 // This walkthrough is a demonstration; actionable setup belongs in the Computer UI.
 function InstallTerminal({ installOrigin }: { installOrigin: string }) {
   return (
-    <Terminal className="min-h-88 max-h-none max-w-none border-white/10 bg-terminal/85 shadow-2xl shadow-black/40 backdrop-blur-md [&_code]:grid-cols-1 [&_code]:font-display-mono [&_code]:[overflow-wrap:anywhere] [&_pre]:text-[13px] [&_pre]:leading-6 [&_pre]:whitespace-pre-wrap">
+    <Terminal className="dark-mode min-h-88 max-h-none max-w-none border-secondary bg-terminal/85 shadow-2xl shadow-black/40 backdrop-blur-md [&>div:first-child]:border-secondary [&_code]:grid-cols-1 [&_code]:font-display-mono [&_code]:[overflow-wrap:anywhere] [&_pre]:text-[13px] [&_pre]:leading-6 [&_pre]:whitespace-pre-wrap">
       <TypingAnimation className="text-white/90" duration={28} delay={300}>
         {`$ ${installCommands(installOrigin).posix}`}
       </TypingAnimation>

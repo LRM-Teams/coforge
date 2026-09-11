@@ -6,8 +6,8 @@
  */
 
 .rich-text-editor.ProseMirror {
-  color: var(--foreground);
-  caret-color: var(--foreground);
+  color: var(--color-text-primary);
+  caret-color: var(--color-text-primary);
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -15,8 +15,8 @@
 /* Notes default typography — CSS variables come from the format store.
    Selection color/size still wins because those are inline span styles. */
 .rich-text-editor.note-format {
-  color: var(--note-default-color, var(--foreground));
-  caret-color: var(--note-default-color, var(--foreground));
+  color: var(--note-default-color, var(--color-text-primary));
+  caret-color: var(--note-default-color, var(--color-text-primary));
   font-family: var(--note-default-font-family, inherit);
   font-size: var(--note-default-font-size, 0.875rem);
 }
@@ -29,7 +29,7 @@
 .rich-text-editor .is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
-  color: var(--muted-foreground);
+  color: var(--color-text-tertiary);
   pointer-events: none;
   height: 0;
 }
@@ -37,7 +37,7 @@
 .rich-text-editor.show-empty-line-placeholder .is-empty::before {
   content: attr(data-placeholder);
   float: left;
-  color: color-mix(in srgb, var(--muted-foreground) 62%, transparent);
+  color: color-mix(in srgb, var(--color-text-tertiary) 62%, transparent);
   pointer-events: none;
   height: 0;
 }
@@ -62,12 +62,14 @@
 /* Bubble menu — floating toolbar pill */
 .bubble-menu {
   display: flex;
+  flex-wrap: wrap;
+  max-width: calc(100vw - 1rem);
   align-items: center;
   gap: 1px;
   padding: 0.25rem;
-  background: var(--popover);
-  border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
-  border-radius: var(--radius);
+  background: var(--color-bg-primary);
+  border: 1px solid color-mix(in srgb, var(--color-text-primary) 10%, transparent);
+  border-radius: var(--radius-lg);
   box-shadow:
     0 4px 12px color-mix(in srgb, black 12%, transparent),
     0 0 0 1px color-mix(in srgb, black 4%, transparent);
@@ -79,9 +81,9 @@
   align-items: center;
   gap: 0.25rem;
   padding: 0.25rem;
-  background: var(--popover);
-  border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
-  border-radius: var(--radius);
+  background: var(--color-bg-primary);
+  border: 1px solid color-mix(in srgb, var(--color-text-primary) 10%, transparent);
+  border-radius: var(--radius-lg);
   box-shadow:
     0 4px 12px color-mix(in srgb, black 12%, transparent),
     0 0 0 1px color-mix(in srgb, black 4%, transparent);
@@ -94,9 +96,9 @@
   align-items: center;
   gap: 0.25rem;
   padding: 0.25rem 0.25rem 0.25rem 0.5rem;
-  background: var(--popover);
-  border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
-  border-radius: var(--radius);
+  background: var(--color-bg-primary);
+  border: 1px solid color-mix(in srgb, var(--color-text-primary) 10%, transparent);
+  border-radius: var(--radius-lg);
   box-shadow:
     0 4px 12px color-mix(in srgb, black 12%, transparent),
     0 0 0 1px color-mix(in srgb, black 4%, transparent);

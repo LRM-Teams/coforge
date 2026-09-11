@@ -1,14 +1,14 @@
 # web
 
 CoForge's Web UI and backend control plane. This package is a modular monolith
-built with TanStack Start and Bun. Its UI foundation is Base UI with shadcn/ui,
-Tailwind CSS v4, and Lucide icons.
+built with TanStack Start and Bun. Its UI foundation is Untitled UI with
+React Aria, Tailwind CSS v4, and Untitled UI icons.
 
-The provisional theme follows the current CoForge UI specification: `#101319`
-primary text and actions, `#5D36DC` brand states, `#E0E5F1` borders,
-`#777D8D` muted text, and the documented notification, success, and offline
-colors. Components consume semantic tokens so later design revisions do not
-require component rewrites. Light and dark modes are both supported.
+Components use Untitled's semantic tokens with the CoForge brand overrides.
+See the [UI guidelines](../../docs/ui-guidelines.md) and
+[design tokens](../../docs/design-tokens.md). Light and dark modes are both
+supported. The public homepage retains its installed Spell and Magic UI motion
+components; theme adaptation belongs at their call sites, not in upstream source.
 
 Internationalization follows TanStack Start's official Paraglide integration.
 English and Simplified Chinese messages live under `messages`; locale-aware
@@ -82,8 +82,9 @@ The pinned Nitro 3 adapter is currently beta and its production behavior must
 remain covered by build, startup, health, and graceful-shutdown checks before a
 release is promoted.
 
-Add shadcn/ui components from the repository root:
+Add official components from this package directory using the
+[Untitled UI CLI](https://www.untitledui.com/react/docs/cli):
 
 ```bash
-bunx shadcn@latest add button --cwd apps/web
+npx untitledui@latest add button
 ```

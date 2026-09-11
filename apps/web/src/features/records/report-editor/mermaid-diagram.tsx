@@ -26,9 +26,9 @@ import {
   type Ref,
 } from "react";
 import { Maximize02 as Maximize2 } from "@untitledui/icons";
-import { Dialog, DialogContent } from "./ui/dialog";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { useT } from "./i18n";
-import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip";
 import { normalizeMermaidChart } from "./normalize-mermaid-chart";
 
 export type MermaidDiagramHandle = {
@@ -53,6 +53,13 @@ type MermaidLayout = {
   height?: number;
 };
 
+const MERMAID_THEME_TOKENS = [
+  "--color-bg-secondary",
+  "--color-border-brand",
+  "--color-text-primary",
+  "--color-fg-tertiary",
+] as const;
+
 let mermaidPromise: Promise<MermaidAPI> | null = null;
 
 function getMermaid(): Promise<MermaidAPI> {
@@ -61,25 +68,24 @@ function getMermaid(): Promise<MermaidAPI> {
   return mermaidPromise;
 }
 
-function toLegacyColor(color: string, fallback: string, ownerDocument: Document): string {
+function toLegacyColor(color: string, ownerDocument: Document): string {
   const canvas = ownerDocument.createElement("canvas");
   canvas.width = 1;
   canvas.height = 1;
   const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context) return fallback;
+  if (!context) return color;
 
   // Mermaid's color parser only supports legacy color syntax. Canvas can parse
   // modern CSS Color 4 values such as oklch(), then getImageData gives concrete
   // 8-bit sRGB bytes that Mermaid can consume safely.
-  context.fillStyle = "#000";
-  context.fillStyle = color || fallback;
+  context.fillStyle = color;
   context.fillRect(0, 0, 1, 1);
   const [red, green, blue] = context.getImageData(0, 0, 1, 1).data;
 
   return `rgb(${red}, ${green}, ${blue})`;
 }
 
-function resolveCssColor(host: HTMLElement, variableName: string, fallback: string): string {
+function resolveCssColor(host: HTMLElement, variableName: string): string {
   const probe = host.ownerDocument.createElement("span");
   probe.style.color = `var(${variableName})`;
   probe.style.display = "none";
@@ -87,34 +93,24 @@ function resolveCssColor(host: HTMLElement, variableName: string, fallback: stri
   const color = getComputedStyle(probe).color;
   probe.remove();
 
-  return toLegacyColor(color || fallback, fallback, host.ownerDocument);
+  return toLegacyColor(color, host.ownerDocument);
 }
 
 function getMermaidThemeVariables(host: HTMLElement | null) {
-  if (!host) {
-    return {
-      primaryColor: "rgb(245, 245, 245)",
-      primaryBorderColor: "rgb(59, 130, 246)",
-      primaryTextColor: "rgb(17, 24, 39)",
-      lineColor: "rgb(107, 114, 128)",
-      fontFamily: "inherit",
-    };
-  }
-
+  const element = host ?? document.documentElement;
   return {
-    primaryColor: resolveCssColor(host, "--muted", "rgb(245, 245, 245)"),
-    primaryBorderColor: resolveCssColor(host, "--primary", "rgb(59, 130, 246)"),
-    primaryTextColor: resolveCssColor(host, "--foreground", "rgb(17, 24, 39)"),
-    lineColor: resolveCssColor(host, "--muted-foreground", "rgb(107, 114, 128)"),
+    primaryColor: resolveCssColor(element, "--color-bg-secondary"),
+    primaryBorderColor: resolveCssColor(element, "--color-border-brand"),
+    primaryTextColor: resolveCssColor(element, "--color-text-primary"),
+    lineColor: resolveCssColor(element, "--color-fg-tertiary"),
     fontFamily: "inherit",
   };
 }
 
 function getSandboxCssVariables(host: HTMLElement | null): string {
-  const styles = host ? getComputedStyle(host) : null;
-  return ["--muted", "--primary", "--foreground", "--muted-foreground"]
-    .map((name) => `${name}: ${styles?.getPropertyValue(name).trim() || "initial"};`)
-    .join(" ");
+  return MERMAID_THEME_TOKENS.map(
+    (name) => `${name}: ${resolveCssColor(host ?? document.documentElement, name)};`,
+  ).join(" ");
 }
 
 function getMermaidLayout(svg: string): MermaidLayout {
@@ -196,7 +192,7 @@ function buildSandboxedMermaidDocument(svg: string, host: HTMLElement | null): s
 function buildExpandedMermaidDocument(svg: string, host: HTMLElement | null): string {
   const cssVariables = getSandboxCssVariables(host);
 
-  return `<!doctype html><html><head><style>:root { ${cssVariables} } html, body { width: 100%; height: 100%; } body { margin: 0; display: flex; align-items: center; justify-content: center; background: var(--muted, #f4f4f5); } svg { max-width: 100%; max-height: 100%; width: auto; height: auto; }</style></head><body>${svg}</body></html>`;
+  return `<!doctype html><html><head><style>:root { ${cssVariables} } html, body { width: 100%; height: 100%; } body { margin: 0; display: flex; align-items: center; justify-content: center; background: var(--color-bg-secondary); } svg { max-width: 100%; max-height: 100%; width: auto; height: auto; }</style></head><body>${svg}</body></html>`;
 }
 
 function useThemeVersion() {
@@ -236,7 +232,6 @@ export function MermaidDiagram({
   chart: string;
   showToolbar?: boolean;
   ref?: Ref<MermaidDiagramHandle>;
-  // react-doctor-disable-next-line react-doctor/prefer-useReducer -- sandboxed docs / layout / error / lightbox are independent async stages; a reducer would batch unrelated updates without clearer ownership.
 }) {
   const { t } = useT("editor");
   const reactId = useId();
@@ -347,41 +342,36 @@ export function MermaidDiagram({
               height: layout.height ? `${layout.height}px` : undefined,
               width: layout.width ? `${layout.width}px` : undefined,
             }}
-            title="Mermaid diagram"
+            aria-label="Mermaid diagram"
           />
           {showToolbar && (
             <div className="mermaid-diagram-toolbar">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      onClick={() => setLightboxOpen(true)}
-                      aria-label={t(($) => $.code_block.fullscreen)}
-                    />
-                  }
-                >
-                  <Maximize2 className="size-3.5" />
-                </TooltipTrigger>
-                <TooltipContent side="top">{t(($) => $.code_block.fullscreen)}</TooltipContent>
-              </Tooltip>
+              <ButtonUtility
+                size="xs"
+                color="tertiary"
+                icon={Maximize2}
+                tooltip={t(($) => $.code_block.fullscreen)}
+                onClick={() => setLightboxOpen(true)}
+              />
             </div>
           )}
-          <Dialog open={lightboxOpen} onOpenChange={setLightboxOpen}>
-            <DialogContent
-              className="!max-w-6xl !h-[min(90vh,calc(100vh-2rem))] w-full p-0 gap-0 overflow-hidden bg-muted"
-              aria-label={t(($) => $.code_block.fullscreen)}
-            >
-              {expandedDocument ? (
-                <iframe
-                  className="mermaid-diagram-lightbox-frame h-full w-full rounded-none border-0 bg-muted"
-                  sandbox=""
-                  srcDoc={expandedDocument}
-                  title="Mermaid diagram fullscreen"
-                />
-              ) : null}
-            </DialogContent>
-          </Dialog>
+          <ModalOverlay isOpen={lightboxOpen} onOpenChange={setLightboxOpen}>
+            <Modal className="h-[min(90vh,calc(100vh-2rem))] w-full max-w-6xl overflow-hidden bg-secondary">
+              <Dialog
+                aria-label={t(($) => $.code_block.fullscreen)}
+                className="h-full overflow-hidden"
+              >
+                {expandedDocument ? (
+                  <iframe
+                    className="mermaid-diagram-lightbox-frame h-full w-full rounded-none border-0 bg-secondary"
+                    sandbox=""
+                    srcDoc={expandedDocument}
+                    aria-label="Mermaid diagram fullscreen"
+                  />
+                ) : null}
+              </Dialog>
+            </Modal>
+          </ModalOverlay>
         </>
       ) : (
         <div className="mermaid-diagram-loading">{t(($) => $.mermaid.rendering)}</div>

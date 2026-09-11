@@ -7,12 +7,15 @@ import userEvent from "@testing-library/user-event";
 
 import {
   DirectConversation,
+  DirectConversationHeader,
   type DirectConversationView,
   type OwnMessageIndexEntry,
 } from "@/features/conversations/direct-conversation";
 import { AppToastProvider } from "@/components/ui/toast";
 import { ChannelSidebarVisibilityContext } from "@/components/app-shell";
+import { MobileDrawerProvider } from "@/components/layout/sidebar/mobile-header";
 import { ConversationRealtimeProvider } from "@/features/conversations/conversation-layout";
+import { TaskBoard } from "@/features/tasks/task-board";
 import { getRouter } from "@/router";
 import type { ActivityEntry } from "@/features/agents/agent-activity";
 import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
@@ -67,6 +70,7 @@ function renderConversation(
   }>,
   onLoadMessageAround?: (messageId: string) => Promise<void>,
   onShowLatest?: () => Promise<void>,
+  onCreateTask?: (title: string, requestId: string, attachmentId?: string) => Promise<void>,
 ) {
   const view = render(
     <RouterContextProvider router={getRouter()}>
@@ -88,6 +92,7 @@ function renderConversation(
             onLoadOwnMessages={onLoadOwnMessages}
             onLoadMessageAround={onLoadMessageAround}
             onShowLatest={onShowLatest}
+            onCreateTask={onCreateTask}
           />
         </ConversationRealtimeProvider>
       </AppToastProvider>
@@ -117,6 +122,7 @@ function renderConversation(
                 onLoadOwnMessages={onLoadOwnMessages}
                 onLoadMessageAround={onLoadMessageAround}
                 onShowLatest={onShowLatest}
+                onCreateTask={onCreateTask}
               />
             </ConversationRealtimeProvider>
           </AppToastProvider>
@@ -134,6 +140,55 @@ const firstMessage: DirectConversationView["messages"][number] = {
   body: "Please check",
   createdAt: "2026-08-29T10:00:00Z",
 };
+
+test("direct task view keeps the chat identity, status, navigation, and tabs", async () => {
+  const show = mock(() => {});
+  const showChat = mock(() => {});
+  render(
+    <RouterContextProvider router={getRouter()}>
+      <MobileDrawerProvider>
+        <ChannelSidebarVisibilityContext value={{ hidden: true, show }}>
+          <ConversationRealtimeProvider
+            agents={[
+              {
+                ...base.agent,
+                status: { value: "active", expiresAt: null },
+                display: onlineDisplay,
+              },
+            ]}
+          >
+            <TaskBoard
+              header={
+                <DirectConversationHeader
+                  conversation={base}
+                  tasks={[]}
+                  active="tasks"
+                  onShowChat={showChat}
+                />
+              }
+              tasks={[]}
+              currentMemberId="member-1"
+              canMutate
+              onOpenMessage={() => {}}
+              onCommand={async () => {}}
+              onShowChat={showChat}
+            />
+          </ConversationRealtimeProvider>
+        </ChannelSidebarVisibilityContext>
+      </MobileDrawerProvider>
+    </RouterContextProvider>,
+  );
+  const page = within(document.body);
+  expect(page.getByRole("heading", { name: "Release Helper" })).toBeTruthy();
+  expect(page.getByRole("status").textContent).toBe("Online");
+  expect(page.getByText("@release-helper")).toBeTruthy();
+  expect(page.getByRole("button", { name: "Open menu" })).toBeTruthy();
+  expect(page.getByRole("button", { name: "Tasks 0" }).getAttribute("aria-current")).toBe("page");
+  await userEvent.setup().click(page.getByRole("button", { name: "Show sidebar" }));
+  expect(show).toHaveBeenCalledTimes(1);
+  await userEvent.setup().click(page.getByRole("button", { name: "Chat" }));
+  expect(showChat).toHaveBeenCalledTimes(1);
+});
 
 test("thread replies stay out of main history and preserve separate drafts and main scroll", async () => {
   const user = userEvent.setup();
@@ -240,7 +295,10 @@ test("renders the empty private conversation", () => {
 
 test("empty thread keeps its root and reply composer instead of the private-chat introduction", async () => {
   const { page } = renderConversation({ ...base, messages: [firstMessage] });
-  await userEvent.setup().click(page.getByRole("button", { name: "Reply in thread" }));
+  const user = userEvent.setup();
+  expect(page.queryByRole("button", { name: "Reply in thread" })).toBeNull();
+  await user.click(page.getByRole("button", { name: "Message actions" }));
+  await user.click(await page.findByRole("menuitem", { name: "Reply in thread" }));
   const thread = within(page.getByRole("region", { name: "Thread" }));
   expect(thread.getByRole("heading", { name: "No replies yet", level: 3 })).toBeTruthy();
   expect(thread.getByLabelText("Original message").textContent).toContain("Please check");
@@ -485,6 +543,51 @@ test("keeps sent-message navigation available while following the latest message
   expect(page.queryByRole("button", { name: "Back to bottom" })).toBeNull();
 });
 
+test.each(["scroll", "hash", "index"])(
+  "content resizing preserves historical navigation via %s",
+  async (navigation) => {
+    const NativeResizeObserver = globalThis.ResizeObserver;
+    const resizeCallbacks: Array<() => void> = [];
+    globalThis.ResizeObserver = class extends NativeResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        super(callback);
+        resizeCallbacks.push(() => callback([], this));
+      }
+    };
+    try {
+      const { page } = renderConversation({ ...base, messages: [firstMessage] });
+      const history = page.getByLabelText("Message history");
+      Object.defineProperties(history, {
+        clientHeight: { configurable: true, value: 300 },
+        scrollHeight: { configurable: true, value: 1_200 },
+      });
+      act(() => resizeCallbacks.forEach((callback) => callback()));
+      expect(history.scrollTop).toBe(1_200);
+
+      history.scrollTop = 100;
+      if (navigation === "scroll") {
+        fireEvent.scroll(history);
+      } else if (navigation === "index") {
+        const user = userEvent.setup();
+        await user.click(page.getByRole("button", { name: "Your messages" }));
+        await user.click(await page.findByRole("menuitem", { name: /Please check/ }));
+        // A smooth scroll has moved, but its scroll event has not run yet.
+        history.scrollTop = 100;
+      } else {
+        window.history.replaceState({}, "", "/en#message-one");
+        fireEvent(window, new Event("hashchange"));
+      }
+      Object.defineProperty(history, "scrollHeight", { configurable: true, value: 1_400 });
+      act(() => resizeCallbacks.forEach((callback) => callback()));
+      expect(history.scrollTop).toBe(100);
+    } finally {
+      cleanup();
+      window.history.replaceState({}, "", "/en");
+      globalThis.ResizeObserver = NativeResizeObserver;
+    }
+  },
+);
+
 test("returns to the latest message after the reader scrolls up", async () => {
   const user = userEvent.setup();
   const { page } = renderConversation({ ...base, messages: [firstMessage] });
@@ -547,11 +650,74 @@ test("navigates loaded own messages from the floating history controls", async (
   expect(scrollTo).toHaveBeenCalled();
 });
 
+test("task sending is opt-in from composer actions and resets after sending", async () => {
+  const createTask = mock(async () => {});
+  const send = mock(async () => {});
+  const { page } = renderConversation(
+    base,
+    send,
+    "active",
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    createTask,
+  );
+  const user = userEvent.setup();
+  expect(page.queryByRole("switch", { name: "As task" })).toBeNull();
+  expect(page.queryByRole("button", { name: "As task" })).toBeNull();
+  await user.click(page.getByRole("button", { name: "Add to message" }));
+  await user.click(await page.findByRole("menuitem", { name: "As task" }));
+  expect(page.getByRole("button", { name: "As task", pressed: true })).toBeTruthy();
+  await user.type(page.getByRole("textbox", { name: "Message" }), "Review the migration{Enter}");
+  await waitFor(() =>
+    expect(createTask).toHaveBeenCalledWith("Review the migration", expect.any(String), undefined),
+  );
+  expect(send).not.toHaveBeenCalled();
+  expect(page.queryByRole("button", { name: "As task" })).toBeNull();
+  await user.type(page.getByRole("textbox", { name: "Message" }), "Just a message{Enter}");
+  await waitFor(() =>
+    expect(send).toHaveBeenCalledWith("Just a message", expect.any(String), undefined),
+  );
+});
+
 test("shows a static day separator label with no expand control", () => {
   const { page } = renderConversation({ ...base, messages: [firstMessage] });
 
-  expect(page.getByText("Saturday, August 29, 2026")).toBeTruthy();
+  expect(page.getByText("Aug 29, 2026")).toBeTruthy();
+  expect(page.getByText("10:00")).toBeTruthy();
   expect(page.queryByRole("button", { name: /Saturday/ })).toBeNull();
+});
+
+test("groups a sender within five minutes but separates different people, gaps, and dates", () => {
+  const entries = [
+    ["start", "person-a", "2026-08-29T23:40:00Z"],
+    ["within", "person-a", "2026-08-29T23:44:59Z"],
+    ["gap", "person-a", "2026-08-29T23:50:00Z"],
+    ["different", "person-b", "2026-08-29T23:51:00Z"],
+    ["before-midnight", "person-b", "2026-08-29T23:59:00Z"],
+    ["next-day", "person-b", "2026-08-30T00:01:00Z"],
+  ] as const;
+  const { page } = renderConversation({
+    ...base,
+    messages: entries.map(([id, senderMemberId, createdAt], index) => ({
+      ...firstMessage,
+      id,
+      body: id,
+      senderMemberId,
+      createdAt,
+      sequence: index + 1,
+    })),
+  });
+  for (const id of ["start", "gap", "different", "before-midnight", "next-day"]) {
+    expect(
+      Boolean(page.getByText(id).closest("[data-message]")?.querySelector("[data-avatar]")),
+    ).toBe(true);
+  }
+  expect(
+    page.getByText("within").closest("[data-message]")?.querySelector("[data-avatar]"),
+  ).toBeNull();
+  expect(page.getByText("Aug 30, 2026")).toBeTruthy();
 });
 
 test("keeps older loaded sent messages available in navigation", async () => {
@@ -969,4 +1135,30 @@ test("shows a control to bring back a hidden channel sidebar", async () => {
     .setup()
     .click(within(document.body).getByRole("button", { name: "Show sidebar" }));
   expect(show).toHaveBeenCalledTimes(1);
+});
+
+test("switching a failed task to a normal message uses a new request identity", async () => {
+  const createTask = mock(async (_title: string, _requestId: string) => {
+    throw new Error("lost response");
+  });
+  const send = mock(async (_body: string, _requestId: string) => {});
+  const { page } = renderConversation(
+    base,
+    send,
+    "active",
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    createTask,
+  );
+  const user = userEvent.setup();
+  await user.click(page.getByRole("button", { name: "Add to message" }));
+  await user.click(await page.findByRole("menuitem", { name: "As task" }));
+  await user.type(page.getByRole("textbox", { name: "Message" }), "Review migration{Enter}");
+  await page.findByRole("alert");
+  await user.click(page.getByRole("button", { name: "As task" }));
+  await user.click(page.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+  expect(send.mock.calls[0]![1]).not.toBe(createTask.mock.calls[0]![1]);
 });

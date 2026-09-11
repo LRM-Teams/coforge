@@ -7,6 +7,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Separator } from "react-aria-components";
+import { Button } from "@/components/base/buttons/button";
 import { autoUpdate, computePosition, flip, hide, offset, shift } from "@floating-ui/dom";
 import { posToDOMRect } from "@tiptap/core";
 import type { Editor } from "@tiptap/core";
@@ -21,8 +23,6 @@ import {
   Heading01 as Heading1,
   Heading02 as Heading2,
   HeadingSquare as Heading3,
-  HeadingSquare as Heading4,
-  HeadingSquare as Heading5,
   Brush01 as Highlighter,
   Italic01 as Italic,
   LeftIndent01 as Quote,
@@ -37,6 +37,9 @@ import {
 } from "@untitledui/icons";
 
 import { cn } from "@/lib/utils";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
+import { Input } from "@/components/base/input/input";
 import {
   NOTE_COLORS,
   NOTE_FONT_SIZES,
@@ -46,11 +49,6 @@ import {
   noteColorToHex,
   type NoteColor,
 } from "./utils/text-style";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
-import { Separator } from "./ui/separator";
-import { Toggle } from "./ui/toggle";
 
 function shouldShowBubbleMenu(editor: Editor): boolean {
   if (!editor.isEditable || editor.isDestroyed) return false;
@@ -76,19 +74,17 @@ function MarkButton({
   children: React.ReactNode;
 }) {
   return (
-    <Toggle
+    <Button
+      color="tertiary"
       size="sm"
-      pressed={pressed}
+      className="flex size-7 items-center justify-center rounded-md text-fg-quaternary outline-focus-ring hover:bg-primary_hover hover:text-fg-quaternary_hover focus-visible:outline-2 aria-pressed:bg-primary_hover aria-pressed:text-fg-secondary"
+      aria-pressed={pressed}
       aria-label={label}
-      // Run on mouse down (with preventDefault) so the editor keeps the
-      // selection; do not rely on Toggle onPressedChange under controlled mode.
-      onMouseDown={(event) => {
-        event.preventDefault();
-        onAction();
-      }}
+      onMouseDown={(event) => event.preventDefault()}
+      onPress={onAction}
     >
       {children}
-    </Toggle>
+    </Button>
   );
 }
 
@@ -130,13 +126,11 @@ function HeadingDropdown({
     },
     {
       label: "Heading 4",
-      icon: Heading4,
       active: activeLevel === 4,
       action: () => editor.chain().focus().toggleHeading({ level: 4 }).run(),
     },
     {
       label: "Heading 5",
-      icon: Heading5,
       active: activeLevel === 5,
       action: () => editor.chain().focus().toggleHeading({ level: 5 }).run(),
     },
@@ -151,33 +145,36 @@ function HeadingDropdown({
   );
 
   return (
-    <Popover modal={false} open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger
-        className="inline-flex h-7 items-center gap-0.5 rounded-md px-1.5 text-xs font-medium hover:bg-muted"
+    <Dropdown.Root isOpen={open} onOpenChange={handleOpenChange}>
+      <Button
+        color="tertiary"
+        size="sm"
+        className="inline-flex h-7 items-center gap-0.5 rounded-md px-1.5 text-xs font-medium text-secondary outline-focus-ring hover:bg-primary_hover focus-visible:outline-2"
         onMouseDown={(event) => event.preventDefault()}
       >
         {label}
         <ChevronDown className="size-3" />
-      </PopoverTrigger>
-      <PopoverContent side="bottom" sideOffset={8} align="start" className="w-auto min-w-32 p-1">
-        {items.map((item) => (
-          <button
-            type="button"
-            key={item.label}
-            className="flex w-full cursor-default items-center gap-2 rounded-md px-1.5 py-1 text-xs outline-hidden select-none hover:bg-accent hover:text-accent-foreground"
-            onMouseDown={(event) => {
-              event.preventDefault();
-              item.action();
-              handleOpenChange(false);
-            }}
-          >
-            <item.icon className="size-3.5" />
-            {item.label}
-            {item.active ? <Check className="ml-auto size-3.5" /> : null}
-          </button>
-        ))}
-      </PopoverContent>
-    </Popover>
+      </Button>
+      <Dropdown.Popover placement="bottom start" offset={8} className="w-40">
+        <Dropdown.Menu
+          selectionMode="single"
+          selectedKeys={[activeLevel ? `Heading ${activeLevel}` : "Normal text"]}
+        >
+          {items.map((item) => (
+            <Dropdown.Item
+              key={item.label}
+              id={item.label}
+              label={item.label}
+              icon={item.icon}
+              onAction={() => {
+                item.action();
+                handleOpenChange(false);
+              }}
+            />
+          ))}
+        </Dropdown.Menu>
+      </Dropdown.Popover>
+    </Dropdown.Root>
   );
 }
 
@@ -209,51 +206,28 @@ function ColorDropdown({
   };
 
   return (
-    <Popover modal={false} open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger
-        className="inline-flex h-7 items-center gap-0.5 rounded-md px-1.5 text-xs font-medium hover:bg-muted"
+    <Dropdown.Root isOpen={open} onOpenChange={handleOpenChange}>
+      <Button
+        color="tertiary"
+        size="sm"
+        className="inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-xs font-medium text-secondary outline-focus-ring hover:bg-primary_hover focus-visible:outline-2"
         aria-label="Text color"
         onMouseDown={(event) => event.preventDefault()}
       >
         <Palette className="size-3.5" />
         <span
-          className="size-2 rounded-full border border-border"
-          style={{ backgroundColor: noteColorToHex(current) ?? "var(--foreground)" }}
+          className="size-2 rounded-full border border-secondary"
+          style={{ backgroundColor: noteColorToHex(current) ?? "var(--color-text-primary)" }}
         />
-      </PopoverTrigger>
-      <PopoverContent
-        side="bottom"
-        sideOffset={8}
-        align="start"
-        className="flex w-auto gap-1 p-1.5"
-      >
-        {NOTE_COLORS.map((color) => {
-          const hex = noteColorToHex(color);
-          const selected = current === color;
-          return (
-            <button
-              key={color}
-              type="button"
-              aria-label={color}
-              aria-pressed={selected}
-              className="flex size-6 items-center justify-center rounded-md hover:bg-accent"
-              onMouseDown={(event) => {
-                event.preventDefault();
-                apply(color);
-              }}
-            >
-              <span
-                className={cn(
-                  "size-3.5 rounded-full border border-border",
-                  selected && "ring-2 ring-ring ring-offset-1",
-                )}
-                style={{ backgroundColor: hex ?? "var(--foreground)" }}
-              />
-            </button>
-          );
-        })}
-      </PopoverContent>
-    </Popover>
+      </Button>
+      <Dropdown.Popover placement="bottom start" offset={8} className="w-44">
+        <Dropdown.Menu selectionMode="single" selectedKeys={[current]}>
+          {NOTE_COLORS.map((color) => (
+            <Dropdown.Item key={color} id={color} label={color} onAction={() => apply(color)} />
+          ))}
+        </Dropdown.Menu>
+      </Dropdown.Popover>
+    </Dropdown.Root>
   );
 }
 
@@ -279,44 +253,40 @@ function FontSizeDropdown({
   );
 
   return (
-    <Popover modal={false} open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger
-        className="inline-flex h-7 items-center gap-0.5 rounded-md px-1.5 text-xs font-medium hover:bg-muted"
+    <Dropdown.Root isOpen={open} onOpenChange={handleOpenChange}>
+      <Button
+        color="tertiary"
+        size="sm"
+        className="inline-flex h-7 items-center gap-0.5 rounded-md px-1.5 text-xs font-medium text-secondary outline-focus-ring hover:bg-primary_hover focus-visible:outline-2"
         onMouseDown={(event) => event.preventDefault()}
       >
         {label}
         <ChevronDown className="size-3" />
-      </PopoverTrigger>
-      <PopoverContent side="bottom" sideOffset={8} align="start" className="w-auto min-w-24 p-1">
-        <button
-          type="button"
-          className="flex w-full cursor-default items-center gap-2 rounded-md px-1.5 py-1 text-xs outline-hidden select-none hover:bg-accent hover:text-accent-foreground"
-          onMouseDown={(event) => {
-            event.preventDefault();
-            editor.chain().focus().unsetFontSize().run();
-            handleOpenChange(false);
-          }}
-        >
-          Default
-          {!current ? <Check className="ml-auto size-3.5" /> : null}
-        </button>
-        {NOTE_FONT_SIZES.map((size) => (
-          <button
-            key={size}
-            type="button"
-            className="flex w-full cursor-default items-center gap-2 rounded-md px-1.5 py-1 text-xs outline-hidden select-none hover:bg-accent hover:text-accent-foreground"
-            onMouseDown={(event) => {
-              event.preventDefault();
-              editor.chain().focus().setFontSize(fontSizeToCss(size)).run();
+      </Button>
+      <Dropdown.Popover placement="bottom start" offset={8} className="w-32">
+        <Dropdown.Menu selectionMode="single" selectedKeys={[current ?? "Default"]}>
+          <Dropdown.Item
+            id="Default"
+            label="Default"
+            onAction={() => {
+              editor.chain().focus().unsetFontSize().run();
               handleOpenChange(false);
             }}
-          >
-            {size}
-            {current === size ? <Check className="ml-auto size-3.5" /> : null}
-          </button>
-        ))}
-      </PopoverContent>
-    </Popover>
+          />
+          {NOTE_FONT_SIZES.map((size) => (
+            <Dropdown.Item
+              key={size}
+              id={size}
+              label={size}
+              onAction={() => {
+                editor.chain().focus().setFontSize(fontSizeToCss(size)).run();
+                handleOpenChange(false);
+              }}
+            />
+          ))}
+        </Dropdown.Menu>
+      </Dropdown.Popover>
+    </Dropdown.Root>
   );
 }
 
@@ -426,7 +396,7 @@ export function EditorBubbleMenu({ editor }: { editor: Editor }) {
     <div
       ref={floatingRef}
       className={cn(
-        "fixed top-0 left-0 z-50 flex items-center gap-0.5 rounded-lg border bg-popover p-1 shadow-md",
+        "fixed top-0 left-0 z-50 flex max-w-[calc(100vw-1rem)] flex-wrap items-center gap-0.5 rounded-lg bg-primary p-1 shadow-lg ring-1 ring-secondary_alt",
         !visible && "pointer-events-none",
       )}
       style={{ visibility: "hidden" }}
@@ -439,18 +409,19 @@ export function EditorBubbleMenu({ editor }: { editor: Editor }) {
         <div className="flex items-center gap-1 px-1">
           <Input
             value={linkUrl}
-            onChange={(event) => setLinkUrl(event.target.value)}
+            onChange={setLinkUrl}
             placeholder="https://"
             aria-label="URL"
-            className="h-7 w-48"
+            size="sm"
+            className="w-48"
             onMouseDown={(event) => event.stopPropagation()}
           />
-          <Button
-            size="icon-xs"
+          <ButtonUtility
+            size="xs"
             type="button"
-            variant="ghost"
-            aria-label="Apply link"
-            onMouseDown={(event) => event.preventDefault()}
+            tooltip="Apply link"
+            icon={Check}
+            onMouseDown={(event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault()}
             onClick={() => {
               if (!linkUrl.trim()) {
                 editor.chain().focus().extendMarkRange("link").unsetLink().run();
@@ -464,37 +435,31 @@ export function EditorBubbleMenu({ editor }: { editor: Editor }) {
               }
               setLinkMode(false);
             }}
-          >
-            <Check className="size-3.5" />
-          </Button>
+          />
           {fmt.link ? (
-            <Button
-              size="icon-xs"
+            <ButtonUtility
+              size="xs"
               type="button"
-              variant="ghost"
-              aria-label="Unlink"
-              onMouseDown={(event) => event.preventDefault()}
+              tooltip="Unlink"
+              icon={Unlink}
+              onMouseDown={(event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault()}
               onClick={() => {
                 editor.chain().focus().extendMarkRange("link").unsetLink().run();
                 setLinkMode(false);
               }}
-            >
-              <Unlink className="size-3.5" />
-            </Button>
+            />
           ) : null}
-          <Button
-            size="icon-xs"
+          <ButtonUtility
+            size="xs"
             type="button"
-            variant="ghost"
-            aria-label="Cancel"
-            onMouseDown={(event) => event.preventDefault()}
+            tooltip="Cancel"
+            icon={X}
+            onMouseDown={(event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault()}
             onClick={() => {
               setLinkMode(false);
               editor.commands.focus();
             }}
-          >
-            <X className="size-3.5" />
-          </Button>
+          />
         </div>
       ) : (
         <>
@@ -502,7 +467,7 @@ export function EditorBubbleMenu({ editor }: { editor: Editor }) {
           <ColorDropdown editor={editor} activeColor={fmt.textColor} onOpenChange={setMenuOpen} />
           <FontSizeDropdown editor={editor} activeSize={fmt.fontSize} onOpenChange={setMenuOpen} />
 
-          <Separator orientation="vertical" className="mx-0.5 h-5" />
+          <Separator orientation="vertical" className="mx-0.5 h-5 w-px bg-border-secondary" />
 
           <MarkButton
             label="Bold"
@@ -540,7 +505,7 @@ export function EditorBubbleMenu({ editor }: { editor: Editor }) {
             <Highlighter className="size-3.5" />
           </MarkButton>
 
-          <Separator orientation="vertical" className="mx-0.5 h-5" />
+          <Separator orientation="vertical" className="mx-0.5 h-5 w-px bg-border-secondary" />
 
           <MarkButton
             label="Bullet list"
@@ -571,7 +536,7 @@ export function EditorBubbleMenu({ editor }: { editor: Editor }) {
             <Quote className="size-3.5" />
           </MarkButton>
 
-          <Separator orientation="vertical" className="mx-0.5 h-5" />
+          <Separator orientation="vertical" className="mx-0.5 h-5 w-px bg-border-secondary" />
 
           <MarkButton
             label="Link"

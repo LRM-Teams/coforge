@@ -739,8 +739,8 @@ test("a sent channel message renders immediately and reconciles unseen messages"
 
   await waitFor(() => expect(page.getByText("Channel update")).toBeTruthy());
   expect(page.queryAllByRole("button", { name: "Convert to task" })).toHaveLength(0);
-  // "As task" is now the official Toggle (an accessible switch), not a Button.
-  expect(page.getByRole("switch", { name: "As task" })).toBeTruthy();
+  await user.click(page.getByRole("button", { name: "Add to message" }));
+  expect(await page.findByRole("menuitem", { name: "As task" })).toBeTruthy();
   expect(sendPublicChannelMessage).toHaveBeenCalledTimes(1);
   await waitFor(() => expect(loadPublicChannelUpdates).toHaveBeenCalledTimes(1));
 });

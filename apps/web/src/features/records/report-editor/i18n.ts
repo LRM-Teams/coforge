@@ -3,7 +3,6 @@
  * Call sites that used `t(($) => $.path.to.key)` keep working via a Proxy.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Multica-style path selectors need open nested access.
 type Translator = (selector: (dict: any) => unknown) => string;
 
 const LABELS: Record<string, string> = {

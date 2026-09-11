@@ -177,7 +177,7 @@ export const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
       return () => {
         cancelled = true;
       };
-    }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps -- mount-only hydrate
+    }, [editor]);
 
     useEffect(() => {
       if (!editor || editor.isDestroyed) return;

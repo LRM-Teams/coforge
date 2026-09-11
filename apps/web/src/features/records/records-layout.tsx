@@ -15,14 +15,11 @@ import {
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Avatar } from "@/components/base/avatar/avatar";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
+import { Input } from "@/components/base/input/input";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
-import { Button, buttonVariants } from "./report-editor/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "./report-editor/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { CreateMemberReportDialog } from "./create-member-report-dialog";
@@ -186,31 +183,30 @@ export function RecordsLayout({
   }
 
   return (
-    <main className="flex h-svh min-w-0 md:gap-2 md:p-2">
+    <main className="flex h-svh min-w-0 bg-primary">
       <nav
         aria-label={m.records_list_label()}
         className={cn(
-          "min-w-0 flex-col overflow-hidden bg-card md:flex md:w-72 md:shrink-0 md:rounded-xl md:border xl:w-80",
+          "min-w-0 flex-col overflow-hidden border-secondary bg-primary md:flex md:w-72 md:shrink-0 md:border-r xl:w-80",
           listHidden ? "hidden" : "flex w-full",
         )}
       >
         <PageHeader heading={m.records_title()} />
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="space-y-3 px-3 pt-3">
-            <label className="flex h-10 items-center gap-2 rounded-full bg-muted/60 px-3 text-sm ring-1 ring-border/60 ring-inset transition-shadow focus-within:bg-background focus-within:ring-2 focus-within:ring-ring">
-              <Search aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={m.records_search_placeholder()}
-                className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
-              />
-            </label>
+            <Input
+              type="search"
+              size="sm"
+              icon={Search}
+              aria-label={m.records_search_placeholder()}
+              value={query}
+              onChange={setQuery}
+              placeholder={m.records_search_placeholder()}
+            />
             <div
               role="group"
               aria-label={m.records_title()}
-              className="flex gap-4 border-b border-border px-1"
+              className="flex gap-4 border-b border-secondary px-1"
             >
               <TabButton
                 active={tab === "weekly"}
@@ -262,16 +258,14 @@ export function RecordsLayout({
                   open={highlightsOpen}
                   onOpenChange={setHighlightsOpen}
                   actions={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
+                    <ButtonUtility
+                      size="sm"
+                      color="tertiary"
+                      icon={Plus}
                       aria-label={m.records_add_highlight()}
-                      disabled={busy}
+                      isDisabled={busy}
                       onClick={() => void onCreateHighlight()}
-                    >
-                      <Plus aria-hidden="true" className="size-4" />
-                    </Button>
+                    />
                   }
                 >
                   {filteredHighlights.length === 0 ? null : (
@@ -297,15 +291,13 @@ export function RecordsLayout({
                   open={myReportsOpen}
                   onOpenChange={setMyReportsOpen}
                   actions={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
+                    <ButtonUtility
+                      size="sm"
+                      color="tertiary"
+                      icon={Plus}
                       aria-label={m.records_add_my_report()}
                       onClick={() => setCreateReportKind("member")}
-                    >
-                      <Plus aria-hidden="true" className="size-4" />
-                    </Button>
+                    />
                   }
                 >
                   {filteredMyReports.length === 0 ? null : (
@@ -331,15 +323,13 @@ export function RecordsLayout({
                   open={membersOpen}
                   onOpenChange={setMembersOpen}
                   actions={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
+                    <ButtonUtility
+                      size="sm"
+                      color="tertiary"
+                      icon={Plus}
                       aria-label={m.records_add_member_week()}
                       onClick={() => setCreateReportKind("template")}
-                    >
-                      <Plus aria-hidden="true" className="size-4" />
-                    </Button>
+                    />
                   }
                 >
                   {filteredMemberTemplates.length === 0 ? null : (
@@ -356,20 +346,24 @@ export function RecordsLayout({
                             <div
                               className={cn(
                                 "flex min-w-0 items-center gap-1 rounded-lg",
-                                selected && "ring-1 ring-ring",
+                                selected && "ring-1 ring-brand",
                               )}
                             >
                               {hasSubmissions ? (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon-xs"
+                                <ButtonUtility
+                                  size="xs"
+                                  color="tertiary"
+                                  icon={ChevronDown}
                                   className="size-7 shrink-0"
                                   aria-expanded={expanded}
                                   aria-label={
                                     expanded
-                                      ? m.records_collapse_week({ week: template.title })
-                                      : m.records_expand_week({ week: template.title })
+                                      ? m.records_collapse_week({
+                                          week: template.title,
+                                        })
+                                      : m.records_expand_week({
+                                          week: template.title,
+                                        })
                                   }
                                   onClick={() =>
                                     setExpandedTemplates((current) => ({
@@ -377,15 +371,7 @@ export function RecordsLayout({
                                       [template.id]: !expanded,
                                     }))
                                   }
-                                >
-                                  <ChevronDown
-                                    aria-hidden="true"
-                                    className={cn(
-                                      "size-4 transition-transform",
-                                      expanded && "rotate-180",
-                                    )}
-                                  />
-                                </Button>
+                                />
                               ) : (
                                 <span className="size-7 shrink-0" aria-hidden="true" />
                               )}
@@ -397,7 +383,7 @@ export function RecordsLayout({
                               >
                                 <span className="truncate font-medium">{template.title}</span>
                                 {template.latestTemplate && (
-                                  <span className="ml-auto shrink-0 rounded-full bg-brand/10 px-2 py-0.5 text-[11px] font-medium text-brand">
+                                  <span className="ml-auto shrink-0 rounded-full bg-brand-primary px-2 py-0.5 text-xs font-medium text-brand-secondary">
                                     {m.records_latest_template()}
                                   </span>
                                 )}
@@ -437,14 +423,14 @@ export function RecordsLayout({
                 </CollapsibleSection>
               </div>
             ) : filteredNotes.length === 0 ? (
-              <p className="px-1 py-6 text-sm text-muted-foreground">{m.records_notes_empty()}</p>
+              <p className="px-1 py-6 text-sm text-tertiary">{m.records_notes_empty()}</p>
             ) : (
               <ul className="space-y-0.5">
                 {filteredNotes.map((note) => (
                   <li key={note.id}>
                     <div className="rounded-lg px-2.5 py-2 text-sm">
                       <div className="font-medium">{note.title}</div>
-                      <div className="text-xs text-muted-foreground">{note.preview}</div>
+                      <div className="text-xs text-tertiary">{note.preview}</div>
                     </div>
                   </li>
                 ))}
@@ -452,58 +438,56 @@ export function RecordsLayout({
             )}
           </div>
 
-          <div className="border-t px-2 py-2">
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger
+          <div className="border-t border-secondary px-2 py-2">
+            <Dropdown.Root>
+              <ButtonUtility
+                size="sm"
+                color="tertiary"
+                icon={Settings}
                 aria-label={m.records_tools_menu()}
-                className={buttonVariants({
-                  variant: "ghost",
-                  size: "icon",
-                  className: "size-9 text-muted-foreground",
-                })}
-              >
-                <Settings aria-hidden="true" className="size-4" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" className="min-w-44">
-                <DropdownMenuItem
-                  onClick={() => {
-                    setShowMobileList(false);
-                    const now = new Date();
-                    void navigate({
-                      to: "/records/stats",
-                      search: (previous) => ({
-                        tab: recordsTabSearch(previous.tab),
-                        year: typeof previous.year === "number" ? previous.year : now.getFullYear(),
-                        month:
-                          typeof previous.month === "number" ? previous.month : now.getMonth() + 1,
-                      }),
-                    });
+              />
+              <Dropdown.Popover placement="top start" className="w-44">
+                <Dropdown.Menu
+                  onAction={(key) => {
+                    if (key === "stats") {
+                      setShowMobileList(false);
+                      const now = new Date();
+                      void navigate({
+                        to: "/records/stats",
+                        search: (previous) => ({
+                          tab: recordsTabSearch(previous.tab),
+                          year:
+                            typeof previous.year === "number" ? previous.year : now.getFullYear(),
+                          month:
+                            typeof previous.month === "number"
+                              ? previous.month
+                              : now.getMonth() + 1,
+                        }),
+                      });
+                    }
+                    if (key === "settings") {
+                      setShowMobileList(false);
+                      void navigate({
+                        to: "/records/settings",
+                        search: (previous) => ({
+                          tab: recordsTabSearch(previous.tab),
+                        }),
+                      });
+                    }
                   }}
                 >
-                  <LineChart aria-hidden="true" className="size-4" />
-                  {m.records_stats()}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    setShowMobileList(false);
-                    void navigate({
-                      to: "/records/settings",
-                      search: (previous) => ({ tab: recordsTabSearch(previous.tab) }),
-                    });
-                  }}
-                >
-                  <Settings aria-hidden="true" className="size-4" />
-                  {m.records_settings()}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  <Dropdown.Item id="stats" icon={LineChart} label={m.records_stats()} />
+                  <Dropdown.Item id="settings" icon={Settings} label={m.records_settings()} />
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown.Root>
           </div>
         </div>
       </nav>
 
       <section
         className={cn(
-          "min-w-0 flex-1 flex-col overflow-hidden bg-card md:flex md:rounded-xl md:border",
+          "min-w-0 flex-1 flex-col overflow-hidden bg-primary md:flex",
           listHidden ? "flex" : "hidden md:flex",
         )}
       >
@@ -538,17 +522,18 @@ function TabButton({
   return (
     <Button
       type="button"
-      variant="ghost"
+      size="sm"
+      color="tertiary"
       aria-pressed={active}
-      onClick={onClick}
+      onPress={onClick}
+      iconLeading={icon}
       className={cn(
-        "-mb-px h-auto rounded-none px-0.5 pb-2.5 hover:bg-transparent",
+        "-mb-px rounded-none px-0.5 pb-2.5",
         active
-          ? "border-b-2 border-foreground text-foreground hover:text-foreground"
-          : "border-b-2 border-transparent text-muted-foreground hover:text-foreground",
+          ? "border-b-2 border-primary text-primary"
+          : "border-b-2 border-transparent text-tertiary",
       )}
     >
-      {icon}
       {label}
     </Button>
   );
@@ -572,15 +557,18 @@ function CollapsibleSection({
       <div className="mb-1.5 flex items-center gap-1">
         <Button
           type="button"
-          variant="ghost"
+          size="xs"
+          color="tertiary"
           aria-expanded={open}
-          onClick={() => onOpenChange(!open)}
-          className="h-auto min-w-0 flex-1 justify-start gap-1 px-1 py-1 text-left text-xs font-semibold text-muted-foreground hover:bg-transparent hover:text-foreground"
+          onPress={() => onOpenChange(!open)}
+          iconLeading={
+            <ChevronDown
+              aria-hidden="true"
+              className={cn("size-3.5 transition-transform", open && "rotate-180")}
+            />
+          }
+          className="min-w-0 flex-1 justify-start px-1 text-left text-xs text-tertiary"
         >
-          <ChevronDown
-            aria-hidden="true"
-            className={cn("size-3.5 transition-transform", open && "rotate-180")}
-          />
           {title}
         </Button>
         {actions}
@@ -592,23 +580,20 @@ function CollapsibleSection({
 
 function TemplateActionsMenu({ title, onDelete }: { title: string; onDelete: () => void }) {
   return (
-    <DropdownMenu modal={false}>
-      <DropdownMenuTrigger
+    <Dropdown.Root>
+      <ButtonUtility
+        size="xs"
+        color="tertiary"
+        icon={DotsHorizontal}
         aria-label={`${m.records_week_actions()}: ${title}`}
-        className={buttonVariants({
-          variant: "ghost",
-          size: "icon-xs",
-          className: "size-7 shrink-0 text-muted-foreground",
-        })}
-      >
-        <DotsHorizontal aria-hidden="true" className="size-4" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-36">
-        <DropdownMenuItem variant="destructive" onClick={onDelete}>
-          {m.records_delete_week()}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        className="size-7 shrink-0"
+      />
+      <Dropdown.Popover placement="bottom end" className="w-40">
+        <Dropdown.Menu onAction={onDelete}>
+          <Dropdown.Item id="delete" label={m.records_delete_week()} />
+        </Dropdown.Menu>
+      </Dropdown.Popover>
+    </Dropdown.Root>
   );
 }
 
@@ -634,8 +619,8 @@ function RecordLink({
       resetScroll={false}
       onClick={onSelect}
       className={cn(
-        "flex min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-        selected && "bg-muted font-medium",
+        "flex min-w-0 items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-primary transition-colors hover:bg-primary_hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
+        selected && "bg-primary_hover font-medium",
         className,
       )}
     >
@@ -648,7 +633,7 @@ function WeekBadge({ week }: { week: number }) {
   return (
     <span
       aria-hidden="true"
-      className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand/15 text-xs font-semibold text-brand"
+      className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-primary text-xs font-semibold text-brand-secondary"
     >
       {week}
     </span>
@@ -659,18 +644,21 @@ export function BackToRecords() {
   const back = useContext(BackToRecordsContext);
   if (!back) return null;
   return (
-    <Button type="button" variant="ghost" size="icon" className="md:hidden" onClick={back}>
-      <span className="sr-only">{m.controls_back()}</span>
-      <ChevronLeft aria-hidden="true" className="size-4" />
-    </Button>
+    <ButtonUtility
+      size="sm"
+      color="tertiary"
+      icon={ChevronLeft}
+      className="md:hidden"
+      aria-label={m.controls_back()}
+      onClick={back}
+    />
   );
 }
 
 export function EmptyRecord() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-      <p className="text-base font-semibold">{m.records_empty_title()}</p>
-      <p className="max-w-sm text-sm text-muted-foreground">{m.records_empty_description()}</p>
+      <p className="text-base font-semibold text-primary">{m.records_empty_title()}</p>
     </div>
   );
 }

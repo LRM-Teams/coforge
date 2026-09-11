@@ -195,7 +195,6 @@ export function BlockMathView({ node, editor, getPos, updateAttributes }: NodeVi
   );
 }
 
-// react-doctor-disable-next-line react-doctor/only-export-components -- Tiptap extension exports stay with their NodeViews for ReactNodeViewRenderer.
 export const InlineMathExtension = Node.create({
   name: "inlineMath",
   group: "inline",
@@ -310,7 +309,6 @@ export const InlineMathExtension = Node.create({
   },
 });
 
-// react-doctor-disable-next-line react-doctor/only-export-components -- Tiptap extension exports stay with their NodeViews for ReactNodeViewRenderer.
 export const BlockMathExtension = Node.create({
   name: "blockMath",
   group: "block",

@@ -96,7 +96,7 @@ export function ComputerInstallCommand({
         <p className="text-sm font-medium">{m.computer_login_step()}</p>
         <p className="mt-1 text-sm text-tertiary">{m.computer_login_step_description()}</p>
         <div className="mt-4 flex items-center gap-2 rounded-xl bg-terminal p-4 text-sm text-terminal-fg">
-          <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap">{signInCommand}</code>
+          <code className="min-w-0 flex-1 break-all whitespace-pre-wrap">{signInCommand}</code>
           <ButtonUtility
             icon={loginCopied ? Check : Copy}
             size="sm"
@@ -118,7 +118,7 @@ export function ComputerInstallCommand({
             })}
           </p>
           <div className="mt-4 flex items-center gap-2 rounded-xl bg-terminal p-4 text-sm text-terminal-fg">
-            <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap">{joinCommand}</code>
+            <code className="min-w-0 flex-1 break-all whitespace-pre-wrap">{joinCommand}</code>
             <ButtonUtility
               icon={setupCopied ? Check : Copy}
               size="sm"

@@ -3,7 +3,10 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { DirectConversation } from "@/features/conversations/direct-conversation";
+import {
+  DirectConversation,
+  DirectConversationHeader,
+} from "@/features/conversations/direct-conversation";
 import {
   ConversationLoadError,
   ConversationPending,
@@ -13,6 +16,7 @@ import { createConversationReconciler } from "@/features/conversations/conversat
 import { useConversationRealtime } from "@/features/conversations/conversation-realtime-client";
 import { loadReminderNotices } from "@/features/conversations/reminder-notices.functions";
 import { TaskBoard } from "@/features/tasks/task-board";
+import { useTaskLayout } from "@/features/tasks/task-workflow";
 import { useConversationTasks } from "@/features/tasks/use-conversation-tasks";
 import {
   loadConversationAround,
@@ -45,6 +49,7 @@ function DirectConversationPage() {
   const { agentId } = Route.useParams();
   const agentStatus = useConversationAgentStatus(agentId);
   const { view, layout } = Route.useSearch();
+  const taskLayout = useTaskLayout(layout);
   const router = useRouter();
   const send = useServerFn(sendDirectConversationMessage);
   const markRead = useServerFn(markDirectThreadRead);
@@ -127,7 +132,15 @@ function DirectConversationPage() {
   if (view === "tasks")
     return (
       <TaskBoard
-        layout={layout ?? "board"}
+        header={
+          <DirectConversationHeader
+            conversation={conversation}
+            tasks={taskView.tasks}
+            active="tasks"
+            onShowChat={showChat}
+          />
+        }
+        layout={taskLayout}
         onLayoutChange={(nextLayout) =>
           void router.navigate({
             from: Route.fullPath,

@@ -198,9 +198,9 @@ export function activityToneClass(tone: Tone) {
     case "thinking":
       return "bg-amber-500";
     case "idle":
-      return "bg-success";
+      return "bg-success-solid";
     case "error":
-      return "bg-destructive";
+      return "bg-error-solid";
     case "output":
       return "bg-cyan-500";
     default:

@@ -13,11 +13,15 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowUp,
+  CheckSquare,
+  DotsHorizontal,
   LayoutLeft as PanelLeft,
   List,
   Loading01 as LoaderCircle,
   MessageSquare01 as MessageSquare,
   Paperclip,
+  Plus,
+  XClose,
 } from "@untitledui/icons";
 import { FileIcon } from "@untitledui/file-icons";
 import type { TaskView } from "@coforge/protocol";
@@ -36,7 +40,6 @@ import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { MobileNavigationButton } from "@/components/layout/sidebar/mobile-header";
-import { Toggle } from "@/components/base/toggle/toggle";
 import {
   Empty,
   EmptyHeader,
@@ -127,15 +130,26 @@ export type ThreadedConversationProps = Omit<ConversationProps, "conversation" |
   threadHeaderAction?: (rootMessageId: string) => React.ReactNode;
 };
 
-export function DirectConversation(props: ConversationProps) {
-  const { conversation } = props;
+export function DirectConversationHeader({
+  conversation,
+  tasks,
+  active,
+  onShowChat,
+  onShowTasks,
+}: {
+  conversation: DirectConversationView;
+  tasks?: TaskView[];
+  active: "chat" | "tasks";
+  onShowChat?: () => void;
+  onShowTasks?: () => void;
+}) {
   const activity = useConversationActivity(conversation.agent.id);
   const display = useConversationDisplay(conversation.agent.id);
   const displayLabel = agentDisplay(display).label;
   const channelSidebar = useChannelSidebarVisibility();
-  const header = (
+  return (
     <header className="shrink-0 border-b border-secondary px-3 sm:px-5">
-      <div className="-mx-3 flex h-12 items-center gap-2 px-3 sm:-mx-5 sm:gap-3 sm:px-5">
+      <div className="-mx-3 flex h-12 items-center gap-2 border-b border-secondary px-3 sm:-mx-5 sm:gap-3 sm:px-5">
         {channelSidebar.hidden && (
           <ButtonUtility
             icon={PanelLeft}
@@ -158,21 +172,33 @@ export function DirectConversation(props: ConversationProps) {
           @{conversation.agent.name}
         </span>
       </div>
-      {props.onShowTasks && (
+      {(onShowChat || onShowTasks) && (
         <div className="-mx-3 flex h-11 items-center px-3 sm:-mx-5 sm:px-5">
           <ConversationTaskTabs
-            active="chat"
-            taskCount={props.tasks?.length ?? 0}
-            onShowTasks={props.onShowTasks}
+            active={active}
+            taskCount={tasks?.length ?? 0}
+            onShowChat={onShowChat}
+            onShowTasks={onShowTasks}
           />
         </div>
       )}
     </header>
   );
+}
+
+export function DirectConversation(props: ConversationProps) {
+  const { conversation } = props;
   return (
     <ThreadedConversation
       {...props}
-      header={header}
+      header={
+        <DirectConversationHeader
+          conversation={conversation}
+          tasks={props.tasks}
+          active="chat"
+          onShowTasks={props.onShowTasks}
+        />
+      }
       emptyState={{
         title: m.conversation_empty_title({ name: conversation.agent.displayName }),
         description: m.conversation_empty_description(),
@@ -267,13 +293,24 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
               : label;
             return (
               <span className="relative inline-flex">
-                <ButtonUtility
-                  icon={MessageSquare}
-                  size="xs"
-                  color="tertiary"
-                  tooltip={accessibleLabel}
-                  onClick={() => openThread(message.id)}
-                />
+                <Dropdown.Root>
+                  <ButtonUtility
+                    icon={DotsHorizontal}
+                    size="sm"
+                    color="tertiary"
+                    aria-label={m.conversation_message_actions()}
+                  />
+                  <Dropdown.Popover placement="bottom end">
+                    <Dropdown.Menu>
+                      <Dropdown.Item
+                        id="reply"
+                        label={accessibleLabel}
+                        icon={MessageSquare}
+                        onAction={() => openThread(message.id)}
+                      />
+                    </Dropdown.Menu>
+                  </Dropdown.Popover>
+                </Dropdown.Root>
                 {unread > 0 && (
                   <span
                     aria-hidden="true"
@@ -420,6 +457,8 @@ export function ConversationPane({
   const [error, setError] = useState("");
   const [file, setFile] = useState<File>();
   const [asTask, setAsTask] = useState(false);
+  const [dateLocale, setDateLocale] = useState<string>();
+  useEffect(() => setDateLocale(getLocale()), []);
   const toast = useAppToast();
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [followingLatest, setFollowingLatest] = useState(true);
@@ -436,7 +475,9 @@ export function ConversationPane({
   const previousConversationIdRef = useRef<string | undefined>(undefined);
   const previousLastSequenceRef = useRef<number | undefined>(undefined);
   const sendingRef = useRef(false);
-  const retryRef = useRef<{ body: string; requestId: string } | undefined>(undefined);
+  const retryRef = useRef<{ body: string; requestId: string; asTask: boolean } | undefined>(
+    undefined,
+  );
   const loadingOlderRef = useRef(false);
   const loadingOwnMessagesRef = useRef(false);
   const olderScrollAnchorRef = useRef<{ height: number; top: number } | undefined>(undefined);
@@ -511,10 +552,26 @@ export function ConversationPane({
   }, [conversation.conversationId, lastSequence]);
 
   useLayoutEffect(() => {
+    const history = historyRef.current;
+    if (!history) return;
+    const observer = new ResizeObserver(() => {
+      if (followingLatestRef.current) scrollToLatest("instant");
+    });
+    observer.observe(history);
+    const messages = history.querySelector("ol");
+    if (messages) observer.observe(messages);
+    return () => observer.disconnect();
+  }, [conversation.conversationId, conversation.messages.length === 0]);
+
+  useLayoutEffect(() => {
     function scrollToMessageAnchor() {
       const anchor = window.location.hash.slice(1);
       if (!anchor.startsWith("message-")) return;
-      document.getElementById(anchor)?.scrollIntoView({ block: "center" });
+      const message = document.getElementById(anchor);
+      if (!message) return;
+      followingLatestRef.current = false;
+      setFollowingLatest(false);
+      message.scrollIntoView({ block: "center" });
     }
     scrollToMessageAnchor();
     window.addEventListener("hashchange", scrollToMessageAnchor);
@@ -636,11 +693,11 @@ export function ConversationPane({
 
   async function showMessage(messageId: string) {
     const index = conversation.messages.findIndex((message) => message.id === messageId);
+    followingLatestRef.current = false;
+    setFollowingLatest(false);
     if (index < 0) {
       if (!onLoadMessageAround) return;
       pendingMessageIdRef.current = messageId;
-      followingLatestRef.current = false;
-      setFollowingLatest(false);
       try {
         await onLoadMessageAround(messageId);
       } catch (cause) {
@@ -702,9 +759,9 @@ export function ConversationPane({
     setError("");
     try {
       const request =
-        retryRef.current?.body === text
+        retryRef.current?.body === text && retryRef.current.asTask === asTask
           ? retryRef.current
-          : { body: text, requestId: crypto.randomUUID() };
+          : { body: text, requestId: crypto.randomUUID(), asTask };
       retryRef.current = request;
       let attachmentId: string | undefined;
       if (file) {
@@ -794,9 +851,14 @@ export function ConversationPane({
                   <span className="text-sm font-semibold text-primary">
                     {isOwn(root) ? m.conversation_you() : root.senderName}
                   </span>
-                  <RelativeTime value={root.createdAt} plain className="text-xs text-tertiary" />
+                  <time
+                    dateTime={new Date(root.createdAt).toISOString()}
+                    className="text-xs text-tertiary tabular-nums"
+                  >
+                    {clockLabel(root.createdAt, dateLocale)}
+                  </time>
                 </p>
-                <div className="min-w-0 text-sm leading-6 whitespace-pre-wrap text-primary [overflow-wrap:anywhere]">
+                <div className="min-w-0 text-md leading-6 whitespace-pre-wrap text-primary [overflow-wrap:anywhere]">
                   {root.body}
                 </div>
                 {root.attachment && <AttachmentCard attachment={root.attachment} />}
@@ -860,9 +922,9 @@ export function ConversationPane({
                 const message = conversation.messages[index];
                 if (!message) return null;
                 const own = isOwn(message);
-                const day = dayLabel(message.createdAt);
+                const day = dayLabel(message.createdAt, dateLocale);
                 const previous = conversation.messages[index - 1];
-                const dayChanged = !previous || dayLabel(previous.createdAt) !== day;
+                const dayChanged = !previous || dayLabel(previous.createdAt, dateLocale) !== day;
                 const sameSender =
                   !dayChanged &&
                   previous !== undefined &&
@@ -889,7 +951,7 @@ export function ConversationPane({
                     {dayChanged && (
                       <div className="flex items-center gap-3 px-4 py-2 md:px-6">
                         <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
-                        <span className="shrink-0 bg-primary px-2 text-xs font-medium text-tertiary">
+                        <span className="shrink-0 bg-primary px-2 text-xs text-tertiary tabular-nums">
                           {day}
                         </span>
                         <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
@@ -905,11 +967,12 @@ export function ConversationPane({
                     >
                       <div className="flex w-9 shrink-0 items-start justify-center">
                         {grouped ? (
-                          <RelativeTime
-                            value={message.createdAt}
-                            plain
-                            className="mt-0.5 text-xs text-quaternary opacity-0 group-hover/message:opacity-100"
-                          />
+                          <time
+                            dateTime={new Date(message.createdAt).toISOString()}
+                            className="mt-0.5 text-xs text-quaternary tabular-nums opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100"
+                          >
+                            {clockLabel(message.createdAt, dateLocale)}
+                          </time>
                         ) : (
                           <Avatar
                             size="sm"
@@ -921,18 +984,24 @@ export function ConversationPane({
                       </div>
                       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                         {!grouped && (
-                          <p className="flex items-baseline gap-2">
-                            <span className="text-sm font-semibold text-primary">
+                          <p className="flex min-h-5 items-baseline gap-2 pr-8">
+                            <span className="min-w-0 truncate text-sm font-semibold text-primary">
                               {displayName}
                             </span>
-                            <RelativeTime
-                              value={message.createdAt}
-                              plain
-                              className="text-xs text-tertiary"
-                            />
+                            <time
+                              dateTime={new Date(message.createdAt).toISOString()}
+                              className="shrink-0 text-xs text-tertiary tabular-nums"
+                            >
+                              {clockLabel(message.createdAt, dateLocale)}
+                            </time>
                           </p>
                         )}
-                        <div className="min-w-0 text-sm leading-6 whitespace-pre-wrap text-primary [overflow-wrap:anywhere]">
+                        <div
+                          className={cn(
+                            "min-w-0 text-md leading-6 whitespace-pre-wrap text-primary [overflow-wrap:anywhere]",
+                            grouped && threadEntry && "pr-8",
+                          )}
+                        >
                           {message.body}
                         </div>
                         {message.attachment && <AttachmentCard attachment={message.attachment} />}
@@ -940,7 +1009,7 @@ export function ConversationPane({
                         {threadPreview?.(message)}
                       </div>
                       {threadEntry && (
-                        <div className="absolute top-1 right-3 flex items-center gap-0.5 rounded-md border border-secondary bg-primary p-0.5 opacity-0 shadow-xs transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 [@media(hover:none)]:opacity-100">
+                        <div className="absolute top-0.5 right-3 flex items-center opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 [@media(hover:none)]:opacity-100 [@media(any-pointer:coarse)]:opacity-100">
                           {threadEntry(message)}
                         </div>
                       )}
@@ -1098,14 +1167,14 @@ export function ConversationPane({
       {readOnlyNotice ?? (
         <form
           onSubmit={submit}
-          className="flex shrink-0 flex-col gap-2 border-t border-secondary px-4 py-3 focus-within:ring-1 focus-within:ring-brand md:px-6"
+          className="mx-3 mt-2 mb-3 flex shrink-0 flex-col gap-1 rounded-xl border border-primary bg-primary p-2 focus-within:ring-2 focus-within:ring-brand md:mx-6"
         >
           <label htmlFor={composerId} className="sr-only">
             {m.conversation_message_label()}
           </label>
           <textarea
             id={composerId}
-            rows={2}
+            rows={1}
             value={body}
             disabled={sending}
             onChange={(event) => {
@@ -1115,7 +1184,7 @@ export function ConversationPane({
             }}
             onKeyDown={keyDown}
             placeholder={m.conversation_message_placeholder()}
-            className="w-full resize-none bg-transparent text-sm leading-6 outline-none placeholder:text-placeholder disabled:opacity-50"
+            className="max-h-40 min-h-10 w-full resize-none bg-transparent px-2 py-1 text-md leading-6 outline-none [field-sizing:content] placeholder:text-placeholder disabled:opacity-50"
           />
           {file && (
             <p className="flex items-center gap-2 text-xs text-tertiary">
@@ -1143,15 +1212,43 @@ export function ConversationPane({
               {error}
             </p>
           )}
-          <div className="flex items-center gap-3">
-            <ButtonUtility
-              icon={Paperclip}
-              size="sm"
-              color="tertiary"
-              isDisabled={sending}
-              tooltip={m.conversation_attachment_label()}
-              onClick={() => fileInputRef.current?.click()}
-            />
+          <div className="flex items-center gap-2">
+            {!root && onCreateTask ? (
+              <Dropdown.Root>
+                <ButtonUtility
+                  icon={Plus}
+                  size="sm"
+                  color="tertiary"
+                  isDisabled={sending}
+                  aria-label={m.conversation_composer_actions()}
+                />
+                <Dropdown.Popover placement="top start">
+                  <Dropdown.Menu>
+                    <Dropdown.Item
+                      id="attachment"
+                      icon={Paperclip}
+                      label={m.conversation_attachment_label()}
+                      onAction={() => fileInputRef.current?.click()}
+                    />
+                    <Dropdown.Item
+                      id="task"
+                      icon={CheckSquare}
+                      label={m.tasks_as_task()}
+                      onAction={() => setAsTask(true)}
+                    />
+                  </Dropdown.Menu>
+                </Dropdown.Popover>
+              </Dropdown.Root>
+            ) : (
+              <ButtonUtility
+                icon={Paperclip}
+                size="sm"
+                color="tertiary"
+                isDisabled={sending}
+                tooltip={m.conversation_attachment_label()}
+                onClick={() => fileInputRef.current?.click()}
+              />
+            )}
             <input
               ref={fileInputRef}
               type="file"
@@ -1159,13 +1256,17 @@ export function ConversationPane({
               onChange={(event) => setFile(event.target.files?.[0])}
               className="sr-only"
             />
-            {!root && onCreateTask && (
-              <Toggle
-                size="sm"
-                label={m.tasks_as_task()}
-                isSelected={asTask}
-                onChange={setAsTask}
-              />
+            {!root && onCreateTask && asTask && (
+              <Button
+                color="secondary"
+                size="xs"
+                iconTrailing={XClose}
+                aria-pressed={true}
+                isDisabled={sending}
+                onPress={() => setAsTask(false)}
+              >
+                {m.tasks_as_task()}
+              </Button>
             )}
             <ButtonUtility
               type="submit"
@@ -1183,8 +1284,23 @@ export function ConversationPane({
   );
 }
 
-function dayLabel(value: Date | string): string {
-  return new Intl.DateTimeFormat(getLocale(), { dateStyle: "full" }).format(new Date(value));
+function dayLabel(value: Date | string, locale?: string): string {
+  // Keep server/first-client markup identical; browser locale and zone apply after mount.
+  if (!locale) return new Date(value).toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(value));
+}
+
+function clockLabel(value: Date | string, locale?: string): string {
+  if (!locale) return "";
+  return new Intl.DateTimeFormat(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(value));
 }
 
 function AttachmentCard({
@@ -1197,16 +1313,16 @@ function AttachmentCard({
       href={`/api/attachments/${attachment.id}`}
       target="_blank"
       rel="noreferrer"
-      className="mt-1 flex max-w-sm min-w-0 items-center gap-3 rounded-lg border border-secondary px-3 py-2 hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+      className="mt-1 flex w-fit max-w-full min-w-0 items-center gap-2 rounded-lg border border-secondary px-2.5 py-2 hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
     >
       <FileIcon
         aria-hidden="true"
         type={attachment.contentType || "empty"}
         variant="gray"
-        size={32}
+        size={24}
         className="shrink-0"
       />
-      <span className="flex min-w-0 flex-col">
+      <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
         <span className="truncate text-sm font-medium text-primary">{attachment.fileName}</span>
         <span className="text-xs text-tertiary">{Math.ceil(attachment.sizeBytes / 1024)} KB</span>
       </span>

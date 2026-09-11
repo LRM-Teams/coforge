@@ -16,15 +16,11 @@ import {
   Columns02 as SquareSplitVertical,
   ZoomIn,
 } from "@untitledui/icons";
+import { Button } from "@/components/base/buttons/button";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { cn } from "@/lib/utils";
 import { copyText } from "../lib/clipboard";
-import { Tooltip, TooltipTrigger, TooltipContent } from "../ui/tooltip";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
 import { useT } from "../i18n";
 import {
   INSERTABLE_CODE_BLOCK_LANGUAGES,
@@ -87,14 +83,8 @@ function stopToolbarBubble(event: ReactMouseEvent) {
   event.stopPropagation();
 }
 
-/** Keep the editor from stealing focus when choosing a menu item. */
-function preserveMenuFocus(event: ReactMouseEvent) {
-  event.preventDefault();
-  event.stopPropagation();
-}
-
 const iconButtonClass =
-  "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
+  "size-6 p-1 text-fg-quaternary hover:bg-primary_hover hover:text-fg-quaternary_hover";
 
 interface CodeBlockToolbarProps {
   language: string;
@@ -135,175 +125,141 @@ function CodeBlockToolbar({
   const currentLanguage = normalizeLanguage(language || "plaintext");
 
   return (
-    /* react-doctor-disable-next-line react-doctor/no-static-element-interactions -- mousedown stopPropagation only; keeps TipTap from stealing focus. Real actions are the buttons inside. */
     <div
       data-testid="code-block-toolbar"
-      className="code-block-toolbar flex items-center gap-0.5 rounded-lg border border-border bg-background p-0.5 shadow-sm"
+      className="code-block-toolbar flex items-center gap-0.5 rounded-lg border border-secondary bg-primary p-0.5 shadow-xs"
       onMouseDown={stopToolbarBubble}
     >
-      <DropdownMenu onOpenChange={onMenuOpenChange}>
-        <DropdownMenuTrigger
-          render={
-            <button
-              type="button"
-              data-testid="code-block-language"
-              aria-label={t(($) => $.code_block.language)}
-              className="flex h-6 items-center gap-1 rounded-md bg-muted px-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
-            />
-          }
+      <Dropdown.Root onOpenChange={onMenuOpenChange}>
+        <Button
+          size="xs"
+          color="tertiary"
+          data-testid="code-block-language"
+          aria-label={t(($) => $.code_block.language)}
+          className="h-6 gap-1 rounded-md bg-primary_hover px-2 py-0 text-xs text-quaternary"
         >
           <span className="select-none">{languageLabel(currentLanguage)}</span>
-          <ChevronDown className="h-3 w-3 opacity-70" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" onMouseDown={preserveMenuFocus}>
-          {INSERTABLE_CODE_BLOCK_LANGUAGES.map((item) => (
-            <DropdownMenuItem key={item} onClick={() => onLanguageChange(item)}>
-              {item === currentLanguage ? "✓ " : ""}
-              {LANGUAGE_LABELS[item]}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+          <ChevronDown className="size-3 opacity-70" />
+        </Button>
+        <Dropdown.Popover placement="bottom start" offset={4} className="w-40">
+          <Dropdown.Menu selectionMode="single" selectedKeys={[currentLanguage]}>
+            {INSERTABLE_CODE_BLOCK_LANGUAGES.map((item) => (
+              <Dropdown.Item
+                key={item}
+                id={item}
+                label={LANGUAGE_LABELS[item]}
+                onAction={() => onLanguageChange(item)}
+              />
+            ))}
+          </Dropdown.Menu>
+        </Dropdown.Popover>
+      </Dropdown.Root>
 
-      <div className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+      <div className="mx-0.5 h-4 w-px bg-border-secondary" aria-hidden />
 
       {isMermaid && (
-        <DropdownMenu onOpenChange={onMenuOpenChange}>
-          <DropdownMenuTrigger
-            render={
-              <button
-                type="button"
-                data-testid="code-block-mermaid-view"
-                className={iconButtonClass}
-                aria-label={t(($) => $.code_block.mermaid_view)}
+        <Dropdown.Root onOpenChange={onMenuOpenChange}>
+          <ButtonUtility
+            data-testid="code-block-mermaid-view"
+            color="tertiary"
+            size="xs"
+            className={iconButtonClass}
+            tooltip={t(($) => $.code_block.mermaid_view)}
+            icon={SquareSplitVertical}
+          />
+          <Dropdown.Popover placement="bottom end" offset={4} className="w-44">
+            <Dropdown.Menu selectionMode="single" selectedKeys={[mermaidView]}>
+              <Dropdown.Item
+                id="source"
+                label={t(($) => $.code_block.mermaid_source)}
+                onAction={() => onMermaidViewChange("source")}
               />
-            }
-          >
-            <SquareSplitVertical className="h-3.5 w-3.5" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" onMouseDown={preserveMenuFocus}>
-            <DropdownMenuItem onClick={() => onMermaidViewChange("source")}>
-              {mermaidView === "source" ? "✓ " : ""}
-              {t(($) => $.code_block.mermaid_source)}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onMermaidViewChange("diagram")}>
-              {mermaidView === "diagram" ? "✓ " : ""}
-              {t(($) => $.code_block.mermaid_diagram)}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onMermaidViewChange("both")}>
-              {mermaidView === "both" ? "✓ " : ""}
-              {t(($) => $.code_block.mermaid_both)}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <Dropdown.Item
+                id="diagram"
+                label={t(($) => $.code_block.mermaid_diagram)}
+                onAction={() => onMermaidViewChange("diagram")}
+              />
+              <Dropdown.Item
+                id="both"
+                label={t(($) => $.code_block.mermaid_both)}
+                onAction={() => onMermaidViewChange("both")}
+              />
+            </Dropdown.Menu>
+          </Dropdown.Popover>
+        </Dropdown.Root>
       )}
 
       {isMermaid && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                data-testid="code-block-mermaid-zoom"
-                onClick={onZoom}
-                disabled={!mermaidActionsEnabled}
-                className={cn(iconButtonClass, "disabled:pointer-events-none disabled:opacity-40")}
-                aria-label={t(($) => $.code_block.fullscreen)}
-              />
-            }
-          >
-            <ZoomIn className="h-3.5 w-3.5" />
-          </TooltipTrigger>
-          <TooltipContent side="top">{t(($) => $.code_block.fullscreen)}</TooltipContent>
-        </Tooltip>
+        <ButtonUtility
+          data-testid="code-block-mermaid-zoom"
+          onClick={onZoom}
+          isDisabled={!mermaidActionsEnabled}
+          color="tertiary"
+          size="xs"
+          className={iconButtonClass}
+          tooltip={t(($) => $.code_block.fullscreen)}
+          icon={ZoomIn}
+        />
       )}
 
       {isMermaid && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                data-testid="code-block-mermaid-download"
-                onClick={onDownload}
-                disabled={!mermaidActionsEnabled}
-                className={cn(iconButtonClass, "disabled:pointer-events-none disabled:opacity-40")}
-                aria-label={t(($) => $.code_block.download_diagram)}
-              />
-            }
-          >
-            <Download className="h-3.5 w-3.5" />
-          </TooltipTrigger>
-          <TooltipContent side="top">{t(($) => $.code_block.download_diagram)}</TooltipContent>
-        </Tooltip>
+        <ButtonUtility
+          data-testid="code-block-mermaid-download"
+          onClick={onDownload}
+          isDisabled={!mermaidActionsEnabled}
+          color="tertiary"
+          size="xs"
+          className={iconButtonClass}
+          tooltip={t(($) => $.code_block.download_diagram)}
+          icon={Download}
+        />
       )}
 
       {isHtml && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                onClick={onToggleHtmlView}
-                className={iconButtonClass}
-                aria-label={
-                  htmlView === "preview"
-                    ? t(($) => $.code_block.show_source)
-                    : t(($) => $.code_block.show_preview)
-                }
-              />
-            }
-          >
-            {htmlView === "preview" ? (
-              <CodeIcon className="h-3.5 w-3.5" />
-            ) : (
-              <Eye className="h-3.5 w-3.5" />
-            )}
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            {htmlView === "preview"
+        <ButtonUtility
+          onClick={onToggleHtmlView}
+          color="tertiary"
+          size="xs"
+          className={iconButtonClass}
+          tooltip={
+            htmlView === "preview"
               ? t(($) => $.code_block.show_source)
-              : t(($) => $.code_block.show_preview)}
-          </TooltipContent>
-        </Tooltip>
+              : t(($) => $.code_block.show_preview)
+          }
+          icon={htmlView === "preview" ? CodeIcon : Eye}
+        />
       )}
 
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              data-testid="code-block-copy"
-              onClick={onCopy}
-              className={iconButtonClass}
-              aria-label={t(($) => $.code_block.copy_code)}
-            />
-          }
-        >
-          {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-        </TooltipTrigger>
-        <TooltipContent side="top">{t(($) => $.code_block.copy_code)}</TooltipContent>
-      </Tooltip>
+      <ButtonUtility
+        data-testid="code-block-copy"
+        onClick={onCopy}
+        color="tertiary"
+        size="xs"
+        className={iconButtonClass}
+        tooltip={t(($) => $.code_block.copy_code)}
+        icon={copied ? Check : Copy}
+      />
 
-      <DropdownMenu onOpenChange={onMenuOpenChange}>
-        <DropdownMenuTrigger
-          render={
-            <button
-              type="button"
-              data-testid="code-block-more"
-              aria-label={t(($) => $.code_block.menu)}
-              className={iconButtonClass}
+      <Dropdown.Root onOpenChange={onMenuOpenChange}>
+        <ButtonUtility
+          data-testid="code-block-more"
+          color="tertiary"
+          size="xs"
+          className={iconButtonClass}
+          tooltip={t(($) => $.code_block.menu)}
+          icon={MoreHorizontal}
+        />
+        <Dropdown.Popover placement="bottom end" offset={4} className="w-36">
+          <Dropdown.Menu>
+            <Dropdown.Item
+              id="delete"
+              label={t(($) => $.code_block.delete)}
+              className="text-error-primary"
+              onAction={onDelete}
             />
-          }
-        >
-          <MoreHorizontal className="h-3.5 w-3.5" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" onMouseDown={preserveMenuFocus}>
-          <DropdownMenuItem variant="destructive" onClick={onDelete}>
-            {t(($) => $.code_block.delete)}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+          </Dropdown.Menu>
+        </Dropdown.Popover>
+      </Dropdown.Root>
     </div>
   );
 }
@@ -380,33 +336,22 @@ function CodeBlockView({ node, updateAttributes, deleteNode, editor, getPos }: N
     <NodeViewWrapper className="code-block-wrapper group/code relative my-2">
       <div
         className={cn(
-          "code-block-frame relative overflow-hidden rounded-md bg-muted",
+          "code-block-frame relative overflow-hidden rounded-md bg-primary_hover",
           isMermaid &&
             mermaidView === "diagram" &&
             !hasMermaidChart &&
             "code-block-frame-mermaid-diagram-only",
         )}
       >
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                data-testid="code-block-select"
-                className="absolute left-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-background hover:text-foreground group-hover/code:opacity-100 focus-visible:opacity-100"
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  selectCodeBlock();
-                }}
-                aria-label={t(($) => $.code_block.select_block)}
-              />
-            }
-          >
-            <GripVertical className="h-3.5 w-3.5" />
-          </TooltipTrigger>
-          <TooltipContent side="top">{t(($) => $.code_block.select_block)}</TooltipContent>
-        </Tooltip>
+        <ButtonUtility
+          data-testid="code-block-select"
+          color="tertiary"
+          size="xs"
+          className="absolute top-2 left-2 z-10 size-6 p-1 text-fg-quaternary opacity-0 transition-opacity hover:bg-primary hover:text-fg-quaternary_hover group-hover/code:opacity-100 focus-visible:opacity-100"
+          onClick={selectCodeBlock}
+          tooltip={t(($) => $.code_block.select_block)}
+          icon={GripVertical}
+        />
         {showMermaidDiagram && (
           <div contentEditable={false} className="mermaid-diagram-preview p-3">
             <MermaidDiagram ref={mermaidRef} chart={debouncedChart} showToolbar={false} />
@@ -462,8 +407,7 @@ function CodeBlockView({ node, updateAttributes, deleteNode, editor, getPos }: N
           )}
           aria-hidden={hideSource ? "true" : undefined}
         >
-          {/* @ts-expect-error -- NodeViewContent supports as="code" at runtime */}
-          <NodeViewContent as="code" />
+          <NodeViewContent<"code"> as="code" />
         </pre>
       </div>
     </NodeViewWrapper>
@@ -471,7 +415,6 @@ function CodeBlockView({ node, updateAttributes, deleteNode, editor, getPos }: N
 }
 
 export { CodeBlockView };
-// react-doctor-disable-next-line react-doctor/only-export-components -- toolbar + label helpers are unit-tested beside the NodeView that owns them.
 export { CodeBlockToolbar, languageLabel };
 export type { CodeLanguage };
 export type { MermaidViewMode } from "./code-block-fence";

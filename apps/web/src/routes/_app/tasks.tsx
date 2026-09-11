@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { TaskOverview } from "@/features/tasks/task-overview";
+import { useTaskLayout } from "@/features/tasks/task-workflow";
 import { executeTask, loadTaskOverview } from "@/features/tasks/tasks.functions";
 import { m } from "@/paraglide/messages";
 
@@ -33,6 +34,7 @@ function TasksPage() {
   scope.current = initial;
   useEffect(() => setData(initial), [initial]);
   const { status, layout } = Route.useSearch();
+  const taskLayout = useTaskLayout(layout);
   const navigate = useNavigate({ from: Route.fullPath });
   const execute = useServerFn(executeTask);
   const load = useServerFn(loadTaskOverview);
@@ -40,7 +42,7 @@ function TasksPage() {
     <TaskOverview
       tasks={data.tasks}
       status={status}
-      layout={layout ?? "board"}
+      layout={taskLayout}
       onStatusChange={(nextStatus) =>
         void navigate({ search: (previous) => ({ ...previous, status: nextStatus }) })
       }

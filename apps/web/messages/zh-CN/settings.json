@@ -54,6 +54,6 @@
   "notifications_home_screen_add": "选择“添加到主屏幕”。",
   "notifications_home_screen_open": "从主屏幕上的新图标打开 CoForge，然后返回此处开启通知。",
   "settings_save_error": "偏好设置保存失败，请重试。",
-  "preferences_rail_labels": "侧栏显示文字",
-  "preferences_rail_labels_hint": "图标下方的文字。关闭后只显示图标。"
+  "preferences_sidebar": "侧栏",
+  "preferences_rail_labels": "侧栏显示文字"
 }

@@ -8,7 +8,6 @@ import {
 import { useState } from "react";
 
 import { Button } from "@/components/base/buttons/button";
-import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import { ConversationTaskTabs } from "./conversation-task-tabs";
 import { CreateTaskDialog } from "./create-task-dialog";
@@ -244,11 +243,7 @@ function TaskAction({
 
 export function TaskBadge({ task }: { task: TaskView }) {
   return (
-    <span
-      className={cn(
-        "mt-2 inline-flex items-center gap-1 rounded-md border border-secondary bg-primary px-2 py-1 text-xs text-tertiary",
-      )}
-    >
+    <span className="mt-1 inline-flex flex-wrap items-center gap-1 text-xs text-tertiary">
       #{task.number} · {statusLabel(task.status)} · {task.owner?.name ?? m.tasks_unassigned()}
     </span>
   );

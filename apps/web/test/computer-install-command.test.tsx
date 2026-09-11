@@ -1,4 +1,8 @@
+import "./dom-setup";
+
 import { expect, test } from "bun:test";
+import { render } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { ComputerInstallCommand } from "@/features/computers/computer-install-command";
@@ -13,6 +17,30 @@ test("renders both the install command and the Workspace setup command", () => {
 
   expect(markup).toContain("curl -fsSL https://staging.coforge.cn/computer/install.sh | sh");
   expect(markup).toContain("coforge-computer setup --workspace acme-inc");
+});
+
+test("copies complete commands for both operating systems and a long Workspace slug", async () => {
+  const user = userEvent.setup({ document });
+  const workspaceSlug = "a-very-long-workspace-slug-that-must-remain-fully-readable-on-mobile";
+  const page = render(
+    <ComputerInstallCommand installOrigin={installOrigin} workspaceSlug={workspaceSlug} />,
+  );
+
+  await user.click(page.getByRole("button", { name: "Copy install command" }));
+  expect(await navigator.clipboard.readText()).toBe(
+    "curl -fsSL https://staging.coforge.cn/computer/install.sh | sh",
+  );
+  await user.click(page.getByRole("button", { name: "Windows" }));
+  await user.click(page.getByRole("button", { name: "Copy install command" }));
+  expect(await navigator.clipboard.readText()).toBe(
+    "irm https://staging.coforge.cn/computer/install.ps1 | iex",
+  );
+  await user.click(page.getByRole("button", { name: "Copy sign-in command" }));
+  expect(await navigator.clipboard.readText()).toBe("coforge-computer login");
+  await user.click(page.getByRole("button", { name: "Copy setup command" }));
+  expect(await navigator.clipboard.readText()).toBe(
+    `coforge-computer setup --workspace ${workspaceSlug}`,
+  );
 });
 
 test("names the current Workspace in the setup step's description", () => {

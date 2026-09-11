@@ -6,6 +6,7 @@
  */
 
 import { Trash01 as Trash2 } from "@untitledui/icons";
+import { Button as AriaButton } from "react-aria-components";
 import { cn } from "@/lib/utils";
 import { isAllowedFileCardHref } from "./utils/file-cards";
 
@@ -44,7 +45,7 @@ export function Attachment({
     return (
       <div
         className={cn(
-          "flex items-center gap-2 rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground",
+          "flex items-center gap-2 rounded-md border border-dashed border-secondary px-3 py-2 text-xs text-tertiary",
           asImage && "image-node",
         )}
         data-uploading=""
@@ -56,9 +57,10 @@ export function Attachment({
 
   if (asImage) {
     return (
-      <div className={cn("image-node group relative inline-block", selected && "ring-2 ring-ring")}>
+      <div
+        className={cn("image-node group relative inline-block", selected && "ring-2 ring-brand")}
+      >
         <figure className="image-figure m-0">
-          {/* eslint-disable-next-line @next/next/no-img-element -- TipTap inline image */}
           <img
             src={url}
             alt={filename || ""}
@@ -69,9 +71,9 @@ export function Attachment({
           />
         </figure>
         {editable && onDelete ? (
-          <button
+          <AriaButton
             type="button"
-            className="absolute top-2 right-2 rounded-md bg-background/90 p-1 opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
+            className="absolute top-2 right-2 rounded-md bg-primary p-1 text-fg-quaternary opacity-0 shadow-sm transition-opacity group-hover:opacity-100 hover:text-fg-quaternary_hover"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -80,7 +82,7 @@ export function Attachment({
             aria-label="Remove image"
           >
             <Trash2 className="size-3.5" />
-          </button>
+          </AriaButton>
         ) : null}
       </div>
     );
@@ -91,8 +93,8 @@ export function Attachment({
   return (
     <div
       className={cn(
-        "file-card group flex items-center gap-3 rounded-md border border-border bg-muted/30 px-3 py-2",
-        selected && "ring-2 ring-ring",
+        "file-card group flex items-center gap-3 rounded-md border border-secondary bg-secondary px-3 py-2",
+        selected && "ring-2 ring-brand",
       )}
     >
       <div className="min-w-0 flex-1">
@@ -101,7 +103,7 @@ export function Attachment({
             href={safeHref}
             target="_blank"
             rel="noopener noreferrer"
-            className="truncate text-sm font-medium text-foreground underline-offset-2 hover:underline"
+            className="truncate text-sm font-medium text-primary underline-offset-2 hover:underline"
             onClick={(e) => e.stopPropagation()}
           >
             {filename || "file"}
@@ -111,9 +113,9 @@ export function Attachment({
         )}
       </div>
       {editable && onDelete ? (
-        <button
+        <AriaButton
           type="button"
-          className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-muted"
+          className="rounded-md p-1 text-fg-quaternary opacity-0 transition-opacity group-hover:opacity-100 hover:bg-primary_hover hover:text-fg-quaternary_hover"
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -122,7 +124,7 @@ export function Attachment({
           aria-label="Remove file"
         >
           <Trash2 className="size-3.5" />
-        </button>
+        </AriaButton>
       ) : null}
     </div>
   );
