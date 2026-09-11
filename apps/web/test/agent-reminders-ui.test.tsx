@@ -45,7 +45,7 @@ test("renders the full reminder text, exact schedule, and readable recurrence vi
   expect(title.closest("li")).toBeTruthy();
   expect(title.textContent).toBe("Review launch notes\nKeep the rollout checklist intact");
   expect(page.getByText("Daily at 09:30")).toBeTruthy();
-  expect(page.getByText(/Sep 10, 2026.*10:00 AM/)).toBeTruthy();
+  expect(await page.findByText(/Sep 10, 2026.*10:00 AM/)).toBeTruthy();
   expect(page.getByText("#launch")).toBeTruthy();
   expect(page.queryByText(/Next:/)).toBeNull();
   expect(page.queryByText(/Recurrence:/)).toBeNull();
