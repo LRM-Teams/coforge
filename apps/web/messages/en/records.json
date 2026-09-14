@@ -103,6 +103,7 @@
   "records_template_body_label": "Body",
   "records_template_body_placeholder": "Body text",
   "records_template_delete_body": "Delete body",
+  "records_template_reorder_row": "Drag to reorder row",
   "records_template_select_dimension": "Added display pages",
   "records_template_main_title": "Main title",
   "records_template_main_title_placeholder": "Enter a main title",

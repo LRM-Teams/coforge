@@ -339,7 +339,16 @@ export function RecordsLayout({
                                 <ButtonUtility
                                   size="xs"
                                   color="tertiary"
-                                  icon={ChevronDown}
+                                  icon={
+                                    <ChevronDown
+                                      aria-hidden="true"
+                                      data-icon
+                                      className={cn(
+                                        "size-4 transition-transform",
+                                        expanded && "rotate-180",
+                                      )}
+                                    />
+                                  }
                                   className="size-7 shrink-0"
                                   aria-expanded={expanded}
                                   aria-label={
