@@ -252,6 +252,50 @@ test("installed Computer creates an Agent through Web and persists its real repl
       "screenshot",
       resolve(import.meta.dir, "../../.amp/in/artifacts/native-browser-task-done.png"),
     );
+    console.log("native_browser:agent_create_task");
+    const agentTaskTitle = `FOLLOWUP_${crypto.randomUUID()}`;
+    await click("button", "Chat");
+    await browser("wait", "--fn", "document.querySelector('textarea')?.disabled === false");
+    await browser(
+      "find",
+      "role",
+      "textbox",
+      "fill",
+      "--name",
+      "Message",
+      "--exact",
+      `Plan one new follow-up subtask: create a new task titled exactly ${agentTaskTitle}, assign it to yourself, then execute it by writing agent-created.txt containing agent created task. Submit that subtask for review. Keep the new subtask separate from this planning request.`,
+    );
+    await click("button", "Send");
+    const agentTaskMessage = `Array.from(document.querySelectorAll('[data-message-id]')).some(row => row.querySelector('[data-message="other"]') && row.textContent.includes(${JSON.stringify(name)}) && Array.from(row.querySelectorAll('div')).some(e => e.textContent.trim() === ${JSON.stringify(agentTaskTitle)}))`;
+    // A converted human request or a card alone does not prove Agent-originated creation.
+    await browser("wait", "--fn", agentTaskMessage, "--timeout", "180000");
+    expect(JSON.parse(await browser("eval", agentTaskMessage))).toBe(true);
+    const agentTaskMessageId: string = JSON.parse(
+      await browser(
+        "eval",
+        `Array.from(document.querySelectorAll('[data-message-id]')).find(row => row.querySelector('[data-message="other"]') && Array.from(row.querySelectorAll('div')).some(e => e.textContent.trim() === ${JSON.stringify(agentTaskTitle)})).getAttribute('data-message-id')`,
+      ),
+    );
+    await browser("click", 'nav[aria-label="Chat / Tasks"] button:last-child');
+    const agentTaskReviewed = `Array.from(document.querySelectorAll('section[aria-label="In review"] article')).some(e => e.textContent.includes(${JSON.stringify(agentTaskTitle)}) && e.textContent.includes(${JSON.stringify(name)}))`;
+    await browser("wait", "--fn", agentTaskReviewed, "--timeout", "180000");
+    expect(JSON.parse(await browser("eval", agentTaskReviewed))).toBe(true);
+    await browser("reload");
+    await browser("wait", "--fn", agentTaskReviewed);
+    expect(JSON.parse(await browser("eval", agentTaskReviewed))).toBe(true);
+    expect(JSON.parse(await browser("eval", taskDone))).toBe(true);
+    await browser(
+      "screenshot",
+      resolve(import.meta.dir, "../../.amp/in/artifacts/native-browser-agent-task.png"),
+    );
+    await browser("find", "role", "button", "click", "--name", agentTaskTitle);
+    await browser(
+      "wait",
+      "--fn",
+      `location.hash === ${JSON.stringify(`#message-${agentTaskMessageId}`)}`,
+    );
+    expect(JSON.parse(await browser("eval", agentTaskMessage))).toBe(true);
     console.log(
       JSON.stringify({
         event: "native_browser:passed",
@@ -261,6 +305,7 @@ test("installed Computer creates an Agent through Web and persists its real repl
         attachmentReplyPersisted: true,
         taskReviewPersisted: true,
         taskDonePersisted: true,
+        agentCreatedTaskPersisted: true,
       }),
     );
   } catch (error) {
@@ -281,4 +326,4 @@ test("installed Computer creates an Agent through Web and persists its real repl
       console.error("native_browser:cleanup_failed", cleanupError);
     });
   }
-}, 660_000);
+}, 900_000);

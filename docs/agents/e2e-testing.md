@@ -211,6 +211,23 @@ The final combined run passed on 2026-09-14: **1 pass, 0 fail, 20 assertions**,
 is `.amp/in/artifacts/native-browser-task-done.png`; the card truncates the owner
 visually, while the DOM assertion checks the full name.
 
+Agent-originated creation is now a separate phase in the same real conversation.
+The human asks for a new follow-up subtask with a unique `FOLLOWUP_...` title,
+self-assignment, execution, and submission for review. The test requires a new
+Agent-authored message with that exact title, then the matching Agent-owned card
+in In review before and after reload. Clicking that card must navigate to the
+same Agent-authored message ID; converting the human request cannot satisfy this.
+The earlier Done task must remain Done. On 2026-09-14 the final combined run
+passed: **1 pass, 0 fail, 25 assertions**, 45.60 seconds, with real OpenRouter
+DeepSeek V4.1 Flash. Native session inspection also confirmed `coforge task create`
+with the exact new title and the Agent's own handle. This remains a human-requested
+Agent-created subtask, not evidence of unsolicited autonomous task planning.
+
+Keep diagnostics out of the running test's browser session. A manual command
+without the harness's session flags disturbed an earlier run and produced an
+empty page; that run is not a product failure or a passing E2E. Inspect retained
+logs or use a separate browser session instead.
+
 For future recovery coverage, do not substitute intentional Agent Stop for a
 Daemon disconnection: Stop revokes capabilities and removes restart configuration.
 Likewise, the Web channel mute control changes the human's membership, not the
