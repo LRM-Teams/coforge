@@ -195,15 +195,16 @@ export function RecordsLayout({
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
             {tab === "weekly" ? (
               <div className="space-y-5">
-                {catalog.currentWeekTemplate ? (
-                  <CurrentWeekTemplateSlot
-                    template={catalog.currentWeekTemplate}
-                    appliedSchedule={catalog.appliedSchedule}
-                    alreadySentThisWeek={catalog.alreadySentThisWeek}
-                    selected={catalog.currentWeekTemplate.id === selectedRecordId}
-                    onSelect={() => setShowMobileList(false)}
-                  />
-                ) : null}
+                <CurrentWeekTemplateSlot
+                  template={catalog.currentWeekTemplate}
+                  appliedSchedule={catalog.appliedSchedule}
+                  alreadySentThisWeek={catalog.alreadySentThisWeek}
+                  selected={
+                    catalog.currentWeekTemplate.interactive &&
+                    catalog.currentWeekTemplate.id === selectedRecordId
+                  }
+                  onSelect={() => setShowMobileList(false)}
+                />
 
                 <CollapsibleSection
                   title={m.records_section_favorites()}
@@ -479,7 +480,7 @@ function CurrentWeekTemplateSlot({
   selected,
   onSelect,
 }: {
-  template: NonNullable<RecordsCatalog["currentWeekTemplate"]>;
+  template: RecordsCatalog["currentWeekTemplate"];
   appliedSchedule: RecordsCatalog["appliedSchedule"];
   alreadySentThisWeek: boolean;
   selected: boolean;
@@ -488,21 +489,22 @@ function CurrentWeekTemplateSlot({
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
-    if (!appliedSchedule || alreadySentThisWeek) return;
+    if (!template.interactive || !appliedSchedule || alreadySentThisWeek) return;
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
-  }, [appliedSchedule, alreadySentThisWeek]);
+  }, [template.interactive, appliedSchedule, alreadySentThisWeek]);
 
-  const sendArmed = appliedSchedule
-    ? isWeeklySendArmed({
-        applied: true,
-        alreadySent: alreadySentThisWeek,
-        sendWeekday: appliedSchedule.sendWeekday,
-        sendTime: appliedSchedule.sendTime,
-        scheduleEnabled: appliedSchedule.scheduleEnabled,
-        now,
-      })
-    : false;
+  const sendArmed =
+    template.interactive && appliedSchedule
+      ? isWeeklySendArmed({
+          applied: true,
+          alreadySent: alreadySentThisWeek,
+          sendWeekday: appliedSchedule.sendWeekday,
+          sendTime: appliedSchedule.sendTime,
+          scheduleEnabled: appliedSchedule.scheduleEnabled,
+          now,
+        })
+      : false;
 
   const windowRange =
     sendArmed && appliedSchedule
@@ -515,22 +517,8 @@ function CurrentWeekTemplateSlot({
       : null;
   const remainingMs = windowRange ? Math.max(0, windowRange.end.getTime() - now.getTime()) : 0;
 
-  return (
-    <Link
-      to="/records/$recordId"
-      params={{ recordId: template.id }}
-      search={(previous) => ({ tab: recordsTabSearch(previous.tab) })}
-      aria-current={selected ? "page" : undefined}
-      resetScroll={false}
-      onClick={onSelect}
-      className={cn(
-        "flex min-h-10 items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
-        sendArmed
-          ? "bg-brand-primary text-brand-secondary"
-          : "bg-secondary text-tertiary hover:bg-secondary_hover",
-        selected && sendArmed && "ring-1 ring-brand",
-      )}
-    >
+  const label = (
+    <>
       <span className="truncate">
         {m.records_current_week_template({
           year: template.year,
@@ -540,6 +528,43 @@ function CurrentWeekTemplateSlot({
       {sendArmed ? (
         <span className="shrink-0 tabular-nums">{formatSendWindowCountdown(remainingMs)}</span>
       ) : null}
+    </>
+  );
+
+  const chipClassName = cn(
+    "flex min-h-10 w-full items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors",
+    sendArmed
+      ? "bg-brand-primary text-brand-secondary"
+      : "bg-secondary text-tertiary",
+    template.interactive && !sendArmed && "hover:bg-secondary_hover",
+    !template.interactive && "cursor-not-allowed opacity-60",
+    selected && sendArmed && "ring-1 ring-brand",
+  );
+
+  if (!template.interactive || !template.id) {
+    return (
+      <div
+        role="status"
+        aria-disabled="true"
+        className={chipClassName}
+        title={m.records_current_week_template_disabled()}
+      >
+        {label}
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      to="/records/$recordId"
+      params={{ recordId: template.id }}
+      search={(previous) => ({ tab: recordsTabSearch(previous.tab) })}
+      aria-current={selected ? "page" : undefined}
+      resetScroll={false}
+      onClick={onSelect}
+      className={cn(chipClassName, "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand")}
+    >
+      {label}
     </Link>
   );
 }

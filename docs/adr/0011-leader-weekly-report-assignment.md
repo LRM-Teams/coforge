@@ -17,7 +17,9 @@ matches the product.
 
 1. **Leader weekly parent**: Each scheduled or manual send creates a **new**
    template-kind `WeeklyReport` parent under「成员周报」for that week (format /
-   outline owned by the Leader).
+   outline owned by the Leader). Catalog listing and send settings are **per
+   User**, not Workspace-shared: each Leader only sees and manages their own
+   format chip, sent-week overviews, and `WeeklyReportTemplate` rows.
 2. **Assignment title**: The member-facing document title is
    `{memberDisplayName}的周报 · W{week}` (member’s name + week number).
 3. **Member inbox**: On send, each recipient gets a node under「我的周报」with an
@@ -27,9 +29,11 @@ matches the product.
 4. **Child visibility**: Submissions appear under the Leader parent (sidebar and
    overview) **only after** the member has submitted (`submitted` / `shared`).
    Leaders do **not** pre-create children via “+”. After submit, the member can
-   also see their own submission under that parent in「成员周报」. Leader review
-   of that submission is read-only: the body cannot be edited, and send/delete
-   stay with the author.
+   open that parent and see **only their own** submission; other Leaders’ trees
+   stay private. Direct subject reads allow the assignment author or the parent
+   template author; unrelated Workspace members get not-found. Leader review of
+   a submission is read-only: the body cannot be edited, and send/delete stay
+   with the author.
 5. **Delivery**: After a successful Leader send, Web/backend posts **one**
    best-effort message to Workspace `#general` as the Leader (body names the
    sender and week; members still use「我的周报」as the inbox). Channel failure
@@ -37,16 +41,21 @@ matches the product.
    follow-ups. Channel notice wiring is best-effort and is skipped when
    Centrifugo is not configured; missing realtime config must not block send.
 6. **Send settings**: Exactly zero or one `WeeklyReportTemplate` may be
-   `applied`. Leader「发送给成员」requires an applied row **and** the current
-   send window (applied weekday; with periodic send the whole send day, otherwise
-   from sendTime through midnight, `Asia/Shanghai`); with none applied, after this week's send, or outside the
-   window the button is disabled. The live format template chip turns purple with
-   a countdown on the send day before this week's send; after manual or scheduled
-   send it grays out (same arming as「发送给成员」). Each sent week’s overview
-   stays under「成员周报」as a separate node. `scheduleEnabled` (edited in the
-   template dialog) permits periodic send when also applied. Cron calls
-   `POST /api/internal/weekly-report-schedule` with
-   `x-coforge-weekly-report-cron-secret`.
+   `applied` **per owner** (`ownerId`) within a Workspace. Leader「发送给成员」
+   requires that owner’s applied row **and** the current send window (applied
+   weekday; with periodic send the whole send day, otherwise from sendTime
+   through midnight, `Asia/Shanghai`); with none applied, after this week's
+   send, or outside the window the button is disabled. The live format template
+   chip turns purple with a countdown on the send day before this week's send;
+   after manual or scheduled send it grays out (same arming as「发送给成员」).
+   Each sent week’s overview stays under「成员周报」as a separate node for that
+   Leader. Applying a settings row also ensures the Leader has a personal live
+   format document for the top chip; with no applied settings the chip still
+   renders for the current ISO week but is grayed out and not clickable.
+   `scheduleEnabled` (edited in the template dialog) permits periodic
+   send when also applied. Cron calls `POST /api/internal/weekly-report-schedule`
+   with `x-coforge-weekly-report-cron-secret`, and runs each due applied row as
+   its `ownerId`.
 
 ## Slice plan (implementation order)
 
@@ -84,5 +93,7 @@ matches the product.
   `submitted` on the same row (overwrite).
 - Schema or Message integration for schedule/delivery may need Frank’s gate when
   those slices add columns or wire protocol. This slice adds `applied`,
-  `scheduleEnabled`, and `sendWeekday` on `WeeklyReportTemplate`, plus an
-  internal cron HTTP route (not a durable job system).
+  `scheduleEnabled`, `sendWeekday`, and per-user `ownerId` on
+  `WeeklyReportTemplate`, plus an internal cron HTTP route (not a durable job
+  system). Send settings, format templates, and「成员周报」trees are private to
+  each User within a Workspace.
