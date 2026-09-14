@@ -48,6 +48,7 @@ import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/att
 import { Route as ApiInternalCentrifugoRouteImport } from './routes/api/internal/centrifugo'
 import { Route as ApiInternalCentrifugoAgentActivityRouteImport } from './routes/api/internal/centrifugo-agent-activity'
 import { Route as ApiInternalCentrifugoConnectRouteImport } from './routes/api/internal/centrifugo-connect'
+import { Route as ApiInternalWeeklyReportScheduleRouteImport } from './routes/api/internal/weekly-report-schedule'
 import { Route as ApiMeAvatarRouteImport } from './routes/api/me/avatar'
 import { Route as ApiWorkspacesSlugRouteImport } from './routes/api/workspaces.$slug'
 import { Route as AppMessagesChannelsChannelIdRouteImport } from './routes/_app/messages.channels.$channelId'
@@ -254,6 +255,12 @@ const ApiInternalCentrifugoConnectRoute =
     path: '/api/internal/centrifugo-connect',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiInternalWeeklyReportScheduleRoute =
+  ApiInternalWeeklyReportScheduleRouteImport.update({
+    id: '/api/internal/weekly-report-schedule',
+    path: '/api/internal/weekly-report-schedule',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiMeAvatarRoute = ApiMeAvatarRouteImport.update({
   id: '/avatar',
   path: '/avatar',
@@ -323,6 +330,7 @@ export interface FileRoutesByFullPath {
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
   '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
+  '/api/internal/weekly-report-schedule': typeof ApiInternalWeeklyReportScheduleRoute
   '/api/me/avatar': typeof ApiMeAvatarRoute
   '/api/workspaces/$slug': typeof ApiWorkspacesSlugRoute
   '/agents/': typeof AppAgentsIndexRoute
@@ -366,6 +374,7 @@ export interface FileRoutesByTo {
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
   '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
+  '/api/internal/weekly-report-schedule': typeof ApiInternalWeeklyReportScheduleRoute
   '/api/me/avatar': typeof ApiMeAvatarRoute
   '/api/workspaces/$slug': typeof ApiWorkspacesSlugRoute
   '/agents': typeof AppAgentsIndexRoute
@@ -414,6 +423,7 @@ export interface FileRoutesById {
   '/api/internal/centrifugo': typeof ApiInternalCentrifugoRoute
   '/api/internal/centrifugo-agent-activity': typeof ApiInternalCentrifugoAgentActivityRoute
   '/api/internal/centrifugo-connect': typeof ApiInternalCentrifugoConnectRoute
+  '/api/internal/weekly-report-schedule': typeof ApiInternalWeeklyReportScheduleRoute
   '/api/me/avatar': typeof ApiMeAvatarRoute
   '/api/workspaces/$slug': typeof ApiWorkspacesSlugRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
@@ -462,6 +472,7 @@ export interface FileRouteTypes {
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
     | '/api/internal/centrifugo-connect'
+    | '/api/internal/weekly-report-schedule'
     | '/api/me/avatar'
     | '/api/workspaces/$slug'
     | '/agents/'
@@ -505,6 +516,7 @@ export interface FileRouteTypes {
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
     | '/api/internal/centrifugo-connect'
+    | '/api/internal/weekly-report-schedule'
     | '/api/me/avatar'
     | '/api/workspaces/$slug'
     | '/agents'
@@ -552,6 +564,7 @@ export interface FileRouteTypes {
     | '/api/internal/centrifugo'
     | '/api/internal/centrifugo-agent-activity'
     | '/api/internal/centrifugo-connect'
+    | '/api/internal/weekly-report-schedule'
     | '/api/me/avatar'
     | '/api/workspaces/$slug'
     | '/_app/agents/'
@@ -588,6 +601,7 @@ export interface RootRouteChildren {
   ApiInternalCentrifugoRoute: typeof ApiInternalCentrifugoRoute
   ApiInternalCentrifugoAgentActivityRoute: typeof ApiInternalCentrifugoAgentActivityRoute
   ApiInternalCentrifugoConnectRoute: typeof ApiInternalCentrifugoConnectRoute
+  ApiInternalWeeklyReportScheduleRoute: typeof ApiInternalWeeklyReportScheduleRoute
   ApiWorkspacesSlugRoute: typeof ApiWorkspacesSlugRoute
   ApiAgentAttachmentsAttachmentIdRoute: typeof ApiAgentAttachmentsAttachmentIdRoute
   ApiComputersComputerIdCreatorAvatarRoute: typeof ApiComputersComputerIdCreatorAvatarRoute
@@ -869,6 +883,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiInternalCentrifugoConnectRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/internal/weekly-report-schedule': {
+      id: '/api/internal/weekly-report-schedule'
+      path: '/api/internal/weekly-report-schedule'
+      fullPath: '/api/internal/weekly-report-schedule'
+      preLoaderRoute: typeof ApiInternalWeeklyReportScheduleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/me/avatar': {
       id: '/api/me/avatar'
       path: '/avatar'
@@ -1033,6 +1054,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiInternalCentrifugoAgentActivityRoute:
     ApiInternalCentrifugoAgentActivityRoute,
   ApiInternalCentrifugoConnectRoute: ApiInternalCentrifugoConnectRoute,
+  ApiInternalWeeklyReportScheduleRoute: ApiInternalWeeklyReportScheduleRoute,
   ApiWorkspacesSlugRoute: ApiWorkspacesSlugRoute,
   ApiAgentAttachmentsAttachmentIdRoute: ApiAgentAttachmentsAttachmentIdRoute,
   ApiComputersComputerIdCreatorAvatarRoute:

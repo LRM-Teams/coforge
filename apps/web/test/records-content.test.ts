@@ -4,7 +4,9 @@ import {
   alignReportContentToTemplate,
   clearReportContent,
   emptyReportContent,
+  memberReportTitle,
   normalizeReportContent,
+  withAssignmentUnread,
 } from "@/features/records/records-content";
 
 test("emptyReportContent creates named display pages", () => {
@@ -57,4 +59,36 @@ test("clearReportContent clears every page and keeps its names", () => {
   ).toEqual({
     tabs: { Summary: { markdown: "" }, Research: { markdown: "" } },
   });
+});
+
+test("normalizeReportContent preserves assignment unread metadata", () => {
+  expect(
+    normalizeReportContent({
+      tabs: { Summary: { markdown: "body" } },
+      assignment: { unread: true },
+    }),
+  ).toEqual({
+    tabs: { Summary: { markdown: "body" } },
+    assignment: { unread: true },
+  });
+});
+
+test("withAssignmentUnread toggles inbox unread without dropping pages", () => {
+  expect(withAssignmentUnread({ tabs: { Summary: { markdown: "x" } } }, true)).toEqual({
+    tabs: { Summary: { markdown: "x" } },
+    assignment: { unread: true },
+  });
+  expect(
+    withAssignmentUnread(
+      { tabs: { Summary: { markdown: "x" } }, assignment: { unread: true } },
+      false,
+    ),
+  ).toEqual({
+    tabs: { Summary: { markdown: "x" } },
+    assignment: { unread: false },
+  });
+});
+
+test("memberReportTitle uses the member name and week", () => {
+  expect(memberReportTitle("李四", 2026, 37)).toBe("李四的周报 · W37");
 });

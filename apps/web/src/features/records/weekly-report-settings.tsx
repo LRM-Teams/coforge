@@ -11,6 +11,7 @@ import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { m } from "@/paraglide/messages";
 import { CreateWeeklyTemplateDialog } from "./create-weekly-template-dialog";
 import {
+  applyWeeklyTemplate,
   createWeeklyTemplate,
   deleteWeeklyTemplate,
   updateWeeklyTemplate,
@@ -26,6 +27,25 @@ export type TemplateMemberOption = {
   displayName: string | null;
   role?: string;
 };
+
+function weekdayLabel(day: number) {
+  switch (day) {
+    case 1:
+      return m.records_template_weekday_mon();
+    case 2:
+      return m.records_template_weekday_tue();
+    case 3:
+      return m.records_template_weekday_wed();
+    case 4:
+      return m.records_template_weekday_thu();
+    case 5:
+      return m.records_template_weekday_fri();
+    case 6:
+      return m.records_template_weekday_sat();
+    default:
+      return m.records_template_weekday_sun();
+  }
+}
 
 function recipientSummary(template: WeeklyTemplateList[number]) {
   if (template.allMembers) {
@@ -52,6 +72,7 @@ export function WeeklyReportSettings({
   const navigate = useNavigate({ from: "/records/settings" });
   const create = useServerFn(createWeeklyTemplate);
   const update = useServerFn(updateWeeklyTemplate);
+  const apply = useServerFn(applyWeeklyTemplate);
   const remove = useServerFn(deleteWeeklyTemplate);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<WeeklyTemplateList[number] | null>(null);
@@ -104,10 +125,22 @@ export function WeeklyReportSettings({
               return (
                 <li
                   key={template.id}
-                  className="flex min-h-14 items-center gap-4 px-4 py-3 sm:px-8"
+                  className="flex min-h-14 flex-wrap items-center gap-3 px-4 py-3 sm:gap-4 sm:px-8"
                 >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-primary">{template.name}</p>
+                  <div className="min-w-0 flex-1 basis-48">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <p className="truncate text-sm font-medium text-primary">{template.name}</p>
+                      {template.active ? (
+                        <span className="shrink-0 rounded-full bg-brand-primary px-2 py-0.5 text-xs font-medium text-brand-secondary">
+                          {m.records_template_applied()}
+                        </span>
+                      ) : null}
+                      {template.scheduleEnabled ? (
+                        <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-tertiary">
+                          {m.records_template_schedule_badge()}
+                        </span>
+                      ) : null}
+                    </div>
                     <p className="truncate text-xs text-tertiary">
                       {summary.label}
                       {summary.more > 0
@@ -118,11 +151,30 @@ export function WeeklyReportSettings({
                       {" · "}
                       {m.records_template_frequency_weekly()}
                       {" · "}
-                      {m.records_template_send_friday({
+                      {m.records_template_send_on({
+                        weekday: weekdayLabel(template.sendWeekday),
                         time: template.sendTime,
                       })}
                     </p>
                   </div>
+                  <Button
+                    size="sm"
+                    color="secondary"
+                    isDisabled={busy}
+                    onPress={() => {
+                      void (async () => {
+                        setBusy(true);
+                        try {
+                          await apply({ data: { templateId: template.id } });
+                          await router.invalidate({ sync: true });
+                        } finally {
+                          setBusy(false);
+                        }
+                      })();
+                    }}
+                  >
+                    {template.active ? m.records_template_unapply() : m.records_template_apply()}
+                  </Button>
                   <Dropdown.Root>
                     <ButtonUtility
                       size="sm"

@@ -22,18 +22,15 @@ import { Input } from "@/components/base/input/input";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
-import { CreateMemberReportDialog } from "./create-member-report-dialog";
-import { currentIsoWeek, memberReportTitle, memberWeekTitle } from "./records-content";
-import { readReportDraft, waitForReportSave } from "./report-draft-cache";
 import {
   createMemberWeeklyReport,
   createRecordNote,
-  createTemplateChildReport,
   createTemplateWeeklyReport,
   deleteTemplateWeeklyReport,
-  saveWeeklyReportContent,
   type loadRecordsCatalog,
 } from "./records.functions";
+import { CreateMemberReportDialog } from "./create-member-report-dialog";
+import { currentIsoWeek, memberReportTitle, memberWeekTitle } from "./records-content";
 export type RecordsTab = "weekly" | "notes";
 export type RecordsPanel = "settings" | "stats";
 export type RecordsCatalog = Awaited<ReturnType<typeof loadRecordsCatalog>>;
@@ -78,9 +75,7 @@ export function RecordsLayout({
   const router = useRouter();
   const createMemberReport = useServerFn(createMemberWeeklyReport);
   const createTemplateReport = useServerFn(createTemplateWeeklyReport);
-  const createTemplateChild = useServerFn(createTemplateChildReport);
   const createNote = useServerFn(createRecordNote);
-  const saveTemplateContent = useServerFn(saveWeeklyReportContent);
   const removeTemplate = useServerFn(deleteTemplateWeeklyReport);
   const [showMobileList, setShowMobileList] = useState(!selectedRecordId && !selectedPanel);
   const [query, setQuery] = useState("");
@@ -183,24 +178,6 @@ export function RecordsLayout({
     }
   }
 
-  async function onCreateTemplateChild(templateId: string) {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await waitForReportSave(templateId);
-      const draft = readReportDraft(templateId);
-      if (draft) {
-        await saveTemplateContent({ data: { reportId: templateId, content: draft } });
-      }
-      const result = await createTemplateChild({ data: { templateId } });
-      setMembersOpen(true);
-      setExpandedTemplates((current) => ({ ...current, [templateId]: true }));
-      void openCreatedRecord(result.id);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <main className="flex h-svh min-w-0 bg-primary">
       <nav
@@ -288,18 +265,32 @@ export function RecordsLayout({
                 >
                   {filteredMyReports.length === 0 ? null : (
                     <ul className="space-y-0.5">
-                      {filteredMyReports.map((item) => (
-                        <li key={item.id}>
-                          <RecordLink
-                            recordId={item.id}
-                            selected={item.id === selectedRecordId}
-                            onSelect={() => setShowMobileList(false)}
-                          >
-                            <WeekBadge week={item.week} />
-                            <span className="truncate">{item.title}</span>
-                          </RecordLink>
-                        </li>
-                      ))}
+                      {filteredMyReports.map((item) => {
+                        const unread = item.unread;
+                        const sent = item.status === "submitted" || item.status === "shared";
+                        return (
+                          <li key={item.id}>
+                            <RecordLink
+                              recordId={item.id}
+                              selected={item.id === selectedRecordId}
+                              onSelect={() => setShowMobileList(false)}
+                              className={cn(unread && "bg-brand-primary_alt font-semibold")}
+                            >
+                              <WeekBadge week={item.week} />
+                              <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                              {sent ? (
+                                <span className="ml-auto shrink-0 rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-tertiary">
+                                  {m.records_report_sent_badge()}
+                                </span>
+                              ) : unread ? (
+                                <span className="ml-auto shrink-0 rounded-full bg-brand-primary px-2 py-0.5 text-xs font-medium text-brand-secondary">
+                                  {m.records_report_unread_badge()}
+                                </span>
+                              ) : null}
+                            </RecordLink>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </CollapsibleSection>
@@ -387,15 +378,6 @@ export function RecordsLayout({
                               <TemplateActionsMenu
                                 title={template.title}
                                 onDelete={() => void onDeleteTemplate(template.id)}
-                              />
-                              <ButtonUtility
-                                size="xs"
-                                color="tertiary"
-                                icon={Plus}
-                                className="size-7 shrink-0"
-                                aria-label={m.records_add_template_child()}
-                                isDisabled={busy}
-                                onClick={() => void onCreateTemplateChild(template.id)}
                               />
                             </div>
                             {hasSubmissions && expanded && (

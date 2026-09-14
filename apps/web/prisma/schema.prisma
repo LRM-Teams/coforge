@@ -676,21 +676,28 @@ model WeeklyReportFavorite {
 
 /// Reusable Workspace send configuration (周报设置 templates).
 model WeeklyReportTemplate {
-  id          String                          @id @default(uuid()) @db.Uuid
-  workspaceId String                          @db.Uuid
-  name        String
+  id              String                          @id @default(uuid()) @db.Uuid
+  workspaceId     String                          @db.Uuid
+  name            String
   /// weekly
-  frequency   String                          @default("weekly")
-  sendTime    String                          @default("15:00")
-  dimensions  Json
-  mainTitles  Json
-  allMembers  Boolean                         @default(false)
-  createdAt   DateTime                        @default(now())
-  updatedAt   DateTime                        @updatedAt
-  workspace   Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  recipients  WeeklyReportTemplateRecipient[]
+  frequency       String                          @default("weekly")
+  sendTime        String                          @default("15:00")
+  /// ISO weekday 1=Monday … 7=Sunday; default Friday.
+  sendWeekday     Int                             @default(5)
+  dimensions      Json
+  mainTitles      Json
+  allMembers      Boolean                         @default(false)
+  /// When true, Leader send uses this row; at most one applied per workspace (enforced in app).
+  applied         Boolean                         @default(false)
+  /// When true with applied, scheduled/periodic send is allowed.
+  scheduleEnabled Boolean                         @default(false)
+  createdAt       DateTime                        @default(now())
+  updatedAt       DateTime                        @updatedAt
+  workspace       Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  recipients      WeeklyReportTemplateRecipient[]
 
   @@index([workspaceId])
+  @@index([workspaceId, applied])
   @@map("weekly_report_templates")
 }
 

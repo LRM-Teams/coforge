@@ -5,13 +5,19 @@ import {
   emptyHighlightContent,
   emptyReportContent,
   highlightTitle,
+  isAssignmentUnread,
   isValidTemplateName,
   memberReportTitle,
   memberWeekTitle,
   normalizeReportContent,
+  withAssignmentUnread,
   type HighlightContent,
   type ReportContent,
 } from "../../features/records/records-content";
+import { isVisibleTemplateSubmission } from "./template-submission-visibility";
+import { recipientUserIdsForSend } from "./weekly-report-send-recipients";
+import type { WeeklyAssignmentDelivery } from "./weekly-assignment-channel-delivery.server";
+import { isWeeklyScheduleDue, zonedCalendarDate } from "./weekly-report-schedule-due";
 
 type Db = PrismaClient;
 
@@ -65,7 +71,10 @@ async function requireMembership(db: Db, workspaceId: string, userId: string) {
 }
 
 export class RecordCatalog {
-  constructor(private readonly db: Db) {}
+  constructor(
+    private readonly db: Db,
+    private readonly delivery?: WeeklyAssignmentDelivery,
+  ) {}
 
   async loadCatalog(input: { workspaceId: string; userId: string }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
@@ -137,7 +146,10 @@ export class RecordCatalog {
       latestTemplate: report.id === latestTemplateId,
       submissions: cycle.reports
         .filter(
-          (candidate) => candidate.kind === "member" && candidate.sourceTemplateId === report.id,
+          (candidate) =>
+            candidate.kind === "member" &&
+            candidate.sourceTemplateId === report.id &&
+            isVisibleTemplateSubmission(candidate.status),
         )
         .map((submission) => ({
           id: submission.id,
@@ -166,16 +178,13 @@ export class RecordCatalog {
       highlights,
       myReports: cycles.flatMap((cycle) =>
         cycle.reports
-          .filter(
-            (report) =>
-              report.kind === "member" &&
-              report.authorId === input.userId &&
-              report.sourceTemplateId == null,
-          )
+          .filter((report) => report.kind === "member" && report.authorId === input.userId)
           .map((report) => ({
             id: report.id,
             title: report.title,
             status: report.status,
+            unread: isAssignmentUnread(asReportContent(report.content)),
+            sourceTemplateId: report.sourceTemplateId,
             year: cycle.year,
             week: cycle.week,
           })),
@@ -340,8 +349,8 @@ export class RecordCatalog {
   }
 
   /**
-   * Create a member report hanging under a template node in “成员周报”.
-   * Uses the template's cycle and copies its body as the starting document.
+   * Create a member assignment under a Leader weekly parent (send path).
+   * Drafts are not listed as children until submitted; see ADR 0011.
    */
   async createSubmissionUnderTemplate(input: {
     workspaceId: string;
@@ -377,7 +386,10 @@ export class RecordCatalog {
         sourceTemplateId: template.id,
         title,
         status: "draft",
-        content: template.content as Prisma.InputJsonValue,
+        content: withAssignmentUnread(
+          asReportContent(template.content),
+          true,
+        ) as unknown as Prisma.InputJsonValue,
       },
       select: { id: true, title: true },
     });
@@ -391,6 +403,269 @@ export class RecordCatalog {
       sourceTemplateId: template.id,
       created: true,
     };
+  }
+
+  /**
+   * Leader manual send: persist source content, create a new weekly parent for the
+   * current cycle, and open unread assignments for configured recipients (ADR 0011).
+   */
+  async sendWeeklyAssignments(input: {
+    workspaceId: string;
+    userId: string;
+    sourceReportId: string;
+    content?: ReportContent;
+    now?: Date;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const source = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.sourceReportId,
+        workspaceId: input.workspaceId,
+        kind: "template",
+      },
+      select: { id: true, content: true },
+    });
+    if (!source) throw new AppError("NOT_FOUND");
+
+    const content = normalizeReportContent(input.content ?? asReportContent(source.content));
+    if (input.content) {
+      await this.db.weeklyReport.update({
+        where: { id: source.id },
+        data: { content: content as unknown as Prisma.InputJsonValue },
+      });
+    }
+
+    const sendSettings = await this.db.weeklyReportTemplate.findFirst({
+      where: { workspaceId: input.workspaceId, applied: true },
+      orderBy: { updatedAt: "desc" },
+      include: { recipients: { select: { userId: true } } },
+    });
+    if (!sendSettings) throw new AppError("INVALID_INPUT", { errorId: "weekly-send-no-settings" });
+
+    const memberships = await this.db.workspaceMembership.findMany({
+      where: { workspaceId: input.workspaceId },
+      select: { userId: true },
+    });
+    const recipientIds = recipientUserIdsForSend({
+      allMembers: sendSettings.allMembers,
+      recipientUserIds: sendSettings.recipients.map((row) => row.userId),
+      workspaceMemberIds: memberships.map((row) => row.userId),
+      senderUserId: input.userId,
+    });
+    if (recipientIds.length === 0) {
+      throw new AppError("INVALID_INPUT", { errorId: "weekly-send-no-recipients" });
+    }
+
+    const cycle = await this.ensureCurrentCycle(input);
+    const parent = await this.db.weeklyReport.create({
+      data: {
+        workspaceId: input.workspaceId,
+        cycleId: cycle.id,
+        authorId: input.userId,
+        kind: "template",
+        title: memberWeekTitle(cycle.year, cycle.week),
+        status: "draft",
+        content: content as unknown as Prisma.InputJsonValue,
+      },
+      select: { id: true, title: true },
+    });
+
+    const recipients = await this.db.user.findMany({
+      where: { id: { in: recipientIds } },
+      select: { id: true, displayName: true, username: true },
+    });
+    const byId = new Map(recipients.map((user) => [user.id, user]));
+
+    let assignmentCount = 0;
+    for (const memberId of recipientIds) {
+      const member = byId.get(memberId);
+      if (!member) continue;
+      const displayName = member.displayName ?? member.username;
+      await this.db.weeklyReport.create({
+        data: {
+          workspaceId: input.workspaceId,
+          cycleId: cycle.id,
+          authorId: memberId,
+          kind: "member",
+          sourceTemplateId: parent.id,
+          title: memberReportTitle(displayName, cycle.year, cycle.week),
+          status: "draft",
+          content: withAssignmentUnread(content, true) as unknown as Prisma.InputJsonValue,
+        },
+        select: { id: true },
+      });
+      assignmentCount += 1;
+    }
+
+    if (assignmentCount === 0) throw new AppError("INVALID_INPUT");
+
+    if (this.delivery) {
+      try {
+        const sender = await this.db.user.findUnique({
+          where: { id: input.userId },
+          select: { displayName: true, username: true },
+        });
+        await this.delivery.notifyChannel({
+          workspaceId: input.workspaceId,
+          senderUserId: input.userId,
+          parentReportId: parent.id,
+          week: cycle.week,
+          senderDisplayName: sender?.displayName ?? sender?.username ?? "Leader",
+        });
+      } catch {
+        // Assignments already persisted; channel notice is best-effort only.
+      }
+    }
+
+    return {
+      parentId: parent.id,
+      title: parent.title,
+      year: cycle.year,
+      week: cycle.week,
+      assignmentCount,
+    };
+  }
+
+  /**
+   * Cron entry: for each applied+scheduleEnabled settings row that is due now,
+   * reuse sendWeeklyAssignments once per ISO week (skip if that cycle already has
+   * Leader-sent assignments).
+   */
+  async runDueScheduledWeeklyAssignments(input: { now?: Date } = {}) {
+    const now = input.now ?? new Date();
+    const settings = await this.db.weeklyReportTemplate.findMany({
+      where: { applied: true, scheduleEnabled: true, frequency: "weekly" },
+      select: {
+        id: true,
+        workspaceId: true,
+        sendTime: true,
+        sendWeekday: true,
+      },
+    });
+
+    const results: Array<{
+      workspaceId: string;
+      templateId: string;
+      status: "sent" | "skipped" | "failed";
+      reason?: string;
+      parentId?: string;
+      assignmentCount?: number;
+    }> = [];
+
+    for (const row of settings) {
+      if (
+        !isWeeklyScheduleDue({
+          now,
+          sendWeekday: row.sendWeekday,
+          sendTime: row.sendTime,
+        })
+      ) {
+        results.push({
+          workspaceId: row.workspaceId,
+          templateId: row.id,
+          status: "skipped",
+          reason: "not-due",
+        });
+        continue;
+      }
+
+      const scheduleNow = zonedCalendarDate(now);
+      const { year, week } = currentIsoWeek(scheduleNow);
+      const alreadySent = await this.db.weeklyReport.findFirst({
+        where: {
+          workspaceId: row.workspaceId,
+          kind: "template",
+          cycle: { year, week },
+          submissions: { some: { kind: "member" } },
+        },
+        select: { id: true },
+      });
+      if (alreadySent) {
+        results.push({
+          workspaceId: row.workspaceId,
+          templateId: row.id,
+          status: "skipped",
+          reason: "already-sent",
+        });
+        continue;
+      }
+
+      const source = await this.db.weeklyReport.findFirst({
+        where: { workspaceId: row.workspaceId, kind: "template" },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true, authorId: true },
+      });
+      if (!source) {
+        results.push({
+          workspaceId: row.workspaceId,
+          templateId: row.id,
+          status: "skipped",
+          reason: "no-source-report",
+        });
+        continue;
+      }
+
+      const membership = await this.db.workspaceMembership.findUnique({
+        where: {
+          workspaceId_userId: { workspaceId: row.workspaceId, userId: source.authorId },
+        },
+        select: { userId: true },
+      });
+      if (!membership) {
+        results.push({
+          workspaceId: row.workspaceId,
+          templateId: row.id,
+          status: "skipped",
+          reason: "source-author-not-member",
+        });
+        continue;
+      }
+
+      try {
+        const sent = await this.sendWeeklyAssignments({
+          workspaceId: row.workspaceId,
+          userId: source.authorId,
+          sourceReportId: source.id,
+          now: scheduleNow,
+        });
+        results.push({
+          workspaceId: row.workspaceId,
+          templateId: row.id,
+          status: "sent",
+          parentId: sent.parentId,
+          assignmentCount: sent.assignmentCount,
+        });
+      } catch (error) {
+        results.push({
+          workspaceId: row.workspaceId,
+          templateId: row.id,
+          status: "failed",
+          reason: error instanceof Error ? error.message : "send-failed",
+        });
+      }
+    }
+
+    return {
+      checkedAt: now.toISOString(),
+      sent: results.filter((row) => row.status === "sent").length,
+      results,
+    };
+  }
+
+  async deleteMemberReport(input: { workspaceId: string; userId: string; reportId: string }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const report = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.reportId,
+        workspaceId: input.workspaceId,
+        kind: "member",
+        authorId: input.userId,
+      },
+      select: { id: true },
+    });
+    if (!report) throw new AppError("NOT_FOUND");
+    await this.db.weeklyReport.delete({ where: { id: report.id } });
+    return { ok: true as const };
   }
 
   async deleteTemplateReport(input: { workspaceId: string; userId: string; reportId: string }) {
@@ -434,6 +709,7 @@ export class RecordCatalog {
                   workspaceId: input.workspaceId,
                   sourceTemplateId: report.id,
                   kind: "member",
+                  status: { in: ["submitted", "shared"] },
                 },
                 orderBy: { createdAt: "asc" },
                 select: {
@@ -470,6 +746,17 @@ export class RecordCatalog {
             displayName: report.author.displayName ?? report.author.username,
           },
           cycle: report.cycle,
+          sourceTemplateId: report.sourceTemplateId,
+          unread: isAssignmentUnread(content),
+          canSendAssignments:
+            report.kind === "template"
+              ? Boolean(
+                  await this.db.weeklyReportTemplate.findFirst({
+                    where: { workspaceId: input.workspaceId, applied: true },
+                    select: { id: true },
+                  }),
+                )
+              : false,
           children,
         },
       };
@@ -596,6 +883,29 @@ export class RecordCatalog {
     return { ok: true as const };
   }
 
+  async markAssignmentOpened(input: { workspaceId: string; userId: string; reportId: string }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const report = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.reportId,
+        workspaceId: input.workspaceId,
+        kind: "member",
+        authorId: input.userId,
+      },
+      select: { id: true, content: true, sourceTemplateId: true },
+    });
+    if (!report) throw new AppError("NOT_FOUND");
+    if (!report.sourceTemplateId) return { id: report.id, unread: false as const };
+    const content = asReportContent(report.content);
+    if (!isAssignmentUnread(content)) return { id: report.id, unread: false as const };
+    const next = withAssignmentUnread(content, false);
+    await this.db.weeklyReport.update({
+      where: { id: report.id },
+      data: { content: next as unknown as Prisma.InputJsonValue },
+    });
+    return { id: report.id, unread: false as const };
+  }
+
   async saveReportContent(input: {
     workspaceId: string;
     userId: string;
@@ -657,7 +967,7 @@ export class RecordCatalog {
     await requireMembership(this.db, input.workspaceId, input.userId);
     const templates = await this.db.weeklyReportTemplate.findMany({
       where: { workspaceId: input.workspaceId },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ applied: "desc" }, { updatedAt: "desc" }],
       include: {
         recipients: {
           include: { user: { select: { id: true, username: true, displayName: true } } },
@@ -669,9 +979,13 @@ export class RecordCatalog {
       name: template.name,
       frequency: template.frequency,
       sendTime: template.sendTime,
+      sendWeekday: template.sendWeekday,
       dimensions: asStringArray(template.dimensions),
       mainTitles: asStringArray(template.mainTitles),
       allMembers: template.allMembers,
+      active: template.applied,
+      scheduleEnabled: template.scheduleEnabled,
+      updatedAt: template.updatedAt.toISOString(),
       recipients: template.recipients.map((row) => ({
         userId: row.user.id,
         username: row.user.username,
@@ -680,12 +994,61 @@ export class RecordCatalog {
     }));
   }
 
+  /** Toggle whether this send-settings row is the active one used by Leader send. */
+  async applyTemplate(input: { workspaceId: string; userId: string; templateId: string }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const template = await this.db.weeklyReportTemplate.findFirst({
+      where: { id: input.templateId, workspaceId: input.workspaceId },
+      select: { id: true, applied: true },
+    });
+    if (!template) throw new AppError("NOT_FOUND");
+    if (template.applied) {
+      await this.db.weeklyReportTemplate.update({
+        where: { id: template.id },
+        data: { applied: false },
+      });
+      return { id: template.id, active: false as const };
+    }
+    await this.db.$transaction(async (tx) => {
+      await tx.weeklyReportTemplate.updateMany({
+        where: { workspaceId: input.workspaceId, applied: true },
+        data: { applied: false },
+      });
+      await tx.weeklyReportTemplate.update({
+        where: { id: template.id },
+        data: { applied: true },
+      });
+    });
+    return { id: template.id, active: true as const };
+  }
+
+  async setTemplateScheduleEnabled(input: {
+    workspaceId: string;
+    userId: string;
+    templateId: string;
+    scheduleEnabled: boolean;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const template = await this.db.weeklyReportTemplate.findFirst({
+      where: { id: input.templateId, workspaceId: input.workspaceId },
+      select: { id: true },
+    });
+    if (!template) throw new AppError("NOT_FOUND");
+    await this.db.weeklyReportTemplate.update({
+      where: { id: template.id },
+      data: { scheduleEnabled: input.scheduleEnabled },
+    });
+    return { id: template.id, scheduleEnabled: input.scheduleEnabled };
+  }
+
   async createTemplate(input: {
     workspaceId: string;
     userId: string;
     name: string;
     frequency: "weekly";
     sendTime: string;
+    sendWeekday: number;
+    scheduleEnabled: boolean;
     dimensions: string[];
     mainTitles: string[];
     allMembers: boolean;
@@ -693,6 +1056,7 @@ export class RecordCatalog {
   }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
     if (!isValidTemplateName(input.name)) throw new AppError("INVALID_INPUT");
+    if (input.sendWeekday < 1 || input.sendWeekday > 7) throw new AppError("INVALID_INPUT");
     if (!input.allMembers && input.recipientUserIds.length > 0) {
       const members = await this.db.workspaceMembership.count({
         where: {
@@ -708,6 +1072,8 @@ export class RecordCatalog {
         name: input.name.trim(),
         frequency: input.frequency,
         sendTime: input.sendTime,
+        sendWeekday: input.sendWeekday,
+        scheduleEnabled: input.scheduleEnabled,
         dimensions: input.dimensions,
         mainTitles: input.mainTitles,
         allMembers: input.allMembers,
@@ -728,6 +1094,8 @@ export class RecordCatalog {
     name: string;
     frequency: "weekly";
     sendTime: string;
+    sendWeekday: number;
+    scheduleEnabled: boolean;
     dimensions: string[];
     mainTitles: string[];
     allMembers: boolean;
@@ -735,6 +1103,7 @@ export class RecordCatalog {
   }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
     if (!isValidTemplateName(input.name)) throw new AppError("INVALID_INPUT");
+    if (input.sendWeekday < 1 || input.sendWeekday > 7) throw new AppError("INVALID_INPUT");
     const template = await this.db.weeklyReportTemplate.findFirst({
       where: { id: input.templateId, workspaceId: input.workspaceId },
       select: { id: true },
@@ -757,6 +1126,8 @@ export class RecordCatalog {
           name: input.name.trim(),
           frequency: input.frequency,
           sendTime: input.sendTime,
+          sendWeekday: input.sendWeekday,
+          scheduleEnabled: input.scheduleEnabled,
           dimensions: input.dimensions,
           mainTitles: input.mainTitles,
           allMembers: input.allMembers,
@@ -910,6 +1281,6 @@ function isoWeeksTouchingMonth(year: number, month: number): Array<{ year: numbe
   return result;
 }
 
-export function recordCatalog(db: Db) {
-  return new RecordCatalog(db);
+export function recordCatalog(db: Db, delivery?: WeeklyAssignmentDelivery) {
+  return new RecordCatalog(db, delivery);
 }

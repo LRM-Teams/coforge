@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { DotsHorizontal, MessageChatCircle as Message, Trash01 as Trash } from "@untitledui/icons";
 
@@ -8,25 +8,31 @@ import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { TextArea } from "@/components/base/textarea/textarea";
+import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
 import { ReportSectionEditor } from "./report-editor/report-section-editor";
 import { ReportTabsEditor } from "./report-tabs-editor";
 import type { UploadResult } from "./report-editor/types";
 import {
   readReportDraft,
+  clearReportDraft,
   trackReportSave,
   waitForReportSave,
   writeReportDraft,
 } from "./report-draft-cache";
 import {
+  deleteMemberWeeklyReport,
   deleteRecordNote,
+  markWeeklyAssignmentOpened,
   saveRecordNote,
   saveWeeklyHighlightContent,
   saveWeeklyReportContent,
+  sendWeeklyReportAssignments,
 } from "./records.functions";
 import {
   clearReportContent,
   normalizeReportContent,
+  withAssignmentUnread,
   type HighlightContent,
   type ReportContent,
 } from "./records-content";
@@ -44,6 +50,9 @@ type ReportSubject = {
     content: ReportContent;
     author: { userId: string; username: string; displayName: string };
     cycle: { id: string; year: number; week: number; title: string };
+    sourceTemplateId?: string | null;
+    unread?: boolean;
+    canSendAssignments?: boolean;
     children?: TemplateChild[];
   };
 };
@@ -106,7 +115,10 @@ async function fileToDataUrlUpload(file: File): Promise<UploadResult | null> {
 
 function ReportDetail({ report }: { report: ReportSubject["report"] }) {
   const router = useRouter();
+  const navigate = useNavigate();
   const save = useServerFn(saveWeeklyReportContent);
+  const removeReport = useServerFn(deleteMemberWeeklyReport);
+  const markOpened = useServerFn(markWeeklyAssignmentOpened);
   const [content, setContent] = useState(
     () => readReportDraft(report.id) ?? normalizeReportContent(report.content),
   );
@@ -116,18 +128,21 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
   reportIdRef.current = report.id;
   const [sideOpen, setSideOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState(report.status);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const isAssignment = Boolean(report.sourceTemplateId);
+  const sent = status === "submitted" || status === "shared";
 
   async function persist(
     next: ReportContent,
-    status?: "draft" | "submitted" | "shared",
+    nextStatus?: "draft" | "submitted" | "shared",
     reportId = reportIdRef.current,
   ) {
     setSaving(true);
     const normalized = normalizeReportContent(next);
     writeReportDraft(reportId, normalized);
     const savePromise = save({
-      data: { reportId, content: normalized, status },
+      data: { reportId, content: normalized, status: nextStatus },
     });
     trackReportSave(reportId, savePromise);
     try {
@@ -135,6 +150,7 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
       if (reportId === reportIdRef.current) {
         setContent(normalized);
         contentRef.current = normalized;
+        if (nextStatus) setStatus(nextStatus);
       }
     } finally {
       if (reportId === reportIdRef.current) setSaving(false);
@@ -153,6 +169,29 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
     }, 900);
   }
 
+  async function removeCurrentReport() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = undefined;
+      }
+      await waitForReportSave(report.id);
+      await removeReport({ data: { reportId: report.id } });
+      clearReportDraft(report.id);
+      await router.invalidate({ sync: true });
+      void navigate({
+        to: "/records",
+        search: (previous) => ({
+          tab: previous.tab === "notes" ? "notes" : "weekly",
+        }),
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     void waitForReportSave(report.id)?.then(() => {
@@ -168,6 +207,22 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
       cancelled = true;
     };
   }, [report.id, router]);
+
+  useEffect(() => {
+    if (!isAssignment || !report.unread) return;
+    let cancelled = false;
+    void markOpened({ data: { reportId: report.id } }).then(() => {
+      if (cancelled) return;
+      const next = withAssignmentUnread(contentRef.current, false);
+      setContent(next);
+      contentRef.current = next;
+      writeReportDraft(report.id, next);
+      void router.invalidate();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAssignment, markOpened, report.id, report.unread, router]);
 
   useEffect(() => {
     return () => {
@@ -198,6 +253,16 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
           leading={<BackToRecords />}
           actions={
             <div className="flex items-center gap-1">
+              {isAssignment ? (
+                <Button
+                  size="sm"
+                  color="primary"
+                  isDisabled={saving}
+                  onPress={() => void persist(contentRef.current, "submitted")}
+                >
+                  {sent ? m.records_report_resend() : m.records_report_send()}
+                </Button>
+              ) : null}
               <ButtonUtility
                 size="sm"
                 color="tertiary"
@@ -215,10 +280,8 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
                   isDisabled={saving}
                 />
                 <Dropdown.Popover placement="bottom end" className="w-44">
-                  <Dropdown.Menu
-                    onAction={() => void persist(clearReportContent(contentRef.current), "draft")}
-                  >
-                    <Dropdown.Item id="clear" icon={Trash} label={m.records_report_clear()} />
+                  <Dropdown.Menu onAction={() => void removeCurrentReport()}>
+                    <Dropdown.Item id="delete" icon={Trash} label={m.records_report_delete()} />
                   </Dropdown.Menu>
                 </Dropdown.Popover>
               </Dropdown.Root>
@@ -254,7 +317,9 @@ type TemplateParentTab = "overview" | "template";
 
 function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
   const router = useRouter();
+  const navigate = useNavigate();
   const save = useServerFn(saveWeeklyReportContent);
+  const sendAssignments = useServerFn(sendWeeklyReportAssignments);
   const [content, setContent] = useState(
     () => readReportDraft(report.id) ?? normalizeReportContent(report.content),
   );
@@ -264,8 +329,15 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
   reportIdRef.current = report.id;
   const [sideOpen, setSideOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [canSendAssignments, setCanSendAssignments] = useState(Boolean(report.canSendAssignments));
   const [parentTab, setParentTab] = useState<TemplateParentTab>("overview");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    setCanSendAssignments(Boolean(report.canSendAssignments));
+  }, [report.canSendAssignments, report.id]);
 
   async function persist(
     next: ReportContent,
@@ -299,6 +371,51 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
     saveTimerRef.current = setTimeout(() => {
       void persist(contentRef.current, undefined, reportId);
     }, 900);
+  }
+
+  async function onSendAssignments() {
+    if (sending || saving) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = undefined;
+      }
+      await waitForReportSave(report.id);
+      const draft = contentRef.current;
+      await persist(draft);
+      const result = await sendAssignments({
+        data: {
+          sourceReportId: report.id,
+          content: normalizeReportContent(draft),
+        },
+      });
+      await router.invalidate({ sync: true });
+      void navigate({
+        to: "/records/$recordId",
+        params: { recordId: result.parentId },
+        search: (previous) => ({
+          tab: previous.tab === "notes" ? "notes" : "weekly",
+        }),
+      });
+    } catch (error) {
+      const cause =
+        error && typeof error === "object" && "cause" in error
+          ? (error as { cause: unknown }).cause
+          : error;
+      const appError = isAppError(cause) ? cause : isAppError(error) ? error : null;
+      const errorId = appError?.errorId;
+      setSendError(
+        errorId === "weekly-send-no-settings"
+          ? m.records_report_send_no_settings()
+          : errorId === "weekly-send-no-recipients"
+            ? m.records_report_send_no_recipients()
+            : m.records_report_send_assignments_error(),
+      );
+    } finally {
+      setSending(false);
+    }
   }
 
   useEffect(() => {
@@ -346,6 +463,14 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
           leading={<BackToRecords />}
           actions={
             <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                color="primary"
+                isDisabled={saving || sending || !canSendAssignments}
+                onPress={() => void onSendAssignments()}
+              >
+                {m.records_report_send_assignments()}
+              </Button>
               <ButtonUtility
                 size="sm"
                 color="tertiary"
@@ -360,7 +485,7 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
                   color="tertiary"
                   icon={DotsHorizontal}
                   aria-label={m.records_report_actions()}
-                  isDisabled={saving}
+                  isDisabled={saving || sending}
                 />
                 <Dropdown.Popover placement="bottom end" className="w-44">
                   <Dropdown.Menu
@@ -373,6 +498,11 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
             </div>
           }
         />
+        {sendError ? (
+          <p className="border-b border-secondary px-4 py-2 text-sm text-error-primary sm:px-8">
+            {sendError}
+          </p>
+        ) : null}
 
         <nav
           aria-label={report.title}
