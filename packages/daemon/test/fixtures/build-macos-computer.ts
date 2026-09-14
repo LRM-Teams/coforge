@@ -18,8 +18,12 @@ const result = await Bun.build({
         }));
         build.onLoad({ filter: /\/code-agent\/runtime-inventory\.ts$/ }, () => ({
           loader: "ts",
-          contents:
-            "export async function discoverCodeAgentInventory(){return {runtimes:[],catalogs:[]}}",
+          contents: `export async function discoverCodeAgentInventory(){return {runtimes:[],catalogs:[]}}
+             export function discoverExternalCodeAgents(){throw new Error("Lifecycle fixture must not probe external providers")}
+             export function claudeStaticCatalog(){throw new Error("Lifecycle fixture must not query provider catalogs")}
+             export function discoverCodexCatalog(){throw new Error("Lifecycle fixture must not query provider catalogs")}
+             export function discoverCoforgeCatalog(){throw new Error("Lifecycle fixture must not query provider catalogs")}
+             export function discoverPiCatalog(){throw new Error("Lifecycle fixture must not query provider catalogs")}`,
         }));
       },
     },
