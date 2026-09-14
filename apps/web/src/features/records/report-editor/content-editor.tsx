@@ -50,6 +50,7 @@ export type ContentEditorProps = {
   placeholder?: string;
   className?: string;
   debounceMs?: number;
+  editable?: boolean;
   onUploadFile?: (file: File) => Promise<UploadResult | null>;
   showBubbleMenu?: boolean;
 };
@@ -78,6 +79,7 @@ export const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
       placeholder: placeholderText = "",
       className,
       debounceMs = 300,
+      editable = true,
       onUploadFile,
       showBubbleMenu = true,
     },
@@ -98,7 +100,7 @@ export const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
     onUploadFileRef.current = onUploadFile;
 
     const scheduleMarkdownEmit = (ed: MarkdownEmitEditor) => {
-      if (!onUpdateRef.current || ed.isDestroyed) return;
+      if (!editable || !onUpdateRef.current || ed.isDestroyed) return;
       const fire = () => {
         if (ed.isDestroyed || ed.view.composing) return;
         const md = stripBlobUrls(ed.getMarkdown()).trimEnd();
@@ -134,6 +136,7 @@ export const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
       content: initialMarkdown.length < MARKDOWN_CHUNK_THRESHOLD ? initialMarkdown : "",
       contentType: "markdown",
       immediatelyRender: false,
+      editable,
       editorProps: {
         attributes: {
           class: "rich-text-editor ProseMirror focus:outline-none",
@@ -150,14 +153,21 @@ export const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
         },
       },
       onUpdate: ({ editor: ed }) => {
+        if (!editable) return;
         dirtyRef.current = true;
         markdownEmitEditorRef.current = ed as unknown as MarkdownEmitEditor;
         scheduleMarkdownEmit(ed as unknown as MarkdownEmitEditor);
       },
       onBlur: () => {
+        if (!editable) return;
         onBlurRef.current?.();
       },
     });
+
+    useEffect(() => {
+      if (!editor || editor.isDestroyed) return;
+      editor.setEditable(editable);
+    }, [editor, editable]);
 
     useEffect(() => {
       if (!editor) return;
@@ -230,7 +240,7 @@ export const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
     );
 
     const { isDragging } = useFileDropZone({
-      enabled: Boolean(onUploadFile),
+      enabled: editable && Boolean(onUploadFile),
       onDrop: (files) => {
         if (!editor || !onUploadFileRef.current) return;
         for (const file of files) {
@@ -246,6 +256,7 @@ export const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
         ref={rootRef}
         className={cn("report-editor relative", className)}
         onMouseDown={(event: ReactMouseEvent) => {
+          if (!editable) return;
           if (event.target === event.currentTarget) {
             editor.commands.focus("end");
           }

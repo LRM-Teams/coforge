@@ -17,17 +17,19 @@ AI drafting/side-chat replies are deferred; storage must still allow a future
 ## Decision
 
 1. **WeeklyReportCycle** is the week bucket (`year` + `week`) in one Workspace.
-   Cycles are created on demand when a highlight, personal member report, or
-   cycle template report is added for the current ISO week. Highlight create,
-   “我的周报” create, and “成员周报” create remain independent UI actions.
+   Cycles are created on demand when a highlight is added or Leader send
+   creates a template parent for the current ISO week. Highlight create remains
+   an independent UI action. Member reports under “我的周报” are assignments
+   from send, not a sidebar “+” (see ADR 0011).
 2. **WeeklyReport** has `kind` `member` | `template`.
-   - `member`: personal reports listed under “我的周报”. Multiple per
+   - `member`: listed under “我的周报” after Leader send. Multiple per
      `(cycle, author)` and duplicate titles are allowed.
-   - `template`: listed as flat top-level nodes under “成员周报”. Clicking a
-     template opens its editor. Creating via “成员周报 +” adds a **sibling**
-     template node (default title like `2026 W37 工作周报`). Titles may
-     duplicate (Multica Notes-style); identity and navigation use the report
-     UUID. Templates are **not** listed under “我的周报”.
+   - `template`: listed as top-level nodes under “成员周报” (live format chip
+     plus sent week overviews). Clicking the format chip opens the editor;
+     clicking a week node opens the overview. Leader send adds a **sibling**
+     parent for that week. Titles may duplicate (Multica Notes-style); identity
+     and navigation use the report UUID. Templates are **not** listed under
+     “我的周报”.
    - **Submissions / child pages**: member reports with `sourceTemplateId`
      appear as **children** of that template node **only after submit**
      (`submitted` | `shared`). Leaders do not pre-create children from the

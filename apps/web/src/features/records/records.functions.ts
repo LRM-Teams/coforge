@@ -8,10 +8,7 @@ import { getDatabaseClient } from "../../server/db/client.server";
 import { requireExistingWorkspaceId } from "../../server/workspaces/enrollment.server";
 import { preferredWorkspaceSlugFromRequest } from "../../server/workspaces/selection.server";
 import { recordCatalog } from "../../server/records/record-catalog.server";
-import { GeneralChannelWeeklyAssignmentDelivery } from "../../server/records/weekly-assignment-channel-delivery.server";
-import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
-import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
-import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
+import { tryCreateWeeklyAssignmentDelivery } from "../../server/records/weekly-assignment-delivery-composition.server";
 import { normalizeReportContent, type ReportContent } from "./records-content";
 
 function catalog() {
@@ -23,13 +20,7 @@ function catalog() {
 function catalogWithChannelDelivery() {
   const db = getDatabaseClient();
   if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
-  const centrifugo = createCentrifugoServerApi();
-  const delivery = GeneralChannelWeeklyAssignmentDelivery.withDeps(db, {
-    publisher: centrifugo,
-    notifications: bestEffortMessageNotifier(db),
-    realtime: new CentrifugoConversationRealtime(centrifugo),
-  });
-  return { db, catalog: recordCatalog(db, delivery) };
+  return { db, catalog: recordCatalog(db, tryCreateWeeklyAssignmentDelivery(db)) };
 }
 
 function currentUser() {
@@ -69,30 +60,6 @@ export const createWeeklyHighlight = createServerFn({ method: "POST" }).handler(
   const workspaceId = await currentWorkspaceId(user.id);
   return catalog().catalog.createHighlight({ workspaceId, userId: user.id });
 });
-
-export const createMemberWeeklyReport = createServerFn({ method: "POST" })
-  .validator(z.object({ title: z.string().trim().min(1).max(120) }))
-  .handler(async ({ data }) => {
-    const user = currentUser();
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.createMemberReport({
-      workspaceId,
-      userId: user.id,
-      title: data.title,
-    });
-  });
-
-export const createTemplateWeeklyReport = createServerFn({ method: "POST" })
-  .validator(z.object({ title: z.string().trim().min(1).max(120) }))
-  .handler(async ({ data }) => {
-    const user = currentUser();
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.createTemplateReport({
-      workspaceId,
-      userId: user.id,
-      title: data.title,
-    });
-  });
 
 export const deleteTemplateWeeklyReport = createServerFn({ method: "POST" })
   .validator(z.object({ reportId: z.string().uuid() }))
@@ -218,7 +185,7 @@ export const sendWeeklyReportAssignments = createServerFn({ method: "POST" })
   .validator(
     z.object({
       sourceReportId: z.string().uuid(),
-      content: reportContentSchema.optional(),
+      content: z.unknown().optional(),
     }),
   )
   .handler(async ({ data }) => {
@@ -228,7 +195,7 @@ export const sendWeeklyReportAssignments = createServerFn({ method: "POST" })
       workspaceId,
       userId: user.id,
       sourceReportId: data.sourceReportId,
-      content: data.content ? normalizeReportContent(data.content) : undefined,
+      content: data.content === undefined ? undefined : normalizeReportContent(data.content),
     });
   });
 

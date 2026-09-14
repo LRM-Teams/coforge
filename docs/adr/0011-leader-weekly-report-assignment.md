@@ -9,8 +9,9 @@ Supersedes: parts of [ADR 0009](0009-workspace-records-weekly-reports.md) (templ
 Workspace Records needs a Leader→member weekly-report loop, not only free-form
 document trees. Leaders configure send rules, publish a formatted weekly parent
 under「成员周报」, and collect member-filled returns. Early UI allowed Leaders to
-create child pages with “+” for development convenience; that no longer matches
-the product.
+create child pages with “+”, sibling template parents from「成员周报 +」, and
+personal drafts from「我的周报 +」for development convenience; that no longer
+matches the product.
 
 ## Decision
 
@@ -26,17 +27,24 @@ the product.
 4. **Child visibility**: Submissions appear under the Leader parent (sidebar and
    overview) **only after** the member has submitted (`submitted` / `shared`).
    Leaders do **not** pre-create children via “+”. After submit, the member can
-   also see their own submission under that parent in「成员周报」.
+   also see their own submission under that parent in「成员周报」. Leader review
+   of that submission is read-only: the body cannot be edited, and send/delete
+   stay with the author.
 5. **Delivery**: After a successful Leader send, Web/backend posts **one**
    best-effort message to Workspace `#general` as the Leader (body names the
    sender and week; members still use「我的周报」as the inbox). Channel failure
    must not roll back assignments. Dedicated DM or alternate channels remain
-   follow-ups.
+   follow-ups. Channel notice wiring is best-effort and is skipped when
+   Centrifugo is not configured; missing realtime config must not block send.
 6. **Send settings**: Exactly zero or one `WeeklyReportTemplate` may be
-   `applied`. Leader「发送给成员」requires an applied row; with none applied the
-   button is disabled. `scheduleEnabled` (edited in the template dialog) permits
-   periodic send when also applied. `sendWeekday` is ISO 1–7 (default Friday)
-   with `sendTime`; due clock is `Asia/Shanghai`. Cron calls
+   `applied`. Leader「发送给成员」requires an applied row **and** the current
+   send window (applied weekday; with periodic send the whole send day, otherwise
+   from sendTime through midnight, `Asia/Shanghai`); with none applied, after this week's send, or outside the
+   window the button is disabled. The live format template chip turns purple with
+   a countdown on the send day before this week's send; after manual or scheduled
+   send it grays out (same arming as「发送给成员」). Each sent week’s overview
+   stays under「成员周报」as a separate node. `scheduleEnabled` (edited in the
+   template dialog) permits periodic send when also applied. Cron calls
    `POST /api/internal/weekly-report-schedule` with
    `x-coforge-weekly-report-cron-secret`.
 
@@ -54,6 +62,10 @@ the product.
 
 - Keep “+” to seed draft children for Leaders: rejected; hides the real
   assignment lifecycle and confuses empty vs submitted state.
+- Keep「成员周报 +」to add sibling template parents by hand: rejected; parents
+  come from Leader send only.
+- Keep「我的周报 +」to add personal drafts by hand: rejected; the inbox is
+  assignments from send.
 - New child row on every resend: rejected; one submission per member per parent,
   overwritten on resend.
 - Title based on Leader or template name only: rejected; product requires the
@@ -61,9 +73,12 @@ the product.
 
 ## Consequences
 
-- `createTemplateChildReport` / sidebar “+” are removed from the product path;
-  assignment creation moves to a later send use case.
+- `createTemplateChildReport` / template-row “+”, `createTemplateReport` /
+  「成员周报 +」, and `createMemberReport` / 「我的周报 +」are removed from the
+  product path; parents and assignments are created by send.
 - Catalog and parent overview filter children to submitted/shared.
+- Leader review of a submitted assignment is read-only; only the author may
+  edit, send, or delete that document.
 - Assignment unread state lives in `content.assignment.unread` until a dedicated
   column is approved; opening an assignment clears unread; submit/resubmit sets
   `submitted` on the same row (overwrite).

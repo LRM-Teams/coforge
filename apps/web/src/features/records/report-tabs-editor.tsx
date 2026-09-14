@@ -12,6 +12,7 @@ import type { UploadResult } from "./report-editor/types";
 
 export function ReportTabsEditor({
   content,
+  editable = true,
   editableTabs = false,
   placeholder,
   onChange,
@@ -19,11 +20,12 @@ export function ReportTabsEditor({
   onUploadFile,
 }: {
   content: ReportContent;
+  editable?: boolean;
   editableTabs?: boolean;
   placeholder: string;
   onChange: (content: ReportContent) => void;
   onBlur: () => void;
-  onUploadFile: (file: File) => Promise<UploadResult | null>;
+  onUploadFile?: (file: File) => Promise<UploadResult | null>;
 }) {
   const pages = content.tabs ?? { Summary: { markdown: content.markdown ?? "" } };
   const tabNames = Object.keys(pages);
@@ -125,6 +127,7 @@ export function ReportTabsEditor({
   }
 
   function updateMarkdown(markdown: string) {
+    if (!editable) return;
     const tab = pages[activeTab];
     if (!tab) return;
     onChange({
@@ -225,6 +228,7 @@ export function ReportTabsEditor({
             defaultValue={activeContent}
             placeholder={placeholder}
             className="min-h-[55vh] pb-[30vh]"
+            editable={editable}
             onUploadFile={onUploadFile}
             onUpdate={updateMarkdown}
             onBlur={onBlur}
