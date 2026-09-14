@@ -130,7 +130,9 @@ This uses production instructions, native services and real OpenRouter inference
 It does not inject a Provider, DaemonRuntime, Agent start, reply, or ACK from test
 code. Browser identity still uses the development user. Public CDN download,
 external identity-provider login, macOS, and Windows are not covered. The native
-browser steps are manual/agent-browser verification, not yet an unattended test.
+browser steps are now automated in `scripts/e2e/native-browser.e2e.ts`. First-time
+device authorization still requires browser approval; subsequent runs reuse the
+normal saved login and run through the final reply without manual interaction.
 
 Run in a disposable **OS user**, not a fake HOME. Prepare the normal E2E services,
 a running systemd user manager, and trusted local HTTPS. In this orb, Caddy 2.10.2
@@ -150,9 +152,47 @@ COFORGE_E2E_ALLOW_INSTALL=1 scripts/e2e/run-computer-setup.sh
 ```
 
 The script builds a unique fixture version, packages it, calls the real installer,
-then invokes setup from `install/active`. It deliberately does not claim a browser
-reply from setup success. Follow the browser steps above and distinguish the
-Agent reply from the user's request; reload to verify persistence.
+then invokes setup from `install/active`. It extracts the registration path from
+the CLI result and runs the browser test against that Computer. The test selects
+Pi and DeepSeek V4.1 Flash through the UI, creates a uniquely named Agent, sends a
+unique `NATIVE_E2E_...` marker request, and requires an exact reply from the Agent's
+message row both before and after reload. Created Agents/messages are retained
+in the disposable Workspace for manual inspection; browser sessions always close.
+Failure snapshots go to `.amp/e2e/native-browser-failure.txt`; a successful reload
+screenshot goes to `.amp/in/artifacts/native-browser-reply.png`. Browser Chromium
+ignores the local test certificate error; native Computer still validates its
+explicitly trusted CA. Do not use this harness against shared environments.
+
+The combined native setup/browser command passed on 2026-09-14, with the browser
+portion reporting **1 pass, 0 fail, 7 assertions** in 12.00 seconds. A subsequent
+`--rerun-each 2` browser run passed both iterations, **14 assertions** in 33.35
+seconds. These were real OpenRouter calls, not fixture responses.
+After the diagnostic cleanup changes, the final browser run also passed:
+**1 pass, 0 fail, 7 assertions**, 9.67 seconds. Repository `test`, `check`, and
+`build` passed; targeted E2E oxfmt/oxlint, shellcheck, and TypeScript checks passed.
+Oracle found no blockers in this incremental change. Channel SSR/live DOM checks
+also observed disabled-before-hydration and enabled-after-hydration behavior.
+Thread entry, attachment/task actions, and send-error recovery remain manual
+regression checklist items; this direct-chat E2E does not claim to cover them.
+
+### Fast browser input exposed a production hydration defect
+
+Before hydration, the SSR message textarea accepted text with no React handler.
+Hydration then reset it to the initial empty value. This was not a delivery or
+model failure: the request never left the browser. A diagnostic confirmed the
+element had no React props; the server-rendered textarea was also enabled.
+The shared conversation composer now uses TanStack Router's `useHydrated` to
+disable inputs/actions until hydration completes, retaining the normal sending
+state afterward. This follows the official [hydration guidance](https://playwright.dev/docs/navigations#hydration).
+The browser regression checks the actual SSR textarea is disabled, waits for the
+live control to enable, confirms its entered value, observes the sent user row,
+and only then waits for the separate Agent reply. Do not add sleeps, mutate React
+internals, or resend lost text to hide this failure.
+
+Navigation and closing menus/dialogs have observable completion states; the test
+waits for those rather than clicking through an overlay. Model reply markers avoid
+sentence-ending punctuation: one real response omitted a requested final period,
+which is not evidence of a transport failure. Exact marker and sender checks remain.
 
 Importing the caller's model key into the systemd user environment happens before
 starting native services. A shell export alone does not update an already-running

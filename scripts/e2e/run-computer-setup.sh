@@ -7,6 +7,7 @@ set -euo pipefail
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 : "${COFORGE_E2E_WEB_URL:?Set COFORGE_E2E_WEB_URL to the trusted local HTTPS endpoint}"
 : "${COFORGE_E2E_WORKSPACE_SLUG:?Set COFORGE_E2E_WORKSPACE_SLUG}"
+: "${OPENROUTER_API_KEY:?Native browser E2E requires a real OpenRouter key}"
 
 if [[ "${COFORGE_E2E_ALLOW_INSTALL:-}" != 1 ]]; then
   echo 'Use a disposable OS user and set COFORGE_E2E_ALLOW_INSTALL=1: this installs and starts Computer for that user.' >&2
@@ -34,6 +35,8 @@ version=$(mise exec -- bun -e 'console.log((await Bun.file(Bun.argv[1]).json()).
 
 # First use waits for the real browser device-code approval. Repeated runs reuse
 # the normal credential store. No automatic approval or direct runtime start.
-"$HOME/.coforge/computer/install/active/coforge-computer" setup --workspace "$COFORGE_E2E_WORKSPACE_SLUG" --json
+"$HOME/.coforge/computer/install/active/coforge-computer" setup --workspace "$COFORGE_E2E_WORKSPACE_SLUG" --json | tee "$root/.amp/e2e/native-setup-result.json"
 systemctl --user is-active coforge-daemon.service
-echo 'Native setup completed. Verify this Computer is Online and create an Agent in the browser.'
+export COFORGE_E2E_REGISTRATION
+COFORGE_E2E_REGISTRATION=$(mise exec -- bun -e 'console.log((await Bun.file(Bun.argv[1]).json()).config_path)' "$root/.amp/e2e/native-setup-result.json")
+exec mise exec -- bun test "$root/scripts/e2e/native-browser.e2e.ts"
