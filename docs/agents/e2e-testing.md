@@ -172,8 +172,8 @@ After the diagnostic cleanup changes, the final browser run also passed:
 `build` passed; targeted E2E oxfmt/oxlint, shellcheck, and TypeScript checks passed.
 Oracle found no blockers in this incremental change. Channel SSR/live DOM checks
 also observed disabled-before-hydration and enabled-after-hydration behavior.
-Thread entry, task actions, and send-error recovery remain manual regression
-checklist items; this direct-chat E2E does not claim to cover them.
+Thread entry and send-error recovery remain manual regression checklist items;
+this direct-chat E2E does not claim to cover them.
 
 The native browser test now also uploads `read-me.txt` through the production
 composer and asks the real Agent to reply with its contents. Its random marker
@@ -186,6 +186,26 @@ seconds, using the installed native Computer and DeepSeek V4.1 Flash on OpenRout
 The inspected screenshot shows the attachment and separate Agent content reply.
 This covers Web upload/send and Agent access to the contents, not proof of a
 particular CLI tool invocation, Agent-originated upload, or attachment comments.
+
+The same native browser scenario now creates a uniquely titled Task in the DM's
+Task board, verifies it is initially unassigned, assigns it to the real Agent,
+then observes its card under **In review** with that Agent as owner. Reload must
+preserve both owner and status. No test code claims or changes the Task status.
+On 2026-09-14 the combined message/attachment/Task scenario passed: **1 pass,
+0 fail, 16 assertions**, 42.82 seconds. The native Pi session independently showed
+`coforge task claim --target "@dev-user" --number 1`, result `#1: claimed`, and
+`coforge task update --target "@dev-user" --number 1 --status in_review`.
+The Agent's `task-result.txt` contained `task received`; the refreshed board
+screenshot was inspected. These tool/file checks were diagnostic inspection,
+not additional automated browser assertions. This does not isolate assignment
+receipt wake-up from initial Task-message delivery or cover offline recovery,
+channel mute, reassignment, or approval to Done.
+
+Browser selectors must use observed accessible names, not inferred function
+names: this UI uses **View and edit** and **Assignee handle**. Use the explicit
+Close button for Task detail: Escape did not dismiss it during this run. Initial
+failures were incorrect test selectors/dismissal assumptions, not Task delivery
+failures; no production behavior was changed to make this scenario pass.
 
 ### Fast browser input exposed a production hydration defect
 

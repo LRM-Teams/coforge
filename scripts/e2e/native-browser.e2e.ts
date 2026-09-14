@@ -191,6 +191,48 @@ test("installed Computer creates an Agent through Web and persists its real repl
       "screenshot",
       resolve(import.meta.dir, "../../.amp/in/artifacts/native-browser-reply.png"),
     );
+    console.log("native_browser:create_task");
+    const taskTitle = `TASK_${crypto.randomUUID()}: After this task is assigned to you, create a text file named task-result.txt containing task received, then submit this task for review. Do not start before assignment.`;
+    await browser("click", 'nav[aria-label="Chat / Tasks"] button:last-child');
+    await click("button", "Create task");
+    await browser("find", "role", "textbox", "fill", "--name", "Title", "--exact", taskTitle);
+    await browser("click", '[role="dialog"] button[type="submit"]');
+    await browser("wait", "--fn", "!document.querySelector('[role=dialog]')");
+    await browser("click", 'nav[aria-label="Chat / Tasks"] button:last-child');
+    await browser("wait", "article");
+    expect((await browser("get", "text", "article")).includes(taskTitle)).toBe(true);
+    expect((await browser("get", "text", "article")).includes("Unassigned")).toBe(true);
+    await browser("find", "role", "button", "click", "--name", "More actions for task");
+    await click("menuitem", "View and edit");
+    await browser(
+      "find",
+      "role",
+      "textbox",
+      "fill",
+      "--name",
+      "Assignee handle",
+      "--exact",
+      `@${name}`,
+    );
+    await click("button", "Assign");
+    await browser(
+      "wait",
+      "--fn",
+      `document.querySelector('article')?.textContent.includes(${JSON.stringify(name)})`,
+    );
+    await browser("find", "last", '[role="dialog"] button', "click");
+    await browser("wait", "--fn", "!document.querySelector('[role=dialog]')");
+    console.log("native_browser:await_task_review");
+    const taskInReview = `Array.from(document.querySelectorAll('section[aria-label="In review"] article')).some(e => e.textContent.includes(${JSON.stringify(taskTitle)}) && e.textContent.includes(${JSON.stringify(name)}))`;
+    await browser("wait", "--fn", taskInReview, "--timeout", "180000");
+    expect(JSON.parse(await browser("eval", taskInReview))).toBe(true);
+    await browser("reload");
+    await browser("wait", "--fn", taskInReview, "--timeout", "180000");
+    expect(JSON.parse(await browser("eval", taskInReview))).toBe(true);
+    await browser(
+      "screenshot",
+      resolve(import.meta.dir, "../../.amp/in/artifacts/native-browser-task.png"),
+    );
     console.log(
       JSON.stringify({
         event: "native_browser:passed",
@@ -198,6 +240,7 @@ test("installed Computer creates an Agent through Web and persists its real repl
         name,
         replyPersisted: true,
         attachmentReplyPersisted: true,
+        taskReviewPersisted: true,
       }),
     );
   } catch (error) {
@@ -218,4 +261,4 @@ test("installed Computer creates an Agent through Web and persists its real repl
       console.error("native_browser:cleanup_failed", cleanupError);
     });
   }
-}, 480_000);
+}, 660_000);
