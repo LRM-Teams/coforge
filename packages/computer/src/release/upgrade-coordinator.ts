@@ -215,8 +215,10 @@ export async function launchUpgradeCoordinator(
   const child = Bun.spawn({
     cmd: [executablePath, "__upgrade", "--request", requestPath],
     stdin: "ignore",
-    stdout: "ignore",
-    // Presentation only: completion still uses the durable result, never terminal output.
+    // Progress goes to stdout and is shown to the user; completion still uses the durable
+    // result, never terminal output. Inheriting stdout keeps the coordinator's own progress
+    // (already routed to stdout by the update command) from being discarded.
+    stdout: "inherit",
     stderr: "inherit",
     detached: true,
     windowsHide: true,

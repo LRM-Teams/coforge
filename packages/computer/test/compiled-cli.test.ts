@@ -71,8 +71,9 @@ test("single-file installation provides management and Agent CLI without a Daemo
     expect(errors).toContain("Detected platform:");
     expect(errors.indexOf("Detected platform:")).toBeLessThan(errors.indexOf("Resolved version:"));
     expect(errors.match(/Downloading CoForge Computer/g)).toHaveLength(1);
-    expect(errors.match(/Installing CoForge Computer to/g)).toHaveLength(1);
-    expect(errors).not.toContain("Checking runtime health");
+    expect(output.match(/Installing CoForge Computer to/g)).toHaveLength(1);
+    expect(errors).not.toContain("Installing CoForge Computer to");
+    expect(output).not.toContain("Checking runtime health");
     const bin = join(root, "versions", version);
     expect(await Bun.file(join(bin, "coforge-daemon")).exists()).toBe(false);
     const invoke = async (args: string[], input = "") => {
@@ -184,17 +185,18 @@ test("detached upgrade shows one download and restores a healthy version after a
       ]);
       expect(code).toBe(version === "9.0.0-test" ? 0 : 1);
       expect(errors.match(/Downloading CoForge Computer/g)).toHaveLength(1);
-      expect(errors.match(/Installing CoForge Computer to/g)).toHaveLength(1);
+      expect(output.match(/Installing CoForge Computer to/g)).toHaveLength(1);
+      expect(errors).not.toContain("Installing CoForge Computer to");
       expect(
         requests.filter((path) => path === `/${version}/linux-x64/coforge-computer.gz`),
       ).toHaveLength(1);
       expect(await updater.getCurrentVersion()).toBe("9.0.0-test");
       if (code === 0) {
-        expect(output).toBe("succeeded\n");
-        expect(errors).not.toContain("Checking runtime health");
+        expect(output.endsWith("succeeded\n")).toBe(true);
+        expect(output).not.toContain("Checking runtime health");
       } else {
         expect(output).not.toContain("succeeded");
-        expect(errors).toContain("Previous version 9.0.0-test restored and healthy");
+        expect(output).toContain("Previous version 9.0.0-test restored and healthy");
         expect(errors).not.toContain("UpgradeCoordinatorError:");
       }
     }
