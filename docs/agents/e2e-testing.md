@@ -19,7 +19,8 @@ It invokes registration/message application modules, starts DaemonRuntime
 in-process, and injects a Pi Provider and a limited inventory. WSS, Agent
 sessions, OpenRouter inference, message persistence, and delivery ACKs are real.
 Native Computer setup, process supervision, and complete inventory publication
-remain separate required coverage. Do not advertise this test as covering them.
+are verified separately in the native procedure below. Do not advertise the
+in-process OpenRouter test as covering them.
 
 ## Diagnoses established during recovery
 
@@ -88,8 +89,8 @@ and click Approve. The CLI returned `ok: true`, `binding_created: false`,
 filling a formatted, hyphenated code through automation's raw input setter;
 the OTP field expects eight characters and normalizes actual paste events.
 
-Native setup is still **not passing**. The subsequent `setup --workspace
-dev-user --json` returned `SETUP_DAEMON_START_FAILED`. Two harness prerequisites
+The initial native setup attempt failed: `setup --workspace dev-user --json`
+returned `SETUP_DAEMON_START_FAILED`. Two harness prerequisites
 were missing, not established product defects:
 
 - The isolated HOME received the service file, but the real systemd user
@@ -105,5 +106,59 @@ then using `XDG_RUNTIME_DIR=/run/user/1000` produced a running user manager.
 The initial missing user bus was not evidence that native testing was impossible.
 Computer also requires HTTPS. The native investigation used a local Caddy TLS
 endpoint with its CA explicitly trusted, never disabled Computer TLS checks.
-The reusable native harness must prepare a verified installation and a coherent
-user-manager environment before claiming setup/process-supervision coverage.
+The reusable native harness now prepares a verified installation and checks the
+user-manager environment before running setup.
+
+## Native Linux verification and repeatable setup
+
+Verified on 2026-09-14 with a local host-platform package, not a published release:
+
+1. The production `__install-local` bootstrap entry verified manifest and gzip
+   identities and installed the unified Computer executable in its version store.
+2. The installed `setup --workspace dev-user --json` used real browser device-code
+   approval and returned `server_registration_created: true`, `daemon_started: true`.
+3. Both Coordinator and Workspace systemd services were active; the Computers
+   page showed Online and the actual runtime inventory.
+4. Through the browser, publish Pi, create `native-e2e` on that Computer, select
+   OpenRouter / DeepSeek V4.1 Flash, open Private chat, and send
+   `Reply with exactly: native Computer E2E confirmed.` The Agent replied.
+5. Repeat the setup script (verified native upgrade), then send
+   `Reply with exactly: native installed rerun confirmed.` A separate Agent reply
+   appeared. Reloading the page retained both replies and showed Online.
+
+This uses production instructions, native services and real OpenRouter inference.
+It does not inject a Provider, DaemonRuntime, Agent start, reply, or ACK from test
+code. Browser identity still uses the development user. Public CDN download,
+external identity-provider login, macOS, and Windows are not covered. The native
+browser steps are manual/agent-browser verification, not yet an unattended test.
+
+Run in a disposable **OS user**, not a fake HOME. Prepare the normal E2E services,
+a running systemd user manager, and trusted local HTTPS. In this orb, Caddy 2.10.2
+uses `tls internal` on `https://localhost:8791`, reverse-proxying port 8790; export
+its readable root certificate path as `NODE_EXTRA_CA_CERTS`. No TLS validation
+is disabled in Computer. Keep this TLS proxy running for the installed services.
+
+```sh
+amp orb services ensure
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+systemctl --user is-system-running
+# OPENROUTER_API_KEY is supplied securely by the environment.
+export NODE_EXTRA_CA_CERTS=/path/to/local-caddy-root.crt
+export COFORGE_E2E_WEB_URL=https://localhost:8791
+export COFORGE_E2E_WORKSPACE_SLUG=dev-user
+COFORGE_E2E_ALLOW_INSTALL=1 scripts/e2e/run-computer-setup.sh
+```
+
+The script builds a unique fixture version, packages it, calls the real installer,
+then invokes setup from `install/active`. It deliberately does not claim a browser
+reply from setup success. Follow the browser steps above and distinguish the
+Agent reply from the user's request; reload to verify persistence.
+
+Importing the caller's model key into the systemd user environment happens before
+starting native services. A shell export alone does not update an already-running
+Daemon. Use `coforge-computer restart` after changing its environment. Directly
+restarting a Workspace systemd unit during this investigation left the live
+Coordinator's recorded runtime identity stale; the installer correctly refused
+upgrade with `Workspace runtime set is unhealthy`. The official restart command
+recovered it, after which the unchanged setup script passed. Do not suppress that
+health check or replace the active executable manually.

@@ -12,20 +12,20 @@ const managedWeb = await readFile(new URL("./managed-web.sh", import.meta.url), 
 
 test("Computer setup harness exercises the compiled CLI and real daemon path", () => {
   expect(harness).toContain(".amp/e2e/bin/coforge-computer");
-  expect(harness).toContain('COFORGE_E2E_DAEMON_EXECUTABLE="$root/.amp/e2e/bin/coforge-computer"');
+  expect(harness.indexOf("__install-local")).toBeGreaterThan(-1);
+  expect(harness.indexOf("__install-local")).toBeLessThan(harness.indexOf("setup --workspace"));
   expect(harness).not.toContain("dist/coforge-daemon");
-  expect(harness).toContain("COFORGE_SETUP_INTENT");
-  expect(harness).toContain("COFORGE_E2E_ALLOW_DEVICE_AUTH=1");
-  expect(harness).toContain("provider_home in .codex .claude");
-  expect(harness).toContain('export HOME="$COFORGE_E2E_HOME"');
+  expect(harness).not.toContain("COFORGE_E2E_DAEMON_EXECUTABLE");
+  expect(harness).not.toContain("COFORGE_E2E_ALLOW_DEVICE_AUTH=1");
+  expect(harness).not.toContain("export HOME=");
+  expect(harness).toContain("systemctl --user");
   expect(harness).not.toContain("setup --server");
   expect(fixtureBuild).toContain("COFORGE_E2E_WEB_URL");
   expect(fixtureBuild).toContain("COFORGE_E2E_CENTRIFUGO_ENDPOINT");
   expect(fixtureBuild).toContain("COFORGE_SERVER_URL");
   expect(fixtureBuild).toContain("COFORGE_DAEMON_SERVER_URL");
   expect(harness).toContain("computer:register");
-  expect(harness).toContain("wait-for-online");
-  expect(harness).toContain("e2e-provider-usage.ts");
+  expect(harness).toContain(".coforge/computer/install/active/coforge-computer");
   expect(harness).not.toContain("InMemoryDaemon");
   expect(harness).not.toContain("TRUNCATE");
 });
