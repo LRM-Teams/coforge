@@ -8,12 +8,28 @@ import { getDatabaseClient } from "../../server/db/client.server";
 import { requireExistingWorkspaceId } from "../../server/workspaces/enrollment.server";
 import { preferredWorkspaceSlugFromRequest } from "../../server/workspaces/selection.server";
 import { recordCatalog } from "../../server/records/record-catalog.server";
+import { GeneralChannelWeeklyAssignmentDelivery } from "../../server/records/weekly-assignment-channel-delivery.server";
+import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
+import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
+import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
 import { normalizeReportContent, type ReportContent } from "./records-content";
 
 function catalog() {
   const db = getDatabaseClient();
   if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
   return { db, catalog: recordCatalog(db) };
+}
+
+function catalogWithChannelDelivery() {
+  const db = getDatabaseClient();
+  if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
+  const centrifugo = createCentrifugoServerApi();
+  const delivery = GeneralChannelWeeklyAssignmentDelivery.withDeps(db, {
+    publisher: centrifugo,
+    notifications: bestEffortMessageNotifier(db),
+    realtime: new CentrifugoConversationRealtime(centrifugo),
+  });
+  return { db, catalog: recordCatalog(db, delivery) };
 }
 
 function currentUser() {
@@ -28,6 +44,7 @@ async function currentWorkspaceId(userId: string) {
 const reportContentSchema: z.ZodType<ReportContent> = z.object({
   tabs: z.record(z.string(), z.object({ markdown: z.string() })),
   markdown: z.string().optional(),
+  assignment: z.object({ unread: z.boolean() }).optional(),
 });
 
 const highlightContentSchema = z.object({
@@ -77,24 +94,24 @@ export const createTemplateWeeklyReport = createServerFn({ method: "POST" })
     });
   });
 
-export const createTemplateChildReport = createServerFn({ method: "POST" })
-  .validator(z.object({ templateId: z.string().uuid() }))
-  .handler(async ({ data }) => {
-    const user = currentUser();
-    const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.createSubmissionUnderTemplate({
-      workspaceId,
-      userId: user.id,
-      templateId: data.templateId,
-    });
-  });
-
 export const deleteTemplateWeeklyReport = createServerFn({ method: "POST" })
   .validator(z.object({ reportId: z.string().uuid() }))
   .handler(async ({ data }) => {
     const user = currentUser();
     const workspaceId = await currentWorkspaceId(user.id);
     return catalog().catalog.deleteTemplateReport({
+      workspaceId,
+      userId: user.id,
+      reportId: data.reportId,
+    });
+  });
+
+export const deleteMemberWeeklyReport = createServerFn({ method: "POST" })
+  .validator(z.object({ reportId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    const workspaceId = await currentWorkspaceId(user.id);
+    return catalog().catalog.deleteMemberReport({
       workspaceId,
       userId: user.id,
       reportId: data.reportId,
@@ -185,6 +202,36 @@ export const saveWeeklyReportContent = createServerFn({ method: "POST" })
     });
   });
 
+export const markWeeklyAssignmentOpened = createServerFn({ method: "POST" })
+  .validator(z.object({ reportId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    const workspaceId = await currentWorkspaceId(user.id);
+    return catalog().catalog.markAssignmentOpened({
+      workspaceId,
+      userId: user.id,
+      reportId: data.reportId,
+    });
+  });
+
+export const sendWeeklyReportAssignments = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      sourceReportId: z.string().uuid(),
+      content: reportContentSchema.optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    const workspaceId = await currentWorkspaceId(user.id);
+    return catalogWithChannelDelivery().catalog.sendWeeklyAssignments({
+      workspaceId,
+      userId: user.id,
+      sourceReportId: data.sourceReportId,
+      content: data.content ? normalizeReportContent(data.content) : undefined,
+    });
+  });
+
 export const saveWeeklyHighlightContent = createServerFn({ method: "POST" })
   .validator(
     z.object({
@@ -211,12 +258,44 @@ export const loadWeeklyTemplates = createServerFn({ method: "GET" }).handler(asy
   return catalog().catalog.listTemplates({ workspaceId, userId: user.id });
 });
 
+export const applyWeeklyTemplate = createServerFn({ method: "POST" })
+  .validator(z.object({ templateId: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    const workspaceId = await currentWorkspaceId(user.id);
+    return catalog().catalog.applyTemplate({
+      workspaceId,
+      userId: user.id,
+      templateId: data.templateId,
+    });
+  });
+
+export const setWeeklyTemplateScheduleEnabled = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      templateId: z.string().uuid(),
+      scheduleEnabled: z.boolean(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    const workspaceId = await currentWorkspaceId(user.id);
+    return catalog().catalog.setTemplateScheduleEnabled({
+      workspaceId,
+      userId: user.id,
+      templateId: data.templateId,
+      scheduleEnabled: data.scheduleEnabled,
+    });
+  });
+
 export const createWeeklyTemplate = createServerFn({ method: "POST" })
   .validator(
     z.object({
       name: z.string().trim().min(1),
       frequency: z.literal("weekly"),
       sendTime: z.string().min(1),
+      sendWeekday: z.number().int().min(1).max(7),
+      scheduleEnabled: z.boolean(),
       dimensions: z.array(z.string()),
       mainTitles: z.array(z.string()),
       allMembers: z.boolean(),
@@ -236,6 +315,8 @@ export const updateWeeklyTemplate = createServerFn({ method: "POST" })
       name: z.string().trim().min(1),
       frequency: z.literal("weekly"),
       sendTime: z.string().min(1),
+      sendWeekday: z.number().int().min(1).max(7),
+      scheduleEnabled: z.boolean(),
       dimensions: z.array(z.string()),
       mainTitles: z.array(z.string()),
       allMembers: z.boolean(),

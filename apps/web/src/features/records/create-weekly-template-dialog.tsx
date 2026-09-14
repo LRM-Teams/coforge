@@ -13,6 +13,7 @@ import { Heading } from "react-aria-components";
 import { BadgeWithButton } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { Input } from "@/components/base/input/input";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
@@ -22,11 +23,33 @@ import { isValidTemplateName } from "./records-content";
 import type { TemplateMemberOption, WeeklyTemplateList } from "./weekly-report-settings";
 
 const SEND_TIMES = ["09:00", "12:00", "15:00", "18:00"] as const;
+const SEND_WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const;
+
+function weekdayLabel(day: number) {
+  switch (day) {
+    case 1:
+      return m.records_template_weekday_mon();
+    case 2:
+      return m.records_template_weekday_tue();
+    case 3:
+      return m.records_template_weekday_wed();
+    case 4:
+      return m.records_template_weekday_thu();
+    case 5:
+      return m.records_template_weekday_fri();
+    case 6:
+      return m.records_template_weekday_sat();
+    default:
+      return m.records_template_weekday_sun();
+  }
+}
 
 export type CreateWeeklyTemplateInput = {
   name: string;
   frequency: "weekly";
   sendTime: string;
+  sendWeekday: number;
+  scheduleEnabled: boolean;
   dimensions: string[];
   mainTitles: string[];
   allMembers: boolean;
@@ -59,6 +82,8 @@ export function CreateWeeklyTemplateDialog({
   const [recipientQuery, setRecipientQuery] = useState("");
   const [frequency] = useState<"weekly">("weekly");
   const [sendTime, setSendTime] = useState<string>("15:00");
+  const [sendWeekday, setSendWeekday] = useState(5);
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
   const [nameError, setNameError] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -86,6 +111,8 @@ export function CreateWeeklyTemplateDialog({
     setRecipientIds([]);
     setRecipientQuery("");
     setSendTime("15:00");
+    setSendWeekday(5);
+    setScheduleEnabled(false);
     setNameError(false);
     setSaving(false);
   }
@@ -104,6 +131,8 @@ export function CreateWeeklyTemplateDialog({
     setRecipientIds(template.allMembers ? [] : template.recipients.map((row) => row.userId));
     setRecipientQuery("");
     setSendTime(template.sendTime || "15:00");
+    setSendWeekday(template.sendWeekday || 5);
+    setScheduleEnabled(Boolean(template.scheduleEnabled));
     setNameError(false);
     setSaving(false);
   }
@@ -160,6 +189,8 @@ export function CreateWeeklyTemplateDialog({
         name: name.trim(),
         frequency,
         sendTime,
+        sendWeekday,
+        scheduleEnabled,
         dimensions,
         mainTitles,
         allMembers: allMembers || recipientIds.length === 0,
@@ -352,17 +383,37 @@ export function CreateWeeklyTemplateDialog({
                       <Select.Item id="weekly" label={m.records_template_frequency_weekly()} />
                     </Select>
                     <Select
-                      label={m.records_template_send_time()}
+                      label={m.records_template_send_weekday()}
                       size="sm"
-                      selectedKey={sendTime}
-                      onSelectionChange={(key) => setSendTime(key ? String(key) : "15:00")}
+                      selectedKey={String(sendWeekday)}
+                      onSelectionChange={(key) => setSendWeekday(key ? Number(key) : 5)}
                       hideRequiredIndicator
                     >
-                      {SEND_TIMES.map((time) => (
-                        <Select.Item key={time} id={time} label={time} />
+                      {SEND_WEEKDAYS.map((day) => (
+                        <Select.Item key={day} id={String(day)} label={weekdayLabel(day)} />
                       ))}
                     </Select>
                   </div>
+
+                  <Select
+                    label={m.records_template_send_time()}
+                    size="sm"
+                    selectedKey={sendTime}
+                    onSelectionChange={(key) => setSendTime(key ? String(key) : "15:00")}
+                    hideRequiredIndicator
+                  >
+                    {SEND_TIMES.map((time) => (
+                      <Select.Item key={time} id={time} label={time} />
+                    ))}
+                  </Select>
+
+                  <Checkbox
+                    size="sm"
+                    isSelected={scheduleEnabled}
+                    onChange={setScheduleEnabled}
+                    label={m.records_template_schedule_enabled()}
+                    hint={m.records_template_schedule_enabled_hint()}
+                  />
                 </div>
 
                 <div className="flex items-center justify-end gap-3 border-t border-secondary px-6 py-4">

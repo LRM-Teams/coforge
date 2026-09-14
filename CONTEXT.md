@@ -99,18 +99,26 @@ member reports, and highlight.
 _Avoid_: Calendar month, chat thread
 
 **WeeklyReport**:
-One User-authored weekly-report document in a WeeklyReportCycle, either the
-cycle template draft or a member submission, carrying structured outline
+One User-authored weekly-report document in a WeeklyReportCycle: either a
+Leader weekly parent (format/outline under「成员周报」) or a member document
+(personal report or an assignment filled from a Leader parent), carrying
 content and a submission status.
 _Avoid_: Message body, Task
+
+**Weekly report assignment**:
+A member WeeklyReport created when a Leader sends a weekly parent to recipients.
+Its title is `{memberDisplayName}的周报 · W{week}`. It stays under「我的周报」
+while drafting; after submit it also appears as a child of that parent in
+「成员周报」, one per member per parent, overwritten on resend.
+_Avoid_: Free-form child page created by Leader “+”
 
 **WeeklyReportHighlight**:
 The Workspace-level key-points document for one WeeklyReportCycle.
 _Avoid_: Member WeeklyReport, channel summary
 
 **WeeklyReportTemplate**:
-Reusable Workspace send configuration for weekly reports (name, dimensions,
-recipients, frequency, and send time), distinct from a cycle's template draft.
+Reusable Workspace send configuration for weekly reports (name, recipients,
+frequency, and send time), distinct from a Leader weekly parent document.
 _Avoid_: WeeklyReport content, Message template
 
 **RecordComment**:

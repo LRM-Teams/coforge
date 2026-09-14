@@ -4,10 +4,16 @@ export type ReportTab = {
   markdown: string;
 };
 
+/** Leader-assignment inbox state stored in content JSON (no schema column yet). */
+export type ReportAssignmentMeta = {
+  unread: boolean;
+};
+
 export type ReportContent = {
   tabs?: Record<string, ReportTab>;
   /** Temporary compatibility field used by the Notes draft cache. */
   markdown?: string;
+  assignment?: ReportAssignmentMeta;
 };
 
 export type HighlightBlock = {
@@ -27,13 +33,27 @@ type LegacyOutlineNode = {
 };
 
 type LegacySection = {
-  title?: string;
+  title?: unknown;
   markdown?: unknown;
   roots?: LegacyOutlineNode[];
 };
 
 function newTabName() {
   return "Summary";
+}
+
+function parseAssignmentMeta(value: unknown): ReportAssignmentMeta | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const unread = (value as { unread?: unknown }).unread;
+  if (typeof unread !== "boolean") return undefined;
+  return { unread };
+}
+
+function withOptionalAssignment(
+  content: ReportContent,
+  assignment: ReportAssignmentMeta | undefined,
+): ReportContent {
+  return assignment ? { ...content, assignment } : content;
 }
 
 function legacyOutlineToMarkdown(nodes: LegacyOutlineNode[], depth = 0): string {
@@ -52,7 +72,7 @@ function legacyOutlineToMarkdown(nodes: LegacyOutlineNode[], depth = 0): string 
 function legacySectionsToMarkdown(sections: LegacySection[]): string {
   return sections
     .flatMap((section) => {
-      const title = (section.title ?? "").trim();
+      const title = typeof section.title === "string" ? section.title.trim() : "";
       const body =
         typeof section.markdown === "string" && section.markdown.length > 0
           ? section.markdown
@@ -83,17 +103,20 @@ export function alignReportContentToTemplate(
   for (const name of Object.keys(next.tabs ?? {})) {
     next.tabs![name] = normalizedTabs[name] ?? { markdown: "" };
   }
-  return next;
+  return withOptionalAssignment(next, normalized.assignment);
 }
 
 /** Clear every display page without removing the page structure. */
 export function clearReportContent(content: ReportContent): ReportContent {
   const normalized = normalizeReportContent(content);
-  return {
-    tabs: Object.fromEntries(
-      Object.keys(normalized.tabs ?? {}).map((name) => [name, { markdown: "" }]),
-    ),
-  };
+  return withOptionalAssignment(
+    {
+      tabs: Object.fromEntries(
+        Object.keys(normalized.tabs ?? {}).map((name) => [name, { markdown: "" }]),
+      ),
+    },
+    normalized.assignment,
+  );
 }
 
 /** Normalize persisted JSON, including the former single-markdown representation. */
@@ -102,7 +125,9 @@ export function normalizeReportContent(value: unknown): ReportContent {
   const record = value as {
     markdown?: unknown;
     tabs?: Record<string, { markdown?: unknown; sections?: LegacySection[] }>;
+    assignment?: unknown;
   };
+  const assignment = parseAssignmentMeta(record.assignment);
 
   if (record.tabs && typeof record.tabs === "object") {
     const tabs = Object.fromEntries(
@@ -116,13 +141,25 @@ export function normalizeReportContent(value: unknown): ReportContent {
         },
       ]),
     );
-    return Object.keys(tabs).length > 0 ? { tabs } : emptyReportContent();
+    const base = Object.keys(tabs).length > 0 ? { tabs } : emptyReportContent();
+    return withOptionalAssignment(base, assignment);
   }
 
   if (typeof record.markdown === "string") {
-    return { tabs: { [newTabName()]: { markdown: record.markdown } } };
+    return withOptionalAssignment(
+      { tabs: { [newTabName()]: { markdown: record.markdown } } },
+      assignment,
+    );
   }
-  return emptyReportContent();
+  return withOptionalAssignment(emptyReportContent(), assignment);
+}
+
+export function isAssignmentUnread(content: ReportContent): boolean {
+  return normalizeReportContent(content).assignment?.unread === true;
+}
+
+export function withAssignmentUnread(content: ReportContent, unread: boolean): ReportContent {
+  return withOptionalAssignment(normalizeReportContent(content), { unread });
 }
 
 export function emptyHighlightContent(): HighlightContent {
@@ -147,8 +184,9 @@ export function templateDraftTitle(year: number, week: number): string {
   return `${year} W${week} 周报模板`;
 }
 
-export function memberReportTitle(displayName: string, year: number, week: number): string {
-  return `${displayName} ${year} W${week} 工作周报`;
+/** Member-facing assignment / personal report title: `{name}的周报 · W{week}`. */
+export function memberReportTitle(displayName: string, _year: number, week: number): string {
+  return `${displayName}的周报 · W${week}`;
 }
 
 /** ISO week-year and week number for the given local calendar date. */

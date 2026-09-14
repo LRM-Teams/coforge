@@ -1,6 +1,6 @@
 # ADR 0009: Workspace Records (weekly reports)
 
-Status: proposed (schema gate — needs Frank approval before merge to main)
+Status: accepted (partially superseded by [ADR 0011](0011-leader-weekly-report-assignment.md) for Leader assignment / child visibility / Message delivery deferral)
 Date: 2026-09-10
 
 ## Context
@@ -29,16 +29,17 @@ AI drafting/side-chat replies are deferred; storage must still allow a future
      duplicate (Multica Notes-style); identity and navigation use the report
      UUID. Templates are **not** listed under “我的周报”.
    - **Submissions / child pages**: member reports with `sourceTemplateId`
-     appear as **children** of that template node (any status, including draft).
-     Creating via the row “+” after the actions menu adds a child under that
-     template (copies the template body, uses the template’s cycle).      Opening a template shows tabs: an overview table of children (name column
-     bound to each child’s author display name; other columns deferred) and a
-     template editor. Creating a child copies the latest saved template body.
-   Body is `content` JSON `{ markdown: string }` — one TipTap Markdown document
-   (Notes-style), not tabs/sections. Draft opening does not realign body
-   structure from send templates. Legacy tab/section / outline JSON is
-   flattened to Markdown on read. Creating either kind does **not** create the
-   other, nor a highlight.
+     appear as **children** of that template node **only after submit**
+     (`submitted` | `shared`). Leaders do not pre-create children from the
+     template row “+” (removed; see ADR 0011). Opening a template shows tabs:
+     an overview table of submitted children (name column bound to each child’s
+     author display name; other columns deferred) and a template editor.
+     Creating a child via Leader send (later slice) copies the latest saved
+     template body into the member assignment.
+   Body is `content` JSON — TipTap Markdown / multi-page tabs as implemented.
+   Draft opening does not realign body structure from send templates. Legacy
+   tab/section / outline JSON is flattened to Markdown on read where needed.
+   Creating either kind does **not** create the other, nor a highlight.
 3. **WeeklyReportTemplate** is Workspace-level **send** configuration (name,
    frequency, time, recipients). `dimensions` / `mainTitles` may still be
    stored for settings UI compatibility but do **not** drive report body
@@ -57,12 +58,14 @@ AI drafting/side-chat replies are deferred; storage must still allow a future
 ## Rejected alternatives
 
 - Tabbed sections driven by template dimensions/mainTitles: superseded — product
-  wants a single Markdown document like Multica Notes.
+  wants Notes-style editing (single doc and/or explicit pages), not settings-driven
+  section injection into the body.
 - Storing report body outside JSON (plain text column): deferred; Json keeps
   migration of legacy shapes without a schema rewrite.
-- Coupling templates to Message/Task: rejected; Records is not chat delivery.
 - Embedding Centrifugo for report comments in MVP: deferred; HTTPS server
   functions are enough until live co-editing is required.
+- Permanently forbidding Records→Message delivery: **withdrawn** — that was only
+  an early development deferral; see ADR 0011.
 
 ## Consequences
 
@@ -73,5 +76,6 @@ AI drafting/side-chat replies are deferred; storage must still allow a future
 - `WeeklyReport` no longer enforces uniqueness on `(cycleId, authorId, kind)`;
   member and template reports may share titles within a cycle.
 - Member submissions may set optional `sourceTemplateId` to hang under a
-  template node in “成员周报”.
-- Merge to `main` requires Frank’s schema approval per AGENTS.md decision gates.
+  template node in “成员周报” once submitted.
+- Leader assignment / unread / resend / schedule behavior is governed by ADR 0011.
+- Schema changes still require Frank’s approval per AGENTS.md decision gates.
