@@ -782,9 +782,10 @@ test("applyTemplate ensures a personal format when activating settings", async (
     kind: "template",
     authorId: "leader-b",
   });
-  expect((created[0]?.content as { tabs?: { Summary?: { markdown?: string } } })?.tabs?.Summary?.markdown).toContain(
-    "# Summary",
-  );
+  expect(
+    (created[0]?.content as { tabs?: { Summary?: { markdown?: string } } })?.tabs?.Summary
+      ?.markdown,
+  ).toContain("# Summary");
 });
 
 test("getSubject rejects unrelated members opening another leader's format", async () => {

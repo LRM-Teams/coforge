@@ -19,10 +19,7 @@ import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/mod
 import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
 import { isValidTemplateName } from "./records-content";
-import {
-  parseTemplateSections,
-  type TemplateOutlineSection,
-} from "./template-outline-sections";
+import { parseTemplateSections, type TemplateOutlineSection } from "./template-outline-sections";
 import type { TemplateMemberOption, WeeklyTemplateList } from "./weekly-report-settings";
 
 const SEND_TIMES = ["09:00", "12:00", "15:00", "18:00"] as const;
@@ -288,7 +285,9 @@ export function CreateWeeklyTemplateDialog({
                 className="flex min-h-0 flex-1 flex-col"
               >
                 <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
-                  <p className="text-sm font-semibold text-primary">{m.records_template_details()}</p>
+                  <p className="text-sm font-semibold text-primary">
+                    {m.records_template_details()}
+                  </p>
 
                   <Input
                     label={m.records_template_name()}

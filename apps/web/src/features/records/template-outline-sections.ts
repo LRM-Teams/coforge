@@ -141,8 +141,7 @@ export function alignReportContentToSections(
   const tabNames = Object.keys(normalized.tabs ?? {});
   const primary = tabNames[0] ?? "Summary";
   const current = normalized.tabs?.[primary]?.markdown ?? "";
-  const nextMarkdown =
-    sections.length === 0 ? current : alignMarkdownToSections(current, sections);
+  const nextMarkdown = sections.length === 0 ? current : alignMarkdownToSections(current, sections);
   const base = emptyReportContent([primary]);
   return {
     tabs: {

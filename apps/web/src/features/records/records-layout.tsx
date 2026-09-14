@@ -533,9 +533,7 @@ function CurrentWeekTemplateSlot({
 
   const chipClassName = cn(
     "flex min-h-10 w-full items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors",
-    sendArmed
-      ? "bg-brand-primary text-brand-secondary"
-      : "bg-secondary text-tertiary",
+    sendArmed ? "bg-brand-primary text-brand-secondary" : "bg-secondary text-tertiary",
     template.interactive && !sendArmed && "hover:bg-secondary_hover",
     !template.interactive && "cursor-not-allowed opacity-60",
     selected && sendArmed && "ring-1 ring-brand",
@@ -562,7 +560,10 @@ function CurrentWeekTemplateSlot({
       aria-current={selected ? "page" : undefined}
       resetScroll={false}
       onClick={onSelect}
-      className={cn(chipClassName, "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand")}
+      className={cn(
+        chipClassName,
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
+      )}
     >
       {label}
     </Link>

@@ -48,14 +48,10 @@ test("alignMarkdownToSections keeps body under matching headings", () => {
     { title: "Summary", children: ["Current Works", "Next Steps"] },
     { title: "Technique", children: [] },
   ]);
-  expect(next).toBe(
-    "# Summary\nkept-a\n## Current Works\nkept-b\n## Next Steps\n# Technique",
-  );
+  expect(next).toBe("# Summary\nkept-a\n## Current Works\nkept-b\n## Next Steps\n# Technique");
 });
 
 test("reportContentFromSections writes a Summary tab", () => {
   const content = reportContentFromSections([{ title: "Summary", children: ["A"] }]);
-  expect(sectionsFromReportContent(content)).toEqual([
-    { title: "Summary", children: ["A"] },
-  ]);
+  expect(sectionsFromReportContent(content)).toEqual([{ title: "Summary", children: ["A"] }]);
 });
