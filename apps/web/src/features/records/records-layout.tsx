@@ -544,8 +544,8 @@ function CurrentWeekTemplateSlot({
       <div
         role="status"
         aria-disabled="true"
+        aria-label={m.records_current_week_template_disabled()}
         className={chipClassName}
-        title={m.records_current_week_template_disabled()}
       >
         {label}
       </div>
