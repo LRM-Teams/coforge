@@ -233,6 +233,25 @@ test("installed Computer creates an Agent through Web and persists its real repl
       "screenshot",
       resolve(import.meta.dir, "../../.amp/in/artifacts/native-browser-task.png"),
     );
+    console.log("native_browser:approve_task");
+    const taskDone = `Array.from(document.querySelectorAll('section[aria-label="Done"] article')).some(e => e.textContent.includes(${JSON.stringify(taskTitle)}) && e.textContent.includes(${JSON.stringify(name)}))`;
+    expect(JSON.parse(await browser("eval", taskDone))).toBe(false);
+    await browser("find", "role", "button", "click", "--name", "Change status");
+    await click("option", "Done");
+    await browser(
+      "wait",
+      "--fn",
+      `(${taskDone}) && !document.querySelector('article')?.closest('[aria-busy="true"]')`,
+    );
+    expect(JSON.parse(await browser("eval", taskDone))).toBe(true);
+    await browser("reload");
+    await browser("wait", "--fn", taskDone);
+    expect(JSON.parse(await browser("eval", taskDone))).toBe(true);
+    expect(JSON.parse(await browser("eval", taskInReview))).toBe(false);
+    await browser(
+      "screenshot",
+      resolve(import.meta.dir, "../../.amp/in/artifacts/native-browser-task-done.png"),
+    );
     console.log(
       JSON.stringify({
         event: "native_browser:passed",
@@ -241,6 +260,7 @@ test("installed Computer creates an Agent through Web and persists its real repl
         replyPersisted: true,
         attachmentReplyPersisted: true,
         taskReviewPersisted: true,
+        taskDonePersisted: true,
       }),
     );
   } catch (error) {

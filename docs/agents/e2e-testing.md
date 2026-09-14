@@ -190,7 +190,7 @@ particular CLI tool invocation, Agent-originated upload, or attachment comments.
 The same native browser scenario now creates a uniquely titled Task in the DM's
 Task board, verifies it is initially unassigned, assigns it to the real Agent,
 then observes its card under **In review** with that Agent as owner. Reload must
-preserve both owner and status. No test code claims or changes the Task status.
+preserve both owner and status. No test code claims or advances the Task to review.
 On 2026-09-14 the combined message/attachment/Task scenario passed: **1 pass,
 0 fail, 16 assertions**, 42.82 seconds. The native Pi session independently showed
 `coforge task claim --target "@dev-user" --number 1`, result `#1: claimed`, and
@@ -199,7 +199,24 @@ The Agent's `task-result.txt` contained `task received`; the refreshed board
 screenshot was inspected. These tool/file checks were diagnostic inspection,
 not additional automated browser assertions. This does not isolate assignment
 receipt wake-up from initial Task-message delivery or cover offline recovery,
-channel mute, reassignment, or approval to Done.
+channel mute or reassignment.
+
+The scenario now completes human acceptance through the production status picker:
+after observing the Agent's persisted **In review** card, the browser selects
+**Done**. It verifies the same title and owner in Done, reloads, checks they remain,
+and checks the card is absent from In review. Before reload it waits for the
+card's `aria-busy` saving state to clear; optimistic movement is not persistence.
+The final combined run passed on 2026-09-14: **1 pass, 0 fail, 20 assertions**,
+55.40 seconds. Its inspected screenshot
+is `.amp/in/artifacts/native-browser-task-done.png`; the card truncates the owner
+visually, while the DOM assertion checks the full name.
+
+For future recovery coverage, do not substitute intentional Agent Stop for a
+Daemon disconnection: Stop revokes capabilities and removes restart configuration.
+Likewise, the Web channel mute control changes the human's membership, not the
+Agent's. Agent mute must use the production Agent command. Non-general channels
+do not currently expose an add-Agent UI; `#general` enrolls Workspace members,
+and Task reassignment requires the assignee to belong to that conversation.
 
 Browser selectors must use observed accessible names, not inferred function
 names: this UI uses **View and edit** and **Assignee handle**. Use the explicit
