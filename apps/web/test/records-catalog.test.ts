@@ -2,61 +2,6 @@ import { expect, test } from "bun:test";
 import type { PrismaClient } from "../generated/client";
 import { RecordCatalog } from "../src/server/records/record-catalog.server";
 
-test("new member reports copy the latest template outline and body rows", async () => {
-  let createdData: Record<string, unknown> | undefined;
-  let templateQuery: object | undefined;
-  const db = {
-    workspaceMembership: {
-      findUnique: async () => ({ role: "member" }),
-    },
-    weeklyReportCycle: {
-      findUnique: async () => ({
-        id: "cycle-1",
-        year: 2026,
-        week: 37,
-        title: "2026 W37 工作周报",
-      }),
-    },
-    weeklyReport: {
-      findFirst: async (query: object) => {
-        templateQuery = query;
-        return {
-          content: {
-            tabs: {
-              Summary: {
-                markdown: "# Current Work\n\n## Next Steps\nWrite updates here",
-              },
-            },
-          },
-        };
-      },
-      create: async (query: { data: Record<string, unknown> }) => {
-        createdData = query.data;
-        return { id: "report-1", title: query.data.title };
-      },
-    },
-  } as unknown as PrismaClient;
-
-  await new RecordCatalog(db).createMemberReport({
-    workspaceId: "workspace-1",
-    userId: "user-1",
-    title: "My weekly report",
-  });
-
-  expect(templateQuery).toEqual({
-    where: { workspaceId: "workspace-1", kind: "template" },
-    orderBy: { createdAt: "desc" },
-    select: { content: true },
-  });
-  expect(createdData?.content).toEqual({
-    tabs: {
-      Summary: {
-        markdown: "# Current Work\n\n## Next Steps\nWrite updates here",
-      },
-    },
-  });
-});
-
 test("sendWeeklyAssignments creates a new parent and unread assignments for recipients", async () => {
   const created: Array<Record<string, unknown>> = [];
   const db = {
@@ -499,4 +444,101 @@ test("runDueScheduledWeeklyAssignments sends when due and not yet sent", async (
     assignmentCount: 1,
   });
   expect(sendCalls).toBeGreaterThan(0);
+});
+
+test("saveReportContent rejects when a Leader edits a submitted member assignment", async () => {
+  let updated = false;
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "owner" }),
+    },
+    weeklyReport: {
+      findFirst: async () => ({
+        id: "assignment-1",
+        authorId: "member-a",
+        kind: "member",
+        status: "submitted",
+      }),
+      update: async () => {
+        updated = true;
+        return { id: "assignment-1", status: "submitted", updatedAt: new Date() };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await expect(
+    new RecordCatalog(db).saveReportContent({
+      workspaceId: "workspace-1",
+      userId: "leader",
+      reportId: "assignment-1",
+      content: { tabs: { Summary: { markdown: "Leader rewrite" } } },
+    }),
+  ).rejects.toThrow("ACCESS_DENIED");
+  expect(updated).toBe(false);
+});
+
+test("getSubject marks a submitted member assignment read-only for the Leader", async () => {
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "owner" }),
+    },
+    weeklyReport: {
+      findFirst: async () => ({
+        id: "assignment-1",
+        kind: "member",
+        title: "Alice的周报 · W38",
+        status: "submitted",
+        content: { tabs: { Summary: { markdown: "Done" } } },
+        submittedAt: new Date("2026-09-18T08:00:00.000Z"),
+        updatedAt: new Date("2026-09-18T08:00:00.000Z"),
+        sourceTemplateId: "parent-1",
+        author: { id: "member-a", username: "alice", displayName: "Alice" },
+        cycle: { id: "cycle-1", year: 2026, week: 38, title: "2026 W38 工作周报" },
+      }),
+    },
+  } as unknown as PrismaClient;
+
+  const subject = await new RecordCatalog(db).getSubject({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    id: "assignment-1",
+  });
+
+  expect(subject).toMatchObject({
+    type: "report",
+    report: { id: "assignment-1", kind: "member", editable: false },
+  });
+});
+
+test("getSubject keeps a submitted assignment editable for its author", async () => {
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReport: {
+      findFirst: async () => ({
+        id: "assignment-1",
+        kind: "member",
+        title: "Alice的周报 · W38",
+        status: "submitted",
+        content: { tabs: { Summary: { markdown: "Done" } } },
+        submittedAt: new Date("2026-09-18T08:00:00.000Z"),
+        updatedAt: new Date("2026-09-18T08:00:00.000Z"),
+        sourceTemplateId: "parent-1",
+        author: { id: "member-a", username: "alice", displayName: "Alice" },
+        cycle: { id: "cycle-1", year: 2026, week: 38, title: "2026 W38 工作周报" },
+      }),
+    },
+  } as unknown as PrismaClient;
+
+  const subject = await new RecordCatalog(db).getSubject({
+    workspaceId: "workspace-1",
+    userId: "member-a",
+    id: "assignment-1",
+  });
+
+  expect(subject).toMatchObject({
+    type: "report",
+    report: { id: "assignment-1", kind: "member", editable: true },
+  });
 });

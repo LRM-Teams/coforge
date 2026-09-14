@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -23,14 +23,16 @@ import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
 import {
-  createMemberWeeklyReport,
   createRecordNote,
-  createTemplateWeeklyReport,
   deleteTemplateWeeklyReport,
   type loadRecordsCatalog,
 } from "./records.functions";
-import { CreateMemberReportDialog } from "./create-member-report-dialog";
-import { currentIsoWeek, memberReportTitle, memberWeekTitle } from "./records-content";
+import {
+  formatSendWindowCountdown,
+  isWeeklySendArmed,
+  weeklySendWindow,
+} from "./weekly-send-window";
+
 export type RecordsTab = "weekly" | "notes";
 export type RecordsPanel = "settings" | "stats";
 export type RecordsCatalog = Awaited<ReturnType<typeof loadRecordsCatalog>>;
@@ -44,16 +46,6 @@ const BackToRecordsContext = createContext<(() => void) | undefined>(undefined);
 function matchesQuery(text: string, query: string) {
   if (!query) return true;
   return text.toLowerCase().includes(query.toLowerCase());
-}
-
-function defaultMemberReportTitle(displayName: string) {
-  const { year, week } = currentIsoWeek();
-  return memberReportTitle(displayName || "Member", year, week);
-}
-
-function defaultTemplateReportTitle() {
-  const { year, week } = currentIsoWeek();
-  return memberWeekTitle(year, week);
 }
 
 export function RecordsLayout({
@@ -73,8 +65,6 @@ export function RecordsLayout({
 }) {
   const navigate = useNavigate();
   const router = useRouter();
-  const createMemberReport = useServerFn(createMemberWeeklyReport);
-  const createTemplateReport = useServerFn(createTemplateWeeklyReport);
   const createNote = useServerFn(createRecordNote);
   const removeTemplate = useServerFn(deleteTemplateWeeklyReport);
   const [showMobileList, setShowMobileList] = useState(!selectedRecordId && !selectedPanel);
@@ -85,13 +75,8 @@ export function RecordsLayout({
   const [notesOpen, setNotesOpen] = useState(true);
   const [expandedTemplates, setExpandedTemplates] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
-  const [createReportKind, setCreateReportKind] = useState<"member" | "template" | null>(null);
   const detailOpen = Boolean(selectedRecordId || selectedPanel);
   const listHidden = detailOpen && !showMobileList;
-  const createReportDefaultTitle =
-    createReportKind === "template"
-      ? defaultTemplateReportTitle()
-      : defaultMemberReportTitle(catalog.actorDisplayName);
 
   const filteredFavorites = useMemo(
     () => catalog.favorites.filter((item) => matchesQuery(item.title, query)),
@@ -135,18 +120,6 @@ export function RecordsLayout({
       params: { recordId },
       search: (previous) => ({ tab: recordsTabSearch(previous.tab) }),
     });
-  }
-
-  async function onCreateReport(title: string) {
-    if (createReportKind === "template") {
-      const result = await createTemplateReport({ data: { title } });
-      setMembersOpen(true);
-      void openCreatedRecord(result.id);
-      return;
-    }
-    const result = await createMemberReport({ data: { title } });
-    setMyReportsOpen(true);
-    void openCreatedRecord(result.id);
   }
 
   async function onDeleteTemplate(reportId: string) {
@@ -222,6 +195,16 @@ export function RecordsLayout({
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
             {tab === "weekly" ? (
               <div className="space-y-5">
+                {catalog.currentWeekTemplate ? (
+                  <CurrentWeekTemplateSlot
+                    template={catalog.currentWeekTemplate}
+                    appliedSchedule={catalog.appliedSchedule}
+                    alreadySentThisWeek={catalog.alreadySentThisWeek}
+                    selected={catalog.currentWeekTemplate.id === selectedRecordId}
+                    onSelect={() => setShowMobileList(false)}
+                  />
+                ) : null}
+
                 <CollapsibleSection
                   title={m.records_section_favorites()}
                   open={favoritesOpen}
@@ -253,15 +236,6 @@ export function RecordsLayout({
                   title={m.records_section_mine()}
                   open={myReportsOpen}
                   onOpenChange={setMyReportsOpen}
-                  actions={
-                    <ButtonUtility
-                      size="sm"
-                      color="tertiary"
-                      icon={Plus}
-                      aria-label={m.records_add_my_report()}
-                      onClick={() => setCreateReportKind("member")}
-                    />
-                  }
                 >
                   {filteredMyReports.length === 0 ? null : (
                     <ul className="space-y-0.5">
@@ -299,15 +273,6 @@ export function RecordsLayout({
                   title={m.records_section_members()}
                   open={membersOpen}
                   onOpenChange={setMembersOpen}
-                  actions={
-                    <ButtonUtility
-                      size="sm"
-                      color="tertiary"
-                      icon={Plus}
-                      aria-label={m.records_add_member_week()}
-                      onClick={() => setCreateReportKind("template")}
-                    />
-                  }
                 >
                   {filteredMemberTemplates.length === 0 ? null : (
                     <ul className="space-y-1">
@@ -369,11 +334,6 @@ export function RecordsLayout({
                               >
                                 <WeekBadge week={template.week} />
                                 <span className="truncate font-medium">{template.title}</span>
-                                {template.latestTemplate && (
-                                  <span className="ml-auto shrink-0 rounded-full bg-brand-primary px-2 py-0.5 text-xs font-medium text-brand-secondary">
-                                    {m.records_latest_template()}
-                                  </span>
-                                )}
                               </RecordLink>
                               <TemplateActionsMenu
                                 title={template.title}
@@ -508,16 +468,79 @@ export function RecordsLayout({
           {children}
         </BackToRecordsContext>
       </section>
-
-      <CreateMemberReportDialog
-        open={createReportKind !== null}
-        onOpenChange={(open) => {
-          if (!open) setCreateReportKind(null);
-        }}
-        defaultTitle={createReportDefaultTitle}
-        onCreate={onCreateReport}
-      />
     </main>
+  );
+}
+
+function CurrentWeekTemplateSlot({
+  template,
+  appliedSchedule,
+  alreadySentThisWeek,
+  selected,
+  onSelect,
+}: {
+  template: NonNullable<RecordsCatalog["currentWeekTemplate"]>;
+  appliedSchedule: RecordsCatalog["appliedSchedule"];
+  alreadySentThisWeek: boolean;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    if (!appliedSchedule || alreadySentThisWeek) return;
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, [appliedSchedule, alreadySentThisWeek]);
+
+  const sendArmed = appliedSchedule
+    ? isWeeklySendArmed({
+        applied: true,
+        alreadySent: alreadySentThisWeek,
+        sendWeekday: appliedSchedule.sendWeekday,
+        sendTime: appliedSchedule.sendTime,
+        scheduleEnabled: appliedSchedule.scheduleEnabled,
+        now,
+      })
+    : false;
+
+  const windowRange =
+    sendArmed && appliedSchedule
+      ? weeklySendWindow({
+          now,
+          sendWeekday: appliedSchedule.sendWeekday,
+          sendTime: appliedSchedule.sendTime,
+          scheduleEnabled: appliedSchedule.scheduleEnabled,
+        })
+      : null;
+  const remainingMs = windowRange ? Math.max(0, windowRange.end.getTime() - now.getTime()) : 0;
+
+  return (
+    <Link
+      to="/records/$recordId"
+      params={{ recordId: template.id }}
+      search={(previous) => ({ tab: recordsTabSearch(previous.tab) })}
+      aria-current={selected ? "page" : undefined}
+      resetScroll={false}
+      onClick={onSelect}
+      className={cn(
+        "flex min-h-10 items-center justify-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
+        sendArmed
+          ? "bg-brand-primary text-brand-secondary"
+          : "bg-secondary text-tertiary hover:bg-secondary_hover",
+        selected && sendArmed && "ring-1 ring-brand",
+      )}
+    >
+      <span className="truncate">
+        {m.records_current_week_template({
+          year: template.year,
+          week: template.week,
+        })}
+      </span>
+      {sendArmed ? (
+        <span className="shrink-0 tabular-nums">{formatSendWindowCountdown(remainingMs)}</span>
+      ) : null}
+    </Link>
   );
 }
 

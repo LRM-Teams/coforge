@@ -3,7 +3,6 @@ import { AppError } from "../../lib/app-error";
 import {
   currentIsoWeek,
   emptyHighlightContent,
-  emptyReportContent,
   highlightTitle,
   isAssignmentUnread,
   isValidTemplateName,
@@ -14,7 +13,13 @@ import {
   type HighlightContent,
   type ReportContent,
 } from "../../features/records/records-content";
+import {
+  isWeeklySendArmed,
+  pickPinnedWeekTemplate,
+  splitWeeklyTemplateRoles,
+} from "../../features/records/weekly-send-window";
 import { isVisibleTemplateSubmission } from "./template-submission-visibility";
+import { canEditWeeklyReportContent } from "./weekly-report-editability";
 import { recipientUserIdsForSend } from "./weekly-report-send-recipients";
 import type { WeeklyAssignmentDelivery } from "./weekly-assignment-channel-delivery.server";
 import { isWeeklyScheduleDue, zonedCalendarDate } from "./weekly-report-schedule-due";
@@ -36,31 +41,6 @@ function asStringArray(value: unknown): string[] {
     : [];
 }
 
-async function latestTemplatePages(db: Db, workspaceId: string): Promise<string[]> {
-  const template = await db.weeklyReportTemplate.findFirst({
-    where: { workspaceId },
-    orderBy: { createdAt: "desc" },
-    select: { dimensions: true },
-  });
-  return asStringArray(template?.dimensions);
-}
-
-async function latestTemplateContent(db: Db, workspaceId: string): Promise<ReportContent | null> {
-  const template = await db.weeklyReport.findFirst({
-    where: { workspaceId, kind: "template" },
-    orderBy: { createdAt: "desc" },
-    select: { content: true },
-  });
-  return template ? asReportContent(template.content) : null;
-}
-
-async function newReportContent(db: Db, workspaceId: string): Promise<ReportContent> {
-  return (
-    (await latestTemplateContent(db, workspaceId)) ??
-    emptyReportContent(await latestTemplatePages(db, workspaceId))
-  );
-}
-
 async function requireMembership(db: Db, workspaceId: string, userId: string) {
   const row = await db.workspaceMembership.findUnique({
     where: { workspaceId_userId: { workspaceId, userId } },
@@ -75,6 +55,55 @@ export class RecordCatalog {
     private readonly db: Db,
     private readonly delivery?: WeeklyAssignmentDelivery,
   ) {}
+
+  private async canSendWeeklyAssignments(input: {
+    workspaceId: string;
+    reportId: string;
+    now?: Date;
+  }) {
+    const now = input.now ?? new Date();
+    const appliedSchedule = await this.db.weeklyReportTemplate.findFirst({
+      where: { workspaceId: input.workspaceId, applied: true },
+      select: { sendWeekday: true, sendTime: true, scheduleEnabled: true },
+    });
+    if (!appliedSchedule) return false;
+    const currentWeek = currentIsoWeek(zonedCalendarDate(now));
+    const templates = await this.db.weeklyReport.findMany({
+      where: { workspaceId: input.workspaceId, kind: "template" },
+      select: {
+        id: true,
+        createdAt: true,
+        cycle: { select: { year: true, week: true } },
+        submissions: { where: { kind: "member" }, select: { id: true }, take: 1 },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    const { formats } = splitWeeklyTemplateRoles(
+      templates.map((row) => ({
+        year: row.cycle.year,
+        week: row.cycle.week,
+        createdAtMs: row.createdAt.getTime(),
+        id: row.id,
+        hasAssignments: row.submissions.length > 0,
+      })),
+    );
+    const pinned = pickPinnedWeekTemplate(formats, currentWeek);
+    if (pinned?.id !== input.reportId) return false;
+    const alreadySent = templates.some(
+      (row) =>
+        row.cycle.year === currentWeek.year &&
+        row.cycle.week === currentWeek.week &&
+        row.submissions.length > 0,
+    );
+    return isWeeklySendArmed({
+      applied: true,
+      alreadySent,
+      sendWeekday: appliedSchedule.sendWeekday,
+      sendTime: appliedSchedule.sendTime,
+      scheduleEnabled: appliedSchedule.scheduleEnabled,
+      now,
+    });
+  }
 
   async loadCatalog(input: { workspaceId: string; userId: string }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
@@ -134,16 +163,45 @@ export class RecordCatalog {
           .map((report) => ({ cycle, report })),
       )
       .sort((left, right) => right.report.createdAt.getTime() - left.report.createdAt.getTime());
-    const latestTemplateId = templateEntries[0]?.report.id;
 
-    const memberTemplates = templateEntries.map(({ cycle, report }) => ({
+    const now = new Date();
+    const currentWeek = currentIsoWeek(zonedCalendarDate(now));
+    const classified = templateEntries.map(({ cycle, report }) => ({
+      year: cycle.year,
+      week: cycle.week,
+      createdAtMs: report.createdAt.getTime(),
+      hasAssignments: cycle.reports.some(
+        (candidate) => candidate.kind === "member" && candidate.sourceTemplateId === report.id,
+      ),
+      entry: { cycle, report },
+    }));
+    const { formats, overviews } = splitWeeklyTemplateRoles(classified);
+    const pinned = pickPinnedWeekTemplate(formats, currentWeek)?.entry;
+    const alreadySentThisWeek = classified.some(
+      (row) => row.year === currentWeek.year && row.week === currentWeek.week && row.hasAssignments,
+    );
+    const appliedSchedule = await this.db.weeklyReportTemplate.findFirst({
+      where: { workspaceId: input.workspaceId, applied: true },
+      select: { sendWeekday: true, sendTime: true, scheduleEnabled: true },
+    });
+    const sendArmed = appliedSchedule
+      ? isWeeklySendArmed({
+          applied: true,
+          alreadySent: alreadySentThisWeek,
+          sendWeekday: appliedSchedule.sendWeekday,
+          sendTime: appliedSchedule.sendTime,
+          scheduleEnabled: appliedSchedule.scheduleEnabled,
+          now,
+        })
+      : false;
+
+    const memberTemplates = overviews.map(({ entry: { cycle, report } }) => ({
       id: report.id,
       title: report.title,
       status: report.status,
       year: cycle.year,
       week: cycle.week,
       cycleId: cycle.id,
-      latestTemplate: report.id === latestTemplateId,
       submissions: cycle.reports
         .filter(
           (candidate) =>
@@ -190,6 +248,22 @@ export class RecordCatalog {
           })),
       ),
       memberTemplates,
+      currentWeekTemplate: pinned
+        ? {
+            id: pinned.report.id,
+            year: currentWeek.year,
+            week: currentWeek.week,
+            sendArmed,
+          }
+        : null,
+      appliedSchedule: appliedSchedule
+        ? {
+            sendWeekday: appliedSchedule.sendWeekday,
+            sendTime: appliedSchedule.sendTime,
+            scheduleEnabled: appliedSchedule.scheduleEnabled,
+          }
+        : null,
+      alreadySentThisWeek,
       notes: notes.map((note) => ({
         id: note.id,
         title: note.title,
@@ -266,84 +340,6 @@ export class RecordCatalog {
       title: highlight.title,
       year: cycle.year,
       week: cycle.week,
-      created: true,
-    };
-  }
-
-  /**
-   * Create a personal member weekly report with an explicit title.
-   * Appears under “我的周报”; duplicate titles are allowed.
-   */
-  async createMemberReport(input: {
-    workspaceId: string;
-    userId: string;
-    title: string;
-    now?: Date;
-  }) {
-    const title = input.title.trim();
-    if (!title) throw new AppError("INVALID_INPUT");
-    const cycle = await this.ensureCurrentCycle(input);
-    const report = await this.db.weeklyReport.create({
-      data: {
-        workspaceId: input.workspaceId,
-        cycleId: cycle.id,
-        authorId: input.userId,
-        kind: "member",
-        title,
-        status: "draft",
-        content: (await newReportContent(
-          this.db,
-          input.workspaceId,
-        )) as unknown as Prisma.InputJsonValue,
-      },
-      select: { id: true, title: true },
-    });
-    return {
-      id: report.id,
-      cycleId: cycle.id,
-      title: report.title,
-      year: cycle.year,
-      week: cycle.week,
-      kind: "member" as const,
-      created: true,
-    };
-  }
-
-  /**
-   * Create a cycle template weekly-report document (kind=template).
-   * Used by “成员周报 +”; does not appear under “我的周报”.
-   * Titles may duplicate (Multica Notes-style); identity is the report UUID.
-   */
-  async createTemplateReport(input: {
-    workspaceId: string;
-    userId: string;
-    title: string;
-    now?: Date;
-  }) {
-    const title = input.title.trim();
-    if (!title) throw new AppError("INVALID_INPUT");
-    const cycle = await this.ensureCurrentCycle(input);
-    const report = await this.db.weeklyReport.create({
-      data: {
-        workspaceId: input.workspaceId,
-        cycleId: cycle.id,
-        authorId: input.userId,
-        kind: "template",
-        title,
-        status: "draft",
-        content: emptyReportContent(
-          await latestTemplatePages(this.db, input.workspaceId),
-        ) as unknown as Prisma.InputJsonValue,
-      },
-      select: { id: true, title: true },
-    });
-    return {
-      id: report.id,
-      cycleId: cycle.id,
-      title: report.title,
-      year: cycle.year,
-      week: cycle.week,
-      kind: "template" as const,
       created: true,
     };
   }
@@ -497,7 +493,9 @@ export class RecordCatalog {
       assignmentCount += 1;
     }
 
-    if (assignmentCount === 0) throw new AppError("INVALID_INPUT");
+    if (assignmentCount === 0) {
+      throw new AppError("INVALID_INPUT", { errorId: "weekly-send-no-recipients" });
+    }
 
     if (this.delivery) {
       try {
@@ -701,6 +699,22 @@ export class RecordCatalog {
     });
     if (report) {
       const content = asReportContent(report.content);
+      const assignmentCount =
+        report.kind === "template"
+          ? await this.db.weeklyReport.count({
+              where: {
+                workspaceId: input.workspaceId,
+                sourceTemplateId: report.id,
+                kind: "member",
+              },
+            })
+          : 0;
+      const surface =
+        report.kind === "template"
+          ? assignmentCount > 0
+            ? ("overview" as const)
+            : ("format" as const)
+          : undefined;
       const children =
         report.kind === "template"
           ? (
@@ -748,14 +762,17 @@ export class RecordCatalog {
           cycle: report.cycle,
           sourceTemplateId: report.sourceTemplateId,
           unread: isAssignmentUnread(content),
+          editable: canEditWeeklyReportContent({
+            viewerUserId: input.userId,
+            authorUserId: report.author.id,
+          }),
+          surface,
           canSendAssignments:
-            report.kind === "template"
-              ? Boolean(
-                  await this.db.weeklyReportTemplate.findFirst({
-                    where: { workspaceId: input.workspaceId, applied: true },
-                    select: { id: true },
-                  }),
-                )
+            report.kind === "template" && surface === "format"
+              ? await this.canSendWeeklyAssignments({
+                  workspaceId: input.workspaceId,
+                  reportId: report.id,
+                })
               : false,
           children,
         },
@@ -919,7 +936,14 @@ export class RecordCatalog {
       select: { id: true, authorId: true },
     });
     if (!report) throw new AppError("NOT_FOUND");
-    if (report.authorId !== input.userId) throw new AppError("ACCESS_DENIED");
+    if (
+      !canEditWeeklyReportContent({
+        viewerUserId: input.userId,
+        authorUserId: report.authorId,
+      })
+    ) {
+      throw new AppError("ACCESS_DENIED");
+    }
     const updated = await this.db.weeklyReport.update({
       where: { id: report.id },
       data: {

@@ -1,11 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { createCentrifugoServerApi } from "@/server/centrifugo/server-api.server";
-import { CentrifugoConversationRealtime } from "@/server/conversations/conversation-realtime.server";
 import { getDatabaseClient } from "@/server/db/client.server";
-import { bestEffortMessageNotifier } from "@/server/notifications/web-push-composition.server";
 import { recordCatalog } from "@/server/records/record-catalog.server";
-import { GeneralChannelWeeklyAssignmentDelivery } from "@/server/records/weekly-assignment-channel-delivery.server";
+import { tryCreateWeeklyAssignmentDelivery } from "@/server/records/weekly-assignment-delivery-composition.server";
 
 /**
  * External cron tick for periodic weekly-report send.
@@ -24,13 +21,10 @@ export const Route = createFileRoute("/api/internal/weekly-report-schedule")({
         if (!db) {
           return Response.json({ error: "database unavailable" }, { status: 503 });
         }
-        const centrifugo = createCentrifugoServerApi();
-        const delivery = GeneralChannelWeeklyAssignmentDelivery.withDeps(db, {
-          publisher: centrifugo,
-          notifications: bestEffortMessageNotifier(db),
-          realtime: new CentrifugoConversationRealtime(centrifugo),
-        });
-        const result = await recordCatalog(db, delivery).runDueScheduledWeeklyAssignments();
+        const result = await recordCatalog(
+          db,
+          tryCreateWeeklyAssignmentDelivery(db),
+        ).runDueScheduledWeeklyAssignments();
         return Response.json(result);
       },
     },

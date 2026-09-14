@@ -29,11 +29,19 @@ export function isAppError(error: unknown): error is AppError {
   if (!(error instanceof Error)) return false;
   if (error.name === "AppError") {
     const code = Reflect.get(error, "code");
-    return APP_ERROR_CODES.some((candidate) => candidate === code);
+    if (!APP_ERROR_CODES.some((candidate) => candidate === code)) return false;
+    if (!Reflect.get(error, "errorId") && error.message.startsWith(APP_ERROR_PREFIX)) {
+      const [msgCode, ...idParts] = error.message.slice(APP_ERROR_PREFIX.length).split(":");
+      if (msgCode === code && idParts.length > 0) {
+        Object.assign(error, { errorId: idParts.join(":") });
+      }
+    }
+    return true;
   }
   if (error.name !== "Error" || !error.message.startsWith(APP_ERROR_PREFIX)) return false;
-  const [code, errorId, ...extra] = error.message.slice(APP_ERROR_PREFIX.length).split(":");
-  if (extra.length > 0 || !APP_ERROR_CODES.some((candidate) => candidate === code)) return false;
+  const [code, ...idParts] = error.message.slice(APP_ERROR_PREFIX.length).split(":");
+  if (!APP_ERROR_CODES.some((candidate) => candidate === code)) return false;
+  const errorId = idParts.length > 0 ? idParts.join(":") : undefined;
   error.name = "AppError";
   Object.assign(error, { code, ...(errorId ? { errorId } : {}) });
   error.stack = undefined;

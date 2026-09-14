@@ -7,6 +7,7 @@ export type ReportSectionEditorProps = {
   onBlur?: () => void;
   placeholder?: string;
   className?: string;
+  editable?: boolean;
   onUploadFile?: (file: File) => Promise<UploadResult | null>;
 };
 
@@ -20,6 +21,7 @@ export function ReportSectionEditor({
   onBlur,
   placeholder,
   className,
+  editable = true,
   onUploadFile,
 }: ReportSectionEditorProps) {
   const props: ContentEditorProps = {
@@ -29,7 +31,8 @@ export function ReportSectionEditor({
     placeholder,
     className,
     onUploadFile,
-    showBubbleMenu: true,
+    editable,
+    showBubbleMenu: editable,
     debounceMs: 150,
   };
   return <ContentEditor {...props} />;
