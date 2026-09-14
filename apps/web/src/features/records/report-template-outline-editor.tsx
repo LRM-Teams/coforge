@@ -42,11 +42,11 @@ function addLabel(level: HeadingLevel) {
 }
 
 function headingClass(level: HeadingLevel) {
-  if (level === 1) return "text-2xl font-semibold leading-tight";
-  if (level === 2) return "text-xl font-semibold leading-tight";
-  if (level === 3) return "text-lg font-semibold leading-tight";
-  if (level === 4) return "text-base font-semibold leading-tight";
-  return "text-sm font-semibold leading-tight";
+  if (level === 1) return "text-lg font-semibold leading-none";
+  if (level === 2) return "text-base font-semibold leading-none";
+  if (level === 3) return "text-sm font-semibold leading-none";
+  if (level === 4) return "text-sm font-semibold leading-none";
+  return "text-xs font-semibold leading-none";
 }
 
 function depthAt(nodes: OutlineNode[], index: number) {
@@ -62,7 +62,6 @@ function depthAt(nodes: OutlineNode[], index: number) {
 }
 
 function OutlineRow({
-  body,
   dragging,
   dropEdge,
   style,
@@ -72,7 +71,6 @@ function OutlineRow({
   onDragEnd,
   children,
 }: {
-  body: boolean;
   dragging: boolean;
   dropEdge: DropEdge | null;
   style: CSSProperties;
@@ -86,8 +84,7 @@ function OutlineRow({
     <div
       draggable
       className={cn(
-        "group relative flex w-full items-center gap-1 rounded-md bg-secondary px-2",
-        body ? "min-h-9" : "min-h-11",
+        "group relative flex min-h-8 w-full items-center gap-1 rounded-md bg-secondary px-2",
         dragging && "opacity-50",
       )}
       style={style}
@@ -304,7 +301,7 @@ export function ReportTemplateOutlineEditor({
 
           if (node.kind === "body") {
             return (
-              <OutlineRow key={node.id} body {...rowProps}>
+              <OutlineRow key={node.id} {...rowProps}>
                 {dragHandle()}
                 <input
                   aria-label={m.records_template_body_label()}
@@ -329,7 +326,7 @@ export function ReportTemplateOutlineEditor({
           const childLevel = Math.min(node.level + 1, MAX_LEVEL) as HeadingLevel;
           const canAddChild = node.level < MAX_LEVEL;
           return (
-            <OutlineRow key={node.id} body={false} {...rowProps}>
+            <OutlineRow key={node.id} {...rowProps}>
               {dragHandle()}
               <input
                 aria-label={`${m.records_template_heading_label()} ${node.level}`}
