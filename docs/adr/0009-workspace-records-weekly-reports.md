@@ -24,12 +24,13 @@ AI drafting/side-chat replies are deferred; storage must still allow a future
 2. **WeeklyReport** has `kind` `member` | `template`.
    - `member`: listed under “我的周报” after Leader send. Multiple per
      `(cycle, author)` and duplicate titles are allowed.
-   - `template`: listed as top-level nodes under “成员周报” (live format chip
-     plus sent week overviews). Clicking the format chip opens the editor;
-     clicking a week node opens the overview. Leader send adds a **sibling**
-     parent for that week. Titles may duplicate (Multica Notes-style); identity
-     and navigation use the report UUID. Templates are **not** listed under
-     “我的周报”.
+   - `template`: listed as top-level nodes under “成员周报” **for the author only**
+     (live format chip plus sent week overviews). Clicking the format chip opens
+     the editor; clicking a week node opens the overview. Leader send adds a
+     **sibling** parent for that week. Titles may duplicate (Multica Notes-style);
+     identity and navigation use the report UUID. Templates are **not** listed
+     under “我的周报”, and other Workspace members do not see another Leader’s
+     format or overview tree in the catalog.
    - **Submissions / child pages**: member reports with `sourceTemplateId`
      appear as **children** of that template node **only after submit**
      (`submitted` | `shared`). Leaders do not pre-create children from the
@@ -42,10 +43,14 @@ AI drafting/side-chat replies are deferred; storage must still allow a future
    Draft opening does not realign body structure from send templates. Legacy
    tab/section / outline JSON is flattened to Markdown on read where needed.
    Creating either kind does **not** create the other, nor a highlight.
-3. **WeeklyReportTemplate** is Workspace-level **send** configuration (name,
-   frequency, time, recipients). `dimensions` / `mainTitles` may still be
-   stored for settings UI compatibility but do **not** drive report body
-   structure.
+3. **WeeklyReportTemplate** is **per-User** send configuration within a Workspace
+   (`ownerId`: name, frequency, time, recipients, and an outline of level-1 /
+   level-2 headings stored in `dimensions` Json). Rows are not shared across
+   Workspace members; at most one may be `applied` per `(workspaceId, ownerId)`.
+   The outline drives the Leader’s live format document under the top chip when
+   a row is applied or updated while applied; edits to that format’s H1/H2
+   headings sync back into the applied settings outline. Legacy flat string
+   `dimensions` arrays are still read as level-1-only sections.
 4. **WeeklyReportFavorite** is per-User favorites of member reports.
 5. **RecordComment** attaches to a subject (`report` | `highlight` | `cycle`) with
    `authorType` `user` | `system` | `assistant` and optional `payload` JSON for

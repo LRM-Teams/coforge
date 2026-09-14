@@ -255,6 +255,11 @@ export const setWeeklyTemplateScheduleEnabled = createServerFn({ method: "POST" 
     });
   });
 
+const templateSectionSchema = z.object({
+  title: z.string(),
+  children: z.array(z.string()),
+});
+
 export const createWeeklyTemplate = createServerFn({ method: "POST" })
   .validator(
     z.object({
@@ -263,8 +268,7 @@ export const createWeeklyTemplate = createServerFn({ method: "POST" })
       sendTime: z.string().min(1),
       sendWeekday: z.number().int().min(1).max(7),
       scheduleEnabled: z.boolean(),
-      dimensions: z.array(z.string()),
-      mainTitles: z.array(z.string()),
+      sections: z.array(templateSectionSchema),
       allMembers: z.boolean(),
       recipientUserIds: z.array(z.string().uuid()),
     }),
@@ -284,8 +288,7 @@ export const updateWeeklyTemplate = createServerFn({ method: "POST" })
       sendTime: z.string().min(1),
       sendWeekday: z.number().int().min(1).max(7),
       scheduleEnabled: z.boolean(),
-      dimensions: z.array(z.string()),
-      mainTitles: z.array(z.string()),
+      sections: z.array(templateSectionSchema),
       allMembers: z.boolean(),
       recipientUserIds: z.array(z.string().uuid()),
     }),

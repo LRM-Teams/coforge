@@ -7,10 +7,9 @@ import {
   type Key,
   type ReactNode,
 } from "react";
-import { Plus, XClose as X } from "@untitledui/icons";
+import { XClose as X } from "@untitledui/icons";
 import { Heading } from "react-aria-components";
 
-import { BadgeWithButton } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
@@ -20,6 +19,7 @@ import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/mod
 import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
 import { isValidTemplateName } from "./records-content";
+import { parseTemplateSections, type TemplateOutlineSection } from "./template-outline-sections";
 import type { TemplateMemberOption, WeeklyTemplateList } from "./weekly-report-settings";
 
 const SEND_TIMES = ["09:00", "12:00", "15:00", "18:00"] as const;
@@ -44,14 +44,17 @@ function weekdayLabel(day: number) {
   }
 }
 
+function emptySection(): TemplateOutlineSection {
+  return { title: "", children: [] };
+}
+
 export type CreateWeeklyTemplateInput = {
   name: string;
   frequency: "weekly";
   sendTime: string;
   sendWeekday: number;
   scheduleEnabled: boolean;
-  dimensions: string[];
-  mainTitles: string[];
+  sections: TemplateOutlineSection[];
   allMembers: boolean;
   recipientUserIds: string[];
 };
@@ -73,10 +76,7 @@ export function CreateWeeklyTemplateDialog({
 }) {
   const editing = Boolean(initial);
   const [name, setName] = useState("");
-  const [dimensionDraft, setDimensionDraft] = useState("");
-  const [dimensions, setDimensions] = useState<string[]>([]);
-  const [titleDraft, setTitleDraft] = useState("");
-  const [mainTitles, setMainTitles] = useState<string[]>([]);
+  const [sections, setSections] = useState<TemplateOutlineSection[]>([emptySection()]);
   const [allMembers, setAllMembers] = useState(false);
   const [recipientIds, setRecipientIds] = useState<string[]>([]);
   const [recipientQuery, setRecipientQuery] = useState("");
@@ -103,10 +103,7 @@ export function CreateWeeklyTemplateDialog({
 
   function reset() {
     setName("");
-    setDimensionDraft("");
-    setDimensions([]);
-    setTitleDraft("");
-    setMainTitles([]);
+    setSections([emptySection()]);
     setAllMembers(false);
     setRecipientIds([]);
     setRecipientQuery("");
@@ -123,10 +120,8 @@ export function CreateWeeklyTemplateDialog({
       return;
     }
     setName(template.name);
-    setDimensionDraft("");
-    setDimensions([...template.dimensions]);
-    setTitleDraft("");
-    setMainTitles([...template.mainTitles]);
+    const parsed = parseTemplateSections(template.sections ?? template.dimensions);
+    setSections(parsed.length > 0 ? parsed : [emptySection()]);
     setAllMembers(template.allMembers);
     setRecipientIds(template.allMembers ? [] : template.recipients.map((row) => row.userId));
     setRecipientQuery("");
@@ -143,18 +138,58 @@ export function CreateWeeklyTemplateDialog({
     if (open) resetDraft();
   }, [open, initialId]);
 
-  function addDimension() {
-    const value = dimensionDraft.trim();
-    if (!value || dimensions.includes(value)) return;
-    setDimensions((current) => [...current, value]);
-    setDimensionDraft("");
+  function updateSectionTitle(index: number, title: string) {
+    setSections((current) =>
+      current.map((section, sectionIndex) =>
+        sectionIndex === index ? { ...section, title } : section,
+      ),
+    );
   }
 
-  function addMainTitle() {
-    const value = titleDraft.trim();
-    if (!value || mainTitles.includes(value)) return;
-    setMainTitles((current) => [...current, value]);
-    setTitleDraft("");
+  function updateChildTitle(sectionIndex: number, childIndex: number, title: string) {
+    setSections((current) =>
+      current.map((section, index) => {
+        if (index !== sectionIndex) return section;
+        return {
+          ...section,
+          children: section.children.map((child, offset) =>
+            offset === childIndex ? title : child,
+          ),
+        };
+      }),
+    );
+  }
+
+  function addSection() {
+    setSections((current) => [...current, emptySection()]);
+  }
+
+  function removeSection(index: number) {
+    setSections((current) => {
+      const next = current.filter((_, sectionIndex) => sectionIndex !== index);
+      return next.length > 0 ? next : [emptySection()];
+    });
+  }
+
+  function addChild(sectionIndex: number) {
+    setSections((current) =>
+      current.map((section, index) =>
+        index === sectionIndex ? { ...section, children: [...section.children, ""] } : section,
+      ),
+    );
+  }
+
+  function removeChild(sectionIndex: number, childIndex: number) {
+    setSections((current) =>
+      current.map((section, index) =>
+        index === sectionIndex
+          ? {
+              ...section,
+              children: section.children.filter((_, offset) => offset !== childIndex),
+            }
+          : section,
+      ),
+    );
   }
 
   function toggleRecipient(userId: string | "all") {
@@ -183,6 +218,12 @@ export function CreateWeeklyTemplateDialog({
       setNameError(true);
       return;
     }
+    const normalizedSections = sections
+      .map((section) => ({
+        title: section.title.trim(),
+        children: section.children.map((child) => child.trim()).filter(Boolean),
+      }))
+      .filter((section) => section.title.length > 0);
     setSaving(true);
     try {
       await onSave({
@@ -191,8 +232,7 @@ export function CreateWeeklyTemplateDialog({
         sendTime,
         sendWeekday,
         scheduleEnabled,
-        dimensions,
-        mainTitles,
+        sections: normalizedSections,
         allMembers: allMembers || recipientIds.length === 0,
         recipientUserIds: allMembers ? [] : recipientIds,
       });
@@ -245,6 +285,10 @@ export function CreateWeeklyTemplateDialog({
                 className="flex min-h-0 flex-1 flex-col"
               >
                 <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+                  <p className="text-sm font-semibold text-primary">
+                    {m.records_template_details()}
+                  </p>
+
                   <Input
                     label={m.records_template_name()}
                     value={name}
@@ -258,73 +302,48 @@ export function CreateWeeklyTemplateDialog({
                     hint={m.records_template_name_hint()}
                   />
 
-                  <Field label={m.records_template_dimension()}>
-                    <div className="flex gap-2">
-                      <Input
-                        className="flex-1"
-                        value={dimensionDraft}
-                        onChange={setDimensionDraft}
-                        placeholder={m.records_template_dimension_placeholder()}
-                      />
-                      <ButtonUtility
-                        color="secondary"
-                        icon={Plus}
-                        aria-label={m.records_template_add_dimension()}
-                        onClick={addDimension}
-                      />
-                    </div>
-                    {dimensions.length > 0 && (
-                      <div className="flex flex-wrap gap-2 pt-2">
-                        {dimensions.map((item) => (
-                          <BadgeWithButton
-                            key={item}
-                            type="color"
-                            color="gray"
-                            buttonLabel={`${m.records_template_delete()}: ${item}`}
-                            onButtonClick={() =>
-                              setDimensions((current) => current.filter((value) => value !== item))
-                            }
+                  <div className="space-y-3">
+                    {sections.map((section, sectionIndex) => (
+                      <div key={sectionIndex} className="space-y-2">
+                        <OutlineRow
+                          label={m.records_template_heading_level_one()}
+                          value={section.title}
+                          onChange={(value) => updateSectionTitle(sectionIndex, value)}
+                          onRemove={() => removeSection(sectionIndex)}
+                          removeLabel={m.records_template_delete_heading()}
+                        />
+                        {section.children.length > 0 ? (
+                          <div className="relative ml-3 space-y-2 border-l-2 border-secondary pl-4">
+                            {section.children.map((child, childIndex) => (
+                              <OutlineRow
+                                key={`${sectionIndex}-${childIndex}`}
+                                label={m.records_template_heading_level_two()}
+                                value={child}
+                                onChange={(value) =>
+                                  updateChildTitle(sectionIndex, childIndex, value)
+                                }
+                                onRemove={() => removeChild(sectionIndex, childIndex)}
+                                removeLabel={m.records_template_delete_heading()}
+                              />
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="pl-1">
+                          <Button
+                            type="button"
+                            size="sm"
+                            color="link-gray"
+                            onPress={() => addChild(sectionIndex)}
                           >
-                            {item}
-                          </BadgeWithButton>
-                        ))}
+                            {m.records_template_add_heading_level_two()}
+                          </Button>
+                        </div>
                       </div>
-                    )}
-                  </Field>
-
-                  <Field label={m.records_template_main_title()}>
-                    <div className="flex gap-2">
-                      <Input
-                        className="flex-1"
-                        value={titleDraft}
-                        onChange={setTitleDraft}
-                        placeholder={m.records_template_main_title_placeholder()}
-                      />
-                      <ButtonUtility
-                        color="secondary"
-                        icon={Plus}
-                        aria-label={m.records_template_add_title()}
-                        onClick={addMainTitle}
-                      />
-                    </div>
-                    {mainTitles.length > 0 && (
-                      <div className="flex flex-wrap gap-2 pt-2">
-                        {mainTitles.map((item) => (
-                          <BadgeWithButton
-                            key={item}
-                            type="color"
-                            color="gray"
-                            buttonLabel={`${m.records_template_delete()}: ${item}`}
-                            onButtonClick={() =>
-                              setMainTitles((current) => current.filter((value) => value !== item))
-                            }
-                          >
-                            {item}
-                          </BadgeWithButton>
-                        ))}
-                      </div>
-                    )}
-                  </Field>
+                    ))}
+                    <Button type="button" size="sm" color="secondary" onPress={addSection}>
+                      {m.records_template_add_heading_level_one()}
+                    </Button>
+                  </div>
 
                   <Field label={m.records_template_recipients()}>
                     <Dropdown.Root>
@@ -438,6 +457,34 @@ export function CreateWeeklyTemplateDialog({
         </Dialog>
       </Modal>
     </ModalOverlay>
+  );
+}
+
+function OutlineRow({
+  label,
+  value,
+  onChange,
+  onRemove,
+  removeLabel,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onRemove: () => void;
+  removeLabel: string;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="w-16 shrink-0 text-sm text-tertiary">{label}</span>
+      <Input className="min-w-0 flex-1" value={value} onChange={onChange} />
+      <ButtonUtility
+        size="sm"
+        color="tertiary"
+        icon={X}
+        aria-label={removeLabel}
+        onClick={onRemove}
+      />
+    </div>
   );
 }
 

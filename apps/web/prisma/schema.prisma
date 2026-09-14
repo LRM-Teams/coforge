@@ -66,6 +66,7 @@ model User {
   weeklyReportsAuthored       WeeklyReport[]                  @relation("WeeklyReportAuthor")
   weeklyReportFavorites       WeeklyReportFavorite[]
   weeklyTemplateRecipients    WeeklyReportTemplateRecipient[]
+  weeklyTemplatesOwned        WeeklyReportTemplate[]          @relation("WeeklyReportTemplateOwner")
   recordNotesAuthored         RecordNote[]                    @relation("RecordNoteAuthor")
   recordCommentsAuthored      RecordComment[]                 @relation("RecordCommentAuthor")
 
@@ -702,10 +703,12 @@ model WeeklyReportFavorite {
   @@map("weekly_report_favorites")
 }
 
-/// Reusable Workspace send configuration (周报设置 templates).
+/// Per-user send configuration (周报设置); not shared across Workspace members.
 model WeeklyReportTemplate {
   id              String                          @id @default(uuid()) @db.Uuid
   workspaceId     String                          @db.Uuid
+  /// Owning User; list/mutate/apply are private to this user within the Workspace.
+  ownerId         String                          @db.Uuid
   name            String
   /// weekly
   frequency       String                          @default("weekly")
@@ -715,16 +718,18 @@ model WeeklyReportTemplate {
   dimensions      Json
   mainTitles      Json
   allMembers      Boolean                         @default(false)
-  /// When true, Leader send uses this row; at most one applied per workspace (enforced in app).
+  /// When true, this owner's Leader send uses this row; at most one applied per (workspace, owner).
   applied         Boolean                         @default(false)
   /// When true with applied, scheduled/periodic send is allowed.
   scheduleEnabled Boolean                         @default(false)
   createdAt       DateTime                        @default(now())
   updatedAt       DateTime                        @updatedAt
   workspace       Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner           User                            @relation("WeeklyReportTemplateOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   recipients      WeeklyReportTemplateRecipient[]
 
   @@index([workspaceId])
+  @@index([workspaceId, ownerId])
   @@index([workspaceId, applied])
   @@map("weekly_report_templates")
 }
