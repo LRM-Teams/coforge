@@ -448,38 +448,6 @@ displayName（缺失回退 username）和 @username；Daemon 不上传或修改 
 
 ### daemon-owned Agent runtime 与 code-agent driver
 
-2026-09-10 用户批准新增外部 `kiro` provider，只支持 Kiro v3 engine。
-Daemon 启动用户安装的 `kiro-cli acp --agent-engine v3 --auth-method cli`，复用宿主认证、
-配置和环境，不随 Computer 分发 Kiro。官方 ACP SDK 1.4.0 仅属于 adapter 的协议实现。
-每次 launch 创建独立命名的 native Agent profile，注入 standing instructions、显式的
-Global/Workspace Skills resources 和全权限 allow policy；dispose 后清理该生成文件，
-不改写用户已有 profile、HOME 配置或 Skills。恢复后重新选择本次 profile 和模型配置。
-原生 Session 留在 Kiro 自身存储，云端沿用已有绑定和恢复 scope。
-
-Kiro v3 busy prompt 会取消当前轮并启动新轮，不是 Codex 的 turn/steer。
-`notify` 串行等待每个输入的原生 admission 观测，不等待整轮完成；接受边界是实测的
-`session_info_update._meta.kiro.kind = user_message_id_assigned`，要求非空新 ID。
-这是 Kiro 私有兼容依赖，不是 ACP 标准 ACK；缺失/超时拒绝并清理 runtime，避免晚到
-观测被误记为下一输入。旧轮取消不能把新轮标成 idle 或 failed。
-ACP permission callbacks 优先选择 allow_always，仅未提供时回退 allow_once，未知会话/无允许选项返回 cancelled；
-强制 deny 不可覆盖。`session/cancel` 用于中断，Stop/Reset 仍须确认整个进程树退出。
-模型与 effort 来自 v3 configOptions。用户另行批准按需读取本机 Kiro 账户额度：
-`kiro/usage.ts` 在只读 SQLite 事务中读取 CLI 当前 token/profile，不扫描其他账号、
-不写入或刷新凭据，登录刷新仍由 Kiro CLI 负责。只允许固定的 us-east-1 与
-eu-central-1 AWS HTTPS endpoint，禁止重定向。token/profile 仅发送到该 AWS 额度接口，
-不上传 CoForge 云端、不写日志；原始响应同样不上传 CoForge 云端。
-这是参考 CodexBar 的私有 CLI store/GetUsageLimits 兼容路径，不是官方稳定 ACP API；
-仅归一化月度套餐额度、重置时间和套餐名称。超额用量从套餐用量中扣除；无法分离的
-赠送/试用额度、未知 schema、缺失/过期认证均不生成猜测百分比。错误只返回脱敏状态。
-Web 沿用现有 Usage scan，把 Kiro primary 标记为每月额度，不标为会话配额。
-用户批准 Usage JSON 增加可选 `creditUsage: { used, limit, overage }`，分别表示套餐内
-已用 credits、套餐额度和独立超额用量；保留小数，不从四舍五入后的百分比反算。
-Web 验证有限非负数、正额度及 `used <= limit`，主显示已用/总 credits，有超额时单列。
-字段缺失时保留旧百分比显示，原有 Codex `credits` 布尔语义不变；无需修改 protobuf
-envelope 或数据库 schema。先部署 Web，再更新 Daemon，否则旧 Web 会丢弃新增 JSON 字段。
-新增 provider 值需要兼容 Web/Daemon，数据库 String provider 字段无需迁移。
-决策、官方来源、探测基线及回滚见 [ADR 0010](adr/0010-kiro-v3-acp.md)。
-
 Provider identity 的唯一来源是 shared protocol/domain 的 `RUNTIME_PROVIDER`
 常量及其 `RuntimeProvider` 类型；`RuntimeMetadata.kind` 仍独立区分
 `builtin` 与 `external`。Daemon 负责检测外部 Code Agent；Computer 注册不再承担
@@ -1004,6 +972,51 @@ reminder；CLI 列表超过当前有界返回能力明确报错而不静默丢�
 普通 `mise run test` 不运行这个 `.integration.ts` 专项；执行前应在隔离库应用当前迁移。
 
 ### 6.6 消息 Task
+
+2026-09-10 用户批准以 CDN Computer 内嵌的 Daemon/CLI 为 Task 对齐标准，覆盖下文
+首版的 CoForge 特有规则；不以取得 Raft 私有服务端源码为前置条件。固定参考为
+[Computer 1.0.31 manifest](https://cdn.raft.build/computer/1.0.31/manifest.json) 和
+[linux-x64 gzip](https://cdn.raft.build/computer/1.0.31/raft-computer-linux-x64.gz)：gzip SHA-256
+`1e9642c9a810b6e4fd0b8479419b366b9b1e0c14714acbf506f39b316f7a86b3`，binary SHA-256
+`5a1cc19794ab5f07db88eae78b893abc2b32d6d0fb90cc3504159796f6c2e97a`。
+这些 bytes 包含 Computer、Daemon 与 Agent CLI；只参考可观察契约，不复制其代码或许可。
+
+对齐范围为批量 create/claim、assign/unassign、amend/history/delete、list --mine、资源
+receipt 与到期 follow-up、消息读取中的当前 Task 元数据，以及 claim/update 的本地
+freshness hold。Assignee 与 status 独立：claim 拒绝 done/closed，unclaim 仅拒绝 done，
+不能把释放 closed Task 改成重新打开。CLI 不再为了 update/unclaim 自动读取并填入
+revision；显式并发检查供浏览器和支持该字段的操作使用。任何需要实际工具或调查的
+工作先 claim，普通回答不自动建 Task；冲突只说明当前执行归属，不裁决职责归属。
+
+TaskBoard 继续拥有云端业务与持久化，扩展现有 Task RPC/CLI，不引入本地 Task scheduler。
+DaemonRuntime 使用既有 attention/model-visible seam，在 claim/status update 转发前
+处理未读上下文；与 1.0.31 相同，amend 不加入 Daemon 本地 preflight。Reviewer isolation
+用于 message send、claim、update、amend：held 只返回状态和计数，不暴露正文、sender、
+消息元数据或 model-seen cursor，不执行被 held 的写入；错误输出也隐藏上游详情。
+资源 receipt 复用现有 Reminder 所有权和到期链路，不建立另一种计时器或 jobs queue。
+持久化与协议变更限于支持上述可观察能力；不声称复制不可见的 Raft 服务端事务实现。
+既有验证 seam 为 TaskBoard（真实 PostgreSQL）、Agent RPC/CLI、DaemonRuntime 与浏览器。
+下文保留首版决策背景，其中冲突的首版规则由本段覆盖。
+
+用户随后明确批准 Task 指派的系统 Message：assigned create 与改变 assignee 的 assign
+在同一 conversation 行锁及 PostgreSQL 事务内提交 Task、独立系统回执和被指派 Agent 的
+AgentMessageDelivery。系统回执的 `senderMemberId` 为 null，不伪造 User/Agent 成员；
+网络发送入口仍强制使用认证成员，调用方不能声明系统 sender。回执正文明确个人 @mention
+与 Task 编号，被指派 Agent 即使频道静音也有恢复资格，无关静音 Agent 不获得 delivery。
+普通 Agent 发言及其 mention 仍不自动唤醒其他 Agent。发布失败不撤销已提交指派，
+同请求重试不重建回执或再次推送；消息读取、ready 恢复及未 ACK delivery 重放沿用现有链路。
+系统身份以已有字符串字段的保留值 `system` 传递，target 仍是 `#channel` 或 `@human`，
+不能把 system 当作可发送的用户名目标。浏览器投影提供 `senderKind: system`、
+`senderName: System`、nullable senderMemberId；用户冻结 UI 重构期间不修改组件，展示接入待整合。
+
+Self-assigned create 与成功 claim 保存真实 `claimedAt`，重复 claim 不刷新时间；
+unclaim 或改变 assignee 清空该时间而不改 status，既有历史不伪造 claim 时间。
+CDN 只证明 create 他派要求 server owner/admin，未证明 Agent 继承其 human owner 的角色，
+也未公开 assign 的服务端权限矩阵。实现保留现有安全边界：self 操作不能抢占他人 Task，
+明确他派或清除他人持有者须真人 Workspace owner/admin；Agent 不继承管理权限。
+这不是完整复制 Raft 私有权限实现的声明。迁移仅允许系统 sender 和增加 claim 时间，
+没有新服务、消息队列或依赖；只应用到本地隔离 PostgreSQL。旧客户端应与新 Web 配套升级；
+回滚保留系统 Message，不能恢复 sender NOT NULL 或将其归属伪装成成员。
 
 2026-09-09 用户批准参考 Raft 实现 Task，先完成频道 Thread 并独立验证，再并行实现
 Task 业务、Agent RPC/CLI 和 Web。Task 是同一 Workspace、同一 Conversation 内顶层

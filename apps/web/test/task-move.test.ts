@@ -24,14 +24,28 @@ describe("getTaskMoveCommand", () => {
     expect(getTaskMoveCommand(task("in_review", owner("me")), "me", "in_review")).toBeUndefined();
   });
 
-  test("claims only an unowned todo moved to in progress", () => {
+  test("claims an available or self-reserved todo moved to in progress", () => {
     expect(getTaskMoveCommand(task("todo"), "me", "in_progress")).toEqual({
       operation: "claim",
       number: 7,
     });
-    expect(getTaskMoveCommand(task("todo"), "me", "in_review")).toBeUndefined();
+    expect(getTaskMoveCommand(task("todo"), "me", "in_review")).toEqual({
+      operation: "update",
+      number: 7,
+      status: "in_review",
+      expectedRevision: 4,
+    });
     expect(getTaskMoveCommand(task("todo"), "me", "done")).toBeUndefined();
-    expect(getTaskMoveCommand(task("todo", owner("other")), "me", "in_progress")).toBeUndefined();
+    expect(getTaskMoveCommand(task("todo", owner("me")), "me", "in_progress")).toEqual({
+      operation: "claim",
+      number: 7,
+    });
+    expect(getTaskMoveCommand(task("todo", owner("other")), "me", "in_progress")).toEqual({
+      operation: "update",
+      number: 7,
+      status: "in_progress",
+      expectedRevision: 4,
+    });
   });
 
   test("lets owners move to every status with revision checking", () => {
@@ -45,9 +59,9 @@ describe("getTaskMoveCommand", () => {
     }
   });
 
-  test("limits other humans to todo, done, and closed without stealing ownership", () => {
+  test("keeps status changes independent from assignment", () => {
     const someoneElses = task("in_review", owner("other"));
-    for (const nextStatus of ["todo", "done", "closed"] as const) {
+    for (const nextStatus of ["todo", "in_progress", "done", "closed"] as const) {
       expect(getTaskMoveCommand(someoneElses, "me", nextStatus)).toEqual({
         operation: "update",
         number: 7,
@@ -55,7 +69,6 @@ describe("getTaskMoveCommand", () => {
         expectedRevision: 4,
       });
     }
-    expect(getTaskMoveCommand(someoneElses, "me", "in_progress")).toBeUndefined();
   });
 
   test("requires an owner for done but permits explicit terminal and todo updates", () => {

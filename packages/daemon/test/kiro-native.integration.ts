@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentRuntimeEvent, AgentSession } from "@coforge/agent";
-import { KiroDriver } from "../src/code-agent/kiro/driver";
+import { KiroProvider } from "../src/code-agent/kiro/driver";
 import { discoverKiroCatalog } from "../src/code-agent/kiro/catalog";
 import { KIRO_ACP_ARGS } from "../src/code-agent/kiro/connection";
 
@@ -29,7 +29,7 @@ test("native Kiro v3 instructions, permissions, recovery and busy admission", as
     const catalog = await discoverKiroCatalog(["kiro-cli", ...KIRO_ACP_ARGS], cwd, Bun.env);
     const model = catalog?.models.find((model) => model.reasoningEfforts.includes("low"));
     expect(model).toBeDefined();
-    session = await new KiroDriver().createAgentSession({
+    session = await new KiroProvider().createAgentSession({
       ...options,
       runtime: { provider: "kiro", model: model!.id, reasoning: "low" },
     });
@@ -45,7 +45,7 @@ test("native Kiro v3 instructions, permissions, recovery and busy admission", as
     expect(await Bun.file(join(cwd, "tool-marker.txt")).text()).toBe("TOOL-719");
     const identity = await session.readSessionIdentity!();
     await session.dispose();
-    session = await new KiroDriver().createAgentSession({
+    session = await new KiroProvider().createAgentSession({
       ...options,
       sessionId: identity!.sessionId,
     });

@@ -4,6 +4,10 @@ import {
   encodeComputerRegisterResponse,
 } from "@coforge/protocol/codec";
 import { ComputerRegistrationError } from "../computers/registration.server";
+import {
+  handleRequestError,
+  RequestAuthenticationError,
+} from "../errors/request-error-handler.server";
 import { getComputerStatusCache, type ComputerStatusCache } from "./computer-status.server";
 import { WorkspaceQueryError, WorkspaceQueryUseCase } from "../workspaces/query.server";
 import { decodeWorkspaceGetRequest, decodeWorkspaceListRequest } from "@coforge/protocol/codec";
@@ -41,7 +45,6 @@ import {
 } from "../../features/agents/agent-status-realtime";
 import type { CentrifugoServerApi } from "./server-api.server";
 import type { AgentDisplay } from "../agents/agent-display.server";
-import { AgentMessageValidationError } from "../conversations/agent-message-validation-error.server";
 import { isChannelMessageTarget, isChannelTarget } from "@coforge/protocol";
 import {
   decodeReminderFireRequest,
@@ -356,6 +359,7 @@ export function createAgentMessageMethod(
       });
     }
     const body = request.body ?? "";
+    const freshnessContextMode = request.freshnessContextMode ?? "inline";
     let boundedSeenSequence = 0;
     if (request.seenUpToSequence !== undefined) {
       if (!repository.advanceAgentReadThrough)
@@ -391,13 +395,17 @@ export function createAgentMessageMethod(
         attentionCount: 0,
         messages: [],
         sideEffectDecision: "anyway_denied",
+        freshnessContextMode,
       });
     }
     const pending = await repository.readPendingAgentContext?.(
       request.workspaceId,
       agentId,
       request.target,
-      Math.max(validPrior?.presentedThrough ?? 0, boundedSeenSequence) || undefined,
+      Math.max(
+        freshnessContextMode === "withheld" ? 0 : (validPrior?.presentedThrough ?? 0),
+        boundedSeenSequence,
+      ) || undefined,
     );
     const heldMessages = pending?.slice(-3) ?? [];
     if (heldMessages.length && !request.continueAnyway) {
@@ -419,13 +427,20 @@ export function createAgentMessageMethod(
         requestId: request.requestId,
         accepted: false,
         attentionCount: heldMessages.length,
-        messages: heldMessages.map((m: any) => ({
-          ...m,
-          createdAt: m.createdAt.toISOString(),
-        })),
+        messages:
+          freshnessContextMode === "withheld"
+            ? []
+            : heldMessages.map((m: any) => ({
+                ...m,
+                createdAt: m.createdAt.toISOString(),
+              })),
         sideEffectDecision: "hold",
         holdToken: token,
         anywayAllowed: hold.stage === 2,
+        freshnessContextMode,
+        ...(freshnessContextMode === "withheld"
+          ? { withheldMessageCount: pending?.length ?? heldMessages.length }
+          : {}),
       });
     }
     if (request.continueAnyway && request.holdToken && validPrior && holds) {
@@ -438,6 +453,7 @@ export function createAgentMessageMethod(
           attentionCount: 0,
           messages: [],
           sideEffectDecision: "anyway_denied",
+          freshnessContextMode,
         });
       }
       logHold(request, metadata.principal, validPrior.stage, "anyway_accepted");
@@ -463,6 +479,7 @@ export function createAgentMessageMethod(
       messageId: message.id,
       messages: [],
       sideEffectDecision: request.continueAnyway ? "anyway_accepted" : "forward",
+      freshnessContextMode,
     });
   };
 }
@@ -694,29 +711,12 @@ function decodeUsageSnapshot(
       ? { hasCredits: credits.hasCredits, unlimited: credits.unlimited }
       : undefined;
   if (snapshot.credits !== undefined && !parsedCredits) return undefined;
-  const amounts = record(snapshot.creditUsage);
-  const creditUsage =
-    amounts &&
-    typeof amounts.used === "number" &&
-    Number.isFinite(amounts.used) &&
-    amounts.used >= 0 &&
-    typeof amounts.limit === "number" &&
-    Number.isFinite(amounts.limit) &&
-    amounts.limit > 0 &&
-    amounts.used <= amounts.limit &&
-    typeof amounts.overage === "number" &&
-    Number.isFinite(amounts.overage) &&
-    amounts.overage >= 0
-      ? { used: amounts.used, limit: amounts.limit, overage: amounts.overage }
-      : undefined;
-  if (snapshot.creditUsage !== undefined && (!creditUsage || !primary)) return undefined;
   return {
     provider: expectedProvider,
     ...(typeof planType === "string" ? { planType } : {}),
     ...(primary ? { primary } : {}),
     ...(secondary ? { secondary } : {}),
     ...(parsedCredits ? { credits: parsedCredits } : {}),
-    ...(creditUsage ? { creditUsage } : {}),
   };
 }
 
@@ -767,7 +767,7 @@ function usageStatus(
 
 function validModelCatalogs(catalogs: CodeAgentModelCatalog[]): boolean {
   if (
-    catalogs.length > 5 ||
+    catalogs.length > 3 ||
     new Set(catalogs.map((catalog) => catalog.provider)).size !== catalogs.length
   )
     return false;
@@ -847,7 +847,7 @@ export type CentrifugoRpcError = {
   message: string;
 };
 
-export class CentrifugoRpcAuthenticationError extends Error {}
+export class CentrifugoRpcAuthenticationError extends RequestAuthenticationError {}
 
 export type CentrifugoRpcHandlerResult = Uint8Array | CentrifugoRpcError;
 export type CentrifugoRpcMethod = (
@@ -981,13 +981,7 @@ export class CentrifugoRpcHandler {
       }
       return errorResponse(result);
     } catch (error) {
-      if (error instanceof CentrifugoRpcAuthenticationError) {
-        return errorResponse({ code: 401, message: "authentication required" });
-      }
-      if (error instanceof AgentMessageValidationError) {
-        return errorResponse({ code: 400, message: error.message });
-      }
-      return errorResponse(errors.failed);
+      return errorResponse(handleRequestError(error));
     }
   }
 }

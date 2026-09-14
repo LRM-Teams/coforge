@@ -1,4 +1,4 @@
-import { TASK_STATUSES, type TaskStatus, type TaskView } from "@coforge/protocol";
+import { TASK_STATUSES, type TaskCommand, type TaskStatus, type TaskView } from "@coforge/protocol";
 import { Link } from "@tanstack/react-router";
 import { FilterLines as ListFilter } from "@untitledui/icons";
 import { Avatar } from "@/components/base/avatar/avatar";
@@ -7,13 +7,8 @@ import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { PageHeader } from "@/components/layout/page-header";
 import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
-import {
-  TaskLayoutToggle,
-  TaskWorkflow,
-  statusLabel,
-  type TaskLayout,
-  type TaskMoveCommand,
-} from "./task-workflow";
+import { TaskLayoutToggle, TaskWorkflow, statusLabel, type TaskLayout } from "./task-workflow";
+import { TaskDetailMenu } from "./task-detail-dialog";
 
 export type TaskOverviewItem = TaskView & {
   currentMemberId?: string | null;
@@ -33,7 +28,10 @@ export function TaskOverview({
   layout?: TaskLayout;
   onStatusChange: (status?: TaskStatus) => void;
   onLayoutChange?: (layout: TaskLayout) => void;
-  onCommand?: (task: TaskOverviewItem, command: TaskMoveCommand) => Promise<void>;
+  onCommand?: (
+    task: TaskOverviewItem,
+    command: Omit<TaskCommand, "requestId" | "conversationId"> & { number: number },
+  ) => Promise<void>;
 }) {
   layout ??= "board";
   onLayoutChange ??= () => {};
@@ -76,7 +74,12 @@ export function TaskOverview({
             await onCommand?.(task, command);
           }}
           renderTask={(task, controls) => (
-            <TaskOverviewLink task={task} controls={controls} list={layout === "list"} />
+            <TaskOverviewLink
+              task={task}
+              controls={controls}
+              list={layout === "list"}
+              onCommand={onCommand ? (command) => onCommand(task, command) : undefined}
+            />
           )}
         />
       </div>
@@ -88,10 +91,14 @@ function TaskOverviewLink({
   task,
   controls,
   list,
+  onCommand,
 }: {
   task: TaskOverviewItem;
   controls: React.ReactNode;
   list: boolean;
+  onCommand?: (
+    command: Omit<TaskCommand, "requestId" | "conversationId"> & { number: number },
+  ) => Promise<void>;
 }) {
   const content = (
     <div className="min-w-0 flex-1">
@@ -105,8 +112,6 @@ function TaskOverviewLink({
       </p>
     </div>
   );
-  // Board columns are narrow, so the card shows the owner's avatar only and
-  // keeps the name for the tooltip and assistive tech; list rows have room for it.
   const owner = (
     <div className="flex min-w-0 items-center gap-2 text-xs text-secondary">
       <span className="sr-only">{m.tasks_overview_owner()}: </span>
@@ -161,6 +166,7 @@ function TaskOverviewLink({
       >
         {owner}
         {controls}
+        {onCommand && <TaskDetailMenu task={task} onCommand={onCommand} />}
       </div>
     </article>
   );

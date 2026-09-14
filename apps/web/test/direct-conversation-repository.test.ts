@@ -328,6 +328,82 @@ describe("PrismaDirectConversationRepository", () => {
     ]);
   });
 
+  test("projects current Task metadata only on its root Message", async () => {
+    const taskStates = [
+      null,
+      {
+        number: 31,
+        status: "todo",
+        owner: null,
+      },
+      {
+        number: 31,
+        status: "in_review",
+        owner: {
+          user: { username: "ada", displayName: "Ada Lovelace" },
+          agent: null,
+        },
+      },
+    ];
+    let read = 0;
+    const db = {
+      $executeRaw: async () => 1,
+      conversationMember: {
+        findFirst: async () => ({ id: "agent-member", agentReadThroughSequence: 0 }),
+        updateMany: async () => ({ count: 1 }),
+      },
+      threadRead: { findUnique: async () => null },
+      message: {
+        findMany: async (input: { where: { id?: unknown } }) => {
+          if (input.where.id)
+            return [
+              {
+                id: "12345678-1234-4234-8234-123456789abc",
+                sequence: 1,
+                threadRootId: null,
+              },
+            ];
+          return [
+            {
+              id: read === 3 ? "reply-2" : "root-1",
+              sequence: read === 3 ? 2 : 1,
+              body: "Ship the release",
+              createdAt: new Date(0),
+              sender: { agentId: null, agent: null, user: { username: "frank" } },
+              attachment: null,
+              task: read === 3 ? null : taskStates[Math.min(read++, 2)],
+            },
+          ];
+        },
+      },
+    } as unknown as PrismaClient;
+    class TestConversationRepository extends PrismaDirectConversationRepository {
+      override async userIdForUsername() {
+        return "user-1";
+      }
+      override async getOrCreateUserAgent() {
+        return { id: "conversation-1" };
+      }
+    }
+    const repository = new TestConversationRepository(db);
+
+    expect((await repository.readMessages("workspace-1", "agent-1", "@frank"))[0]?.task).toBe(
+      undefined,
+    );
+    expect((await repository.readMessages("workspace-1", "agent-1", "@frank"))[0]?.task).toEqual({
+      number: 31,
+      status: "todo",
+    });
+    expect((await repository.readMessages("workspace-1", "agent-1", "@frank"))[0]?.task).toEqual({
+      number: 31,
+      status: "in_review",
+      owner: { displayName: "Ada Lovelace", handle: "@ada" },
+    });
+    expect(
+      (await repository.readMessages("workspace-1", "agent-1", "@frank:12345678"))[0]?.task,
+    ).toBe(undefined);
+  });
+
   test("an unanchored canonical read advances across a missing sequence", async () => {
     const updates: object[] = [];
     const db = {
@@ -465,6 +541,9 @@ describe("PrismaDirectConversationRepository", () => {
             id: `${where.conversationId}-message-${offset + 5}`,
             sequence: offset + 5,
             body: `body-${offset + 5}`,
+            sender: {
+              user: { username: where.conversationId === "conversation-0" ? "alice" : "bob" },
+            },
             deliveries: [{ deliveryId: `${where.conversationId}-delivery-${offset + 5}` }],
           }));
         },
@@ -576,7 +655,7 @@ describe("PrismaDirectConversationRepository", () => {
               messageId: "message-1",
               conversationId: "conversation-1",
               sequence: 4,
-              conversation: { channelName: null },
+              conversation: { channelName: null, members: [{ user: { username: "alice" } }] },
               message: {
                 body: "pending body",
                 sender: { user: { username: "alice" } },
@@ -623,7 +702,7 @@ describe("PrismaDirectConversationRepository", () => {
             messageId: "message-1",
             conversationId: "conversation-1",
             sequence: 1,
-            conversation: { channelName: null },
+            conversation: { channelName: null, members: [{ user: { username: "Invalid Name" } }] },
             message: {
               body: "body",
               sender: { user: { username: "Invalid Name" } },

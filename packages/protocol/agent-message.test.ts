@@ -87,22 +87,26 @@ test("accepts full and short channel thread targets without treating them as mut
   expect(isChannelMessageTarget("#general:reply-id")).toBe(false);
 });
 
-test("round-trips an Agent direct message delivery", () => {
-  const delivery = {
-    protocolMajor: 1,
-    requestId: "request-a",
-    messageId: "message-a",
-    deliveryId: "delivery-a",
-    sequence: 42,
-    workspaceId: "workspace-a",
-    conversationId: "conversation-a",
-    agentId: "agent-a",
-    body: "Please inspect the repository",
-    method: AGENT_MESSAGE_METHOD,
-  } as const;
+test.each([undefined, "system"])(
+  "round-trips an Agent direct message delivery with sender %s",
+  (latestSender) => {
+    const delivery = {
+      protocolMajor: 1,
+      requestId: "request-a",
+      messageId: "message-a",
+      deliveryId: "delivery-a",
+      sequence: 42,
+      workspaceId: "workspace-a",
+      conversationId: "conversation-a",
+      agentId: "agent-a",
+      body: "Please inspect the repository",
+      method: AGENT_MESSAGE_METHOD,
+      ...(latestSender ? { latestSender } : {}),
+    } as const;
 
-  expect(decodeAgentMessageDelivery(encodeAgentMessageDelivery(delivery))).toEqual(delivery);
-});
+    expect(decodeAgentMessageDelivery(encodeAgentMessageDelivery(delivery))).toEqual(delivery);
+  },
+);
 
 test("round-trips only safe positive trusted model-seen sequences", () => {
   const request = {
@@ -200,6 +204,63 @@ test("round-trips Agent Inbox freshness request and held response", () => {
   expect(decodeAgentMessageResponse(encodeAgentMessageResponse(response))).toEqual(response);
 });
 
+test("projects reviewer-isolated message holds at both protocol boundaries", () => {
+  const sensitive = {
+    id: "secret-id",
+    sequence: 9,
+    sender: "secret-sender",
+    target: "@ada",
+    body: "sensitive sentinel",
+    createdAt: "2026-09-10T00:00:00Z",
+  };
+  const cloud = decodeCloudAgentMessageResponse(
+    encodeCloudAgentMessageResponse({
+      protocolMajor: 1,
+      requestId: "held-cloud",
+      accepted: false,
+      attentionCount: 4,
+      messages: [sensitive],
+      sideEffectDecision: "hold",
+      holdToken: "daemon-private",
+      freshnessContextMode: "withheld",
+      olderCursor: "secret-cursor",
+    }),
+  );
+  expect(cloud).toEqual({
+    protocolMajor: 1,
+    requestId: "held-cloud",
+    accepted: false,
+    attentionCount: 4,
+    messages: [],
+    sideEffectDecision: "hold",
+    holdToken: "daemon-private",
+    freshnessContextMode: "withheld",
+    withheldMessageCount: 4,
+  });
+
+  const local = decodeAgentMessageResponse(
+    encodeAgentMessageResponse({
+      requestId: "held-local",
+      accepted: false,
+      attentionCount: 4,
+      messages: [sensitive],
+      summaries: [],
+      messageId: "",
+      sideEffectDecision: "hold",
+      freshnessContextMode: "withheld",
+      newerCursor: "secret-cursor",
+    }),
+  );
+  expect(local).not.toHaveProperty("holdToken");
+  expect(local).toMatchObject({
+    messages: [],
+    freshnessContextMode: "withheld",
+    withheldMessageCount: 4,
+  });
+  expect(JSON.stringify(local)).not.toContain("sensitive sentinel");
+  expect(JSON.stringify(local)).not.toContain("secret-cursor");
+});
+
 test("round-trips attachment metadata in Agent message history", () => {
   const value = {
     protocolMajor: 1,
@@ -224,4 +285,40 @@ test("round-trips attachment metadata in Agent message history", () => {
     ],
   };
   expect(decodeCloudAgentMessageResponse(encodeCloudAgentMessageResponse(value))).toEqual(value);
+});
+
+test("preserves typed Task metadata through cloud and daemon-local message history codecs", () => {
+  const message = {
+    id: "message-task",
+    sequence: 2,
+    sender: "@frank",
+    body: "Ship the release",
+    createdAt: "2026-09-10T00:00:00Z",
+    target: "#general",
+    task: {
+      number: 31,
+      status: "in_progress" as const,
+      owner: { displayName: "Ada Lovelace", handle: "@ada" },
+    },
+  };
+  const cloud = {
+    protocolMajor: 1,
+    requestId: "request-task",
+    accepted: true,
+    attentionCount: 0,
+    messages: [message],
+  };
+  expect(decodeCloudAgentMessageResponse(encodeCloudAgentMessageResponse(cloud)).messages).toEqual([
+    message,
+  ]);
+
+  const local = {
+    requestId: "request-task",
+    accepted: true,
+    attentionCount: 0,
+    messages: [message],
+    messageId: "",
+    summaries: [],
+  };
+  expect(decodeAgentMessageResponse(encodeAgentMessageResponse(local)).messages).toEqual([message]);
 });

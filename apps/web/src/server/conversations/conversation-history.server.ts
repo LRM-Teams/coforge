@@ -38,10 +38,16 @@ function mapBrowserMessage(message: BrowserMessageRow) {
     sequence: message.sequence,
     threadRootId: message.threadRootId ?? undefined,
     senderMemberId: message.senderMemberId,
-    senderKind: message.sender.userId ? ("user" as const) : ("agent" as const),
-    senderName: message.sender.userId
-      ? `@${message.sender.user?.username}`
-      : `@${message.sender.agent?.name}`,
+    senderKind: !message.sender
+      ? ("system" as const)
+      : message.sender.userId
+        ? ("user" as const)
+        : ("agent" as const),
+    senderName: !message.sender
+      ? "System"
+      : message.sender.userId
+        ? `@${message.sender.user?.username}`
+        : message.sender.agent?.displayName || message.sender.agent?.name || "Agent",
     body: message.body,
     createdAt: message.createdAt,
     attachment: message.attachment ?? undefined,

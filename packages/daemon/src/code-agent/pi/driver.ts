@@ -1,5 +1,4 @@
 import type {
-  AgentDriver,
   AgentRuntimeEvent,
   AgentSession,
   AgentSessionIdentity,
@@ -10,16 +9,29 @@ import { agentEnvironment } from "../environment";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { toolActivity } from "../tool-activity";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
+import type { RuntimeProvider } from "@coforge/protocol";
 import {
   createSession,
   getAgentDir,
   getCoforgeAgentDir,
   getCoforgeSessionDir,
+  PI_SDK_VERSION,
 } from "@coforge/agent";
 import { join } from "node:path";
+import type { RuntimeMetadata } from "@coforge/protocol";
+import { discoverCoforgeCatalog, discoverPiCatalog } from "../runtime-inventory";
+import { COFORGE_AGENT_RUNTIME_METADATA } from "./metadata";
 
-export class PiDriver implements AgentDriver {
-  readonly provider: CodeAgentProvider = RUNTIME_PROVIDER.PI;
+export class PiProvider implements CodeAgentProvider {
+  readonly provider: RuntimeProvider = RUNTIME_PROVIDER.PI;
+
+  async discoverRuntime(): Promise<RuntimeMetadata> {
+    return { provider: RUNTIME_PROVIDER.PI, version: PI_SDK_VERSION, displayName: "Pi" };
+  }
+
+  discoverModelCatalog(options: import("../contract").ProviderDiscoveryOptions = {}) {
+    return discoverPiCatalog(options.cwd ?? process.cwd(), options.environment ?? Bun.env);
+  }
 
   async createAgentSession(options: AgentSessionOptions): Promise<AgentSession> {
     const runtime = options.runtime;
@@ -61,10 +73,18 @@ export class PiDriver implements AgentDriver {
 }
 
 /** CoForge Agent uses the same Pi SDK implementation without a child process. */
-export class CoforgeDriver extends PiDriver {
-  override readonly provider: CodeAgentProvider = RUNTIME_PROVIDER.COFORGE;
+export class CoforgeProvider implements CodeAgentProvider {
+  readonly provider = RUNTIME_PROVIDER.COFORGE;
 
-  override async createAgentSession(options: AgentSessionOptions): Promise<AgentSession> {
+  async discoverRuntime(): Promise<RuntimeMetadata> {
+    return COFORGE_AGENT_RUNTIME_METADATA;
+  }
+
+  async discoverModelCatalog() {
+    return discoverCoforgeCatalog();
+  }
+
+  async createAgentSession(options: AgentSessionOptions): Promise<AgentSession> {
     const runtime = options.runtime;
     if (runtime?.providerConfig?.kind !== "coforge")
       throw new Error("CoForge runtime provider config is required");

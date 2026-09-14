@@ -2,7 +2,7 @@ import {
   AGENT_RUNTIME_EVENT_TYPE,
   type UsageSnapshot,
   type AgentRuntimeEvent,
-  type AgentDriver,
+  type CodeAgentProvider,
 } from "../contract";
 import type { AgentSession, AgentSessionIdentity, AgentSessionOptions } from "@coforge/agent";
 import { agentEnvironment } from "../environment";
@@ -14,8 +14,10 @@ import { readClaudeCodeUsage } from "./usage";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { claudeStaticCatalog, discoverExternalCodeAgents } from "../runtime-inventory";
+import type { ProviderDiscoveryOptions } from "../contract";
 
-export class ClaudeCodeDriver implements AgentDriver {
+export class ClaudeCodeProvider implements CodeAgentProvider {
   readonly provider = RUNTIME_PROVIDER.CLAUDE_CODE;
   readonly #command: readonly string[];
 
@@ -30,6 +32,21 @@ export class ClaudeCodeDriver implements AgentDriver {
       "--verbose",
       "--include-partial-messages",
     ];
+  }
+
+  async discoverRuntime(options: ProviderDiscoveryOptions = {}) {
+    return (
+      await discoverExternalCodeAgents(
+        options.probe,
+        options.environment,
+        options.platform,
+        RUNTIME_PROVIDER.CLAUDE_CODE,
+      )
+    )[0];
+  }
+
+  async discoverModelCatalog() {
+    return claudeStaticCatalog();
   }
 
   async readUsage(options: {

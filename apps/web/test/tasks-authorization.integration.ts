@@ -110,7 +110,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
           number: seed.tasks[0]!.number,
         },
       ),
-    ).rejects.toThrow("INVALID_INPUT");
+    ).rejects.toThrow("ACCESS_DENIED");
 
     expect(
       await board.execute(
@@ -412,7 +412,8 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
         expectedRevision: claimed.tasks[0]!.revision,
       },
     );
-    expect(unclaimed.tasks[0]).toMatchObject({ status: "todo", owner: null });
+    // Releasing assignment is independent from workflow state in the published contract.
+    expect(unclaimed.tasks[0]).toMatchObject({ status: "in_progress", owner: null });
 
     const reclaimed = await board.execute(
       { workspaceId: workspace.id, agentId: agent!.id },
@@ -571,6 +572,32 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
         expectedRevision: ownerClaim.tasks[0]!.revision,
       },
     );
+    const releaseCommand = {
+      operation: "assign" as const,
+      requestId: crypto.randomUUID(),
+      conversationId: publicChannel.id,
+      number: ownerRace.number,
+      assignee: null,
+      expectedRevision: ownerReset.tasks[0]!.revision,
+    };
+    await expect(
+      board.execute({ workspaceId: workspace.id, userId: alice!.id }, releaseCommand),
+    ).rejects.toThrow("ACCESS_DENIED");
+    await db.workspaceMembership.update({
+      where: { workspaceId_userId: { workspaceId: workspace.id, userId: alice!.id } },
+      data: { role: "admin" },
+    });
+    const ownerReleased = await board.execute(
+      { workspaceId: workspace.id, userId: alice!.id },
+      {
+        operation: "assign",
+        requestId: crypto.randomUUID(),
+        conversationId: publicChannel.id,
+        number: ownerRace.number,
+        assignee: null,
+        expectedRevision: ownerReset.tasks[0]!.revision,
+      },
+    );
     await board.execute(
       { workspaceId: workspace.id, agentId: peerAgent!.id },
       {
@@ -589,7 +616,7 @@ test("TaskBoard enforces conversation authorization, idempotency, and ownership 
           target: `#${publicChannel.channelName}`,
           number: ownerRace.number,
           status: "done",
-          expectedRevision: ownerReset.tasks[0]!.revision,
+          expectedRevision: ownerReleased.tasks[0]!.revision,
         },
       ),
     ).rejects.toThrow();

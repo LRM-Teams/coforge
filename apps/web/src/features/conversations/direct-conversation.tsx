@@ -76,8 +76,8 @@ export type DirectConversationView = {
     id: string;
     sequence: number;
     threadRootId?: string;
-    senderKind: "user" | "agent";
-    senderMemberId?: string;
+    senderKind: "user" | "agent" | "system";
+    senderMemberId?: string | null;
     senderName: string;
     body: string;
     createdAt: Date | string;
@@ -490,7 +490,7 @@ export function ConversationPane({
   const lastSequence = conversation.messages.at(-1)?.sequence;
   const firstSequence = conversation.messages[0]?.sequence;
   const isOwn = (message: DirectConversationView["messages"][number]) =>
-    message.senderMemberId !== undefined
+    message.senderMemberId != null
       ? message.senderMemberId === conversation.senderMemberId
       : message.senderKind === "user";
   const loadedOwnMessages = conversation.messages

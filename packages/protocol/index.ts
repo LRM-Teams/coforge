@@ -78,8 +78,8 @@ export const RUNTIME_PROVIDER = {
   COFORGE: "coforge",
   CODEX: "codex",
   CLAUDE_CODE: "claude-code",
-  KIRO: "kiro",
   PI: "pi",
+  KIRO: "kiro",
 } as const;
 export type RuntimeProvider = (typeof RUNTIME_PROVIDER)[keyof typeof RUNTIME_PROVIDER];
 export type AgentRuntimeProviderConfig =
@@ -277,6 +277,7 @@ export type AgentMessageRequest = {
   sort?: "relevance" | "recent";
   offset?: number;
   seenUpToSequence?: number;
+  freshnessContextMode?: "inline" | "withheld";
 };
 export type CloudAgentMessageResponse = {
   protocolMajor: number;
@@ -297,6 +298,7 @@ export type CloudAgentMessageResponse = {
       contentType: string;
       sizeBytes: number;
     };
+    task?: import("./local-daemon").MessageTaskMetadata;
   }[];
   sideEffectDecision?: "forward" | "hold" | "anyway_denied" | "anyway_accepted";
   holdToken?: string;
@@ -305,6 +307,8 @@ export type CloudAgentMessageResponse = {
   hasNewer?: boolean;
   olderCursor?: string;
   newerCursor?: string;
+  freshnessContextMode?: "inline" | "withheld";
+  withheldMessageCount?: number;
 };
 
 export interface ComputerRegisterTransport {
@@ -371,7 +375,7 @@ export {
   encodeUsageScanResponse,
   decodeUsageScanResponse,
 } from "./local-daemon";
-export type { AgentMessageRecord } from "./local-daemon";
+export type { AgentMessageRecord, MessageTaskMetadata } from "./local-daemon";
 export type {
   DaemonHandshakeRequest,
   DaemonHandshakeResponse,

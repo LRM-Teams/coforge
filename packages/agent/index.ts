@@ -21,8 +21,6 @@ export type {
   AgentActivity,
   AgentActivityLevel,
   AgentActivityType,
-  AgentDriver,
-  AgentDriverFactory,
   AgentRuntimeConfig,
   AgentRuntimeEvent,
   AgentRuntimeProviderConfig,

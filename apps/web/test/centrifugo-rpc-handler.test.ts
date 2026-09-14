@@ -274,13 +274,7 @@ describe("CentrifugoRpcHandler", () => {
       workspaceId: "workspace-1",
       computerId: "computer-1",
       runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
-      catalogs: [
-        { provider: "coforge", models: [] },
-        { provider: "pi", models: [] },
-        { provider: "codex", models: [] },
-        { provider: "claude-code", models: [] },
-        { provider: "kiro", models: [] },
-      ],
+      catalogs: [{ provider: "codex", models: [] }],
     });
 
     expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
@@ -288,13 +282,7 @@ describe("CentrifugoRpcHandler", () => {
       {
         scope: { workspaceId: "workspace-1", computerId: "computer-1" },
         runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
-        catalogs: [
-          { provider: "coforge", models: [] },
-          { provider: "pi", models: [] },
-          { provider: "codex", models: [] },
-          { provider: "claude-code", models: [] },
-          { provider: "kiro", models: [] },
-        ],
+        catalogs: [{ provider: "codex", models: [] }],
       },
     ]);
     expect(
@@ -451,65 +439,6 @@ describe("CentrifugoRpcHandler", () => {
     ]);
   });
 
-  test("preserves numeric credits and rejects invalid credit amounts at the usage boundary", async () => {
-    const records: unknown[] = [];
-    const method = createDaemonRuntimeUsageScanResultMethod({
-      async put(record) {
-        records.push(record);
-      },
-      async get() {
-        return undefined;
-      },
-    });
-    const send = (creditUsage: unknown, includePrimary = true) =>
-      method(
-        encodeDaemonRuntimeUsageScanResponse({
-          protocolMajor: 1,
-          requestId: "usage-credits",
-          workspaceId: "workspace-1",
-          computerId: "computer-1",
-          provider: "kiro",
-          accepted: true,
-          status: "available",
-          snapshotJson: new TextEncoder().encode(
-            JSON.stringify({
-              provider: "kiro",
-              creditUsage,
-              ...(includePrimary
-                ? {
-                    primary: {
-                      usedPercent: 2.55,
-                      windowDurationMinutes: 43200,
-                      resetsAt: "2026-10-01T00:00:00.000Z",
-                    },
-                  }
-                : {}),
-            }),
-          ),
-        }),
-        { principal: principal() },
-      );
-    expect(await send({ used: 12.75, limit: 500, overage: 1.25 })).toBeInstanceOf(Uint8Array);
-    expect(records).toMatchObject([
-      { snapshot: { creditUsage: { used: 12.75, limit: 500, overage: 1.25 } } },
-    ]);
-    expect(await send({ used: 12.75, limit: 500, overage: 1.25 }, false)).toEqual({
-      code: 400,
-      message: "invalid usage scan result",
-    });
-    for (const creditUsage of [
-      null,
-      {},
-      { used: -1, limit: 500, overage: 0 },
-      { used: 501, limit: 500, overage: 0 },
-      { used: 0, limit: 0, overage: 0 },
-      { used: 0, limit: 500, overage: "1" },
-    ]) {
-      expect(await send(creditUsage)).toEqual({ code: 400, message: "invalid usage scan result" });
-    }
-    expect(records).toHaveLength(1);
-  });
-
   test("rejects an invalid Daemon usage snapshot", async () => {
     const records: unknown[] = [];
     const method = createDaemonRuntimeUsageScanResultMethod({
@@ -648,6 +577,107 @@ describe("CentrifugoRpcHandler", () => {
       ["workspace-1", "agent-a", "@user", 7],
       ["pending", "workspace-1", "agent-a", "@user", 5],
     ]);
+  });
+
+  test("isolated retries keep unseen messages held until explicit anyway", async () => {
+    let sent = 0;
+    const boundaries: Array<number | undefined> = [];
+    const receipts = new Map<string, any>();
+    const method = createAgentMessageMethod(
+      {
+        async readPendingAgentContext(
+          _workspace: string,
+          _agent: string,
+          _target: string,
+          after?: number,
+        ) {
+          boundaries.push(after);
+          return (after ?? 0) < 8
+            ? [
+                {
+                  id: "withheld-message",
+                  sequence: 8,
+                  sender: "@secret-reviewer",
+                  target: "@user",
+                  body: "blind-review-secret",
+                  createdAt: new Date("2026-09-10T00:00:00Z"),
+                },
+              ]
+            : [];
+        },
+        async userIdForUsername() {
+          return "target-user";
+        },
+        async getOrCreateUserAgent() {
+          return { id: "conversation-1" };
+        },
+        async sendAgentMessage() {
+          sent++;
+          return { id: "sent-message" };
+        },
+      },
+      {},
+      "send",
+      {
+        async canUseAgent() {
+          return true;
+        },
+      },
+      {
+        async execute(_scope, persist) {
+          return persist();
+        },
+      },
+      {
+        async issue(hold) {
+          const token = `token-${receipts.size}`;
+          receipts.set(token, hold);
+          return token;
+        },
+        async get(token) {
+          return receipts.get(token);
+        },
+        async consume(token) {
+          return receipts.delete(token);
+        },
+      },
+    );
+    const send = async (holdToken?: string, continueAnyway?: boolean) => {
+      const bytes = await method(
+        encodeAgentMessageRequest({
+          protocolMajor: 1,
+          requestId: crypto.randomUUID(),
+          workspaceId: "workspace-1",
+          agentId: "agent-a",
+          operation: "send",
+          target: "@user",
+          body: "independent review",
+          freshnessContextMode: "withheld",
+          holdToken,
+          continueAnyway,
+        }),
+        { principal: principal("agent-a") },
+      );
+      if (!(bytes instanceof Uint8Array)) throw new Error("expected response");
+      return decodeCloudAgentMessageResponse(bytes);
+    };
+    const first = await send();
+    const second = await send(first.holdToken);
+    expect(second).toMatchObject({
+      accepted: false,
+      sideEffectDecision: "hold",
+      messages: [],
+      withheldMessageCount: 1,
+    });
+    expect(JSON.stringify(second)).not.toContain("blind-review-secret");
+    expect(JSON.stringify(second)).not.toContain("secret-reviewer");
+    expect(sent).toBe(0);
+    expect(boundaries).toEqual([undefined, undefined]);
+    expect(await send(second.holdToken, true)).toMatchObject({
+      accepted: true,
+      sideEffectDecision: "anyway_accepted",
+    });
+    expect(sent).toBe(1);
   });
 
   test("fails closed when a trusted seen sequence cannot be advanced", async () => {

@@ -9,8 +9,8 @@ datasource db {
 }
 
 model Workspace {
-  id                  String                 @id @default(uuid()) @db.Uuid
-  slug                String                 @unique
+  id                  String                  @id @default(uuid()) @db.Uuid
+  slug                String                  @unique
   name                String
   members             WorkspaceMembership[]
   invitations         WorkspaceInvitation[]
@@ -34,26 +34,26 @@ model Workspace {
   weeklyTemplates     WeeklyReportTemplate[]
   recordNotes         RecordNote[]
   recordComments      RecordComment[]
-  createdAt           DateTime               @default(now())
-  updatedAt           DateTime               @updatedAt
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
 
   @@map("workspaces")
 }
 
 model User {
-  id                          String                @id @default(uuid()) @db.Uuid
-  username                    String                @unique
+  id                          String                          @id @default(uuid()) @db.Uuid
+  username                    String                          @unique
   displayName                 String?
-  description                 String                @default("")
+  description                 String                          @default("")
   avatarObjectKey             String?
   avatarContentType           String?
   timeZone                    String?
-  browserNotificationsEnabled Boolean               @default(false)
-  createdAt                   DateTime              @default(now())
+  browserNotificationsEnabled Boolean                         @default(false)
+  createdAt                   DateTime                        @default(now())
   identities                  UserIdentity[]
   memberships                 WorkspaceMembership[]
-  sentInvitations             WorkspaceInvitation[] @relation("WorkspaceInvitationInviter")
-  receivedInvitations         WorkspaceInvitation[] @relation("WorkspaceInvitationInvitee")
+  sentInvitations             WorkspaceInvitation[]           @relation("WorkspaceInvitationInviter")
+  receivedInvitations         WorkspaceInvitation[]           @relation("WorkspaceInvitationInvitee")
   agents                      Agent[]
   agentApiKeys                AgentApiKey[]
   daemonApiKeys               DaemonApiKey[]
@@ -62,12 +62,12 @@ model User {
   webPushSubscriptions        WebPushSubscription[]
   attachments                 Attachment[]
   deviceAuthorizations        DeviceAuthorization[]
-  weeklyReportCyclesCreated   WeeklyReportCycle[]       @relation("WeeklyReportCycleCreator")
-  weeklyReportsAuthored       WeeklyReport[]            @relation("WeeklyReportAuthor")
+  weeklyReportCyclesCreated   WeeklyReportCycle[]             @relation("WeeklyReportCycleCreator")
+  weeklyReportsAuthored       WeeklyReport[]                  @relation("WeeklyReportAuthor")
   weeklyReportFavorites       WeeklyReportFavorite[]
   weeklyTemplateRecipients    WeeklyReportTemplateRecipient[]
-  recordNotesAuthored         RecordNote[]              @relation("RecordNoteAuthor")
-  recordCommentsAuthored      RecordComment[]           @relation("RecordCommentAuthor")
+  recordNotesAuthored         RecordNote[]                    @relation("RecordNoteAuthor")
+  recordCommentsAuthored      RecordComment[]                 @relation("RecordCommentAuthor")
 
   @@map("users")
 }
@@ -259,18 +259,18 @@ model WorkspaceMembership {
 
 /// Pending human invites into a Workspace. Role is admin | member only; owner cannot be invited.
 model WorkspaceInvitation {
-  id              String    @id @default(uuid()) @db.Uuid
-  workspaceId     String    @db.Uuid
-  inviterUserId   String    @db.Uuid
-  inviteeUserId   String    @db.Uuid
-  role            String
-  status          String    @default("pending")
-  expiresAt       DateTime
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  inviter         User      @relation("WorkspaceInvitationInviter", fields: [inviterUserId], references: [id], onDelete: Cascade)
-  invitee         User      @relation("WorkspaceInvitationInvitee", fields: [inviteeUserId], references: [id], onDelete: Cascade)
+  id            String    @id @default(uuid()) @db.Uuid
+  workspaceId   String    @db.Uuid
+  inviterUserId String    @db.Uuid
+  inviteeUserId String    @db.Uuid
+  role          String
+  status        String    @default("pending")
+  expiresAt     DateTime
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  inviter       User      @relation("WorkspaceInvitationInviter", fields: [inviterUserId], references: [id], onDelete: Cascade)
+  invitee       User      @relation("WorkspaceInvitationInvitee", fields: [inviteeUserId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, status])
   @@index([inviteeUserId, status])
@@ -350,17 +350,18 @@ model WorkspaceComputer {
 }
 
 model Conversation {
-  id          String                 @id @default(uuid()) @db.Uuid
-  workspaceId String                 @db.Uuid
-  directKey   String?
-  channelName String?
-  createdAt   DateTime               @default(now())
-  workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  members     ConversationMember[]
-  messages    Message[]
-  deliveries  AgentMessageDelivery[]
-  attachments Attachment[]
-  tasks       Task[]
+  id             String                 @id @default(uuid()) @db.Uuid
+  workspaceId    String                 @db.Uuid
+  directKey      String?
+  channelName    String?
+  nextTaskNumber Int                    @default(1)
+  createdAt      DateTime               @default(now())
+  workspace      Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members        ConversationMember[]
+  messages       Message[]
+  deliveries     AgentMessageDelivery[]
+  attachments    Attachment[]
+  tasks          Task[]
 
   @@unique([workspaceId, directKey])
   @@unique([workspaceId, channelName])
@@ -370,22 +371,22 @@ model Conversation {
 }
 
 model ConversationMember {
-  id                       String       @id @default(uuid()) @db.Uuid
-  conversationId           String       @db.Uuid
-  workspaceId              String       @db.Uuid
-  userId                   String?      @db.Uuid
-  agentId                  String?      @db.Uuid
-  agentReadThroughSequence Int          @default(0)
-  channelMuted             Boolean      @default(false)
-  conversation             Conversation @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
-  workspace                Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user                     User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  agent                    Agent?       @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  id                       String         @id @default(uuid()) @db.Uuid
+  conversationId           String         @db.Uuid
+  workspaceId              String         @db.Uuid
+  userId                   String?        @db.Uuid
+  agentId                  String?        @db.Uuid
+  agentReadThroughSequence Int            @default(0)
+  channelMuted             Boolean        @default(false)
+  conversation             Conversation   @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  workspace                Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user                     User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent                    Agent?         @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   messages                 Message[]
   threadReads              ThreadRead[]
   threadFollows            ThreadFollow[]
-  ownedTasks               Task[]             @relation("TaskOwner")
-  createdTasks             Task[]             @relation("TaskCreator")
+  ownedTasks               Task[]         @relation("TaskOwner")
+  createdTasks             Task[]         @relation("TaskCreator")
 
   @@unique([id, conversationId, workspaceId])
   @@unique([conversationId, userId])
@@ -399,12 +400,12 @@ model Message {
   id             String                 @id @default(uuid()) @db.Uuid
   conversationId String                 @db.Uuid
   workspaceId    String                 @db.Uuid
-  senderMemberId String                 @db.Uuid
+  senderMemberId String?                @db.Uuid
   body           String
   sequence       Int
   createdAt      DateTime               @default(now())
   conversation   Conversation           @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
-  sender         ConversationMember     @relation(fields: [senderMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Restrict)
+  sender         ConversationMember?    @relation(fields: [senderMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Restrict)
   deliveries     AgentMessageDelivery[]
   attachment     Attachment?
   threadRootId   String?                @db.Uuid
@@ -422,29 +423,56 @@ model Message {
 }
 
 model Task {
-  messageId       String             @id @db.Uuid
-  conversationId  String             @db.Uuid
-  workspaceId     String             @db.Uuid
-  number          Int
-  title           String
-  status          String             @default("todo")
-  revision        Int                @default(0)
-  ownerMemberId   String?            @db.Uuid
-  creatorMemberId String             @db.Uuid
-  requestId       String?            @db.Uuid
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  message         Message            @relation(fields: [messageId, conversationId], references: [id, conversationId], onDelete: Cascade)
-  conversation    Conversation       @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
-  workspace       Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  owner           ConversationMember? @relation("TaskOwner", fields: [ownerMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Restrict)
-  creator         ConversationMember @relation("TaskCreator", fields: [creatorMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Restrict)
+  messageId                    String              @id @db.Uuid
+  conversationId               String              @db.Uuid
+  workspaceId                  String              @db.Uuid
+  number                       Int
+  title                        String
+  description                  String?
+  createsResource              Boolean             @default(false)
+  resourceReceipt              Json?
+  resourceReceiptRecordedAt    DateTime?
+  resourceTeardownOwnerAgentId String?             @db.Uuid
+  resourceExpiryFollowupId     String?             @db.Uuid
+  status                       String              @default("todo")
+  revision                     Int                 @default(0)
+  ownerMemberId                String?             @db.Uuid
+  claimedAt                    DateTime?
+  creatorMemberId              String              @db.Uuid
+  requestId                    String?             @db.Uuid
+  createdAt                    DateTime            @default(now())
+  updatedAt                    DateTime            @updatedAt
+  message                      Message             @relation(fields: [messageId, conversationId], references: [id, conversationId], onDelete: Cascade)
+  conversation                 Conversation        @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  workspace                    Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner                        ConversationMember? @relation("TaskOwner", fields: [ownerMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Restrict)
+  creator                      ConversationMember  @relation("TaskCreator", fields: [creatorMemberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Restrict)
+  history                      TaskHistoryEvent[]
 
   @@unique([conversationId, number])
   @@unique([messageId, conversationId])
   @@unique([conversationId, creatorMemberId, requestId])
   @@index([workspaceId, conversationId, status])
   @@map("tasks")
+}
+
+model TaskHistoryEvent {
+  id                String   @id @default(uuid()) @db.Uuid
+  taskMessageId     String   @db.Uuid
+  sequence          Int
+  eventType         String
+  actorKind         String
+  actorName         String?
+  beforeTitle       String?
+  afterTitle        String?
+  beforeDescription String?
+  afterDescription  String?
+  createdAt         DateTime @default(now())
+  task              Task     @relation(fields: [taskMessageId], references: [messageId], onDelete: Cascade)
+
+  @@unique([taskMessageId, sequence])
+  @@index([taskMessageId, createdAt])
+  @@map("task_history_events")
 }
 
 model ThreadRead {

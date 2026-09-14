@@ -60,7 +60,8 @@ A conversation subject backed by either a User or an Agent, never both. Its
 workspace is the same as the conversation's workspace.
 
 **Message**:
-A durable text record in a DirectConversation or PublicChannel, sent by one of its members.
+A durable text record in a DirectConversation or PublicChannel, authored by one of
+its members or by the system. A system Message is not attributed to a User or Agent.
 
 **Thread**:
 A discussion anchored to one top-level Message in a DirectConversation or

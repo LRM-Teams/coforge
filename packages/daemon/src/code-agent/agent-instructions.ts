@@ -45,12 +45,46 @@ Use the \`coforge\` CLI for chat and App Inbox operations. The CLI is your only 
 
 ### Tasks
 
-- Task commands use the parent target (\`#general\` or \`@username\`), never a \`:thread\` suffix. For work requested inside an existing Thread, inspect and claim its root Message, not the reply Message. Use the returned Task message ID with the parent target to send progress to that exact Thread; for example \`#general:<message-id>\`.
-- Before starting work, run \`coforge task list --target <target>\`. Claim an existing Task with \`coforge task claim --target <target> --number <number>\`; for an ordinary work Message, claim it atomically with \`coforge task claim --target <target> --message-id <message-id>\`. If claiming fails, do not perform conflicting work.
-- Create an independent Task with \`coforge task create --target <target> --title <title>\`. This records work; it does not create dependency scheduling or imply that another Agent will execute it. Do not turn ordinary conversation into Tasks.
-- Post progress and results in the original Task Thread using \`coforge message send\`, then move your Task to \`in_review\` with \`coforge task update --target <target> --number <number> --status in_review\`.
-- Mark your Task \`done\` only after a human clearly accepts the result in that original Thread. Natural-language acceptance is a judgment you must make from the conversation, not an automatic approval detector or a requirement that the human click the UI. Never invent or infer approval from silence.
-- Task updates use revisions to reject stale writes. If an update reports a conflict, read the Task list again and decide from the current state; do not repeatedly overwrite it.
+**Decision rule:** if fulfilling a message requires you to take action beyond just replying (running tools, creating artifacts, making changes), use \`coforge task claim\` before starting. If you're only answering a question or having a conversation, no claim needed.
+
+**What you see in messages:**
+- A message already marked as a task: \`@Alice: Fix the login bug [task #3 status=in_progress]\`
+- A regular message (no task suffix): \`@Alice: Can someone look into the login bug?\`
+- A system notification about task changes: \`📋 Alice converted a message to task #3 "Fix the login bug"\`
+
+Only top-level channel / DM messages can become tasks. Messages inside threads are discussion context — reply there, but keep claims and conversions to top-level messages. Task commands use the parent target (\`#general\` or \`@username\`), never a \`:thread\` suffix. For work requested inside an existing Thread, inspect and claim its root Message, not the reply Message.
+
+\`coforge message read\` shows messages in their current state. If a message was later converted to a task, it will show the \`[task #N ...]\` suffix.
+
+**Statuses:** \`todo\`, \`in_progress\`, \`in_review\`, \`done\`, \`closed\`. The ordinary path is \`todo\` → \`in_progress\` → \`in_review\` → \`done\`; \`closed\` records work that will not be done and is reachable from any status.
+
+**Assignee** is independent from status, and the two verbs stop at different places. **Claim** is rejected on both terminal statuses, \`done\` and \`closed\` — reopen a closed task before claiming it. **Unclaim** is rejected only on \`done\`; a \`closed\` task can still be unclaimed.
+
+Inspect the claim output payload: proceed only on a task whose row says \`claimed\`.
+
+**Amendments are auditable:** use \`coforge task amend --target <channel> --number <n>\` with \`--title\`, \`--description\`, or \`--clear-description\` to update the current card. Any current channel member who may post can amend it, including a reviewer adding acceptance criteria; names mentioned in card prose do not grant permission. CoForge appends the exact before/after change to task history and rejects concurrent overwrites or stale membership; inspect the ordered chain with \`coforge task history --target <channel> --number <n>\`.
+
+**Workflow:**
+1. Receive a message that requires action → claim it first (by task number if already a task, or by message ID if it's a regular message). Use repeat flags: \`coforge task claim --target "#channel" --number 1 --number 2\` or \`coforge task claim --target "#channel" --message-id abc12345\`.
+2. If the claim fails, do not start conflicting execution on it, and do not take over its scope without a redirect. A failed claim is a concurrency lock, not a ruling on lane ownership — the row states the reason, which may be that the task does not exist, is \`closed\` or \`done\`, or is held by another assignee. If you are that lane's canonical owner, correct the routing in the original thread.
+3. Post updates in the task's thread: \`coforge message send --target "#channel:msgShortId"\`
+4. When done, set status to \`in_review\` so a human can validate via \`coforge task update\`
+5. After approval, set status to \`done\`
+
+**What \`coforge task create\` really means:**
+- Tasks live in the same chat flow as messages. A task is just a message with task metadata, not a separate source of truth.
+- \`coforge task create\` is a convenience helper for a specific sequence: create a brand-new message, then publish that new message as a task-message.
+- \`coforge task create\` creates an unassigned \`todo\` task by default. \`--assignee @yourself\` atomically creates it \`in_progress\` with a claim timestamp. A server owner/admin may use \`--assignee @someone-else\` to reserve a \`todo\` task for that actor; the assignee must still claim it to start. Assigned creation includes a server-authored assignment receipt whose personal @mention remains durable through channel mute without waking unrelated muted members.
+- Typical uses for \`coforge task create\` are breaking down a larger task into parallel subtasks, or batch-creating genuinely new work for others to claim.
+- If someone already sent the work item as a message, just claim that existing message/task instead of creating a new one.
+- If the work already exists as a message, reuse it via \`coforge task claim --target "#channel" --message-id abc12345\`.
+
+**Creating new tasks:**
+- The task system exists to prevent duplicate work. If you see an existing task for the work, either claim that task or leave it alone.
+- If a message already shows a \`[task #N ...]\` suffix, claim \`#N\` if it is yours to take; otherwise leave it with its assignee — or, if you are that lane's canonical owner, correct the routing in the original thread.
+- Before calling \`coforge task create\`, first check whether the work already exists on the task board or is already being handled.
+- Reuse existing tasks and threads instead of creating duplicates.
+- Use \`coforge task create\` only for genuinely new subtasks or follow-up work that does not already have a canonical task.
 
 Complete the requested work and send any required CoForge replies before ending the turn.`;
 

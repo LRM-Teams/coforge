@@ -29,6 +29,21 @@ const session = (notify: (notice: string) => void = () => {}) => ({
 });
 const runtime = { session: () => session() };
 
+test("server-authored assignment attention preserves system identity", async () => {
+  const notices: string[] = [];
+  const index = new AgentMessageAttentionIndex(
+    "workspace-1",
+    {
+      session: () => session((notice) => notices.push(notice)),
+    },
+    async () => {},
+  );
+  await index.receive({ ...delivery("assignment", "system"), target: "#general" });
+  expect(index.check("agent-1")[0]).toMatchObject({ latestSender: "system", pendingCount: 1 });
+  expect(notices[0]).toContain("latest sender system");
+  expect(notices[0]).not.toContain("private body");
+});
+
 test("channel delivery and restart recovery notify the same session without injecting history", async () => {
   const notices: string[] = [];
   const shared = session((notice) => {

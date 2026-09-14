@@ -1,21 +1,22 @@
-import { ClaudeCodeDriver } from "./claude-code/driver";
-import { CodexDriver } from "./codex/driver";
-import type { AgentDriver, CodeAgentProvider } from "./contract";
-import { CoforgeDriver, PiDriver } from "./pi/driver";
-import { KiroDriver } from "./kiro/driver";
+import { ClaudeCodeProvider } from "./claude-code/driver";
+import { CodexProvider } from "./codex/driver";
+import type { CodeAgentProvider } from "./contract";
+import { CoforgeProvider, PiProvider } from "./pi/driver";
+import { KiroProvider } from "./kiro/driver";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
+import type { RuntimeProvider } from "@coforge/protocol";
 
-export function createAgentDriver(provider: CodeAgentProvider): AgentDriver {
+export function createCodeAgentProvider(provider: RuntimeProvider): CodeAgentProvider {
   switch (provider) {
     case RUNTIME_PROVIDER.COFORGE:
-      return new CoforgeDriver();
+      return new CoforgeProvider();
     case RUNTIME_PROVIDER.PI:
-      return new PiDriver();
+      return new PiProvider();
     case RUNTIME_PROVIDER.CODEX:
-      return new CodexDriver();
+      return new CodexProvider();
     case RUNTIME_PROVIDER.CLAUDE_CODE:
-      return new ClaudeCodeDriver();
+      return new ClaudeCodeProvider();
     case RUNTIME_PROVIDER.KIRO:
-      return new KiroDriver();
+      return new KiroProvider();
   }
 }

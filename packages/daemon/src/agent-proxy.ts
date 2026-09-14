@@ -50,6 +50,7 @@ export function startAgentProxy(input: {
   const server = Bun.serve({
     port: input.port ?? 0,
     async fetch(request) {
+      let reviewerMode = false;
       const requestUrl = new URL(request.url);
       if (
         (request.method !== "POST" || requestUrl.pathname !== "/agent/message") &&
@@ -95,6 +96,7 @@ export function startAgentProxy(input: {
         if (!body || typeof body !== "object" || Array.isArray(body))
           return new Response("bad request", { status: 400 });
         const payload = body as Record<string, unknown>;
+        reviewerMode = payload.freshnessContextMode === "withheld";
         if (requestUrl.pathname === "/agent/reminder") {
           if (!input.runtime.reminder) return new Response("not found", { status: 404 });
           const local = { ...payload, context: binding.context } as LocalReminderRequest;
@@ -112,9 +114,12 @@ export function startAgentProxy(input: {
             workspaceId: "local",
             agentId: binding.agentId,
           });
-          return Response.json(
-            await input.runtime.agentTask(binding.context, command, binding.agentApiKey),
+          const result = await input.runtime.agentTask(
+            binding.context,
+            command,
+            binding.agentApiKey,
           );
+          return Response.json(result);
         }
         if (requestUrl.pathname === "/agent/inbox") {
           if (!input.runtime.inbox) return new Response("not found", { status: 404 });
@@ -135,6 +140,9 @@ export function startAgentProxy(input: {
           ) ||
           (payload.continueAnyway !== undefined && typeof payload.continueAnyway !== "boolean") ||
           (payload.sendDraft !== undefined && typeof payload.sendDraft !== "boolean") ||
+          (payload.freshnessContextMode !== undefined &&
+            payload.freshnessContextMode !== "inline" &&
+            payload.freshnessContextMode !== "withheld") ||
           [payload.before, payload.after, payload.around].some(
             (anchor) => anchor !== undefined && (typeof anchor !== "string" || anchor.length === 0),
           ) ||
@@ -185,6 +193,11 @@ export function startAgentProxy(input: {
             sort:
               payload.sort === "relevance" || payload.sort === "recent" ? payload.sort : undefined,
             offset: typeof payload.offset === "number" ? payload.offset : undefined,
+            freshnessContextMode:
+              payload.freshnessContextMode === "inline" ||
+              payload.freshnessContextMode === "withheld"
+                ? payload.freshnessContextMode
+                : undefined,
             // Identity is exclusively the token binding. Never accept caller
             // supplied agentId/context fields as authorization input.
             context: binding.context,
@@ -197,9 +210,9 @@ export function startAgentProxy(input: {
       } catch (error) {
         // Deliberately do not expose runtime/transport exception text.
         if (error instanceof SyntaxError) return new Response("bad request", { status: 400 });
-        if (error instanceof AgentMessageRequestError)
+        if (!reviewerMode && error instanceof AgentMessageRequestError)
           return new Response(error.message, { status: 400 });
-        if (error instanceof AgentTaskRequestError)
+        if (!reviewerMode && error instanceof AgentTaskRequestError)
           return new Response(error.message, { status: 400 });
         return new Response("proxy request failed", { status: 502 });
       }

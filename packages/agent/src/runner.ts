@@ -268,6 +268,7 @@ async function createPiModelRuntime(
   const modelRuntime = await ModelRuntime.create({
     authPath: join(agentDir, "auth.json"),
     modelsPath: join(agentDir, "models.json"),
+    allowModelNetwork: true,
   });
   // Resolve native environment credentials through Pi so stored auth retains
   // priority. Snapshot single-key auth per session, without patching process.env.

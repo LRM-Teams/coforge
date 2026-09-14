@@ -190,6 +190,7 @@ export type LocalAgentMessageRequest = {
   sender?: string;
   sort?: "relevance" | "recent";
   offset?: number;
+  freshnessContextMode?: "inline" | "withheld";
 };
 export type AgentMessageRecord = {
   id: string;
@@ -204,8 +205,42 @@ export type AgentMessageRecord = {
     contentType: string;
     sizeBytes: number;
   };
+  task?: MessageTaskMetadata;
+};
+export type MessageTaskMetadata = {
+  number: number;
+  status: import("./tasks").TaskStatus;
+  owner?: { displayName: string; handle: string };
 };
 type LocalAttachment = NonNullable<AgentMessageRecord["attachment"]>;
+
+export function decodeMessageTask(value: {
+  number: number;
+  status: string;
+  owner?: { displayName: string; handle: string };
+}): MessageTaskMetadata {
+  let status: MessageTaskMetadata["status"];
+  switch (value.status) {
+    case "todo":
+    case "in_progress":
+    case "in_review":
+    case "done":
+    case "closed":
+      status = value.status;
+      break;
+    default:
+      throw new Error("invalid message Task status");
+  }
+  return {
+    number: value.number,
+    status,
+    ...(value.owner
+      ? {
+          owner: { displayName: value.owner.displayName, handle: value.owner.handle },
+        }
+      : {}),
+  };
+}
 export function encodeLocalAttachment(value: LocalAttachment) {
   return { ...value, sizeBytes: BigInt(value.sizeBytes) };
 }
@@ -244,6 +279,8 @@ export type AgentMessageResponse = {
   hasNewer?: boolean;
   olderCursor?: string;
   newerCursor?: string;
+  freshnessContextMode?: "inline" | "withheld";
+  withheldMessageCount?: number;
 };
 export type MessageAttentionSummary = {
   target: string;
@@ -254,10 +291,22 @@ export type MessageAttentionSummary = {
   flags: string[];
 };
 export function encodeLocalAgentMessageRequest(value: LocalAgentMessageRequest): Uint8Array {
+  if (
+    value.freshnessContextMode !== undefined &&
+    value.freshnessContextMode !== "inline" &&
+    value.freshnessContextMode !== "withheld"
+  )
+    throw new Error("invalid Agent message freshness context mode");
   return toBinary(LocalAgentMessageRequestSchema, create(LocalAgentMessageRequestSchema, value));
 }
 export function decodeLocalAgentMessageRequest(bytes: Uint8Array): LocalAgentMessageRequest {
   const v = fromBinary(LocalAgentMessageRequestSchema, bytes);
+  if (
+    v.freshnessContextMode &&
+    v.freshnessContextMode !== "inline" &&
+    v.freshnessContextMode !== "withheld"
+  )
+    throw new Error("invalid Agent message freshness context mode");
   return {
     requestId: v.requestId,
     context: v.context,
@@ -274,36 +323,69 @@ export function decodeLocalAgentMessageRequest(bytes: Uint8Array): LocalAgentMes
     sender: v.sender || undefined,
     sort: (v.sort || undefined) as LocalAgentMessageRequest["sort"],
     offset: v.offset || undefined,
+    freshnessContextMode: (v.freshnessContextMode || undefined) as
+      | "inline"
+      | "withheld"
+      | undefined,
   };
 }
 export function encodeAgentMessageResponse(value: AgentMessageResponse): Uint8Array {
+  const safeValue =
+    value.freshnessContextMode === "withheld"
+      ? {
+          ...value,
+          messages: [],
+          summaries: [],
+          hasOlder: undefined,
+          hasNewer: undefined,
+          olderCursor: undefined,
+          newerCursor: undefined,
+          withheldMessageCount: value.withheldMessageCount ?? value.attentionCount,
+        }
+      : value;
   return toBinary(
     AgentMessageResponseSchema,
     create(AgentMessageResponseSchema, {
-      ...value,
-      messages: value.messages.map((m) => ({
+      ...safeValue,
+      messages: safeValue.messages.map((m) => ({
         ...m,
         sequence: BigInt(m.sequence),
         createdAt: m.createdAt,
         attachment: m.attachment ? encodeLocalAttachment(m.attachment) : undefined,
+        task: m.task,
       })),
-      summaries: value.summaries.map((summary) => ({
+      summaries: safeValue.summaries.map((summary) => ({
         ...summary,
         firstPendingSequence: BigInt(summary.firstPendingSequence),
         latestSequence: BigInt(summary.latestSequence),
       })),
       seenUpToSequence:
-        value.seenUpToSequence === undefined ? undefined : BigInt(value.seenUpToSequence),
-      anywayAllowed: value.anywayAllowed ?? false,
-      hasOlder: value.hasOlder ?? false,
-      hasNewer: value.hasNewer ?? false,
-      olderCursor: value.olderCursor,
-      newerCursor: value.newerCursor,
+        safeValue.seenUpToSequence === undefined ? undefined : BigInt(safeValue.seenUpToSequence),
+      anywayAllowed: safeValue.anywayAllowed ?? false,
+      hasOlder: safeValue.hasOlder ?? false,
+      hasNewer: safeValue.hasNewer ?? false,
+      olderCursor: safeValue.olderCursor,
+      newerCursor: safeValue.newerCursor,
     }),
   );
 }
 export function decodeAgentMessageResponse(bytes: Uint8Array): AgentMessageResponse {
   const v = fromBinary(AgentMessageResponseSchema, bytes);
+  if (v.freshnessContextMode && !["inline", "withheld"].includes(v.freshnessContextMode))
+    throw new Error("invalid Agent message freshness context mode");
+  if (v.freshnessContextMode === "withheld")
+    return {
+      requestId: v.requestId,
+      accepted: v.accepted,
+      attentionCount: v.attentionCount,
+      messages: [],
+      messageId: v.messageId,
+      summaries: [],
+      sideEffectDecision: v.sideEffectDecision as AgentMessageResponse["sideEffectDecision"],
+      anywayAllowed: v.anywayAllowed || undefined,
+      freshnessContextMode: "withheld",
+      withheldMessageCount: v.withheldMessageCount ?? v.attentionCount,
+    };
   return {
     requestId: v.requestId,
     accepted: v.accepted,
@@ -325,6 +407,7 @@ export function decodeAgentMessageResponse(bytes: Uint8Array): AgentMessageRespo
       body: m.body,
       createdAt: m.createdAt,
       ...decodeLocalAttachment(m.attachment),
+      ...(m.task ? { task: decodeMessageTask(m.task) } : {}),
     })),
     sideEffectDecision: v.sideEffectDecision
       ? (v.sideEffectDecision as AgentMessageResponse["sideEffectDecision"])
@@ -335,6 +418,11 @@ export function decodeAgentMessageResponse(bytes: Uint8Array): AgentMessageRespo
     hasNewer: v.hasNewer || undefined,
     olderCursor: v.olderCursor || undefined,
     newerCursor: v.newerCursor || undefined,
+    freshnessContextMode: (v.freshnessContextMode || undefined) as
+      | "inline"
+      | "withheld"
+      | undefined,
+    withheldMessageCount: v.withheldMessageCount,
   };
 }
 export const DAEMON_HANDSHAKE_METHOD = LOCAL_RPC_METHODS.HANDSHAKE;

@@ -3,16 +3,16 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentRuntimeEvent } from "../src/code-agent/contract";
-import { CodexDriver } from "../src/code-agent/codex/driver";
-import { ClaudeCodeDriver } from "../src/code-agent/claude-code/driver";
+import { CodexProvider } from "../src/code-agent/codex/driver";
+import { ClaudeCodeProvider } from "../src/code-agent/claude-code/driver";
 
 const command = (fixture: string) => [
   process.execPath,
   new URL(`./fixtures/${fixture}`, import.meta.url).pathname,
 ];
 const drivers = [
-  new CodexDriver({ command: command("codex-app-server.ts") }),
-  new ClaudeCodeDriver({ command: command("claude-stream-json.ts") }),
+  new CodexProvider({ command: command("codex-app-server.ts") }),
+  new ClaudeCodeProvider({ command: command("claude-stream-json.ts") }),
 ];
 
 for (const driver of drivers) {

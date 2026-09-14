@@ -6,10 +6,9 @@ import { DaemonRuntime } from "../src/daemon-runtime/runtime";
 import {
   AGENT_RUNTIME_EVENT_TYPE,
   AgentProcessCleanupError,
-  UsageUnavailableError,
   type AgentRuntimeConfig,
   type AgentRuntimeEvent,
-  type AgentDriver,
+  type CodeAgentProvider,
   type AgentSession,
 } from "../src/code-agent/contract";
 import type { WorkspaceConfig } from "../src/daemon-runtime/runtime";
@@ -19,7 +18,12 @@ import {
   type CentrifugeWorkspaceClient,
 } from "../src/connection/daemon-connection";
 import { startAgentProxy, type AgentProxy } from "../src/agent-proxy";
-import type { AgentMessageRequest, CloudAgentMessageResponse } from "@coforge/protocol";
+import type {
+  AgentMessageRequest,
+  CloudAgentMessageResponse,
+  TaskRequest,
+  TaskResponse,
+} from "@coforge/protocol";
 
 function sessionSpy() {
   return {
@@ -501,6 +505,7 @@ async function queueHarness(
 
 async function messageHarness(
   respond: (request: AgentMessageRequest) => Promise<CloudAgentMessageResponse>,
+  respondTask?: (request: TaskRequest) => Promise<TaskResponse>,
 ) {
   const credentials = new InMemoryDaemonCredentialStore();
   await credentials.save(connection.workspaceId, connection.computerId, "token-a");
@@ -522,10 +527,9 @@ async function messageHarness(
         async revokeAgentApiKey() {},
         async sendAgentDeliveryAck() {},
         agentMessage: respond,
+        agentTask: respondTask,
       }),
     },
-    undefined,
-    async () => ({ runtimes: [], catalogs: [] }),
   );
   await runtime.start(connection);
   await runtime.startAgent("agent-a", config);
@@ -549,6 +553,192 @@ async function messageHarness(
       }),
   };
 }
+
+describe("Agent Task freshness", () => {
+  test("reviewer-isolation holds are repeatable without reading, forwarding, or consuming", async () => {
+    const messageCalls: AgentMessageRequest[] = [];
+    const taskCalls: TaskRequest[] = [];
+    const harness = await messageHarness(
+      async (request) => {
+        messageCalls.push(request);
+        return {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: true,
+          attentionCount: 0,
+          messages: [],
+        };
+      },
+      async (request) => {
+        taskCalls.push(request);
+        return { protocolMajor: 1, requestId: request.requestId, tasks: [] };
+      },
+    );
+    try {
+      await harness.deliver(4, "#tasks");
+      const command = {
+        operation: "claim" as const,
+        requestId: "claim-withheld",
+        target: "#tasks",
+        number: 7,
+        freshnessContextMode: "withheld" as const,
+      };
+
+      expect(await harness.runtime.agentTask(harness.context, command, harness.apiKey)).toEqual({
+        tasks: [],
+        state: "held",
+        freshnessContextMode: "withheld",
+        withheldMessageCount: 1,
+      });
+      expect(await harness.runtime.agentTask(harness.context, command, harness.apiKey)).toEqual({
+        tasks: [],
+        state: "held",
+        freshnessContextMode: "withheld",
+        withheldMessageCount: 1,
+      });
+      expect(messageCalls).toHaveLength(0);
+      expect(taskCalls).toHaveLength(0);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("claim isolates exact-target freshness, bounds pending reads, and preserves Task results", async () => {
+    const messageCalls: AgentMessageRequest[] = [];
+    const upstream = {
+      protocolMajor: 1,
+      requestId: "claim-forward",
+      tasks: [],
+      claims: [],
+      assignmentReceipt: {
+        messageId: "receipt-message",
+        content: "claimed",
+        assignee: "@agent-a",
+        state: "started" as const,
+      },
+    };
+    const harness = await messageHarness(
+      async (request) => {
+        messageCalls.push(request);
+        return {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: true,
+          attentionCount: 1,
+          messages: [messageRecord(9, "@alice", request.target)],
+        };
+      },
+      async () => upstream,
+    );
+    try {
+      await harness.deliver(3, "#unrelated");
+      const firstTouch = await harness.runtime.agentTask(
+        harness.context,
+        { operation: "claim", requestId: "first-touch", target: "#tasks", number: 7 },
+        harness.apiKey,
+      );
+      expect(firstTouch).toMatchObject({ state: "held", freshnessContextMode: "inline" });
+      expect(messageCalls[0]).toMatchObject({ target: "#tasks", limit: 3 });
+
+      const result = await harness.runtime.agentTask(
+        harness.context,
+        { operation: "claim", requestId: "claim-forward", target: "#tasks", number: 7 },
+        harness.apiKey,
+      );
+      expect(result).toBe(upstream);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("an unavailable exact-target pending read holds instead of forwarding or consuming", async () => {
+    const messageCalls: AgentMessageRequest[] = [];
+    const taskCalls: TaskRequest[] = [];
+    const harness = await messageHarness(
+      async (request) => {
+        messageCalls.push(request);
+        return {
+          protocolMajor: 1,
+          requestId: request.requestId,
+          accepted: messageCalls.length > 1,
+          attentionCount: 1,
+          messages: [],
+        };
+      },
+      async (request) => {
+        taskCalls.push(request);
+        return { protocolMajor: 1, requestId: request.requestId, tasks: [] };
+      },
+    );
+    try {
+      await harness.deliver(5, "#tasks");
+      const command = {
+        operation: "update" as const,
+        requestId: "update",
+        target: "#tasks",
+        number: 7,
+      };
+
+      expect(await harness.runtime.agentTask(harness.context, command, harness.apiKey)).toEqual({
+        tasks: [],
+        state: "held",
+        freshnessContextMode: "inline",
+        heldMessages: [],
+        newMessageCount: 1,
+      });
+      expect(messageCalls[0]).toMatchObject({
+        target: "#tasks",
+        fromSequence: 5,
+        throughSequence: 5,
+        limit: 3,
+      });
+      expect(taskCalls).toHaveLength(0);
+
+      await harness.runtime.agentTask(harness.context, command, harness.apiKey);
+      expect(messageCalls).toHaveLength(2);
+      expect(taskCalls).toHaveLength(0);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
+  test("amend bypasses local freshness preflight and forwards the complete result", async () => {
+    const messageCalls: AgentMessageRequest[] = [];
+    const upstream = {
+      protocolMajor: 1,
+      requestId: "amend",
+      tasks: [],
+      history: [],
+      resourceFollowup: {
+        id: "followup-a",
+        ownerAgentId: "agent-a",
+        owner: "@agent-a",
+        fireAt: "2026-09-10T12:00:00.000Z",
+        messageId: "message-a",
+        conversationId: "conversation-a",
+      },
+    };
+    const harness = await messageHarness(
+      async (request) => {
+        messageCalls.push(request);
+        throw new Error("amend must not read messages");
+      },
+      async () => upstream,
+    );
+    try {
+      await harness.deliver(2, "#tasks");
+      const result = await harness.runtime.agentTask(
+        harness.context,
+        { operation: "amend", requestId: "amend", target: "#tasks", number: 7, title: "new" },
+        harness.apiKey,
+      );
+      expect(result).toBe(upstream);
+      expect(messageCalls).toHaveLength(0);
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+});
 
 const recovery = {
   resumeMessages: [],
@@ -1468,7 +1658,7 @@ describe("DaemonRuntime", () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const listeners = new Set<(event: AgentRuntimeEvent) => void>();
-    const adapter: AgentDriver = {
+    const adapter: CodeAgentProvider = {
       provider: "claude-code",
       async readUsage() {
         return null;
@@ -1523,48 +1713,6 @@ describe("DaemonRuntime", () => {
       },
     });
     await runtime.stop();
-  });
-
-  test("scans Kiro quota and distinguishes an unrepresentable window from expired authentication", async () => {
-    const credentials = new InMemoryDaemonCredentialStore();
-    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
-    const snapshot = {
-      provider: "kiro" as const,
-      primary: {
-        usedPercent: 37,
-        windowDurationMinutes: 43200,
-        resetsAt: "2026-10-01T00:00:00.000Z",
-      },
-    };
-    let outcome: "available" | "unavailable" | "reauth" = "available";
-    const runtime = new DaemonRuntime(
-      connection,
-      () => ({
-        provider: "kiro",
-        async readUsage() {
-          if (outcome === "unavailable") throw new UsageUnavailableError();
-          if (outcome === "reauth") return null;
-          return snapshot;
-        },
-        async createAgentSession() {
-          return sessionSpy();
-        },
-      }),
-      credentials,
-      { create: () => ({ async start() {}, async ready() {}, async stop() {} }) },
-    );
-    await runtime.start(connection);
-    try {
-      const result = await runtime.scanUsage("kiro");
-      expect(result.status).toBe("available");
-      expect(JSON.parse(new TextDecoder().decode(result.snapshotJson))).toEqual(snapshot);
-      outcome = "unavailable";
-      expect((await runtime.scanUsage("kiro")).status).toBe("unavailable");
-      outcome = "reauth";
-      expect((await runtime.scanUsage("kiro")).status).toBe("reauth");
-    } finally {
-      await runtime.stop();
-    }
   });
 
   test("does not expose a usage driver exception in the scan response", async () => {
@@ -2031,7 +2179,7 @@ describe("DaemonRuntime", () => {
   });
 
   test("owns one AgentProcessManager for its workspace", async () => {
-    const adapter: AgentDriver = {
+    const adapter: CodeAgentProvider = {
       provider: "pi",
       async createAgentSession() {
         return sessionSpy();

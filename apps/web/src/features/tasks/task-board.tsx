@@ -1,4 +1,4 @@
-import type { TaskStatus, TaskView } from "@coforge/protocol";
+import type { TaskCommand, TaskView } from "@coforge/protocol";
 import {
   Circle as CircleDot,
   CheckSquare as ListTodo,
@@ -11,6 +11,7 @@ import { Button } from "@/components/base/buttons/button";
 import { m } from "@/paraglide/messages";
 import { ConversationTaskTabs } from "./conversation-task-tabs";
 import { CreateTaskDialog } from "./create-task-dialog";
+import { TaskDetailMenu } from "./task-detail-dialog";
 import { TaskLayoutToggle, TaskWorkflow, statusLabel, type TaskLayout } from "./task-workflow";
 
 export type TaskBoardProps = {
@@ -20,12 +21,9 @@ export type TaskBoardProps = {
   loading?: boolean;
   error?: string;
   onOpenMessage: (messageId: string) => void | Promise<void>;
-  onCommand: (command: {
-    operation: "claim" | "unclaim" | "update";
-    number: number;
-    status?: TaskStatus;
-    expectedRevision?: number;
-  }) => Promise<void>;
+  onCommand: (
+    command: Omit<TaskCommand, "requestId" | "conversationId"> & { number: number },
+  ) => Promise<void>;
   onShowChat: () => void;
   conversationName?: string;
   onCreateTask?: (title: string, requestId: string) => Promise<TaskView | void>;
@@ -154,7 +152,7 @@ function TaskCard({
   moveControls: React.ReactNode;
 }) {
   const [pending, setPending] = useState(false);
-  const available = task.status === "todo" && !task.owner;
+  const available = task.status === "todo" && (!task.owner || own);
   return (
     <article className="rounded-lg border border-secondary bg-primary p-3 shadow-sm">
       <Button
@@ -186,7 +184,7 @@ function TaskCard({
               onClick={() => runCommand({ operation: "claim", number: task.number })}
             />
           )}
-          {own && task.status !== "done" && task.status !== "closed" && (
+          {own && task.status !== "done" && (
             <TaskAction
               label={m.tasks_unclaim()}
               disabled={pending}
@@ -202,6 +200,7 @@ function TaskCard({
           {!available && !own && task.owner && (
             <Lock aria-label={m.tasks_owned_by_other()} className="size-3.5" />
           )}
+          <TaskDetailMenu task={task} onCommand={onCommand} />
         </div>
       )}
     </article>

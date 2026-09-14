@@ -23,9 +23,7 @@ export type ChannelConversationView = Omit<DirectConversationView, "agent" | "me
   name: string;
   muted: boolean;
   followedThreadRootIds?: string[];
-  messages: (DirectConversationView["messages"][number] & {
-    senderMemberId: string;
-  })[];
+  messages: DirectConversationView["messages"];
 };
 
 export function ChannelConversationHeader({

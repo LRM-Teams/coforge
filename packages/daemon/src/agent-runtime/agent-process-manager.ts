@@ -1,5 +1,6 @@
 import { AgentStateMachine, type AgentStatus } from "./agent-state-machine";
-import type { AgentDriverFactory, AgentRuntimeConfig, AgentSession } from "@coforge/agent";
+import type { AgentRuntimeConfig, AgentSession } from "@coforge/agent";
+import type { CodeAgentProviderFactory } from "../code-agent/contract";
 import { AgentProcessCleanupError } from "../code-agent/contract";
 import { buildCoforgeAgentInstructions } from "../code-agent/agent-instructions";
 import { mkdir } from "node:fs/promises";
@@ -16,17 +17,17 @@ export type AgentRestartConfig = Readonly<{
   sessionId: string | undefined;
 }>;
 
-export type { AgentDriverFactory } from "@coforge/agent";
+export type { CodeAgentProviderFactory } from "../code-agent/contract";
 /** Owns Agent availability and runtime processes for one supervised Workspace. */
 export class AgentProcessManager {
-  readonly #createDriver: AgentDriverFactory;
+  readonly #createProvider: CodeAgentProviderFactory;
   readonly #runtimes = new Map<string, AgentRuntime>();
   readonly #restartConfigs = new Map<string, AgentRestartConfig>();
   readonly #states = new Map<string, AgentStateMachine>();
   readonly #stopping = new Set<string>();
 
-  constructor(createDriver: AgentDriverFactory) {
-    this.#createDriver = createDriver;
+  constructor(createProvider: CodeAgentProviderFactory) {
+    this.#createProvider = createProvider;
   }
 
   get size(): number {
@@ -56,7 +57,7 @@ export class AgentProcessManager {
     await mkdir(agentWorkspaceDirectory, { recursive: true, mode: 0o700 });
     let session: AgentSession;
     try {
-      session = await this.#createDriver(config.provider).createAgentSession({
+      session = await this.#createProvider(config.provider).createAgentSession({
         agentId,
         ...(runtimeId ? { runtimeId } : {}),
         agentWorkspaceDirectory,

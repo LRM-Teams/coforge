@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ClaudeCodeDriver } from "../src/code-agent/claude-code/driver";
+import { ClaudeCodeProvider } from "../src/code-agent/claude-code/driver";
 import { AGENT_RUNTIME_EVENT_TYPE, type AgentRuntimeEvent } from "../src/code-agent/contract";
 
 const TEST_AGENT_INSTRUCTIONS = "Test Agent instructions.";
@@ -86,7 +86,7 @@ test.each([
 });
 
 test("Claude forwards cloud-selected persistent resume while retaining approved permissions", async () => {
-  const driver = new ClaudeCodeDriver({
+  const driver = new ClaudeCodeProvider({
     command: [
       process.execPath,
       new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,
@@ -248,7 +248,7 @@ for (const [mode, sessionId] of [
 
 test("Claude Code initializes before the first prompt without waiting for turn metadata", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-code-"));
-  const adapter = new ClaudeCodeDriver({
+  const adapter = new ClaudeCodeProvider({
     command: [
       process.execPath,
       new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,
@@ -329,7 +329,7 @@ test("Claude Code retains concurrent notices while initial session metadata is p
 
 test("Claude Code rejects concurrent first notifications after process exit", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-input-exit-"));
-  const session = await new ClaudeCodeDriver({
+  const session = await new ClaudeCodeProvider({
     command: [
       process.execPath,
       new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,
@@ -353,7 +353,7 @@ test("Claude Code rejects a failed initialization handshake", async () => {
   const agentWorkspaceDirectory = await mkdtemp(join(tmpdir(), "coforge-claude-init-rejected-"));
   try {
     await expect(
-      new ClaudeCodeDriver({
+      new ClaudeCodeProvider({
         command: [
           process.execPath,
           new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,
@@ -384,7 +384,7 @@ test("Claude Code starts the user's installed CLI from PATH in streaming mode", 
   const argumentsFile = join(directory, "claude-arguments");
 
   try {
-    const session = await new ClaudeCodeDriver().createAgentSession({
+    const session = await new ClaudeCodeProvider().createAgentSession({
       agentWorkspaceDirectory,
       instructions: TEST_AGENT_INSTRUCTIONS,
       runtime: {
@@ -574,7 +574,7 @@ test("Claude Code resolves a busy notification at the tool boundary without a re
 });
 
 test("Claude Code rejects interrupt when the CLI exits after SIGINT", async () => {
-  const adapter = new ClaudeCodeDriver({
+  const adapter = new ClaudeCodeProvider({
     command: [
       process.execPath,
       new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,
@@ -595,7 +595,7 @@ test("Claude Code rejects interrupt when the CLI exits after SIGINT", async () =
 });
 
 test("Claude Code startup fails when its CLI does not complete initialization", async () => {
-  const adapter = new ClaudeCodeDriver({
+  const adapter = new ClaudeCodeProvider({
     command: [process.execPath, new URL("./fixtures/invalid-jsonl.ts", import.meta.url).pathname],
   });
 
@@ -1024,8 +1024,8 @@ async function controlledClaude(
   };
 }
 
-function fixtureAdapter(...args: string[]): ClaudeCodeDriver {
-  return new ClaudeCodeDriver({
+function fixtureAdapter(...args: string[]): ClaudeCodeProvider {
+  return new ClaudeCodeProvider({
     command: [
       process.execPath,
       new URL("./fixtures/claude-stream-json.ts", import.meta.url).pathname,

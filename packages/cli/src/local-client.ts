@@ -26,6 +26,7 @@ export function connectLocal(
     options?: {
       sendDraft?: boolean;
       continueAnyway?: boolean;
+      freshnessContextMode?: "withheld";
       before?: string;
       after?: string;
       around?: string;
@@ -53,6 +54,10 @@ export function connectLocal(
       throw new Error("agent proxy request failed (network or timeout)");
     }
     if (!response.ok) {
+      if (options?.freshnessContextMode === "withheld")
+        throw new Error(
+          `reviewer-isolation message request failed (${response.status}); upstream detail withheld`,
+        );
       const detail = response.status === 400 ? await response.text() : undefined;
       if (detail && SAFE_AGENT_PROXY_VALIDATION_ERRORS.has(detail)) throw new Error(detail);
       throw new Error(`agent proxy request failed (${response.status})`);
@@ -77,7 +82,11 @@ export function connectLocal(
     send: (
       target: string,
       body?: string,
-      options?: { sendDraft?: boolean; continueAnyway?: boolean },
+      options?: {
+        sendDraft?: boolean;
+        continueAnyway?: boolean;
+        freshnessContextMode?: "withheld";
+      },
     ) => call("send", target, body, options),
     task: (command: TaskCommand) => callTask(command),
     view: async (attachmentId: string) => {
@@ -153,8 +162,13 @@ export function connectLocal(
       body: JSON.stringify(command),
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok)
+    if (!response.ok) {
+      if (command.freshnessContextMode === "withheld")
+        throw new Error(
+          `reviewer-isolation Task request failed (${response.status}); upstream detail withheld`,
+        );
       throw new Error(`agent Task request failed (${response.status}): ${await response.text()}`);
+    }
     return (await response.json()) as TaskResult;
   }
 }

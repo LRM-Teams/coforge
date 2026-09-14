@@ -33,7 +33,7 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
     const recipients = await this.db.conversationMember.findMany({
       where: {
         conversationId: message.conversationId,
-        id: { not: message.senderMemberId },
+        ...(message.senderMemberId ? { id: { not: message.senderMemberId } } : {}),
         userId: { not: null },
         ...(channelName
           ? {
@@ -58,7 +58,9 @@ export class PrismaWebPushSubscriptionStore implements WebPushSubscriptionStore 
         },
       },
     });
-    const sender = `@${message.sender.agent?.name ?? message.sender.user?.username ?? "unknown"}`;
+    const sender = message.sender
+      ? `@${message.sender.agent?.name ?? message.sender.user?.username ?? "unknown"}`
+      : "System";
     const agentId = message.conversation.members[0]?.agentId;
     if (!channelName && !agentId) return null;
     const preview =
