@@ -5,6 +5,32 @@ test failures, or reviewing test changes. Apply the sections relevant to the tas
 It supplements the existing `tdd` workflow; it does not require unrelated tasks
 to add tests or run stress checks.
 
+## UI verification policy
+
+> 禁止 UI 单元测试，列出本次改动受影响的 UI 并给出测试 Todo list，我自行验证。
+
+本次删除 UI 单元测试后，受影响的 UI 范围包括：
+
+- Agent：成员列表、详情 Profile/Activity/Reminders、运行时配置、环境变量、Skills、控制操作、状态与 Activity avatar。
+- Computer：列表与详情、运行时 Usage、安装命令、身份展示、重启反馈。
+- Conversation：频道与私聊、消息历史、线程、Realtime 状态、导航与侧栏。
+- Records：记录布局、周报设置、模板父子页面、代码块与表格编辑器。
+- Tasks：Board/List、任务概览、状态拖拽与创建流程。
+- Settings/Auth：AppShell、Preferences、Login、Workspace switcher、错误页。
+- Landing 与基础 UI：Landing page、Toast、ComboBox、Tooltip/Dialog，以及 UI lint/sweep 辅助行为。
+
+### Manual verification Todo list
+
+- [ ] 启动 Web 应用并准备可用的开发 seed 数据。
+- [ ] 在桌面与移动 viewport 分别验证上述页面；至少覆盖 light 与 dark 主题。
+- [ ] 运行 `bun run ui:sweep`，检查各页面无明显溢出、遮挡、空白或响应式布局问题。
+- [ ] 手工验证菜单、Dialog、Tooltip、键盘导航、Escape 关闭、触摸操作与滚动位置。
+- [ ] 手工验证频道/私聊消息发送、线程切换、历史加载、Realtime 状态与错误恢复。
+- [ ] 手工验证 Agent/Computer 控制、运行时配置、Usage、安装命令与重启反馈。
+- [ ] 手工验证 Records 编辑器、周报模板、Tasks Board/List、任务创建与状态变更。
+- [ ] 手工验证设置保存、主题/语言/时区、Workspace 切换、登录与错误状态。
+- [ ] 记录每个 Todo 的验证结果、浏览器/viewport、主题和发现的问题；不新增 UI 单元测试。
+
 ## General principles
 
 - Test observable behavior through the owning module's public contract rather than private implementation details.

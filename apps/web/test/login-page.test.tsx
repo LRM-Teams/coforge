@@ -25,5 +25,5 @@ test("renders the Simplified Chinese login catalog", () => {
   overwriteGetLocale(() => "en");
 
   expect(markup).toContain("登录 CoForge");
-  expect(markup).toContain("继续");
+  expect(markup).toContain(">继续</span>");
 });
