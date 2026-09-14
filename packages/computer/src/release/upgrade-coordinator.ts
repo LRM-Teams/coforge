@@ -173,7 +173,7 @@ export async function runUpgradeCoordinator(args: string[]): Promise<void> {
   const request = JSON.parse(await readFile(requestPath, "utf8")) as CoordinatorRequest;
   let result: UpgradeResult;
   try {
-    result = await coordinateUpgrade(request, (stage) => console.error(`==> ${stage}`));
+    result = await coordinateUpgrade(request, (stage) => console.log(`==> ${stage}`));
   } catch (error) {
     result =
       error instanceof UpgradeCoordinatorError
