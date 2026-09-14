@@ -295,6 +295,54 @@ describe("CentrifugoRpcHandler", () => {
     });
   });
 
+  test("accepts all supported Provider catalogs without a model-count cap and rejects duplicates", async () => {
+    const updates: unknown[] = [];
+    const method = createDaemonRuntimeCodeAgentsUpdateMethod({
+      replace: async (_scope, _runtimes, catalogs) => updates.push(catalogs),
+    });
+    const request = {
+      protocolMajor: 1,
+      requestId: "inventory-many",
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      runtimes: [],
+      catalogs: [
+        { provider: "coforge", models: [] },
+        {
+          provider: "pi",
+          models: Array.from({ length: 401 }, (_, index) => ({
+            id: `model-${index}`,
+            displayName: `Model ${index}`,
+            description: "",
+            modelProvider: "openrouter",
+            defaultReasoning: "",
+            reasoningEfforts: [],
+            recommended: false,
+          })),
+        },
+        { provider: "codex", models: [] },
+        { provider: "claude-code", models: [] },
+        { provider: "kiro", models: [] },
+      ],
+    } satisfies Parameters<typeof encodeDaemonRuntimeCodeAgentsUpdateRequest>[0];
+    expect(
+      await method(encodeDaemonRuntimeCodeAgentsUpdateRequest(request), {
+        principal: principal(),
+      }),
+    ).toBeInstanceOf(Uint8Array);
+    expect(updates).toEqual([request.catalogs]);
+    expect(
+      await method(
+        encodeDaemonRuntimeCodeAgentsUpdateRequest({
+          ...request,
+          catalogs: [request.catalogs[0]!, request.catalogs[0]!],
+        }),
+        { principal: principal() },
+      ),
+    ).toEqual({ code: 400, message: "invalid Code Agent inventory" });
+    expect(updates).toHaveLength(1);
+  });
+
   test("starts every existing Workspace Agent after the exact Computer reports ready", async () => {
     const recovered: unknown[][] = [];
     const observed: unknown[] = [];
@@ -437,6 +485,65 @@ describe("CentrifugoRpcHandler", () => {
         snapshot,
       },
     ]);
+  });
+
+  test("preserves numeric credits and rejects invalid credit amounts at the usage boundary", async () => {
+    const records: unknown[] = [];
+    const method = createDaemonRuntimeUsageScanResultMethod({
+      async put(record) {
+        records.push(record);
+      },
+      async get() {
+        return undefined;
+      },
+    });
+    const send = (creditUsage: unknown, includePrimary = true) =>
+      method(
+        encodeDaemonRuntimeUsageScanResponse({
+          protocolMajor: 1,
+          requestId: "usage-credits",
+          workspaceId: "workspace-1",
+          computerId: "computer-1",
+          provider: "kiro",
+          accepted: true,
+          status: "available",
+          snapshotJson: new TextEncoder().encode(
+            JSON.stringify({
+              provider: "kiro",
+              creditUsage,
+              ...(includePrimary
+                ? {
+                    primary: {
+                      usedPercent: 2.55,
+                      windowDurationMinutes: 43200,
+                      resetsAt: "2026-10-01T00:00:00.000Z",
+                    },
+                  }
+                : {}),
+            }),
+          ),
+        }),
+        { principal: principal() },
+      );
+    expect(await send({ used: 12.75, limit: 500, overage: 1.25 })).toBeInstanceOf(Uint8Array);
+    expect(records).toMatchObject([
+      { snapshot: { creditUsage: { used: 12.75, limit: 500, overage: 1.25 } } },
+    ]);
+    expect(await send({ used: 12.75, limit: 500, overage: 1.25 }, false)).toEqual({
+      code: 400,
+      message: "invalid usage scan result",
+    });
+    for (const creditUsage of [
+      null,
+      {},
+      { used: -1, limit: 500, overage: 0 },
+      { used: 501, limit: 500, overage: 0 },
+      { used: 0, limit: 0, overage: 0 },
+      { used: 0, limit: 500, overage: "1" },
+    ]) {
+      expect(await send(creditUsage)).toEqual({ code: 400, message: "invalid usage scan result" });
+    }
+    expect(records).toHaveLength(1);
   });
 
   test("rejects an invalid Daemon usage snapshot", async () => {

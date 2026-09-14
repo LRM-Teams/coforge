@@ -711,12 +711,29 @@ function decodeUsageSnapshot(
       ? { hasCredits: credits.hasCredits, unlimited: credits.unlimited }
       : undefined;
   if (snapshot.credits !== undefined && !parsedCredits) return undefined;
+  const amounts = record(snapshot.creditUsage);
+  const creditUsage =
+    amounts &&
+    typeof amounts.used === "number" &&
+    Number.isFinite(amounts.used) &&
+    amounts.used >= 0 &&
+    typeof amounts.limit === "number" &&
+    Number.isFinite(amounts.limit) &&
+    amounts.limit > 0 &&
+    amounts.used <= amounts.limit &&
+    typeof amounts.overage === "number" &&
+    Number.isFinite(amounts.overage) &&
+    amounts.overage >= 0
+      ? { used: amounts.used, limit: amounts.limit, overage: amounts.overage }
+      : undefined;
+  if (snapshot.creditUsage !== undefined && (!creditUsage || !primary)) return undefined;
   return {
     provider: expectedProvider,
     ...(typeof planType === "string" ? { planType } : {}),
     ...(primary ? { primary } : {}),
     ...(secondary ? { secondary } : {}),
     ...(parsedCredits ? { credits: parsedCredits } : {}),
+    ...(creditUsage ? { creditUsage } : {}),
   };
 }
 
@@ -766,25 +783,19 @@ function usageStatus(
 }
 
 function validModelCatalogs(catalogs: CodeAgentModelCatalog[]): boolean {
-  if (
-    catalogs.length > 3 ||
-    new Set(catalogs.map((catalog) => catalog.provider)).size !== catalogs.length
-  )
-    return false;
-  return catalogs.every(
-    (catalog) =>
-      catalog.models.length <= 200 &&
-      catalog.models.every(
-        (model) =>
-          model.id.length > 0 &&
-          model.id.length <= 200 &&
-          model.displayName.length <= 200 &&
-          model.description.length <= 2_000 &&
-          model.modelProvider.length <= 100 &&
-          model.defaultReasoning.length <= 100 &&
-          model.reasoningEfforts.length <= 20 &&
-          model.reasoningEfforts.every((effort) => effort.length > 0 && effort.length <= 100),
-      ),
+  if (new Set(catalogs.map((catalog) => catalog.provider)).size !== catalogs.length) return false;
+  return catalogs.every((catalog) =>
+    catalog.models.every(
+      (model) =>
+        model.id.length > 0 &&
+        model.id.length <= 200 &&
+        model.displayName.length <= 200 &&
+        model.description.length <= 2_000 &&
+        model.modelProvider.length <= 100 &&
+        model.defaultReasoning.length <= 100 &&
+        model.reasoningEfforts.length <= 20 &&
+        model.reasoningEfforts.every((effort) => effort.length > 0 && effort.length <= 100),
+    ),
   );
 }
 

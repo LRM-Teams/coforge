@@ -3,6 +3,77 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+test("refreshes a selected Pi provider after installing its session API key", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "coforge-agent-model-refresh-"));
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(request) {
+      const provider = new URL(request.url).pathname.split("/").at(-1);
+      if (provider !== "anthropic") return new Response(null, { status: 404 });
+      return Response.json(
+        [
+          {
+            id: "remote-regression-model",
+            name: "Remote Regression Model",
+            api: "anthropic-messages",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 100_000,
+            maxTokens: 8_192,
+          },
+        ],
+        { headers: { "last-modified": "Fri, 01 Jan 2099 00:00:00 GMT" } },
+      );
+    },
+  });
+  await Bun.write(
+    join(workspace, "catalog-preload.ts"),
+    `const nativeFetch = globalThis.fetch;
+globalThis.fetch = (input, init) => {
+  const url = new URL(input instanceof Request ? input.url : input.toString());
+  if (url.hostname === "pi.dev") {
+    url.protocol = "http:";
+    url.hostname = "127.0.0.1";
+    url.port = ${JSON.stringify(String(server.port))};
+  }
+  return nativeFetch(url, init);
+};
+`,
+  );
+  await Bun.write(
+    join(workspace, "session.ts"),
+    `import { createSession } from ${JSON.stringify(new URL("../src/runner.ts", import.meta.url).pathname)};
+const created = await createSession({
+  cwd: ${JSON.stringify(workspace)},
+  agentDir: ${JSON.stringify(join(workspace, ".pi", "agent"))},
+  sessionDir: ${JSON.stringify(join(workspace, ".pi-sessions"))},
+  sessionKind: "pi",
+  modelProvider: "anthropic",
+  model: "remote-regression-model",
+  apiKey: "managed-session-key",
+  instructions: "Test only.",
+  environment: { HOME: ${JSON.stringify(workspace)}, PATH: ${JSON.stringify(process.env.PATH ?? "")} },
+});
+await created.dispose();
+`,
+  );
+  try {
+    const child = Bun.spawn({
+      cmd: [process.execPath, "--preload", join(workspace, "catalog-preload.ts"), "session.ts"],
+      cwd: workspace,
+      env: { HOME: workspace, PATH: process.env.PATH ?? "" },
+      stderr: "pipe",
+    });
+    const stderr = await new Response(child.stderr).text();
+    expect(await child.exited, stderr).toBe(0);
+  } finally {
+    server.stop(true);
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test("loads workspace skills before accepting RPC commands", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "coforge-agent-"));
   const skillDirectory = join(workspace, ".pi", "skills", "startup-proof");
