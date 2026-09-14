@@ -700,7 +700,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   }
 
   #activityChannel(workspaceId: string): string {
-    return `activity:${workspaceId}`;
+    return `agent:activity:${workspaceId}`;
   }
 
   #handleAgentPublication(data: Uint8Array, config: DaemonConnectionConfig): void {

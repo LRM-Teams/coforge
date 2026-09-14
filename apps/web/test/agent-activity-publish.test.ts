@@ -31,7 +31,7 @@ const request = (overrides: Record<string, unknown> = {}, secret = "test-secret"
     },
     body: JSON.stringify({
       user: "user-1",
-      channel: "activity:workspace-1",
+      channel: "agent:activity:workspace-1",
       b64data: encodedActivity(),
       meta: { workspace_id: "workspace-1", computer_id: "computer-1" },
       ...overrides,

@@ -43,6 +43,16 @@ export function useLiveAgents() {
   return useContext(LiveAgentsContext);
 }
 
+/** Shared Workspace Agent display, for pages outside the conversation UI. */
+export function useWorkspaceAgent(agentId: string) {
+  return useContext(LiveAgentsContext).find((agent) => agent.id === agentId);
+}
+
+/** Shared Workspace Activity, for pages outside the conversation UI. */
+export function useWorkspaceAgentActivity(agentId: string) {
+  return activityForAgent(useContext(ConversationActivityContext), agentId);
+}
+
 /** One Agent's live status, for the conversation page currently open on it. */
 export function useConversationAgentStatus(agentId: string) {
   const agents = useContext(LiveAgentsContext);

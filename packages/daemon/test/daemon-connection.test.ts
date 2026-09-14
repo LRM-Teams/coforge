@@ -142,7 +142,7 @@ test("publishes Agent activity best effort on its restricted channel", async () 
   await Promise.resolve();
 
   expect(publications).toHaveLength(1);
-  expect(publications[0]?.channel).toBe(`activity:${config.workspaceId}`);
+  expect(publications[0]?.channel).toBe(`agent:activity:${config.workspaceId}`);
   expect(decodeAgentActivity(publications[0]!.data)).toMatchObject(activity);
 });
 

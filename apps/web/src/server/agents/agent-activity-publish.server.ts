@@ -13,6 +13,7 @@ import {
 } from "./agent-display.server";
 import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
 import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
+import { agentActivityChannel } from "../../features/agents/agent-activity-realtime";
 import type { AgentActivityKind } from "@coforge/protocol/agent-display";
 
 type AgentActivityPublicationDependencies = {
@@ -70,7 +71,7 @@ export async function handleAgentActivityPublication(
       typeof workspaceId !== "string" ||
       typeof computerId !== "string" ||
       typeof body.b64data !== "string" ||
-      body.channel !== `activity:${workspaceId}`
+      body.channel !== agentActivityChannel(workspaceId)
     )
       return unauthorized();
 

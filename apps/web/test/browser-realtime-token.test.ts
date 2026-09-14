@@ -30,7 +30,7 @@ test("connection token includes only the selected Workspace status channel", asy
   });
 
   expect(payload.sub).toBe("user-1");
-  expect(payload.channels).toEqual(["status:workspace-1"]);
+  expect(payload.channels).toEqual(["agent:status:workspace-1"]);
   expect(payload.channel).toBeUndefined();
 });
 

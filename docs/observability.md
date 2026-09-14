@@ -53,7 +53,7 @@ Daemon 持有可运行配置并能接受消息，不要求 Agent runtime process
 Backend 每次接受状态上报后都通过 Workspace 授权的 Centrifugo status channel 向浏览器
 发布状态和租约截止时间。页面首次加载及 WSS 重连读取 Redis 快照，平时不轮询 backend；
 若续租事件停止，页面在截止时间本地显示为离线。
-`agent:status` 与 `agent:activity` 是两个独立的上报通道（两类消息），都通过 daemon 的 WSS 发送。Activity 使用专用的 `activity:<workspace_id>` namespace 做 best-effort publication；服务端和
+`agent:status` 与 `agent:activity` 是两个独立的上报通道（两类消息），都通过 daemon 的 WSS 发送。Activity 使用专用的 `agent:activity:<workspace_id>` namespace 做 best-effort publication；服务端和
 前端不得从某个错误字符串推导第三种状态，也不得在每个 activity 上重复发送 status。
 
 Agent runtime 的生命周期明细和诊断通过 `agent:activity` 上报，而不是扩展状态。为使

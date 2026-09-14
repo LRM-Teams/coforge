@@ -613,7 +613,7 @@ Workspace connection，迁移必须 fail closed 并停止；不得猜测、复�
 全局库存当作 scoped catalog。迁移成功后所有 runtime 与 model catalog 读写都使用该复合 scope。
 
 浏览器先加载最近 100 条 Activity 历史，再以当前 Workspace 成员专属 token 订阅
-`activity:<workspace_id>` 的 protobuf 连接；与 display snapshot/realtime 共用既有 browser
+`agent:activity:<workspace_id>` 的 protobuf 连接；与 display snapshot/realtime 共用既有 browser
 server connection，但 channel 与数据契约分离。浏览器只按 revision 接受 backend snapshot，
 不自行重放 reduction 规则；到 `expiresAt` 时刷新 backend，并在失败后保留最后 snapshot 且重试。
 首次 snapshot 不可用且没有旧值时显示 `unknown`，不能猜测 offline。

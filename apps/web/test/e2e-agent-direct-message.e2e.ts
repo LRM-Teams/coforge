@@ -561,7 +561,7 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
         },
         body: JSON.stringify({
           user: registration.computerId,
-          channel: `activity:${workspaceId}`,
+          channel: `agent:activity:${workspaceId}`,
           b64data: bytesToBase64(errorActivity),
           meta: {
             workspace_id: workspaceId,
