@@ -34,7 +34,7 @@
    Fonts are self-hosted via @fontsource so the app has no external font requests. */
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/geist"; /* landing page display text only */
-@import "@fontsource-variable/geist-mono"; /* --font-mono */
+@import "@fontsource-variable/jetbrains-mono"; /* --font-mono */
 
 @theme {
   --font-body:
@@ -45,7 +45,7 @@
     "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans", Arial, sans-serif, "Apple Color Emoji",
     "Segoe UI Emoji", "Noto Color Emoji";
-  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
   /* Landing page keeps its own Geist display family; Inter has no CJK glyphs either way. */
   --font-landing-display: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
 }
