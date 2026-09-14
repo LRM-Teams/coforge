@@ -84,7 +84,8 @@ export class AgentMessageAttentionIndex {
       return;
     }
     const latestSender =
-      message.latestSender?.startsWith("@") && message.latestSender.length > 1
+      message.latestSender === "system" ||
+      (message.latestSender?.startsWith("@") && message.latestSender.length > 1)
         ? message.latestSender
         : undefined;
     const byTarget = this.#attention.get(message.agentId) ?? new Map<string, MessageAttention>();

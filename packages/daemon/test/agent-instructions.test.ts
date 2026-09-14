@@ -58,13 +58,16 @@ test("channels allow selective replies and self mute without hiding history", ()
 });
 
 test("Tasks require claim-before-work and conversational human acceptance", () => {
-  expect(instructions).toContain("coforge task list --target <target>");
+  expect(instructions).toContain("**Decision rule:**");
   expect(instructions).toContain("Task commands use the parent target");
   expect(instructions).toContain("claim its root Message, not the reply Message");
-  expect(instructions).toContain("If claiming fails, do not perform conflicting work.");
-  expect(instructions).toContain("original Task Thread");
-  expect(instructions).toContain("only after a human clearly accepts the result");
-  expect(instructions).toContain("not an automatic approval detector");
-  expect(instructions).toContain("Do not turn ordinary conversation into Tasks.");
-  expect(instructions).not.toContain("assign --");
+  expect(instructions).toContain("If the claim fails, do not start conflicting execution");
+  expect(instructions).toContain("When done, set status to `in_review`");
+  expect(instructions).toContain("After approval, set status to `done`");
+  expect(instructions).toContain("**Claim** is rejected on both terminal statuses");
+  expect(instructions).toContain("**What `coforge task create` really means:**");
+  expect(instructions).toContain("Before calling `coforge task create`");
+  expect(instructions).not.toContain("Task updates use revisions");
+  expect(instructions).not.toContain("COFORGE_REVIEWER_ISOLATION");
+  expect(instructions).not.toContain("coforge task receipt");
 });

@@ -28,7 +28,7 @@ import {
   defaultCentrifugeWorkspaceClientFactory,
   startAgentProxy,
 } from "../../../packages/daemon";
-import { createAgentDriver } from "../../../packages/daemon/src/code-agent/registry";
+import { createCodeAgentProvider } from "../../../packages/daemon/src/code-agent/registry";
 
 test("real Kiro v3 reads and replies through Web, Centrifugo and Daemon", async () => {
   const databaseUrl = process.env.DATABASE_URL;
@@ -99,7 +99,7 @@ test("real Kiro v3 reads and replies through Web, Centrifugo and Daemon", async 
     runtime = new DaemonRuntime(
       config,
       (provider) => {
-        const driver = createAgentDriver(provider);
+        const driver = createCodeAgentProvider(provider);
         return {
           provider,
           readUsage: driver.readUsage?.bind(driver),

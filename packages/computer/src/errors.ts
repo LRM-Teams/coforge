@@ -62,6 +62,7 @@ export function safeErrorDetail(error: unknown): string {
 }
 
 export const LOGIN_HINTS = {
+  AUTH_LOGIN_EXPIRED: "Run `coforge-computer login` to renew your login, then rerun setup.",
   AUTH_DEVICE_CODE_CANCELLED: "Run `coforge-computer login` again when you are ready to sign in.",
   AUTH_CREDENTIAL_STORE_UNAVAILABLE:
     "Unlock or start your operating system credential service, then rerun login.",

@@ -93,6 +93,7 @@ message AgentRecoveryMessage {
   string conversation_id = 3;
   uint64 sequence = 4;
   string target = 5;
+  // Public @handle, or "system" for a server-authored Message.
   string latest_sender = 6;
   string body = 7;
 }
@@ -121,6 +122,7 @@ message AgentMessageDelivery {
   uint64 sequence = 10;
   // Public target identity; never expose internal agent/user ids to Agents.
   string target = 11;
+  // Public @handle, or "system" for a server-authored Message.
   string latest_sender = 12;
 }
 
@@ -201,21 +203,33 @@ message AgentMessageRequest {
   string sender = 18;
   string sort = 19;
   uint32 offset = 20;
+  string freshness_context_mode = 21;
 }
 message CloudAgentMessageRecord {
   string id = 1;
   uint64 sequence = 2;
+  // Public @handle, or "system" for a server-authored Message.
   string sender = 3;
   string body = 4;
   string created_at = 5;
   string target = 6;
   AttachmentMetadata attachment = 7;
+  MessageTaskMetadata task = 8;
 }
 message AttachmentMetadata {
   string id = 1;
   string file_name = 2;
   string content_type = 3;
   uint64 size_bytes = 4;
+}
+message MessageTaskMetadata {
+  uint32 number = 1;
+  string status = 2;
+  MessageTaskOwner owner = 3;
+}
+message MessageTaskOwner {
+  string display_name = 1;
+  string handle = 2;
 }
 message CloudAgentMessageResponse {
   uint32 protocol_major = 1;
@@ -231,4 +245,6 @@ message CloudAgentMessageResponse {
   bool has_newer = 11;
   string older_cursor = 12;
   string newer_cursor = 13;
+  string freshness_context_mode = 14;
+  optional uint32 withheld_message_count = 15;
 }

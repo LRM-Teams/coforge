@@ -20,9 +20,13 @@ session。
 - 一个 `coforge-daemon` 监督零个或多个 daemon runtime；每个 daemon runtime
   恰好绑定一个逻辑 Workspace，并独立持有一条到 Centrifugo 的 WSS 长连接。
 - Computer/Daemon 发往服务端的业务通信统一使用 CoForge 自定义 RPC；Computer 与
-  Daemon 之间也使用版本化的本地 CoForge RPC。Computer/Daemon 不调用业务 REST
-  endpoint。
-- OAuth Device Authorization、安装包和 release metadata 是明确的 HTTPS 例外。OAuth
+  Daemon 之间也使用版本化的本地 CoForge RPC。Computer setup/attach 的
+  `workspace:get` 与 `computer:register` 分别使用 `POST /api/computer/workspace` 与
+  `POST /api/computer/attach` HTTPS transport，Bearer User token 和 `{ b64data }`
+  内的 Protobuf payload；路由固定操作，不发送 `method`。这两个方法不再通过
+  Centrifugo WSS 暴露，也没有 legacy fallback。
+- OAuth Device Authorization、Computer setup/attach RPC、安装包和 release metadata 是
+  明确的 HTTPS 例外。OAuth
   只建立用户授权上下文，不成为 Daemon 或 Agent 的长期身份。
 - 云端业务 RPC 使用 Centrifugo 官方客户端连接/RPC mechanics，CoForge 只定义业务
   method、权限、幂等、错误和 payload schema；不重新实现 WebSocket framing、心跳或
@@ -86,8 +90,9 @@ Workspace connection 必须 fail closed。
   的低频用户操作不需要长期连接。
 - **Daemon 为所有 Workspace 复用一条业务连接**：降低连接数但破坏 Workspace 权限、
   故障隔离、cursor、replay 和 durable spool 边界。
-- **Computer/Daemon 使用 REST endpoint**：会分散 method、幂等、重连和错误契约，也
-  不适合 Daemon 的双向长期 session。
+- **Daemon 的长期业务控制使用 REST endpoint**：会分散 method、幂等、重连和错误契约，
+  也不适合 Daemon 的双向长期 session。Computer setup/attach 是短时 User 授权操作，
+  因此采用上述窄范围 HTTPS RPC 例外。
 - **自研 WebSocket/RPC framing**：重复 Centrifugo 已提供的成熟 transport mechanics，
   增加维护和安全风险。
 - **JSON 与 Protobuf 双轨**：造成两套字段、默认值、错误和兼容性行为，增加 Code

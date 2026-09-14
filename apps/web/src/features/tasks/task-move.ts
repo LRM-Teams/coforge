@@ -17,17 +17,15 @@ export function getTaskMoveCommand(
 ): TaskMoveCommand | undefined {
   if (!currentMemberId || task.status === nextStatus) return undefined;
 
-  if (task.status === "todo" && !task.owner && nextStatus === "in_progress") {
+  if (
+    task.status === "todo" &&
+    (!task.owner || task.owner.memberId === currentMemberId) &&
+    nextStatus === "in_progress"
+  ) {
     return { operation: "claim", number: task.number };
   }
 
-  const isOwner = task.owner?.memberId === currentMemberId;
-  const allowedForNonOwner =
-    nextStatus === "todo" ||
-    nextStatus === "closed" ||
-    (nextStatus === "done" && task.owner !== null);
-  if (!isOwner && !allowedForNonOwner) return undefined;
-  if (nextStatus !== "todo" && nextStatus !== "closed" && !task.owner) return undefined;
+  if (nextStatus === "done" && !task.owner) return undefined;
 
   return {
     operation: "update",

@@ -3,12 +3,8 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentProcessManager } from "../src/agent-runtime/agent-process-manager";
-import type {
-  AgentDriver,
-  AgentSession,
-  AgentRuntimeConfig,
-  AgentSessionOptions,
-} from "@coforge/agent";
+import type { AgentSession, AgentRuntimeConfig, AgentSessionOptions } from "@coforge/agent";
+import type { CodeAgentProvider } from "../src/code-agent/contract";
 import { AgentProcessCleanupError } from "../src/code-agent/contract";
 
 function sessionSpy() {
@@ -47,7 +43,7 @@ describe("AgentProcessManager", () => {
   test("starts one runtime with its configuration and stops it", async () => {
     const session = sessionSpy();
     let startedOptions: AgentSessionOptions | undefined;
-    const adapter: AgentDriver = {
+    const adapter: CodeAgentProvider = {
       provider: "pi",
       async createAgentSession(options) {
         startedOptions = options;
@@ -162,7 +158,7 @@ describe("AgentProcessManager", () => {
 
   test("starts multiple Agent runtimes for distinct Agents", async () => {
     let starts = 0;
-    const adapter: AgentDriver = {
+    const adapter: CodeAgentProvider = {
       provider: "pi",
       async createAgentSession() {
         starts += 1;

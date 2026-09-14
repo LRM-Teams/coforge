@@ -28,13 +28,12 @@ src/
 ├── connection/                    # Daemon WSS connection and reconnect loop
 ├── protocol/                       # daemon-side protocol ports/codecs
 ├── agent-runtime/                  # Agent state, activity, and process control
-├── code-agent/                     # provider-neutral contract and adapters
+├── code-agent/                     # Provider public seam, Sessions, and provider adapters
 │   ├── codex/
 │   ├── claude-code/
-│   ├── kiro/                      # Kiro v3 ACP, admission, permissions, native profiles/catalog, read-only account quota
 │   ├── pi/
 │   ├── tool-activity.ts            # recognized tool aliases → existing semantic activities; safe input summaries
-│   └── runtime-inventory.ts        # external provider discovery
+│   └── runtime-inventory.ts        # combines Provider runtime/catalog capabilities
 ├── persistence/                    # durable spool and local daemon state
 └── platform/                       # OS primitives, including process-tree, socket, and native process locks
 ```
@@ -60,8 +59,11 @@ configuration and recovery; the entrypoint assembles these policies, not their r
 
 - Agent Task operations use the existing Credential Proxy and authenticated
   HTTPS connection. Task parsing/wire contracts belong to protocol and CLI;
-  the Daemon forwards them without storing Task state or interpreting claims,
-  status transitions or human approval. `code-agent/agent-instructions.ts`
+  the Daemon applies the existing attention/model-visible preflight to claim and
+  status update, then forwards without storing Task state or interpreting claims,
+  status transitions or human approval. Reviewer-isolation holds expose counts
+  only. Amend is not a local preflight action in the reference CDN 1.0.31 client.
+  `code-agent/agent-instructions.ts`
   states the claim-before-work and conversational acceptance workflow.
 
 - `daemon-runtime/agent-message-attention-index.ts` owns full-target thread
@@ -141,8 +143,12 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   replays deletion after that request has completed clearing. `persistence/`
   owns atomic records and guarded workspace clearing. This is not a jobs queue,
   Message outbox, or provider parser.
-- `code-agent/` adapts provider runtimes into the provider-neutral
-  contract. Higher layers must consume normalized status and activity messages and
+- `code-agent/` exposes `CodeAgentProvider` as the sole public runtime seam.
+  A Provider creates one-session `AgentSession` instances and owns its runtime
+  discovery, model catalog, and usage capabilities; it may compose those
+  capabilities from provider-internal modules. The registry returns Providers,
+  never lifecycle wrappers or forwarding adapters. Higher layers must consume
+  normalized status and activity messages and
   must not parse Claude, Codex, or Pi output. `codex/driver.ts` owns retry
   classification: structured `willRetry: true` notifications remain internal
   diagnostics, while numbered stderr reconnect lines become informational
@@ -157,7 +163,7 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   into each provider's native startup configuration. Claude Code model
   inventory must not launch the CLI to infer a dynamic catalog because its
   machine-readable initialization does not provide a dependable list.
-  Pi's driver embeds the bundled Pi SDK and retains the user's Pi models, settings,
+  Pi's Provider embeds the bundled Pi SDK and retains the user's Pi models, settings,
   packages, extensions, skills, and authentication. An explicit Agent key overrides
   host authentication only in that session's in-memory model runtime; it is never
   written or passed in process arguments. Session files remain in the Agent's
@@ -170,7 +176,7 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   skills, or changes the established runtime environment composition.
 - Keep the standing CoForge Agent instructions in one provider-neutral source.
   `AgentProcessManager` builds them once per session and supplies them through
-  the required `AgentSessionOptions.instructions` field. Every code-agent driver
+  the required `AgentSessionOptions.instructions` field. Every code-agent Provider
   must inject the supplied instructions through
   the provider's native system/developer-instruction mechanism: Codex uses
   app-server `developerInstructions`, Claude Code uses its system-prompt-file

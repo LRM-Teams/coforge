@@ -49,7 +49,7 @@ describe("external Code Agent inventory", () => {
       const inventory = await discoverCodeAgentInventory({
         probe: probeFor({}),
         cwd: home,
-        environment: { HOME: home, PATH: "" },
+        environment: { HOME: home, PATH: "", PI_OFFLINE: "1" },
       });
       expect(inventory.runtimes).toContainEqual({
         provider: "pi",
@@ -266,6 +266,7 @@ describe("external Code Agent inventory", () => {
       commands: {
         codex: fixture("codex-app-server.ts"),
       },
+      environment: { HOME: "/fixture/home", PATH: "", PI_OFFLINE: "1" },
     });
 
     expect(inventory.runtimes[0]).toEqual({

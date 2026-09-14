@@ -11,7 +11,7 @@ import { readOperatingSystem } from "../platform/operating-system";
 import { ActivityTrajectory } from "../agent-runtime/activity-trajectory";
 import {
   AgentProcessManager,
-  type AgentDriverFactory,
+  type CodeAgentProviderFactory,
   type AgentRuntime,
 } from "../agent-runtime/agent-process-manager";
 export type DaemonConfig = {
@@ -106,7 +106,7 @@ export function generateRuntimeInstanceId(): string {
 /** A daemon-owned resident runtime for one supervised Workspace. */
 export class DaemonRuntime {
   readonly #connection: DaemonConfig;
-  readonly #createDriver: AgentDriverFactory;
+  readonly #createProvider: CodeAgentProviderFactory;
   readonly #agentProcessManager: AgentProcessManager;
   readonly #credentials: DaemonCredentialStore;
   readonly #transportFactory: DaemonConnectionClientFactory;
@@ -157,7 +157,7 @@ export class DaemonRuntime {
   >();
   readonly #agentStatusSequences = new Map<string, number>();
   readonly #pendingAgentApiKeyRevokes = new Set<string>();
-  readonly #observedUsage = new Map<CodeAgentProvider, UsageSnapshot>();
+  readonly #observedUsage = new Map<RuntimeProvider, UsageSnapshot>();
   readonly #agentProxy?: {
     url: string;
     issue(agentId: string, agentApiKey: string): string;
@@ -166,7 +166,7 @@ export class DaemonRuntime {
 
   constructor(
     connection: DaemonConfig,
-    createDriver: AgentDriverFactory,
+    createProvider: CodeAgentProviderFactory,
     credentials: DaemonCredentialStore,
     transportFactory: DaemonConnectionClientFactory,
     agentProxy?: {
@@ -183,8 +183,8 @@ export class DaemonRuntime {
     private readonly computerVersion?: string,
   ) {
     this.#connection = connection;
-    this.#createDriver = createDriver;
-    this.#agentProcessManager = new AgentProcessManager(createDriver);
+    this.#createProvider = createProvider;
+    this.#agentProcessManager = new AgentProcessManager(createProvider);
     this.#credentials = credentials;
     this.#transportFactory = transportFactory;
     this.#agentProxy = agentProxy;
@@ -313,11 +313,11 @@ export class DaemonRuntime {
         status: "unsupported",
         message: "Pi usage scanning is unsupported",
       };
-    const driver = this.#createDriver(provider);
-    if (!driver.readUsage)
+    const codeAgentProvider = this.#createProvider(provider);
+    if (!codeAgentProvider.readUsage)
       return { protocolMajor, requestId: "", accepted: false, status: "unsupported" };
     try {
-      const directlyReadSnapshot = await driver.readUsage({
+      const directlyReadSnapshot = await codeAgentProvider.readUsage({
         workingDirectory: this.#connection.workspaceRoot,
         timeoutMs: 10_000,
       });
@@ -1119,7 +1119,7 @@ export class DaemonRuntime {
     });
   }
 
-  #currentObservedUsage(provider: CodeAgentProvider): UsageSnapshot | undefined {
+  #currentObservedUsage(provider: RuntimeProvider): UsageSnapshot | undefined {
     const snapshot = this.#observedUsage.get(provider);
     if (!snapshot) return undefined;
     const now = Date.now();
@@ -1489,6 +1489,7 @@ export class DaemonRuntime {
           holdToken: draft?.holdToken,
           continueAnyway: request.continueAnyway,
           seenUpToSequence: this.#messageAttention.modelSeenSequence(agentId, target) || undefined,
+          freshnessContextMode: request.freshnessContextMode,
         },
         agentApiKey,
       );
@@ -1496,7 +1497,7 @@ export class DaemonRuntime {
         await inbox.replace(target, body, result.holdToken);
       else if (result.accepted) await inbox.clear(target);
       const targetMessages = result.messages.filter((message) => message.target === target);
-      if (targetMessages.length > 0) {
+      if (request.freshnessContextMode !== "withheld" && targetMessages.length > 0) {
         this.#messageAttention.recordModelSeen(
           agentId,
           target,
@@ -1533,7 +1534,7 @@ export class DaemonRuntime {
         accepted: result.accepted,
         attentionCount: result.attentionCount,
         messageId: result.messageId ?? "",
-        messages: result.messages,
+        messages: request.freshnessContextMode === "withheld" ? [] : result.messages,
         summaries: [],
         sideEffectDecision:
           result.sideEffectDecision === "anyway_accepted"
@@ -1542,6 +1543,11 @@ export class DaemonRuntime {
               ? undefined
               : result.sideEffectDecision,
         anywayAllowed: result.anywayAllowed,
+        freshnessContextMode: result.freshnessContextMode,
+        withheldMessageCount:
+          request.freshnessContextMode === "withheld"
+            ? (result.withheldMessageCount ?? result.attentionCount)
+            : undefined,
       };
     }
     const attentionUpperBound =
@@ -1612,6 +1618,66 @@ export class DaemonRuntime {
     if (!agentId) throw new Error("invalid agent local context");
     if (!this.#transport.agentTask) throw new Error("daemon connection is not connected");
     if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    const freshnessAction = command.operation === "claim" || command.operation === "update";
+    if (freshnessAction && command.target) {
+      const attention = this.#messageAttention
+        .check(agentId)
+        .find((item) => item.target === command.target);
+      if (command.freshnessContextMode === "withheld" && attention)
+        return {
+          tasks: [],
+          state: "held",
+          freshnessContextMode: "withheld",
+          withheldMessageCount: attention.pendingCount,
+        };
+
+      const modelSeen = this.#messageAttention.modelSeenSequence(agentId, command.target);
+      if (command.freshnessContextMode !== "withheld" && (attention || modelSeen === 0)) {
+        const context = await this.#transport.agentMessage?.(
+          {
+            protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+            requestId: crypto.randomUUID(),
+            agentId,
+            workspaceId: this.#connection.workspaceId,
+            operation: "read",
+            target: command.target,
+            limit: 3,
+            ...(attention
+              ? {
+                  fromSequence: attention.firstPendingSequence,
+                  throughSequence: attention.latestSequence,
+                }
+              : {}),
+          },
+          agentApiKey,
+        );
+        const heldMessages = (context?.accepted ? context.messages : [])
+          .filter((message) => message.target === command.target && message.sequence > modelSeen)
+          .slice(-3);
+        if (heldMessages.length > 0) {
+          this.#messageAttention.recordModelSeen(
+            agentId,
+            command.target,
+            Math.max(...heldMessages.map(({ sequence }) => sequence)),
+          );
+          return {
+            tasks: [],
+            state: "held",
+            freshnessContextMode: "inline",
+            heldMessages,
+            newMessageCount: attention?.pendingCount ?? heldMessages.length,
+          };
+        }
+        if (attention)
+          return {
+            tasks: [],
+            state: "held",
+            freshnessContextMode: "inline",
+            heldMessages: [],
+            newMessageCount: attention.pendingCount,
+          };
+      }
+    }
     const result = await this.#transport.agentTask(
       {
         ...command,
@@ -1621,7 +1687,7 @@ export class DaemonRuntime {
       },
       agentApiKey,
     );
-    return { tasks: result.tasks };
+    return result;
   }
 
   async #canonicalAgentMessageTarget(
@@ -1940,12 +2006,12 @@ function validUsageWindow(window: UsageSnapshot["primary"], now: number): UsageS
 }
 
 export function createDaemonRuntime(input: {
-  createDriver: AgentDriverFactory;
+  createProvider: CodeAgentProviderFactory;
   credentials: DaemonCredentialStore;
   transportFactory: DaemonConnectionClientFactory;
 }): (connection: DaemonConfig) => DaemonRuntime {
   return (connection) =>
-    new DaemonRuntime(connection, input.createDriver, input.credentials, input.transportFactory);
+    new DaemonRuntime(connection, input.createProvider, input.credentials, input.transportFactory);
 }
 
-export type { AgentDriverFactory, AgentRuntime, AgentRuntimeConfig, CodeAgentProvider };
+export type { CodeAgentProviderFactory, AgentRuntime, AgentRuntimeConfig, CodeAgentProvider };

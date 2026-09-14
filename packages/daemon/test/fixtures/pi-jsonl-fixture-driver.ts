@@ -1,10 +1,10 @@
 import type {
-  AgentDriver,
   AgentRuntimeEvent,
   AgentSession,
   AgentSessionIdentity,
   AgentSessionOptions,
 } from "@coforge/agent";
+import type { CodeAgentProvider } from "../../src/code-agent/contract";
 import { prepareAgentSessionDirectory, resolveAgentSessionFile } from "@coforge/agent";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
 import { join } from "node:path";
@@ -13,7 +13,7 @@ import { JsonlProcess } from "../../src/code-agent/jsonl-process";
 import { toolActivity } from "../../src/code-agent/tool-activity";
 
 /** Test-only adapter for deterministic subprocess fixtures that speak Pi's legacy JSONL RPC. */
-export class PiJsonlFixtureDriver implements AgentDriver {
+export class PiJsonlFixtureDriver implements CodeAgentProvider {
   readonly provider = RUNTIME_PROVIDER.PI;
 
   constructor(private readonly command: readonly string[]) {}

@@ -55,7 +55,7 @@ import {
   USAGE_SCAN_RESPONSE_MESSAGE_TYPE,
 } from "./index";
 import { AGENT_MESSAGE_METHOD, AGENT_MESSAGE_ACK_METHOD } from "./index";
-import { encodeLocalAttachment, decodeLocalAttachment } from "./local-daemon";
+import { decodeLocalAttachment, decodeMessageTask, encodeLocalAttachment } from "./local-daemon";
 import type {
   RuntimeMetadata,
   DaemonRuntimeCodeAgentsUpdateRequest,
@@ -380,7 +380,7 @@ export function decodeAgentStartIntent(bytes: Uint8Array): AgentStartIntent {
     !v.provider
   )
     throw new Error("invalid agent start intent");
-  if (!["coforge", "pi", "codex", "claude-code", "kiro"].includes(v.provider))
+  if (!["coforge", "pi", "codex", "claude-code"].includes(v.provider))
     throw new Error(`unsupported runtime provider: ${v.provider}`);
   if (v.controlEpoch !== undefined)
     assertPositiveControlCounter(v.controlEpoch, "Agent control epoch");
@@ -599,6 +599,12 @@ export function encodeAgentActivity(value: AgentActivity): Uint8Array {
   );
 }
 export function encodeAgentMessageRequest(value: AgentMessageRequest): Uint8Array {
+  if (
+    value.freshnessContextMode !== undefined &&
+    value.freshnessContextMode !== "inline" &&
+    value.freshnessContextMode !== "withheld"
+  )
+    throw new Error("invalid Agent message freshness context mode");
   if (value.fromSequence !== undefined)
     assertUint(value.fromSequence, Number.MAX_SAFE_INTEGER, "Agent message from sequence");
   if (value.throughSequence !== undefined)
@@ -626,6 +632,12 @@ export function encodeAgentMessageRequest(value: AgentMessageRequest): Uint8Arra
 }
 export function decodeAgentMessageRequest(bytes: Uint8Array): AgentMessageRequest {
   const v = fromBinary(AgentMessageRequestSchema, bytes);
+  if (
+    v.freshnessContextMode &&
+    v.freshnessContextMode !== "inline" &&
+    v.freshnessContextMode !== "withheld"
+  )
+    throw new Error("invalid Agent message freshness context mode");
   if (v.seenUpToSequence && v.operation !== "send")
     throw new Error("Agent message seen-up-to sequence is only valid for send");
   if (
@@ -659,24 +671,57 @@ export function decodeAgentMessageRequest(bytes: Uint8Array): AgentMessageReques
     seenUpToSequence: v.seenUpToSequence
       ? safeUint64(v.seenUpToSequence, "Agent message seen-up-to sequence")
       : undefined,
+    freshnessContextMode: (v.freshnessContextMode || undefined) as
+      | "inline"
+      | "withheld"
+      | undefined,
   };
 }
 export function encodeCloudAgentMessageResponse(value: CloudAgentMessageResponse): Uint8Array {
+  const safeValue =
+    value.freshnessContextMode === "withheld"
+      ? {
+          ...value,
+          messages: [],
+          hasOlder: undefined,
+          hasNewer: undefined,
+          olderCursor: undefined,
+          newerCursor: undefined,
+          withheldMessageCount: value.withheldMessageCount ?? value.attentionCount,
+        }
+      : value;
   return toBinary(
     CloudAgentMessageResponseSchema,
     create(CloudAgentMessageResponseSchema, {
-      ...value,
-      messageId: value.messageId ?? "",
-      messages: value.messages.map((m) => ({
+      ...safeValue,
+      messageId: safeValue.messageId ?? "",
+      messages: safeValue.messages.map((m) => ({
         ...m,
         sequence: BigInt(m.sequence),
         attachment: m.attachment ? encodeLocalAttachment(m.attachment) : undefined,
+        task: m.task,
       })),
     }),
   );
 }
 export function decodeCloudAgentMessageResponse(bytes: Uint8Array): CloudAgentMessageResponse {
   const v = fromBinary(CloudAgentMessageResponseSchema, bytes);
+  if (v.freshnessContextMode && !["inline", "withheld"].includes(v.freshnessContextMode))
+    throw new Error("invalid Agent message freshness context mode");
+  if (v.freshnessContextMode === "withheld")
+    return {
+      protocolMajor: v.protocolMajor,
+      requestId: v.requestId,
+      accepted: v.accepted,
+      attentionCount: v.attentionCount,
+      messages: [],
+      ...(v.messageId ? { messageId: v.messageId } : {}),
+      sideEffectDecision: v.sideEffectDecision as CloudAgentMessageResponse["sideEffectDecision"],
+      holdToken: v.holdToken || undefined,
+      anywayAllowed: v.anywayAllowed || undefined,
+      freshnessContextMode: "withheld",
+      withheldMessageCount: v.withheldMessageCount ?? v.attentionCount,
+    };
   return {
     protocolMajor: v.protocolMajor,
     requestId: v.requestId,
@@ -691,6 +736,7 @@ export function decodeCloudAgentMessageResponse(bytes: Uint8Array): CloudAgentMe
       createdAt: m.createdAt,
       target: m.target,
       ...decodeLocalAttachment(m.attachment),
+      ...(m.task ? { task: decodeMessageTask(m.task) } : {}),
     })),
     sideEffectDecision: v.sideEffectDecision
       ? (v.sideEffectDecision as CloudAgentMessageResponse["sideEffectDecision"])
@@ -701,6 +747,11 @@ export function decodeCloudAgentMessageResponse(bytes: Uint8Array): CloudAgentMe
     hasNewer: v.hasNewer || undefined,
     olderCursor: v.olderCursor || undefined,
     newerCursor: v.newerCursor || undefined,
+    freshnessContextMode: (v.freshnessContextMode || undefined) as
+      | "inline"
+      | "withheld"
+      | undefined,
+    withheldMessageCount: v.withheldMessageCount,
   };
 }
 export function decodeAgentActivity(bytes: Uint8Array): AgentActivity {

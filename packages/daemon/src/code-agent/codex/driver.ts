@@ -1,11 +1,11 @@
 import type {
-  AgentDriver,
   AgentRuntimeEvent,
   AgentSession,
   AgentSessionIdentity,
   AgentSessionOptions,
   UsageSnapshot,
 } from "@coforge/agent";
+import type { CodeAgentProvider } from "../contract";
 import { readCodexUsage } from "./usage";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess, JsonlRequestError } from "../jsonl-process";
@@ -13,15 +13,36 @@ import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { COFORGE_DAEMON_VERSION } from "../../version";
 import { RUNTIME_PROVIDER } from "@coforge/protocol";
 import { getLogger } from "@logtape/logtape";
+import { discoverCodexCatalog, discoverExternalCodeAgents } from "../runtime-inventory";
+import type { ProviderDiscoveryOptions } from "../contract";
 
 const logger = getLogger(["coforge", "daemon", "code-agent", "codex"]);
 
-export class CodexDriver implements AgentDriver {
+export class CodexProvider implements CodeAgentProvider {
   readonly provider = RUNTIME_PROVIDER.CODEX;
   readonly #command: readonly string[];
 
   constructor(options: { command?: readonly string[] } = {}) {
     this.#command = options.command ?? ["codex", "app-server"];
+  }
+
+  async discoverRuntime(options: ProviderDiscoveryOptions = {}) {
+    return (
+      await discoverExternalCodeAgents(
+        options.probe,
+        options.environment,
+        options.platform,
+        RUNTIME_PROVIDER.CODEX,
+      )
+    )[0];
+  }
+
+  discoverModelCatalog(options: ProviderDiscoveryOptions = {}) {
+    return discoverCodexCatalog(
+      options.command ?? this.#command,
+      options.cwd ?? process.cwd(),
+      options.environment ?? Bun.env,
+    );
   }
 
   async readUsage(options: {

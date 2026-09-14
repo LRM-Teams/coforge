@@ -4,7 +4,7 @@ import type { LocalInboxRequest } from "@coforge/protocol";
 import { dispose, getLogger, withContext } from "@logtape/logtape";
 import { startDaemonLocalRpcServer } from "./src/local-rpc";
 import { startAgentProxy } from "./src/agent-proxy";
-import { createAgentDriver } from "./src/code-agent/registry";
+import { createCodeAgentProvider } from "./src/code-agent/registry";
 import { discoverCodeAgentInventory } from "./src/code-agent/runtime-inventory";
 import { DaemonRuntime } from "./src/daemon-runtime/runtime";
 import { FileDaemonCredentialStore } from "./src/credentials/credential-store";
@@ -21,20 +21,19 @@ import { stopLaunchdJobs } from "./src/platform/launchd-job";
 export { runMachineSupervisor } from "./src/supervisor/run-supervisor";
 export { runLaunchdAgent } from "./src/platform/launchd-process";
 
+export type { AgentRuntimeConfig, AgentSession, AgentSessionOptions } from "@coforge/agent";
 export type {
-  AgentRuntimeConfig,
-  AgentDriver,
-  AgentDriverFactory,
-  AgentSession,
-  AgentSessionOptions,
-} from "@coforge/agent";
-export type { AgentRuntimeEvent, CodeAgentProvider } from "./src/code-agent/contract";
-export { createAgentDriver } from "./src/code-agent/registry";
-export { ClaudeCodeDriver } from "./src/code-agent/claude-code/driver";
-export { CodexDriver } from "./src/code-agent/codex/driver";
+  AgentRuntimeEvent,
+  CodeAgentProvider,
+  CodeAgentProviderFactory,
+} from "./src/code-agent/contract";
+export { createCodeAgentProvider } from "./src/code-agent/registry";
+export { ClaudeCodeProvider } from "./src/code-agent/claude-code/driver";
+export { CodexProvider } from "./src/code-agent/codex/driver";
 export { readCodexUsage } from "./src/code-agent/codex/usage";
 export { readClaudeCodeUsage } from "./src/code-agent/claude-code/usage";
-export { PiDriver } from "./src/code-agent/pi/driver";
+export { CoforgeProvider, PiProvider } from "./src/code-agent/pi/driver";
+export { KiroProvider } from "./src/code-agent/kiro/driver";
 export { createDaemonHost } from "./src/daemon-host";
 export { startDaemonLocalRpcServer } from "./src/local-rpc";
 export { startAgentProxy } from "./src/agent-proxy";
@@ -180,7 +179,7 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
           config = nextConfig;
           runtime = new DaemonRuntime(
             config,
-            createAgentDriver,
+            createCodeAgentProvider,
             credentials,
             {
               create: () =>
@@ -198,7 +197,7 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
           if (config) {
             runtime ??= new DaemonRuntime(
               config,
-              createAgentDriver,
+              createCodeAgentProvider,
               credentials,
               {
                 create: () =>

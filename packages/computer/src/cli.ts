@@ -24,9 +24,8 @@ import { ComputerSetup } from "./setup/computer-setup";
 import { currentComputerNames, currentComputerPlatform } from "./platform";
 import { FileMachineIdFallback, resolveMachineId } from "./machine-id";
 import {
-  CentrifugoComputerRegisterTransport,
-  CentrifugoWorkspaceRpcTransport,
-  resolveCentrifugoWebSocketEndpoint,
+  HttpComputerRegisterTransport,
+  HttpWorkspaceRpcTransport,
   resolveDaemonConnectionEndpoint,
 } from "./cloud-rpc-transport";
 import { ComputerRegistrationClient } from "@coforge/protocol";
@@ -117,7 +116,8 @@ export async function runCli(
     });
   program
     .command("setup")
-    .description("Register this Computer with the selected Workspace and start its Daemon.")
+    .alias("attach")
+    .description("Attach this Computer to the selected Workspace and start its Daemon.")
     .option(
       "--workspace <slug>",
       "Workspace slug to join (falls back to COFORGE_SETUP_INTENT when omitted)",
@@ -415,16 +415,11 @@ export function createSetupCommand(
         return credential;
       },
     },
-    workspaceLookup: createWorkspaceLookup(
-      new CentrifugoWorkspaceRpcTransport(undefined, resolveCentrifugoWebSocketEndpoint),
-    ),
+    workspaceLookup: createWorkspaceLookup(new HttpWorkspaceRpcTransport()),
     registrationFactory: (serverUrl, credential) => ({
       register: (request) =>
         new ComputerRegistrationClient(
-          new CentrifugoComputerRegisterTransport(
-            resolveCentrifugoWebSocketEndpoint(serverUrl),
-            credential.accessToken,
-          ),
+          new HttpComputerRegisterTransport(serverUrl, credential.accessToken),
         ).register(request),
     }),
     launcher: (serverUrl) =>

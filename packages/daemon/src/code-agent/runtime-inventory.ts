@@ -19,23 +19,12 @@ import {
 import { COFORGE_AGENT_RUNTIME_METADATA } from "./pi/metadata";
 import { discoverKiroCatalog } from "./kiro/catalog";
 import { getLogger } from "@logtape/logtape";
+import type { CodeAgentProbe } from "./contract";
+import { createCodeAgentProvider } from "./registry";
 
 const logger = getLogger(["coforge", "daemon", "runtime-inventory"]);
 
-export interface ExternalCodeAgentProbe {
-  which(name: string, searchPath?: string): string | undefined;
-  spawn(executable: string): {
-    stdout: ReadableStream<Uint8Array>;
-    exited: Promise<number>;
-    kill?(): void;
-  };
-  probe?(provider: RuntimeMetadata["provider"], executable: string): Promise<string | undefined>;
-  resolve?(
-    provider: RuntimeMetadata["provider"],
-    name: string,
-    searchPath?: string,
-  ): string | undefined | Promise<string | undefined>;
-}
+export type ExternalCodeAgentProbe = CodeAgentProbe;
 
 const bunProbe: ExternalCodeAgentProbe = {
   which: (name, searchPath) => Bun.which(name, { PATH: searchPath }) ?? undefined,
@@ -86,10 +75,12 @@ export async function discoverExternalCodeAgents(
   probe: ExternalCodeAgentProbe = bunProbe,
   environment: Readonly<Record<string, string | undefined>> = Bun.env,
   platform: NodeJS.Platform = process.platform,
+  requestedProvider?: RuntimeMetadata["provider"],
 ): Promise<RuntimeMetadata[]> {
   const runtimes: RuntimeMetadata[] = [];
   const searchPath = codeAgentExecutableSearchPath(environment, platform);
   for (const { provider, executable: name } of externalCodeAgents) {
+    if (requestedProvider && requestedProvider !== provider) continue;
     try {
       const executable =
         (await probe.resolve?.(provider, name, searchPath)) ?? probe.which(name, searchPath);
@@ -179,6 +170,29 @@ export async function discoverCodeAgentInventory(
     platform?: NodeJS.Platform;
   } = {},
 ): Promise<CodeAgentInventory> {
+  if (!options.probe && !options.commands) {
+    const providers = Object.values(RUNTIME_PROVIDER).map(createCodeAgentProvider);
+    const discoveries = providers.map(async (provider) => {
+      const runtime = await provider.discoverRuntime?.({
+        cwd: options.cwd,
+        environment: options.environment,
+        platform: options.platform,
+      });
+      const catalog = runtime
+        ? await provider.discoverModelCatalog?.({
+            cwd: options.cwd,
+            environment: options.environment,
+            platform: options.platform,
+          })
+        : undefined;
+      return { runtime, catalog };
+    });
+    const discovered = await Promise.all(discoveries);
+    return {
+      runtimes: discovered.flatMap(({ runtime }) => (runtime ? [runtime] : [])),
+      catalogs: discovered.flatMap(({ catalog }) => (catalog ? [catalog] : [])),
+    };
+  }
   const probe = options.probe ?? bunProbe;
   const environment = options.environment ?? Bun.env;
   const searchPath = codeAgentExecutableSearchPath(environment, options.platform);
@@ -219,14 +233,14 @@ export async function discoverCodeAgentInventory(
   return { runtimes, catalogs };
 }
 
-function discoverCoforgeCatalog(): CodeAgentModelCatalog {
+export function discoverCoforgeCatalog(): CodeAgentModelCatalog {
   return {
     provider: RUNTIME_PROVIDER.COFORGE,
     models: COFORGE_PROVIDER_MODELS_GENERATED.map((model) => ({ ...model })),
   };
 }
 
-async function discoverCodexCatalog(
+export async function discoverCodexCatalog(
   command: readonly string[],
   cwd: string,
   environment: Readonly<Record<string, string | undefined>>,
@@ -435,7 +449,7 @@ function catalogErrorMessage(error: unknown): string {
   return "model catalog discovery failed; untrusted error detail omitted";
 }
 
-async function discoverPiCatalog(
+export async function discoverPiCatalog(
   cwd: string,
   environment: Readonly<Record<string, string | undefined>>,
 ): Promise<CodeAgentModelCatalog | undefined> {
@@ -549,7 +563,7 @@ function codexModel(value: unknown): CodeAgentModelMetadata | undefined {
   };
 }
 
-function claudeStaticCatalog(): CodeAgentModelCatalog {
+export function claudeStaticCatalog(): CodeAgentModelCatalog {
   const fullReasoning = ["low", "medium", "high", "xhigh", "max"];
   const standardReasoning = ["low", "medium", "high", "max"];
   const limitedReasoning = ["low", "medium", "high"];

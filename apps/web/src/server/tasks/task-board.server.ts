@@ -1,7 +1,9 @@
 import {
   AGENT_MESSAGE_METHOD,
+  REMINDER_SYNC_MESSAGE_TYPE,
   WORKSPACE_PROTOCOL_MAJOR,
   encodeAgentMessageDelivery,
+  encodeReminderSync,
   type TaskCommand,
   type TaskPrincipal,
   type TaskResult,
@@ -14,6 +16,7 @@ import type { ConversationRealtime } from "../conversations/conversation-realtim
 import { mentionedNames } from "../conversations/mentions";
 import { daemonControlChannel, type CentrifugoServerApi } from "../centrifugo/server-api.server";
 import type { MessageNotifier } from "../notifications/web-push-composition.server";
+import { MAX_ACTIVE_REMINDERS } from "../reminders/reminders.server";
 
 type Dependencies = {
   realtime?: ConversationRealtime;
@@ -24,10 +27,16 @@ type Dependencies = {
 const taskSelection = {
   messageId: true,
   conversationId: true,
+  workspaceId: true,
   number: true,
   title: true,
+  description: true,
+  createsResource: true,
+  resourceReceipt: true,
+  resourceReceiptRecordedAt: true,
   status: true,
   revision: true,
+  claimedAt: true,
   owner: {
     select: {
       id: true,
@@ -40,10 +49,16 @@ const taskSelection = {
 type SelectedTask = {
   messageId: string;
   conversationId: string;
+  workspaceId: string;
   number: number;
   title: string;
+  description: string | null;
+  createsResource: boolean;
+  resourceReceipt: unknown;
+  resourceReceiptRecordedAt: Date | null;
   status: string;
   revision: number;
+  claimedAt: Date | null;
   owner: {
     id: string;
     user: { username: string; displayName: string | null } | null;
@@ -55,7 +70,11 @@ export type TaskOverview = {
   tasks: Array<
     TaskView & {
       currentMemberId: string | null;
-      source: { channelName: string | null; agentId: string | null; label: string };
+      source: {
+        channelName: string | null;
+        agentId: string | null;
+        label: string;
+      };
     }
   >;
 };
@@ -73,14 +92,34 @@ function status(value: string): TaskStatus {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function view(task: SelectedTask): TaskView {
+  const resourceReceipt = task.resourceReceipt;
   return {
     messageId: task.messageId,
     conversationId: task.conversationId,
     number: task.number,
     title: task.title,
+    description: task.description,
     status: status(task.status),
     revision: task.revision,
+    claimedAt: task.claimedAt?.toISOString() ?? null,
+    requiresResourceReceipt: task.createsResource,
+    resourceReceiptRecordedAt: task.resourceReceiptRecordedAt?.toISOString() ?? null,
+    ...(isRecord(resourceReceipt) && {
+      resourceReceipt: {
+        object: String(resourceReceipt.object ?? ""),
+        purpose: String(resourceReceipt.purpose ?? ""),
+        teardownOwner: String(resourceReceipt.teardownOwner ?? ""),
+        securityPrivacy: String(resourceReceipt.securityPrivacy ?? ""),
+        expiry: String(resourceReceipt.expiry ?? ""),
+        runbook: String(resourceReceipt.runbook ?? ""),
+        tracking: String(resourceReceipt.tracking ?? ""),
+      },
+    }),
     owner: task.owner
       ? task.owner.agent
         ? {
@@ -95,6 +134,19 @@ function view(task: SelectedTask): TaskView {
           }
       : null,
   };
+}
+
+async function indexedRequestId(requestId: string, index: number) {
+  if (index === 0) return requestId;
+  const bytes = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${requestId}:${index}`)),
+  );
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = Array.from(bytes.slice(0, 16))
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /** Canonical authorization and transaction seam for message-backed Tasks. */
@@ -169,6 +221,40 @@ export class TaskBoard {
 
   async execute(principal: TaskPrincipal, command: TaskCommand): Promise<TaskResult> {
     this.validateCommand(command);
+    if (command.operation === "list" && command.mine && principal.agentId) {
+      const tasks = await this.db.task.findMany({
+        where: {
+          workspaceId: principal.workspaceId,
+          owner: { agentId: principal.agentId },
+          status:
+            command.status === "all"
+              ? undefined
+              : (command.status ?? { notIn: ["done", "closed"] }),
+          conversation: { members: { some: { agentId: principal.agentId } } },
+        },
+        orderBy: [{ conversationId: "asc" }, { number: "asc" }],
+        select: {
+          ...taskSelection,
+          conversation: {
+            select: {
+              channelName: true,
+              members: {
+                where: { userId: { not: null } },
+                select: { user: { select: { username: true } } },
+              },
+            },
+          },
+        },
+      });
+      return {
+        tasks: tasks.map((task) => ({
+          ...view(task),
+          channelRef: task.conversation.channelName
+            ? `#${task.conversation.channelName}`
+            : `@${task.conversation.members[0]!.user!.username}`,
+        })),
+      };
+    }
     const scope = await this.scope(principal, command);
     if (scope.channel && !scope.member && command.operation !== "list")
       throw new AppError("ACCESS_DENIED");
@@ -176,7 +262,10 @@ export class TaskBoard {
 
     if (command.operation === "list") {
       const tasks = await this.db.task.findMany({
-        where: { conversationId: scope.conversationId, status: command.status },
+        where: {
+          conversationId: scope.conversationId,
+          status: command.status === "all" ? undefined : command.status,
+        },
         orderBy: { number: "asc" },
         select: taskSelection,
       });
@@ -193,17 +282,37 @@ export class TaskBoard {
         false,
       );
     if (command.operation === "claim")
-      return this.convertOrClaim(scope.conversationId, scope.workspaceId, member.id, command, true);
+      return this.claim(scope.conversationId, scope.workspaceId, member.id, command);
     if (command.operation === "unclaim")
       return this.unclaim(scope.conversationId, member.id, command);
+    if (command.operation === "assign")
+      return this.assign(scope.conversationId, scope.workspaceId, member, command);
+    if (command.operation === "amend") return this.amend(scope.conversationId, member, command);
+    if (command.operation === "history") return this.history(scope.conversationId, command);
+    if (command.operation === "delete")
+      return this.delete(scope.conversationId, scope.workspaceId, member, command);
+    if (command.operation === "receipt")
+      return this.receipt(scope.conversationId, scope.workspaceId, member, command);
     return this.update(scope.conversationId, member, command);
   }
 
   private validateCommand(command: TaskCommand) {
-    const operations = ["list", "create", "convert", "claim", "unclaim", "update"];
+    const operations = [
+      "list",
+      "create",
+      "convert",
+      "claim",
+      "unclaim",
+      "update",
+      "assign",
+      "amend",
+      "history",
+      "delete",
+      "receipt",
+    ];
     if (!operations.includes(command.operation) || !command.requestId)
       throw new AppError("INVALID_INPUT");
-    if ((command.conversationId ? 1 : 0) + (command.target ? 1 : 0) !== 1)
+    if ((command.conversationId ? 1 : 0) + (command.target ? 1 : 0) + (command.mine ? 1 : 0) !== 1)
       throw new AppError("INVALID_INPUT");
     if (command.target?.includes(":")) throw new AppError("INVALID_INPUT");
     if (
@@ -218,14 +327,20 @@ export class TaskBoard {
       throw new AppError("INVALID_INPUT");
     if (
       command.status !== undefined &&
-      !["todo", "in_progress", "in_review", "done", "closed"].includes(command.status)
+      !["all", "todo", "in_progress", "in_review", "done", "closed"].includes(command.status)
     )
       throw new AppError("INVALID_INPUT");
-    if (command.number !== undefined && command.messageId !== undefined)
+    if (command.status === "all" && command.operation !== "list")
+      throw new AppError("INVALID_INPUT");
+    if (command.numbers?.some((number) => !Number.isSafeInteger(number) || number < 1))
+      throw new AppError("INVALID_INPUT");
+    if (command.messageIds?.some((messageId) => !messageId.trim()))
       throw new AppError("INVALID_INPUT");
     if (
       command.operation !== "update" &&
       command.operation !== "unclaim" &&
+      command.operation !== "assign" &&
+      command.operation !== "amend" &&
       command.expectedRevision !== undefined
     )
       throw new AppError("INVALID_INPUT");
@@ -236,18 +351,48 @@ export class TaskBoard {
     )
       throw new AppError("INVALID_INPUT");
     if (command.operation === "create") {
-      const title = command.title?.trim();
-      if (!title || title.length > 8_000) throw new AppError("INVALID_INPUT");
+      const titles = command.titles ?? (command.title === undefined ? [] : [command.title]);
+      if (
+        titles.length === 0 ||
+        (command.title !== undefined && command.titles !== undefined) ||
+        titles.some((value) => !value.trim() || value.trim().length > 8_000)
+      )
+        throw new AppError("INVALID_INPUT");
       if (command.number !== undefined || command.messageId !== undefined)
         throw new AppError("INVALID_INPUT");
     }
+    if (command.operation === "amend") {
+      if (
+        command.title !== undefined &&
+        (typeof command.title !== "string" ||
+          !command.title.trim() ||
+          command.title.trim().length > 10_000)
+      )
+        throw new AppError("INVALID_INPUT");
+      if (
+        command.description !== undefined &&
+        command.description !== null &&
+        (typeof command.description !== "string" || command.description.length > 50_000)
+      )
+        throw new AppError("INVALID_INPUT");
+    }
     if (
-      ["unclaim", "update"].includes(command.operation) &&
-      (!command.number || command.expectedRevision === undefined)
+      ["unclaim", "update", "assign", "amend", "history", "delete", "receipt"].includes(
+        command.operation,
+      ) &&
+      !command.number
     )
       throw new AppError("INVALID_INPUT");
     if (command.operation === "update" && !command.status) throw new AppError("INVALID_INPUT");
-    if (["convert", "claim"].includes(command.operation) && !command.number && !command.messageId)
+    if (
+      ["convert", "claim"].includes(command.operation) &&
+      !command.number &&
+      !command.messageId &&
+      !command.numbers?.length &&
+      !command.messageIds?.length
+    )
+      throw new AppError("INVALID_INPUT");
+    if (command.operation !== "claim" && (command.numbers || command.messageIds))
       throw new AppError("INVALID_INPUT");
   }
 
@@ -258,12 +403,18 @@ export class TaskBoard {
       if (command.target || !command.conversationId) throw new AppError("INVALID_INPUT");
       const workspaceMember = await this.db.workspaceMembership.findUnique({
         where: {
-          workspaceId_userId: { workspaceId: principal.workspaceId, userId: principal.userId },
+          workspaceId_userId: {
+            workspaceId: principal.workspaceId,
+            userId: principal.userId,
+          },
         },
       });
       if (!workspaceMember) throw new AppError("ACCESS_DENIED");
       const conversation = await this.db.conversation.findFirst({
-        where: { id: command.conversationId, workspaceId: principal.workspaceId },
+        where: {
+          id: command.conversationId,
+          workspaceId: principal.workspaceId,
+        },
         select: {
           id: true,
           workspaceId: true,
@@ -328,7 +479,7 @@ export class TaskBoard {
       : await this.db.conversation.findFirst({
           where: {
             workspaceId: principal.workspaceId,
-            directKey: [principal.agentId!, targetUser!.id].sort().join(":"),
+            directKey: { not: null },
             AND: [
               { members: { some: { agentId: principal.agentId } } },
               { members: { some: { user: { username: target.slice(1) } } } },
@@ -365,18 +516,29 @@ export class TaskBoard {
     principal: TaskPrincipal,
     command: TaskCommand,
   ) {
-    const title = command.title!.trim();
+    const titles = (command.titles ?? [command.title!]).map((title) => title.trim());
+    const requestIds = await Promise.all(
+      titles.map((_, index) => indexedRequestId(command.requestId, index)),
+    );
+    const receiptId = await indexedRequestId(
+      `${member.id}:create:${command.requestId}:assignment`,
+      1,
+    );
     const result = await this.db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${scope.conversationId}::uuid FOR UPDATE`;
-      const retried = await tx.task.findFirst({
+      const retried = await tx.task.findMany({
         where: {
           conversationId: scope.conversationId,
           creatorMemberId: member.id,
-          requestId: command.requestId,
+          requestId: { in: requestIds },
         },
+        orderBy: { number: "asc" },
         select: taskSelection,
       });
-      if (retried) return { task: retried, created: false, sequence: 0 };
+      if (retried.length) {
+        if (retried.length !== titles.length) throw new AppError("CONFLICT");
+        return { tasks: retried, created: false, sequences: [] as number[] };
+      }
       if (command.attachmentId) {
         if (!principal.userId) throw new AppError("ACCESS_DENIED");
         const attachment = await tx.attachment.findFirst({
@@ -395,13 +557,16 @@ export class TaskBoard {
         orderBy: { sequence: "desc" },
         select: { sequence: true },
       });
-      const lastTask = await tx.task.findFirst({
-        where: { conversationId: scope.conversationId },
-        orderBy: { number: "desc" },
-        select: { number: true },
-      });
-      const sequence = (lastMessage?.sequence ?? 0) + 1;
-      const names = mentionedNames(title);
+      const allocated = await tx.$queryRaw<Array<{ first: number }>>`
+        UPDATE "conversations"
+        SET "nextTaskNumber" = "nextTaskNumber" + ${titles.length}
+        WHERE "id" = ${scope.conversationId}::uuid
+        RETURNING "nextTaskNumber" - ${titles.length} AS "first"
+      `;
+      const firstTaskNumber = allocated[0]?.first;
+      if (firstTaskNumber === undefined) throw new AppError("NOT_FOUND");
+      const firstSequence = (lastMessage?.sequence ?? 0) + 1;
+      const names = mentionedNames(titles.join("\n"));
       const recipients = member.userId
         ? await tx.conversationMember.findMany({
             where: scope.channel
@@ -410,94 +575,276 @@ export class TaskBoard {
                   agentId: { not: null },
                   OR: [{ channelMuted: false }, { agent: { name: { in: names } } }],
                 }
-              : { conversationId: scope.conversationId, agentId: { not: null } },
+              : {
+                  conversationId: scope.conversationId,
+                  agentId: { not: null },
+                },
             select: { agentId: true },
           })
         : [];
-      const message = await tx.message.create({
-        data: {
-          conversationId: scope.conversationId,
-          workspaceId: scope.workspaceId,
-          senderMemberId: member.id,
-          body: title,
-          sequence,
-          attachment: command.attachmentId ? { connect: { id: command.attachmentId } } : undefined,
-          deliveries: {
-            create: recipients.map(({ agentId }) => ({
-              workspaceId: scope.workspaceId,
+      const assignee = command.assignee
+        ? await tx.conversationMember.findFirst({
+            where: {
               conversationId: scope.conversationId,
-              agentId: agentId!,
-              sequence,
-            })),
-          },
-          task: {
-            create: {
               workspaceId: scope.workspaceId,
-              number: (lastTask?.number ?? 0) + 1,
-              title,
-              creatorMemberId: member.id,
-              requestId: command.requestId,
+              OR: [
+                { user: { username: command.assignee.replace(/^@/, "") } },
+                { agent: { name: command.assignee.replace(/^@/, "") } },
+              ],
             },
-          },
-        },
-        select: { id: true, sequence: true, task: { select: taskSelection } },
-      });
-      return { task: message.task!, created: true, sequence };
-    });
-    if (result.created) {
-      if (member.userId) {
-        try {
-          await this.dependencies.notifications?.notifyMessage(result.task.messageId);
-        } catch {
-          // PostgreSQL is canonical; notification recovery handles missed delivery.
+            select: { id: true, userId: true, agentId: true },
+          })
+        : null;
+      if (command.assignee && !assignee) throw new AppError("NOT_FOUND");
+      if (assignee && assignee.id !== member.id) {
+        let role: string | undefined;
+        if (member.userId) {
+          role = (
+            await tx.workspaceMembership.findUnique({
+              where: {
+                workspaceId_userId: {
+                  workspaceId: scope.workspaceId,
+                  userId: member.userId,
+                },
+              },
+              select: { role: true },
+            })
+          )?.role;
         }
+        if (role !== "owner" && role !== "admin") throw new AppError("ACCESS_DENIED");
       }
-      try {
-        await this.dependencies.realtime?.messageAvailable({
-          conversationId: scope.conversationId,
-          messageId: result.task.messageId,
-          sequence: result.sequence,
-        });
-      } catch {
-        // PostgreSQL is canonical; normal history reconciliation repairs a missed event.
-      }
-      if (member.userId && this.dependencies.publisher) {
-        const message = await this.db.message.findUniqueOrThrow({
-          where: { id: result.task.messageId },
-          include: {
-            sender: { include: { user: true } },
-            deliveries: { include: { agent: true } },
-          },
-        });
-        for (const delivery of message.deliveries) {
-          if (!delivery.agent.computerId) continue;
-          try {
-            await this.dependencies.publisher.publish(
-              daemonControlChannel(scope.workspaceId, delivery.agent.computerId),
-              encodeAgentMessageDelivery({
-                protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-                method: AGENT_MESSAGE_METHOD,
-                requestId: command.requestId,
+      const tasks: SelectedTask[] = [];
+      const sequences: number[] = [];
+      for (const [index, title] of titles.entries()) {
+        const sequence = firstSequence + index;
+        const message = await tx.message.create({
+          data: {
+            conversationId: scope.conversationId,
+            workspaceId: scope.workspaceId,
+            senderMemberId: member.id,
+            body: title,
+            sequence,
+            attachment:
+              index === 0 && command.attachmentId
+                ? { connect: { id: command.attachmentId } }
+                : undefined,
+            deliveries: {
+              create: recipients.map(({ agentId }) => ({
                 workspaceId: scope.workspaceId,
                 conversationId: scope.conversationId,
-                agentId: delivery.agentId,
-                messageId: message.id,
-                deliveryId: delivery.deliveryId,
-                sequence: message.sequence,
-                body: message.body,
-                target: scope.channelName
-                  ? `#${scope.channelName}`
-                  : `@${message.sender.user!.username}`,
-                latestSender: `@${message.sender.user!.username}`,
-              }),
-            );
+                agentId: agentId!,
+                sequence,
+              })),
+            },
+            task: {
+              create: {
+                workspaceId: scope.workspaceId,
+                number: firstTaskNumber + index,
+                title,
+                description: command.description,
+                createsResource: command.createsResource ?? false,
+                ownerMemberId: assignee?.id,
+                status: assignee?.id === member.id ? "in_progress" : "todo",
+                claimedAt: assignee?.id === member.id ? new Date() : null,
+                creatorMemberId: member.id,
+                requestId: requestIds[index],
+              },
+            },
+          },
+          select: { task: { select: taskSelection } },
+        });
+        tasks.push(message.task!);
+        sequences.push(sequence);
+      }
+      if (assignee) {
+        await this.writeAssignmentReceipt(tx, {
+          id: receiptId,
+          conversationId: scope.conversationId,
+          workspaceId: scope.workspaceId,
+          assignee: command.assignee!,
+          agentId: assignee.agentId,
+          numbers: tasks.map((task) => task.number),
+          started: assignee.id === member.id,
+        });
+      }
+      return { tasks, created: true, sequences };
+    });
+    if (result.created) {
+      if (member.userId)
+        for (const task of result.tasks) {
+          try {
+            await this.dependencies.notifications?.notifyMessage(task.messageId);
           } catch {
-            // PostgreSQL delivery state supports recovery; do not report a committed Task as failed.
+            // PostgreSQL is canonical; notification recovery handles missed delivery.
           }
         }
+      for (const [index, task] of result.tasks.entries()) {
+        try {
+          await this.dependencies.realtime?.messageAvailable({
+            conversationId: scope.conversationId,
+            messageId: task.messageId,
+            sequence: result.sequences[index]!,
+          });
+        } catch {
+          // PostgreSQL is canonical; normal history reconciliation repairs a missed event.
+        }
       }
+      if (member.userId && this.dependencies.publisher)
+        for (const task of result.tasks) {
+          const message = await this.db.message.findUniqueOrThrow({
+            where: { id: task.messageId },
+            include: {
+              sender: { include: { user: true } },
+              deliveries: { include: { agent: true } },
+            },
+          });
+          for (const delivery of message.deliveries) {
+            if (!delivery.agent.computerId) continue;
+            try {
+              await this.dependencies.publisher.publish(
+                daemonControlChannel(scope.workspaceId, delivery.agent.computerId),
+                encodeAgentMessageDelivery({
+                  protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+                  method: AGENT_MESSAGE_METHOD,
+                  requestId: command.requestId,
+                  workspaceId: scope.workspaceId,
+                  conversationId: scope.conversationId,
+                  agentId: delivery.agentId,
+                  messageId: message.id,
+                  deliveryId: delivery.deliveryId,
+                  sequence: message.sequence,
+                  body: message.body,
+                  target: scope.channelName
+                    ? `#${scope.channelName}`
+                    : `@${message.sender!.user!.username}`,
+                  latestSender: `@${message.sender!.user!.username}`,
+                }),
+              );
+            } catch {
+              // PostgreSQL delivery state supports recovery; do not report a committed Task as failed.
+            }
+          }
+        }
     }
-    return { tasks: [view(result.task)] };
+    const tasks = result.tasks.map(view);
+    const receipt = await this.db.message.findUnique({ where: { id: receiptId } });
+    const assignedToCreator =
+      receipt &&
+      (await this.db.conversationMember.findFirst({
+        where: {
+          id: member.id,
+          OR: [
+            { user: { username: command.assignee?.slice(1) } },
+            { agent: { name: command.assignee?.slice(1) } },
+          ],
+        },
+        select: { id: true },
+      }));
+    if (receipt && result.created)
+      await this.publishAssignmentReceipt(receipt.id, command.requestId);
+    return {
+      tasks,
+      ...(receipt && {
+        assignmentReceipt: {
+          messageId: receipt.id,
+          content: receipt.body,
+          assignee: command.assignee!,
+          state: assignedToCreator ? ("started" as const) : ("assigned" as const),
+        },
+      }),
+    };
+  }
+
+  private async writeAssignmentReceipt(
+    tx: Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0],
+    input: {
+      id: string;
+      conversationId: string;
+      workspaceId: string;
+      assignee: string;
+      agentId: string | null;
+      numbers: number[];
+      started: boolean;
+    },
+  ) {
+    // Caller holds the conversation row lock, shared with ordinary sends and mute changes.
+    const latest = await tx.message.findFirst({
+      where: { conversationId: input.conversationId },
+      orderBy: { sequence: "desc" },
+      select: { sequence: true },
+    });
+    const sequence = (latest?.sequence ?? 0) + 1;
+    return tx.message.create({
+      data: {
+        id: input.id,
+        conversationId: input.conversationId,
+        workspaceId: input.workspaceId,
+        body: `${input.assignee} ${input.started ? "started" : "was assigned"} task${input.numbers.length === 1 ? "" : "s"} ${input.numbers.map((number) => `#${number}`).join(", ")}.`,
+        sequence,
+        deliveries: input.agentId
+          ? {
+              create: {
+                workspaceId: input.workspaceId,
+                conversationId: input.conversationId,
+                agentId: input.agentId,
+                sequence,
+              },
+            }
+          : undefined,
+      },
+    });
+  }
+
+  private async publishAssignmentReceipt(messageId: string, requestId: string) {
+    const message = await this.db.message.findUniqueOrThrow({
+      where: { id: messageId },
+      include: {
+        conversation: {
+          include: {
+            members: { where: { userId: { not: null } }, include: { user: true } },
+          },
+        },
+        deliveries: { include: { agent: true } },
+      },
+    });
+    const effects: Promise<unknown>[] = [
+      Promise.resolve().then(() =>
+        this.dependencies.realtime?.messageAvailable({
+          conversationId: message.conversationId,
+          messageId: message.id,
+          sequence: message.sequence,
+        }),
+      ),
+      Promise.resolve().then(() => this.dependencies.notifications?.notifyMessage(message.id)),
+    ];
+    for (const delivery of message.deliveries) {
+      if (!delivery.agent.computerId || !this.dependencies.publisher) continue;
+      effects.push(
+        Promise.resolve().then(() =>
+          this.dependencies.publisher!.publish(
+            daemonControlChannel(message.workspaceId, delivery.agent.computerId!),
+            encodeAgentMessageDelivery({
+              protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+              method: AGENT_MESSAGE_METHOD,
+              requestId,
+              workspaceId: message.workspaceId,
+              conversationId: message.conversationId,
+              agentId: delivery.agentId,
+              messageId: message.id,
+              deliveryId: delivery.deliveryId,
+              sequence: message.sequence,
+              body: message.body,
+              target: message.conversation.channelName
+                ? `#${message.conversation.channelName}`
+                : `@${message.conversation.members[0]!.user!.username}`,
+              latestSender: "system",
+            }),
+          ),
+        ),
+      );
+    }
+    // A failed notification never rolls back or misreports a committed assignment.
+    await Promise.allSettled(effects);
   }
 
   private async findMessage(
@@ -530,7 +877,9 @@ export class TaskBoard {
       await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${conversationId}::uuid FOR UPDATE`;
       let existing = command.number
         ? await tx.task.findUnique({
-            where: { conversationId_number: { conversationId, number: command.number } },
+            where: {
+              conversationId_number: { conversationId, number: command.number },
+            },
             select: taskSelection,
           })
         : undefined;
@@ -538,22 +887,26 @@ export class TaskBoard {
       if (!existing && command.messageId) {
         message = await this.findMessage(tx, conversationId, command.messageId);
         existing =
-          (await tx.task.findUnique({ where: { messageId: message.id }, select: taskSelection })) ??
-          undefined;
+          (await tx.task.findUnique({
+            where: { messageId: message.id },
+            select: taskSelection,
+          })) ?? undefined;
       }
       if (!existing) {
         if (!message) throw new AppError("NOT_FOUND");
-        const last = await tx.task.findFirst({
-          where: { conversationId },
-          orderBy: { number: "desc" },
-          select: { number: true },
-        });
+        const allocated = await tx.$queryRaw<Array<{ number: number }>>`
+          UPDATE "conversations"
+          SET "nextTaskNumber" = "nextTaskNumber" + 1
+          WHERE "id" = ${conversationId}::uuid
+          RETURNING "nextTaskNumber" - 1 AS "number"
+        `;
+        if (allocated[0]?.number === undefined) throw new AppError("NOT_FOUND");
         existing = await tx.task.create({
           data: {
             messageId: message.id,
             conversationId,
             workspaceId,
-            number: (last?.number ?? 0) + 1,
+            number: allocated[0].number,
             title: message.body.slice(0, 8_000),
             creatorMemberId: memberId,
           },
@@ -561,17 +914,27 @@ export class TaskBoard {
         });
       }
       if (!claim) return existing;
-      if (existing.owner?.id === memberId && existing.status === "in_progress") return existing;
-      if (existing.status !== "todo") throw new AppError("CONFLICT");
-      if (existing.owner) throw new AppError("CONFLICT");
+      if (
+        existing.owner?.id === memberId &&
+        (existing.status === "in_progress" || existing.status === "in_review")
+      )
+        return existing;
+      if (existing.status === "done" || existing.status === "closed")
+        throw new AppError("CONFLICT");
+      if (existing.owner && existing.owner.id !== memberId) throw new AppError("CONFLICT");
       const updated = await tx.task.updateMany({
         where: {
           messageId: existing.messageId,
-          ownerMemberId: null,
-          status: "todo",
+          ownerMemberId: existing.owner?.id ?? null,
+          status: existing.status,
           revision: existing.revision,
         },
-        data: { ownerMemberId: memberId, status: "in_progress", revision: { increment: 1 } },
+        data: {
+          ownerMemberId: memberId,
+          claimedAt: new Date(),
+          status: existing.status === "todo" ? "in_progress" : existing.status,
+          revision: { increment: 1 },
+        },
       });
       if (updated.count !== 1) throw new AppError("CONFLICT");
       return tx.task.findUniqueOrThrow({
@@ -583,26 +946,105 @@ export class TaskBoard {
     return { tasks: [view(task)] };
   }
 
+  private async claim(
+    conversationId: string,
+    workspaceId: string,
+    memberId: string,
+    command: TaskCommand,
+  ): Promise<TaskResult> {
+    const selectors: Array<{ number?: number; messageId?: string }> = [
+      ...Array.from(
+        new Set([...(command.numbers ?? []), ...(command.number ? [command.number] : [])]),
+        (number) => ({ number }),
+      ),
+      ...Array.from(
+        new Set([...(command.messageIds ?? []), ...(command.messageId ? [command.messageId] : [])]),
+        (messageId) => ({ messageId }),
+      ),
+    ];
+    if (selectors.length === 1) {
+      const result = await this.convertOrClaim(
+        conversationId,
+        workspaceId,
+        memberId,
+        { ...command, number: selectors[0]!.number, messageId: selectors[0]!.messageId },
+        true,
+      );
+      const task = result.tasks[0]!;
+      return {
+        ...result,
+        claims: [{ number: task.number, messageId: task.messageId, success: true }],
+      };
+    }
+
+    const tasks: TaskView[] = [];
+    const claims: NonNullable<TaskResult["claims"]> = [];
+    for (const selector of selectors) {
+      try {
+        const result = await this.convertOrClaim(
+          conversationId,
+          workspaceId,
+          memberId,
+          {
+            ...command,
+            numbers: undefined,
+            messageIds: undefined,
+            number: undefined,
+            messageId: undefined,
+            ...selector,
+          },
+          true,
+        );
+        const task = result.tasks[0]!;
+        tasks.push(task);
+        claims.push({
+          number: task.number,
+          messageId: task.messageId,
+          success: true,
+        });
+      } catch (error) {
+        claims.push({
+          ...selector,
+          success: false,
+          reason: error instanceof Error ? error.message : "claim failed",
+        });
+      }
+    }
+    return { tasks, claims };
+  }
+
   private async unclaim(conversationId: string, memberId: string, command: TaskCommand) {
     const task = await this.db.task.findUnique({
-      where: { conversationId_number: { conversationId, number: command.number! } },
-      select: { messageId: true, ownerMemberId: true, status: true },
+      where: {
+        conversationId_number: { conversationId, number: command.number! },
+      },
+      select: {
+        messageId: true,
+        ownerMemberId: true,
+        status: true,
+        revision: true,
+      },
     });
     if (!task) throw new AppError("NOT_FOUND");
     if (task.ownerMemberId !== memberId) throw new AppError("ACCESS_DENIED");
-    if (task.status === "done" || task.status === "closed") throw new AppError("CONFLICT");
+    if (task.status === "done") throw new AppError("CONFLICT");
     const changed = await this.db.task.updateMany({
       where: {
         messageId: task.messageId,
+        revision: task.revision,
         ownerMemberId: memberId,
-        status: { notIn: ["done", "closed"] },
-        revision: command.expectedRevision,
+        status: { not: "done" },
+        ...(command.expectedRevision !== undefined && {
+          revision: command.expectedRevision,
+        }),
       },
-      data: { ownerMemberId: null, status: "todo", revision: { increment: 1 } },
+      data: { ownerMemberId: null, claimedAt: null, revision: { increment: 1 } },
     });
     if (changed.count !== 1) throw new AppError("CONFLICT");
     const updated = await this.db.task.findUniqueOrThrow({
-      where: { conversationId_number: { conversationId, number: command.number! } },
+      where: {
+        conversationId_number: { conversationId, number: command.number! },
+      },
       select: taskSelection,
     });
     await this.signalTaskChange(updated);
@@ -615,11 +1057,14 @@ export class TaskBoard {
     command: TaskCommand,
   ) {
     const task = await this.db.task.findUnique({
-      where: { conversationId_number: { conversationId, number: command.number! } },
+      where: {
+        conversationId_number: { conversationId, number: command.number! },
+      },
       select: { ...taskSelection, ownerMemberId: true },
     });
     if (!task) throw new AppError("NOT_FOUND");
-    if (task.revision !== command.expectedRevision) throw new AppError("CONFLICT");
+    if (command.expectedRevision !== undefined && task.revision !== command.expectedRevision)
+      throw new AppError("CONFLICT");
     const isOwner = task.ownerMemberId === member.id;
     if (member.agentId && !isOwner) throw new AppError("ACCESS_DENIED");
     if (!isOwner && !member.userId) throw new AppError("ACCESS_DENIED");
@@ -632,11 +1077,16 @@ export class TaskBoard {
       throw new AppError("ACCESS_DENIED");
     if (command.status !== "todo" && command.status !== "closed" && !task.ownerMemberId)
       throw new AppError("CONFLICT");
+    if (command.status === "done" && task.createsResource && !task.resourceReceipt)
+      throw new AppError("CONFLICT");
     const changed = await this.db.task.updateMany({
-      where: { messageId: task.messageId, revision: command.expectedRevision },
+      where: {
+        messageId: task.messageId,
+        revision: task.revision,
+        ownerMemberId: task.ownerMemberId,
+      },
       data: {
         status: command.status,
-        ownerMemberId: command.status === "todo" ? null : undefined,
         revision: { increment: 1 },
       },
     });
@@ -647,6 +1097,435 @@ export class TaskBoard {
     });
     await this.signalTaskChange(updated);
     return { tasks: [view(updated)] };
+  }
+
+  private async assign(
+    conversationId: string,
+    workspaceId: string,
+    member: { id: string; userId: string | null; agentId: string | null },
+    command: TaskCommand,
+  ): Promise<TaskResult> {
+    if (command.assignee !== null && !command.assignee?.match(/^@[a-z0-9][a-z0-9_-]{0,63}$/))
+      throw new AppError("INVALID_INPUT");
+    const receiptId = await indexedRequestId(
+      `${member.id}:assign:${command.number}:${command.requestId}:assignment`,
+      1,
+    );
+    const result = await this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${conversationId}::uuid FOR UPDATE`;
+      const receipt = await tx.message.findUnique({ where: { id: receiptId } });
+      if (receipt) {
+        const task = await tx.task.findUnique({
+          where: { conversationId_number: { conversationId, number: command.number! } },
+          select: taskSelection,
+        });
+        return { task, receipt, changed: false };
+      }
+      const owner = command.assignee
+        ? await tx.conversationMember.findFirst({
+            where: {
+              conversationId,
+              workspaceId,
+              OR: [
+                { user: { username: command.assignee.replace(/^@/, "") } },
+                { agent: { name: command.assignee.replace(/^@/, "") } },
+              ],
+            },
+            select: { id: true, agentId: true },
+          })
+        : null;
+      if (command.assignee && !owner) throw new AppError("NOT_FOUND");
+      const current = await tx.task.findUnique({
+        where: {
+          conversationId_number: { conversationId, number: command.number! },
+        },
+        select: { messageId: true, revision: true, ownerMemberId: true },
+      });
+      if (!current) throw new AppError("NOT_FOUND");
+      if (
+        (owner && owner.id !== member.id) ||
+        (current.ownerMemberId && current.ownerMemberId !== member.id)
+      ) {
+        const membership = member.userId
+          ? await tx.workspaceMembership.findUnique({
+              where: { workspaceId_userId: { workspaceId, userId: member.userId } },
+              select: { role: true },
+            })
+          : null;
+        if (membership?.role !== "owner" && membership?.role !== "admin")
+          throw new AppError("ACCESS_DENIED");
+      }
+      if (command.expectedRevision !== undefined && current.revision !== command.expectedRevision)
+        throw new AppError("CONFLICT");
+      if (current.ownerMemberId === (owner?.id ?? null)) {
+        const task = await tx.task.findUniqueOrThrow({
+          where: { messageId: current.messageId },
+          select: taskSelection,
+        });
+        return { task, receipt: null, changed: false };
+      }
+      const changed = await tx.task.updateMany({
+        where: {
+          messageId: current.messageId,
+          revision: current.revision,
+          ownerMemberId: current.ownerMemberId,
+        },
+        data: { ownerMemberId: owner?.id ?? null, claimedAt: null, revision: { increment: 1 } },
+      });
+      if (changed.count !== 1) throw new AppError("CONFLICT");
+      const task = await tx.task.findUniqueOrThrow({
+        where: {
+          conversationId_number: { conversationId, number: command.number! },
+        },
+        select: taskSelection,
+      });
+      return {
+        task,
+        changed: true,
+        receipt: owner
+          ? await this.writeAssignmentReceipt(tx, {
+              id: receiptId,
+              conversationId,
+              workspaceId,
+              assignee: command.assignee!,
+              agentId: owner.agentId,
+              numbers: [task.number],
+              started: false,
+            })
+          : null,
+      };
+    });
+    const { task, receipt } = result;
+    if (task && result.changed) await this.signalTaskChange(task);
+    if (receipt && result.changed)
+      await this.publishAssignmentReceipt(receipt.id, command.requestId);
+    return {
+      tasks: task ? [view(task)] : [],
+      ...(receipt && {
+        assignmentReceipt: {
+          messageId: receipt.id,
+          content: receipt.body,
+          assignee: command.assignee!,
+          state: "assigned" as const,
+        },
+      }),
+    };
+  }
+
+  private async amend(
+    conversationId: string,
+    member: { id: string; userId: string | null; agentId: string | null },
+    command: TaskCommand,
+  ): Promise<TaskResult> {
+    if (command.title === undefined && command.description === undefined)
+      throw new AppError("INVALID_INPUT");
+    const result = await this.db.$transaction(async (tx) => {
+      const task = await tx.task.findUnique({
+        where: {
+          conversationId_number: { conversationId, number: command.number! },
+        },
+        select: {
+          ...taskSelection,
+          history: { orderBy: { sequence: "desc" }, take: 1 },
+        },
+      });
+      if (!task) throw new AppError("NOT_FOUND");
+      if (command.expectedRevision !== undefined && task.revision !== command.expectedRevision)
+        throw new AppError("CONFLICT");
+      const actor = await tx.conversationMember.findUniqueOrThrow({
+        where: {
+          id_conversationId_workspaceId: {
+            id: member.id,
+            conversationId,
+            workspaceId: task.workspaceId,
+          },
+        },
+        include: { user: true, agent: true },
+      });
+      const changed = await tx.task.updateMany({
+        where: { messageId: task.messageId, revision: task.revision },
+        data: {
+          ...(command.title !== undefined && { title: command.title.trim() }),
+          ...(command.description !== undefined && {
+            description: command.description,
+          }),
+          revision: { increment: 1 },
+        },
+      });
+      if (changed.count !== 1) throw new AppError("CONFLICT");
+      const updated = await tx.task.findUniqueOrThrow({
+        where: { messageId: task.messageId },
+        select: taskSelection,
+      });
+      const event = await tx.taskHistoryEvent.create({
+        data: {
+          taskMessageId: task.messageId,
+          sequence: (task.history[0]?.sequence ?? 0) + 1,
+          eventType: "amended",
+          actorKind: member.agentId ? "agent" : "user",
+          actorName: actor.agent?.displayName ?? actor.user?.displayName ?? actor.user?.username,
+          beforeTitle: command.title !== undefined ? task.title : undefined,
+          afterTitle: command.title !== undefined ? updated.title : undefined,
+          beforeDescription: command.description !== undefined ? task.description : undefined,
+          afterDescription: command.description !== undefined ? updated.description : undefined,
+        },
+      });
+      return { updated, event };
+    });
+    await this.signalTaskChange(result.updated);
+    return {
+      tasks: [view(result.updated)],
+      history: [
+        {
+          id: result.event.id,
+          sequence: result.event.sequence,
+          eventType: result.event.eventType,
+          actorKind: result.event.actorKind as "user" | "agent" | "system",
+          actorName: result.event.actorName,
+          beforeTitle: result.event.beforeTitle ?? undefined,
+          afterTitle: result.event.afterTitle ?? undefined,
+          beforeDescription: result.event.beforeDescription,
+          afterDescription: result.event.afterDescription,
+          createdAt: result.event.createdAt.toISOString(),
+        },
+      ],
+    };
+  }
+
+  private async history(conversationId: string, command: TaskCommand): Promise<TaskResult> {
+    const task = await this.db.task.findUnique({
+      where: {
+        conversationId_number: { conversationId, number: command.number! },
+      },
+      select: { ...taskSelection, history: { orderBy: { sequence: "asc" } } },
+    });
+    if (!task) throw new AppError("NOT_FOUND");
+    return {
+      tasks: [view(task)],
+      history: task.history.map((event) => ({
+        id: event.id,
+        sequence: event.sequence,
+        eventType: event.eventType,
+        actorKind: event.actorKind as "user" | "agent" | "system",
+        actorName: event.actorName,
+        beforeTitle: event.beforeTitle ?? undefined,
+        afterTitle: event.afterTitle ?? undefined,
+        beforeDescription: event.beforeDescription,
+        afterDescription: event.afterDescription,
+        createdAt: event.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  private async delete(
+    conversationId: string,
+    workspaceId: string,
+    member: { id: string; userId: string | null },
+    command: TaskCommand,
+  ): Promise<TaskResult> {
+    const task = await this.db.task.findUnique({
+      where: {
+        conversationId_number: { conversationId, number: command.number! },
+      },
+      select: { messageId: true, creatorMemberId: true },
+    });
+    if (!task) throw new AppError("NOT_FOUND");
+    const membership = member.userId
+      ? await this.db.workspaceMembership.findUnique({
+          where: { workspaceId_userId: { workspaceId, userId: member.userId } },
+          select: { role: true },
+        })
+      : null;
+    if (
+      task.creatorMemberId !== member.id &&
+      membership?.role !== "admin" &&
+      membership?.role !== "owner"
+    )
+      throw new AppError("ACCESS_DENIED");
+    await this.db.task.delete({ where: { messageId: task.messageId } });
+    return { tasks: [] };
+  }
+
+  private async receipt(
+    conversationId: string,
+    workspaceId: string,
+    member: { id: string; userId: string | null; agentId: string | null },
+    command: TaskCommand,
+  ): Promise<TaskResult> {
+    const receipt = command.receipt;
+    if (
+      !receipt ||
+      Object.values(receipt).some((value) => typeof value !== "string" || !value.trim()) ||
+      !receipt.teardownOwner.match(/^@[a-z0-9][a-z0-9_-]{0,63}$/)
+    )
+      throw new AppError("INVALID_INPUT");
+    const fireAt = new Date(receipt.expiry);
+    if (!Number.isFinite(fireAt.getTime())) throw new AppError("INVALID_INPUT");
+
+    const result = await this.db.$transaction(async (tx) => {
+      const task = await tx.task.findUnique({
+        where: {
+          conversationId_number: { conversationId, number: command.number! },
+        },
+        select: {
+          ...taskSelection,
+          ownerMemberId: true,
+          resourceExpiryFollowupId: true,
+        },
+      });
+      if (!task) throw new AppError("NOT_FOUND");
+      if (!task.createsResource) throw new AppError("CONFLICT");
+      const membership = member.userId
+        ? await tx.workspaceMembership.findUnique({
+            where: {
+              workspaceId_userId: { workspaceId, userId: member.userId },
+            },
+            select: { role: true },
+          })
+        : null;
+      if (
+        task.ownerMemberId !== member.id &&
+        membership?.role !== "owner" &&
+        membership?.role !== "admin"
+      )
+        throw new AppError("ACCESS_DENIED");
+      const teardownOwner = await tx.agent.findFirst({
+        where: {
+          workspaceId,
+          name: receipt.teardownOwner.slice(1),
+          computerId: { not: null },
+          conversations: { some: { conversationId } },
+        },
+        select: { id: true, computerId: true, name: true },
+      });
+      if (!teardownOwner?.computerId) throw new AppError("NOT_FOUND");
+      await tx.$queryRaw`SELECT "id" FROM "agents" WHERE "id" = ${teardownOwner.id}::uuid FOR UPDATE`;
+      const workspaceComputer = await tx.workspaceComputer.findUnique({
+        where: {
+          workspaceId_computerId: {
+            workspaceId,
+            computerId: teardownOwner.computerId,
+          },
+        },
+        select: { computerId: true },
+      });
+      if (!workspaceComputer) throw new AppError("ACCESS_DENIED");
+      if (task.resourceExpiryFollowupId) {
+        const recorded = view(task).resourceReceipt;
+        if (
+          !recorded ||
+          Object.entries(receipt).some(([key, value]) => Reflect.get(recorded, key) !== value)
+        )
+          throw new AppError("CONFLICT");
+        const reminder = await tx.reminder.findUniqueOrThrow({
+          where: { id: task.resourceExpiryFollowupId },
+        });
+        return { task, reminder, owner: teardownOwner };
+      }
+      if (fireAt <= new Date()) throw new AppError("INVALID_INPUT");
+      const activeReminders = await tx.reminder.count({
+        where: {
+          workspaceId,
+          ownerAgentId: teardownOwner.id,
+          status: "scheduled",
+        },
+      });
+      if (activeReminders >= MAX_ACTIVE_REMINDERS) throw new AppError("CONFLICT");
+      const conversation = await tx.conversation.findUniqueOrThrow({
+        where: { id: conversationId },
+        select: {
+          channelName: true,
+          members: {
+            where: { userId: { not: null } },
+            take: 1,
+            select: { user: { select: { username: true } } },
+          },
+        },
+      });
+      const baseTarget = conversation.channelName
+        ? `#${conversation.channelName}`
+        : `@${conversation.members[0]?.user?.username}`;
+      if (baseTarget.endsWith("undefined")) throw new AppError("INTERNAL_ERROR");
+      const reminder = await tx.reminder.create({
+        data: {
+          workspaceId,
+          ownerAgentId: teardownOwner.id,
+          computerId: teardownOwner.computerId,
+          title: `Expire resource from task #${task.number}: ${receipt.object}`,
+          target: `${baseTarget}:${task.messageId}`,
+          messageId: task.messageId,
+          fireAt,
+          events: {
+            create: {
+              workspace: { connect: { id: workspaceId } },
+              type: "created",
+              title: `Expire resource from task #${task.number}`,
+              scheduledFor: fireAt,
+            },
+          },
+        },
+      });
+      const changed = await tx.task.updateMany({
+        where: {
+          messageId: task.messageId,
+          revision: task.revision,
+          resourceExpiryFollowupId: null,
+        },
+        data: {
+          resourceReceipt: receipt,
+          resourceReceiptRecordedAt: new Date(),
+          resourceTeardownOwnerAgentId: teardownOwner.id,
+          resourceExpiryFollowupId: reminder.id,
+          revision: { increment: 1 },
+        },
+      });
+      if (changed.count !== 1) throw new AppError("CONFLICT");
+      const updated = await tx.task.findUniqueOrThrow({
+        where: { messageId: task.messageId },
+        select: taskSelection,
+      });
+      return { task: updated, reminder, owner: teardownOwner };
+    });
+    await this.signalTaskChange(result.task);
+    if (this.dependencies.publisher)
+      try {
+        await this.dependencies.publisher.publish(
+          daemonControlChannel(workspaceId, result.reminder.computerId),
+          encodeReminderSync({
+            protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+            requestId: command.requestId,
+            workspaceId,
+            computerId: result.reminder.computerId,
+            agentId: result.owner.id,
+            operation: "upsert",
+            jobs: [
+              {
+                reminderId: result.reminder.id,
+                ownerAgentId: result.owner.id,
+                version: result.reminder.version,
+                title: result.reminder.title,
+                target: result.reminder.target,
+                messageId: result.reminder.messageId,
+                fireAt: result.reminder.fireAt.toISOString(),
+              },
+            ],
+            messageType: REMINDER_SYNC_MESSAGE_TYPE,
+          }),
+        );
+      } catch {
+        // Reminder snapshot reconciliation repairs a missed upsert.
+      }
+    return {
+      tasks: [view(result.task)],
+      resourceFollowup: {
+        id: result.reminder.id,
+        ownerAgentId: result.owner.id,
+        owner: `@${result.owner.name}`,
+        fireAt: result.reminder.fireAt.toISOString(),
+        messageId: result.reminder.messageId,
+        conversationId,
+      },
+    };
   }
 
   private async signalTaskChange(task: SelectedTask) {

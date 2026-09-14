@@ -79,8 +79,13 @@ export function useConversationTasks(conversationId: string) {
           data: { ...input, requestId: input.requestId ?? crypto.randomUUID(), conversationId },
         });
         mutationSequenceRef.current += 1;
-        if (conversationRef.current === conversationId)
-          setTasks((current) => mergeTaskChanges(current, result.tasks));
+        if (conversationRef.current === conversationId) {
+          setTasks((current) =>
+            input.operation === "delete" && input.number
+              ? current.filter((task) => task.number !== input.number)
+              : mergeTaskChanges(current, result.tasks),
+          );
+        }
         return result.tasks;
       } catch (cause) {
         setError(m.tasks_mutation_error());

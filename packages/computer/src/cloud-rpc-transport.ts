@@ -1,85 +1,143 @@
-import { Centrifuge } from "centrifuge/build/protobuf";
 import type {
   ComputerRegisterRequest,
   ComputerRegisterResponse,
   ComputerRegisterTransport,
 } from "@coforge/protocol";
 import { WORKSPACE_GET_METHOD, WORKSPACE_PROTOCOL_MAJOR } from "@coforge/protocol";
-import type { ComputerWorkspaceRpcTransport } from "./workspace/lookup";
-import type { AccessibleWorkspace, Credential } from "./login";
-import { RemoteRpcError, safeErrorDetail, setupError, TransportError } from "./errors";
 import {
-  encodeComputerRegisterRequest,
   decodeComputerRegisterResponse,
-  encodeWorkspaceGetRequest,
   decodeWorkspaceGetResponse,
+  encodeComputerRegisterRequest,
+  encodeWorkspaceGetRequest,
 } from "@coforge/protocol/codec";
+import { z } from "zod";
+import { loginError, RemoteRpcError } from "./errors";
+import type { AccessibleWorkspace, Credential } from "./login";
+import type { ComputerWorkspaceRpcTransport } from "./workspace/lookup";
 
-export interface CentrifugeClient {
-  on(event: "connected", callback: () => void): void;
-  on(event: "error", callback: (error: unknown) => void): void;
-  connect(): void;
-  disconnect(): void;
-  rpc(method: string, data: Uint8Array): Promise<{ data: Uint8Array }>;
+const rpcEnvelopeSchema = z.union([
+  z.object({ result: z.object({ b64data: z.string() }) }),
+  z.object({ error: z.object({ code: z.number(), message: z.string() }) }),
+]);
+
+type Fetch = (
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+) => ReturnType<typeof fetch>;
+
+async function callHttpRpc(
+  fetchImplementation: Fetch,
+  serverUrl: string,
+  path: string,
+  token: string,
+  method: string,
+  requestId: string,
+  payload: Uint8Array,
+): Promise<Uint8Array> {
+  let response: Response;
+  try {
+    response = await fetchImplementation(new URL(path, serverUrl), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ b64data: payload.toBase64() }),
+      redirect: "error",
+    });
+  } catch (error) {
+    throw new RemoteRpcError(method, undefined, requestId, "The CoForge RPC request failed.", {
+      cause: error,
+    });
+  }
+
+  if (response.status === 401)
+    throw loginError("AUTH_LOGIN_EXPIRED", "Your CoForge login has expired.");
+
+  let envelope: z.infer<typeof rpcEnvelopeSchema>;
+  try {
+    envelope = rpcEnvelopeSchema.parse(await response.json());
+  } catch (error) {
+    throw new RemoteRpcError(
+      method,
+      response.status,
+      requestId,
+      "The CoForge RPC service returned an invalid response.",
+      { cause: error },
+    );
+  }
+
+  if ("error" in envelope) {
+    if (envelope.error.code === 401)
+      throw loginError("AUTH_LOGIN_EXPIRED", "Your CoForge login has expired.");
+    throw new RemoteRpcError(
+      method,
+      envelope.error.code,
+      requestId,
+      `The CoForge RPC service rejected '${method}'.`,
+    );
+  }
+  if (!response.ok)
+    throw new RemoteRpcError(
+      method,
+      response.status,
+      requestId,
+      `The CoForge RPC service rejected '${method}'.`,
+    );
+
+  try {
+    return Uint8Array.fromBase64(envelope.result.b64data);
+  } catch (error) {
+    throw new RemoteRpcError(
+      method,
+      response.status,
+      requestId,
+      "The CoForge RPC service returned invalid data.",
+      { cause: error },
+    );
+  }
 }
 
-export type CentrifugeFactory = (endpoint: string, token: string) => CentrifugeClient;
-
-const defaultFactory: CentrifugeFactory = (endpoint, token) =>
-  new Centrifuge(endpoint, {
-    token,
-    websocket: globalThis.WebSocket,
-  }) as unknown as CentrifugeClient;
-
-export class CentrifugoComputerRegisterTransport implements ComputerRegisterTransport {
+export class HttpComputerRegisterTransport implements ComputerRegisterTransport {
   constructor(
-    private readonly endpoint: string,
+    private readonly serverUrl: string,
     private readonly token: string,
-    private readonly factory: CentrifugeFactory = defaultFactory,
+    private readonly fetchImplementation: Fetch = fetch,
   ) {}
 
   async request(
     method: typeof import("@coforge/protocol").COMPUTER_REGISTER_METHOD,
     payload: ComputerRegisterRequest,
   ): Promise<ComputerRegisterResponse> {
-    const client = this.factory(this.endpoint, this.token);
+    const bytes = await callHttpRpc(
+      this.fetchImplementation,
+      this.serverUrl,
+      "/api/computer/attach",
+      this.token,
+      method,
+      payload.requestId,
+      encodeComputerRegisterRequest(payload),
+    );
     try {
-      try {
-        await new Promise<void>((resolve, reject) => {
-          client.on("connected", resolve);
-          client.on("error", reject);
-          client.connect();
-        });
-      } catch (error) {
-        throw new TransportError(
-          `Could not connect to the CoForge RPC service: ${safeErrorDetail(error)}`,
-          { cause: error },
-        );
-      }
-      try {
-        const response = await client.rpc(method, encodeComputerRegisterRequest(payload));
-        return decodeComputerRegisterResponse(response.data);
-      } catch (error) {
-        const detail = error as { code?: string | number; requestId?: string; message?: string };
-        throw new RemoteRpcError(
-          method,
-          detail.code,
-          detail.requestId ?? payload.requestId,
-          `The CoForge service rejected the Computer registration: ${safeErrorDetail(error)}`,
-          { cause: error },
-        );
-      }
-    } finally {
-      client.disconnect();
+      const response = decodeComputerRegisterResponse(bytes);
+      if (response.requestId !== payload.requestId) throw new Error("request ID mismatch");
+      return response;
+    } catch (error) {
+      throw new RemoteRpcError(
+        method,
+        undefined,
+        payload.requestId,
+        "Invalid registration response.",
+        {
+          cause: error,
+        },
+      );
     }
   }
 }
 
-export class CentrifugoWorkspaceRpcTransport implements ComputerWorkspaceRpcTransport {
-  constructor(
-    private readonly factory: CentrifugeFactory = defaultFactory,
-    private readonly endpointForServer: (serverUrl: string) => string = centrifugoWebSocketEndpoint,
-  ) {}
+export class HttpWorkspaceRpcTransport implements ComputerWorkspaceRpcTransport {
+  constructor(private readonly fetchImplementation: Fetch = fetch) {}
 
   async getBySlug(
     serverUrl: string,
@@ -87,10 +145,13 @@ export class CentrifugoWorkspaceRpcTransport implements ComputerWorkspaceRpcTran
     slug: string,
   ): Promise<AccessibleWorkspace> {
     const requestId = crypto.randomUUID();
-    const result = await this.call(
-      this.endpointForServer(serverUrl),
+    const bytes = await callHttpRpc(
+      this.fetchImplementation,
+      serverUrl,
+      "/api/computer/workspace",
       credential.accessToken,
       WORKSPACE_GET_METHOD,
+      requestId,
       encodeWorkspaceGetRequest({
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
         requestId,
@@ -98,65 +159,21 @@ export class CentrifugoWorkspaceRpcTransport implements ComputerWorkspaceRpcTran
       }),
     );
     try {
-      const response = decodeWorkspaceGetResponse(result.data);
+      const response = decodeWorkspaceGetResponse(bytes);
       if (response.protocolMajor !== WORKSPACE_PROTOCOL_MAJOR || response.requestId !== requestId)
-        throw new Error("invalid response");
+        throw new Error("response correlation mismatch");
       return response.workspace;
-    } catch {
-      throw setupError(
-        "SETUP_WORKSPACE_NOT_FOUND",
-        `Workspace '${slug}' was not found or is not accessible.`,
-        "workspace-lookup",
+    } catch (error) {
+      throw new RemoteRpcError(
+        WORKSPACE_GET_METHOD,
+        undefined,
+        requestId,
+        "Invalid Workspace response.",
+        {
+          cause: error,
+        },
       );
     }
-  }
-
-  private async call(endpoint: string, token: string, method: string, payload: Uint8Array) {
-    const client = this.factory(endpoint, token);
-    try {
-      try {
-        await new Promise<void>((resolve, reject) => {
-          client.on("connected", resolve);
-          client.on("error", reject);
-          client.connect();
-        });
-      } catch (error) {
-        throw new TransportError(
-          `Could not connect to the CoForge RPC service: ${safeErrorDetail(error)}`,
-          { cause: error },
-        );
-      }
-      try {
-        return await client.rpc(method, payload);
-      } catch (error) {
-        const detail = error as { code?: string | number; requestId?: string };
-        throw new RemoteRpcError(
-          method,
-          detail.code,
-          detail.requestId,
-          `The CoForge service rejected the Workspace lookup: ${safeErrorDetail(error)}`,
-          { cause: error },
-        );
-      }
-    } finally {
-      client.disconnect();
-    }
-  }
-}
-
-/** Kept as an explicit failure for callers that have not wired cloud RPC. */
-export class UnconfiguredComputerWorkspaceRpcTransport implements ComputerWorkspaceRpcTransport {
-  getBySlug(
-    _serverUrl: string,
-    _credential: Credential,
-    _slug: string,
-  ): Promise<AccessibleWorkspace> {
-    return Promise.reject(
-      setupError(
-        "SETUP_WORKSPACE_RPC_UNAVAILABLE",
-        "Workspace lookup RPC is not configured; no Workspace lookup method is approved in the current protocol.",
-      ),
-    );
   }
 }
 
@@ -168,37 +185,10 @@ export function centrifugoWebSocketEndpoint(serverUrl: string, endpointOverride?
   return url.toString();
 }
 
-/**
- * E2E-only split endpoint. OAuth and HTTP workspace URLs remain serverUrl;
- * production has no override and keeps deriving WSS from that URL.
- */
-export function resolveCentrifugoWebSocketEndpoint(
-  serverUrl: string,
-  env = process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1" ? Bun.env : {},
-): string {
-  const override =
-    env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1" ? env.COFORGE_E2E_CENTRIFUGO_ENDPOINT : undefined;
-  return centrifugoWebSocketEndpoint(serverUrl, override);
-}
-
-/**
- * Daemon's server connection endpoint. The Daemon connects through
- * Centrifugo's standard client WebSocket path, same as the browser;
- * Centrifugo's official Connect Proxy (not a URL prefix) distinguishes the
- * Daemon API key connect data from a browser's JWT. See docs/architecture.md's
- * "Standalone Centrifugo" section and ADR 0004.
- */
 export function daemonConnectionEndpoint(serverUrl: string): string {
   return centrifugoWebSocketEndpoint(serverUrl);
 }
 
-/**
- * E2E-only split endpoint, mirroring `resolveCentrifugoWebSocketEndpoint`.
- * Locally and in E2E the Daemon's WSS target (Centrifugo's exposed port) and
- * `serverUrl` (the Web HTTP origin) are different hosts/ports because nothing
- * fronts them with one reverse proxy the way Caddy does in staging/production;
- * production has no override and keeps deriving WSS from `serverUrl`.
- */
 export function resolveDaemonConnectionEndpoint(
   serverUrl: string,
   env = process.env.COFORGE_E2E_ALLOW_DEVICE_AUTH === "1" ? Bun.env : {},

@@ -92,12 +92,3 @@ export interface AgentSession {
   onExit(listener: () => void): () => void;
   dispose(): Promise<void>;
 }
-export interface AgentDriver {
-  readonly provider: RuntimeProvider;
-  createAgentSession(options: AgentSessionOptions): Promise<AgentSession>;
-  readUsage?(options: {
-    workingDirectory: string;
-    timeoutMs?: number;
-  }): Promise<UsageSnapshot | null>;
-}
-export type AgentDriverFactory = (provider: RuntimeProvider) => AgentDriver;

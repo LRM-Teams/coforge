@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverPiModels } from "@coforge/agent";
 import type { AgentRuntimeEvent } from "../src/code-agent/contract";
-import { CoforgeDriver, PiDriver } from "../src/code-agent/pi/driver";
+import { CoforgeProvider, PiProvider } from "../src/code-agent/pi/driver";
 
 const TEST_AGENT_INSTRUCTIONS = "Test Agent instructions.";
 
@@ -36,7 +36,7 @@ test("Pi resolves native provider environment auth below stored auth and Agent k
           join(agentDir, "auth.json"),
           JSON.stringify({ openai: { type: "api_key", key: "stored-key" } }),
         );
-      const session = await new PiDriver().createAgentSession({
+      const session = await new PiProvider().createAgentSession({
         agentWorkspaceDirectory: workspace,
         instructions: TEST_AGENT_INSTRUCTIONS,
         environment: {
@@ -123,7 +123,7 @@ test("CoForge retains its isolated resources and required managed key", async ()
   const workspace = await mkdtemp(join(tmpdir(), "coforge-builtin-"));
   try {
     await expect(
-      new CoforgeDriver().createAgentSession({
+      new CoforgeProvider().createAgentSession({
         agentWorkspaceDirectory: workspace,
         instructions: TEST_AGENT_INSTRUCTIONS,
         runtime: {
@@ -187,7 +187,7 @@ test("embedded Pi uses host models and resources while an Agent key overrides ho
   );
   const originalAuth = await Bun.file(authPath).text();
   const sessionIds: string[] = [];
-  const session = await new PiDriver().createAgentSession({
+  const session = await new PiProvider().createAgentSession({
     agentWorkspaceDirectory: workspace,
     agentId: "real-agent-id",
     instructions: TEST_AGENT_INSTRUCTIONS,
@@ -213,7 +213,7 @@ test("embedded Pi uses host models and resources while an Agent key overrides ho
     for await (const path of new Bun.Glob("**/*").scan({ cwd: workspace, dot: true }))
       expect(await Bun.file(join(workspace, path)).text()).not.toContain("agent-secret-key");
     await session.dispose();
-    const fresh = await new PiDriver().createAgentSession({
+    const fresh = await new PiProvider().createAgentSession({
       agentWorkspaceDirectory: workspace,
       agentId: "real-agent-id",
       instructions: TEST_AGENT_INSTRUCTIONS,
@@ -277,7 +277,7 @@ test("concurrent embedded Pi sessions keep distinct in-memory Agent keys", async
   const create = async (name: string, apiKey?: string) => {
     const workspace = join(root, name);
     await mkdir(workspace);
-    return new PiDriver().createAgentSession({
+    return new PiProvider().createAgentSession({
       agentWorkspaceDirectory: workspace,
       instructions: TEST_AGENT_INSTRUCTIONS,
       environment: { PI_CODING_AGENT_DIR: agentDir },
@@ -346,7 +346,7 @@ test("embedded Pi default bash preserves host prefix and composes runtime and ho
     JSON.stringify({ shellCommandPrefix: "export COFORGE_PREFIX_SENTINEL=host-prefix" }),
   );
   const events: AgentRuntimeEvent[] = [];
-  const session = await new PiDriver().createAgentSession({
+  const session = await new PiProvider().createAgentSession({
     agentWorkspaceDirectory: workspace,
     instructions: TEST_AGENT_INSTRUCTIONS,
     ...piRuntime(agentDir),
@@ -413,7 +413,7 @@ test("embedded Pi keeps a host extension bash override instead of installing def
     `import { Type } from "@earendil-works/pi-ai";
 export default function (pi) { pi.registerTool({ name: "bash", label: "Host bash", description: "host override", parameters: Type.Object({ command: Type.String() }), async execute() { return { content: [{ type: "text", text: "HOST_BASH_SENTINEL" }], details: {} }; } }); }`,
   );
-  const session = await new PiDriver().createAgentSession({
+  const session = await new PiProvider().createAgentSession({
     agentWorkspaceDirectory: workspace,
     instructions: TEST_AGENT_INSTRUCTIONS,
     ...piRuntime(agentDir),
@@ -446,7 +446,7 @@ test("embedded Pi launches despite a duplicate host skill warning", async () => 
       "---\nname: duplicate-host-skill\ndescription: duplicate warning fixture\n---\nInstructions.\n",
     );
   }
-  const session = await new PiDriver().createAgentSession({
+  const session = await new PiProvider().createAgentSession({
     agentWorkspaceDirectory: workspace,
     instructions: TEST_AGENT_INSTRUCTIONS,
     ...piRuntime(agentDir),
@@ -515,7 +515,7 @@ for (const phase of ["tool", "preflight"] as const) {
         : `import { Type } from "@earendil-works/pi-ai";
 export default function (pi) { pi.registerTool({ name: "controlled", label: "Controlled", description: "controlled barrier", parameters: Type.Object({}), async execute() { await fetch(${JSON.stringify(`${barrier.url}wait`)}); return { content: [{ type: "text", text: "released" }], details: {} }; } }); }`,
     );
-    const session = await new PiDriver().createAgentSession({
+    const session = await new PiProvider().createAgentSession({
       agentWorkspaceDirectory: workspace,
       instructions: TEST_AGENT_INSTRUCTIONS,
       ...piRuntime(agentDir),
@@ -576,7 +576,7 @@ test("built-in notifications are accepted before completion and steer the existi
       providers: { openrouter: { baseUrl: `${server.url}v1` } },
     }),
   );
-  const session = await new CoforgeDriver().createAgentSession({
+  const session = await new CoforgeProvider().createAgentSession({
     agentWorkspaceDirectory,
     instructions: TEST_AGENT_INSTRUCTIONS,
     runtime: {
@@ -663,7 +663,7 @@ test("embedded Pi notifications are accepted before completion and steer the exi
       },
     }),
   );
-  const session = await new PiDriver().createAgentSession({
+  const session = await new PiProvider().createAgentSession({
     agentWorkspaceDirectory: workspace,
     instructions: TEST_AGENT_INSTRUCTIONS,
     environment: { PI_CODING_AGENT_DIR: agentDir },

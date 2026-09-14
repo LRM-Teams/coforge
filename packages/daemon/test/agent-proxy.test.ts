@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { startAgentProxy } from "../src/agent-proxy";
 import { AgentMessageRequestError } from "../src/connection/agent-message-request-error";
+import { AgentTaskRequestError } from "../src/connection/agent-task-request-error";
 
 const proxies: Array<{ close(): void }> = [];
 
@@ -38,6 +39,41 @@ test("proxy returns safe Agent message failures and hides unknown failures", asy
     expect(response.status).toBe(status);
     expect(await response.text()).toBe(message);
   }
+});
+
+test("proxy redacts known request errors in reviewer-isolated mode", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => {
+        throw AgentMessageRequestError.fromRpc(400, "sensitive message failure");
+      },
+      agentTask: async () => {
+        throw new AgentTaskRequestError("sensitive task failure");
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const post = (path: string, body: Record<string, unknown>) =>
+    fetch(proxy.url.replace("/agent/message", path), {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ ...body, freshnessContextMode: "withheld" }),
+    });
+  const message = await post("/agent/message", {
+    requestId: "message",
+    operation: "send",
+    target: "@ada",
+    body: "reply",
+  });
+  expect([message.status, await message.text()]).toEqual([502, "proxy request failed"]);
+  const task = await post("/agent/task", {
+    requestId: "task",
+    operation: "claim",
+    target: "#general",
+    number: 1,
+  });
+  expect([task.status, await task.text()]).toEqual([502, "proxy request failed"]);
 });
 
 test("one shared proxy maps opaque per-Agent tokens and fails closed", async () => {

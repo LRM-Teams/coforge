@@ -1,12 +1,12 @@
 import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type {
-  AgentDriver,
   AgentSession,
   AgentSessionOptions,
   AgentRuntimeEvent,
   AgentSessionIdentity,
 } from "@coforge/agent";
+import type { CodeAgentProvider } from "../contract";
 import type {
   SessionNotification,
   SessionConfigOption,
@@ -19,12 +19,34 @@ import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { toolActivity } from "../tool-activity";
 import { bounded, KIRO_ACP_ARGS, KiroConnection, record } from "./connection";
 import { readKiroUsage } from "./usage";
+import { discoverKiroCatalog } from "./catalog";
+import { discoverExternalCodeAgents } from "../runtime-inventory";
+import type { ProviderDiscoveryOptions } from "../contract";
 
-export class KiroDriver implements AgentDriver {
+export class KiroProvider implements CodeAgentProvider {
   readonly provider = RUNTIME_PROVIDER.KIRO;
   constructor(
     private readonly options: { command?: readonly string[]; configTimeoutMs?: number } = {},
   ) {}
+
+  async discoverRuntime(options: ProviderDiscoveryOptions = {}) {
+    return (
+      await discoverExternalCodeAgents(
+        options.probe,
+        options.environment,
+        options.platform,
+        RUNTIME_PROVIDER.KIRO,
+      )
+    )[0];
+  }
+
+  discoverModelCatalog(options: ProviderDiscoveryOptions = {}) {
+    return discoverKiroCatalog(
+      options.command ?? ["kiro-cli", ...KIRO_ACP_ARGS],
+      options.cwd ?? process.cwd(),
+      options.environment ?? Bun.env,
+    );
+  }
 
   readUsage(options: { workingDirectory: string; timeoutMs?: number }) {
     return readKiroUsage({ timeoutMs: options.timeoutMs });

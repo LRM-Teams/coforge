@@ -3,13 +3,13 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { CodexDriver } from "../src/code-agent/codex/driver";
+import { CodexProvider } from "../src/code-agent/codex/driver";
 import type { AgentRuntimeEvent } from "../src/code-agent/contract";
 
 const TEST_AGENT_INSTRUCTIONS = "Test Agent instructions.";
 
 test("Codex resumes or starts fresh only for the native missing-thread error", async () => {
-  const adapter = new CodexDriver({
+  const adapter = new CodexProvider({
     command: [
       process.execPath,
       new URL("./fixtures/codex-app-server.ts", import.meta.url).pathname,
@@ -54,7 +54,7 @@ test("Codex loads skills before running app-server behind the code-agent seam", 
     join(skillDirectory, "SKILL.md"),
     "---\nname: fixture-skill\ndescription: Fixture skill\n---\n",
   );
-  const adapter = new CodexDriver({
+  const adapter = new CodexProvider({
     command: [
       process.execPath,
       new URL("./fixtures/codex-app-server.ts", import.meta.url).pathname,
@@ -158,7 +158,7 @@ test("Codex starts the user's installed CLI from PATH", async () => {
   const marker = join(directory, "codex-started");
 
   try {
-    const session = await new CodexDriver().createAgentSession({
+    const session = await new CodexProvider().createAgentSession({
       agentWorkspaceDirectory,
       instructions: TEST_AGENT_INSTRUCTIONS,
       environment: {
@@ -300,8 +300,8 @@ test("Codex propagates steering rejection without starting another turn", async 
   }
 });
 
-function fixtureAdapter(): CodexDriver {
-  return new CodexDriver({
+function fixtureAdapter(): CodexProvider {
+  return new CodexProvider({
     command: [
       process.execPath,
       new URL("./fixtures/codex-app-server.ts", import.meta.url).pathname,

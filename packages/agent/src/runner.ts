@@ -90,6 +90,13 @@ export async function createSession(options: {
   if (options.modelProvider && options.apiKey)
     await modelRuntime.setRuntimeApiKey(options.modelProvider, options.apiKey);
   configureRuntimeEnvironment(modelRuntime, environment);
+  if (sessionKind === "pi") {
+    await refreshPiModelCatalog(
+      modelRuntime,
+      environment,
+      options.modelProvider ? [options.modelProvider] : undefined,
+    );
+  }
   const services = await createAgentSessionServices({
     cwd,
     agentDir,
@@ -252,6 +259,7 @@ export async function discoverPiModels(
   const environment = { ...options.environment };
   const modelRuntime = await createPiModelRuntime(options.agentDir, environment);
   configureRuntimeEnvironment(modelRuntime, environment);
+  await refreshPiModelCatalog(modelRuntime, environment);
   const services = await createAgentSessionServices({
     cwd,
     agentDir: options.agentDir,
@@ -278,6 +286,26 @@ async function createPiModelRuntime(
     if (resolved?.auth.apiKey) await modelRuntime.setRuntimeApiKey(provider, resolved.auth.apiKey);
   }
   return modelRuntime;
+}
+
+async function refreshPiModelCatalog(
+  modelRuntime: ModelRuntime,
+  environment: Readonly<Record<string, string>>,
+  providers?: readonly string[],
+) {
+  if (Bun.env.PI_OFFLINE !== undefined || environment.PI_OFFLINE !== undefined) return;
+  const configuredProviders =
+    providers?.filter((provider) => modelRuntime.hasConfiguredAuth(provider)) ??
+    modelRuntime
+      .getProviders()
+      .flatMap((provider) => (modelRuntime.hasConfiguredAuth(provider.id) ? [provider.id] : []));
+  if (configuredProviders.length === 0) return;
+  await modelRuntime.refresh({
+    providers: configuredProviders,
+    allowNetwork: true,
+    force: true,
+    signal: AbortSignal.timeout(5_000),
+  });
 }
 
 if (import.meta.main) {

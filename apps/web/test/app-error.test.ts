@@ -13,6 +13,8 @@ describe("server error disclosure", () => {
     );
     cause.name = "secret@127.0.0.1";
     Object.assign(cause, { code: "PASSWORD_SECRET" });
+    cause.stack =
+      "secret\n    at query (/private/secret.ts:123:45)\n    at handler (/private/secret.ts:67:8)";
     const result = toPublicServerError(cause, report, () => "error-id");
 
     expect(result).toEqual(
@@ -26,6 +28,7 @@ describe("server error disclosure", () => {
       event: "server_operation_failed",
       errorId: "error-id",
       errorType: "error",
+      stackPositions: ["123:45", "67:8"],
     });
   });
 

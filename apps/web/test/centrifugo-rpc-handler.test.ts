@@ -274,13 +274,7 @@ describe("CentrifugoRpcHandler", () => {
       workspaceId: "workspace-1",
       computerId: "computer-1",
       runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
-      catalogs: [
-        { provider: "coforge", models: [] },
-        { provider: "pi", models: [] },
-        { provider: "codex", models: [] },
-        { provider: "claude-code", models: [] },
-        { provider: "kiro", models: [] },
-      ],
+      catalogs: [{ provider: "codex", models: [] }],
     });
 
     expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
@@ -288,13 +282,7 @@ describe("CentrifugoRpcHandler", () => {
       {
         scope: { workspaceId: "workspace-1", computerId: "computer-1" },
         runtimes: [{ provider: "codex", version: "0.151.0", displayName: "Codex" }],
-        catalogs: [
-          { provider: "coforge", models: [] },
-          { provider: "pi", models: [] },
-          { provider: "codex", models: [] },
-          { provider: "claude-code", models: [] },
-          { provider: "kiro", models: [] },
-        ],
+        catalogs: [{ provider: "codex", models: [] }],
       },
     ]);
     expect(
@@ -305,6 +293,54 @@ describe("CentrifugoRpcHandler", () => {
       code: 403,
       message: "daemon runtime identity is not authorized",
     });
+  });
+
+  test("accepts all supported Provider catalogs without a model-count cap and rejects duplicates", async () => {
+    const updates: unknown[] = [];
+    const method = createDaemonRuntimeCodeAgentsUpdateMethod({
+      replace: async (_scope, _runtimes, catalogs) => updates.push(catalogs),
+    });
+    const request = {
+      protocolMajor: 1,
+      requestId: "inventory-many",
+      workspaceId: "workspace-1",
+      computerId: "computer-1",
+      runtimes: [],
+      catalogs: [
+        { provider: "coforge", models: [] },
+        {
+          provider: "pi",
+          models: Array.from({ length: 401 }, (_, index) => ({
+            id: `model-${index}`,
+            displayName: `Model ${index}`,
+            description: "",
+            modelProvider: "openrouter",
+            defaultReasoning: "",
+            reasoningEfforts: [],
+            recommended: false,
+          })),
+        },
+        { provider: "codex", models: [] },
+        { provider: "claude-code", models: [] },
+        { provider: "kiro", models: [] },
+      ],
+    } satisfies Parameters<typeof encodeDaemonRuntimeCodeAgentsUpdateRequest>[0];
+    expect(
+      await method(encodeDaemonRuntimeCodeAgentsUpdateRequest(request), {
+        principal: principal(),
+      }),
+    ).toBeInstanceOf(Uint8Array);
+    expect(updates).toEqual([request.catalogs]);
+    expect(
+      await method(
+        encodeDaemonRuntimeCodeAgentsUpdateRequest({
+          ...request,
+          catalogs: [request.catalogs[0]!, request.catalogs[0]!],
+        }),
+        { principal: principal() },
+      ),
+    ).toEqual({ code: 400, message: "invalid Code Agent inventory" });
+    expect(updates).toHaveLength(1);
   });
 
   test("starts every existing Workspace Agent after the exact Computer reports ready", async () => {
@@ -650,6 +686,107 @@ describe("CentrifugoRpcHandler", () => {
     ]);
   });
 
+  test("isolated retries keep unseen messages held until explicit anyway", async () => {
+    let sent = 0;
+    const boundaries: Array<number | undefined> = [];
+    const receipts = new Map<string, any>();
+    const method = createAgentMessageMethod(
+      {
+        async readPendingAgentContext(
+          _workspace: string,
+          _agent: string,
+          _target: string,
+          after?: number,
+        ) {
+          boundaries.push(after);
+          return (after ?? 0) < 8
+            ? [
+                {
+                  id: "withheld-message",
+                  sequence: 8,
+                  sender: "@secret-reviewer",
+                  target: "@user",
+                  body: "blind-review-secret",
+                  createdAt: new Date("2026-09-10T00:00:00Z"),
+                },
+              ]
+            : [];
+        },
+        async userIdForUsername() {
+          return "target-user";
+        },
+        async getOrCreateUserAgent() {
+          return { id: "conversation-1" };
+        },
+        async sendAgentMessage() {
+          sent++;
+          return { id: "sent-message" };
+        },
+      },
+      {},
+      "send",
+      {
+        async canUseAgent() {
+          return true;
+        },
+      },
+      {
+        async execute(_scope, persist) {
+          return persist();
+        },
+      },
+      {
+        async issue(hold) {
+          const token = `token-${receipts.size}`;
+          receipts.set(token, hold);
+          return token;
+        },
+        async get(token) {
+          return receipts.get(token);
+        },
+        async consume(token) {
+          return receipts.delete(token);
+        },
+      },
+    );
+    const send = async (holdToken?: string, continueAnyway?: boolean) => {
+      const bytes = await method(
+        encodeAgentMessageRequest({
+          protocolMajor: 1,
+          requestId: crypto.randomUUID(),
+          workspaceId: "workspace-1",
+          agentId: "agent-a",
+          operation: "send",
+          target: "@user",
+          body: "independent review",
+          freshnessContextMode: "withheld",
+          holdToken,
+          continueAnyway,
+        }),
+        { principal: principal("agent-a") },
+      );
+      if (!(bytes instanceof Uint8Array)) throw new Error("expected response");
+      return decodeCloudAgentMessageResponse(bytes);
+    };
+    const first = await send();
+    const second = await send(first.holdToken);
+    expect(second).toMatchObject({
+      accepted: false,
+      sideEffectDecision: "hold",
+      messages: [],
+      withheldMessageCount: 1,
+    });
+    expect(JSON.stringify(second)).not.toContain("blind-review-secret");
+    expect(JSON.stringify(second)).not.toContain("secret-reviewer");
+    expect(sent).toBe(0);
+    expect(boundaries).toEqual([undefined, undefined]);
+    expect(await send(second.holdToken, true)).toMatchObject({
+      accepted: true,
+      sideEffectDecision: "anyway_accepted",
+    });
+    expect(sent).toBe(1);
+  });
+
   test("fails closed when a trusted seen sequence cannot be advanced", async () => {
     const method = createAgentMessageMethod({}, {}, "send", {
       async canUseAgent() {
@@ -693,6 +830,23 @@ describe("CentrifugoRpcHandler", () => {
         message: "protocol method dependencies are unavailable",
       },
     });
+  });
+
+  test("does not expose Computer setup methods on the WSS composition", async () => {
+    const handler = createCentrifugoRpcHandler(null);
+    const previous = process.env.COFORGE_CENTRIFUGO_PROXY_SECRET;
+    process.env.COFORGE_CENTRIFUGO_PROXY_SECRET = "test-secret";
+    try {
+      for (const method of ["workspace:get", "computer:register"]) {
+        const result = await handler.handleRequest(authorizedJson({ method, b64data: "AA==" }));
+        expect(await result.json()).toEqual({
+          error: { code: 404, message: "unknown RPC method" },
+        });
+      }
+    } finally {
+      if (previous === undefined) delete process.env.COFORGE_CENTRIFUGO_PROXY_SECRET;
+      else process.env.COFORGE_CENTRIFUGO_PROXY_SECRET = previous;
+    }
   });
 
   test("rejects an unauthenticated internal proxy request", async () => {

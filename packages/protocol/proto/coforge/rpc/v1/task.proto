@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package coforge.rpc.v1;
 
+import "coforge/rpc/v1/local_rpc.proto";
+
 message TaskRequest {
   uint32 protocol_major = 1;
   string request_id = 2;
@@ -14,12 +16,33 @@ message TaskRequest {
   optional string title = 9;
   optional string status = 10;
   optional uint32 expected_revision = 11;
+  repeated string titles = 12;
+  repeated uint32 numbers = 13;
+  repeated string message_ids = 14;
+  optional bool mine = 15;
+  optional string assignee = 16;
+  optional string description = 17;
+  optional bool creates_resource = 18;
+  TaskResourceReceipt receipt = 19;
+  optional string freshness_context_mode = 20;
+  bool clear_assignee = 21;
+  bool clear_description = 22;
 }
 
 message TaskResponse {
   uint32 protocol_major = 1;
   string request_id = 2;
   repeated TaskView tasks = 3;
+  repeated TaskClaimResult claims = 4;
+  repeated TaskHistoryEvent history = 5;
+  TaskAssignmentReceipt assignment_receipt = 6;
+  TaskResourceFollowup resource_followup = 7;
+  optional string state = 8;
+  optional string freshness_context_mode = 9;
+  optional uint32 withheld_message_count = 10;
+  repeated AgentMessageRecord held_messages = 11;
+  optional uint32 new_message_count = 12;
+  TaskClaimConflict claim_conflict = 13;
 }
 
 message TaskView {
@@ -30,10 +53,78 @@ message TaskView {
   string status = 5;
   uint32 revision = 6;
   TaskOwner owner = 7;
+  optional string description = 8;
+  optional string channel_ref = 9;
+  optional bool requires_resource_receipt = 10;
+  optional string resource_receipt_recorded_at = 11;
+  TaskResourceReceipt resource_receipt = 12;
+  optional string claimed_at = 13;
+  bool description_is_null = 14;
+  bool resource_receipt_recorded_at_is_null = 15;
+  bool claimed_at_is_null = 16;
 }
 
+message TaskResourceReceipt {
+  string object = 1;
+  string purpose = 2;
+  string teardown_owner = 3;
+  string security_privacy = 4;
+  string expiry = 5;
+  string runbook = 6;
+  string tracking = 7;
+}
+message TaskClaimResult {
+  optional uint32 number = 1;
+  optional string message_id = 2;
+  bool success = 3;
+  optional string reason = 4;
+}
+message TaskHistoryEvent {
+  string id = 1;
+  uint32 sequence = 2;
+  string event_type = 3;
+  string actor_kind = 4;
+  optional string actor_name = 5;
+  optional string before_title = 6;
+  optional string after_title = 7;
+  optional string before_description = 8;
+  optional string after_description = 9;
+  string created_at = 10;
+}
+message TaskAssignmentReceipt {
+  string message_id = 1;
+  string content = 2;
+  string assignee = 3;
+  string state = 4;
+}
+message TaskResourceFollowup {
+  string id = 1;
+  string owner_agent_id = 2;
+  string owner = 3;
+  string fire_at = 4;
+  string message_id = 5;
+  string conversation_id = 6;
+}
 message TaskOwner {
   string member_id = 1;
   string kind = 2;
   string name = 3;
+}
+
+message TaskClaimConflict {
+  string kind = 1;
+  string conflict_scope = 2;
+  repeated string blocked_actions = 3;
+  repeated string unblocked_action_examples = 4;
+  TaskCurrentAssignee current_assignee = 5;
+  string task_status = 6;
+  string claimed_at = 7;
+  string observed_at = 8;
+  bool current_assignee_is_null = 9;
+}
+
+message TaskCurrentAssignee {
+  string type = 1;
+  optional string name = 2;
+  bool name_is_null = 3;
 }

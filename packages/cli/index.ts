@@ -31,7 +31,13 @@ export type MessageInvocation =
       limit?: number;
     }
   | ({ command: "search" } & MessageSearchOptions)
-  | { command: "send"; target: string; sendDraft?: boolean; continueAnyway?: boolean };
+  | {
+      command: "send";
+      target: string;
+      sendDraft?: boolean;
+      continueAnyway?: boolean;
+      freshnessContextMode?: "withheld";
+    };
 export type AttachmentInvocation = {
   command: "attachment-view";
   attachmentId: string;
@@ -49,19 +55,31 @@ export type LocalReminderReceiptResponse = {
   revision: number;
 };
 export type ThreadInvocation = { command: "thread-unfollow"; target: string };
-export type TaskInvocation = { command: "task"; task: Omit<TaskCommand, "requestId"> };
+export type TaskInvocation = {
+  command: "task";
+  task: Omit<TaskCommand, "requestId">;
+};
 
 export type MessageTransport = {
   check(): Promise<{ messages: AgentMessageRecord[] }>;
   read(
     target: string,
-    options?: { before?: string; after?: string; around?: string; limit?: number },
+    options?: {
+      before?: string;
+      after?: string;
+      around?: string;
+      limit?: number;
+    },
   ): Promise<unknown>;
   search?(options: MessageSearchOptions): Promise<unknown>;
   send(
     target: string,
     body?: string,
-    options?: { sendDraft?: boolean; continueAnyway?: boolean },
+    options?: {
+      sendDraft?: boolean;
+      continueAnyway?: boolean;
+      freshnessContextMode?: "withheld";
+    },
   ): Promise<unknown>;
   view(attachmentId: string): Promise<{ bytes: Uint8Array; fileName?: string }>;
   inboxCheck?(): Promise<unknown>;
@@ -190,10 +208,12 @@ export function parseArgs(
       let target: string | undefined;
       let sendDraft = false;
       let continueAnyway = false;
+      let reviewerIsolation = reviewerIsolationFromEnvironment();
       for (let index = 2; index < args.length; index++) {
         if (args[index] === "--target" && args[index + 1]) target = args[++index];
         else if (args[index] === "--send-draft") sendDraft = true;
         else if (args[index] === "--anyway") continueAnyway = true;
+        else if (args[index] === "--reviewer-isolation") reviewerIsolation = true;
         else throw new Error("Usage:");
       }
       if (target && (!continueAnyway || sendDraft))
@@ -202,6 +222,7 @@ export function parseArgs(
           target,
           ...(sendDraft ? { sendDraft: true } : {}),
           ...(continueAnyway ? { continueAnyway: true } : {}),
+          ...(reviewerIsolation ? { freshnessContextMode: "withheld" as const } : {}),
         };
     }
   }
@@ -219,28 +240,32 @@ export async function run(args: readonly string[], transport: MessageTransport):
   }
   if (invocation.command === "task") {
     if (!transport.task) throw new Error("Task transport is unavailable");
-    let command = { ...invocation.task, requestId: crypto.randomUUID() } as TaskCommand;
-    if (
-      (command.operation === "update" || command.operation === "unclaim") &&
-      command.expectedRevision === undefined
-    ) {
-      const listed = await transport.task({
-        operation: "list",
-        requestId: crypto.randomUUID(),
-        target: command.target,
-      });
-      const current = listed.tasks.find((task) => task.number === command.number);
-      if (!current)
-        throw new Error(`Task #${command.number} was not found; read the Task list again`);
-      command = { ...command, expectedRevision: current.revision };
-    }
+    const command = {
+      ...invocation.task,
+      requestId: crypto.randomUUID(),
+    } as TaskCommand;
+    let result: TaskResult;
     try {
-      return formatTasks(await transport.task(command));
+      result = await transport.task(command);
     } catch (error) {
+      if (command.freshnessContextMode === "withheld")
+        throw new Error("Reviewer-isolation Task request failed; upstream detail was withheld");
       if (error instanceof Error && /revision|conflict|stale/i.test(error.message))
         throw new Error("Task changed concurrently; read the Task list again before updating");
       throw error;
     }
+    const output = formatTasks(result, command.target, command.freshnessContextMode === "withheld");
+    if (
+      command.operation === "claim" &&
+      result.claims &&
+      !result.claims.some((claim) => claim.success)
+    )
+      throw new Error(
+        command.freshnessContextMode === "withheld"
+          ? "Reviewer-isolation Task request failed; upstream detail was withheld"
+          : output,
+      );
+    return output;
   }
   if (invocation.command === "mute" || invocation.command === "unmute") {
     if (!transport.setChannelMuted) throw new Error("Channel settings transport is unavailable");
@@ -261,16 +286,30 @@ export async function run(args: readonly string[], transport: MessageTransport):
   }
   const { command } = invocation;
   if (command === "send") {
-    const result = await transport.send(
-      invocation.target,
-      invocation.sendDraft ? undefined : await new Response(Bun.stdin.stream()).text(),
-      {
-        sendDraft: invocation.sendDraft,
-        continueAnyway: invocation.continueAnyway,
-      },
-    );
-    if (isHeldSend(result)) throw heldSendError(invocation.target);
-    return formatMessageRead(result);
+    try {
+      const result = await transport.send(
+        invocation.target,
+        invocation.sendDraft ? undefined : await new Response(Bun.stdin.stream()).text(),
+        {
+          sendDraft: invocation.sendDraft,
+          continueAnyway: invocation.continueAnyway,
+          freshnessContextMode: invocation.freshnessContextMode,
+        },
+      );
+      if (isHeldSend(result)) {
+        if (invocation.freshnessContextMode === "withheld")
+          throw reviewerIsolationHoldError(result);
+        throw heldSendError(invocation.target);
+      }
+      return formatMessageRead(result);
+    } catch (error) {
+      if (
+        invocation.freshnessContextMode === "withheld" &&
+        !(error instanceof ReviewerIsolationHoldError)
+      )
+        throw new Error("Reviewer-isolation send failed; upstream response detail was withheld.");
+      throw error;
+    }
   }
   if (command === "search") {
     if (!transport.search) throw new Error("Message search transport is unavailable");
@@ -289,12 +328,23 @@ function formatMessageCheck(result: { messages: AgentMessageRecord[] }): string 
 }
 
 function formatMessage(message: AgentMessageRecord): string {
-  return `[target=${message.target} msg=${message.id.slice(0, 8)} time=${message.createdAt}] ${message.sender}: ${message.body}`;
+  const task = message.task;
+  const owner = task?.owner
+    ? ` owner=${task.owner.displayName} (@${task.owner.handle.replace(/^@/, "")})`
+    : "";
+  const suffix = task ? ` [task #${task.number} status=${task.status}${owner}]` : "";
+  const attachment = message.attachment
+    ? ` [attachment ${JSON.stringify(message.attachment)}]`
+    : "";
+  return `[target=${message.target} msg=${message.id.slice(0, 8)} time=${message.createdAt}] ${message.sender}: ${message.body}${suffix}${attachment}`;
 }
 
 function formatMessageRead(result: unknown): string {
   if (!result || typeof result !== "object") return JSON.stringify(result);
-  const response = result as { messages?: AgentMessageRecord[]; [key: string]: unknown };
+  const response = result as {
+    messages?: AgentMessageRecord[];
+    [key: string]: unknown;
+  };
   const { seenUpToSequence: _seenUpToSequence, ...withoutInternalCursor } = response;
   return JSON.stringify({
     ...withoutInternalCursor,
@@ -310,13 +360,34 @@ function formatMessageRead(result: unknown): string {
 
 function isHeldSend(result: unknown): result is { accepted: false; sideEffectDecision: "hold" } {
   if (!result || typeof result !== "object") return false;
-  const response = result as { accepted?: unknown; sideEffectDecision?: unknown };
+  const response = result as {
+    accepted?: unknown;
+    sideEffectDecision?: unknown;
+  };
   return response.accepted === false && response.sideEffectDecision === "hold";
 }
 
 function heldSendError(target: string): Error {
   return new Error(
     `Message was saved as a draft. Next commands: coforge message send --target "${target}" to replace/update it; coforge message send --target "${target}" --send-draft to send it unchanged; coforge message send --target "${target}" --send-draft --anyway as the escape hatch.`,
+  );
+}
+
+class ReviewerIsolationHoldError extends Error {}
+
+function reviewerIsolationHoldError(result: unknown): Error {
+  const response = result as {
+    newMessageCount?: unknown;
+    withheldMessageCount?: unknown;
+  };
+  const count =
+    typeof response.newMessageCount === "number"
+      ? response.newMessageCount
+      : typeof response.withheldMessageCount === "number"
+        ? response.withheldMessageCount
+        : 0;
+  return new ReviewerIsolationHoldError(
+    `Reviewer-isolation freshness hold: ${count} newer ${count === 1 ? "message" : "messages"} withheld.`,
   );
 }
 
@@ -489,50 +560,172 @@ function parseTaskArgs(args: readonly string[]): TaskInvocation {
   const operation = args[0];
   if (
     !operation ||
-    !["list", "create", "convert", "claim", "unclaim", "update"].includes(operation)
+    ![
+      "list",
+      "create",
+      "convert",
+      "claim",
+      "unclaim",
+      "update",
+      "assign",
+      "unassign",
+      "amend",
+      "history",
+      "delete",
+      "receipt",
+    ].includes(operation)
   )
     throw new Error("Usage:");
-  const values = new Map<string, string>();
-  for (let index = 1; index < args.length; index += 2) {
+  const values = new Map<string, string[]>();
+  const booleans = new Set([
+    "--mine",
+    "--creates-resource",
+    "--clear-description",
+    "--reviewer-isolation",
+  ]);
+  for (let index = 1; index < args.length; index++) {
     const name = args[index];
-    const value = args[index + 1];
-    if (!name?.startsWith("--") || !value || values.has(name)) throw new Error("Usage:");
-    values.set(name, value);
+    if (!name?.startsWith("--")) throw new Error("Usage:");
+    if (booleans.has(name)) {
+      if (values.has(name)) throw new Error("Usage:");
+      values.set(name, ["true"]);
+    } else {
+      const value = args[++index];
+      if (!value || value.startsWith("--")) throw new Error("Usage:");
+      const repeated =
+        (operation === "create" && name === "--title") ||
+        (operation === "claim" && (name === "--number" || name === "--message-id"));
+      if (values.has(name) && !repeated) throw new Error("Usage:");
+      values.set(name, [...(values.get(name) ?? []), value]);
+    }
   }
+  const one = (name: string) => values.get(name)?.[0];
   const allowed: Record<string, string[]> = {
-    list: ["--target", "--status"],
-    create: ["--target", "--title"],
+    list: ["--target", "--mine", "--status"],
+    create: ["--target", "--title", "--assignee", "--creates-resource"],
     convert: ["--target", "--message-id"],
-    claim: ["--target", "--number", "--message-id"],
+    claim: ["--target", "--number", "--message-id", "--reviewer-isolation"],
     unclaim: ["--target", "--number", "--expected-revision"],
-    update: ["--target", "--number", "--status", "--expected-revision"],
+    update: ["--target", "--number", "--status", "--expected-revision", "--reviewer-isolation"],
+    assign: ["--target", "--number", "--assignee", "--expected-revision"],
+    unassign: ["--target", "--number", "--expected-revision"],
+    amend: [
+      "--target",
+      "--number",
+      "--title",
+      "--description",
+      "--clear-description",
+      "--reviewer-isolation",
+    ],
+    history: ["--target", "--number"],
+    delete: ["--target", "--number"],
+    receipt: [
+      "--target",
+      "--number",
+      "--object",
+      "--purpose",
+      "--teardown-owner",
+      "--security-privacy",
+      "--expiry",
+      "--runbook",
+      "--tracking",
+    ],
   };
   if ([...values.keys()].some((key) => !allowed[operation]!.includes(key)))
     throw new Error("Usage:");
-  const target = values.get("--target");
-  if (!target || !/^(?:#[a-z0-9][a-z0-9_-]{0,31}|@[a-z0-9][a-z0-9_-]{0,31})$/.test(target))
+  const target = one("--target");
+  const mine = values.has("--mine");
+  if (
+    (mine && target) ||
+    (!mine &&
+      (!target || !/^(?:#[a-z0-9][a-z0-9_-]{0,31}|@[a-z0-9][a-z0-9_-]{0,31})$/.test(target)))
+  )
     throw new Error("Usage:");
-  const number = integerOption(values.get("--number"), 1);
-  const expectedRevision = integerOption(values.get("--expected-revision"), 0);
-  const status = values.get("--status") as TaskStatus | undefined;
-  if (status && !["todo", "in_progress", "in_review", "done", "closed"].includes(status))
+  const numbers = (values.get("--number") ?? []).map((value) => integerOption(value, 1)!);
+  const number = numbers[0];
+  const expectedRevision = integerOption(one("--expected-revision"), 0);
+  const rawStatus = one("--status");
+  if (
+    rawStatus &&
+    !["all", "todo", "in_progress", "in_review", "done", "closed"].includes(rawStatus)
+  )
     throw new Error("Usage:");
+  const status = rawStatus as TaskStatus | undefined;
+  if (operation !== "list" && rawStatus === "all") throw new Error("Usage:");
+  const messageIds = values.get("--message-id") ?? [];
+  const titles = values.get("--title") ?? [];
+  const reviewerIsolation =
+    ["claim", "update", "amend"].includes(operation) &&
+    (values.has("--reviewer-isolation") || reviewerIsolationFromEnvironment());
+  const assignee = operation === "unassign" ? null : one("--assignee");
+  if (assignee !== undefined && assignee !== null && !/^@[a-z0-9][a-z0-9_-]{0,31}$/.test(assignee))
+    throw new Error("Usage:");
+  const receiptFlags = [
+    "--object",
+    "--purpose",
+    "--teardown-owner",
+    "--security-privacy",
+    "--expiry",
+    "--runbook",
+    "--tracking",
+  ];
+  const expiry = one("--expiry");
+  if (operation === "receipt" && expiry && !Number.isFinite(new Date(expiry).getTime()))
+    throw new Error("Usage:");
+  if (
+    operation === "receipt" &&
+    one("--teardown-owner") &&
+    !/^@[a-z0-9][a-z0-9_-]{0,31}$/.test(one("--teardown-owner")!)
+  )
+    throw new Error("Usage:");
+  const receipt =
+    operation === "receipt" && receiptFlags.every((flag) => one(flag)?.trim())
+      ? {
+          object: one("--object")!,
+          purpose: one("--purpose")!,
+          teardownOwner: one("--teardown-owner")!,
+          securityPrivacy: one("--security-privacy")!,
+          expiry: new Date(expiry!).toISOString(),
+          runbook: one("--runbook")!,
+          tracking: one("--tracking")!,
+        }
+      : undefined;
   const task = {
-    operation,
+    operation: operation === "unassign" ? "assign" : operation,
     target,
+    mine: mine || undefined,
     number,
-    messageId: values.get("--message-id"),
-    title: values.get("--title"),
+    numbers: numbers.length > 1 ? numbers : undefined,
+    messageId: messageIds.length === 1 ? messageIds[0] : undefined,
+    messageIds: messageIds.length > 1 ? messageIds : undefined,
+    title: titles.length === 1 ? titles[0] : undefined,
+    titles: titles.length > 1 ? titles : undefined,
     status,
     expectedRevision,
+    assignee,
+    createsResource: values.has("--creates-resource") || undefined,
+    description: values.has("--clear-description") ? null : one("--description"),
+    receipt,
+    freshnessContextMode:
+      reviewerIsolation && ["claim", "update", "amend"].includes(operation)
+        ? "withheld"
+        : undefined,
   } as Omit<TaskCommand, "requestId">;
   const valid =
-    operation === "list" ||
-    (operation === "create" && Boolean(task.title)) ||
-    (operation === "convert" && Boolean(task.messageId)) ||
-    (operation === "claim" && (number !== undefined) !== Boolean(task.messageId)) ||
+    (operation === "list" && (mine || Boolean(target))) ||
+    (operation === "create" && titles.length > 0) ||
+    (operation === "convert" && messageIds.length === 1) ||
+    (operation === "claim" && numbers.length + messageIds.length > 0) ||
     (operation === "unclaim" && number !== undefined) ||
-    (operation === "update" && number !== undefined && Boolean(status));
+    (operation === "update" && number !== undefined && Boolean(status)) ||
+    (["assign", "unassign"].includes(operation) &&
+      number !== undefined &&
+      assignee !== undefined) ||
+    (operation === "amend" &&
+      number !== undefined &&
+      (Boolean(task.title) || task.description !== undefined)) ||
+    (["history", "delete"].includes(operation) && number !== undefined) ||
+    (operation === "receipt" && number !== undefined && Boolean(receipt));
   if (!valid) throw new Error("Usage:");
   return { command: "task", task };
 }
@@ -544,12 +737,84 @@ function integerOption(value: string | undefined, minimum: number): number | und
   return parsed;
 }
 
-function formatTasks(result: TaskResult): string {
-  if (!result.tasks.length) return "No Tasks.";
-  return result.tasks
-    .map(
-      (task) =>
-        `#${task.number} status=${task.status} owner=${task.owner?.name ?? "unclaimed"} message=${task.messageId} revision=${task.revision} ${task.title}`,
-    )
-    .join("\n");
+function formatTasks(result: TaskResult, target?: string, reviewerIsolation = false): string {
+  if (result.state === "held") {
+    if (reviewerIsolation || result.freshnessContextMode === "withheld") {
+      const count = result.newMessageCount ?? result.withheldMessageCount ?? 0;
+      return `Reviewer-isolation freshness hold: ${count} newer ${count === 1 ? "message" : "messages"} withheld.`;
+    }
+    const messages = result.heldMessages?.map(formatMessage).join("\n");
+    return `Task request held.${messages ? ` Review newer messages:\n${messages}` : ""}`;
+  }
+  if (result.claims)
+    return result.claims
+      .map((claim) => {
+        const label = claim.number ? `#${claim.number}` : `msg:${claim.messageId}`;
+        if (!claim.success)
+          return `${label}: FAILED — ${claim.reason ?? "claim refused"}. Do not start conflicting execution.`;
+        const task = result.tasks.find(
+          (item) => item.number === claim.number || item.messageId === claim.messageId,
+        );
+        return `${label}: claimed${target && task ? `\nFollow up: coforge message send --target "${target}:${task.messageId.slice(0, 8)}"` : ""}`;
+      })
+      .join("\n");
+  const sections: string[] = [];
+  if (result.history) {
+    const task = result.tasks[0];
+    if (task) {
+      sections.push(`## Task #${task.number} history — revision ${task.revision}\n\n${task.title}`);
+      sections.push(
+        result.history.length
+          ? result.history
+              .map((event) => {
+                const actor =
+                  event.actorKind === "system"
+                    ? "@system"
+                    : event.actorName
+                      ? `@${event.actorName}`
+                      : "<unresolved>";
+                const changes = {
+                  beforeTitle: event.beforeTitle,
+                  afterTitle: event.afterTitle,
+                  beforeDescription: event.beforeDescription,
+                  afterDescription: event.afterDescription,
+                };
+                return `seq=${event.sequence} time=${event.createdAt} actor=${actor} type=${event.eventType}\n  ${JSON.stringify(changes)}`;
+              })
+              .join("\n")
+          : "No recorded events.",
+      );
+    }
+  } else if (result.tasks.length) {
+    sections.push(
+      result.tasks
+        .map((task) => {
+          const location = task.channelRef ? `${task.channelRef} task ` : "";
+          const receipt = task.requiresResourceReceipt
+            ? ` resource-receipt=${task.resourceReceiptRecordedAt ? "recorded" : "pending"}`
+            : "";
+          const description = task.description
+            ? `\n  details: ${task.description.replace(/\n/g, "\n           ")}`
+            : "";
+          return `${location}#${task.number} status=${task.status} owner=${task.owner?.name ?? "unclaimed"} message=${task.messageId} revision=${task.revision}${receipt} ${task.title}${description}`;
+        })
+        .join("\n"),
+    );
+  } else sections.push("No Tasks.");
+  if (result.assignmentReceipt)
+    sections.push(
+      `Assignment receipt (msg=${result.assignmentReceipt.messageId.slice(0, 8)}):\n${result.assignmentReceipt.content}`,
+    );
+  if (result.resourceFollowup)
+    sections.push(
+      `Expiry follow-up ${result.resourceFollowup.id.slice(0, 8)} owned by ${result.resourceFollowup.owner} fires ${result.resourceFollowup.fireAt}.\nFollow-up anchor: msg=${result.resourceFollowup.messageId.slice(0, 8)} conversation=${result.resourceFollowup.conversationId}.`,
+    );
+  return sections.join("\n\n");
+}
+
+function reviewerIsolationFromEnvironment(): boolean {
+  const value = Bun.env.COFORGE_REVIEWER_ISOLATION;
+  if (value === undefined || value === "0" || value === "false") return false;
+  if (value === "1" || value === "true") return true;
+  throw new Error("COFORGE_REVIEWER_ISOLATION must be one of: 1, true, 0, false");
 }

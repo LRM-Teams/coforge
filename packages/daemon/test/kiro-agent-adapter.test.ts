@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { KiroDriver } from "../src/code-agent/kiro/driver";
+import { KiroProvider } from "../src/code-agent/kiro/driver";
 import type { AgentRuntimeEvent } from "../src/code-agent/contract";
 
 const command = [process.execPath, new URL("./fixtures/kiro-acp.ts", import.meta.url).pathname];
@@ -12,7 +12,7 @@ test.each(["--delayed-config", "--early-config"])(
   async (flag) => {
     const cwd = await mkdtemp(join(tmpdir(), "kiro-config-"));
     try {
-      const session = await new KiroDriver({ command: [...command, flag] }).createAgentSession({
+      const session = await new KiroProvider({ command: [...command, flag] }).createAgentSession({
         agentWorkspaceDirectory: cwd,
         instructions: "Keep the asymmetric marker 719 in the system prompt.",
         runtime: { provider: "kiro", model: "model-reasoning", reasoning: "high" },
@@ -35,7 +35,7 @@ test.each(["--missing-config", "--invalid-model", "--closed-config"])(
     const cwd = await mkdtemp(join(tmpdir(), "kiro-config-fail-"));
     try {
       await expect(
-        new KiroDriver({ command: [...command, flag], configTimeoutMs: 30 }).createAgentSession({
+        new KiroProvider({ command: [...command, flag], configTimeoutMs: 30 }).createAgentSession({
           agentWorkspaceDirectory: cwd,
           instructions: "Keep the asymmetric marker 719 in the system prompt.",
           runtime: {
@@ -62,7 +62,7 @@ test("Kiro verifies the selected native session before loading and reapplies mod
   const cwd = await mkdtemp(join(tmpdir(), "kiro-resume-"));
   const reports: string[] = [];
   try {
-    const session = await new KiroDriver({ command }).createAgentSession({
+    const session = await new KiroProvider({ command }).createAgentSession({
       agentWorkspaceDirectory: cwd,
       instructions: "Keep the asymmetric marker 719 in the system prompt.",
       sessionId: "sess-fixture-kiro",
@@ -82,7 +82,7 @@ test("Kiro verifies the selected native session before loading and reapplies mod
       await session.dispose();
     }
     await expect(
-      new KiroDriver({ command }).createAgentSession({
+      new KiroProvider({ command }).createAgentSession({
         agentWorkspaceDirectory: cwd,
         instructions: "test",
         sessionId: "missing",
@@ -97,7 +97,7 @@ test("Kiro verifies the selected native session before loading and reapplies mod
 test("Kiro v3 injects native instructions and accepts input before its turn completes", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "kiro-adapter-"));
   const identities: string[] = [];
-  const session = await new KiroDriver({ command }).createAgentSession({
+  const session = await new KiroProvider({ command }).createAgentSession({
     agentWorkspaceDirectory: cwd,
     instructions: "Keep the asymmetric marker 719 in the system prompt.",
     onSessionId: async (id) => {
@@ -125,7 +125,7 @@ test("Kiro v3 injects native instructions and accepts input before its turn comp
 
 test("Kiro replaces busy input, suppresses late completion, and normalizes ACP events", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "kiro-events-"));
-  const session = await new KiroDriver({ command }).createAgentSession({
+  const session = await new KiroProvider({ command }).createAgentSession({
     agentWorkspaceDirectory: cwd,
     instructions: "Keep the asymmetric marker 719 in the system prompt.",
   });
@@ -160,14 +160,14 @@ test("Kiro replaces busy input, suppresses late completion, and normalizes ACP e
 test("Kiro rejects protocol disconnect before admission and mismatched resume identity", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "kiro-failures-"));
   try {
-    const session = await new KiroDriver({ command }).createAgentSession({
+    const session = await new KiroProvider({ command }).createAgentSession({
       agentWorkspaceDirectory: cwd,
       instructions: "Keep the asymmetric marker 719 in the system prompt.",
     });
     await expect(session.notify!("disconnect-before-admission")).rejects.toThrow();
     await session.dispose();
     await expect(
-      new KiroDriver({ command }).createAgentSession({
+      new KiroProvider({ command }).createAgentSession({
         agentWorkspaceDirectory: cwd,
         instructions: "test",
         sessionId: "sess-fixture-kiro",

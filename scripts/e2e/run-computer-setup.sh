@@ -1,46 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Destructive, local-only harness. It invokes the compiled products and never
+# Local-only harness. It invokes the installed product and never
 # imports app internals or registers rows directly in PostgreSQL.
-# The compiled CLI performs the real computer:register RPC over Centrifugo.
+# The compiled CLI performs the real computer:register RPC over HTTPS.
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
-: "${COFORGE_E2E_WEB_URL:?Set COFORGE_E2E_WEB_URL to the local Web portal}"
+: "${COFORGE_E2E_WEB_URL:?Set COFORGE_E2E_WEB_URL to the trusted local HTTPS endpoint}"
 : "${COFORGE_E2E_WORKSPACE_SLUG:?Set COFORGE_E2E_WORKSPACE_SLUG}"
-: "${COFORGE_E2E_HOME:=$root/.amp/e2e/computer-home}"
+: "${OPENROUTER_API_KEY:?Native browser E2E requires a real OpenRouter key}"
 
-if [[ "${COFORGE_E2E_ALLOW_DEVICE_AUTH:-}" != 1 ]]; then
-  echo 'Refusing E2E device authorization: set COFORGE_E2E_ALLOW_DEVICE_AUTH=1 explicitly.' >&2
+if [[ "${COFORGE_E2E_ALLOW_INSTALL:-}" != 1 ]]; then
+  echo 'Use a disposable OS user and set COFORGE_E2E_ALLOW_INSTALL=1: this installs and starts Computer for that user.' >&2
   exit 2
 fi
-
-bun run --cwd "$root/packages/protocol" generate
-export COFORGE_E2E_CENTRIFUGO_ENDPOINT="${COFORGE_E2E_CENTRIFUGO_ENDPOINT:-ws://127.0.0.1:8000/connection/websocket}"
-bun "$root/scripts/e2e/build-computer-fixture.ts"
-mkdir -p "$COFORGE_E2E_HOME"
-host_home=$HOME
-for provider_home in .codex .claude; do
-  if [[ -d "$host_home/$provider_home" && ! -e "$COFORGE_E2E_HOME/$provider_home" ]]; then
-    ln -s "$host_home/$provider_home" "$COFORGE_E2E_HOME/$provider_home"
-  fi
+if [[ "$(uname -s)" != Linux ]]; then
+  echo 'This native setup harness currently verifies Linux/systemd only.' >&2
+  exit 2
+fi
+if [[ "$HOME" != "$(getent passwd "$(id -u)" | cut -d: -f6)" ]]; then
+  echo 'HOME must match the OS user and its systemd manager; use a disposable OS user, not a HOME override.' >&2
+  exit 2
+fi
+systemctl --user show-environment >/dev/null
+# The service manager, not the invoking shell, supplies child-process environment.
+for variable in OPENROUTER_API_KEY NODE_EXTRA_CA_CERTS; do
+  if [[ -n "${!variable:-}" ]]; then systemctl --user import-environment "$variable"; fi
 done
-export HOME="$COFORGE_E2E_HOME"
-export COFORGE_SETUP_INTENT
-COFORGE_SETUP_INTENT=$(COFORGE_E2E_WORKSPACE_SLUG="$COFORGE_E2E_WORKSPACE_SLUG" bun -e \
-  'console.log(JSON.stringify({workspaceSlug: Bun.env.COFORGE_E2E_WORKSPACE_SLUG}))')
-export COFORGE_E2E_DAEMON_EXECUTABLE="$root/.amp/e2e/bin/coforge-computer"
-export COFORGE_E2E_DAEMON_CONNECTION_ENDPOINT="$COFORGE_E2E_CENTRIFUGO_ENDPOINT"
-export COFORGE_DAEMON_HOME="$COFORGE_E2E_HOME/.coforge/daemon"
 
-"$root/.amp/e2e/bin/coforge-computer" setup --json
-echo 'setup completed; waiting for the Web computer view to observe Online'
-"$root/scripts/e2e/wait-for-online.sh" "$COFORGE_E2E_WEB_URL" "$COFORGE_E2E_WORKSPACE_SLUG"
+mise exec -- bun run --cwd "$root/packages/protocol" generate
+export COFORGE_E2E_CENTRIFUGO_ENDPOINT="${COFORGE_E2E_CENTRIFUGO_ENDPOINT:-ws://127.0.0.1:8000/connection/websocket}"
+mise exec -- bun "$root/scripts/e2e/build-computer-fixture.ts"
+version=$(mise exec -- bun -e 'console.log((await Bun.file(Bun.argv[1]).json()).version)' "$root/.amp/e2e/native-package/manifest.json")
+"$root/.amp/e2e/bin/coforge-computer" __install-local --version "$version" --directory "$root/.amp/e2e/native-package"
 
-secrets="$root/infra/secrets"
-DATABASE_URL="postgresql://coforge:$(<"$secrets/postgres_password")@127.0.0.1:5432/coforge"
-REDIS_URL="redis://:$(<"$secrets/redis_password")@127.0.0.1:6379"
-export DATABASE_URL REDIS_URL
-export COFORGE_CENTRIFUGO_API_URL=http://127.0.0.1:8000/api
-export COFORGE_CENTRIFUGO_API_KEY
-COFORGE_CENTRIFUGO_API_KEY=$(<"$secrets/centrifugo_http_api_key")
-bun "$root/apps/web/test/e2e-provider-usage.ts"
+# First use waits for the real browser device-code approval. Repeated runs reuse
+# the normal credential store. No automatic approval or direct runtime start.
+"$HOME/.coforge/computer/install/active/coforge-computer" setup --workspace "$COFORGE_E2E_WORKSPACE_SLUG" --json | tee "$root/.amp/e2e/native-setup-result.json"
+systemctl --user is-active coforge-daemon.service
+export COFORGE_E2E_REGISTRATION
+COFORGE_E2E_REGISTRATION=$(mise exec -- bun -e 'console.log((await Bun.file(Bun.argv[1]).json()).config_path)' "$root/.amp/e2e/native-setup-result.json")
+exec mise exec -- bun test "$root/scripts/e2e/native-browser.e2e.ts"

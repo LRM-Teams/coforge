@@ -319,8 +319,14 @@ export class PublicChannels {
         sequence: message.sequence,
         threadRootId: message.threadRootId ?? undefined,
         senderMemberId: message.senderMemberId,
-        senderKind: message.sender.agentId ? ("agent" as const) : ("user" as const),
-        senderName: `@${message.sender.agent?.name ?? message.sender.user!.username}`,
+        senderKind: !message.sender
+          ? ("system" as const)
+          : message.sender.agentId
+            ? ("agent" as const)
+            : ("user" as const),
+        senderName: !message.sender
+          ? "System"
+          : `@${message.sender.agent?.name ?? message.sender.user!.username}`,
         body: message.body,
         createdAt: message.createdAt,
         attachment: message.attachment
@@ -354,8 +360,14 @@ export class PublicChannels {
       sequence: message.sequence,
       threadRootId: message.threadRootId ?? undefined,
       senderMemberId: message.senderMemberId,
-      senderKind: message.sender.agentId ? ("agent" as const) : ("user" as const),
-      senderName: `@${message.sender.agent?.name ?? message.sender.user!.username}`,
+      senderKind: !message.sender
+        ? ("system" as const)
+        : message.sender.agentId
+          ? ("agent" as const)
+          : ("user" as const),
+      senderName: !message.sender
+        ? "System"
+        : `@${message.sender.agent?.name ?? message.sender.user!.username}`,
       body: message.body,
       createdAt: message.createdAt,
       attachment: message.attachment
@@ -518,7 +530,7 @@ export class PublicChannels {
           sequence: message.sequence,
           body: message.body,
           target: `#${channel.channelName}${message.threadRootId ? `:${message.threadRootId}` : ""}`,
-          latestSender: `@${message.sender.user!.username}`,
+          latestSender: `@${message.sender!.user!.username}`,
         }),
       );
     }

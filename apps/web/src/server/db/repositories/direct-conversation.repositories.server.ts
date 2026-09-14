@@ -1,3 +1,4 @@
+import type { MessageTaskMetadata, TaskStatus } from "@coforge/protocol";
 import { Prisma, type PrismaClient } from "../../../../generated/client";
 import { AgentMessageValidationError } from "../../conversations/agent-message-validation-error.server";
 import { getAgentChannel, PublicChannels } from "../../conversations/public-channels.server";
@@ -19,6 +20,7 @@ export type DirectConversationPage = {
     createdAt: Date;
     target: string;
     attachment?: AttachmentMetadata;
+    task?: MessageTaskMetadata;
   }[];
   hasOlder: boolean;
   hasNewer: boolean;
@@ -66,8 +68,46 @@ type DirectConversationMessageRow = Prisma.MessageGetPayload<{
   include: {
     sender: { include: { agent: true; user: true } };
     attachment: true;
+    task: {
+      include: {
+        owner: { include: { user: true; agent: true } };
+      };
+    };
   };
 }>;
+
+function taskStatus(value: string): TaskStatus {
+  switch (value) {
+    case "todo":
+    case "in_progress":
+    case "in_review":
+    case "done":
+    case "closed":
+      return value;
+    default:
+      throw new Error("invalid persisted Task status");
+  }
+}
+
+function messageTask(
+  task: {
+    number: number;
+    status: string;
+    owner: {
+      user: { username: string; displayName: string | null } | null;
+      agent: { name: string; displayName: string } | null;
+    } | null;
+  } | null,
+): MessageTaskMetadata | undefined {
+  if (!task) return undefined;
+  const identity = task.owner?.agent ?? task.owner?.user;
+  const handle = task.owner?.agent ? `@${task.owner.agent.name}` : `@${task.owner?.user?.username}`;
+  return {
+    number: task.number,
+    status: taskStatus(task.status),
+    ...(identity ? { owner: { displayName: identity.displayName || handle, handle } } : {}),
+  };
+}
 
 export type DirectConversationRepository = {
   userIdForUsername?(target: string): Promise<string>;
@@ -126,6 +166,7 @@ export type DirectConversationRepository = {
       createdAt: Date;
       target: string;
       attachment?: AttachmentMetadata;
+      task?: MessageTaskMetadata;
     }[]
   >;
   readMessagesPage?(
@@ -188,7 +229,7 @@ export type DirectConversationRepository = {
     messages: Array<{
       id: string;
       sequence: number;
-      senderKind: "user" | "agent";
+      senderKind: "user" | "agent" | "system";
       senderName: string;
       body: string;
       createdAt: Date;
@@ -377,6 +418,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       take: limit,
       include: {
         sender: { include: { agent: true, user: true } },
+        task: {
+          include: {
+            owner: { include: { user: true, agent: true } },
+          },
+        },
         conversation: {
           include: {
             members: {
@@ -394,12 +440,15 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       return {
         id: message.id,
         sequence: message.sequence,
-        sender: message.sender.agentId
-          ? `@${message.sender.agent?.name ?? "agent"}`
-          : `@${message.sender.user?.username}`,
+        sender: !message.sender
+          ? "system"
+          : message.sender.agentId
+            ? `@${message.sender.agent?.name ?? "agent"}`
+            : `@${message.sender.user?.username}`,
         body: message.body,
         createdAt: message.createdAt,
         target: this.deliveryTarget(parentTarget, message.threadRootId),
+        ...(messageTask(message.task) ? { task: messageTask(message.task) } : {}),
       };
     });
   }
@@ -542,10 +591,16 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         id: message.id,
         sequence: message.sequence,
         threadRootId: message.threadRootId ?? undefined,
-        senderKind: message.sender.userId ? ("user" as const) : ("agent" as const),
-        senderName: message.sender.userId
-          ? `@${message.sender.user?.username}`
-          : `@${message.sender.agent?.name}`,
+        senderKind: !message.sender
+          ? ("system" as const)
+          : message.sender.userId
+            ? ("user" as const)
+            : ("agent" as const),
+        senderName: !message.sender
+          ? "System"
+          : message.sender.userId
+            ? `@${message.sender.user?.username}`
+            : message.sender.agent?.displayName || message.sender.agent?.name || "Agent",
         body: message.body,
         createdAt: message.createdAt,
         attachment: message.attachment ?? undefined,
@@ -594,10 +649,16 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       id: message.id,
       sequence: message.sequence,
       threadRootId: message.threadRootId ?? undefined,
-      senderKind: message.sender.userId ? ("user" as const) : ("agent" as const),
-      senderName: message.sender.userId
-        ? `@${message.sender.user?.username}`
-        : `@${message.sender.agent?.name}`,
+      senderKind: !message.sender
+        ? ("system" as const)
+        : message.sender.userId
+          ? ("user" as const)
+          : ("agent" as const),
+      senderName: !message.sender
+        ? "System"
+        : message.sender.userId
+          ? `@${message.sender.user?.username}`
+          : message.sender.agent?.displayName || message.sender.agent?.name || "Agent",
       body: message.body,
       createdAt: message.createdAt,
       attachment: message.attachment ?? undefined,
@@ -767,7 +828,15 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         deliveryId: true,
         messageId: true,
         conversationId: true,
-        conversation: { select: { channelName: true } },
+        conversation: {
+          select: {
+            channelName: true,
+            members: {
+              where: { userId: { not: null } },
+              select: { user: { select: { username: true } } },
+            },
+          },
+        },
         sequence: true,
         message: {
           select: {
@@ -779,14 +848,19 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       },
     });
     return deliveries.map((delivery) => {
-      const sender = `@${delivery.message.sender.user?.username ?? ""}`;
+      const sender = delivery.message.sender
+        ? `@${delivery.message.sender.user?.username ?? ""}`
+        : "system";
       const target = delivery.conversation.channelName
         ? this.deliveryTarget(
             `#${delivery.conversation.channelName}`,
             delivery.message.threadRootId,
           )
-        : this.deliveryTarget(sender, delivery.message.threadRootId);
-      if (!PUBLIC_USERNAME_TARGET.test(sender))
+        : this.deliveryTarget(
+            `@${delivery.conversation.members[0]?.user?.username}`,
+            delivery.message.threadRootId,
+          );
+      if (sender !== "system" && !PUBLIC_USERNAME_TARGET.test(sender))
         throw new Error("pending Agent delivery sender must be a public @username");
       return {
         messageId: delivery.messageId,
@@ -855,18 +929,26 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const include = {
       sender: { include: { agent: true, user: true } },
       attachment: true,
+      task: {
+        include: {
+          owner: { include: { user: true, agent: true } },
+        },
+      },
     } as const;
     const map = (rows: DirectConversationMessageRow[]) =>
       rows.map((m) => ({
         id: m.id,
         sequence: m.sequence,
-        sender: m.sender.agentId
-          ? `@${m.sender.agent?.name ?? "agent"}`
-          : `@${m.sender.user?.username}`,
+        sender: !m.sender
+          ? "system"
+          : m.sender.agentId
+            ? `@${m.sender.agent?.name ?? "agent"}`
+            : `@${m.sender.user?.username}`,
         body: m.body,
         createdAt: m.createdAt,
         target: canonicalTarget,
         attachment: m.attachment ?? undefined,
+        ...(messageTask(m.task) ? { task: messageTask(m.task) } : {}),
       }));
     if (page.around && anchor) {
       const beforeCount = Math.floor((limit - 1) / 2);
@@ -1006,9 +1088,12 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
               conversationId: member.conversationId,
               threadRootId,
               sequence: { gt: boundary },
-              sender: { userId: { not: null } },
+              OR: [
+                { sender: { userId: { not: null } } },
+                { senderMemberId: null, deliveries: { some: { agentId } } },
+              ],
               ...(channelName ? { deliveries: { some: { agentId } } } : {}),
-            } as const;
+            } satisfies Prisma.MessageWhereInput;
             const count = await tx.message.count({ where });
             if (!count) continue;
             unreadSummary[target] = count;
@@ -1039,7 +1124,11 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
                 conversationId: member.conversationId,
                 sequence: message.sequence,
                 target,
-                latestSender: channelName ? `@${message.sender.user?.username}` : `@${username}`,
+                latestSender: !message.sender
+                  ? "system"
+                  : channelName
+                    ? `@${message.sender.user?.username}`
+                    : `@${username}`,
                 body: message.body,
               });
             }
@@ -1118,7 +1207,10 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         conversationId: conversation.id,
         threadRootId,
         sequence: { gt: boundary },
-        sender: { userId: { not: null } },
+        OR: [
+          { sender: { userId: { not: null } } },
+          { senderMemberId: null, deliveries: { some: { agentId } } },
+        ],
         ...(target.startsWith("#") ? { deliveries: { some: { agentId } } } : {}),
       },
       orderBy: { sequence: "desc" },
@@ -1131,7 +1223,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return rows.reverse().map((m) => ({
       id: m.id,
       sequence: m.sequence,
-      sender: `@${m.sender.user?.username}`,
+      sender: m.sender ? `@${m.sender.user?.username}` : "system",
       body: m.body,
       createdAt: m.createdAt,
       target: canonicalTarget,

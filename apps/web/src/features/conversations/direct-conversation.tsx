@@ -8,6 +8,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import { useHydrated } from "@tanstack/react-router";
 import { measureElement, observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowDown,
@@ -76,8 +77,8 @@ export type DirectConversationView = {
     id: string;
     sequence: number;
     threadRootId?: string;
-    senderKind: "user" | "agent";
-    senderMemberId?: string;
+    senderKind: "user" | "agent" | "system";
+    senderMemberId?: string | null;
     senderName: string;
     body: string;
     createdAt: Date | string;
@@ -452,8 +453,10 @@ export function ConversationPane({
   messageFooter?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
 }) {
   const composerId = useId();
+  const hydrated = useHydrated();
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
+  const composerDisabled = !hydrated || sending;
   const [error, setError] = useState("");
   const [file, setFile] = useState<File>();
   const [asTask, setAsTask] = useState(false);
@@ -490,7 +493,7 @@ export function ConversationPane({
   const lastSequence = conversation.messages.at(-1)?.sequence;
   const firstSequence = conversation.messages[0]?.sequence;
   const isOwn = (message: DirectConversationView["messages"][number]) =>
-    message.senderMemberId !== undefined
+    message.senderMemberId != null
       ? message.senderMemberId === conversation.senderMemberId
       : message.senderKind === "user";
   const loadedOwnMessages = conversation.messages
@@ -1176,7 +1179,7 @@ export function ConversationPane({
             id={composerId}
             rows={1}
             value={body}
-            disabled={sending}
+            disabled={composerDisabled}
             onChange={(event) => {
               setBody(event.target.value);
               if (retryRef.current && event.target.value.trim() !== retryRef.current.body)
@@ -1219,7 +1222,7 @@ export function ConversationPane({
                   icon={Plus}
                   size="sm"
                   color="tertiary"
-                  isDisabled={sending}
+                  isDisabled={composerDisabled}
                   aria-label={m.conversation_composer_actions()}
                 />
                 <Dropdown.Popover placement="top start">
@@ -1244,7 +1247,7 @@ export function ConversationPane({
                 icon={Paperclip}
                 size="sm"
                 color="tertiary"
-                isDisabled={sending}
+                isDisabled={composerDisabled}
                 tooltip={m.conversation_attachment_label()}
                 onClick={() => fileInputRef.current?.click()}
               />
@@ -1252,7 +1255,7 @@ export function ConversationPane({
             <input
               ref={fileInputRef}
               type="file"
-              disabled={sending}
+              disabled={composerDisabled}
               onChange={(event) => setFile(event.target.files?.[0])}
               className="sr-only"
             />
@@ -1262,7 +1265,7 @@ export function ConversationPane({
                 size="xs"
                 iconTrailing={XClose}
                 aria-pressed={true}
-                isDisabled={sending}
+                isDisabled={composerDisabled}
                 onPress={() => setAsTask(false)}
               >
                 {m.tasks_as_task()}
@@ -1273,7 +1276,7 @@ export function ConversationPane({
               icon={ArrowUp}
               size="sm"
               color="tertiary"
-              isDisabled={sending || (!body.trim() && !file)}
+              isDisabled={composerDisabled || (!body.trim() && !file)}
               tooltip={sending ? m.conversation_sending() : m.conversation_send()}
               className="ml-auto rounded-full bg-brand-solid text-white hover:bg-brand-solid_hover hover:text-white"
             />
