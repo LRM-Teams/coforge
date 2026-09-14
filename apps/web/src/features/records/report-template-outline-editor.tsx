@@ -1,38 +1,29 @@
-import { useMemo, useState } from "react";
-import { Plus, XClose as X } from "@untitledui/icons";
+import {
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type ReactNode,
+} from "react";
+import { DotsGrid as GripVertical, Plus, XClose as X } from "@untitledui/icons";
 
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
+import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
-
-const MAX_LEVEL = 5;
-type HeadingLevel = 1 | 2 | 3 | 4 | 5;
-type OutlineNode =
-  | { id: number; kind: "heading"; level: HeadingLevel; text: string }
-  | { id: number; kind: "body"; text: string };
-
-function parseOutline(markdown: string): OutlineNode[] {
-  if (!markdown) return [];
-  const lines = markdown.endsWith("\n") ? markdown.slice(0, -1).split("\n") : markdown.split("\n");
-  return lines.map((line, id) => {
-    const heading = line.match(/^(#{1,5})\s+(.+)$/);
-    if (!heading) return { id, kind: "body", text: line };
-    return {
-      id,
-      kind: "heading",
-      level: Math.min(heading[1]!.length, MAX_LEVEL) as HeadingLevel,
-      text: heading[2]!.trim(),
-    };
-  });
-}
-
-function serializeOutline(nodes: OutlineNode[]) {
-  const markdown = nodes
-    .map((node) => (node.kind === "body" ? node.text : `${"#".repeat(node.level)} ${node.text}`))
-    .join("\n");
-  return nodes.at(-1)?.kind === "body" && nodes.at(-1)?.text === "" ? `${markdown}\n` : markdown;
-}
+import {
+  dropEdgeFromClientY,
+  MAX_LEVEL,
+  moveOutlineNodes,
+  parseOutline,
+  serializeOutline,
+  subtreeRange,
+  type DropEdge,
+  type HeadingLevel,
+  type OutlineNode,
+} from "./report-template-outline";
 
 function defaultHeading(level: HeadingLevel) {
   if (level === 1) return m.records_template_heading_level_one();
@@ -70,6 +61,55 @@ function depthAt(nodes: OutlineNode[], index: number) {
   return Math.max(0, stack.length - 1);
 }
 
+function OutlineRow({
+  body,
+  dragging,
+  dropEdge,
+  style,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  children,
+}: {
+  body: boolean;
+  dragging: boolean;
+  dropEdge: DropEdge | null;
+  style: CSSProperties;
+  onDragStart: (event: DragEvent<HTMLDivElement>) => void;
+  onDragOver: (event: DragEvent<HTMLDivElement>) => void;
+  onDrop: (event: DragEvent<HTMLDivElement>) => void;
+  onDragEnd: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      draggable
+      className={cn(
+        "group relative flex w-full items-center gap-1 rounded-md bg-secondary px-2",
+        body ? "min-h-9" : "min-h-11",
+        dragging && "opacity-50",
+      )}
+      style={style}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
+    >
+      {dropEdge ? (
+        <div
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute right-2 left-2 z-10 h-0.5 rounded-full bg-brand-solid",
+            dropEdge === "before" ? "-top-px" : "-bottom-px",
+          )}
+        />
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
 export function ReportTemplateOutlineEditor({
   defaultValue,
   onUpdate,
@@ -81,6 +121,12 @@ export function ReportTemplateOutlineEditor({
 }) {
   const initialNodes = useMemo(() => parseOutline(defaultValue), [defaultValue]);
   const [nodes, setNodes] = useState(initialNodes);
+  const [draggedId, setDraggedId] = useState<number | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<{
+    targetId: number;
+    edge: DropEdge;
+  } | null>(null);
+  const dragHandleArmedRef = useRef(false);
 
   function updateNodes(next: OutlineNode[]) {
     setNodes(next);
@@ -131,18 +177,75 @@ export function ReportTemplateOutlineEditor({
   function removeNode(id: number) {
     const index = nodes.findIndex((node) => node.id === id);
     if (index < 0) return;
-    const node = nodes[index]!;
-    if (node.kind === "body") {
-      updateNodes(nodes.filter((current) => current.id !== id));
+    const { start, end } = subtreeRange(nodes, index);
+    updateNodes(nodes.filter((_, nodeIndex) => nodeIndex < start || nodeIndex >= end));
+  }
+
+  function handleDragStart(event: DragEvent<HTMLDivElement>, id: number) {
+    if (!dragHandleArmedRef.current) {
+      event.preventDefault();
       return;
     }
-    let end = index + 1;
-    while (end < nodes.length) {
-      const candidate = nodes[end];
-      if (!candidate || candidate.kind !== "heading" || candidate.level <= node.level) break;
-      end += 1;
+    setDraggedId(id);
+    setDropIndicator(null);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", String(id));
+  }
+
+  function handleDragOver(event: DragEvent<HTMLDivElement>, id: number) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (draggedId === id) {
+      if (dropIndicator) setDropIndicator(null);
+      return;
     }
-    updateNodes(nodes.filter((_, nodeIndex) => nodeIndex < index || nodeIndex >= end));
+    const rect = event.currentTarget.getBoundingClientRect();
+    const edge = dropEdgeFromClientY(event.clientY, rect.top, rect.height);
+    if (dropIndicator?.targetId !== id || dropIndicator.edge !== edge) {
+      setDropIndicator({ targetId: id, edge });
+    }
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>, targetId: number) {
+    event.preventDefault();
+    const raw = draggedId ?? Number(event.dataTransfer.getData("text/plain"));
+    const sourceId = Number.isFinite(raw) ? raw : null;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const edge =
+      dropIndicator?.targetId === targetId
+        ? dropIndicator.edge
+        : dropEdgeFromClientY(event.clientY, rect.top, rect.height);
+    if (sourceId !== null) updateNodes(moveOutlineNodes(nodes, sourceId, targetId, edge));
+    setDraggedId(null);
+    setDropIndicator(null);
+    dragHandleArmedRef.current = false;
+  }
+
+  function handleDragEnd() {
+    setDraggedId(null);
+    setDropIndicator(null);
+    dragHandleArmedRef.current = false;
+  }
+
+  function dragHandle() {
+    return (
+      <ButtonUtility
+        size="xs"
+        color="tertiary"
+        icon={GripVertical}
+        aria-label={m.records_template_reorder_row()}
+        onPointerDown={() => {
+          dragHandleArmedRef.current = true;
+        }}
+        onPointerUp={() => {
+          dragHandleArmedRef.current = false;
+        }}
+        onPointerCancel={() => {
+          dragHandleArmedRef.current = false;
+        }}
+        className="size-6 shrink-0 cursor-grab touch-none p-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 active:cursor-grabbing"
+      />
+    );
   }
 
   return (
@@ -184,14 +287,25 @@ export function ReportTemplateOutlineEditor({
           </Button>
         </div>
 
-        {nodes.map((node) => {
+        {nodes.map((node, index) => {
+          const dropEdge =
+            dropIndicator?.targetId === node.id && draggedId !== node.id
+              ? dropIndicator.edge
+              : null;
+          const rowProps = {
+            dragging: draggedId === node.id,
+            dropEdge,
+            style: { paddingLeft: `${0.5 + depthAt(nodes, index) * 1.75}rem` } as CSSProperties,
+            onDragStart: (event: DragEvent<HTMLDivElement>) => handleDragStart(event, node.id),
+            onDragOver: (event: DragEvent<HTMLDivElement>) => handleDragOver(event, node.id),
+            onDrop: (event: DragEvent<HTMLDivElement>) => handleDrop(event, node.id),
+            onDragEnd: handleDragEnd,
+          };
+
           if (node.kind === "body") {
             return (
-              <div
-                key={node.id}
-                className="group flex min-h-9 w-full items-center gap-1 rounded-md bg-secondary px-2"
-                style={{ paddingLeft: `${0.5 + depthAt(nodes, nodes.indexOf(node)) * 1.75}rem` }}
-              >
+              <OutlineRow key={node.id} body {...rowProps}>
+                {dragHandle()}
                 <input
                   aria-label={m.records_template_body_label()}
                   value={node.text}
@@ -208,18 +322,15 @@ export function ReportTemplateOutlineEditor({
                   onClick={() => removeNode(node.id)}
                   className="size-6 p-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                 />
-              </div>
+              </OutlineRow>
             );
           }
 
           const childLevel = Math.min(node.level + 1, MAX_LEVEL) as HeadingLevel;
           const canAddChild = node.level < MAX_LEVEL;
           return (
-            <div
-              key={node.id}
-              className="group flex min-h-11 w-full items-center gap-1 rounded-md bg-secondary px-2"
-              style={{ paddingLeft: `${0.5 + depthAt(nodes, nodes.indexOf(node)) * 1.75}rem` }}
-            >
+            <OutlineRow key={node.id} body={false} {...rowProps}>
+              {dragHandle()}
               <input
                 aria-label={`${m.records_template_heading_label()} ${node.level}`}
                 value={node.text}
@@ -245,7 +356,7 @@ export function ReportTemplateOutlineEditor({
                 onClick={() => removeNode(node.id)}
                 className="size-6 shrink-0 p-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
               />
-            </div>
+            </OutlineRow>
           );
         })}
       </div>

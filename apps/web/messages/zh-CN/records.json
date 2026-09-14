@@ -103,6 +103,7 @@
   "records_template_body_label": "正文",
   "records_template_body_placeholder": "正文内容",
   "records_template_delete_body": "删除正文",
+  "records_template_reorder_row": "拖动调整行顺序",
   "records_template_select_dimension": "已添加的显示页",
   "records_template_main_title": "主要标题",
   "records_template_main_title_placeholder": "请输入主要标题",
