@@ -91,7 +91,7 @@ Untitled 自己的暗色模式规则是**不改梯度数值，只改语义 token
 
 - `--font-body` / `--font-display`：Inter Variable（`@fontsource-variable/inter`），CJK 回退
   `"PingFang SC"`、`"Microsoft YaHei"`、`"Noto Sans CJK SC"`。
-- `--font-mono`：Geist Mono Variable（`@fontsource-variable/geist-mono`）。
+- `--font-mono`：JetBrains Mono Variable（`@fontsource-variable/jetbrains-mono`）。
 - `--font-landing-display`：Geist Variable，仅落地页展示文字使用，产品其余部分不再用 Geist Sans。
 
 ## 6. 维护约定

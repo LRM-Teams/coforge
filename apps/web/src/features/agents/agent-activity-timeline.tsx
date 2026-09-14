@@ -106,11 +106,10 @@ function ActivityTimelineRow({
                 Subagent
               </span>
             )}
-            {!row.expandable && row.detail && (
+            {!row.expandable && row.detail && !row.monospace && (
               <span
                 className={cn(
                   "select-text whitespace-pre-wrap break-words text-tertiary",
-                  row.monospace && "font-mono text-xs",
                   row.tone === "error" && "text-error-primary",
                 )}
               >
@@ -118,6 +117,16 @@ function ActivityTimelineRow({
               </span>
             )}
           </div>
+          {!row.expandable && row.detail && row.monospace && (
+            <p
+              className={cn(
+                "mt-1.5 select-text rounded-lg bg-secondary px-3 py-2 font-mono text-xs leading-5 whitespace-pre-wrap break-words text-secondary",
+                row.tone === "error" && "text-error-primary",
+              )}
+            >
+              {row.detail}
+            </p>
+          )}
           {row.expandable && (
             <p
               id={contentId}

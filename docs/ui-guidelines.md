@@ -105,7 +105,7 @@
 
 ## 10. 排版
 
-- UI 字体 Inter，中文回退苹方 / 微软雅黑 / Noto Sans CJK。代码、终端、标识符用 Geist Mono。Geist Sans 只用于公开首页标题。
+- UI 字体 Inter，中文回退苹方 / 微软雅黑 / Noto Sans CJK。代码、终端、标识符用 JetBrains Mono。Geist Sans 只用于公开首页标题。
 - 时间戳和计数加 `tabular-nums`。
 
 ## 11. 深色模式
