@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 // Run after run-computer-setup.sh, against its real installed Computer. No
@@ -18,6 +19,7 @@ test("installed Computer creates an Agent through Web and persists its real repl
   if (!browserPath) throw new Error("agent-browser is required");
   const name = `native-${Date.now()}`;
   const session = `native-${process.pid}`;
+  const attachmentDir = await mkdtemp(resolve(tmpdir(), "native-attachment-"));
   let failed = false;
   async function browser(...args: string[]) {
     const child = Bun.spawn(
@@ -137,13 +139,66 @@ test("installed Computer creates an Agent through Web and persists its real repl
     await browser("reload");
     await browser("wait", "--fn", replyPresent, "--timeout", "180000");
     expect(JSON.parse(await browser("eval", replyPresent))).toBe(true);
+    console.log("native_browser:send_attachment");
+    const attachmentName = "read-me.txt";
+    const attachmentContent = `ATTACHMENT_${crypto.randomUUID()}`;
+    const attachmentPath = resolve(attachmentDir, attachmentName);
+    await Bun.write(attachmentPath, attachmentContent);
+    await browser("wait", "--fn", "document.querySelector('textarea')?.disabled === false");
+    await browser("upload", 'input[type="file"]', attachmentPath);
+    await browser(
+      "find",
+      "role",
+      "textbox",
+      "fill",
+      "--name",
+      "Message",
+      "--exact",
+      "Read the attached text file and reply with exactly its contents.",
+    );
+    await click("button", "Send");
+    const attachmentSelector = `[data-message-id] a[href^="/api/attachments/"]`;
+    await browser("wait", attachmentSelector);
+    // The expected contents and local source path are never supplied to the Agent.
+    // Remove the source after upload; reading the original local file cannot pass.
+    await rm(attachmentDir, { recursive: true, force: true });
+    const attachmentReplyPresent = `Array.from(document.querySelectorAll('[data-message-id]')).some(row => row.querySelector('[data-message="other"]') && row.textContent.includes(${JSON.stringify(name)}) && Array.from(row.querySelectorAll('div')).some(e => e.textContent.trim() === ${JSON.stringify(attachmentContent)}))`;
+    await browser("wait", "--fn", attachmentReplyPresent, "--timeout", "180000");
+    expect(JSON.parse(await browser("eval", attachmentReplyPresent))).toBe(true);
+    await browser("reload");
+    await browser("wait", "--fn", attachmentReplyPresent, "--timeout", "180000");
+    expect(JSON.parse(await browser("eval", replyPresent))).toBe(true);
+    expect(JSON.parse(await browser("eval", attachmentReplyPresent))).toBe(true);
+    await browser("wait", attachmentSelector);
+    expect(
+      JSON.parse(
+        await browser(
+          "eval",
+          `document.querySelector(${JSON.stringify(attachmentSelector)}).textContent.includes(${JSON.stringify(attachmentName)})`,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      JSON.parse(
+        await browser(
+          "eval",
+          `fetch(document.querySelector(${JSON.stringify(attachmentSelector)}).href).then(async r => ({status:r.status, body:await r.text()}))`,
+        ),
+      ),
+    ).toEqual({ status: 200, body: attachmentContent });
     await mkdir(resolve(import.meta.dir, "../../.amp/in/artifacts"), { recursive: true });
     await browser(
       "screenshot",
       resolve(import.meta.dir, "../../.amp/in/artifacts/native-browser-reply.png"),
     );
     console.log(
-      JSON.stringify({ event: "native_browser:passed", agentId, name, replyPersisted: true }),
+      JSON.stringify({
+        event: "native_browser:passed",
+        agentId,
+        name,
+        replyPersisted: true,
+        attachmentReplyPersisted: true,
+      }),
     );
   } catch (error) {
     failed = true;
@@ -157,9 +212,10 @@ test("installed Computer creates an Agent through Web and persists its real repl
     }
     throw error;
   } finally {
+    await rm(attachmentDir, { recursive: true, force: true });
     await browser("close").catch((cleanupError) => {
       if (!failed) throw cleanupError;
       console.error("native_browser:cleanup_failed", cleanupError);
     });
   }
-}, 300_000);
+}, 480_000);

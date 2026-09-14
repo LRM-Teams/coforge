@@ -172,8 +172,20 @@ After the diagnostic cleanup changes, the final browser run also passed:
 `build` passed; targeted E2E oxfmt/oxlint, shellcheck, and TypeScript checks passed.
 Oracle found no blockers in this incremental change. Channel SSR/live DOM checks
 also observed disabled-before-hydration and enabled-after-hydration behavior.
-Thread entry, attachment/task actions, and send-error recovery remain manual
-regression checklist items; this direct-chat E2E does not claim to cover them.
+Thread entry, task actions, and send-error recovery remain manual regression
+checklist items; this direct-chat E2E does not claim to cover them.
+
+The native browser test now also uploads `read-me.txt` through the production
+composer and asks the real Agent to reply with its contents. Its random marker
+is absent from the request, and the temporary source file is outside the Agent
+workspace and removed after upload. After the Agent replies, the test reloads,
+checks both replies and the attachment card, and fetches the persisted attachment
+through its normal authenticated Web URL, asserting HTTP 200 and exact contents.
+On 2026-09-14 this extended test passed: **1 pass, 0 fail, 12 assertions**, 32.62
+seconds, using the installed native Computer and DeepSeek V4.1 Flash on OpenRouter.
+The inspected screenshot shows the attachment and separate Agent content reply.
+This covers Web upload/send and Agent access to the contents, not proof of a
+particular CLI tool invocation, Agent-originated upload, or attachment comments.
 
 ### Fast browser input exposed a production hydration defect
 
