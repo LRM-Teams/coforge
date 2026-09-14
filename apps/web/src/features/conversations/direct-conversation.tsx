@@ -21,7 +21,6 @@ import {
   Loading01 as LoaderCircle,
   MessageSquare01 as MessageSquare,
   Paperclip,
-  Plus,
   XClose,
 } from "@untitledui/icons";
 import { FileIcon } from "@untitledui/file-icons";
@@ -1219,7 +1218,7 @@ export function ConversationPane({
             {!root && onCreateTask ? (
               <Dropdown.Root>
                 <ButtonUtility
-                  icon={Plus}
+                  icon={Paperclip}
                   size="sm"
                   color="tertiary"
                   isDisabled={composerDisabled}
