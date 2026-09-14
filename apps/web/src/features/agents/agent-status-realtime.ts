@@ -36,7 +36,7 @@ type UnknownAgentStatusView = Omit<AgentStatusView, "value"> & {
   value: "unknown";
 };
 
-export const agentStatusChannel = (workspaceId: string) => `status:${workspaceId}`;
+export const agentStatusChannel = (workspaceId: string) => `agent:status:${workspaceId}`;
 
 export function encodeAgentStatusEvent(event: AgentStatusEvent): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(event));
@@ -313,12 +313,15 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
         }
       } catch {}
     };
+    const subscription = client.newSubscription(channel);
+    subscription.on("publication", onPublication);
+    subscription.subscribe();
     client.on("connected", onConnected);
-    client.on("publication", onPublication);
     return () => {
       disposed = true;
       client.off("connected", onConnected);
-      client.off("publication", onPublication);
+      subscription.unsubscribe();
+      client.removeSubscription(subscription);
     };
   }, [client, refresh, workspaceId]);
 

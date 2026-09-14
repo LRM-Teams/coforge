@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Centrifuge } from "centrifuge/build/protobuf";
 import { decodeAgentActivity, WORKSPACE_PROTOCOL_MAJOR } from "@coforge/protocol";
 import { mergeAgentActivity, type ActivityEntry } from "./agent-activity";
+import { agentActivityChannel } from "./agent-activity-realtime";
 
 export type WorkspaceActivitySnapshot = {
   workspaceId: string;
@@ -45,11 +46,12 @@ export function useWorkspaceActivity({
     let disposed = false;
     let refreshing = false;
     let refreshQueued = false;
-    const channel = `activity:${workspaceId}`;
+    const channel = agentActivityChannel(workspaceId);
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const client = new Centrifuge(`${protocol}//${location.host}/connection/websocket`, {
       getToken: getConnectionToken,
     });
+    const subscription = client.newSubscription(channel);
     const refreshHistory = async (afterConnection = false) => {
       if (disposed) return;
       if (refreshing) {
@@ -88,11 +90,11 @@ export function useWorkspaceActivity({
         }
       }
     };
-    client.on("connected", () => {
+    subscription.on("subscribed", () => {
       void refreshHistory(true);
     });
-    client.on("publication", (publication) => {
-      if (publication.channel !== channel || !(publication.data instanceof Uint8Array)) return;
+    subscription.on("publication", (publication) => {
+      if (!(publication.data instanceof Uint8Array)) return;
       try {
         const event = decodeAgentActivity(publication.data);
         if (
@@ -130,10 +132,13 @@ export function useWorkspaceActivity({
         /* Ignore malformed best-effort observations. */
       }
     });
+    subscription.subscribe();
     client.connect();
     void refreshHistory();
     return () => {
       disposed = true;
+      subscription.unsubscribe();
+      client.removeSubscription(subscription);
       client.disconnect();
     };
   }, [workspaceId, refresh, getConnectionToken]);

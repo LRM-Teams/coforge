@@ -192,7 +192,7 @@ describe("CentrifugoRpcHandler", () => {
     expect(displayObservations).toHaveLength(1);
     expect(publications).toEqual([
       {
-        channel: "status:workspace-1",
+        channel: "agent:status:workspace-1",
         data: {
           agentId: "agent-1",
           status: "active",
@@ -203,7 +203,7 @@ describe("CentrifugoRpcHandler", () => {
         },
       },
       {
-        channel: "status:workspace-1",
+        channel: "agent:status:workspace-1",
         data: {
           type: "agent:display",
           protocolMajor: 1,

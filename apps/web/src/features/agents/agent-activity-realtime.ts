@@ -3,7 +3,7 @@ import { Centrifuge } from "centrifuge/build/protobuf";
 import { decodeAgentActivity, WORKSPACE_PROTOCOL_MAJOR } from "@coforge/protocol";
 import { mergeAgentActivity, type ActivityEntry } from "./agent-activity";
 
-export const agentActivityChannel = (workspaceId: string) => `activity:${workspaceId}`;
+export const agentActivityChannel = (workspaceId: string) => `agent:activity:${workspaceId}`;
 
 export function useAgentActivity({
   agentId,
@@ -27,11 +27,12 @@ export function useAgentActivity({
   }, [agentId, activity]);
 
   useEffect(() => {
-    const channel = `activity:${workspaceId}`;
+    const channel = agentActivityChannel(workspaceId);
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const client = new Centrifuge(`${protocol}//${location.host}/connection/websocket`, {
       getToken: getConnectionToken,
     });
+    const subscription = client.newSubscription(channel);
     let disposed = false;
     const merge = (incoming: ActivityEntry[]) => {
       if (!disposed)
@@ -43,14 +44,14 @@ export function useAgentActivity({
           ),
         }));
     };
-    client.on("connected", () => {
+    subscription.on("subscribed", () => {
       // Rehydrate after subscribing, preserving publications arriving while history loads.
       void refresh()
         .then(merge)
         .catch(() => {});
     });
-    client.on("publication", (publication) => {
-      if (publication.channel !== channel || !(publication.data instanceof Uint8Array)) return;
+    subscription.on("publication", (publication) => {
+      if (!(publication.data instanceof Uint8Array)) return;
       try {
         const event = decodeAgentActivity(publication.data);
         if (
@@ -80,9 +81,12 @@ export function useAgentActivity({
         // Malformed observations must not break the page or its independent status stream.
       }
     });
+    subscription.subscribe();
     client.connect();
     return () => {
       disposed = true;
+      subscription.unsubscribe();
+      client.removeSubscription(subscription);
       client.disconnect();
     };
   }, [agentId, workspaceId, refresh, getConnectionToken]);

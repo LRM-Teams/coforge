@@ -1,18 +1,15 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 
 import { AgentDetail } from "@/features/agents/agent-detail";
 import { listAgentReminders } from "@/features/agents/agent-reminders.functions";
 import { AgentDetailPending } from "@/features/agents/agent-detail-pending";
 import { getAgentSkills } from "@/features/agents/agent-skills.functions";
 import { executeAgentControl } from "@/features/agents/agent-control.functions";
-import { useAgentStatuses } from "@/features/agents/agent-status-realtime";
-import { useAgentActivity } from "@/features/agents/agent-activity-realtime";
 import {
   deleteAgentRuntimeCredential,
   getAgentDetail,
-  getAgentActivityConnectionToken,
   saveAgentRuntimeCredential,
   updateAgent,
   getAgentEnvironment,
@@ -21,6 +18,10 @@ import {
 import { getUserPreferences } from "@/features/settings/settings.functions";
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { getComputerRuntimeCatalog, listComputers } from "@/features/computers/computers.functions";
+import {
+  useWorkspaceAgent,
+  useWorkspaceAgentActivity,
+} from "@/features/conversations/conversation-layout";
 
 function detailTab(value: unknown): "profile" | "activity" | "reminders" {
   if (value === "activity") return "activity";
@@ -58,32 +59,11 @@ function AgentDetailPage() {
   const update = useServerFn(updateAgent);
   const loadComputers = useServerFn(listComputers);
   const loadCatalog = useServerFn(getComputerRuntimeCatalog);
-  const loadDetail = useServerFn(getAgentDetail);
   const loadSkills = useServerFn(getAgentSkills);
   const executeControl = useServerFn(executeAgentControl);
   const loadReminders = useServerFn(listAgentReminders);
-  const agents = useMemo(() => [detail], [detail]);
-  const refresh = useCallback(
-    async () => [await loadDetail({ data: detail.id })],
-    [loadDetail, detail.id],
-  );
-  const visibleAgents = useAgentStatuses({
-    agents,
-    workspaceId: detail.workspaceId,
-    refresh,
-  });
-  const getActivityToken = useServerFn(getAgentActivityConnectionToken);
-  const refreshActivity = useCallback(
-    async () => (await loadDetail({ data: detail.id })).activity,
-    [loadDetail, detail.id],
-  );
-  const activity = useAgentActivity({
-    agentId: detail.id,
-    workspaceId: detail.workspaceId,
-    activity: detail.activity,
-    refresh: refreshActivity,
-    getConnectionToken: getActivityToken,
-  });
+  const liveAgent = useWorkspaceAgent(detail.id);
+  const activity = useWorkspaceAgentActivity(detail.id).activity;
   const loadAgentSkills = useCallback(
     () => loadSkills({ data: detail.id }),
     [loadSkills, detail.id],
@@ -95,8 +75,8 @@ function AgentDetailPage() {
   );
   return (
     <AgentDetail
-      activity={activity}
-      detail={visibleAgents.find((agent) => agent.id === detail.id) ?? detail}
+      activity={activity.length ? activity : detail.activity}
+      detail={{ ...detail, ...(liveAgent?.display ? { display: liveAgent.display } : {}) }}
       timeZone={timeZone}
       tab={Route.useSearch().tab}
       environment={{
