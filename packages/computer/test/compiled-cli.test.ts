@@ -71,7 +71,7 @@ test("single-file installation provides management and Agent CLI without a Daemo
     expect(errors).toContain("Detected platform:");
     expect(errors.indexOf("Detected platform:")).toBeLessThan(errors.indexOf("Resolved version:"));
     expect(errors.match(/Downloading CoForge Computer/g)).toHaveLength(1);
-    expect(errors.match(/Installing CoForge Computer to/g)).toHaveLength(1);
+    expect(output.match(/Installing CoForge Computer to/g)).toHaveLength(1);
     expect(errors).not.toContain("Checking runtime health");
     const bin = join(root, "versions", version);
     expect(await Bun.file(join(bin, "coforge-daemon")).exists()).toBe(false);
@@ -184,7 +184,7 @@ test("detached upgrade shows one download and restores a healthy version after a
       ]);
       expect(code).toBe(version === "9.0.0-test" ? 0 : 1);
       expect(errors.match(/Downloading CoForge Computer/g)).toHaveLength(1);
-      expect(errors.match(/Installing CoForge Computer to/g)).toHaveLength(1);
+      expect(output.match(/Installing CoForge Computer to/g)).toHaveLength(1);
       expect(
         requests.filter((path) => path === `/${version}/linux-x64/coforge-computer.gz`),
       ).toHaveLength(1);
