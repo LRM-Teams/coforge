@@ -296,6 +296,43 @@ test("installed Computer creates an Agent through Web and persists its real repl
       `location.hash === ${JSON.stringify(`#message-${agentTaskMessageId}`)}`,
     );
     expect(JSON.parse(await browser("eval", agentTaskMessage))).toBe(true);
+    console.log("native_browser:reassign_task");
+    await browser("click", 'nav[aria-label="Chat / Tasks"] button:last-child');
+    await browser("wait", "--fn", agentTaskReviewed);
+    // This harness uses the documented disposable dev-browser identity.
+    for (const [handle, owner, previousOwner] of [
+      ["dev-user", "@dev-user", name],
+      [name, name, "@dev-user"],
+    ]) {
+      const reassigned = `Array.from(document.querySelectorAll('section[aria-label="In review"] article')).some(e => e.textContent.includes(${JSON.stringify(agentTaskTitle)}) && e.textContent.includes(${JSON.stringify(owner)}) && !e.textContent.includes(${JSON.stringify(previousOwner)}))`;
+      const menuLabel: string = JSON.parse(
+        await browser(
+          "eval",
+          `Array.from(document.querySelectorAll('article')).find(e => e.textContent.includes(${JSON.stringify(agentTaskTitle)})).querySelector('button[aria-label^="More actions"]').getAttribute('aria-label')`,
+        ),
+      );
+      await click("button", menuLabel);
+      await click("menuitem", "View and edit");
+      await browser(
+        "find",
+        "role",
+        "textbox",
+        "fill",
+        "--name",
+        "Assignee handle",
+        "--exact",
+        `@${handle}`,
+      );
+      await click("button", "Assign");
+      await browser("wait", "--fn", reassigned);
+      await browser("find", "last", '[role="dialog"] button', "click");
+      await browser("wait", "--fn", "!document.querySelector('[role=dialog]')");
+      expect(JSON.parse(await browser("eval", reassigned))).toBe(true);
+      await browser("reload");
+      await browser("wait", "--fn", reassigned);
+      expect(JSON.parse(await browser("eval", reassigned))).toBe(true);
+      expect(JSON.parse(await browser("eval", taskDone))).toBe(true);
+    }
     console.log(
       JSON.stringify({
         event: "native_browser:passed",
@@ -306,6 +343,7 @@ test("installed Computer creates an Agent through Web and persists its real repl
         taskReviewPersisted: true,
         taskDonePersisted: true,
         agentCreatedTaskPersisted: true,
+        taskReassignmentPersisted: true,
       }),
     );
   } catch (error) {

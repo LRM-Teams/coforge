@@ -333,7 +333,10 @@ function formatMessage(message: AgentMessageRecord): string {
     ? ` owner=${task.owner.displayName} (@${task.owner.handle.replace(/^@/, "")})`
     : "";
   const suffix = task ? ` [task #${task.number} status=${task.status}${owner}]` : "";
-  return `[target=${message.target} msg=${message.id.slice(0, 8)} time=${message.createdAt}] ${message.sender}: ${message.body}${suffix}`;
+  const attachment = message.attachment
+    ? ` [attachment ${JSON.stringify(message.attachment)}]`
+    : "";
+  return `[target=${message.target} msg=${message.id.slice(0, 8)} time=${message.createdAt}] ${message.sender}: ${message.body}${suffix}${attachment}`;
 }
 
 function formatMessageRead(result: unknown): string {

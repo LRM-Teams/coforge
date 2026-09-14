@@ -228,6 +228,29 @@ without the harness's session flags disturbed an earlier run and produced an
 empty page; that run is not a product failure or a passing E2E. Inspect retained
 logs or use a separate browser session instead.
 
+The reassignment phase moves the Agent-created review task to the seeded human
+`@dev-user`, then back to the Agent through the Task detail form. Each step checks
+the new owner, absence of the old owner, unchanged In review status, reload
+persistence, and the unaffected earlier Done task. Use the task card's actual
+owner label (`@dev-user` here), not the login menu's `Dev User` label. Wait for the
+board to load before resolving the specific card's action menu. Final combined
+browser run: **1 pass, 0 fail, 31 assertions**, 67.65 seconds on 2026-09-14.
+One earlier run failed because OpenRouter's Together upstream returned an HTTP/2
+body-stream error; a passing rerun does not fix that external failure.
+
+This extension exposed a production CLI defect before reaching reassignment:
+`message check` discarded attachment metadata while `message read` preserved it.
+The Agent received only prose and read a stale `/tmp/read-me.txt`, returning the
+wrong marker. The exact-content assertion correctly failed. The CLI now prints
+the existing attachment metadata (full ID, filename, type, size) beside the
+message; a public CLI regression test failed before the fix and passes after it.
+No prompt override, pre-download, or weakened content assertion was introduced.
+The fix was compiled and installed through the native harness, then activated
+with the normal Computer restart command. Repeated setup itself returned
+`SETUP_WORKSPACE_LOOKUP_FAILED`; its cause remains unverified, so this run proves
+the browser flow against the newly installed Computer, not a fresh successful
+setup/authentication run. CLI tests: **35 pass, 96 assertions**.
+
 For future recovery coverage, do not substitute intentional Agent Stop for a
 Daemon disconnection: Stop revokes capabilities and removes restart configuration.
 Likewise, the Web channel mute control changes the human's membership, not the

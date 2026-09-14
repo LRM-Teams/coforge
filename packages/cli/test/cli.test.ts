@@ -769,6 +769,36 @@ test("dispatches only through the injected transport seam", async () => {
   expect(calls).toEqual(["read:@ada"]);
 });
 
+test("message check preserves attachment metadata needed to download the file", async () => {
+  const output = await run(["message", "check"], {
+    check: async () => ({
+      messages: [
+        {
+          id: "message-8",
+          sequence: 8,
+          sender: "@ada",
+          target: "@ada",
+          body: "Read this",
+          createdAt: "2026-09-03T10:00:00Z",
+          attachment: {
+            id: "523d2687-57af-4b34-85a2-27b2b5ba061c",
+            fileName: "report.txt",
+            contentType: "text/plain",
+            sizeBytes: 43,
+          },
+        },
+      ],
+    }),
+    read: async () => undefined,
+    send: async () => undefined,
+    view: async () => ({ bytes: new Uint8Array() }),
+  });
+  expect(output).toContain(
+    '[attachment {"id":"523d2687-57af-4b34-85a2-27b2b5ba061c","fileName":"report.txt","contentType":"text/plain","sizeBytes":43}]',
+  );
+  expect(output).not.toContain("sequence");
+});
+
 test("message check hides server ordering fields", async () => {
   const output = await run(["message", "check"], {
     check: async () => ({
