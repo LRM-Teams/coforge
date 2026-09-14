@@ -531,7 +531,7 @@ function createUpdateCommand(io: {
     target,
     installRoot,
     binaryDirectory,
-    onStage: (stage) => io.stderr(`==> ${stage}`),
+    onStage: (stage) => io.stdout(`==> ${stage}`),
   });
   const supervisorStatePath = resolveComputerStateDirectory({
     platform: process.platform,
@@ -574,7 +574,7 @@ function createUpdateCommand(io: {
                   installRoot,
                   binaryDirectory,
                   localDirectory,
-                  onStage: (stage) => io.stderr(`==> ${stage}`),
+                  onStage: (stage) => io.stdout(`==> ${stage}`),
                 })
               : updater
           ).install(version);
@@ -582,7 +582,7 @@ function createUpdateCommand(io: {
     },
     async upgrade(version) {
       const current = await updater.getCurrentVersion();
-      io.stderr(`==> Updating CoForge Computer${current ? ` from ${current}` : ""} to ${version}`);
+      io.stdout(`==> Updating CoForge Computer${current ? ` from ${current}` : ""} to ${version}`);
       const result = await coordinate("upgrade", version, undefined, true);
       io.stdout(`CoForge Computer ${result.version} updated successfully.`);
     },
