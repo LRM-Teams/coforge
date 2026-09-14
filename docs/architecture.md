@@ -155,6 +155,10 @@ reconciliation。这样 publication 102 先于 101 到达时也不会跳过 101�
 commit 后、Centrifugo publication 前 backend 崩溃的窗口，不引入 transactional outbox；
 该窗口由前台 safety reconciliation 修复，因此不声称每个已提交消息都在 2 秒内被 push。
 
+Computer setup/attach 到 Web/backend 的 `workspace:get` 与 `computer:register` 使用
+`POST /api/computer/workspace` 与 `POST /api/computer/attach`，由 Bearer User access token
+认证。路由固定操作，请求仅包含 `{ b64data }`，不发送 `method`；响应保留现有
+result/error envelope。复用 Protobuf payload、授权及注册幂等语义，不回退到 WSS。
 Daemon 到 Web/backend 的 Agent message read/search/send 使用独立的 HTTPS RPC
 边界，并携带 Daemon API key；该边界的 URL 是 daemon connection
 config 的 `serverHttpUrl`（启动时可由 `COFORGE_SERVER_HTTP_URL` 注入）。未配置
@@ -342,7 +346,7 @@ MVP OAuth client 使用 `client_id = coforge-computer` 与 `scope = openid offli
 
 `setup` 创建或恢复指定的 Workspace–Computer connection；重复 setup 同一 Workspace 更新该 binding，setup 另一 Workspace 则新增 binding，绝不替换、撤销或停止既有 binding。每个 binding 有独立 Daemon API key、配置、Workspace 数据和 Daemon 子进程。`start|stop|restart --workspace <slug>` 仅作用于该 binding；省略 scope 作用于全部本地 binding。停止只改变期望运行状态，不删除身份、凭据、Workspace 数据或 Agent workspace。
 
-`machine_id` 是机器的稳定内部注册身份，跨 Computer、Daemon 与 daemon 的重启和升级保持不变，但不用于用户界面的展示或选择。2026-09-08 用户批准 Computer 增加 `name` 与 `displayName`：`name` 默认取系统 hostname；`displayName` 默认取人类可读的 Computer Name，macOS 使用 `scutil --get ComputerName`，Linux 使用 pretty hostname，Windows 使用系统 Computer Name，读取失败时统一回退 hostname。Web 列表、详情和 Agent 的 Computer 选择统一使用这两个名称。Computer 注册属于 setup 中的用户主动授权操作，并通过 `computer:register` RPC 完成；其精确 envelope、payload、幂等键和 machine proof 按 [ADR 0004](adr/0004-computer-daemon-rpc-topology-and-protobuf.md) 的实现 packet 固定。
+`machine_id` 是机器的稳定内部注册身份，跨 Computer、Daemon 与 daemon 的重启和升级保持不变，但不用于用户界面的展示或选择。2026-09-08 用户批准 Computer 增加 `name` 与 `displayName`：`name` 默认取系统 hostname；`displayName` 默认取人类可读的 Computer Name，macOS 使用 `scutil --get ComputerName`，Linux 使用 pretty hostname，Windows 使用系统 Computer Name，读取失败时统一回退 hostname。Web 列表、详情和 Agent 的 Computer 选择统一使用这两个名称。Computer 注册属于 setup 中的用户主动授权操作，并通过上述 User-authenticated HTTPS `computer:register` RPC 完成；其 payload、幂等键和 machine proof 按 [ADR 0004](adr/0004-computer-daemon-rpc-topology-and-protobuf.md) 固定。
 
 ### coforge-daemon
 

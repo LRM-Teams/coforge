@@ -832,6 +832,23 @@ describe("CentrifugoRpcHandler", () => {
     });
   });
 
+  test("does not expose Computer setup methods on the WSS composition", async () => {
+    const handler = createCentrifugoRpcHandler(null);
+    const previous = process.env.COFORGE_CENTRIFUGO_PROXY_SECRET;
+    process.env.COFORGE_CENTRIFUGO_PROXY_SECRET = "test-secret";
+    try {
+      for (const method of ["workspace:get", "computer:register"]) {
+        const result = await handler.handleRequest(authorizedJson({ method, b64data: "AA==" }));
+        expect(await result.json()).toEqual({
+          error: { code: 404, message: "unknown RPC method" },
+        });
+      }
+    } finally {
+      if (previous === undefined) delete process.env.COFORGE_CENTRIFUGO_PROXY_SECRET;
+      else process.env.COFORGE_CENTRIFUGO_PROXY_SECRET = previous;
+    }
+  });
+
   test("rejects an unauthenticated internal proxy request", async () => {
     const handler = new CentrifugoRpcHandler({
       methods: { echo: () => new Uint8Array([1]) },

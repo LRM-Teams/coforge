@@ -948,7 +948,7 @@ export class CentrifugoRpcHandler {
 
   readonly #authorizeProxyRequest?: CentrifugoProxyAuthorizer;
 
-  async handleRequest(request: Request): Promise<Response> {
+  async handleRequest(request: Request, fixedMethod?: string): Promise<Response> {
     try {
       await this.#authorizeProxyRequest?.(request);
     } catch {
@@ -967,9 +967,10 @@ export class CentrifugoRpcHandler {
     }
 
     const payload = decodePayload(envelope);
-    if (typeof envelope.method !== "string" || !envelope.method || !payload)
+    const requestedMethod = fixedMethod ?? envelope.method;
+    if (typeof requestedMethod !== "string" || !requestedMethod || !payload)
       return errorResponse(errors.missing);
-    const method = this.#methods.get(envelope.method);
+    const method = this.#methods.get(requestedMethod);
     if (!method) return errorResponse(errors.unknown);
 
     try {

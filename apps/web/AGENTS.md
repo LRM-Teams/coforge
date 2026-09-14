@@ -295,6 +295,11 @@ instructions for the TanStack Start Web/backend modular monolith.
   metadata persistence. Ready supplies observations, never creator identity.
   Computer-scoped creator avatar downloads authorize Workspace membership before
   resolving the original Computer owner and reading the existing User avatar store.
+- `server/computers/computer-http.server.ts` owns the User-authenticated HTTPS
+  composition for Computer setup/attach Workspace lookup and registration. The fixed
+  `/api/computer/workspace` and `/api/computer/attach` routes bind `workspace:get` and
+  `computer:register`; `ComputerRegistrar` continues to own registration authorization,
+  idempotency, and persistence behavior.
 
 - `src/features/agents/agents.functions.ts` owns the authenticated Agent list/create seam;
   server-side Agent persistence, start publication, and ready recovery remain under

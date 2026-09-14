@@ -11,6 +11,77 @@ const workspaces: AccessibleWorkspace[] = [
   { id: "workspace-id-b", slug: "workspace-b", name: "Workspace B" },
 ];
 
+test("setup reauthorizes an expired login once and registers with the replacement credential", async () => {
+  const replacement = { accessToken: "replacement", tokenType: "Bearer" };
+  const attempts: Credential[] = [];
+  let authenticated = 0;
+  let registrationCredential: Credential | undefined;
+  const setup = createSetup({
+    authenticate: {
+      async authenticate() {
+        authenticated++;
+        return replacement;
+      },
+    },
+    workspaceLookup: createWorkspaceLookup(
+      async () => workspaces,
+      async (_server, current) => {
+        attempts.push(current);
+        if (current === credential) throw new CliError("AUTH_LOGIN_EXPIRED", "Expired", "Sign in");
+        return workspaces[0]!;
+      },
+    ),
+    registrationFactory: (_server, current) => {
+      registrationCredential = current;
+      return {
+        async register(request) {
+          return {
+            protocolMajor: request.protocolMajor,
+            requestId: request.requestId,
+            computerId: "computer-id",
+            workspaceId: "workspace-id-a",
+            daemonApiKey: "daemon-secret",
+          };
+        },
+      };
+    },
+  });
+  await setup.run({ workspaceSlug: "workspace-a" });
+  expect(attempts).toEqual([credential, replacement]);
+  expect(authenticated).toBe(1);
+  expect(registrationCredential).toBe(replacement);
+});
+
+test("setup stops after one renewal and never renews for other lookup failures", async () => {
+  for (const code of ["AUTH_LOGIN_EXPIRED", "AUTH_WORKSPACE_GET_FAILED"]) {
+    let attempts = 0;
+    let renewals = 0;
+    const setup = createSetup({
+      authenticate: {
+        async authenticate() {
+          renewals++;
+          return credential;
+        },
+      },
+      workspaceLookup: createWorkspaceLookup(
+        async () => workspaces,
+        async () => {
+          attempts++;
+          throw new CliError(code, "Rejected", "Retry login");
+        },
+      ),
+      registrationFactory: () => {
+        throw new Error("must not register");
+      },
+    });
+    await expect(setup.run({ workspaceSlug: "workspace-a" })).rejects.toMatchObject({
+      code: code === "AUTH_LOGIN_EXPIRED" ? code : "SETUP_WORKSPACE_NOT_FOUND",
+    });
+    expect(attempts).toBe(code === "AUTH_LOGIN_EXPIRED" ? 2 : 1);
+    expect(renewals).toBe(code === "AUTH_LOGIN_EXPIRED" ? 1 : 0);
+  }
+});
+
 test("setup resolves an accessible Workspace by slug and persists its stable id", async () => {
   const saved: Array<{ id: string; slug: string }> = [];
   const setup = createSetup({

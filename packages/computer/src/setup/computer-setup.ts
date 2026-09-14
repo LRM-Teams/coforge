@@ -101,11 +101,26 @@ export class ComputerSetup {
     }
     let workspace: AccessibleWorkspace;
     try {
-      workspace = await this.options.workspaceLookup.getBySlug(
-        serverUrl,
-        credential,
-        input.workspaceSlug,
-      );
+      try {
+        workspace = await this.options.workspaceLookup.getBySlug(
+          serverUrl,
+          credential,
+          input.workspaceSlug,
+        );
+      } catch (error) {
+        if (
+          !(error instanceof CliError) ||
+          error.code !== "AUTH_LOGIN_EXPIRED" ||
+          !this.options.authenticate
+        )
+          throw error;
+        credential = await this.options.authenticate.authenticate(serverUrl, input.json ?? false);
+        workspace = await this.options.workspaceLookup.getBySlug(
+          serverUrl,
+          credential,
+          input.workspaceSlug,
+        );
+      }
     } catch (error) {
       if (error instanceof CliError && error.code === "AUTH_WORKSPACE_GET_FAILED") {
         throw setupError(

@@ -1,7 +1,5 @@
 import {
   AGENT_SESSION_METHOD,
-  COMPUTER_REGISTER_METHOD,
-  WORKSPACE_GET_METHOD,
   WORKSPACE_LIST_METHOD,
   AGENT_SKILLS_LIST_RESULT_METHOD,
   AGENT_CONTROL_RESULT_METHOD,
@@ -18,15 +16,10 @@ import {
 } from "./rpc-handler.server";
 import { getDatabaseClient } from "../db/client.server";
 import type { PrismaClient } from "../../../generated/client";
-import {
-  PrismaComputerRegistrationRepository,
-  PrismaWorkspaceAccess,
-} from "../db/repositories/setup.repositories.server";
+import { PrismaWorkspaceAccess } from "../db/repositories/setup.repositories.server";
 import {
   createAgentSessionMethod,
-  createComputerRegistrationMethod,
   createDaemonRuntimeCodeAgentsUpdateMethod,
-  createWorkspaceGetMethod,
   createWorkspaceListMethod,
   createDaemonRuntimeReadyMethod,
   createDaemonRuntimeUsageScanResultMethod,
@@ -43,7 +36,6 @@ import {
   AGENT_STATUS_METHOD,
 } from "@coforge/protocol";
 import { WorkspaceQueryUseCase } from "../workspaces/query.server";
-import { ComputerRegistrar } from "../computers/registration.server";
 import { getComputerRestartStore } from "../computers/computer-restart-store.server";
 import { recordComputerObservation } from "../computers/computer-metadata.server";
 import {
@@ -178,10 +170,6 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
   if (db) {
     const access = new PrismaWorkspaceAccess(db);
     const query = new WorkspaceQueryUseCase(access);
-    const registration = new ComputerRegistrar({
-      workspaceAccess: access,
-      registrations: new PrismaComputerRegistrationRepository(db),
-    });
     const agentRepository = new PrismaAgentRepository(db);
     const agentAuthorization = new RepositoryAgentAuthorization(agentRepository);
     const centrifugo = createCentrifugoServerApi();
@@ -206,9 +194,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
     return new CentrifugoRpcHandler({
       methods: {
         [AGENT_SESSION_METHOD]: createAgentSessionMethod(sessions, sessionReceiver),
-        [COMPUTER_REGISTER_METHOD]: createComputerRegistrationMethod(registration),
         [WORKSPACE_LIST_METHOD]: createWorkspaceListMethod(query),
-        [WORKSPACE_GET_METHOD]: createWorkspaceGetMethod(query),
         [DAEMON_RUNTIME_READY_METHOD]: createDaemonRuntimeReadyMethod(
           new WorkspaceAgentRecovery(
             agentRepository,
@@ -296,9 +282,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
   }
   return new CentrifugoRpcHandler({
     methods: {
-      [COMPUTER_REGISTER_METHOD]: unavailableMethod,
       [WORKSPACE_LIST_METHOD]: unavailableMethod,
-      [WORKSPACE_GET_METHOD]: unavailableMethod,
       [DAEMON_RUNTIME_READY_METHOD]: createDaemonRuntimeReadyMethod(),
       [DAEMON_CONNECTION_STATUS_METHOD]: createDaemonConnectionStatusMethod(),
       [DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD]: unavailableMethod,

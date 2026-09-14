@@ -149,6 +149,22 @@ test("setup with no --workspace and no setup-intent falls back to undefined", as
   }
 });
 
+test("attach joins the selected Workspace through the existing setup use case", async () => {
+  const calls: Array<{ workspaceSlug: string | undefined; json: boolean }> = [];
+  const dependencies = {
+    login: { async run() {} },
+    setup: {
+      async run(workspaceSlug: string | undefined, options: { json: boolean }) {
+        calls.push({ workspaceSlug, json: options.json });
+      },
+    },
+  };
+  expect(await runCli(["attach", "--workspace", "acme-inc", "--json"], dependencies)).toBe(0);
+  expect(calls).toEqual([{ workspaceSlug: "acme-inc", json: true }]);
+  expect(await runCli(["attach", "--workspace", "invalid/slug"], dependencies)).toBe(1);
+  expect(calls).toEqual([{ workspaceSlug: "acme-inc", json: true }]);
+});
+
 test("setup forwards an explicit --workspace slug", async () => {
   const calls: Array<{ workspaceSlug: string | undefined }> = [];
   const setup: SetupCommand = {

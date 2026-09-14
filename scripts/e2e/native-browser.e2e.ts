@@ -21,6 +21,18 @@ test("installed Computer creates an Agent through Web and persists its real repl
   const session = `native-${process.pid}`;
   const attachmentDir = await mkdtemp(resolve(tmpdir(), "native-attachment-"));
   let failed = false;
+  let computerStopped = false;
+  async function controlComputer(action: "stop" | "start") {
+    const executable = Bun.which("coforge-computer");
+    if (!executable) throw new Error("Installed Computer is required");
+    const child = Bun.spawn([executable, action], { stdout: "pipe", stderr: "pipe" });
+    const [, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    if (code !== 0) throw new Error(`Computer ${action} failed: ${stderr}`);
+  }
   async function browser(...args: string[]) {
     const child = Bun.spawn(
       [browserPath!, "--session", session, "--ignore-https-errors", ...args],
@@ -278,7 +290,7 @@ test("installed Computer creates an Agent through Web and persists its real repl
       ),
     );
     await browser("click", 'nav[aria-label="Chat / Tasks"] button:last-child');
-    const agentTaskReviewed = `Array.from(document.querySelectorAll('section[aria-label="In review"] article')).some(e => e.textContent.includes(${JSON.stringify(agentTaskTitle)}) && e.textContent.includes(${JSON.stringify(name)}))`;
+    const agentTaskReviewed = `Array.from(document.querySelectorAll('section[aria-label="In review"] article')).some(e => Array.from(e.querySelectorAll('span')).some(s => s.textContent.trim() === ${JSON.stringify(agentTaskTitle)}) && e.textContent.includes(${JSON.stringify(name)}))`;
     await browser("wait", "--fn", agentTaskReviewed, "--timeout", "180000");
     expect(JSON.parse(await browser("eval", agentTaskReviewed))).toBe(true);
     await browser("reload");
@@ -289,7 +301,7 @@ test("installed Computer creates an Agent through Web and persists its real repl
       "screenshot",
       resolve(import.meta.dir, "../../.amp/in/artifacts/native-browser-agent-task.png"),
     );
-    await browser("find", "role", "button", "click", "--name", agentTaskTitle);
+    await browser("find", "text", agentTaskTitle, "click", "--exact");
     await browser(
       "wait",
       "--fn",
@@ -304,11 +316,11 @@ test("installed Computer creates an Agent through Web and persists its real repl
       ["dev-user", "@dev-user", name],
       [name, name, "@dev-user"],
     ]) {
-      const reassigned = `Array.from(document.querySelectorAll('section[aria-label="In review"] article')).some(e => e.textContent.includes(${JSON.stringify(agentTaskTitle)}) && e.textContent.includes(${JSON.stringify(owner)}) && !e.textContent.includes(${JSON.stringify(previousOwner)}))`;
+      const reassigned = `Array.from(document.querySelectorAll('section[aria-label="In review"] article')).some(e => Array.from(e.querySelectorAll('span')).some(s => s.textContent.trim() === ${JSON.stringify(agentTaskTitle)}) && e.textContent.includes(${JSON.stringify(owner)}) && !e.textContent.includes(${JSON.stringify(previousOwner)}))`;
       const menuLabel: string = JSON.parse(
         await browser(
           "eval",
-          `Array.from(document.querySelectorAll('article')).find(e => e.textContent.includes(${JSON.stringify(agentTaskTitle)})).querySelector('button[aria-label^="More actions"]').getAttribute('aria-label')`,
+          `Array.from(document.querySelectorAll('article')).find(e => Array.from(e.querySelectorAll('span')).some(s => s.textContent.trim() === ${JSON.stringify(agentTaskTitle)})).querySelector('button[aria-label^="More actions"]').getAttribute('aria-label')`,
         ),
       );
       await click("button", menuLabel);
@@ -333,6 +345,85 @@ test("installed Computer creates an Agent through Web and persists its real repl
       expect(JSON.parse(await browser("eval", reassigned))).toBe(true);
       expect(JSON.parse(await browser("eval", taskDone))).toBe(true);
     }
+    console.log("native_browser:offline_task");
+    computerStopped = true;
+    await controlComputer("stop");
+    // Stop awaits the native Workspace process shutdown. The Web Online badge
+    // is a leased loader snapshot, not evidence of whether that process stopped.
+    await browser("open", `${origin}/en/messages/${agentId}?view=tasks`);
+    await click("button", "Create task");
+    const offlineTitle = `OFFLINE_${crypto.randomUUID()}: Create offline-result.txt containing recovered task, then submit this task for review.`;
+    await browser("find", "role", "textbox", "fill", "--name", "Title", "--exact", offlineTitle);
+    await browser("click", '[role="dialog"] button[type="submit"]');
+    await browser("wait", "--fn", "!document.querySelector('[role=dialog]')");
+    await browser("click", 'nav[aria-label="Chat / Tasks"] button:last-child');
+    const offlineTodo = `Array.from(document.querySelectorAll('section[aria-label="To do"] article')).some(e => e.textContent.includes(${JSON.stringify(offlineTitle)}))`;
+    await browser("wait", "--fn", offlineTodo);
+    expect(JSON.parse(await browser("eval", offlineTodo))).toBe(true);
+    await controlComputer("start");
+    computerStopped = false;
+    const offlineReviewed = `Array.from(document.querySelectorAll('section[aria-label="In review"] article')).some(e => e.textContent.includes(${JSON.stringify(offlineTitle)}) && e.textContent.includes(${JSON.stringify(name)}))`;
+    await browser("wait", "--fn", offlineReviewed, "--timeout", "180000");
+    expect(JSON.parse(await browser("eval", offlineReviewed))).toBe(true);
+    await browser("reload");
+    await browser("wait", "--fn", offlineReviewed);
+    expect(JSON.parse(await browser("eval", offlineReviewed))).toBe(true);
+    console.log("native_browser:muted_assignment");
+    const mutedTitle = `MUTED_${crypto.randomUUID()}`;
+    const muteReady = `READY_${crypto.randomUUID()}`;
+    await click("button", "Chat");
+    await browser("wait", "--fn", "document.querySelector('textarea')?.disabled === false");
+    await browser(
+      "find",
+      "role",
+      "textbox",
+      "fill",
+      "--name",
+      "Message",
+      "--exact",
+      `Mute #general notifications using CoForge. Create a new unassigned task in #general titled exactly ${mutedTitle}. Its work is to create muted-result.txt containing assigned while muted and submit for review. Do not claim or execute it until someone assigns it to you. Reply here with exactly ${muteReady} after muting and creating it; do not wait for assignment in this turn.`,
+    );
+    await click("button", "Send");
+    const readyPresent = `Array.from(document.querySelectorAll('[data-message-id]')).some(row => row.querySelector('[data-message="other"]') && Array.from(row.querySelectorAll('div')).some(e => e.textContent.trim() === ${JSON.stringify(muteReady)}))`;
+    await browser("wait", "--fn", readyPresent, "--timeout", "180000");
+    await click("link", "general");
+    await browser("wait", "--fn", "!!document.querySelector('nav[aria-label=\"Chat / Tasks\"]')");
+    await browser("click", 'nav[aria-label="Chat / Tasks"] button:last-child');
+    const mutedTodo = `Array.from(document.querySelectorAll('section[aria-label="To do"] article')).some(e => Array.from(e.querySelectorAll('span')).some(s => s.textContent.trim() === ${JSON.stringify(mutedTitle)}) && e.textContent.includes('Unassigned'))`;
+    await browser("wait", "--fn", mutedTodo);
+    expect(JSON.parse(await browser("eval", mutedTodo))).toBe(true);
+    const mutedMenu: string = JSON.parse(
+      await browser(
+        "eval",
+        `Array.from(document.querySelectorAll('article')).find(e => Array.from(e.querySelectorAll('span')).some(s => s.textContent.trim() === ${JSON.stringify(mutedTitle)})).querySelector('button[aria-label^="More actions"]').getAttribute('aria-label')`,
+      ),
+    );
+    await click("button", mutedMenu);
+    await click("menuitem", "View and edit");
+    await browser(
+      "find",
+      "role",
+      "textbox",
+      "fill",
+      "--name",
+      "Assignee handle",
+      "--exact",
+      `@${name}`,
+    );
+    await click("button", "Assign");
+    await browser(
+      "wait",
+      "--fn",
+      "document.querySelector('[role=dialog] input[placeholder=\"@handle\"]')?.value === ''",
+    );
+    await browser("find", "last", '[role="dialog"] button', "click");
+    await browser("wait", "--fn", "!document.querySelector('[role=dialog]')");
+    const mutedReviewed = `Array.from(document.querySelectorAll('section[aria-label="In review"] article')).some(e => Array.from(e.querySelectorAll('span')).some(s => s.textContent.trim() === ${JSON.stringify(mutedTitle)}) && e.textContent.includes(${JSON.stringify(name)}))`;
+    await browser("wait", "--fn", mutedReviewed, "--timeout", "180000");
+    expect(JSON.parse(await browser("eval", mutedReviewed))).toBe(true);
+    await browser("reload");
+    await browser("wait", "--fn", mutedReviewed);
+    expect(JSON.parse(await browser("eval", mutedReviewed))).toBe(true);
     console.log(
       JSON.stringify({
         event: "native_browser:passed",
@@ -344,6 +435,8 @@ test("installed Computer creates an Agent through Web and persists its real repl
         taskDonePersisted: true,
         agentCreatedTaskPersisted: true,
         taskReassignmentPersisted: true,
+        offlineTaskRecovered: true,
+        mutedAssignmentReviewed: true,
       }),
     );
   } catch (error) {
@@ -358,10 +451,15 @@ test("installed Computer creates an Agent through Web and persists its real repl
     }
     throw error;
   } finally {
-    await rm(attachmentDir, { recursive: true, force: true });
-    await browser("close").catch((cleanupError) => {
-      if (!failed) throw cleanupError;
-      console.error("native_browser:cleanup_failed", cleanupError);
-    });
+    const cleanup = await Promise.allSettled([
+      computerStopped ? controlComputer("start") : Promise.resolve(),
+      rm(attachmentDir, { recursive: true, force: true }),
+      browser("close"),
+    ]);
+    for (const result of cleanup) {
+      if (result.status !== "rejected") continue;
+      if (!failed) throw result.reason;
+      console.error("native_browser:cleanup_failed", result.reason);
+    }
   }
 }, 900_000);

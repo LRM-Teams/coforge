@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Local-only harness. It invokes the installed product and never
 # imports app internals or registers rows directly in PostgreSQL.
-# The compiled CLI performs the real computer:register RPC over Centrifugo.
+# The compiled CLI performs the real computer:register RPC over HTTPS.
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 : "${COFORGE_E2E_WEB_URL:?Set COFORGE_E2E_WEB_URL to the trusted local HTTPS endpoint}"
 : "${COFORGE_E2E_WORKSPACE_SLUG:?Set COFORGE_E2E_WORKSPACE_SLUG}"

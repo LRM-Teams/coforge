@@ -1,18 +1,21 @@
 import { expect, test } from "bun:test";
-import { COMPUTER_REGISTER_METHOD } from "@coforge/protocol";
-import { encodeComputerRegisterRequest } from "@coforge/protocol/codec";
+import { COMPUTER_REGISTER_METHOD, COMPUTER_REGISTER_PROTOCOL_MAJOR } from "@coforge/protocol";
 import {
-  CentrifugoComputerRegisterTransport,
+  decodeComputerRegisterRequest,
+  decodeWorkspaceGetRequest,
+  encodeComputerRegisterResponse,
+  encodeWorkspaceGetResponse,
+} from "@coforge/protocol/codec";
+import {
+  HttpComputerRegisterTransport,
+  HttpWorkspaceRpcTransport,
   centrifugoWebSocketEndpoint,
   daemonConnectionEndpoint,
-  resolveCentrifugoWebSocketEndpoint,
   resolveDaemonConnectionEndpoint,
-  type CentrifugeClient,
-  type CentrifugeFactory,
 } from "../src/cloud-rpc-transport";
 
 const request = {
-  protocolMajor: 1,
+  protocolMajor: COMPUTER_REGISTER_PROTOCOL_MAJOR,
   requestId: "request-1",
   workspaceSlug: "team",
   name: "test-computer",
@@ -25,150 +28,165 @@ const request = {
 };
 
 const response = {
-  protocolMajor: 1,
+  protocolMajor: COMPUTER_REGISTER_PROTOCOL_MAJOR,
   requestId: request.requestId,
   computerId: "computer-1",
   workspaceId: "workspace-1",
   daemonApiKey: "worker-secret",
 };
 
-function encodedResponse() {
-  const bytes = [0x08, response.protocolMajor];
-  for (const [index, value] of [
-    response.requestId,
-    response.computerId,
-    response.workspaceId,
-    `${response.workspaceId}:${response.computerId}`,
-    response.daemonApiKey,
-  ].entries()) {
-    const encoded = new TextEncoder().encode(value);
-    bytes.push(0x12 + index * 8, encoded.length, ...encoded);
-  }
-  return new Uint8Array(bytes);
-}
+test("HTTP registration sends bearer JSON without redirects and decodes protobuf", async () => {
+  const transport = new HttpComputerRegisterTransport(
+    "https://cloud.example/base",
+    "user-secret",
+    async (input, init) => {
+      expect(String(input)).toBe("https://cloud.example/api/computer/attach");
+      expect(init).toMatchObject({
+        method: "POST",
+        redirect: "error",
+        headers: {
+          Authorization: "Bearer user-secret",
+          "Content-Type": "application/json",
+        },
+      });
+      const body = JSON.parse(String(init?.body));
+      expect(Object.keys(body)).toEqual(["b64data"]);
+      expect(decodeComputerRegisterRequest(Uint8Array.fromBase64(body.b64data))).toEqual(request);
+      return Response.json({
+        result: { b64data: encodeComputerRegisterResponse(response).toBase64() },
+      });
+    },
+  );
 
-function fakeClient(overrides: Partial<CentrifugeClient> = {}) {
-  let connected = () => {};
-  let failed = (_error: unknown) => {};
-  const client: CentrifugeClient = {
-    on(event, callback) {
-      if (event === "connected") connected = callback as () => void;
-      else failed = callback as (error: unknown) => void;
-    },
-    connect() {
-      connected();
-    },
-    disconnect() {},
-    async rpc() {
-      return { data: encodedResponse() };
-    },
-    ...overrides,
-  };
-  return {
-    client,
-    fail(error: unknown) {
-      failed(error);
-    },
-  };
-}
-
-test("register transport sends the method and encoded request, then decodes the response", async () => {
-  const fake = fakeClient();
-  let rpcMethod = "";
-  let rpcPayload: Uint8Array | undefined;
-  fake.client.rpc = async (method, data) => {
-    rpcMethod = method;
-    rpcPayload = data;
-    return { data: encodedResponse() };
-  };
-  const factory: CentrifugeFactory = () => fake.client;
-
-  await expect(
-    new CentrifugoComputerRegisterTransport(
-      "wss://cloud.example/connection/websocket",
-      "fixed-secret",
-      factory,
-    ).request(COMPUTER_REGISTER_METHOD, request),
-  ).resolves.toEqual(response);
-  expect(rpcMethod).toBe(COMPUTER_REGISTER_METHOD);
-  expect(rpcPayload).toEqual(encodeComputerRegisterRequest(request));
+  await expect(transport.request(COMPUTER_REGISTER_METHOD, request)).resolves.toEqual(response);
 });
 
-test("register transport rejects connection failures and disconnects", async () => {
-  let disconnects = 0;
-  const fake = fakeClient({ connect: () => {}, disconnect: () => disconnects++ });
-  const factory: CentrifugeFactory = () => fake.client;
-  const promise = new CentrifugoComputerRegisterTransport(
-    "wss://cloud.example",
-    "fixed-secret",
-    factory,
-  ).request(COMPUTER_REGISTER_METHOD, request);
-  fake.fail(new Error("connection failed"));
-
-  await expect(promise).rejects.toThrow("connection failed");
-  expect(disconnects).toBe(1);
-});
-
-test("register transport rejects RPC failures and disconnects", async () => {
-  let disconnects = 0;
-  const fake = fakeClient({
-    disconnect: () => disconnects++,
-    rpc: async () => Promise.reject(new Error("rpc failed")),
+test("HTTP Workspace lookup sends and correlates its protobuf request", async () => {
+  const transport = new HttpWorkspaceRpcTransport(async (input, init) => {
+    expect(String(input)).toBe("https://cloud.example/api/computer/workspace");
+    const body = JSON.parse(String(init?.body));
+    const decoded = decodeWorkspaceGetRequest(Uint8Array.fromBase64(body.b64data));
+    expect(Object.keys(body)).toEqual(["b64data"]);
+    expect(decoded.workspaceSlug).toBe("team");
+    return Response.json({
+      result: {
+        b64data: encodeWorkspaceGetResponse({
+          protocolMajor: decoded.protocolMajor,
+          requestId: decoded.requestId,
+          workspace: { id: "workspace-1", slug: "team", name: "Team" },
+        }).toBase64(),
+      },
+    });
   });
-  const factory: CentrifugeFactory = () => fake.client;
 
   await expect(
-    new CentrifugoComputerRegisterTransport("wss://cloud.example", "fixed-secret", factory).request(
-      COMPUTER_REGISTER_METHOD,
-      request,
+    transport.getBySlug(
+      "https://cloud.example",
+      { accessToken: "user-secret", tokenType: "Bearer" },
+      "team",
     ),
-  ).rejects.toThrow("rpc failed");
-  expect(disconnects).toBe(1);
+  ).resolves.toEqual({ id: "workspace-1", slug: "team", name: "Team" });
 });
 
-test("Centrifugo websocket endpoint uses the Centrifugo websocket path", () => {
+test("HTTP authentication code and status 401 expire login, but other authorization fails remotely", async () => {
+  for (const response of [
+    new Response(null, { status: 401 }),
+    Response.json({ error: { code: 401, message: "expired" } }),
+    Response.json({ error: { code: 403, message: "forbidden" } }, { status: 403 }),
+  ]) {
+    const transport = new HttpWorkspaceRpcTransport(async () => response);
+    await expect(
+      transport.getBySlug(
+        "https://cloud.example",
+        { accessToken: "user-secret", tokenType: "Bearer" },
+        "team",
+      ),
+    ).rejects.toMatchObject(
+      response.status === 401 || response.status === 200
+        ? { code: "AUTH_LOGIN_EXPIRED" }
+        : { name: "RemoteRpcError", code: 403 },
+    );
+  }
+});
+
+test("HTTP rejects valid protobuf responses for a different request", async () => {
+  const registration = new HttpComputerRegisterTransport(
+    "https://cloud.example",
+    "token",
+    async () =>
+      Response.json({
+        result: {
+          b64data: encodeComputerRegisterResponse({
+            ...response,
+            requestId: "other-request",
+          }).toBase64(),
+        },
+      }),
+  );
+  await expect(registration.request(COMPUTER_REGISTER_METHOD, request)).rejects.toThrow(
+    "Invalid registration response",
+  );
+  const workspace = new HttpWorkspaceRpcTransport(async () =>
+    Response.json({
+      result: {
+        b64data: encodeWorkspaceGetResponse({
+          protocolMajor: 1,
+          requestId: "other-request",
+          workspace: { id: "workspace-1", slug: "team", name: "Team" },
+        }).toBase64(),
+      },
+    }),
+  );
+  await expect(
+    workspace.getBySlug(
+      "https://cloud.example",
+      { accessToken: "token", tokenType: "Bearer" },
+      "team",
+    ),
+  ).rejects.toThrow("Invalid Workspace response");
+});
+
+test("HTTP malformed envelope, protobuf, and network failures are remote RPC errors", async () => {
+  const responses: Array<() => Promise<Response>> = [
+    async () => Response.json({ result: {} }),
+    async () => Response.json({ result: { b64data: "not base64!" } }),
+    async () => Response.json({ result: { b64data: "AA==" } }),
+    async () => {
+      throw new Error("network included user-secret and request body");
+    },
+  ];
+  for (const fetchImplementation of responses) {
+    const transport = new HttpComputerRegisterTransport(
+      "https://cloud.example",
+      "user-secret",
+      fetchImplementation,
+    );
+    try {
+      await transport.request(COMPUTER_REGISTER_METHOD, request);
+      throw new Error("expected rejection");
+    } catch (error) {
+      expect(error).toMatchObject({
+        name: "RemoteRpcError",
+        method: COMPUTER_REGISTER_METHOD,
+        requestId: request.requestId,
+      });
+      expect((error as Error).message).not.toContain("user-secret");
+      expect((error as Error).message).not.toContain("request body");
+    }
+  }
+});
+
+test("Daemon WSS endpoint utilities remain available", () => {
   expect(centrifugoWebSocketEndpoint("https://cloud.example/api?tenant=one")).toBe(
     "wss://cloud.example/connection/websocket?tenant=one",
   );
-  expect(centrifugoWebSocketEndpoint("http://cloud.example/api")).toBe(
+  expect(daemonConnectionEndpoint("http://cloud.example/api")).toBe(
     "ws://cloud.example/connection/websocket",
   );
-});
-
-test("Daemon connection endpoint reuses Centrifugo's client websocket path, not a bespoke prefix", () => {
-  expect(daemonConnectionEndpoint("https://staging.example/api?tenant=one")).toBe(
-    "wss://staging.example/connection/websocket?tenant=one",
-  );
-  expect(daemonConnectionEndpoint("https://staging.example/api?tenant=one")).toBe(
-    centrifugoWebSocketEndpoint("https://staging.example/api?tenant=one"),
-  );
-});
-
-test("E2E-only websocket override splits RPC from the Web HTTP server", () => {
-  expect(
-    resolveCentrifugoWebSocketEndpoint("http://localhost:8789", {
-      COFORGE_E2E_ALLOW_DEVICE_AUTH: "1",
-      COFORGE_E2E_CENTRIFUGO_ENDPOINT: "ws://localhost:8000/connection/websocket",
-    }),
-  ).toBe("ws://localhost:8000/connection/websocket");
-  expect(
-    resolveCentrifugoWebSocketEndpoint("http://localhost:8789", {
-      COFORGE_E2E_CENTRIFUGO_ENDPOINT: "ws://localhost:8000/connection/websocket",
-    }),
-  ).toBe("ws://localhost:8789/connection/websocket");
-});
-
-test("E2E-only daemon connection override splits the Daemon's WSS target from the Web HTTP server", () => {
   expect(
     resolveDaemonConnectionEndpoint("http://localhost:8789", {
       COFORGE_E2E_ALLOW_DEVICE_AUTH: "1",
       COFORGE_E2E_DAEMON_CONNECTION_ENDPOINT: "ws://localhost:8000/connection/websocket",
     }),
   ).toBe("ws://localhost:8000/connection/websocket");
-  // Without the E2E flag, production behavior applies: derive WSS from serverUrl.
-  expect(
-    resolveDaemonConnectionEndpoint("http://localhost:8789", {
-      COFORGE_E2E_DAEMON_CONNECTION_ENDPOINT: "ws://localhost:8000/connection/websocket",
-    }),
-  ).toBe("ws://localhost:8789/connection/websocket");
 });
