@@ -1,3 +1,4 @@
+import { lockConversation } from "../../conversations/conversation-lock.server";
 import type { MessageTaskMetadata, TaskStatus } from "@coforge/protocol";
 import { Prisma, type PrismaClient } from "../../../../generated/client";
 import { AgentMessageValidationError } from "../../conversations/agent-message-validation-error.server";
@@ -205,8 +206,7 @@ function unreadForAgentWhere(agentId: string, isChannel: boolean) {
 
 /** Next sequence for a conversation; holds the conversation row lock until the transaction ends. */
 async function allocateSequence(tx: Prisma.TransactionClient, conversationId: string) {
-  // Serialize sequence allocators for this conversation before observing MAX(sequence).
-  await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${conversationId}::uuid FOR UPDATE`;
+  await lockConversation(tx, conversationId);
   const last = await tx.message.findFirst({
     where: { conversationId },
     orderBy: { sequence: "desc" },

@@ -1,3 +1,4 @@
+import { lockConversation } from "../conversations/conversation-lock.server";
 import {
   AGENT_MESSAGE_METHOD,
   REMINDER_SYNC_MESSAGE_TYPE,
@@ -629,7 +630,7 @@ export class TaskBoard {
       1,
     );
     const result = await this.db.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${scope.conversationId}::uuid FOR UPDATE`;
+      await lockConversation(tx, scope.conversationId);
       const retried = await tx.task.findMany({
         where: {
           conversationId: scope.conversationId,
@@ -924,7 +925,7 @@ export class TaskBoard {
     claim: boolean,
   ) {
     const task = await this.db.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${conversationId}::uuid FOR UPDATE`;
+      await lockConversation(tx, conversationId);
       let existing = command.number
         ? await tx.task.findUnique({
             where: {
@@ -1133,7 +1134,7 @@ export class TaskBoard {
       1,
     );
     const result = await this.db.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${conversationId}::uuid FOR UPDATE`;
+      await lockConversation(tx, conversationId);
       const receipt = await tx.message.findUnique({ where: { id: receiptId } });
       if (receipt) {
         const task = await tx.task.findUnique({
