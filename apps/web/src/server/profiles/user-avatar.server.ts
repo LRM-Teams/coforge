@@ -1,9 +1,7 @@
-import { mkdir, rm } from "node:fs/promises";
-
 import type { PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import { avatarUrl } from "../db/repositories/user-profile.repositories.server";
-import { fileStoragePath } from "../files/file-storage.server";
+import { getFileStorage, type FileStorage } from "../files/file-storage.server";
 
 export const PROFILE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const CONTENT_SIGNATURES = {
@@ -12,7 +10,11 @@ const CONTENT_SIGNATURES = {
   "image/webp": [0x52, 0x49, 0x46, 0x46],
 } as const;
 
-export async function storeUserAvatar(db: PrismaClient, input: { userId: string; file: File }) {
+export async function storeUserAvatar(
+  db: PrismaClient,
+  input: { userId: string; file: File },
+  storage: () => Promise<FileStorage> = getFileStorage,
+) {
   await validateImage(input.file);
   const previous = await db.user.findUnique({
     where: { id: input.userId },
@@ -22,39 +24,41 @@ export async function storeUserAvatar(db: PrismaClient, input: { userId: string;
 
   const id = crypto.randomUUID();
   const objectKey = `users/${input.userId}/avatars/${id}/original`;
-  const path = fileStoragePath(objectKey);
-  await mkdir(fileStoragePath(`users/${input.userId}/avatars/${id}`), {
-    recursive: true,
-  });
-  await Bun.write(path, input.file);
+  const files = await storage();
+  await files.put(objectKey, input.file, input.file.type);
   try {
     await db.user.update({
       where: { id: input.userId },
       data: { avatarObjectKey: objectKey, avatarContentType: input.file.type },
     });
   } catch (error) {
-    await rm(fileStoragePath(`users/${input.userId}/avatars/${id}`), {
-      recursive: true,
-      force: true,
-    });
+    await files.remove(objectKey);
     throw error;
   }
-  if (previous.avatarObjectKey) await removeObject(previous.avatarObjectKey);
+  if (previous.avatarObjectKey) await files.remove(previous.avatarObjectKey);
   return { avatarUrl: avatarUrl(objectKey) };
 }
 
-export async function readUserAvatar(db: PrismaClient, userId: string) {
+export async function readUserAvatar(
+  db: PrismaClient,
+  userId: string,
+  storage: () => Promise<FileStorage> = getFileStorage,
+) {
   const profile = await db.user.findUnique({
     where: { id: userId },
     select: { avatarObjectKey: true, avatarContentType: true },
   });
   if (!profile?.avatarObjectKey || !profile.avatarContentType) throw new AppError("NOT_FOUND");
-  const file = Bun.file(fileStoragePath(profile.avatarObjectKey));
-  if (!(await file.exists())) throw new AppError("NOT_FOUND");
-  return { body: file, contentType: profile.avatarContentType };
+  const file = await (await storage()).open(profile.avatarObjectKey);
+  if (!file) throw new AppError("NOT_FOUND");
+  return { body: file.body, contentType: profile.avatarContentType };
 }
 
-export async function removeUserAvatar(db: PrismaClient, userId: string) {
+export async function removeUserAvatar(
+  db: PrismaClient,
+  userId: string,
+  storage: () => Promise<FileStorage> = getFileStorage,
+) {
   const previous = await db.user.findUnique({
     where: { id: userId },
     select: { avatarObjectKey: true },
@@ -64,7 +68,7 @@ export async function removeUserAvatar(db: PrismaClient, userId: string) {
     where: { id: userId },
     data: { avatarObjectKey: null, avatarContentType: null },
   });
-  if (previous.avatarObjectKey) await removeObject(previous.avatarObjectKey);
+  if (previous.avatarObjectKey) await (await storage()).remove(previous.avatarObjectKey);
 }
 
 async function validateImage(file: File) {
@@ -76,11 +80,4 @@ async function validateImage(file: File) {
   const webpMatches =
     file.type !== "image/webp" || String.fromCharCode(...bytes.slice(8, 12)) === "WEBP";
   if (!matches || !webpMatches) throw new AppError("INVALID_INPUT");
-}
-
-async function removeObject(objectKey: string) {
-  await rm(fileStoragePath(objectKey).replace(/\/original$/, ""), {
-    recursive: true,
-    force: true,
-  });
 }

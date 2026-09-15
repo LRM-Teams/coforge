@@ -57,9 +57,17 @@ services:
       # from. Not a secret, and deployment-specific by design: docs/release.md requires a
       # staging entry point to install the staging build, never the production one.
       COFORGE_RELEASE_FEED_URL: https://releases-staging.coforge.cn
-      COFORGE_FILE_STORAGE_DIR: /data/files
-    volumes:
-      - coforge_staging_files:/data/files
+      # Private user files (chat attachments, avatars) live in the staging OSS bucket; see
+      # docs/operations/aliyun-oss-cdn.md. No AccessKey pair: the ECS instance carries the
+      # `coforge-staging-web` RAM role and the SDK reads its STS token from the instance
+      # metadata service (100.100.100.200), so the credential never exists as a file or
+      # environment value. The internal endpoint keeps uploads off the public bandwidth.
+      COFORGE_FILE_STORAGE: oss
+      COFORGE_OSS_BUCKET: coforge-files-staging
+      COFORGE_OSS_REGION: cn-beijing
+      COFORGE_OSS_INTERNAL: "1"
+      ALIBABA_CLOUD_ECS_METADATA: coforge-staging-web
+      ALIBABA_CLOUD_IMDSV1_DISABLED: "true"
     secrets:
       - source: authing_app_id
         uid: "1000"
@@ -210,8 +218,6 @@ volumes:
     name: coforge_staging_redis_data
   coforge_staging_postgres_data:
     name: coforge_staging_postgres_data
-  coforge_staging_files:
-    name: coforge_staging_files
 
 secrets:
   authing_app_id:

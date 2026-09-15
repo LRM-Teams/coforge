@@ -9,7 +9,10 @@ const scopeSchema = z.object({ computerId: z.uuid(), workspaceId: z.uuid() });
 type Dependencies = {
   authenticate(cookie: string | undefined): { id: string };
   database(): PrismaClient | null | undefined;
-  read(db: PrismaClient, userId: string): Promise<{ body: Blob; contentType: string }>;
+  read(
+    db: PrismaClient,
+    userId: string,
+  ): Promise<{ body: Blob | ReadableStream<Uint8Array>; contentType: string }>;
 };
 
 const dependencies: Dependencies = {

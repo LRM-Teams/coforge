@@ -1,7 +1,6 @@
-import { mkdir, rm } from "node:fs/promises";
 import type { PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
-import { fileStoragePath } from "../files/file-storage.server";
+import { getFileStorage, type FileStorage, type StoredFile } from "../files/file-storage.server";
 
 export const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 export const ATTACHMENT_SESSION_SECONDS = 900;
@@ -29,6 +28,7 @@ export async function storeAttachment(
     conversationId: string;
     file: File;
   },
+  storage: () => Promise<FileStorage> = getFileStorage,
 ) {
   if (input.file.size > ATTACHMENT_MAX_BYTES) throw new AppError("INVALID_INPUT");
   const conversation = await db.conversation.findFirst({
@@ -42,12 +42,9 @@ export async function storeAttachment(
   if (!conversation) throw new AppError("ACCESS_DENIED");
   const id = crypto.randomUUID();
   const objectKey = `workspaces/${conversation.workspaceId}/attachments/${id}/original`;
-  const path = fileStoragePath(objectKey);
-  const directory = fileStoragePath(`workspaces/${conversation.workspaceId}/attachments/${id}`);
-  await mkdir(directory, {
-    recursive: true,
-  });
-  await Bun.write(path, input.file);
+  const contentType = input.file.type || "application/octet-stream";
+  const files = await storage();
+  await files.put(objectKey, input.file, contentType);
   try {
     return await db.attachment.create({
       data: {
@@ -57,20 +54,22 @@ export async function storeAttachment(
         uploaderId: input.userId,
         objectKey,
         fileName: input.file.name || "attachment",
-        contentType: input.file.type || "application/octet-stream",
+        contentType,
         sizeBytes: input.file.size,
       },
       select: { id: true, fileName: true, contentType: true, sizeBytes: true },
     });
   } catch (error) {
-    await rm(directory, {
-      recursive: true,
-      force: true,
-    });
+    await files.remove(objectKey);
     throw error;
   }
 }
 
+/**
+ * Resolves an attachment the requester may download and hands back a lazy `open` for its
+ * bytes. Authorization happens here, against the committed message and the requester's
+ * conversation access; the storage backend only ever sees the stable object key.
+ */
 export async function readAuthorizedAttachment(
   db: PrismaClient,
   input: {
@@ -79,6 +78,7 @@ export async function readAuthorizedAttachment(
     agentId?: string;
     conversationId?: string;
   },
+  storage: () => Promise<FileStorage> = getFileStorage,
 ) {
   const attachment = await db.attachment.findUnique({
     where: { id: input.attachmentId },
@@ -116,6 +116,10 @@ export async function readAuthorizedAttachment(
     throw new AppError("ACCESS_DENIED");
   return {
     attachment,
-    path: fileStoragePath(attachment.objectKey),
+    async open(): Promise<StoredFile> {
+      const file = await (await storage()).open(attachment.objectKey);
+      if (!file) throw new AppError("NOT_FOUND");
+      return file;
+    },
   };
 }

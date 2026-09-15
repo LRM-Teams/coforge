@@ -11,11 +11,12 @@ export const Route = createFileRoute("/api/agent/attachments/$attachmentId")({
           const principal = await authenticateAgentHttpRequest(request);
           const db = getDatabaseClient();
           if (!db) return new Response("persistence unavailable", { status: 503 });
-          const { attachment, path } = await readAuthorizedAttachment(db, {
+          const { attachment, open } = await readAuthorizedAttachment(db, {
             attachmentId: params.attachmentId,
             agentId: principal.agentId,
           });
-          return new Response(Bun.file(path), {
+          const file = await open();
+          return new Response(file.body, {
             headers: {
               "Content-Type": attachment.contentType,
               "Content-Disposition": `attachment; filename="${attachment.fileName.replace(/["\\\r\n]/g, "_")}"`,
