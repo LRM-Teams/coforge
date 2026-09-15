@@ -1,4 +1,5 @@
-import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
+import type { QueryClient } from "@tanstack/react-query";
+import { HeadContent, Scripts, createRootRouteWithContext } from "@tanstack/react-router";
 
 import { AppToastProvider } from "@/components/ui/toast";
 import { getLocale } from "@/paraglide/runtime";
@@ -7,7 +8,7 @@ import appCss from "../styles.css?url";
 
 const themeScript = `try{var theme=localStorage.getItem("coforge-theme");if(theme==="dark"||((!theme||theme==="system")&&matchMedia("(prefers-color-scheme: dark)").matches)){document.documentElement.classList.add("dark-mode")}if(localStorage.getItem("coforge-rail-labels")==="hide"){document.documentElement.classList.add("rail-labels-hidden")}}catch{}`;
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
     meta: [
       {

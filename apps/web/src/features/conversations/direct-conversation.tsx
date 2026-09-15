@@ -1,9 +1,12 @@
 import { useSubmitGuard } from "@/hooks/use-submit-guard";
+import { useStateWithRef } from "@/hooks/use-state-with-ref";
+import { mergeMessages } from "./conversation-messages";
 import {
   useCallback,
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -464,24 +467,21 @@ export function ConversationPane({
   useEffect(() => setDateLocale(getLocale()), []);
   const toast = useAppToast();
   const [newMessageCount, setNewMessageCount] = useState(0);
-  const [followingLatest, setFollowingLatest] = useState(true);
-  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [followingLatest, followingLatestRef, setFollowingLatest] = useStateWithRef(true);
+  const [loadingOlder, loadingOlderRef, setLoadingOlder] = useStateWithRef(false);
   const [ownMessageIndex, setOwnMessageIndex] = useState<OwnMessageIndexEntry[]>([]);
   const [hasOlderOwnMessages, setHasOlderOwnMessages] = useState(false);
-  const [loadingOwnMessages, setLoadingOwnMessages] = useState(false);
+  const [loadingOwnMessages, loadingOwnMessagesRef, setLoadingOwnMessages] = useStateWithRef(false);
   const [ownMessagesOpen, setOwnMessagesOpen] = useState(false);
   const [reminderNotices, setReminderNotices] = useState<ReminderNoticeView[]>([]);
   const historyRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const ownMessagesMenuRef = useRef<HTMLDivElement>(null);
-  const followingLatestRef = useRef(true);
   const previousConversationIdRef = useRef<string | undefined>(undefined);
   const previousLastSequenceRef = useRef<number | undefined>(undefined);
   const retryRef = useRef<{ body: string; requestId: string; asTask: boolean } | undefined>(
     undefined,
   );
-  const loadingOlderRef = useRef(false);
-  const loadingOwnMessagesRef = useRef(false);
   const olderScrollAnchorRef = useRef<{ height: number; top: number } | undefined>(undefined);
   const ownMenuScrollAnchorRef = useRef<{ height: number; top: number } | undefined>(undefined);
   const scrollOwnMenuToLatestRef = useRef(false);
@@ -495,16 +495,23 @@ export function ConversationPane({
     message.senderMemberId != null
       ? message.senderMemberId === conversation.senderMemberId
       : message.senderKind === "user";
-  const loadedOwnMessages = conversation.messages
-    .filter(isOwn)
-    .sort((left, right) => left.sequence - right.sequence)
-    .map((message) => ({
-      id: message.id,
-      sequence: message.sequence,
-      body: message.body,
-      createdAt: message.createdAt,
-      attachmentFileName: message.attachment?.fileName,
-    }));
+  // Only derived from the loaded page when no indexed own-message source is wired up.
+  const loadedOwnMessages = useMemo(
+    () =>
+      onLoadOwnMessages
+        ? []
+        : conversation.messages
+            .filter(isOwn)
+            .sort((left, right) => left.sequence - right.sequence)
+            .map((message) => ({
+              id: message.id,
+              sequence: message.sequence,
+              body: message.body,
+              createdAt: message.createdAt,
+              attachmentFileName: message.attachment?.fileName,
+            })),
+    [conversation.messages, conversation.senderMemberId, onLoadOwnMessages],
+  );
   const ownMessages = onLoadOwnMessages ? ownMessageIndex : loadedOwnMessages;
   const listRef = useRef<HTMLOListElement>(null);
   const messagesRef = useRef(conversation.messages);
@@ -576,7 +583,6 @@ export function ConversationPane({
       scrollToLatest("instant");
       setNewMessageCount(0);
       setFollowingLatest(true);
-      followingLatestRef.current = true;
     } else if (receivedMessageCount > 0) {
       setNewMessageCount((count) => count + receivedMessageCount);
     }
@@ -601,7 +607,6 @@ export function ConversationPane({
       if (!anchor.startsWith("message-")) return;
       const message = document.getElementById(anchor);
       if (message) {
-        followingLatestRef.current = false;
         setFollowingLatest(false);
         message.scrollIntoView({ block: "center" });
         return;
@@ -609,7 +614,6 @@ export function ConversationPane({
       const messageId = anchor.slice("message-".length);
       const index = messagesRef.current.findIndex((candidate) => candidate.id === messageId);
       if (index < 0) return;
-      followingLatestRef.current = false;
       setFollowingLatest(false);
       messageVirtualizer.scrollToIndex(index, { align: "center" });
       // The row is positioned from an estimate until it mounts; settle on its measured box.
@@ -660,7 +664,6 @@ export function ConversationPane({
     setHasOlderOwnMessages(false);
     setLoadingOwnMessages(false);
     setOwnMessagesOpen(false);
-    loadingOwnMessagesRef.current = false;
     ownMenuScrollAnchorRef.current = undefined;
     if (!root && onLoadOwnMessages) void loadOwnMessages(undefined, false);
   }, [conversation.conversationId]);
@@ -691,7 +694,6 @@ export function ConversationPane({
     if (!history) return;
     if (history.scrollTop <= 80) void loadOlder();
     const followingLatest = history.scrollHeight - history.scrollTop - history.clientHeight <= 48;
-    followingLatestRef.current = followingLatest;
     setFollowingLatest(followingLatest);
     if (followingLatest) setNewMessageCount(0);
   }
@@ -700,7 +702,6 @@ export function ConversationPane({
     const history = historyRef.current;
     if (root || !history || !conversation.hasOlder || !onLoadOlder || loadingOlderRef.current)
       return;
-    loadingOlderRef.current = true;
     setLoadingOlder(true);
     olderScrollAnchorRef.current = {
       height: history.scrollHeight,
@@ -711,13 +712,11 @@ export function ConversationPane({
     } catch {
       olderScrollAnchorRef.current = undefined;
     } finally {
-      loadingOlderRef.current = false;
       setLoadingOlder(false);
     }
   }
 
   async function showLatestMessages() {
-    followingLatestRef.current = true;
     setFollowingLatest(true);
     setNewMessageCount(0);
     if (conversation.hasNewer && onShowLatest) {
@@ -726,7 +725,6 @@ export function ConversationPane({
         await onShowLatest();
       } catch (cause) {
         pendingLatestRef.current = false;
-        followingLatestRef.current = false;
         setFollowingLatest(false);
         toast.error(m.conversation_history_load_error(), cause);
         return;
@@ -737,7 +735,6 @@ export function ConversationPane({
 
   async function showMessage(messageId: string) {
     const index = conversation.messages.findIndex((message) => message.id === messageId);
-    followingLatestRef.current = false;
     setFollowingLatest(false);
     if (index < 0) {
       if (!onLoadMessageAround) return;
@@ -765,22 +762,16 @@ export function ConversationPane({
     } else {
       scrollOwnMenuToLatestRef.current = true;
     }
-    loadingOwnMessagesRef.current = true;
     setLoadingOwnMessages(true);
     try {
       const page = await onLoadOwnMessages(beforeSequence);
       setHasOlderOwnMessages(page.hasOlder);
-      setOwnMessageIndex((current) => {
-        const messages = new Map(current.map((message) => [message.id, message]));
-        for (const message of page.messages) messages.set(message.id, message);
-        return [...messages.values()].sort((left, right) => left.sequence - right.sequence);
-      });
+      setOwnMessageIndex((current) => mergeMessages(current, page.messages));
     } catch (cause) {
       ownMenuScrollAnchorRef.current = undefined;
       scrollOwnMenuToLatestRef.current = false;
       if (reportError) toast.error(m.conversation_history_load_error(), cause);
     } finally {
-      loadingOwnMessagesRef.current = false;
       setLoadingOwnMessages(false);
     }
   }
@@ -814,11 +805,7 @@ export function ConversationPane({
             ? (await onCreateTask(text, request.requestId, attachmentId), undefined)
             : await onSend(text, request.requestId, attachmentId);
         if (sentMessage && onLoadOwnMessages) {
-          setOwnMessageIndex((current) => {
-            const messages = new Map(current.map((message) => [message.id, message]));
-            messages.set(sentMessage.id, sentMessage);
-            return [...messages.values()].sort((left, right) => left.sequence - right.sequence);
-          });
+          setOwnMessageIndex((current) => mergeMessages(current, [sentMessage]));
           scrollOwnMenuToLatestRef.current = true;
         }
         retryRef.current = undefined;
@@ -1087,6 +1074,9 @@ export function ConversationPane({
                   placement="top start"
                   offset={8}
                   crossOffset={-4}
+                  // React Aria sizes the popover to the viewport with an inline max-height,
+                  // which would override the class below; cap it here instead. Ten rows.
+                  maxHeight={400}
                   className={(state) =>
                     cn(
                       "origin-(--trigger-anchor-point) overflow-auto rounded-lg bg-primary shadow-lg ring-1 ring-secondary_alt will-change-transform",
@@ -1094,7 +1084,7 @@ export function ConversationPane({
                         "duration-150 ease-out animate-in fade-in placement-right:slide-in-from-left-0.5 placement-top:slide-in-from-bottom-0.5 placement-bottom:slide-in-from-top-0.5",
                       state.isExiting &&
                         "duration-100 ease-in animate-out fade-out placement-right:slide-out-to-left-0.5 placement-top:slide-out-to-bottom-0.5 placement-bottom:slide-out-to-top-0.5",
-                      "max-h-[228px] w-[min(24rem,calc(100vw-2.5rem))] p-1.5 [scrollbar-width:thin]",
+                      "max-h-[400px] w-[min(24rem,calc(100vw-2.5rem))] p-1.5 [scrollbar-width:thin]",
                     )
                   }
                   onScroll={(event) => {
@@ -1302,10 +1292,26 @@ export function ConversationPane({
   );
 }
 
+// Intl.DateTimeFormat construction dominates per-row formatting cost; keep one per locale.
+const dayFormatters = new Map<string, Intl.DateTimeFormat>();
+const clockFormatters = new Map<string, Intl.DateTimeFormat>();
+function cachedFormatter(
+  cache: Map<string, Intl.DateTimeFormat>,
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+) {
+  let formatter = cache.get(locale);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, options);
+    cache.set(locale, formatter);
+  }
+  return formatter;
+}
+
 function dayLabel(value: Date | string, locale?: string): string {
   // Keep server/first-client markup identical; browser locale and zone apply after mount.
   if (!locale) return new Date(value).toISOString().slice(0, 10);
-  return new Intl.DateTimeFormat(locale, {
+  return cachedFormatter(dayFormatters, locale, {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -1314,7 +1320,7 @@ function dayLabel(value: Date | string, locale?: string): string {
 
 function clockLabel(value: Date | string, locale?: string): string {
   if (!locale) return "";
-  return new Intl.DateTimeFormat(locale, {
+  return cachedFormatter(clockFormatters, locale, {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
