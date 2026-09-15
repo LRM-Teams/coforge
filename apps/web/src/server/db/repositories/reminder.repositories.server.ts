@@ -160,12 +160,7 @@ export class PrismaReminderRepository implements ReminderRepository {
   ) {
     return this.db.$transaction(
       async (tx) => {
-        const authorized = await tx.$queryRaw<
-          Array<{ id: string }>
-        >`SELECT "id" FROM "agents" WHERE "id" = ${scope.agentId}::uuid AND "workspaceId" = ${scope.workspaceId}::uuid AND "ownerId" = ${scope.userId}::uuid AND "computerId" = ${scope.computerId}::uuid FOR UPDATE`;
-        if (authorized.length !== 1) throw new Error("reminder operation is not authorized");
-        if (!(await this.transactionScopeExists(tx, scope)))
-          throw new Error("reminder operation is not authorized");
+        await this.authorizeAndLock(tx, scope, "reminder operation is not authorized");
         const replay = await tx.reminderOperationReceipt.findUnique({
           where: { agentId_requestId: { agentId: scope.agentId, requestId } },
         });
@@ -266,12 +261,7 @@ export class PrismaReminderRepository implements ReminderRepository {
   ) {
     return this.db.$transaction(
       async (tx) => {
-        const authorized = await tx.$queryRaw<
-          Array<{ id: string }>
-        >`SELECT "id" FROM "agents" WHERE "id" = ${scope.agentId}::uuid AND "workspaceId" = ${scope.workspaceId}::uuid AND "ownerId" = ${scope.userId}::uuid AND "computerId" = ${scope.computerId}::uuid FOR UPDATE`;
-        if (authorized.length !== 1) throw new Error("reminder operation is not authorized");
-        if (!(await this.transactionScopeExists(tx, scope)))
-          throw new Error("reminder operation is not authorized");
+        await this.authorizeAndLock(tx, scope, "reminder operation is not authorized");
         await tx.$queryRaw`SELECT "id" FROM "reminders" WHERE "id" = ${id}::uuid AND "workspaceId" = ${scope.workspaceId}::uuid AND "ownerAgentId" = ${scope.agentId}::uuid AND "computerId" = ${scope.computerId}::uuid FOR UPDATE`;
         const replay = await tx.reminderOperationReceipt.findUnique({
           where: { agentId_requestId: { agentId: scope.agentId, requestId } },
@@ -412,12 +402,7 @@ export class PrismaReminderRepository implements ReminderRepository {
   async fire(scope: Scope, request: ReminderFireRequest, now: Date) {
     return this.db.$transaction(
       async (tx) => {
-        const authorized = await tx.$queryRaw<
-          Array<{ id: string }>
-        >`SELECT "id" FROM "agents" WHERE "id" = ${scope.agentId}::uuid AND "workspaceId" = ${scope.workspaceId}::uuid AND "ownerId" = ${scope.userId}::uuid AND "computerId" = ${scope.computerId}::uuid FOR UPDATE`;
-        if (authorized.length !== 1) throw new Error("reminder fire is not authorized");
-        if (!(await this.transactionScopeExists(tx, scope)))
-          throw new Error("reminder fire is not authorized");
+        await this.authorizeAndLock(tx, scope, "reminder fire is not authorized");
         await tx.$queryRaw`SELECT "id" FROM "reminders" WHERE "id" = ${request.reminderId}::uuid AND "workspaceId" = ${scope.workspaceId}::uuid AND "ownerAgentId" = ${scope.agentId}::uuid AND "computerId" = ${scope.computerId}::uuid FOR UPDATE`;
         const reminder = await tx.reminder.findFirst({
           where: {
@@ -502,6 +487,18 @@ export class PrismaReminderRepository implements ReminderRepository {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
     );
+  }
+
+  /**
+   * Lock the owning Agent row for the rest of the transaction and confirm the caller's
+   * Workspace membership and Computer connection; every reminder write starts here.
+   */
+  private async authorizeAndLock(tx: Prisma.TransactionClient, scope: Scope, failure: string) {
+    const authorized = await tx.$queryRaw<
+      Array<{ id: string }>
+    >`SELECT "id" FROM "agents" WHERE "id" = ${scope.agentId}::uuid AND "workspaceId" = ${scope.workspaceId}::uuid AND "ownerId" = ${scope.userId}::uuid AND "computerId" = ${scope.computerId}::uuid FOR UPDATE`;
+    if (authorized.length !== 1) throw new Error(failure);
+    if (!(await this.transactionScopeExists(tx, scope))) throw new Error(failure);
   }
 
   private async transactionScopeExists(tx: Prisma.TransactionClient, scope: Scope) {

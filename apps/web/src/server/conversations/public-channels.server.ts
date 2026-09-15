@@ -26,6 +26,49 @@ export function generalChannelForCreator(userId: string) {
 }
 
 /** Enroll Workspace humans and Agents. Membership alone never creates attention. */
+type ChannelMessageRow = {
+  id: string;
+  sequence: number;
+  threadRootId: string | null;
+  senderMemberId: string | null;
+  body: string;
+  createdAt: Date;
+  sender: {
+    agentId: string | null;
+    agent: { name: string } | null;
+    user: { username: string } | null;
+  } | null;
+  attachment: { id: string; fileName: string; contentType: string; sizeBytes: number } | null;
+};
+
+/** The browser-facing shape of one channel message, shared by page and update reads. */
+function channelMessageView(message: ChannelMessageRow) {
+  return {
+    id: message.id,
+    sequence: message.sequence,
+    threadRootId: message.threadRootId ?? undefined,
+    senderMemberId: message.senderMemberId,
+    senderKind: !message.sender
+      ? ("system" as const)
+      : message.sender.agentId
+        ? ("agent" as const)
+        : ("user" as const),
+    senderName: !message.sender
+      ? "System"
+      : `@${message.sender.agent?.name ?? message.sender.user!.username}`,
+    body: message.body,
+    createdAt: message.createdAt,
+    attachment: message.attachment
+      ? {
+          id: message.attachment.id,
+          fileName: message.attachment.fileName,
+          contentType: message.attachment.contentType,
+          sizeBytes: message.attachment.sizeBytes,
+        }
+      : undefined,
+  };
+}
+
 export async function enrollGeneralChannel(db: Prisma.TransactionClient, workspaceId: string) {
   await db.conversation.createMany({
     data: { workspaceId, channelName: "general" },
@@ -315,30 +358,7 @@ export class PublicChannels {
       followedThreadRootIds: (member?.threadFollows ?? []).map((follow) => follow.rootMessageId),
       hasOlder,
       hasNewer: false,
-      messages: pageMessages.map((message) => ({
-        id: message.id,
-        sequence: message.sequence,
-        threadRootId: message.threadRootId ?? undefined,
-        senderMemberId: message.senderMemberId,
-        senderKind: !message.sender
-          ? ("system" as const)
-          : message.sender.agentId
-            ? ("agent" as const)
-            : ("user" as const),
-        senderName: !message.sender
-          ? "System"
-          : `@${message.sender.agent?.name ?? message.sender.user!.username}`,
-        body: message.body,
-        createdAt: message.createdAt,
-        attachment: message.attachment
-          ? {
-              id: message.attachment.id,
-              fileName: message.attachment.fileName,
-              contentType: message.attachment.contentType,
-              sizeBytes: message.attachment.sizeBytes,
-            }
-          : undefined,
-      })),
+      messages: pageMessages.map(channelMessageView),
     };
   }
 
@@ -356,30 +376,7 @@ export class PublicChannels {
         attachment: true,
       },
     });
-    return messages.map((message) => ({
-      id: message.id,
-      sequence: message.sequence,
-      threadRootId: message.threadRootId ?? undefined,
-      senderMemberId: message.senderMemberId,
-      senderKind: !message.sender
-        ? ("system" as const)
-        : message.sender.agentId
-          ? ("agent" as const)
-          : ("user" as const),
-      senderName: !message.sender
-        ? "System"
-        : `@${message.sender.agent?.name ?? message.sender.user!.username}`,
-      body: message.body,
-      createdAt: message.createdAt,
-      attachment: message.attachment
-        ? {
-            id: message.attachment.id,
-            fileName: message.attachment.fileName,
-            contentType: message.attachment.contentType,
-            sizeBytes: message.attachment.sizeBytes,
-          }
-        : undefined,
-    }));
+    return messages.map(channelMessageView);
   }
 
   async send(input: {
