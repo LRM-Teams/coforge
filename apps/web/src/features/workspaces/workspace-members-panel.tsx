@@ -33,6 +33,7 @@ import {
   revokeWorkspaceInvitation,
   updateWorkspaceMemberRole,
 } from "./members.functions";
+import { useSubmitGuard } from "@/hooks/use-submit-guard";
 
 type MemberRow = {
   userId: string;
@@ -309,7 +310,7 @@ function InviteMemberDialog({
   const [username, setUsername] = useState("");
   const [role, setRole] = useState<"admin" | "member">("member");
   const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, guard] = useSubmitGuard();
 
   function close() {
     setUsername("");
@@ -321,16 +322,15 @@ function InviteMemberDialog({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!username.trim()) return;
-    setError("");
-    setSubmitting(true);
-    try {
-      await onInvite({ username: username.trim(), role });
-      close();
-    } catch {
-      setError(m.workspace_members_action_failed());
-    } finally {
-      setSubmitting(false);
-    }
+    await guard(async () => {
+      setError("");
+      try {
+        await onInvite({ username: username.trim(), role });
+        close();
+      } catch {
+        setError(m.workspace_members_action_failed());
+      }
+    });
   }
 
   return (

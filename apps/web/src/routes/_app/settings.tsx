@@ -71,10 +71,6 @@ function SettingsPage() {
   const navigate = Route.useNavigate();
   const { timeZone: savedTimeZone, members } = Route.useLoaderData();
   const { user: profile, notifications } = appRoute.useLoaderData();
-  const [timeZone, setTimeZone] = useState(savedTimeZone);
-  const [browserNotificationsEnabled, setBrowserNotificationsEnabled] = useState(
-    notifications.enabled,
-  );
   const [notificationPermission, setNotificationPermission] = useState<
     NotificationPermission | "unsupported"
   >("unsupported");
@@ -98,10 +94,6 @@ function SettingsPage() {
     applyTheme(initialTheme);
     setRailLabels(readRailLabels());
   }, []);
-
-  useEffect(() => {
-    setBrowserNotificationsEnabled(notifications.enabled);
-  }, [notifications.enabled]);
 
   useEffect(() => {
     const refreshPermission = () => setNotificationPermission(browserNotificationPermission());
@@ -141,10 +133,7 @@ function SettingsPage() {
 
   async function changeTimeZone(nextTimeZone: string) {
     try {
-      const result = await saveTimeZone({
-        data: { timeZone: nextTimeZone || null },
-      });
-      setTimeZone(result.timeZone);
+      await saveTimeZone({ data: { timeZone: nextTimeZone || null } });
       await router.invalidate({ sync: true });
     } catch (cause) {
       toast.error(m.settings_save_error(), cause);
@@ -166,8 +155,7 @@ function SettingsPage() {
   async function changeBrowserNotifications(enabled: boolean) {
     try {
       if (enabled && !(await registerCurrentBrowser(true))) return;
-      const saved = await saveNotificationPreference({ data: { enabled } });
-      setBrowserNotificationsEnabled(saved.enabled);
+      await saveNotificationPreference({ data: { enabled } });
       await router.invalidate({ sync: true });
     } catch (cause) {
       toast.error(m.preferences_browser_notifications_save_error(), cause);
@@ -224,8 +212,8 @@ function SettingsPage() {
       members={members}
       locale={locale}
       theme={theme}
-      timeZone={timeZone}
-      browserNotificationsEnabled={browserNotificationsEnabled}
+      timeZone={savedTimeZone}
+      browserNotificationsEnabled={notifications.enabled}
       browserNotificationPermission={notificationPermission}
       browserNotificationsConfigured={notifications.publicKey !== null}
       showAddToHomeScreenGuide={showAddToHomeScreenGuide}

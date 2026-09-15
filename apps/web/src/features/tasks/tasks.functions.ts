@@ -1,15 +1,11 @@
 import { TASK_STATUSES, type TaskCommand } from "@coforge/protocol";
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
-import { AppError } from "../../lib/app-error";
-import { requireBrowserUser } from "../../server/auth/require-user.server";
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
-import { getDatabaseClient } from "../../server/db/client.server";
 import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
 import { TaskBoard } from "../../server/tasks/task-board.server";
-import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
+import { browserScope } from "../../server/auth/browser-scope.server";
 
 const taskCommand = z
   .object({
@@ -58,20 +54,14 @@ const taskCommand = z
   .strict();
 
 export const loadTaskOverview = createServerFn({ method: "GET" }).handler(async () => {
-  const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-  const db = getDatabaseClient();
-  if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
-  const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+  const { user, db, workspaceId } = await browserScope();
   return new TaskBoard(db).overview(workspaceId, user.id);
 });
 
 export const executeTask = createServerFn({ method: "POST" })
   .validator((data: unknown): TaskCommand => taskCommand.parse(data))
   .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const db = getDatabaseClient();
-    if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const { user, db, workspaceId } = await browserScope();
     const centrifugo = createCentrifugoServerApi();
     return new TaskBoard(db, {
       notifications: bestEffortMessageNotifier(db),
