@@ -512,26 +512,31 @@ export class PublicChannels {
         // PostgreSQL remains canonical; browser reconciliation repairs a missed publication.
       }
     }
-    for (const delivery of message.deliveries) {
-      if (!delivery.agent.computerId) continue;
-      await (this.publisher ?? createCentrifugoServerApi()).publish(
-        daemonControlChannel(input.workspaceId, delivery.agent.computerId),
-        encodeAgentMessageDelivery({
-          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-          method: AGENT_MESSAGE_METHOD,
-          requestId,
-          workspaceId,
-          conversationId: channelId,
-          agentId: delivery.agentId,
-          messageId: message.id,
-          deliveryId: delivery.deliveryId,
-          sequence: message.sequence,
-          body: message.body,
-          target: `#${channel.channelName}${message.threadRootId ? `:${message.threadRootId}` : ""}`,
-          latestSender: `@${message.sender!.user!.username}`,
-        }),
-      );
-    }
+    // Every Agent's push goes out at once; a failure still rejects the send.
+    const publisher = this.publisher ?? createCentrifugoServerApi();
+    await Promise.all(
+      message.deliveries
+        .filter((delivery) => delivery.agent.computerId)
+        .map((delivery) =>
+          publisher.publish(
+            daemonControlChannel(input.workspaceId, delivery.agent.computerId!),
+            encodeAgentMessageDelivery({
+              protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+              method: AGENT_MESSAGE_METHOD,
+              requestId,
+              workspaceId,
+              conversationId: channelId,
+              agentId: delivery.agentId,
+              messageId: message.id,
+              deliveryId: delivery.deliveryId,
+              sequence: message.sequence,
+              body: message.body,
+              target: `#${channel.channelName}${message.threadRootId ? `:${message.threadRootId}` : ""}`,
+              latestSender: `@${message.sender!.user!.username}`,
+            }),
+          ),
+        ),
+    );
     return message;
   }
 
