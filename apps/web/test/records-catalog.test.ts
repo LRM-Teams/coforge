@@ -77,13 +77,13 @@ test("sendWeeklyAssignments creates a new parent and unread assignments for reci
     kind: "member",
     authorId: "member-a",
     sourceTemplateId: "created-1",
-    title: "Alice的周报 · W38",
+    title: "Alice 2026 W38 工作周报",
   });
   expect(created[2]).toMatchObject({
     kind: "member",
     authorId: "leader",
     sourceTemplateId: "created-1",
-    title: "Boss的周报 · W38",
+    title: "Boss 2026 W38 工作周报",
     status: "draft",
     content: {
       tabs: { Summary: { markdown: "# Outline" } },
@@ -516,6 +516,47 @@ test("runDueScheduledWeeklyAssignments sends when due and not yet sent", async (
   expect(sendCalls).toBeGreaterThan(0);
 });
 
+test("runDueScheduledWeeklyAssignments skips when Leader edited the format this week", async () => {
+  const db = {
+    weeklyReportTemplate: {
+      findMany: async () => [
+        {
+          id: "settings-1",
+          name: "算法汇报",
+          workspaceId: "workspace-1",
+          ownerId: "leader",
+          sendTime: "15:00",
+          sendWeekday: 5,
+        },
+      ],
+    },
+    weeklyReport: {
+      findFirst: async (query: {
+        where?: { submissions?: { some?: unknown; none?: unknown } };
+      }) => {
+        if (query.where?.submissions?.some) return null;
+        return {
+          id: "format-1",
+          content: {
+            tabs: { Summary: { markdown: "edited" } },
+            schedule: { cancelledYear: 2026, cancelledWeek: 38 },
+          },
+        };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).runDueScheduledWeeklyAssignments({
+    now: new Date("2026-09-18T07:30:00.000Z"),
+  });
+
+  expect(result.sent).toBe(0);
+  expect(result.results[0]).toMatchObject({
+    status: "skipped",
+    reason: "auto-send-cancelled",
+  });
+});
+
 test("saveReportContent rejects when a Leader edits a submitted member assignment", async () => {
   let updated = false;
   const db = {
@@ -556,7 +597,7 @@ test("getSubject marks a submitted member assignment read-only for the Leader", 
       findFirst: async () => ({
         id: "assignment-1",
         kind: "member",
-        title: "Alice的周报 · W38",
+        title: "Alice 2026 W38 工作周报",
         status: "submitted",
         content: { tabs: { Summary: { markdown: "Done" } } },
         submittedAt: new Date("2026-09-18T08:00:00.000Z"),
@@ -566,6 +607,9 @@ test("getSubject marks a submitted member assignment read-only for the Leader", 
         author: { id: "member-a", username: "alice", displayName: "Alice" },
         cycle: { id: "cycle-1", year: 2026, week: 38, title: "2026 W38 工作周报" },
       }),
+    },
+    weeklyReportFavorite: {
+      findUnique: async () => null,
     },
   } as unknown as PrismaClient;
 
@@ -590,7 +634,7 @@ test("getSubject keeps a submitted assignment editable for its author", async ()
       findFirst: async () => ({
         id: "assignment-1",
         kind: "member",
-        title: "Alice的周报 · W38",
+        title: "Alice 2026 W38 工作周报",
         status: "submitted",
         content: { tabs: { Summary: { markdown: "Done" } } },
         submittedAt: new Date("2026-09-18T08:00:00.000Z"),
@@ -600,6 +644,9 @@ test("getSubject keeps a submitted assignment editable for its author", async ()
         author: { id: "member-a", username: "alice", displayName: "Alice" },
         cycle: { id: "cycle-1", year: 2026, week: 38, title: "2026 W38 工作周报" },
       }),
+    },
+    weeklyReportFavorite: {
+      findUnique: async () => null,
     },
   } as unknown as PrismaClient;
 
@@ -635,6 +682,34 @@ test("listTemplates only returns settings owned by the viewer", async () => {
   });
 
   expect(queried).toEqual([{ workspaceId: "workspace-1", ownerId: "leader-b" }]);
+});
+
+test("createTemplate rejects a send time that is not an on-the-hour slot", async () => {
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReportTemplate: {
+      create: async () => {
+        throw new Error("should not create");
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await expect(
+    new RecordCatalog(db).createTemplate({
+      workspaceId: "workspace-1",
+      userId: "leader-b",
+      name: "算法汇报",
+      frequency: "weekly",
+      sendTime: "15:30",
+      sendWeekday: 5,
+      scheduleEnabled: true,
+      sections: [{ title: "Summary", children: [] }],
+      allMembers: true,
+      recipientUserIds: [],
+    }),
+  ).rejects.toMatchObject({ code: "INVALID_INPUT" });
 });
 
 test("loadCatalog hides other leaders' template parents under 成员周报", async () => {
@@ -688,7 +763,7 @@ test("loadCatalog hides other leaders' template parents under 成员周报", asy
               id: "submission-under-b",
               kind: "member",
               authorId: "member-a",
-              title: "Alice的周报 · W38",
+              title: "Alice 2026 W38 工作周报",
               status: "submitted",
               content: { tabs: { Summary: { markdown: "Done" } } },
               sourceTemplateId: "leader-b-overview",
@@ -699,7 +774,7 @@ test("loadCatalog hides other leaders' template parents under 成员周报", asy
               id: "mine",
               kind: "member",
               authorId: "leader-b",
-              title: "B的周报 · W38",
+              title: "B 2026 W38 工作周报",
               status: "draft",
               content: { tabs: { Summary: { markdown: "" } }, assignment: { unread: true } },
               sourceTemplateId: "leader-a-format",
@@ -729,8 +804,20 @@ test("loadCatalog hides other leaders' template parents under 成员周报", asy
     userId: "leader-b",
   });
 
-  expect(catalog.memberTemplates.map((row) => row.id)).toEqual(["leader-b-overview"]);
-  expect(catalog.memberTemplates.map((row) => row.id)).not.toContain("leader-a-format");
+  expect(catalog.memberWeeks).toEqual([
+    {
+      year: 2026,
+      week: 38,
+      title: "2026 W38 工作周报",
+      submissions: [
+        expect.objectContaining({
+          id: "submission-under-b",
+          title: "Alice 2026 W38 工作周报",
+          author: expect.objectContaining({ displayName: "Alice" }),
+        }),
+      ],
+    },
+  ]);
   expect(catalog.formatChips).toEqual([
     expect.objectContaining({
       id: null,
@@ -842,7 +929,7 @@ test("loadCatalog exposes one chip per applied settings stream", async () => {
               id: "assignment-algo",
               kind: "member",
               authorId: "member-a",
-              title: "Alice的周报 · W38",
+              title: "Alice 2026 W38 工作周报",
               status: "draft",
               content: { tabs: { Summary: { markdown: "" } } },
               sourceTemplateId: "overview-algo",
@@ -973,7 +1060,7 @@ test("applyTemplate ensures a personal format when activating settings", async (
   expect(
     (created[0]?.content as { tabs?: { Summary?: { markdown?: string } } })?.tabs?.Summary
       ?.markdown,
-  ).toContain("# Summary");
+  ).toContain("## Current Works");
 });
 
 test("getSubject rejects unrelated members opening another leader's format", async () => {
@@ -1019,7 +1106,7 @@ test("getSubject rejects unrelated members opening another member's assignment",
       findFirst: async () => ({
         id: "assignment-1",
         kind: "member",
-        title: "Alice的周报 · W38",
+        title: "Alice 2026 W38 工作周报",
         status: "submitted",
         content: { tabs: { Summary: { markdown: "Done" } } },
         submittedAt: new Date("2026-09-18T08:00:00.000Z"),
@@ -1072,7 +1159,7 @@ test("getSubject overview children only include the assignee's own submission", 
         return [
           {
             id: "assignment-1",
-            title: "Alice的周报 · W38",
+            title: "Alice 2026 W38 工作周报",
             status: "submitted",
             author: { id: "member-a", username: "alice", displayName: "Alice" },
           },
@@ -1222,4 +1309,560 @@ test("sendWeeklyAssignments rejects sending another leader's format", async () =
       sourceReportId: "leader-a-format",
     }),
   ).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("loadCatalog lists weekly highlights newest week first with year", async () => {
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReportCycle: {
+      findMany: async () => [
+        {
+          id: "cycle-35",
+          year: 2026,
+          week: 35,
+          title: "2026 W35 工作周报",
+          highlight: {
+            id: "hl-35",
+            title: "2026 W35 周报要点",
+            completedAt: new Date("2026-09-03T02:34:12.000Z"),
+            content: { blocks: [] },
+          },
+          reports: [],
+        },
+        {
+          id: "cycle-36",
+          year: 2026,
+          week: 36,
+          title: "2026 W36 工作周报",
+          highlight: {
+            id: "hl-36",
+            title: "2026 W36 周报要点",
+            completedAt: null,
+            content: { generating: true, blocks: [] },
+          },
+          reports: [],
+        },
+      ],
+    },
+    weeklyReportFavorite: { findMany: async () => [] },
+    recordNote: { findMany: async () => [] },
+    user: {
+      findUnique: async () => ({ id: "leader-b", username: "b", displayName: "B" }),
+    },
+    weeklyReportTemplate: {
+      findMany: async () => [],
+    },
+  } as unknown as PrismaClient;
+
+  const catalog = await new RecordCatalog(db).loadCatalog({
+    workspaceId: "workspace-1",
+    userId: "leader-b",
+  });
+
+  expect(catalog.highlights).toEqual([
+    {
+      id: "hl-36",
+      cycleId: "cycle-36",
+      year: 2026,
+      week: 36,
+      title: "2026 W36 周报要点",
+      completedAt: null,
+      generating: true,
+    },
+    {
+      id: "hl-35",
+      cycleId: "cycle-35",
+      year: 2026,
+      week: 35,
+      title: "2026 W35 周报要点",
+      completedAt: "2026-09-03T02:34:12.000Z",
+      generating: false,
+    },
+  ]);
+});
+
+test("getSubject reports whether the viewer favorited a member report", async () => {
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReport: {
+      findFirst: async () => ({
+        id: "assignment-1",
+        kind: "member",
+        title: "Alice 2026 W38 工作周报",
+        status: "submitted",
+        content: { tabs: { Summary: { markdown: "Done" } } },
+        submittedAt: new Date("2026-09-18T08:00:00.000Z"),
+        updatedAt: new Date("2026-09-18T08:00:00.000Z"),
+        sourceTemplateId: "parent-1",
+        sourceTemplate: { authorId: "leader" },
+        author: { id: "member-a", username: "alice", displayName: "Alice" },
+        cycle: { id: "cycle-1", year: 2026, week: 38, title: "2026 W38 工作周报" },
+      }),
+      count: async () => 0,
+    },
+    weeklyReportFavorite: {
+      findUnique: async (query: {
+        where?: { userId_reportId?: { userId: string; reportId: string } };
+      }) => {
+        expect(query.where?.userId_reportId).toEqual({
+          userId: "leader",
+          reportId: "assignment-1",
+        });
+        return { userId: "leader", reportId: "assignment-1" };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  const subject = await new RecordCatalog(db).getSubject({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    id: "assignment-1",
+  });
+
+  expect(subject).toMatchObject({
+    type: "report",
+    report: { id: "assignment-1", kind: "member", favorited: true },
+  });
+});
+
+test("setReportFavorite adds and removes a favorite for an accessible member report", async () => {
+  const creates: Array<Record<string, unknown>> = [];
+  const deletes: Array<Record<string, unknown>> = [];
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReport: {
+      findFirst: async () => ({
+        id: "assignment-1",
+        kind: "member",
+        authorId: "member-a",
+        sourceTemplate: { authorId: "leader" },
+      }),
+    },
+    weeklyReportFavorite: {
+      upsert: async (query: { where: unknown; create: Record<string, unknown> }) => {
+        creates.push(query.create);
+        return query.create;
+      },
+      deleteMany: async (query: { where: Record<string, unknown> }) => {
+        deletes.push(query.where);
+        return { count: 1 };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  const catalog = new RecordCatalog(db);
+  await expect(
+    catalog.setReportFavorite({
+      workspaceId: "workspace-1",
+      userId: "leader",
+      reportId: "assignment-1",
+      favorited: true,
+    }),
+  ).resolves.toEqual({ favorited: true });
+  expect(creates).toEqual([{ userId: "leader", reportId: "assignment-1" }]);
+
+  await expect(
+    catalog.setReportFavorite({
+      workspaceId: "workspace-1",
+      userId: "leader",
+      reportId: "assignment-1",
+      favorited: false,
+    }),
+  ).resolves.toEqual({ favorited: false });
+  expect(deletes).toEqual([{ userId: "leader", reportId: "assignment-1" }]);
+});
+
+test("setReportFavorite rejects reports the viewer cannot open", async () => {
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReport: {
+      findFirst: async () => ({
+        id: "assignment-1",
+        kind: "member",
+        authorId: "member-a",
+        sourceTemplate: { authorId: "leader" },
+      }),
+    },
+    weeklyReportFavorite: {
+      upsert: async () => {
+        throw new Error("should not upsert");
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await expect(
+    new RecordCatalog(db).setReportFavorite({
+      workspaceId: "workspace-1",
+      userId: "outsider",
+      reportId: "assignment-1",
+      favorited: true,
+    }),
+  ).rejects.toMatchObject({ code: "NOT_FOUND" });
+});
+
+test("saveHighlightPrompt stores text and archives the previous prompt", async () => {
+  const updates: Array<Record<string, unknown>> = [];
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReport: {
+      findFirst: async () => ({
+        id: "format-1",
+        content: {
+          tabs: { Summary: { markdown: "## Current Works" } },
+          highlightPrompt: { text: "old-prompt", history: [] },
+        },
+      }),
+      update: async (query: { data: Record<string, unknown> }) => {
+        updates.push(query.data);
+        return {};
+      },
+    },
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).saveHighlightPrompt({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    reportId: "format-1",
+    text: "new-prompt",
+    now: new Date("2026-09-13T04:00:00.000Z"),
+  });
+
+  expect(result.highlightPrompt).toEqual({
+    text: "new-prompt",
+    updatedAt: "2026-09-13T04:00:00.000Z",
+    history: [{ text: "old-prompt", updatedAt: "2026-09-13T04:00:00.000Z" }],
+  });
+  expect(
+    (updates[0]?.content as { highlightPrompt?: { text?: string } })?.highlightPrompt?.text,
+  ).toBe("new-prompt");
+});
+
+test("generateWeeklyHighlights extracts cited items for submitted members the leader selects", async () => {
+  const comments: Array<Record<string, unknown>> = [];
+  const highlightUpdates: Array<Record<string, unknown>> = [];
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReport: {
+      findFirst: async (query: { where?: { id?: string; kind?: string } }) => {
+        if (query.where?.id === "member-report") {
+          return { id: "member-report", cycleId: "cycle-1", cycle: { year: 2026, week: 38 } };
+        }
+        if (query.where?.kind === "template") {
+          return { id: "leader-format" };
+        }
+        return null;
+      },
+      findMany: async () => [
+        {
+          id: "alice-report",
+          authorId: "alice",
+          content: {
+            tabs: { 本周进展: { markdown: "- 完成登录" }, 下周计划: { markdown: "- 做支付" } },
+          },
+          author: { displayName: "Alice", username: "alice" },
+        },
+        {
+          id: "bob-report",
+          authorId: "bob",
+          content: { tabs: { Summary: { markdown: "写了文档" } } },
+          author: { displayName: "Bob", username: "bob" },
+        },
+      ],
+    },
+    weeklyReportHighlight: {
+      findUnique: async () => null,
+      create: async () => ({ id: "hl-1", title: "2026 W38 周报要点" }),
+      update: async (query: { data: Record<string, unknown> }) => {
+        highlightUpdates.push(query.data);
+        return { id: "hl-1", title: query.data.title };
+      },
+    },
+    recordComment: {
+      create: async (query: { data: Record<string, unknown> }) => {
+        comments.push(query.data);
+        return { id: `c-${comments.length}` };
+      },
+      findMany: async () => [],
+    },
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).generateWeeklyHighlights({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    reportId: "member-report",
+    memberIds: ["alice"],
+    now: new Date("2026-09-15T04:00:00.000Z"),
+  });
+
+  expect(result).toEqual({
+    highlightId: "hl-1",
+    title: "2026 W38 周报要点",
+    year: 2026,
+    week: 38,
+  });
+  const content = highlightUpdates[0]?.content as {
+    blocks: Array<{
+      heading: string;
+      items: Array<{
+        text: string;
+        sources: Array<{ reportId: string; userId: string; displayName: string }>;
+      }>;
+    }>;
+  };
+  expect(content.blocks[0]?.items).toEqual([
+    {
+      text: "完成登录",
+      sources: [{ reportId: "alice-report", userId: "alice", displayName: "Alice" }],
+    },
+  ]);
+  expect(content.blocks[1]?.items.map((item) => item.text)).toEqual(["做支付"]);
+  expect(comments).toHaveLength(2);
+  expect(comments[0]).toMatchObject({
+    authorType: "assistant",
+    subjectType: "report",
+    reportId: "member-report",
+  });
+});
+
+test("generateWeeklyHighlights rejects a viewer who does not own a template in the cycle", async () => {
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReport: {
+      findFirst: async (query: { where?: { id?: string; kind?: string } }) => {
+        if (query.where?.id) {
+          return { id: "member-report", cycleId: "cycle-1", cycle: { year: 2026, week: 38 } };
+        }
+        return null;
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await expect(
+    new RecordCatalog(db).generateWeeklyHighlights({
+      workspaceId: "workspace-1",
+      userId: "member-a",
+      reportId: "member-report",
+      memberIds: "all",
+    }),
+  ).rejects.toMatchObject({ code: "ACCESS_DENIED" });
+});
+
+test("postSideChat replies with a member picker when the leader asks to generate highlights", async () => {
+  const created: Array<Record<string, unknown>> = [];
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReport: {
+      findFirst: async (query: { where?: { id?: string; kind?: string } }) => {
+        if (query.where?.id) return { id: "member-report", cycleId: "cycle-1" };
+        if (query.where?.kind === "template") return { id: "leader-format" };
+        return null;
+      },
+      findMany: async () => [
+        {
+          id: "alice-report",
+          authorId: "alice",
+          status: "submitted",
+          author: { displayName: "Alice", username: "alice" },
+        },
+        {
+          id: "draft-report",
+          authorId: "carol",
+          status: "draft",
+          author: { displayName: "Carol", username: "carol" },
+        },
+      ],
+    },
+    recordComment: {
+      create: async (query: { data: Record<string, unknown> }) => {
+        created.push(query.data);
+        return {
+          id: `c-${created.length}`,
+          createdAt: new Date("2026-09-15T04:00:00.000Z"),
+        };
+      },
+      findMany: async () =>
+        created.map((row, index) => ({
+          id: `c-${index + 1}`,
+          authorType: row.authorType,
+          body: row.body,
+          payload: row.payload ?? null,
+          createdAt: new Date("2026-09-15T04:00:00.000Z"),
+          authorUser:
+            row.authorType === "user"
+              ? { id: "leader", username: "boss", displayName: "Boss" }
+              : null,
+        })),
+    },
+  } as unknown as PrismaClient;
+
+  const comments = await new RecordCatalog(db).postSideChat({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    subjectType: "report",
+    subjectId: "member-report",
+    body: "生成本周周报要点",
+  });
+
+  expect(created[0]).toMatchObject({ authorType: "user", body: "生成本周周报要点" });
+  expect(created[1]).toMatchObject({
+    authorType: "assistant",
+    payload: {
+      kind: "pick-members",
+      members: [
+        { userId: "alice", displayName: "Alice", submitted: true, reportId: "alice-report" },
+        { userId: "carol", displayName: "Carol", submitted: false },
+      ],
+    },
+  });
+  expect(comments).toHaveLength(2);
+});
+
+test("saveReportContent with askToSend posts an offer-send assistant card when eligible", async () => {
+  const comments: Array<Record<string, unknown>> = [];
+  const contentUpdates: Array<Record<string, unknown>> = [];
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReport: {
+      findFirst: async (query: {
+        where?: {
+          id?: string;
+          settingsId?: string;
+          submissions?: { some?: unknown; none?: unknown };
+        };
+      }) => {
+        if (query.where?.submissions?.some) return null;
+        if (query.where?.submissions?.none) return { id: "format-1" };
+        if (query.where?.id === "format-1" || query.where?.settingsId) {
+          return {
+            id: "format-1",
+            authorId: "leader",
+            kind: "template",
+            settingsId: "settings-1",
+            content: { tabs: { Summary: { markdown: "old" } } },
+            cycle: { year: 2026, week: 38 },
+            submissions: [],
+          };
+        }
+        return null;
+      },
+      update: async (query: { data: Record<string, unknown> }) => {
+        contentUpdates.push(query.data);
+        return {
+          id: "format-1",
+          status: "draft",
+          updatedAt: new Date("2026-09-18T04:00:00.000Z"),
+        };
+      },
+    },
+    weeklyReportTemplate: {
+      findFirst: async () => ({
+        id: "settings-1",
+        sendWeekday: 5,
+        sendTime: "15:00",
+        scheduleEnabled: true,
+        applied: true,
+      }),
+      update: async () => ({}),
+    },
+    recordComment: {
+      create: async (query: { data: Record<string, unknown> }) => {
+        comments.push(query.data);
+        return { id: `c-${comments.length}` };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).saveReportContent({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    reportId: "format-1",
+    content: { tabs: { Summary: { markdown: "new body" } } },
+    askToSend: true,
+    // Friday 14:30 Shanghai = inside preview hour for 15:00 send
+    now: new Date("2026-09-18T06:30:00.000Z"),
+  });
+
+  expect(result.assistantPosted).toBe(true);
+  expect(result.autoSendJustCancelled).toBe(true);
+  expect(comments[0]).toMatchObject({
+    authorType: "assistant",
+    body: "已取消本周自动发送。保存后请手动发送周报模板。",
+  });
+  expect(comments[1]).toMatchObject({
+    authorType: "assistant",
+    payload: { kind: "offer-send" },
+  });
+  expect(
+    (contentUpdates[0]?.content as { schedule?: { cancelledWeek?: number } })?.schedule
+      ?.cancelledWeek,
+  ).toBe(38);
+});
+
+test("saveReportContent autosave does not ask to send", async () => {
+  const comments: Array<Record<string, unknown>> = [];
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReport: {
+      findFirst: async () => ({
+        id: "format-1",
+        authorId: "leader",
+        kind: "template",
+        settingsId: "settings-1",
+        content: { tabs: { Summary: { markdown: "old" } } },
+        cycle: { year: 2026, week: 38 },
+        submissions: [],
+      }),
+      update: async () => ({
+        id: "format-1",
+        status: "draft",
+        updatedAt: new Date("2026-09-18T04:00:00.000Z"),
+      }),
+    },
+    weeklyReportTemplate: {
+      findFirst: async () => ({
+        id: "settings-1",
+        sendWeekday: 5,
+        sendTime: "15:00",
+        scheduleEnabled: false,
+      }),
+      update: async () => ({}),
+    },
+    recordComment: {
+      create: async (query: { data: Record<string, unknown> }) => {
+        comments.push(query.data);
+        return { id: `c-${comments.length}` };
+      },
+    },
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).saveReportContent({
+    workspaceId: "workspace-1",
+    userId: "leader",
+    reportId: "format-1",
+    content: { tabs: { Summary: { markdown: "new body" } } },
+    now: new Date("2026-09-18T04:00:00.000Z"),
+  });
+
+  expect(result.assistantPosted).toBe(false);
+  expect(comments).toHaveLength(0);
 });

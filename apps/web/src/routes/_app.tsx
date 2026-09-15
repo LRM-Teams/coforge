@@ -9,6 +9,7 @@ import {
   loadWorkspaceSwitcher,
   selectWorkspace,
 } from "@/features/workspaces/workspaces.functions";
+import { loadRecordsNavAttention } from "@/features/records/records.functions";
 import { BrowserRealtimeProvider } from "@/features/realtime/browser-realtime";
 import { getBrowserRealtimeConnectionToken } from "@/features/realtime/realtime.functions";
 import { getBrowserNotificationSettings } from "@/features/notifications/notifications.functions";
@@ -26,14 +27,16 @@ import {
 export const Route = createFileRoute("/_app")({
   staleTime: Infinity,
   loader: async () => {
-    const [user, switcher, notifications, agents, channels, preferences] = await Promise.all([
-      getUserProfile(),
-      loadWorkspaceSwitcher(),
-      getBrowserNotificationSettings(),
-      listAgents(),
-      listPublicChannels(),
-      getUserPreferences(),
-    ]);
+    const [user, switcher, notifications, agents, channels, preferences, recordsNav] =
+      await Promise.all([
+        getUserProfile(),
+        loadWorkspaceSwitcher(),
+        getBrowserNotificationSettings(),
+        listAgents(),
+        listPublicChannels(),
+        getUserPreferences(),
+        loadRecordsNavAttention().catch(() => ({ preview: false })),
+      ]);
     return {
       user,
       workspaces: switcher.workspaces,
@@ -42,13 +45,15 @@ export const Route = createFileRoute("/_app")({
       agents,
       channels,
       timeZone: preferences.timeZone,
+      recordsPreview: recordsNav.preview,
     };
   },
   component: AppLayout,
 });
 
 function AppLayout() {
-  const { user, workspaces, currentWorkspace, agents, channels, timeZone } = Route.useLoaderData();
+  const { user, workspaces, currentWorkspace, agents, channels, timeZone, recordsPreview } =
+    Route.useLoaderData();
   const router = useRouter();
   const select = useServerFn(selectWorkspace);
   const create = useServerFn(createWorkspace);
@@ -84,6 +89,7 @@ function AppLayout() {
           currentWorkspace={currentWorkspace}
           channels={channels}
           agents={visibleAgents}
+          recordsPreview={recordsPreview}
           onSelectWorkspace={async (slug) => {
             await select({ data: { slug } });
             await router.invalidate({ sync: true });

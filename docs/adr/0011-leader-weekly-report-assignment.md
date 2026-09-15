@@ -21,7 +21,8 @@ matches the product.
    User**, not Workspace-shared: each Leader only sees and manages their own
    format chip, sent-week overviews, and `WeeklyReportTemplate` rows.
 2. **Assignment title**: The member-facing document title is
-   `{memberDisplayName}的周报 · W{week}` (member’s name + week number).
+   `{memberDisplayName} {year} W{week} 工作周报` (see
+   [ADR 0015](0015-member-week-sidebar-share-export.md)).
 3. **Member inbox**: On send, each recipient gets a node under「我的周报」with an
    unread-style highlight until first open; after submit it shows an「已发送」
    marker and may be resent, **overwriting** the same submission for that
@@ -46,7 +47,8 @@ matches the product.
    live format document, and top-chip button (label = settings `name`). Leader
    「发送给成员」and chip arming are evaluated **per stream** (that row’s
    weekday/time/`scheduleEnabled`, and whether **that** stream already sent in
-   the current ISO week). With no applied rows, one gray non-interactive chip
+   the current ISO week). Preview-hour arming and edit-cancels-auto-send are in
+   [ADR 0012](0012-weekly-report-preview-auto-send.md). With no applied rows, one gray non-interactive chip
    still renders for the current week. Format/overview `WeeklyReport` rows that
    belong to a stream store `settingsId`. Cron still calls
    `POST /api/internal/weekly-report-schedule` with

@@ -1,51 +1,76 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { XClose as X } from "@untitledui/icons";
 
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { m } from "@/paraglide/messages";
-import { addRecordComment, loadRecordComments } from "./records.functions";
+import {
+  addRecordComment,
+  ensureRecordAssistantIntro,
+  generateWeeklyHighlights,
+} from "./records.functions";
+import {
+  parseRecordAssistantPayload,
+  type HighlightMemberCandidate,
+  type RecordAssistantPayload,
+} from "./weekly-highlight-extract";
 
-type CommentRow = Awaited<ReturnType<typeof loadRecordComments>>[number];
+type CommentRow = Awaited<ReturnType<typeof ensureRecordAssistantIntro>>[number];
 
-/**
- * Side panel for human comments on a record subject.
- * `assistant` / `system` authorType rows render read-only for future AI cards.
- */
+export type RecordSideSurface = "format" | "member-leader" | "highlight" | "plain";
+
+function payloadOf(comment: CommentRow): RecordAssistantPayload | null {
+  return parseRecordAssistantPayload(comment.payload);
+}
+
 export function RecordSidePanel({
   subjectType,
   subjectId,
+  surface,
+  formatCopy,
+  countdown,
+  refreshToken = 0,
+  onRequestSend,
   onClose,
 }: {
   subjectType: "report" | "highlight" | "cycle";
   subjectId: string;
+  surface: RecordSideSurface;
+  formatCopy?: "preview" | "cancelled" | "ready";
+  countdown?: string | null;
+  refreshToken?: number;
+  onRequestSend?: () => void;
   onClose: () => void;
 }) {
-  const load = useServerFn(loadRecordComments);
+  const navigate = useNavigate();
+  const router = useRouter();
   const post = useServerFn(addRecordComment);
+  const ensureIntro = useServerFn(ensureRecordAssistantIntro);
+  const generate = useServerFn(generateWeeklyHighlights);
   const [comments, setComments] = useState<CommentRow[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-
-  async function refresh() {
-    const rows = await load({ data: { subjectType, subjectId } });
-    setComments(rows);
-  }
+  const [picker, setPicker] = useState<HighlightMemberCandidate[] | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const rows = await load({ data: { subjectType, subjectId } });
+      const rows = await ensureIntro({
+        data: { subjectType, subjectId, surface, formatCopy },
+      });
       if (!cancelled) setComments(rows);
     })();
     return () => {
       cancelled = true;
     };
-  }, [subjectType, subjectId, load]);
+  }, [subjectType, subjectId, surface, formatCopy, ensureIntro, refreshToken]);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -53,12 +78,41 @@ export function RecordSidePanel({
     if (!body || busy) return;
     setBusy(true);
     try {
-      await post({ data: { subjectType, subjectId, body } });
+      const rows = await post({ data: { subjectType, subjectId, body } });
       setDraft("");
-      await refresh();
+      setComments(rows);
+      const last = rows.at(-1);
+      const payload = last ? payloadOf(last) : null;
+      if (payload?.kind === "pick-members") {
+        setPicker(payload.members);
+        setPicked(
+          payload.members.filter((member) => member.submitted).map((member) => member.userId),
+        );
+      }
     } finally {
       setBusy(false);
     }
+  }
+
+  async function runGenerate(memberIds: "all" | string[]) {
+    if (subjectType !== "report" || busy) return;
+    setBusy(true);
+    try {
+      const result = await generate({ data: { reportId: subjectId, memberIds } });
+      await router.invalidate({ sync: true });
+      void navigate({
+        to: "/records/$recordId",
+        params: { recordId: result.highlightId },
+        search: { tab: "weekly" },
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function showPicker(members: HighlightMemberCandidate[]) {
+    setPicker(members);
+    setPicked(members.filter((member) => member.submitted).map((member) => member.userId));
   }
 
   return (
@@ -90,8 +144,9 @@ export function RecordSidePanel({
                 : comment.authorType === "system"
                   ? m.records_side_chat_system()
                   : (comment.author?.displayName ?? m.records_side_chat_user());
+            const payload = payloadOf(comment);
             return (
-              <article key={comment.id} className="space-y-1.5">
+              <article key={comment.id} className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Avatar
                     size="xs"
@@ -105,10 +160,93 @@ export function RecordSidePanel({
                   </span>
                 </div>
                 <p className="whitespace-pre-wrap text-sm text-primary">{comment.body}</p>
+                {payload?.kind === "offer-generate" ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      color="secondary"
+                      isDisabled={busy || payload.members.every((member) => !member.submitted)}
+                      onPress={() => void runGenerate("all")}
+                    >
+                      {m.records_assistant_generate_all()}
+                    </Button>
+                    <Button
+                      size="sm"
+                      color="secondary"
+                      isDisabled={busy}
+                      onPress={() => showPicker(payload.members)}
+                    >
+                      {m.records_assistant_pick_members()}
+                    </Button>
+                  </div>
+                ) : null}
+                {payload?.kind === "pick-members" ? (
+                  <Button
+                    size="sm"
+                    color="secondary"
+                    isDisabled={busy}
+                    onPress={() => showPicker(payload.members)}
+                  >
+                    {m.records_assistant_pick_members()}
+                  </Button>
+                ) : null}
+                {payload?.kind === "offer-send" ? (
+                  <Button
+                    size="sm"
+                    color="primary"
+                    isDisabled={busy}
+                    onPress={() => onRequestSend?.()}
+                  >
+                    {m.records_assistant_confirm_send()}
+                  </Button>
+                ) : null}
+                {payload?.kind === "generated" ? (
+                  <Link
+                    to="/records/$recordId"
+                    params={{ recordId: payload.highlightId }}
+                    search={{ tab: "weekly" }}
+                    className="text-sm font-medium text-brand-secondary"
+                  >
+                    {m.records_assistant_open_highlight()}
+                  </Link>
+                ) : null}
               </article>
             );
           })
         )}
+
+        {picker ? (
+          <div className="space-y-3 rounded-xl border border-secondary p-3">
+            <p className="text-sm font-medium text-primary">{m.records_assistant_pick_members()}</p>
+            <ul className="space-y-2">
+              {picker.map((member) => (
+                <li key={member.userId}>
+                  <Checkbox
+                    size="sm"
+                    isDisabled={!member.submitted || busy}
+                    isSelected={picked.includes(member.userId)}
+                    onChange={(selected) => {
+                      setPicked((current) =>
+                        selected
+                          ? [...current, member.userId]
+                          : current.filter((id) => id !== member.userId),
+                      );
+                    }}
+                    label={member.displayName}
+                    hint={member.submitted ? undefined : m.records_report_unread_badge()}
+                  />
+                </li>
+              ))}
+            </ul>
+            <Button
+              size="sm"
+              isDisabled={busy || picked.length === 0}
+              onPress={() => void runGenerate(picked)}
+            >
+              {m.records_assistant_confirm_generate()}
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <form onSubmit={(event) => void onSubmit(event)} className="border-t border-secondary p-3">
@@ -121,9 +259,14 @@ export function RecordSidePanel({
             rows={2}
             className="flex-1"
           />
-          <Button type="submit" size="sm" isDisabled={busy || !draft.trim()}>
-            {m.records_side_chat_send()}
-          </Button>
+          <div className="flex flex-col items-end gap-1">
+            {countdown ? (
+              <span className="font-mono text-xs text-brand-secondary">{countdown}</span>
+            ) : null}
+            <Button type="submit" size="sm" isDisabled={busy || !draft.trim()}>
+              {m.records_side_chat_send()}
+            </Button>
+          </div>
         </div>
       </form>
     </aside>
