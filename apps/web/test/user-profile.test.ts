@@ -11,6 +11,41 @@ import {
   handleAvatarDownload,
   handleAvatarUpload,
 } from "../src/routes/api/me/avatar";
+import { handleWorkspaceUserAvatar } from "../src/server/profiles/workspace-user-avatar.server";
+
+test("workspace user avatar serves the requested sender only to workspace members", async () => {
+  const response = await handleWorkspaceUserAvatar(
+    new Request("https://coforge.test/api/workspaces/workspace-1/users/sender/avatar?v=version-1"),
+    "workspace-1",
+    "sender",
+    {
+      authenticate: () => ({ id: "viewer" }),
+      database: () =>
+        ({
+          workspaceMembership: {
+            findFirst: async (query: unknown) => {
+              expect(query).toEqual({
+                where: {
+                  workspaceId: "workspace-1",
+                  userId: "sender",
+                  workspace: { members: { some: { userId: "viewer" } } },
+                },
+                select: { userId: true },
+              });
+              return { userId: "sender" };
+            },
+          },
+        }) as never,
+      read: async (_db, userId) => {
+        expect(userId).toBe("sender");
+        return { body: new Blob(["sender-image"]), contentType: "image/png" };
+      },
+    },
+  );
+  expect(response.status).toBe(200);
+  expect(await response.text()).toBe("sender-image");
+  expect(response.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+});
 
 test("profile updates normalize editable names and reject an empty name", () => {
   expect(

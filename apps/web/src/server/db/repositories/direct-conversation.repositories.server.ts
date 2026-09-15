@@ -4,6 +4,7 @@ import { Prisma, type PrismaClient } from "../../../../generated/client";
 import { AgentMessageValidationError } from "../../conversations/agent-message-validation-error.server";
 import { getAgentChannel, PublicChannels } from "../../conversations/public-channels.server";
 import { mentionedNames } from "../../conversations/mentions";
+import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
 
 export type AttachmentMetadata = {
   id: string;
@@ -83,7 +84,7 @@ const BROWSER_MESSAGE_SELECT = {
   sender: {
     select: {
       userId: true,
-      user: { select: { username: true } },
+      user: { select: { username: true, avatarObjectKey: true } },
       agent: { select: { name: true, displayName: true } },
     },
   },
@@ -172,7 +173,7 @@ function toAgentMessage(
   };
 }
 
-function toBrowserMessage(message: BrowserMessageRow) {
+function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
   return {
     id: message.id,
     sequence: message.sequence,
@@ -187,6 +188,13 @@ function toBrowserMessage(message: BrowserMessageRow) {
       : message.sender.userId
         ? `@${message.sender.user?.username}`
         : message.sender.agent?.displayName || message.sender.agent?.name || "Agent",
+    senderAvatarUrl: message.sender?.userId
+      ? workspaceUserAvatarUrl(
+          workspaceId,
+          message.sender.userId,
+          message.sender.user?.avatarObjectKey ?? null,
+        )
+      : null,
     body: message.body,
     createdAt: message.createdAt,
     attachment: message.attachment ?? undefined,
@@ -385,6 +393,7 @@ export type DirectConversationRepository = {
       sequence: number;
       senderKind: "user" | "agent" | "system";
       senderName: string;
+      senderAvatarUrl?: string | null;
       body: string;
       createdAt: Date;
       threadRootId?: string;
@@ -692,7 +701,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       agent: agentMember.agent,
       hasOlder,
       hasNewer: false,
-      messages: messages.map(toBrowserMessage),
+      messages: messages.map((message) => toBrowserMessage(message, workspaceId)),
     };
   }
 
@@ -712,7 +721,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       take: 100,
       select: BROWSER_MESSAGE_SELECT,
     });
-    return messages.map(toBrowserMessage);
+    return messages.map((message) => toBrowserMessage(message, workspaceId));
   }
 
   async markThreadReadForUser(

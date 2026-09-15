@@ -57,6 +57,7 @@ import { Route as AppMessagesChannelsChannelIdRouteImport } from './routes/_app/
 import { Route as ApiAgentAttachmentsAttachmentIdRouteImport } from './routes/api/agent/attachments.$attachmentId'
 import { Route as ApiComputersComputerIdCreatorAvatarRouteImport } from './routes/api/computers/$computerId/creator-avatar'
 import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/workspaces.$slug'
+import { Route as ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport } from './routes/api/workspaces/$workspaceId/users/$userId/avatar'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -306,6 +307,12 @@ const ApiE2eWorkspacesSlugRoute = ApiE2eWorkspacesSlugRouteImport.update({
   path: '/api/e2e/workspaces/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute =
+  ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport.update({
+    id: '/api/workspaces/$workspaceId/users/$userId/avatar',
+    path: '/api/workspaces/$workspaceId/users/$userId/avatar',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -355,6 +362,7 @@ export interface FileRoutesByFullPath {
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
   '/api/computers/$computerId/creator-avatar': typeof ApiComputersComputerIdCreatorAvatarRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
+  '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -401,6 +409,7 @@ export interface FileRoutesByTo {
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
   '/api/computers/$computerId/creator-avatar': typeof ApiComputersComputerIdCreatorAvatarRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
+  '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -452,6 +461,7 @@ export interface FileRoutesById {
   '/api/agent/attachments/$attachmentId': typeof ApiAgentAttachmentsAttachmentIdRoute
   '/api/computers/$computerId/creator-avatar': typeof ApiComputersComputerIdCreatorAvatarRoute
   '/api/e2e/workspaces/$slug': typeof ApiE2eWorkspacesSlugRoute
+  '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -503,6 +513,7 @@ export interface FileRouteTypes {
     | '/api/agent/attachments/$attachmentId'
     | '/api/computers/$computerId/creator-avatar'
     | '/api/e2e/workspaces/$slug'
+    | '/api/workspaces/$workspaceId/users/$userId/avatar'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -549,6 +560,7 @@ export interface FileRouteTypes {
     | '/api/agent/attachments/$attachmentId'
     | '/api/computers/$computerId/creator-avatar'
     | '/api/e2e/workspaces/$slug'
+    | '/api/workspaces/$workspaceId/users/$userId/avatar'
   id:
     | '__root__'
     | '/'
@@ -599,6 +611,7 @@ export interface FileRouteTypes {
     | '/api/agent/attachments/$attachmentId'
     | '/api/computers/$computerId/creator-avatar'
     | '/api/e2e/workspaces/$slug'
+    | '/api/workspaces/$workspaceId/users/$userId/avatar'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -632,6 +645,7 @@ export interface RootRouteChildren {
   ApiAgentAttachmentsAttachmentIdRoute: typeof ApiAgentAttachmentsAttachmentIdRoute
   ApiComputersComputerIdCreatorAvatarRoute: typeof ApiComputersComputerIdCreatorAvatarRoute
   ApiE2eWorkspacesSlugRoute: typeof ApiE2eWorkspacesSlugRoute
+  ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute: typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -972,6 +986,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiE2eWorkspacesSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/workspaces/$workspaceId/users/$userId/avatar': {
+      id: '/api/workspaces/$workspaceId/users/$userId/avatar'
+      path: '/api/workspaces/$workspaceId/users/$userId/avatar'
+      fullPath: '/api/workspaces/$workspaceId/users/$userId/avatar'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -1102,6 +1123,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiComputersComputerIdCreatorAvatarRoute:
     ApiComputersComputerIdCreatorAvatarRoute,
   ApiE2eWorkspacesSlugRoute: ApiE2eWorkspacesSlugRoute,
+  ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute:
+    ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

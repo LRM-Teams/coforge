@@ -9,6 +9,7 @@ import { CentrifugoConversationRealtime } from "../../server/conversations/conve
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 import { AppError } from "../../lib/app-error";
 import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
+import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profile.repositories.server";
 
 const channelInput = z.object({ channelId: z.uuid() });
 const channelPageInput = channelInput.extend({
@@ -141,6 +142,11 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       senderMemberId: message.senderMemberId,
       senderKind: "user" as const,
       senderName: `@${username}`,
+      senderAvatarUrl: workspaceUserAvatarUrl(
+        workspaceId,
+        userId,
+        message.sender?.user?.avatarObjectKey ?? null,
+      ),
       body: message.body,
       createdAt: message.createdAt,
       attachment: message.attachment ?? undefined,

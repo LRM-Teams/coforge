@@ -17,6 +17,7 @@ import type { MessageNotifier } from "../notifications/web-push-composition.serv
 import { mentionedNames } from "./mentions";
 import type { ConversationRealtime } from "./conversation-realtime.server";
 import { AgentMessageValidationError } from "./agent-message-validation-error.server";
+import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
 
 /** Nested creation keeps default enrollment inside the Workspace creation transaction. */
 export function generalChannelForCreator(userId: string) {
@@ -36,13 +37,13 @@ type ChannelMessageRow = {
   sender: {
     agentId: string | null;
     agent: { name: string } | null;
-    user: { username: string } | null;
+    user: { id: string; username: string; avatarObjectKey: string | null } | null;
   } | null;
   attachment: { id: string; fileName: string; contentType: string; sizeBytes: number } | null;
 };
 
 /** The browser-facing shape of one channel message, shared by page and update reads. */
-function channelMessageView(message: ChannelMessageRow) {
+function channelMessageView(message: ChannelMessageRow, workspaceId: string) {
   return {
     id: message.id,
     sequence: message.sequence,
@@ -56,6 +57,13 @@ function channelMessageView(message: ChannelMessageRow) {
     senderName: !message.sender
       ? "System"
       : `@${message.sender.agent?.name ?? message.sender.user!.username}`,
+    senderAvatarUrl: message.sender?.user
+      ? workspaceUserAvatarUrl(
+          workspaceId,
+          message.sender.user.id,
+          message.sender.user.avatarObjectKey,
+        )
+      : null,
     body: message.body,
     createdAt: message.createdAt,
     attachment: message.attachment
@@ -358,7 +366,7 @@ export class PublicChannels {
       followedThreadRootIds: (member?.threadFollows ?? []).map((follow) => follow.rootMessageId),
       hasOlder,
       hasNewer: false,
-      messages: pageMessages.map(channelMessageView),
+      messages: pageMessages.map((message) => channelMessageView(message, workspaceId)),
     };
   }
 
@@ -376,7 +384,7 @@ export class PublicChannels {
         attachment: true,
       },
     });
-    return messages.map(channelMessageView);
+    return messages.map((message) => channelMessageView(message, workspaceId));
   }
 
   async send(input: {

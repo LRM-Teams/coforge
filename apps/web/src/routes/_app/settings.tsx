@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute, getRouteApi, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { SettingsContent, SettingsPending } from "@/components/settings-content";
 import { useAppToast } from "@/components/ui/toast";
@@ -81,6 +82,7 @@ function SettingsPage() {
   const sendTestNotification = useServerFn(sendTestBrowserNotification);
   const saveProfile = useServerFn(saveUserProfile);
   const router = useRouter();
+  const queryClient = useQueryClient();
   const toast = useAppToast();
   const locale = getLocale();
 
@@ -196,12 +198,14 @@ function SettingsPage() {
     });
     if (!response.ok) throw new Error("Profile image upload failed");
     await router.invalidate({ sync: true });
+    await queryClient.invalidateQueries({ queryKey: ["conversation"] });
   }
 
   async function removeAvatar() {
     const response = await fetch("/api/me/avatar", { method: "DELETE" });
     if (!response.ok) throw new Error("Profile image removal failed");
     await router.invalidate({ sync: true });
+    await queryClient.invalidateQueries({ queryKey: ["conversation"] });
   }
 
   return (
