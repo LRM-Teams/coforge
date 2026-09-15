@@ -1,16 +1,15 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { Link } from "@tanstack/react-router";
-import { Heading, Text } from "react-aria-components";
 import {
   MessageCircle01 as MessageCircle,
   Monitor01 as Monitor,
   Plus,
   SearchLg as Search,
   Users01 as UsersRound,
-  XClose as X,
 } from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
+import { useSubmitGuard } from "@/hooks/use-submit-guard";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { localizeHref } from "@/paraglide/runtime";
@@ -25,12 +24,14 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
+import { DialogHeader } from "@/components/application/modals/dialog-header";
 import { HintText } from "@/components/base/input/hint-text";
 import { Input } from "@/components/base/input/input";
 import { Select } from "@/components/base/select/select";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { m } from "@/paraglide/messages";
 import type { AgentStatusView } from "./agent-status-realtime";
+import { parseRuntimeProvider, RUNTIME_PROVIDER } from "@coforge/protocol";
 import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
 import { AgentDisplayAvatar } from "./agent-activity-avatar";
 import { AgentRuntimeFields, type RuntimeCatalog } from "./agent-runtime-fields";
@@ -75,12 +76,17 @@ export function AgentsContent({
 }) {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(defaultCreateDialogOpen);
-  const [submitting, setSubmitting] = useState(false);
-  const submittingRef = useRef(false);
+  const [submitting, guard] = useSubmitGuard();
   const [error, setError] = useState("");
   const [deferredStart, setDeferredStart] = useState(false);
   const [computerId, setComputerId] = useState(computers[0]?.id ?? "");
   const memberCount = directory.people.length + directory.agents.length;
+  const memberTypes = [
+    { value: "all", label: m.filters_all(), count: memberCount },
+    { value: "human", label: m.member_person(), count: directory.people.length },
+    { value: "agent", label: m.member_agent(), count: directory.agents.length },
+  ] as const;
+  const ownedAgents = new Map(agents.map((agent) => [agent.id, agent]));
   const query = search.trim().toLowerCase();
   const filteredPeople = directory.people.filter(
     (person) =>
@@ -97,7 +103,6 @@ export function AgentsContent({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submittingRef.current) return;
     setError("");
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
@@ -107,28 +112,25 @@ export function AgentsContent({
       setError(m.agent_form_required_error());
       return;
     }
-    submittingRef.current = true;
-    setSubmitting(true);
-    try {
-      const result = await onCreate({
-        name,
-        description,
-        provider: runtimeProvider(form.get("provider")),
-        model: String(form.get("model") ?? "").trim() || undefined,
-        modelProvider: String(form.get("modelProvider") ?? "").trim() || undefined,
-        reasoning: String(form.get("reasoning") ?? "").trim(),
-        apiKey: String(form.get("apiKey") ?? "").trim() || undefined,
-        computerId: String(form.get("computerId") ?? ""),
-      });
-      formElement.reset();
-      setOpen(false);
-      setDeferredStart(!result.startPublished);
-    } catch {
-      setError(m.agent_form_server_error());
-    } finally {
-      submittingRef.current = false;
-      setSubmitting(false);
-    }
+    await guard(async () => {
+      try {
+        const result = await onCreate({
+          name,
+          description,
+          provider: parseRuntimeProvider(form.get("provider")) ?? RUNTIME_PROVIDER.COFORGE,
+          model: String(form.get("model") ?? "").trim() || undefined,
+          modelProvider: String(form.get("modelProvider") ?? "").trim() || undefined,
+          reasoning: String(form.get("reasoning") ?? "").trim(),
+          apiKey: String(form.get("apiKey") ?? "").trim() || undefined,
+          computerId: String(form.get("computerId") ?? ""),
+        });
+        formElement.reset();
+        setOpen(false);
+        setDeferredStart(!result.startPublished);
+      } catch {
+        setError(m.agent_form_server_error());
+      }
+    });
   }
 
   return (
@@ -149,32 +151,18 @@ export function AgentsContent({
               aria-label={m.member_type_filter()}
               className="flex h-9 max-w-full gap-0.5 rounded-lg bg-secondary p-0.5 ring-1 ring-secondary ring-inset"
             >
-              {(["all", "human", "agent"] as const).map((type) => (
+              {memberTypes.map(({ value, label, count }) => (
                 <Button
-                  key={type}
-                  aria-label={
-                    type === "all"
-                      ? m.filters_all()
-                      : type === "human"
-                        ? m.member_person()
-                        : m.member_agent()
-                  }
-                  color={memberType === type ? "secondary" : "tertiary"}
+                  key={value}
+                  aria-label={label}
+                  color={memberType === value ? "secondary" : "tertiary"}
                   className="h-8 gap-2 px-3 font-semibold aria-pressed:text-primary"
-                  aria-pressed={memberType === type}
-                  onPress={() => onMemberTypeChange(type)}
+                  aria-pressed={memberType === value}
+                  onPress={() => onMemberTypeChange(value)}
                 >
-                  {type === "all"
-                    ? m.filters_all()
-                    : type === "human"
-                      ? m.member_person()
-                      : m.member_agent()}
+                  {label}
                   <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium tabular-nums text-tertiary ring-1 ring-secondary ring-inset">
-                    {type === "all"
-                      ? memberCount
-                      : type === "human"
-                        ? directory.people.length
-                        : directory.agents.length}
+                    {count}
                   </span>
                 </Button>
               ))}
@@ -209,18 +197,15 @@ export function AgentsContent({
               {filteredPeople.map((person) => (
                 <MemberCard key={`person:${person.id}`} member={person} label={m.member_person()} />
               ))}
-              {filteredAgents.map((member) => {
-                const ownedAgent = agents.find((agent) => agent.id === member.id);
-                return (
-                  <MemberCard
-                    key={`agent:${member.id}`}
-                    member={member}
-                    label={m.member_agent()}
-                    computerName={member.computerName}
-                    ownedAgent={ownedAgent}
-                  />
-                );
-              })}
+              {filteredAgents.map((member) => (
+                <MemberCard
+                  key={`agent:${member.id}`}
+                  member={member}
+                  label={m.member_agent()}
+                  computerName={member.computerName}
+                  ownedAgent={ownedAgents.get(member.id)}
+                />
+              ))}
             </ul>
           ) : (
             <Empty
@@ -278,7 +263,7 @@ export function AgentsContent({
       <ModalOverlay
         isOpen={open}
         onOpenChange={(nextOpen) => {
-          if (!submittingRef.current) setOpen(nextOpen);
+          if (!submitting) setOpen(nextOpen);
         }}
       >
         <Modal className="w-[calc(100vw-2rem)] max-w-lg rounded-2xl">
@@ -286,24 +271,11 @@ export function AgentsContent({
             {({ close }) =>
               computers.length ? (
                 <form onSubmit={submit}>
-                  <div className="flex items-start justify-between gap-6 px-6 pt-6">
-                    <div>
-                      <Heading slot="title" className="text-lg font-semibold text-primary">
-                        {m.agent_form_title()}
-                      </Heading>
-                      <Text slot="description" className="mt-2 text-sm text-tertiary">
-                        {m.agent_form_description()}
-                      </Text>
-                    </div>
-                    <ButtonUtility
-                      type="button"
-                      aria-label={m.controls_close()}
-                      icon={X}
-                      size="sm"
-                      color="tertiary"
-                      onClick={close}
-                    />
-                  </div>
+                  <DialogHeader
+                    title={m.agent_form_title()}
+                    description={m.agent_form_description()}
+                    onClose={close}
+                  />
                   <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
                     <Select
                       name="computerId"
@@ -385,12 +357,11 @@ export function AgentsContent({
                   >
                     <Monitor className="size-6" />
                   </div>
-                  <Heading slot="title" className="text-lg font-semibold text-primary">
-                    {m.agent_form_title()}
-                  </Heading>
-                  <Text slot="description" className="mt-3 text-sm text-tertiary">
-                    {m.agent_empty_computer_description()}
-                  </Text>
+                  <DialogHeader
+                    title={m.agent_form_title()}
+                    description={m.agent_empty_computer_description()}
+                    className="px-0 pt-0"
+                  />
                   <div className="mt-6 flex flex-wrap justify-end gap-3">
                     <Button color="secondary" onPress={() => setOpen(false)}>
                       {m.controls_cancel()}
@@ -488,10 +459,4 @@ function MemberCard({
       )}
     </li>
   );
-}
-
-function runtimeProvider(value: FormDataEntryValue | null): CreateAgentInput["provider"] {
-  if (value === "pi" || value === "codex" || value === "claude-code" || value === "kiro")
-    return value;
-  return "coforge";
 }

@@ -1,4 +1,4 @@
-import { RUNTIME_PROVIDER, type RuntimeProvider } from "@coforge/protocol";
+import { parseRuntimeProvider, type RuntimeProvider } from "@coforge/protocol";
 
 export type EncryptedRuntimeApiKey = {
   keyId: string;
@@ -33,7 +33,7 @@ export type AgentRuntimeConfig = {
 export function parseAgentRuntimeConfig(value: unknown): AgentRuntimeConfig {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("invalid runtime config");
-  const runtime = runtimeProvider(Reflect.get(value, "runtime"));
+  const runtime = parseRuntimeProvider(Reflect.get(value, "runtime"));
   const model = Reflect.get(value, "model");
   const modelProvider = Reflect.get(value, "modelProvider");
   const reasoning = Reflect.get(value, "reasoning");
@@ -109,13 +109,4 @@ function parseEncryptedApiKey(value: unknown): EncryptedRuntimeApiKey | undefine
   )
     throw new Error("invalid encrypted runtime API key");
   return { keyId, ciphertext, nonce, hint };
-}
-
-function runtimeProvider(value: unknown): RuntimeProvider | undefined {
-  if (value === RUNTIME_PROVIDER.COFORGE) return RUNTIME_PROVIDER.COFORGE;
-  if (value === RUNTIME_PROVIDER.PI) return RUNTIME_PROVIDER.PI;
-  if (value === RUNTIME_PROVIDER.CODEX) return RUNTIME_PROVIDER.CODEX;
-  if (value === RUNTIME_PROVIDER.CLAUDE_CODE) return RUNTIME_PROVIDER.CLAUDE_CODE;
-  if (value === RUNTIME_PROVIDER.KIRO) return RUNTIME_PROVIDER.KIRO;
-  return undefined;
 }

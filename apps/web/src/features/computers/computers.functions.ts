@@ -3,6 +3,7 @@ import { getRequest } from "@tanstack/react-start/server";
 import {
   isValidReleaseVersion,
   type CodeAgentModelMetadata,
+  parseRuntimeProvider,
   type RuntimeProvider,
 } from "@coforge/protocol";
 import {
@@ -378,13 +379,7 @@ function modelMetadata(value: unknown): CodeAgentModelMetadata[] | undefined {
 }
 
 function runtimeProvider(value: string): RuntimeProvider {
-  if (
-    value === "coforge" ||
-    value === "codex" ||
-    value === "claude-code" ||
-    value === "kiro" ||
-    value === "pi"
-  )
-    return value;
-  throw new Error("Computer reported an unknown runtime provider");
+  const provider = parseRuntimeProvider(value);
+  if (!provider) throw new Error("Computer reported an unknown runtime provider");
+  return provider;
 }
