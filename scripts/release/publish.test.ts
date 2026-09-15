@@ -1,22 +1,23 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import type OSS from "ali-oss";
 
 import { buildReleaseTree, type ReleaseInputs, type ReleaseTree } from "./build-release";
 import type { ReleaseTarget } from "./compile-targets";
 import {
   assertVersionIsUnpublished,
+  createOssClient,
   LATEST_OBJECT_KEY,
   manifestObjectKey,
-  ossAuthorizationHeader,
-  ossSignature,
-  ossStringToSign,
   parseTargets,
   runCli,
   runPublish,
   uploadReleaseTree,
   type CompileFn,
+  type OssConnection,
   type OssCredentials,
 } from "./publish";
 
@@ -67,15 +68,12 @@ async function fixtureTree(version: string, outputDirectory: string): Promise<Re
   return buildReleaseTree(inputs, outputDirectory);
 }
 
-/** A fake OSS server that actually recomputes and checks the V1 signature on every request
- * (rather than only trusting bytes), for two reasons: (1) it proves publish.ts's signing survives
- * a real HTTP round trip through Bun's fetch, not only the pure StringToSign unit test below, and
- * (2) its signature-mismatch response body mirrors a real OSS `SignatureDoesNotMatch` error,
- * which echoes `StringToSign`/`Signature`/`AccessKeyId` back to the caller - giving the
- * credential-leak test in this file something real to catch if publish.ts ever started printing
- * a response body. */
+/** A fake OSS origin. It does not attempt to re-verify the V4 signature ali-oss puts on every
+ * authenticated request - that is the SDK's responsibility, not this script's, so there is
+ * nothing left here to pin against. It still distinguishes an authenticated call (has an
+ * `authorization` header) from the anonymous ones `verifyPrivateOrigin` makes on purpose, since
+ * that distinction is publish.ts's own behavior. */
 interface FakeOssOptions {
-  credentials?: OssCredentials;
   failUploadKeys?: Set<string>;
   tamperReadbackKeys?: Set<string>;
   publicOriginKeys?: Set<string>;
@@ -89,55 +87,36 @@ interface FakeOssOptions {
 interface FakeOss {
   baseUrl: string;
   calls: Array<{ method: string; key: string }>;
+  /** The `authorization` header value ali-oss sent with each entry in `calls`, in the same order
+   * (`undefined` for the anonymous `ANONYMOUS_GET` calls). */
+  authHeaders: Array<string | undefined>;
+  /** Reads the fixture's in-memory store directly, bypassing HTTP - used to assert the final
+   * state of `latest` after a rollback without needing a second signed client round trip. */
+  peek(key: string): Uint8Array | undefined;
 }
 
-function startFakeOssServer(bucket: string, options: FakeOssOptions = {}): FakeOss {
-  const credentials = options.credentials ?? CREDENTIALS;
+function startFakeOssServer(options: FakeOssOptions = {}): FakeOss {
   const store = new Map<string, Uint8Array>();
   for (const key of options.preexistingKeys ?? []) store.set(key, new Uint8Array([0x7b, 0x7d]));
   if (options.previousLatest) store.set("latest", new TextEncoder().encode(options.previousLatest));
   const calls: Array<{ method: string; key: string }> = [];
+  const authHeaders: Array<string | undefined> = [];
 
   const server = Bun.serve({
     port: 0,
     async fetch(request) {
       const url = new URL(request.url);
-      const cdn = url.pathname.startsWith("/cdn/");
-      const objectKey = url.pathname.slice(cdn ? 5 : 1);
+      const objectKey = url.pathname.slice(1);
       const method = request.method;
-      const anonymous = method === "GET" && !request.headers.has("authorization");
-      calls.push({
-        method: cdn ? "CDN_GET" : anonymous ? "ANONYMOUS_GET" : method,
-        key: objectKey,
-      });
+      const authorization = request.headers.get("authorization") ?? undefined;
+      const anonymous = method === "GET" && !authorization;
+      calls.push({ method: anonymous ? "ANONYMOUS_GET" : method, key: objectKey });
+      authHeaders.push(authorization);
 
-      if (cdn) {
-        return new Response("CDN unavailable", { status: 503 });
-      }
-      if (anonymous)
+      if (anonymous) {
         return new Response("origin", {
           status: options.publicOriginKeys?.has(objectKey) ? 200 : 403,
         });
-
-      const date = request.headers.get("date") ?? "";
-      const contentType = request.headers.get("content-type") ?? "";
-      const authorization = request.headers.get("authorization") ?? "";
-      const expectedStringToSign = ossStringToSign({
-        method: method as "PUT" | "GET" | "HEAD" | "DELETE",
-        bucket,
-        objectKey,
-        date,
-        contentType,
-      });
-      const expectedAuthorization = ossAuthorizationHeader(credentials, expectedStringToSign);
-      if (authorization !== expectedAuthorization) {
-        return new Response(
-          `<Error><Code>SignatureDoesNotMatch</Code>` +
-            `<AccessKeyId>${credentials.accessKeyId}</AccessKeyId>` +
-            `<StringToSign>${expectedStringToSign}</StringToSign>` +
-            `<AuthorizationProvided>${authorization}</AuthorizationProvided></Error>`,
-          { status: 403, headers: { "x-oss-request-id": "fake-request-id-signature" } },
-        );
       }
 
       if (method === "DELETE") {
@@ -189,7 +168,38 @@ function startFakeOssServer(bucket: string, options: FakeOssOptions = {}): FakeO
     },
   });
   servers.push(server);
-  return { baseUrl: `http://127.0.0.1:${server.port}`, calls };
+  return {
+    baseUrl: `http://127.0.0.1:${server.port}`,
+    calls,
+    authHeaders,
+    peek: (key) => store.get(key),
+  };
+}
+
+/** A fixture endpoint reached like the real bucket - direct HTTP to the fake server's host, no
+ * bucket-name-prefixed virtual hosting (`cname: true`), over plain HTTP (`secure: false`). */
+function fixtureConnection(fake: FakeOss, bucket = BUCKET): OssConnection {
+  return { bucket, endpoint: fake.baseUrl, cname: true, secure: false };
+}
+
+/** A fake OSS origin that fails every authenticated request the same way, independent of what
+ * credentials signed it - used only by the credential-leak test below, which cares whether
+ * publish.ts ever prints a failure response's body/headers, not whether the SDK's own V4 signing
+ * is correct (that's ali-oss's and Alibaba Cloud's problem, not this script's). */
+function startLeakFixtureServer(body: string): { baseUrl: string } {
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      const anonymous = request.method === "GET" && !request.headers.has("authorization");
+      if (anonymous) return new Response("origin", { status: 403 });
+      return new Response(body, {
+        status: 403,
+        headers: { "x-oss-request-id": "fake-request-id-signature" },
+      });
+    },
+  });
+  servers.push(server);
+  return { baseUrl: `http://127.0.0.1:${server.port}` };
 }
 
 function stubCompile(): CompileFn {
@@ -202,68 +212,17 @@ function stubCompile(): CompileFn {
 }
 
 /* ------------------------------------------------------------------------------------------- */
-/* 1. Signature correctness                                                                      */
+/* 1. Ordering: latest is written last, and only after every object is verified                 */
 /* ------------------------------------------------------------------------------------------- */
 
-test("OSS V1 StringToSign has the documented shape", () => {
-  const stringToSign = ossStringToSign({
-    method: "PUT",
-    bucket: "examplebucket",
-    objectKey: "1.2.3/linux-x64/coforge-computer",
-    date: "Tue, 01 Sep 2026 00:00:00 GMT",
-    contentType: "application/octet-stream",
-  });
-  expect(stringToSign).toBe(
-    "PUT\n\napplication/octet-stream\nTue, 01 Sep 2026 00:00:00 GMT\n" +
-      "/examplebucket/1.2.3/linux-x64/coforge-computer",
-  );
-});
-
-test("OSS V1 signature is stable for a fixed set of inputs (regression pin)", () => {
-  // A self-constructed fixed vector, not lifted from Alibaba Cloud's docs verbatim: the expected
-  // signature below was computed independently with Python's hmac/hashlib (sha1, base64) against
-  // the exact StringToSign this test also asserts above - see the CR description for the
-  // computation. Pinning it here catches a reworked implementation that silently changes the
-  // string layout or hashing algorithm; a live OSS 403 would eventually catch the same bug, but
-  // only in production.
-  const stringToSign = ossStringToSign({
-    method: "PUT",
-    bucket: "examplebucket",
-    objectKey: "1.2.3/linux-x64/coforge-computer",
-    date: "Tue, 01 Sep 2026 00:00:00 GMT",
-    contentType: "application/octet-stream",
-  });
-  const signature = ossSignature("testsecret", stringToSign);
-  expect(signature).toBe("oZIPP7ZwCJvQBvYA7P1xWGITvfI=");
-  expect(
-    ossAuthorizationHeader({ accessKeyId: "testkey", accessKeySecret: "testsecret" }, stringToSign),
-  ).toBe("OSS testkey:oZIPP7ZwCJvQBvYA7P1xWGITvfI=");
-});
-
-test("a GET StringToSign carries an empty Content-Type slot", () => {
-  const stringToSign = ossStringToSign({
-    method: "GET",
-    bucket: "examplebucket",
-    objectKey: "latest",
-    date: "Tue, 01 Sep 2026 00:00:00 GMT",
-    contentType: "",
-  });
-  expect(stringToSign).toBe("GET\n\n\nTue, 01 Sep 2026 00:00:00 GMT\n/examplebucket/latest");
-});
-
-/* ------------------------------------------------------------------------------------------- */
-/* 2. Ordering: latest is written last, and only after every object is verified                 */
-/* ------------------------------------------------------------------------------------------- */
-
-test("publication verifies OSS objects and latest without requesting the CDN", async () => {
+test("publication uploads every object, verifies it by reading the bytes back, and writes latest last", async () => {
   const outputDirectory = await tempDir("coforge-publish-tree-");
   const tree = await fixtureTree("9.9.9-publish-ok", outputDirectory);
-  const fake = startFakeOssServer(BUCKET);
+  const fake = startFakeOssServer();
+  const connection = fixtureConnection(fake);
+  const client: OSS = await createOssClient(connection, CREDENTIALS);
 
-  const result = await uploadReleaseTree(outputDirectory, tree, {
-    target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
-    credentials: CREDENTIALS,
-  });
+  const result = await uploadReleaseTree(outputDirectory, tree, { client, connection });
 
   expect(result.latestKey).toBe(LATEST_OBJECT_KEY);
   expect(result.uploaded).toEqual(tree.files);
@@ -291,6 +250,21 @@ test("publication verifies OSS objects and latest without requesting the CDN", a
     if (call.key === LATEST_OBJECT_KEY) continue;
     expect(fake.calls.indexOf(call)).toBeLessThan(latestPutIndex);
   }
+
+  // Every authenticated request is V4-signed by the SDK; the anonymous origin-privacy probes
+  // publish.ts makes on purpose carry no Authorization header at all.
+  fake.calls.forEach((call, index) => {
+    if (call.method === "ANONYMOUS_GET") {
+      expect(fake.authHeaders[index]).toBeUndefined();
+    } else {
+      expect(fake.authHeaders[index]).toMatch(/^OSS4-HMAC-SHA256\b/);
+    }
+  });
+
+  // The bytes actually landed, not only that the SDK reported success.
+  const roundTrip = await client.get(manifestKey);
+  const local = await readFile(join(outputDirectory, manifestKey));
+  expect(Buffer.compare(roundTrip.content as Buffer, local)).toBe(0);
 });
 
 test("a failed object upload never writes latest, and stops before uploading later objects", async () => {
@@ -299,14 +273,13 @@ test("a failed object upload never writes latest, and stops before uploading lat
   // Fail the first object actually uploaded - the manifest is deferred to last, so it is not it.
   const failingKey = tree.files.find((key) => key !== manifestObjectKey(tree.version));
   if (!failingKey) throw new Error("fixture tree produced no files");
-  const fake = startFakeOssServer(BUCKET, { failUploadKeys: new Set([failingKey]) });
+  const fake = startFakeOssServer({ failUploadKeys: new Set([failingKey]) });
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
 
-  await expect(
-    uploadReleaseTree(outputDirectory, tree, {
-      target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
-      credentials: CREDENTIALS,
-    }),
-  ).rejects.toThrow(/OSS upload failed: HTTP 500/);
+  await expect(uploadReleaseTree(outputDirectory, tree, { client, connection })).rejects.toThrow(
+    /OSS upload failed: HTTP 500/,
+  );
 
   expect(fake.calls).toEqual([
     { method: "HEAD", key: manifestObjectKey(tree.version) },
@@ -323,16 +296,15 @@ test("a failed object upload never writes latest, and stops before uploading lat
 test("republishing a version that already completed is refused before anything is uploaded", async () => {
   const outputDirectory = await tempDir("coforge-publish-republish-");
   const tree = await fixtureTree("9.9.9-already-live", outputDirectory);
-  const fake = startFakeOssServer(BUCKET, {
+  const fake = startFakeOssServer({
     preexistingKeys: new Set([manifestObjectKey(tree.version)]),
   });
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
 
-  await expect(
-    uploadReleaseTree(outputDirectory, tree, {
-      target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
-      credentials: CREDENTIALS,
-    }),
-  ).rejects.toThrow(/9\.9\.9-already-live is already published/);
+  await expect(uploadReleaseTree(outputDirectory, tree, { client, connection })).rejects.toThrow(
+    /9\.9\.9-already-live is already published/,
+  );
 
   // The point of the guard is that a live version's bytes are never touched: the CDN caches
   // `<version>/*` for a year, so a second publish would leave different bytes on different edges.
@@ -346,12 +318,11 @@ test("a version left half-uploaded by an earlier failure can still be published"
   // what the manifest-last ordering guarantees. That version must remain publishable.
   const partial = tree.files.find((key) => key !== manifestObjectKey(tree.version));
   if (!partial) throw new Error("fixture tree produced no files");
-  const fake = startFakeOssServer(BUCKET, { preexistingKeys: new Set([partial]) });
+  const fake = startFakeOssServer({ preexistingKeys: new Set([partial]) });
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
 
-  const result = await uploadReleaseTree(outputDirectory, tree, {
-    target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
-    credentials: CREDENTIALS,
-  });
+  const result = await uploadReleaseTree(outputDirectory, tree, { client, connection });
 
   expect(result.latestKey).toBe(LATEST_OBJECT_KEY);
 });
@@ -359,35 +330,33 @@ test("a version left half-uploaded by an earlier failure can still be published"
 test("an ambiguous existence probe aborts the publish instead of reading as absent", async () => {
   const outputDirectory = await tempDir("coforge-publish-probe-fail-");
   const tree = await fixtureTree("9.9.9-probe-fail", outputDirectory);
-  const fake = startFakeOssServer(BUCKET, {
+  const fake = startFakeOssServer({
     failProbeKeys: new Set([manifestObjectKey(tree.version)]),
   });
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
 
   // A 403 must not be mistaken for "not published yet" - that would overwrite a live version on a
   // transient credential or permission fault.
-  await expect(
-    uploadReleaseTree(outputDirectory, tree, {
-      target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
-      credentials: CREDENTIALS,
-    }),
-  ).rejects.toThrow(/OSS probe failed: HTTP 403/);
+  await expect(uploadReleaseTree(outputDirectory, tree, { client, connection })).rejects.toThrow(
+    /OSS probe failed: HTTP 403/,
+  );
 
   expect(fake.calls.every((call) => call.method === "HEAD")).toBe(true);
 });
 
 test("assertVersionIsUnpublished resolves for a version the feed has never seen", async () => {
-  const fake = startFakeOssServer(BUCKET);
+  const fake = startFakeOssServer();
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
 
-  await assertVersionIsUnpublished("1.2.3-fresh", {
-    target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
-    credentials: CREDENTIALS,
-  });
+  await assertVersionIsUnpublished("1.2.3-fresh", { client });
 
   expect(fake.calls).toEqual([{ method: "HEAD", key: "1.2.3-fresh/manifest.json" }]);
 });
 
 /* ------------------------------------------------------------------------------------------- */
-/* 3. Read-back verification                                                                     */
+/* 2. Read-back verification                                                                     */
 /* ------------------------------------------------------------------------------------------- */
 
 test("a tampered read-back fails the publish and never writes latest", async () => {
@@ -395,14 +364,13 @@ test("a tampered read-back fails the publish and never writes latest", async () 
   const tree = await fixtureTree("9.9.9-readback-fail", outputDirectory);
   const tamperedKey = tree.files.find((file) => file.endsWith("manifest.json"));
   if (!tamperedKey) throw new Error("fixture tree has no manifest.json");
-  const fake = startFakeOssServer(BUCKET, { tamperReadbackKeys: new Set([tamperedKey]) });
+  const fake = startFakeOssServer({ tamperReadbackKeys: new Set([tamperedKey]) });
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
 
-  await expect(
-    uploadReleaseTree(outputDirectory, tree, {
-      target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
-      credentials: CREDENTIALS,
-    }),
-  ).rejects.toThrow(/OSS read-back mismatch: .*manifest\.json/);
+  await expect(uploadReleaseTree(outputDirectory, tree, { client, connection })).rejects.toThrow(
+    /OSS read-back mismatch: .*manifest\.json/,
+  );
 
   expect(fake.calls.some((call) => call.key === LATEST_OBJECT_KEY)).toBe(false);
   // Every object was still uploaded before the mismatch was caught - only the read-back phase,
@@ -413,20 +381,20 @@ test("a tampered read-back fails the publish and never writes latest", async () 
 });
 
 /* ------------------------------------------------------------------------------------------- */
-/* 4. Credential redaction                                                                       */
+/* 3. Private-origin gate and rollback                                                           */
 /* ------------------------------------------------------------------------------------------- */
 
 test("public origin blocks activation even after signed OSS verification succeeds", async () => {
   const directory = await tempDir("coforge-delivery-gate-");
   const tree = await fixtureTree("9.9.9-delivery-gate", directory);
   const key = manifestObjectKey(tree.version);
-  const fake = startFakeOssServer(BUCKET, { publicOriginKeys: new Set([key]) });
-  await expect(
-    uploadReleaseTree(directory, tree, {
-      target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
-      credentials: CREDENTIALS,
-    }),
-  ).rejects.toThrow(/Private origin verification failed/);
+  const fake = startFakeOssServer({ publicOriginKeys: new Set([key]) });
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
+
+  await expect(uploadReleaseTree(directory, tree, { client, connection })).rejects.toThrow(
+    /Private origin verification failed/,
+  );
   expect(fake.calls).toContainEqual({ method: "GET", key });
   expect(fake.calls.some((call) => call.method === "PUT" && call.key === "latest")).toBe(false);
 });
@@ -435,46 +403,37 @@ for (const previousLatest of ["0.1.0-rc.3\n", undefined]) {
   test(`latest OSS read-back failure restores ${previousLatest ? "previous version" : "empty bootstrap"}`, async () => {
     const directory = await tempDir("coforge-selector-gate-");
     const tree = await fixtureTree("9.9.9-selector-gate", directory);
-    const fake = startFakeOssServer(BUCKET, {
+    const fake = startFakeOssServer({
       previousLatest,
       tamperReadbackKeys: new Set(["latest"]),
     });
-    await expect(
-      uploadReleaseTree(directory, tree, {
-        target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
-        credentials: CREDENTIALS,
-      }),
-    ).rejects.toThrow(/activation failed.*restored/);
-    expect(fake.calls.some((call) => call.method === "CDN_GET")).toBe(false);
-    const date = new Date().toUTCString();
-    const response = await fetch(`${fake.baseUrl}/latest`, {
-      headers: {
-        Date: date,
-        Authorization: ossAuthorizationHeader(
-          CREDENTIALS,
-          ossStringToSign({
-            method: "GET",
-            bucket: BUCKET,
-            objectKey: "latest",
-            date,
-            contentType: "",
-          }),
-        ),
-      },
-    });
-    if (previousLatest) expect(await response.text()).toBe(previousLatest);
-    else expect(response.status).toBe(404);
+    const connection = fixtureConnection(fake);
+    const client = await createOssClient(connection, CREDENTIALS);
+
+    await expect(uploadReleaseTree(directory, tree, { client, connection })).rejects.toThrow(
+      /activation failed.*restored/,
+    );
+
+    const restored = fake.peek(LATEST_OBJECT_KEY);
+    if (previousLatest) {
+      expect(restored && new TextDecoder().decode(restored)).toBe(previousLatest);
+    } else {
+      expect(restored).toBeUndefined();
+    }
   });
 }
 
 test("private origin network failures are sanitized", async () => {
   const directory = await tempDir("coforge-origin-error-");
   const tree = await fixtureTree("9.9.9-origin-error", directory);
-  const fake = startFakeOssServer(BUCKET);
+  const fake = startFakeOssServer();
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
+
   await expect(
     uploadReleaseTree(directory, tree, {
-      target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
-      credentials: CREDENTIALS,
+      client,
+      connection,
       fetchImpl: async (input, init) => {
         if (init?.credentials === "omit") throw new Error("secret origin URL Authorization token");
         return fetch(input, init);
@@ -487,12 +446,15 @@ test("private origin network failures are sanitized", async () => {
 test("public activated and restored latest fails private origin verification", async () => {
   const directory = await tempDir("coforge-latest-origin-");
   const tree = await fixtureTree("9.9.9-latest-origin", directory);
-  const fake = startFakeOssServer(BUCKET, { previousLatest: "0.1.0-rc.3\n" });
+  const fake = startFakeOssServer({ previousLatest: "0.1.0-rc.3\n" });
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
   let probes = 0;
+
   await expect(
     uploadReleaseTree(directory, tree, {
-      target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
-      credentials: CREDENTIALS,
+      client,
+      connection,
       fetchImpl: async (input, init) => {
         if (String(input).endsWith("/latest") && init?.credentials === "omit") {
           probes += 1;
@@ -508,27 +470,36 @@ test("public activated and restored latest fails private origin verification", a
 test("rollback failure is reported instead of claiming the previous selector is restored", async () => {
   const directory = await tempDir("coforge-rollback-failure-");
   const tree = await fixtureTree("9.9.9-rollback-failure", directory);
-  const fake = startFakeOssServer(BUCKET, {
+  const fake = startFakeOssServer({
     previousLatest: "0.1.0-rc.3\n",
     failUploadKeys: new Set(["latest"]),
   });
-  await expect(
-    uploadReleaseTree(directory, tree, {
-      target: { bucket: BUCKET, objectUrl: (key) => `${fake.baseUrl}/${key}` },
-      credentials: CREDENTIALS,
-    }),
-  ).rejects.toThrow(/rollback could not be verified/);
+  const connection = fixtureConnection(fake);
+  const client = await createOssClient(connection, CREDENTIALS);
+
+  await expect(uploadReleaseTree(directory, tree, { client, connection })).rejects.toThrow(
+    /rollback could not be verified/,
+  );
 });
 
+/* ------------------------------------------------------------------------------------------- */
+/* 4. Credential redaction                                                                       */
+/* ------------------------------------------------------------------------------------------- */
+
 test("a failed publish never prints the access key, secret, or an Authorization header value", async () => {
-  const outputDirectory = await tempDir("coforge-publish-tree-");
   const version = "9.9.9-leak-check";
-  await fixtureTree(version, outputDirectory);
-  // Wrong secret: every request this run makes hits the fake server's signature-mismatch branch,
-  // whose response body deliberately echoes the correct Authorization/StringToSign/AccessKeyId -
-  // exactly the kind of OSS error body that must never reach stdout/stderr.
   const wrongSecret = "not-the-real-secret";
-  const fake = startFakeOssServer(BUCKET, { credentials: CREDENTIALS });
+  // A real OSS `SignatureDoesNotMatch` error body echoes back `StringToSign`, the supplied
+  // `Signature`/`Authorization`, and the `AccessKeyId` - exactly the kind of response this test
+  // proves publish.ts never surfaces, independent of whether the credentials that produced it
+  // were actually wrong (verifying the SDK's own V4 signing is out of scope here).
+  const leakBody =
+    `<Error><Code>SignatureDoesNotMatch</Code>` +
+    `<AccessKeyId>${CREDENTIALS.accessKeyId}</AccessKeyId>` +
+    `<StringToSign>fake-string-to-sign</StringToSign>` +
+    `<AuthorizationProvided>OSS4-HMAC-SHA256 Credential=${CREDENTIALS.accessKeyId},Signature=deadbeef</AuthorizationProvided>` +
+    `<Message>wrong secret ${wrongSecret}</Message></Error>`;
+  const fake = startLeakFixtureServer(leakBody);
 
   const stdout: string[] = [];
   const stderr: string[] = [];
@@ -538,11 +509,11 @@ test("a failed publish never prints the access key, secret, or an Authorization 
   console.error = (...args: unknown[]) => stderr.push(args.map(String).join(" "));
 
   const previousEnv = {
-    id: process.env.ALIYUN_OSS_ACCESS_KEY_ID,
-    secret: process.env.ALIYUN_OSS_ACCESS_KEY_SECRET,
+    id: process.env.ALIBABA_CLOUD_ACCESS_KEY_ID,
+    secret: process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET,
   };
-  process.env.ALIYUN_OSS_ACCESS_KEY_ID = CREDENTIALS.accessKeyId;
-  process.env.ALIYUN_OSS_ACCESS_KEY_SECRET = wrongSecret;
+  process.env.ALIBABA_CLOUD_ACCESS_KEY_ID = CREDENTIALS.accessKeyId;
+  process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET = wrongSecret;
 
   let exitCode: number;
   try {
@@ -561,14 +532,14 @@ test("a failed publish never prints the access key, secret, or an Authorization 
       ],
       {
         compile: stubCompile(),
-        objectUrl: (key) => `${fake.baseUrl}/${key}`,
+        connection: { endpoint: fake.baseUrl, cname: true, secure: false },
       },
     );
   } finally {
     console.log = originalLog;
     console.error = originalError;
-    restoreEnvVar("ALIYUN_OSS_ACCESS_KEY_ID", previousEnv.id);
-    restoreEnvVar("ALIYUN_OSS_ACCESS_KEY_SECRET", previousEnv.secret);
+    restoreEnvVar("ALIBABA_CLOUD_ACCESS_KEY_ID", previousEnv.id);
+    restoreEnvVar("ALIBABA_CLOUD_ACCESS_KEY_SECRET", previousEnv.secret);
   }
 
   expect(exitCode).toBe(1);

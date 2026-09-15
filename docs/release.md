@@ -883,12 +883,16 @@ Platform coverage and remaining acceptance gaps are explicit:
   Coordinator, upgrade, health-identity, and rollback flow has not yet run on a
   macOS host. Do not treat source-level tests as platform release evidence.
 
-Distribution credentials (`ALIYUN_OSS_ACCESS_KEY_ID`/`ALIYUN_OSS_ACCESS_KEY_SECRET`,
-see `infra/staging/README.md`) and updater commands (`packages/computer/src/
-updater.ts`, `install.sh`, `install.ps1`) were already implemented before this
-publish workflow. The release Skill may publish development candidates through
-this workflow, but must distinguish published targets and native smoke checks
-from complete platform lifecycle acceptance. A successful live publish workflow
+Distribution credentials come from GitHub OIDC federation to the Alibaba Cloud
+RAM role `coforge-release-publisher` (`ALIBABA_CLOUD_ROLE_ARN`/
+`ALIBABA_CLOUD_OIDC_PROVIDER_ARN`, resolved through `@alicloud/credentials`'s
+default chain with V4 request signing; see `infra/staging/README.md` and
+`.github/workflows/release-staging.yml`) - no long-term AccessKey is stored for
+this publisher. Updater commands (`packages/computer/src/updater.ts`,
+`install.sh`, `install.ps1`) were already implemented before this publish
+workflow. The release Skill may publish development candidates through this
+workflow, but must distinguish published targets and native smoke checks from
+complete platform lifecycle acceptance. A successful live publish workflow
 proves authenticated OSS storage read-back and private-origin rejection, not CDN
 or end-user delivery. CDN acceptance remains a separate infrastructure check.
 

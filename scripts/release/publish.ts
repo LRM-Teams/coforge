@@ -13,15 +13,21 @@
  * already exists. The feed's CDN caches `<version>/*` for 365 days, so overwriting a live version
  * would leave different bytes on different edge nodes for up to a year.
  *
- * Upload happens over OSS's plain HTTP API, signed by hand (Authorization-header V1 signature),
- * deliberately without the `ossutil` CLI or the Alibaba Cloud SDK - see AGENTS.md's "no new
- * runtime dependency" and the CR description for why a ~40-line HMAC-SHA1 signer was preferred
- * over a new dependency for two verbs (PUT, GET).
+ * Upload happens through the official `ali-oss` SDK with V4 request signing - Alibaba Cloud is
+ * retiring V1 (Authorization-header HMAC-SHA1) for buckets created after 2025-09-01, which is
+ * this script's `coforge-releases-staging` bucket. Credentials come from `@alicloud/credentials`'s
+ * default provider chain, the same pattern already established for `apps/web`'s OSS file storage
+ * (`apps/web/src/server/files/oss-file-storage.server.ts`): GitHub Actions federates a short-lived
+ * STS token through GitHub OIDC (see `.github/workflows/release-staging.yml`), and a local run can
+ * instead export a long-term `ALIBABA_CLOUD_ACCESS_KEY_ID`/`ALIBABA_CLOUD_ACCESS_KEY_SECRET` pair.
+ * No long-term AccessKey is stored for CI.
  */
-import { createHmac } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import Credential from "@alicloud/credentials";
+import OSS from "ali-oss";
 
 import {
   buildReleaseTree,
@@ -32,86 +38,120 @@ import {
 import { compileTargetArtifacts, isReleaseTarget, type ReleaseTarget } from "./compile-targets";
 
 /* -------------------------------------------------------------------------------------------- */
-/* Alibaba Cloud OSS V1 "Authorization header" signature                                         */
+/* OSS client and credentials                                                                    */
 /* -------------------------------------------------------------------------------------------- */
-// https://www.alibabacloud.com/help/en/oss/developer-reference/include-signatures-in-the-authorization-header
-//   StringToSign = VERB + "\n" + Content-MD5 + "\n" + Content-Type + "\n" + Date + "\n"
-//                + CanonicalizedOSSHeaders + CanonicalizedResource
-// This script never sends Content-MD5 or any x-oss-* request header, so the Content-MD5 slot and
-// CanonicalizedOSSHeaders are always empty - only Content-Type, Date, and the resource vary.
-// CanonicalizedResource is "/" + bucket + "/" + objectKey regardless of whether the request URL
-// itself is virtual-hosted or path style, which is what lets the URL-building step below stay
-// swappable for tests without touching the signature at all.
 
 export interface OssCredentials {
   accessKeyId: string;
   accessKeySecret: string;
+  stsToken?: string;
 }
 
-/** OSS's StringToSign "Date" component is an RFC 1123 / HTTP-date string, exactly what
- * `Date.prototype.toUTCString()` already produces (e.g. "Tue, 01 Sep 2026 00:00:00 GMT").
- * Verified empirically against Bun 1.4.0's `fetch`: unlike a browser's `fetch`, it does not
- * silently drop a hand-set `Date` request header (the WHATWG Fetch forbidden-header list, which
- * would strip it, applies to browser contexts) - see the CR description for the reproduction. */
-function ossDate(now: Date): string {
-  return now.toUTCString();
-}
-
-function canonicalizedResource(bucket: string, objectKey: string): string {
-  return `/${bucket}/${objectKey}`;
-}
-
-export function ossStringToSign(options: {
-  method: "PUT" | "GET" | "HEAD" | "DELETE";
+/** Where the object store lives. Production always uses the real bucket over HTTPS
+ * (virtual-hosted-style: `https://<bucket>.<endpoint>/<key>`); tests override `endpoint` to a
+ * local fixture server and set `cname: true` (so the SDK talks to that host directly instead of
+ * prefixing it with the bucket name) and `secure: false`. */
+export interface OssConnection {
   bucket: string;
-  objectKey: string;
-  date: string;
-  contentType: string;
-}): string {
-  return [
-    options.method,
-    "", // Content-MD5: never sent by this script.
-    options.contentType,
-    options.date,
-    canonicalizedResource(options.bucket, options.objectKey),
-  ].join("\n");
+  endpoint: string;
+  cname?: boolean;
+  secure?: boolean;
 }
 
-export function ossSignature(accessKeySecret: string, stringToSign: string): string {
-  return createHmac("sha1", accessKeySecret).update(stringToSign, "utf8").digest("base64");
+/** Builds the ali-oss client this script uploads through, with V4 signing (`authorizationV4:
+ * true`) - see the file banner for why V1 is no longer an option for this bucket. `credentials`,
+ * when given, is used as-is; this is how tests point the client at a local fixture server with
+ * static test credentials. Without it, credentials come from the `@alicloud/credentials` default
+ * chain, and `refreshSTSToken` re-reads that chain whenever the resolved credential carries a
+ * security token - the same pattern `apps/web`'s OSS file storage uses - so a client built from a
+ * federated STS token does not start signing with an expired one partway through a publish that
+ * compiled six targets before it ever made a network call. */
+export async function createOssClient(
+  connection: OssConnection,
+  credentials?: OssCredentials,
+): Promise<OSS> {
+  const base = {
+    bucket: connection.bucket,
+    endpoint: connection.endpoint,
+    cname: connection.cname ?? false,
+    secure: connection.secure ?? true,
+    authorizationV4: true,
+  };
+  if (credentials) {
+    return new OSS({ ...credentials, ...base });
+  }
+  const chain = new Credential();
+  const readCredential = async (): Promise<OssCredentials> => {
+    const credential = await chain.getCredential();
+    if (!credential.accessKeyId || !credential.accessKeySecret) {
+      throw new Error(
+        "Alibaba Cloud credential chain returned no AccessKey; set ALIBABA_CLOUD_ROLE_ARN, " +
+          "ALIBABA_CLOUD_OIDC_PROVIDER_ARN and ALIBABA_CLOUD_OIDC_TOKEN_FILE for GitHub OIDC, or " +
+          "ALIBABA_CLOUD_ACCESS_KEY_ID/ALIBABA_CLOUD_ACCESS_KEY_SECRET locally (or pass --dry-run).",
+      );
+    }
+    return {
+      accessKeyId: credential.accessKeyId,
+      accessKeySecret: credential.accessKeySecret,
+      stsToken: credential.securityToken ?? undefined,
+    };
+  };
+  const initial = await readCredential();
+  return new OSS({
+    ...initial,
+    ...base,
+    ...(initial.stsToken ? { refreshSTSToken: readCredential } : {}),
+  });
 }
 
-export function ossAuthorizationHeader(credentials: OssCredentials, stringToSign: string): string {
-  return `OSS ${credentials.accessKeyId}:${ossSignature(credentials.accessKeySecret, stringToSign)}`;
+/** The request URL for an object, built the same way the SDK itself would route the request
+ * (bucket-prefixed host unless `cname` is set) - used only for the unauthenticated
+ * `verifyPrivateOrigin` probe below, which deliberately does not go through the signed client. */
+function objectOrigin(connection: OssConnection, objectKey: string): string {
+  const secure = connection.secure ?? true;
+  const withScheme = /^https?:\/\//i.test(connection.endpoint)
+    ? connection.endpoint
+    : `${secure ? "https" : "http"}://${connection.endpoint}`;
+  const url = new URL(withScheme);
+  if (!connection.cname) {
+    url.hostname = `${connection.bucket}.${url.hostname}`;
+  }
+  url.pathname = `/${objectKey}`;
+  url.search = "";
+  return url.toString();
+}
+
+/** Resolves true when the error is ali-oss's "object not found" shape (a HEAD/GET 404, reported
+ * as `code: "NoSuchKey"`), false otherwise. Mirrors `apps/web`'s `isMissingObject`. */
+function isMissingObject(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const { code, status } = error as { code?: unknown; status?: unknown };
+  return code === "NoSuchKey" || status === 404;
 }
 
 /** The only diagnostic a failed OSS call is allowed to surface: an HTTP status, the object key,
- * and OSS's own request id. It deliberately excludes every request header (Authorization above
- * all) and the response body - a real OSS `SignatureDoesNotMatch` error body echoes back
- * `StringToSign`, the supplied `Signature`, and the `AccessKeyId`, so printing it would leak
- * exactly the material this function exists to protect. See publish.test.ts's credential-leak
- * test, which fails if this function is changed to include either. */
-function ossError(action: string, objectKey: string, response: Response): Error {
-  const requestId = response.headers.get("x-oss-request-id") ?? "unknown";
+ * and OSS's own request id. It deliberately excludes the SDK error's `message` and any response
+ * body/header - a real OSS `SignatureDoesNotMatch` error echoes the `StringToSign`, the supplied
+ * `Signature`, and the `AccessKeyId` back to the caller, so surfacing that text would leak exactly
+ * the material this function exists to protect. See publish.test.ts's credential-leak test, which
+ * fails if this function is changed to include either. */
+function ossError(action: string, objectKey: string, error: unknown): Error {
+  const { status, code, requestId } =
+    typeof error === "object" && error !== null
+      ? (error as { status?: unknown; code?: unknown; requestId?: unknown })
+      : {};
+  const statusText = typeof status === "number" ? status : "unknown";
+  const codeText = typeof code === "string" && code.length > 0 ? ` code=${code}` : "";
+  const requestIdText =
+    typeof requestId === "string" && requestId.length > 0 ? requestId : "unknown";
   return new Error(
-    `OSS ${action} failed: HTTP ${response.status} ${objectKey} request-id=${requestId}`,
+    `OSS ${action} failed: HTTP ${statusText}${codeText} ${objectKey} request-id=${requestIdText}`,
   );
 }
 
 /* -------------------------------------------------------------------------------------------- */
 /* Upload primitives                                                                             */
 /* -------------------------------------------------------------------------------------------- */
-
-export interface OssTarget {
-  bucket: string;
-  /** Builds the request URL for one object key. Production always uses Alibaba Cloud OSS's
-   * virtual-hosted-style endpoint (`https://<bucket>.<endpoint>/<key>`) - OSS's own domain-name
-   * documentation describes only this style, not a path-style alternative, so this script does
-   * not treat the two as interchangeable. Tests instead point this at a local fixture server;
-   * `canonicalizedResource` above is identical either way, so nothing about the signature
-   * depends on which URL shape is in play. */
-  objectUrl: (objectKey: string) => string;
-}
 
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.byteLength !== b.byteLength) return false;
@@ -121,58 +161,23 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-async function putObject(
-  target: OssTarget,
-  objectKey: string,
-  bytes: Uint8Array,
-  credentials: OssCredentials,
-  date: string,
-  fetchImpl: typeof fetch,
-): Promise<void> {
-  const contentType = "application/octet-stream";
-  const stringToSign = ossStringToSign({
-    method: "PUT",
-    bucket: target.bucket,
-    objectKey,
-    date,
-    contentType,
-  });
-  const response = await fetchImpl(target.objectUrl(objectKey), {
-    method: "PUT",
-    headers: {
-      "Content-Type": contentType,
-      Date: date,
-      Authorization: ossAuthorizationHeader(credentials, stringToSign),
-    },
-    body: bytes,
-  });
-  await response.body?.cancel();
-  if (!response.ok) throw ossError("upload", objectKey, response);
+async function putObject(client: OSS, objectKey: string, bytes: Uint8Array): Promise<void> {
+  try {
+    await client.put(objectKey, Buffer.from(bytes), {
+      headers: { "Content-Type": "application/octet-stream" },
+    });
+  } catch (error) {
+    throw ossError("upload", objectKey, error);
+  }
 }
 
-async function getObject(
-  target: OssTarget,
-  objectKey: string,
-  credentials: OssCredentials,
-  date: string,
-  fetchImpl: typeof fetch,
-): Promise<Uint8Array> {
-  const stringToSign = ossStringToSign({
-    method: "GET",
-    bucket: target.bucket,
-    objectKey,
-    date,
-    contentType: "",
-  });
-  const response = await fetchImpl(target.objectUrl(objectKey), {
-    method: "GET",
-    headers: { Date: date, Authorization: ossAuthorizationHeader(credentials, stringToSign) },
-  });
-  if (!response.ok) {
-    await response.body?.cancel();
-    throw ossError("read-back", objectKey, response);
+async function getObject(client: OSS, objectKey: string): Promise<Uint8Array> {
+  try {
+    const result = await client.get(objectKey);
+    return new Uint8Array(result.content as Buffer);
+  } catch (error) {
+    throw ossError("read-back", objectKey, error);
   }
-  return new Uint8Array(await response.arrayBuffer());
 }
 
 export const LATEST_OBJECT_KEY = "latest";
@@ -187,28 +192,14 @@ export function manifestObjectKey(version: string): string {
 /** Resolves true when the object exists, false on a 404, and throws on anything else - an
  * ambiguous status (403, 5xx) must not be read as "absent", or the caller would overwrite a
  * published version on a transient error. */
-async function objectExists(
-  target: OssTarget,
-  objectKey: string,
-  credentials: OssCredentials,
-  date: string,
-  fetchImpl: typeof fetch,
-): Promise<boolean> {
-  const stringToSign = ossStringToSign({
-    method: "HEAD",
-    bucket: target.bucket,
-    objectKey,
-    date,
-    contentType: "",
-  });
-  const response = await fetchImpl(target.objectUrl(objectKey), {
-    method: "HEAD",
-    headers: { Date: date, Authorization: ossAuthorizationHeader(credentials, stringToSign) },
-  });
-  await response.body?.cancel();
-  if (response.status === 404) return false;
-  if (!response.ok) throw ossError("probe", objectKey, response);
-  return true;
+async function objectExists(client: OSS, objectKey: string): Promise<boolean> {
+  try {
+    await client.head(objectKey);
+    return true;
+  } catch (error) {
+    if (isMissingObject(error)) return false;
+    throw ossError("probe", objectKey, error);
+  }
 }
 
 /** Refuses to republish a version that already completed. Published versions are immutable: the
@@ -219,15 +210,10 @@ async function objectExists(
  * is still allowed; only a completed version is protected. */
 export async function assertVersionIsUnpublished(
   version: string,
-  options: Pick<UploadOptions, "target" | "credentials"> & {
-    fetchImpl?: typeof fetch;
-    now?: () => Date;
-  },
+  options: { client: OSS },
 ): Promise<void> {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const now = options.now ?? ((): Date => new Date());
   const key = manifestObjectKey(version);
-  if (await objectExists(options.target, key, options.credentials, ossDate(now()), fetchImpl)) {
+  if (await objectExists(options.client, key)) {
     throw new Error(
       `Release version ${version} is already published (${key} exists). Published versions are ` +
         `immutable - publish a new version instead of overwriting this one.`,
@@ -236,10 +222,9 @@ export async function assertVersionIsUnpublished(
 }
 
 export interface UploadOptions {
-  target: OssTarget;
-  credentials: OssCredentials;
+  client: OSS;
+  connection: OssConnection;
   fetchImpl?: typeof fetch;
-  now?: () => Date;
   log?: (line: string) => void;
 }
 
@@ -257,16 +242,11 @@ export async function uploadReleaseTree(
   tree: ReleaseTree,
   options: UploadOptions,
 ): Promise<UploadResult> {
+  const { client, connection } = options;
   const fetchImpl = options.fetchImpl ?? fetch;
-  const now = options.now ?? (() => new Date());
   const log = options.log ?? ((): void => undefined);
 
-  await assertVersionIsUnpublished(tree.version, {
-    target: options.target,
-    credentials: options.credentials,
-    fetchImpl,
-    now,
-  });
+  await assertVersionIsUnpublished(tree.version, { client });
 
   // The manifest is pinned last explicitly rather than relying on `tree.files` being sorted:
   // `build-release.ts` sorts the whole list, so "manifest.json" only happens to sort after the
@@ -281,26 +261,13 @@ export async function uploadReleaseTree(
 
   for (const relativePath of uploadOrder) {
     const bytes = await readFile(join(outputDirectory, relativePath));
-    await putObject(
-      options.target,
-      relativePath,
-      bytes,
-      options.credentials,
-      ossDate(now()),
-      fetchImpl,
-    );
+    await putObject(client, relativePath, bytes);
     log(`uploaded ${relativePath}`);
   }
 
   for (const relativePath of tree.files) {
     const local = await readFile(join(outputDirectory, relativePath));
-    const remote = await getObject(
-      options.target,
-      relativePath,
-      options.credentials,
-      ossDate(now()),
-      fetchImpl,
-    );
+    const remote = await getObject(client, relativePath);
     if (!bytesEqual(local, remote)) {
       throw new Error(`OSS read-back mismatch: ${relativePath} does not match the uploaded bytes`);
     }
@@ -309,7 +276,7 @@ export async function uploadReleaseTree(
 
   async function verifyPrivateOrigin(key: string): Promise<void> {
     try {
-      const response = await fetchImpl(options.target.objectUrl(key), {
+      const response = await fetchImpl(objectOrigin(connection, key), {
         method: "GET",
         credentials: "omit",
         redirect: "manual",
@@ -328,20 +295,8 @@ export async function uploadReleaseTree(
     await verifyPrivateOrigin(key);
   }
 
-  const previous = (await objectExists(
-    options.target,
-    LATEST_OBJECT_KEY,
-    options.credentials,
-    ossDate(now()),
-    fetchImpl,
-  ))
-    ? await getObject(
-        options.target,
-        LATEST_OBJECT_KEY,
-        options.credentials,
-        ossDate(now()),
-        fetchImpl,
-      )
+  const previous = (await objectExists(client, LATEST_OBJECT_KEY))
+    ? await getObject(client, LATEST_OBJECT_KEY)
     : null;
   if (previous) await verifyPrivateOrigin(LATEST_OBJECT_KEY);
   log(
@@ -351,21 +306,8 @@ export async function uploadReleaseTree(
   );
 
   async function writeLatest(bytes: Uint8Array): Promise<void> {
-    await putObject(
-      options.target,
-      LATEST_OBJECT_KEY,
-      bytes,
-      options.credentials,
-      ossDate(now()),
-      fetchImpl,
-    );
-    const readback = await getObject(
-      options.target,
-      LATEST_OBJECT_KEY,
-      options.credentials,
-      ossDate(now()),
-      fetchImpl,
-    );
+    await putObject(client, LATEST_OBJECT_KEY, bytes);
+    const readback = await getObject(client, LATEST_OBJECT_KEY);
     if (!bytesEqual(bytes, readback)) throw new Error("OSS latest read-back mismatch");
     await verifyPrivateOrigin(LATEST_OBJECT_KEY);
   }
@@ -377,35 +319,14 @@ export async function uploadReleaseTree(
       if (previous) {
         await writeLatest(previous);
       } else {
-        const date = ossDate(now());
-        const signature = ossStringToSign({
-          method: "DELETE",
-          bucket: options.target.bucket,
-          objectKey: LATEST_OBJECT_KEY,
-          date,
-          contentType: "",
-        });
-        const response = await fetchImpl(options.target.objectUrl(LATEST_OBJECT_KEY), {
-          method: "DELETE",
-          headers: {
-            Date: date,
-            Authorization: ossAuthorizationHeader(options.credentials, signature),
-          },
-          redirect: "manual",
-          signal: AbortSignal.timeout(30_000),
-        });
-        await response.body?.cancel();
-        if (
-          !response.ok ||
-          (await objectExists(
-            options.target,
-            LATEST_OBJECT_KEY,
-            options.credentials,
-            ossDate(now()),
-            fetchImpl,
-          ))
-        )
+        try {
+          await client.delete(LATEST_OBJECT_KEY);
+        } catch (error) {
+          throw ossError("delete", LATEST_OBJECT_KEY, error);
+        }
+        if (await objectExists(client, LATEST_OBJECT_KEY)) {
           throw new Error("could not restore empty selector");
+        }
       }
     } catch {
       throw new Error(
@@ -445,19 +366,21 @@ export interface PublishOptions {
   targets: ReleaseTarget[];
   bucket: string;
   endpoint: string;
-  /** Required unless `dryRun` is set. */
-  credentials?: OssCredentials;
   dryRun: boolean;
 }
 
 export interface PublishDependencies {
   compile?: CompileFn;
   fetchImpl?: typeof fetch;
-  now?: () => Date;
   log?: (line: string) => void;
-  /** Overrides how an object key becomes a request URL; defaults to the real virtual-hosted OSS
-   * endpoint. Tests point this at a local fixture server instead of reaching the network. */
-  objectUrl?: (objectKey: string) => string;
+  /** Static credentials for tests; a real publish resolves them from the Alibaba Cloud default
+   * credential chain instead (GitHub OIDC in CI, an AccessKey pair locally) - see
+   * `createOssClient`. Ignored for `--dry-run`, which needs no credentials at all. */
+  credentials?: OssCredentials;
+  /** Overrides `cname`/`secure` (and, for tests, `endpoint`) so requests hit a local fixture
+   * server instead of the real bucket; `bucket`/`endpoint` otherwise default to
+   * `options.bucket`/`options.endpoint` over HTTPS. */
+  connection?: Partial<OssConnection>;
 }
 
 export interface PublishOutcome {
@@ -475,6 +398,19 @@ export async function runPublish(
 ): Promise<PublishOutcome> {
   const compile = deps.compile ?? compileTargetArtifacts;
   const log = deps.log ?? ((): void => undefined);
+
+  // Resolve credentials before compiling. In CI the credential chain exchanges a GitHub OIDC
+  // token for an STS token, and that OIDC token is only valid for minutes, while compiling six
+  // targets takes longer than that; the STS token it yields lasts the role's session (1 hour),
+  // which comfortably covers the rest of the publish. A dry run never touches the network.
+  const connection: OssConnection = {
+    bucket: options.bucket,
+    endpoint: options.endpoint,
+    cname: false,
+    secure: true,
+    ...deps.connection,
+  };
+  const client = options.dryRun ? null : await createOssClient(connection, deps.credentials);
 
   const workDirectory = await mkdtemp(join(tmpdir(), "coforge-release-publish-"));
   try {
@@ -499,7 +435,7 @@ export async function runPublish(
     const treeDirectory = join(workDirectory, "tree");
     const tree = await buildReleaseTree(inputs, treeDirectory);
 
-    if (options.dryRun) {
+    if (options.dryRun || client === null) {
       log("dry run: no network calls made. Objects that would be published:");
       for (const file of tree.files) log(`  ${file}`);
       log(`  ${LATEST_OBJECT_KEY} (-> ${tree.version})`);
@@ -511,23 +447,10 @@ export async function runPublish(
       };
     }
 
-    if (!options.credentials) {
-      throw new Error(
-        "ALIYUN_OSS_ACCESS_KEY_ID and ALIYUN_OSS_ACCESS_KEY_SECRET are required unless --dry-run is set",
-      );
-    }
-
-    const target: OssTarget = {
-      bucket: options.bucket,
-      objectUrl:
-        deps.objectUrl ??
-        ((objectKey) => `https://${options.bucket}.${options.endpoint}/${objectKey}`),
-    };
     const result = await uploadReleaseTree(treeDirectory, tree, {
-      target,
-      credentials: options.credentials,
+      client,
+      connection,
       fetchImpl: deps.fetchImpl,
-      now: deps.now,
       log,
     });
     log(`published ${result.uploaded.length} objects and ${result.latestKey} -> ${tree.version}`);
@@ -618,17 +541,6 @@ async function currentGitCommit(): Promise<string> {
   return sha;
 }
 
-function requireCredentials(): OssCredentials {
-  const accessKeyId = process.env.ALIYUN_OSS_ACCESS_KEY_ID;
-  const accessKeySecret = process.env.ALIYUN_OSS_ACCESS_KEY_SECRET;
-  if (!accessKeyId || !accessKeySecret) {
-    throw new Error(
-      "ALIYUN_OSS_ACCESS_KEY_ID and ALIYUN_OSS_ACCESS_KEY_SECRET must be set (or pass --dry-run)",
-    );
-  }
-  return { accessKeyId, accessKeySecret };
-}
-
 export type CliDependencies = Omit<PublishDependencies, "log">;
 
 export async function runCli(argv: string[], deps: CliDependencies = {}): Promise<number> {
@@ -643,7 +555,6 @@ export async function runCli(argv: string[], deps: CliDependencies = {}): Promis
       throw new Error("--feed-url must be an https:// URL");
     }
     const commit = args.commit ?? (await currentGitCommit());
-    const credentials = args.dryRun ? undefined : requireCredentials();
     const options: PublishOptions = {
       version: args.version,
       commit,
@@ -651,7 +562,6 @@ export async function runCli(argv: string[], deps: CliDependencies = {}): Promis
       targets: parseTargets(args.targets),
       bucket: args.bucket ?? DEFAULT_BUCKET,
       endpoint: args.endpoint ?? DEFAULT_ENDPOINT,
-      credentials,
       dryRun: args.dryRun,
     };
     // console.log/console.error, not the injected `deps`, are the actual "script stdout/stderr":
