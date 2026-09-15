@@ -99,6 +99,10 @@ jobs:
           ALIBABA_CLOUD_ROLE_ARN: acs:ram::1085194890307801:role/coforge-release-publisher
           ALIBABA_CLOUD_OIDC_PROVIDER_ARN: acs:ram::1085194890307801:oidc-provider/github-actions
           ALIBABA_CLOUD_ROLE_SESSION_NAME: github-actions-${{ github.run_id }}
+          # The credential chain would otherwise fall through to the ECS metadata service and a
+          # credentials URI after an OIDC failure, spending minutes on connection timeouts before
+          # reporting the real error.
+          ALIBABA_CLOUD_ECS_METADATA_DISABLED: "true"
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
           RELEASE_COMMIT: ${{ github.sha }}
         run: |
