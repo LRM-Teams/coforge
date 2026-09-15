@@ -129,6 +129,42 @@ describe("PrismaDirectConversationRepository", () => {
     });
   });
 
+  test("resolves the ids a browser send needs without reading messages", async () => {
+    const calls: string[] = [];
+    const db = {
+      conversationMember: {
+        findUniqueOrThrow: async (input: object) => {
+          calls.push(`member ${JSON.stringify(input)}`);
+          return { id: "user-member" };
+        },
+      },
+      message: {
+        findMany: async () => {
+          calls.push("messages");
+          return [];
+        },
+      },
+    } as unknown as PrismaClient;
+    class TestConversationRepository extends PrismaDirectConversationRepository {
+      override async getOrCreateUserAgent() {
+        calls.push("conversation");
+        return { id: "conversation-1" };
+      }
+    }
+
+    const ids = await new TestConversationRepository(db).memberForUser(
+      "workspace-1",
+      "user-1",
+      "agent-1",
+    );
+
+    expect(ids).toEqual({ conversationId: "conversation-1", senderMemberId: "user-member" });
+    expect(calls).toEqual([
+      "conversation",
+      'member {"where":{"conversationId_userId":{"conversationId":"conversation-1","userId":"user-1"}},"select":{"id":true}}',
+    ]);
+  });
+
   test("pages browser history by thread roots and keeps each loaded thread intact", async () => {
     const queries: object[] = [];
     const message = (id: string, sequence: number, replies: object[] = []) => ({
@@ -278,7 +314,7 @@ describe("PrismaDirectConversationRepository", () => {
       user: { findUnique: async () => ({ id: "user-1" }) },
       conversation: { findUnique: async () => ({ id: "conversation-1" }) },
       conversationMember: {
-        findFirst: async () => ({ agentReadThroughSequence: 1 }),
+        findUnique: async () => ({ agentReadThroughSequence: 1 }),
         updateMany: async (input: object) => {
           updates.push(input);
           return { count: 1 };
@@ -349,7 +385,7 @@ describe("PrismaDirectConversationRepository", () => {
     const db = {
       $executeRaw: async () => 1,
       conversationMember: {
-        findFirst: async () => ({ id: "agent-member", agentReadThroughSequence: 0 }),
+        findUnique: async () => ({ id: "agent-member", agentReadThroughSequence: 0 }),
         updateMany: async () => ({ count: 1 }),
       },
       threadRead: { findUnique: async () => null },
@@ -408,7 +444,7 @@ describe("PrismaDirectConversationRepository", () => {
     const updates: object[] = [];
     const db = {
       conversationMember: {
-        findFirst: async () => ({ agentReadThroughSequence: 1 }),
+        findUnique: async () => ({ agentReadThroughSequence: 1 }),
         updateMany: async (input: object) => {
           updates.push(input);
           return { count: 1 };
@@ -512,41 +548,57 @@ describe("PrismaDirectConversationRepository", () => {
   });
 
   test("builds a stable per-target oldest-first recovery batch with a global limit", async () => {
-    const takes: number[] = [];
-    const memberQueries: object[] = [];
-    const messageConversations: string[] = [];
-    const transactionOptions: object[] = [];
+    const queries: unknown[][] = [];
+    const row = (overrides: Partial<Record<string, unknown>>) => ({
+      id: "message",
+      sequence: 1,
+      body: "body",
+      conversationId: "conversation-0",
+      threadRootId: null,
+      senderMemberId: "member-alice",
+      deliveryId: "delivery",
+      senderUsername: "alice",
+      channelName: null,
+      userUsername: "alice",
+      unreadCount: 120,
+      globalRank: 1,
+      ...overrides,
+    });
+    const rows = [
+      ...Array.from({ length: 100 }, (_, offset) =>
+        row({
+          id: `conversation-0-message-${offset + 5}`,
+          sequence: offset + 5,
+          body: `body-${offset + 5}`,
+          deliveryId: `conversation-0-delivery-${offset + 5}`,
+          globalRank: offset + 1,
+        }),
+      ),
+      // Past the resume budget: contributes its target's count only, so a missing
+      // delivery here must not fail recovery.
+      row({
+        id: "conversation-0-reply-130",
+        sequence: 130,
+        threadRootId: "root-1",
+        deliveryId: null,
+        unreadCount: 3,
+        globalRank: 121,
+      }),
+      row({
+        id: "conversation-1-message-9",
+        sequence: 9,
+        conversationId: "conversation-1",
+        senderMemberId: "member-bob",
+        senderUsername: "bob",
+        userUsername: "bob",
+        unreadCount: 75,
+        globalRank: 124,
+      }),
+    ];
     const db = {
-      $transaction: async (operation: (tx: unknown) => unknown, options: object) => {
-        transactionOptions.push(options);
-        return operation(db);
-      },
-      conversationMember: {
-        findMany: async (input: object) => {
-          memberQueries.push(input);
-          return ["alice", "bob"].map((username, index) => ({
-            conversationId: `conversation-${index}`,
-            agentReadThroughSequence: 4,
-            conversation: { members: [{ user: { username } }] },
-          }));
-        },
-      },
-      message: {
-        count: async () => 75,
-        findMany: async ({ where, take }: { where: { conversationId: string }; take: number }) => {
-          takes.push(take);
-          messageConversations.push(where.conversationId);
-          const count = Math.min(60, take);
-          return Array.from({ length: count }, (_, offset) => ({
-            id: `${where.conversationId}-message-${offset + 5}`,
-            sequence: offset + 5,
-            body: `body-${offset + 5}`,
-            sender: {
-              user: { username: where.conversationId === "conversation-0" ? "alice" : "bob" },
-            },
-            deliveries: [{ deliveryId: `${where.conversationId}-delivery-${offset + 5}` }],
-          }));
-        },
+      $queryRaw: async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+        queries.push(values);
+        return rows;
       },
     } as unknown as PrismaClient;
 
@@ -555,11 +607,8 @@ describe("PrismaDirectConversationRepository", () => {
       "agent-1",
     );
 
-    expect(takes).toEqual([100, 40]);
-    expect(memberQueries[0]).toMatchObject({
-      orderBy: { conversationId: "asc" },
-    });
-    expect(messageConversations).toEqual(["conversation-0", "conversation-1"]);
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toEqual(["workspace-1", "agent-1", "agent-1", 100]);
     expect(result.resumeMessages).toHaveLength(100);
     expect(result.resumeMessages.slice(0, 2)).toEqual([
       {
@@ -581,34 +630,41 @@ describe("PrismaDirectConversationRepository", () => {
         body: "body-6",
       },
     ]);
-    expect(result.unreadSummary).toEqual({ "@alice": 75, "@bob": 75 });
-    expect(transactionOptions).toEqual([{ isolationLevel: "RepeatableRead" }]);
+    expect(result.unreadSummary).toEqual({ "@alice": 120, "@alice:root-1": 3, "@bob": 75 });
   });
 
-  test("counts later targets without querying messages after the recovery budget is exhausted", async () => {
-    const queriedConversations: string[] = [];
+  test("names channel senders individually and direct senders by the conversation user", async () => {
     const db = {
-      $transaction: async (operation: (tx: unknown) => unknown) => operation(db),
-      conversationMember: {
-        findMany: async () =>
-          ["alice", "bob"].map((username, index) => ({
-            conversationId: `conversation-${index}`,
-            agentReadThroughSequence: 0,
-            conversation: { members: [{ user: { username } }] },
-          })),
-      },
-      message: {
-        count: async () => 100,
-        findMany: async ({ where }: { where: { conversationId: string } }) => {
-          queriedConversations.push(where.conversationId);
-          return Array.from({ length: 100 }, (_, offset) => ({
-            id: `message-${offset + 1}`,
-            sequence: offset + 1,
-            body: "body",
-            deliveries: [{ deliveryId: `delivery-${offset + 1}` }],
-          }));
+      $queryRaw: async () => [
+        {
+          id: "message-1",
+          sequence: 7,
+          body: "from carol",
+          conversationId: "channel-1",
+          threadRootId: "root-1",
+          senderMemberId: "member-carol",
+          deliveryId: "delivery-1",
+          senderUsername: "carol",
+          channelName: "general",
+          userUsername: "ada",
+          unreadCount: 2,
+          globalRank: 1,
         },
-      },
+        {
+          id: "message-2",
+          sequence: 8,
+          body: "system notice",
+          conversationId: "channel-1",
+          threadRootId: "root-1",
+          senderMemberId: null,
+          deliveryId: "delivery-2",
+          senderUsername: null,
+          channelName: "general",
+          userUsername: "ada",
+          unreadCount: 2,
+          globalRank: 2,
+        },
+      ],
     } as unknown as PrismaClient;
 
     const result = await new PrismaDirectConversationRepository(db).readAgentRecoveryContext(
@@ -616,31 +672,61 @@ describe("PrismaDirectConversationRepository", () => {
       "agent-1",
     );
 
-    expect(queriedConversations).toEqual(["conversation-0"]);
-    expect(result.unreadSummary).toEqual({ "@alice": 100, "@bob": 100 });
+    expect(result.resumeMessages.map((m) => [m.target, m.latestSender])).toEqual([
+      ["#general:root-1", "@carol"],
+      ["#general:root-1", "system"],
+    ]);
+    expect(result.unreadSummary).toEqual({ "#general:root-1": 2 });
   });
 
   test("rejects recovery when an unread message has no Agent delivery", async () => {
     const db = {
-      $transaction: async (operation: (tx: unknown) => unknown) => operation(db),
-      conversationMember: {
-        findMany: async () => [
-          {
-            conversationId: "conversation-1",
-            agentReadThroughSequence: 0,
-            conversation: { members: [{ user: { username: "alice" } }] },
-          },
-        ],
-      },
-      message: {
-        count: async () => 1,
-        findMany: async () => [{ id: "message-1", sequence: 1, body: "body", deliveries: [] }],
-      },
+      $queryRaw: async () => [
+        {
+          id: "message-1",
+          sequence: 1,
+          body: "body",
+          conversationId: "conversation-1",
+          threadRootId: null,
+          senderMemberId: "member-alice",
+          deliveryId: null,
+          senderUsername: "alice",
+          channelName: null,
+          userUsername: "alice",
+          unreadCount: 1,
+          globalRank: 1,
+        },
+      ],
     } as unknown as PrismaClient;
 
     await expect(
       new PrismaDirectConversationRepository(db).readAgentRecoveryContext("workspace-1", "agent-1"),
     ).rejects.toThrow("has no delivery");
+  });
+
+  test("rejects recovery for a conversation without a public target", async () => {
+    const db = {
+      $queryRaw: async () => [
+        {
+          id: "message-1",
+          sequence: 1,
+          body: "body",
+          conversationId: "conversation-1",
+          threadRootId: null,
+          senderMemberId: null,
+          deliveryId: "delivery-1",
+          senderUsername: null,
+          channelName: null,
+          userUsername: null,
+          unreadCount: 1,
+          globalRank: 1,
+        },
+      ],
+    } as unknown as PrismaClient;
+
+    await expect(
+      new PrismaDirectConversationRepository(db).readAgentRecoveryContext("workspace-1", "agent-1"),
+    ).rejects.toThrow("no public user target");
   });
 
   test("reads all scoped unacknowledged deliveries oldest-first", async () => {

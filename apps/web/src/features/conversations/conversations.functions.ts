@@ -100,7 +100,7 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
         const { conversations, workspaceId } = await sendTrace.measure("message.context", () =>
           context(user, data.agentId),
         );
-        const opened = await conversations.openForUser(workspaceId, user.id, data.agentId);
+        const opened = await conversations.memberForUser(workspaceId, user.id, data.agentId);
         const message = await sendTrace.measure("message.persist_and_publish", () => {
           const centrifugo = createCentrifugoServerApi();
           return new SendDirectMessage(
