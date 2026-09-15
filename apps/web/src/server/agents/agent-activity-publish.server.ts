@@ -1,4 +1,8 @@
-import { decodeAgentActivity, encodeAgentActivity } from "@coforge/protocol";
+import {
+  AGENT_ACTIVITY_DETAIL_KIND,
+  decodeAgentActivity,
+  encodeAgentActivity,
+} from "@coforge/protocol";
 
 import { getDatabaseClient } from "../db/client.server";
 import { PrismaAgentRepository } from "../db/repositories/agent.repositories.server";
@@ -13,7 +17,7 @@ import {
 } from "./agent-display.server";
 import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
 import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
-import { agentActivityChannel } from "../../features/agents/agent-activity-realtime";
+import { agentActivityChannel } from "../../features/agents/agent-activity";
 import type { AgentActivityKind } from "@coforge/protocol/agent-display";
 
 type AgentActivityPublicationDependencies = {
@@ -87,7 +91,9 @@ export async function handleAgentActivityPublication(
       return unauthorized();
 
     const mappedKind: AgentActivityKind | undefined =
-      activity.detailKind === "stopped" ? "offline" : activityKindForObservation(activity);
+      activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.STOPPED
+        ? "offline"
+        : activityKindForObservation(activity);
     const cloudActivity = { ...activity, activityKind: mappedKind };
     const history = dependencies.observe({ ...cloudActivity, computerId }).catch(() => {});
     const reduce = (async () => {

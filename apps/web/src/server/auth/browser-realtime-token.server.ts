@@ -1,7 +1,7 @@
 import { importJWK, SignJWT, type JWK } from "jose";
 
 import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
-import { agentActivityChannel } from "../../features/agents/agent-activity-realtime";
+import { agentActivityChannel } from "../../features/agents/agent-activity";
 import { conversationRealtimeChannel } from "../../features/conversations/conversation-realtime";
 
 async function browserRealtimeSigner(
@@ -24,18 +24,23 @@ async function browserRealtimeSigner(
 }
 
 export async function issueBrowserRealtimeToken(
-  input: { userId: string; workspaceId: string; stream?: "activity" },
+  input: { userId: string; workspaceId: string },
   environment: Record<string, string | undefined> = process.env,
 ): Promise<string> {
   return browserRealtimeSigner(
     environment,
-    {
-      channels: [
-        input.stream === "activity"
-          ? agentActivityChannel(input.workspaceId)
-          : agentStatusChannel(input.workspaceId),
-      ],
-    },
+    { channels: [agentStatusChannel(input.workspaceId)] },
+    input.userId,
+  );
+}
+
+export async function issueAgentActivitySubscriptionToken(
+  input: { userId: string; workspaceId: string },
+  environment: Record<string, string | undefined> = process.env,
+): Promise<string> {
+  return browserRealtimeSigner(
+    environment,
+    { channel: agentActivityChannel(input.workspaceId) },
     input.userId,
   );
 }

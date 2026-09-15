@@ -37,7 +37,10 @@ import {
   publicAgentRuntimeConfig,
 } from "../../server/agents/agent-runtime-config.server";
 import { getAgentStatusCache } from "../../server/agents/agent-status.server";
-import { issueBrowserRealtimeToken } from "../../server/auth/browser-realtime-token.server";
+import {
+  issueAgentActivitySubscriptionToken,
+  issueBrowserRealtimeToken,
+} from "../../server/auth/browser-realtime-token.server";
 import { createAgentSessions } from "../../server/db/repositories/agent-session.repositories.server";
 import { getAgentDisplay } from "../../server/agents/agent-display.server";
 import { AgentEnvironment } from "../../server/agents/agent-environment.server";
@@ -244,18 +247,14 @@ export const getAgentStatusConnectionToken = createServerFn({
   return issueBrowserRealtimeToken({ userId: user.id, workspaceId });
 });
 
-export const getAgentActivityConnectionToken = createServerFn({
+export const getAgentActivitySubscriptionToken = createServerFn({
   method: "GET",
 }).handler(async () => {
   const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
   const db = getDatabaseClient();
   if (!db) throw new Error("Agent persistence is unavailable");
   const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-  return issueBrowserRealtimeToken({
-    userId: user.id,
-    workspaceId,
-    stream: "activity",
-  });
+  return issueAgentActivitySubscriptionToken({ userId: user.id, workspaceId });
 });
 
 export const createAgent = createServerFn({ method: "POST" })

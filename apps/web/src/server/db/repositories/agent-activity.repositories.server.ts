@@ -1,4 +1,8 @@
-import { parseActivityEntries, type AgentActivity } from "@coforge/protocol";
+import {
+  AGENT_ACTIVITY_DETAIL_KIND,
+  parseActivityEntries,
+  type AgentActivity,
+} from "@coforge/protocol";
 import type { PrismaClient } from "../../../../generated/client";
 import { activityKindForObservation } from "../../agents/agent-display.server";
 
@@ -25,7 +29,7 @@ type CompactActivityRow =
     });
 
 function activityKind(activity: { detailKind: string; level: string }) {
-  if (activity.detailKind === "stopped") return "offline" as const;
+  if (activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.STOPPED) return "offline" as const;
   if (!(["info", "warning", "error"] as const).some((level) => level === activity.level))
     return undefined;
   return activityKindForObservation({

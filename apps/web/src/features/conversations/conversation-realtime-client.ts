@@ -1,8 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import type { Subscription } from "centrifuge";
 
-import { useBrowserRealtime } from "../realtime/browser-realtime";
+import { useBrowserRealtime, type BrowserRealtimeSubscription } from "../realtime/browser-realtime";
 import { getConversationRealtimeToken } from "../realtime/realtime.functions";
 import { conversationRealtimeChannel, decodeMessageAvailableEvent } from "./conversation-realtime";
 
@@ -77,7 +76,7 @@ export function useConversationRealtime(conversationId: string, reconcile: () =>
 
   useEffect(() => {
     if (!client) return;
-    return subscribeToConversationRealtime<Subscription>(client, {
+    return subscribeToConversationRealtime<BrowserRealtimeSubscription>(client, {
       conversationId,
       getToken: () => getToken({ data: { conversationId } }),
       reconcile: () => void reconcileRef.current().catch(() => {}),

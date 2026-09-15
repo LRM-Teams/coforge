@@ -4,7 +4,7 @@ import {
   type AgentDisplaySnapshot,
 } from "@coforge/protocol/agent-display";
 
-import { useBrowserRealtime } from "../realtime/browser-realtime";
+import { useRealtimeSubscription } from "../realtime/browser-realtime";
 
 export type AgentStatusEvent = {
   agentId: string;
@@ -196,7 +196,6 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
   workspaceId?: string;
   refresh: () => Promise<T[]>;
 }) {
-  const client = useBrowserRealtime();
   const [visibleAgents, setVisibleAgents] = useState(() => expireAgentStatuses(agents, Date.now()));
   const mounted = useRef(true);
   const currentWorkspaceId = useRef(workspaceId);
@@ -283,22 +282,18 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
     };
   }, [refresh, visibleAgents, workspaceId]);
 
-  useEffect(() => {
-    if (!workspaceId || !client) return;
-    const channel = agentStatusChannel(workspaceId);
-    let disposed = false;
-    const refreshSnapshot = async () => {
-      const refreshed = await refresh();
-      if (!disposed)
-        setVisibleAgents((current) =>
-          expireAgentStatuses(mergeAgentStatusSnapshot(current, refreshed), Date.now()),
-        );
-    };
-    const onConnected = () => {
-      void refreshSnapshot().catch(() => {});
-    };
-    const onPublication = (publication: { channel: string; data: unknown }) => {
-      if (publication.channel !== channel) return;
+  const refreshSnapshot = async () => {
+    const refreshed = await refresh();
+    if (mounted.current)
+      setVisibleAgents((current) =>
+        expireAgentStatuses(mergeAgentStatusSnapshot(current, refreshed), Date.now()),
+      );
+  };
+
+  useRealtimeSubscription({
+    channel: workspaceId ? agentStatusChannel(workspaceId) : undefined,
+    onConnected: () => void refreshSnapshot().catch(() => {}),
+    onPublication: (publication) => {
       try {
         const value =
           publication.data instanceof Uint8Array
@@ -312,18 +307,8 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
           setVisibleAgents((current) => applyAgentStatusEvent(current, event));
         }
       } catch {}
-    };
-    const subscription = client.newSubscription(channel);
-    subscription.on("publication", onPublication);
-    subscription.subscribe();
-    client.on("connected", onConnected);
-    return () => {
-      disposed = true;
-      client.off("connected", onConnected);
-      subscription.unsubscribe();
-      client.removeSubscription(subscription);
-    };
-  }, [client, refresh, workspaceId]);
+    },
+  });
 
   return visibleAgents;
 }

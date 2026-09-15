@@ -1,13 +1,18 @@
-import { useEffect, useState } from "react";
-import { Centrifuge } from "centrifuge/build/protobuf";
-import { decodeAgentActivity, WORKSPACE_PROTOCOL_MAJOR } from "@coforge/protocol";
-import { mergeAgentActivity, type ActivityEntry } from "./agent-activity";
-import { agentActivityChannel } from "./agent-activity-realtime";
+import { useEffect, useRef, useState } from "react";
+
+import { useRealtimeSubscription } from "../realtime/browser-realtime";
+import {
+  agentActivityChannel,
+  decodeActivityObservation,
+  mergeAgentActivity,
+  type ActivityEntry,
+} from "./agent-activity";
 
 export type WorkspaceActivitySnapshot = {
   workspaceId: string;
   agents: { id: string; activity: ActivityEntry[] }[];
 };
+
 export type WorkspaceActivityView = {
   activity: Record<string, ActivityEntry[]>;
   loading: boolean;
@@ -29,7 +34,11 @@ export function activityForAgent(view: WorkspaceActivityView, agentId: string) {
   };
 }
 
-/** One subscription per messages host; never mounted by individual avatars. */
+/**
+ * One Workspace Activity subscription for the whole app shell. It shares the
+ * `_app` browser connection and keeps only the newest observations per Agent;
+ * avatars and detail pages read this view instead of subscribing themselves.
+ */
 export function useWorkspaceActivity({
   workspaceId,
   refresh,
@@ -40,19 +49,15 @@ export function useWorkspaceActivity({
   getConnectionToken: () => Promise<string>;
 }): WorkspaceActivityView {
   const [view, setView] = useState({ workspaceId, ...empty });
+  const refreshHistory = useRef<(afterConnection?: boolean) => Promise<void>>(async () => {});
+
   useEffect(() => {
     setView({ workspaceId, ...empty });
     if (!workspaceId) return;
     let disposed = false;
     let refreshing = false;
     let refreshQueued = false;
-    const channel = agentActivityChannel(workspaceId);
-    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    const client = new Centrifuge(`${protocol}//${location.host}/connection/websocket`, {
-      getToken: getConnectionToken,
-    });
-    const subscription = client.newSubscription(channel);
-    const refreshHistory = async (afterConnection = false) => {
+    const load = async (afterConnection = false) => {
       if (disposed) return;
       if (refreshing) {
         refreshQueued ||= afterConnection;
@@ -86,61 +91,41 @@ export function useWorkspaceActivity({
         refreshing = false;
         if (refreshQueued) {
           refreshQueued = false;
-          void refreshHistory();
+          void load();
         }
       }
     };
-    subscription.on("subscribed", () => {
-      void refreshHistory(true);
-    });
-    subscription.on("publication", (publication) => {
-      if (!(publication.data instanceof Uint8Array)) return;
-      try {
-        const event = decodeAgentActivity(publication.data);
-        if (
-          event.protocolMajor !== WORKSPACE_PROTOCOL_MAJOR ||
-          event.workspaceId !== workspaceId ||
-          !event.agentId ||
-          !event.launchId ||
-          !Number.isSafeInteger(event.clientSeq) ||
-          event.clientSeq < 1
-        )
-          return;
-        if (!Number.isSafeInteger(event.observedAtMs) || event.observedAtMs < 1 || disposed) return;
-        const entry: ActivityEntry = {
-          launchId: event.launchId,
-          clientSeq: event.clientSeq,
-          activityKind: event.activityKind,
-          detailKind: event.detailKind,
-          level: event.level,
-          detail: event.detail,
-          observedAtMs: event.observedAtMs,
-          entries: event.entries,
-          runtimeError: event.runtimeError,
-        };
-        setView((current) => ({
-          ...current,
-          workspaceId,
-          activity: {
-            ...current.activity,
-            [event.agentId]: mergeAgentActivity(current.activity[event.agentId] ?? [], [
-              entry,
-            ]).slice(0, 5),
-          },
-        }));
-      } catch {
-        /* Ignore malformed best-effort observations. */
-      }
-    });
-    subscription.subscribe();
-    client.connect();
-    void refreshHistory();
+    refreshHistory.current = load;
+    void load();
     return () => {
       disposed = true;
-      subscription.unsubscribe();
-      client.removeSubscription(subscription);
-      client.disconnect();
     };
-  }, [workspaceId, refresh, getConnectionToken]);
+  }, [workspaceId, refresh]);
+
+  useRealtimeSubscription({
+    channel: workspaceId ? agentActivityChannel(workspaceId) : undefined,
+    getToken: getConnectionToken,
+    onSubscribed: () => void refreshHistory.current(true),
+    onPublication: (publication) => {
+      if (!workspaceId) return;
+      const observation = decodeActivityObservation(publication.data, { workspaceId });
+      if (!observation) return;
+      setView((current) =>
+        current.workspaceId === workspaceId
+          ? {
+              ...current,
+              activity: {
+                ...current.activity,
+                [observation.agentId]: mergeAgentActivity(
+                  current.activity[observation.agentId] ?? [],
+                  [observation.entry],
+                ).slice(0, 5),
+              },
+            }
+          : current,
+      );
+    },
+  });
+
   return view.workspaceId === workspaceId ? view : empty;
 }

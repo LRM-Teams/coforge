@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { exportJWK, generateKeyPair, jwtVerify } from "jose";
 import {
+  issueAgentActivitySubscriptionToken,
   issueConversationRealtimeToken,
   issueBrowserRealtimeToken,
 } from "../src/server/auth/browser-realtime-token.server";
@@ -32,6 +33,22 @@ test("connection token includes only the selected Workspace status channel", asy
   expect(payload.sub).toBe("user-1");
   expect(payload.channels).toEqual(["agent:status:workspace-1"]);
   expect(payload.channel).toBeUndefined();
+});
+
+test("subscription token authorizes one User for the Workspace Activity channel", async () => {
+  const { environment, publicKey } = await signingFixture();
+  const token = await issueAgentActivitySubscriptionToken(
+    { userId: "user-1", workspaceId: "workspace-1" },
+    environment,
+  );
+  const { payload } = await jwtVerify(token, publicKey, {
+    issuer: "coforge-test",
+    audience: "coforge-test-centrifugo",
+  });
+
+  expect(payload.sub).toBe("user-1");
+  expect(payload.channel).toBe("agent:activity:workspace-1");
+  expect(payload.channels).toBeUndefined();
 });
 
 test("subscription token authorizes one User for one conversation channel", async () => {
