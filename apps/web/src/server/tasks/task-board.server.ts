@@ -10,7 +10,7 @@ import {
   type TaskStatus,
   type TaskView,
 } from "@coforge/protocol";
-import type { PrismaClient } from "../../../generated/client";
+import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import type { ConversationRealtime } from "../conversations/conversation-realtime.server";
 import { mentionedNames } from "../conversations/mentions";
@@ -44,27 +44,14 @@ const taskSelection = {
       agent: { select: { name: true, displayName: true } },
     },
   },
-} as const;
+  // The backing message's sequence, so realtime signals need no second read.
+  message: { select: { sequence: true } },
+} satisfies Prisma.TaskSelect;
 
-type SelectedTask = {
-  messageId: string;
-  conversationId: string;
-  workspaceId: string;
-  number: number;
-  title: string;
-  description: string | null;
-  createsResource: boolean;
-  resourceReceipt: unknown;
-  resourceReceiptRecordedAt: Date | null;
-  status: string;
-  revision: number;
-  claimedAt: Date | null;
-  owner: {
-    id: string;
-    user: { username: string; displayName: string | null } | null;
-    agent: { name: string; displayName: string } | null;
-  } | null;
-};
+type SelectedTask = Prisma.TaskGetPayload<{ select: typeof taskSelection }>;
+type Transaction = Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0];
+type Member = { id: string; userId: string | null; agentId: string | null };
+type HistoryEvent = Prisma.TaskHistoryEventGetPayload<{ select: undefined }>;
 
 export type TaskOverview = {
   tasks: Array<
@@ -135,6 +122,23 @@ function view(task: SelectedTask): TaskView {
       : null,
   };
 }
+
+function historyEventView(event: HistoryEvent) {
+  return {
+    id: event.id,
+    sequence: event.sequence,
+    eventType: event.eventType,
+    actorKind: event.actorKind as "user" | "agent" | "system",
+    actorName: event.actorName,
+    beforeTitle: event.beforeTitle ?? undefined,
+    afterTitle: event.afterTitle ?? undefined,
+    beforeDescription: event.beforeDescription,
+    afterDescription: event.afterDescription,
+    createdAt: event.createdAt.toISOString(),
+  };
+}
+
+const handleName = (handle: string) => handle.replace(/^@/, "");
 
 async function indexedRequestId(requestId: string, index: number) {
   if (index === 0) return requestId;
@@ -505,6 +509,106 @@ export class TaskBoard {
     };
   }
 
+  /** The conversation member a `@handle` names, whether it is a user or an Agent. */
+  private memberByHandle(
+    tx: Transaction,
+    conversationId: string,
+    workspaceId: string,
+    handle: string,
+  ) {
+    const name = handleName(handle);
+    return tx.conversationMember.findFirst({
+      where: {
+        conversationId,
+        workspaceId,
+        OR: [{ user: { username: name } }, { agent: { name } }],
+      },
+      select: { id: true, userId: true, agentId: true },
+    });
+  }
+
+  /** Only Workspace owners and admins may act on Tasks they do not hold themselves. */
+  private async requireManager(tx: Transaction, workspaceId: string, member: Member) {
+    const membership = member.userId
+      ? await tx.workspaceMembership.findUnique({
+          where: { workspaceId_userId: { workspaceId, userId: member.userId } },
+          select: { role: true },
+        })
+      : null;
+    if (membership?.role !== "owner" && membership?.role !== "admin")
+      throw new AppError("ACCESS_DENIED");
+  }
+
+  /**
+   * Apply one optimistic Task change: the guard must still match the row the caller read
+   * (revision included) or the change is a CONFLICT. Returns the row as it now stands.
+   */
+  private async commitTaskChange(
+    tx: Transaction,
+    guard: Prisma.TaskWhereInput & { messageId: string; revision: number },
+    data: Prisma.TaskUncheckedUpdateManyInput,
+  ) {
+    const changed = await tx.task.updateMany({
+      where: guard,
+      data: { ...data, revision: { increment: 1 } },
+    });
+    if (changed.count !== 1) throw new AppError("CONFLICT");
+    return tx.task.findUniqueOrThrow({
+      where: { messageId: guard.messageId },
+      select: taskSelection,
+    });
+  }
+
+  /** Push a committed message to every Agent it was delivered to. Failures never surface. */
+  private async publishDeliveries(
+    message: {
+      id: string;
+      workspaceId: string;
+      conversationId: string;
+      sequence: number;
+      body: string;
+      deliveries: Array<{
+        deliveryId: string;
+        agentId: string;
+        agent: { computerId: string | null };
+      }>;
+    },
+    requestId: string,
+    target: string,
+    latestSender: string,
+  ) {
+    const publisher = this.dependencies.publisher;
+    if (!publisher) return;
+    await Promise.allSettled(
+      message.deliveries.flatMap((delivery) =>
+        delivery.agent.computerId
+          ? [
+              // Deferred so a synchronous publisher failure settles like an async one.
+              Promise.resolve().then(() =>
+                publisher.publish(
+                  daemonControlChannel(message.workspaceId, delivery.agent.computerId!),
+                  encodeAgentMessageDelivery({
+                    protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+                    method: AGENT_MESSAGE_METHOD,
+                    requestId,
+                    workspaceId: message.workspaceId,
+                    conversationId: message.conversationId,
+                    agentId: delivery.agentId,
+                    messageId: message.id,
+                    deliveryId: delivery.deliveryId,
+                    sequence: message.sequence,
+                    body: message.body,
+                    target,
+                    latestSender,
+                  }),
+                ),
+              ),
+            ]
+          : [],
+      ),
+    );
+  }
+
   private async create(
     scope: {
       conversationId: string;
@@ -512,7 +616,7 @@ export class TaskBoard {
       channel: boolean;
       channelName: string | null;
     },
-    member: { id: string; userId: string | null; agentId: string | null },
+    member: Member,
     principal: TaskPrincipal,
     command: TaskCommand,
   ) {
@@ -537,7 +641,23 @@ export class TaskBoard {
       });
       if (retried.length) {
         if (retried.length !== titles.length) throw new AppError("CONFLICT");
-        return { tasks: retried, created: false, sequences: [] as number[] };
+        const receipt = await tx.message.findUnique({ where: { id: receiptId } });
+        const assignee =
+          receipt && command.assignee
+            ? await this.memberByHandle(
+                tx,
+                scope.conversationId,
+                scope.workspaceId,
+                command.assignee,
+              )
+            : null;
+        return {
+          tasks: retried,
+          created: false,
+          sequences: [] as number[],
+          receipt,
+          started: assignee?.id === member.id,
+        };
       }
       if (command.attachmentId) {
         if (!principal.userId) throw new AppError("ACCESS_DENIED");
@@ -583,36 +703,12 @@ export class TaskBoard {
           })
         : [];
       const assignee = command.assignee
-        ? await tx.conversationMember.findFirst({
-            where: {
-              conversationId: scope.conversationId,
-              workspaceId: scope.workspaceId,
-              OR: [
-                { user: { username: command.assignee.replace(/^@/, "") } },
-                { agent: { name: command.assignee.replace(/^@/, "") } },
-              ],
-            },
-            select: { id: true, userId: true, agentId: true },
-          })
+        ? await this.memberByHandle(tx, scope.conversationId, scope.workspaceId, command.assignee)
         : null;
       if (command.assignee && !assignee) throw new AppError("NOT_FOUND");
-      if (assignee && assignee.id !== member.id) {
-        let role: string | undefined;
-        if (member.userId) {
-          role = (
-            await tx.workspaceMembership.findUnique({
-              where: {
-                workspaceId_userId: {
-                  workspaceId: scope.workspaceId,
-                  userId: member.userId,
-                },
-              },
-              select: { role: true },
-            })
-          )?.role;
-        }
-        if (role !== "owner" && role !== "admin") throw new AppError("ACCESS_DENIED");
-      }
+      if (assignee && assignee.id !== member.id)
+        await this.requireManager(tx, scope.workspaceId, member);
+      const started = assignee?.id === member.id;
       const tasks: SelectedTask[] = [];
       const sequences: number[] = [];
       for (const [index, title] of titles.entries()) {
@@ -644,8 +740,8 @@ export class TaskBoard {
                 description: command.description,
                 createsResource: command.createsResource ?? false,
                 ownerMemberId: assignee?.id,
-                status: assignee?.id === member.id ? "in_progress" : "todo",
-                claimedAt: assignee?.id === member.id ? new Date() : null,
+                status: started ? "in_progress" : "todo",
+                claimedAt: started ? new Date() : null,
                 creatorMemberId: member.id,
                 requestId: requestIds[index],
               },
@@ -656,107 +752,79 @@ export class TaskBoard {
         tasks.push(message.task!);
         sequences.push(sequence);
       }
-      if (assignee) {
-        await this.writeAssignmentReceipt(tx, {
-          id: receiptId,
-          conversationId: scope.conversationId,
-          workspaceId: scope.workspaceId,
-          assignee: command.assignee!,
-          agentId: assignee.agentId,
-          numbers: tasks.map((task) => task.number),
-          started: assignee.id === member.id,
-        });
-      }
-      return { tasks, created: true, sequences };
+      const receipt = assignee
+        ? await this.writeAssignmentReceipt(tx, {
+            id: receiptId,
+            conversationId: scope.conversationId,
+            workspaceId: scope.workspaceId,
+            assignee: command.assignee!,
+            agentId: assignee.agentId,
+            numbers: tasks.map((task) => task.number),
+            started,
+          })
+        : null;
+      return { tasks, created: true, sequences, receipt, started };
     });
     if (result.created) {
-      if (member.userId)
-        for (const task of result.tasks) {
-          try {
-            await this.dependencies.notifications?.notifyMessage(task.messageId);
-          } catch {
-            // PostgreSQL is canonical; notification recovery handles missed delivery.
-          }
-        }
-      for (const [index, task] of result.tasks.entries()) {
-        try {
-          await this.dependencies.realtime?.messageAvailable({
+      // PostgreSQL is canonical: a missed notification, realtime event or daemon push is
+      // repaired by the normal recovery paths, so none of these may fail the committed Tasks.
+      // Each effect swallows its own failure as soon as it is created, so a rejection
+      // while the delivery rows are still being read is never left unhandled.
+      const attempt = (effect: () => unknown) =>
+        Promise.resolve()
+          .then(effect)
+          .catch(() => undefined);
+      const effects: Promise<unknown>[] = result.tasks.flatMap((task, index) => [
+        ...(member.userId
+          ? [attempt(() => this.dependencies.notifications?.notifyMessage(task.messageId))]
+          : []),
+        attempt(() =>
+          this.dependencies.realtime?.messageAvailable({
             conversationId: scope.conversationId,
             messageId: task.messageId,
             sequence: result.sequences[index]!,
-          });
-        } catch {
-          // PostgreSQL is canonical; normal history reconciliation repairs a missed event.
+          }),
+        ),
+      ]);
+      if (member.userId && this.dependencies.publisher) {
+        const messages = await this.db.message.findMany({
+          where: { id: { in: result.tasks.map((task) => task.messageId) } },
+          include: {
+            sender: { select: { user: { select: { username: true } } } },
+            deliveries: { include: { agent: { select: { computerId: true } } } },
+          },
+        });
+        for (const message of messages) {
+          const sender = `@${message.sender!.user!.username}`;
+          effects.push(
+            this.publishDeliveries(
+              message,
+              command.requestId,
+              scope.channelName ? `#${scope.channelName}` : sender,
+              sender,
+            ),
+          );
         }
       }
-      if (member.userId && this.dependencies.publisher)
-        for (const task of result.tasks) {
-          const message = await this.db.message.findUniqueOrThrow({
-            where: { id: task.messageId },
-            include: {
-              sender: { include: { user: true } },
-              deliveries: { include: { agent: true } },
-            },
-          });
-          for (const delivery of message.deliveries) {
-            if (!delivery.agent.computerId) continue;
-            try {
-              await this.dependencies.publisher.publish(
-                daemonControlChannel(scope.workspaceId, delivery.agent.computerId),
-                encodeAgentMessageDelivery({
-                  protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-                  method: AGENT_MESSAGE_METHOD,
-                  requestId: command.requestId,
-                  workspaceId: scope.workspaceId,
-                  conversationId: scope.conversationId,
-                  agentId: delivery.agentId,
-                  messageId: message.id,
-                  deliveryId: delivery.deliveryId,
-                  sequence: message.sequence,
-                  body: message.body,
-                  target: scope.channelName
-                    ? `#${scope.channelName}`
-                    : `@${message.sender!.user!.username}`,
-                  latestSender: `@${message.sender!.user!.username}`,
-                }),
-              );
-            } catch {
-              // PostgreSQL delivery state supports recovery; do not report a committed Task as failed.
-            }
-          }
-        }
+      await Promise.all(effects);
+      if (result.receipt) await this.publishAssignmentReceipt(result.receipt.id, command.requestId);
     }
-    const tasks = result.tasks.map(view);
-    const receipt = await this.db.message.findUnique({ where: { id: receiptId } });
-    const assignedToCreator =
-      receipt &&
-      (await this.db.conversationMember.findFirst({
-        where: {
-          id: member.id,
-          OR: [
-            { user: { username: command.assignee?.slice(1) } },
-            { agent: { name: command.assignee?.slice(1) } },
-          ],
-        },
-        select: { id: true },
-      }));
-    if (receipt && result.created)
-      await this.publishAssignmentReceipt(receipt.id, command.requestId);
+    const { receipt } = result;
     return {
-      tasks,
+      tasks: result.tasks.map(view),
       ...(receipt && {
         assignmentReceipt: {
           messageId: receipt.id,
           content: receipt.body,
           assignee: command.assignee!,
-          state: assignedToCreator ? ("started" as const) : ("assigned" as const),
+          state: result.started ? ("started" as const) : ("assigned" as const),
         },
       }),
     };
   }
 
   private async writeAssignmentReceipt(
-    tx: Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0],
+    tx: Transaction,
     input: {
       id: string;
       conversationId: string;
@@ -800,14 +868,20 @@ export class TaskBoard {
       where: { id: messageId },
       include: {
         conversation: {
-          include: {
-            members: { where: { userId: { not: null } }, include: { user: true } },
+          select: {
+            channelName: true,
+            members: {
+              where: { userId: { not: null } },
+              take: 1,
+              select: { user: { select: { username: true } } },
+            },
           },
         },
-        deliveries: { include: { agent: true } },
+        deliveries: { include: { agent: { select: { computerId: true } } } },
       },
     });
-    const effects: Promise<unknown>[] = [
+    // A failed notification never rolls back or misreports a committed assignment.
+    await Promise.allSettled([
       Promise.resolve().then(() =>
         this.dependencies.realtime?.messageAvailable({
           conversationId: message.conversationId,
@@ -816,42 +890,18 @@ export class TaskBoard {
         }),
       ),
       Promise.resolve().then(() => this.dependencies.notifications?.notifyMessage(message.id)),
-    ];
-    for (const delivery of message.deliveries) {
-      if (!delivery.agent.computerId || !this.dependencies.publisher) continue;
-      effects.push(
-        Promise.resolve().then(() =>
-          this.dependencies.publisher!.publish(
-            daemonControlChannel(message.workspaceId, delivery.agent.computerId!),
-            encodeAgentMessageDelivery({
-              protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-              method: AGENT_MESSAGE_METHOD,
-              requestId,
-              workspaceId: message.workspaceId,
-              conversationId: message.conversationId,
-              agentId: delivery.agentId,
-              messageId: message.id,
-              deliveryId: delivery.deliveryId,
-              sequence: message.sequence,
-              body: message.body,
-              target: message.conversation.channelName
-                ? `#${message.conversation.channelName}`
-                : `@${message.conversation.members[0]!.user!.username}`,
-              latestSender: "system",
-            }),
-          ),
-        ),
-      );
-    }
-    // A failed notification never rolls back or misreports a committed assignment.
-    await Promise.allSettled(effects);
+      this.publishDeliveries(
+        message,
+        requestId,
+        message.conversation.channelName
+          ? `#${message.conversation.channelName}`
+          : `@${message.conversation.members[0]!.user!.username}`,
+        "system",
+      ),
+    ]);
   }
 
-  private async findMessage(
-    tx: Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0],
-    conversationId: string,
-    messageId: string,
-  ) {
+  private async findMessage(tx: Transaction, conversationId: string, messageId: string) {
     const messages =
       messageId.length === 8 && /^[0-9a-f]{8}$/i.test(messageId)
         ? await tx.$queryRaw<
@@ -922,25 +972,20 @@ export class TaskBoard {
       if (existing.status === "done" || existing.status === "closed")
         throw new AppError("CONFLICT");
       if (existing.owner && existing.owner.id !== memberId) throw new AppError("CONFLICT");
-      const updated = await tx.task.updateMany({
-        where: {
+      return this.commitTaskChange(
+        tx,
+        {
           messageId: existing.messageId,
           ownerMemberId: existing.owner?.id ?? null,
           status: existing.status,
           revision: existing.revision,
         },
-        data: {
+        {
           ownerMemberId: memberId,
           claimedAt: new Date(),
           status: existing.status === "todo" ? "in_progress" : existing.status,
-          revision: { increment: 1 },
         },
-      });
-      if (updated.count !== 1) throw new AppError("CONFLICT");
-      return tx.task.findUniqueOrThrow({
-        where: { messageId: existing.messageId },
-        select: taskSelection,
-      });
+      );
     });
     await this.signalTaskChange(task);
     return { tasks: [view(task)] };
@@ -1028,34 +1073,21 @@ export class TaskBoard {
     if (!task) throw new AppError("NOT_FOUND");
     if (task.ownerMemberId !== memberId) throw new AppError("ACCESS_DENIED");
     if (task.status === "done") throw new AppError("CONFLICT");
-    const changed = await this.db.task.updateMany({
-      where: {
+    const updated = await this.commitTaskChange(
+      this.db,
+      {
         messageId: task.messageId,
-        revision: task.revision,
+        revision: command.expectedRevision ?? task.revision,
         ownerMemberId: memberId,
         status: { not: "done" },
-        ...(command.expectedRevision !== undefined && {
-          revision: command.expectedRevision,
-        }),
       },
-      data: { ownerMemberId: null, claimedAt: null, revision: { increment: 1 } },
-    });
-    if (changed.count !== 1) throw new AppError("CONFLICT");
-    const updated = await this.db.task.findUniqueOrThrow({
-      where: {
-        conversationId_number: { conversationId, number: command.number! },
-      },
-      select: taskSelection,
-    });
+      { ownerMemberId: null, claimedAt: null },
+    );
     await this.signalTaskChange(updated);
     return { tasks: [view(updated)] };
   }
 
-  private async update(
-    conversationId: string,
-    member: { id: string; userId: string | null; agentId: string | null },
-    command: TaskCommand,
-  ) {
+  private async update(conversationId: string, member: Member, command: TaskCommand) {
     const task = await this.db.task.findUnique({
       where: {
         conversationId_number: { conversationId, number: command.number! },
@@ -1079,22 +1111,11 @@ export class TaskBoard {
       throw new AppError("CONFLICT");
     if (command.status === "done" && task.createsResource && !task.resourceReceipt)
       throw new AppError("CONFLICT");
-    const changed = await this.db.task.updateMany({
-      where: {
-        messageId: task.messageId,
-        revision: task.revision,
-        ownerMemberId: task.ownerMemberId,
-      },
-      data: {
-        status: command.status,
-        revision: { increment: 1 },
-      },
-    });
-    if (changed.count !== 1) throw new AppError("CONFLICT");
-    const updated = await this.db.task.findUniqueOrThrow({
-      where: { messageId: task.messageId },
-      select: taskSelection,
-    });
+    const updated = await this.commitTaskChange(
+      this.db,
+      { messageId: task.messageId, revision: task.revision, ownerMemberId: task.ownerMemberId },
+      { status: command.status },
+    );
     await this.signalTaskChange(updated);
     return { tasks: [view(updated)] };
   }
@@ -1102,7 +1123,7 @@ export class TaskBoard {
   private async assign(
     conversationId: string,
     workspaceId: string,
-    member: { id: string; userId: string | null; agentId: string | null },
+    member: Member,
     command: TaskCommand,
   ): Promise<TaskResult> {
     if (command.assignee !== null && !command.assignee?.match(/^@[a-z0-9][a-z0-9_-]{0,63}$/))
@@ -1122,17 +1143,7 @@ export class TaskBoard {
         return { task, receipt, changed: false };
       }
       const owner = command.assignee
-        ? await tx.conversationMember.findFirst({
-            where: {
-              conversationId,
-              workspaceId,
-              OR: [
-                { user: { username: command.assignee.replace(/^@/, "") } },
-                { agent: { name: command.assignee.replace(/^@/, "") } },
-              ],
-            },
-            select: { id: true, agentId: true },
-          })
+        ? await this.memberByHandle(tx, conversationId, workspaceId, command.assignee)
         : null;
       if (command.assignee && !owner) throw new AppError("NOT_FOUND");
       const current = await tx.task.findUnique({
@@ -1145,16 +1156,8 @@ export class TaskBoard {
       if (
         (owner && owner.id !== member.id) ||
         (current.ownerMemberId && current.ownerMemberId !== member.id)
-      ) {
-        const membership = member.userId
-          ? await tx.workspaceMembership.findUnique({
-              where: { workspaceId_userId: { workspaceId, userId: member.userId } },
-              select: { role: true },
-            })
-          : null;
-        if (membership?.role !== "owner" && membership?.role !== "admin")
-          throw new AppError("ACCESS_DENIED");
-      }
+      )
+        await this.requireManager(tx, workspaceId, member);
       if (command.expectedRevision !== undefined && current.revision !== command.expectedRevision)
         throw new AppError("CONFLICT");
       if (current.ownerMemberId === (owner?.id ?? null)) {
@@ -1164,21 +1167,15 @@ export class TaskBoard {
         });
         return { task, receipt: null, changed: false };
       }
-      const changed = await tx.task.updateMany({
-        where: {
+      const task = await this.commitTaskChange(
+        tx,
+        {
           messageId: current.messageId,
           revision: current.revision,
           ownerMemberId: current.ownerMemberId,
         },
-        data: { ownerMemberId: owner?.id ?? null, claimedAt: null, revision: { increment: 1 } },
-      });
-      if (changed.count !== 1) throw new AppError("CONFLICT");
-      const task = await tx.task.findUniqueOrThrow({
-        where: {
-          conversationId_number: { conversationId, number: command.number! },
-        },
-        select: taskSelection,
-      });
+        { ownerMemberId: owner?.id ?? null, claimedAt: null },
+      );
       return {
         task,
         changed: true,
@@ -1214,7 +1211,7 @@ export class TaskBoard {
 
   private async amend(
     conversationId: string,
-    member: { id: string; userId: string | null; agentId: string | null },
+    member: Member,
     command: TaskCommand,
   ): Promise<TaskResult> {
     if (command.title === undefined && command.description === undefined)
@@ -1242,21 +1239,14 @@ export class TaskBoard {
         },
         include: { user: true, agent: true },
       });
-      const changed = await tx.task.updateMany({
-        where: { messageId: task.messageId, revision: task.revision },
-        data: {
+      const updated = await this.commitTaskChange(
+        tx,
+        { messageId: task.messageId, revision: task.revision },
+        {
           ...(command.title !== undefined && { title: command.title.trim() }),
-          ...(command.description !== undefined && {
-            description: command.description,
-          }),
-          revision: { increment: 1 },
+          ...(command.description !== undefined && { description: command.description }),
         },
-      });
-      if (changed.count !== 1) throw new AppError("CONFLICT");
-      const updated = await tx.task.findUniqueOrThrow({
-        where: { messageId: task.messageId },
-        select: taskSelection,
-      });
+      );
       const event = await tx.taskHistoryEvent.create({
         data: {
           taskMessageId: task.messageId,
@@ -1273,23 +1263,7 @@ export class TaskBoard {
       return { updated, event };
     });
     await this.signalTaskChange(result.updated);
-    return {
-      tasks: [view(result.updated)],
-      history: [
-        {
-          id: result.event.id,
-          sequence: result.event.sequence,
-          eventType: result.event.eventType,
-          actorKind: result.event.actorKind as "user" | "agent" | "system",
-          actorName: result.event.actorName,
-          beforeTitle: result.event.beforeTitle ?? undefined,
-          afterTitle: result.event.afterTitle ?? undefined,
-          beforeDescription: result.event.beforeDescription,
-          afterDescription: result.event.afterDescription,
-          createdAt: result.event.createdAt.toISOString(),
-        },
-      ],
-    };
+    return { tasks: [view(result.updated)], history: [historyEventView(result.event)] };
   }
 
   private async history(conversationId: string, command: TaskCommand): Promise<TaskResult> {
@@ -1300,27 +1274,13 @@ export class TaskBoard {
       select: { ...taskSelection, history: { orderBy: { sequence: "asc" } } },
     });
     if (!task) throw new AppError("NOT_FOUND");
-    return {
-      tasks: [view(task)],
-      history: task.history.map((event) => ({
-        id: event.id,
-        sequence: event.sequence,
-        eventType: event.eventType,
-        actorKind: event.actorKind as "user" | "agent" | "system",
-        actorName: event.actorName,
-        beforeTitle: event.beforeTitle ?? undefined,
-        afterTitle: event.afterTitle ?? undefined,
-        beforeDescription: event.beforeDescription,
-        afterDescription: event.afterDescription,
-        createdAt: event.createdAt.toISOString(),
-      })),
-    };
+    return { tasks: [view(task)], history: task.history.map(historyEventView) };
   }
 
   private async delete(
     conversationId: string,
     workspaceId: string,
-    member: { id: string; userId: string | null },
+    member: Member,
     command: TaskCommand,
   ): Promise<TaskResult> {
     const task = await this.db.task.findUnique({
@@ -1330,18 +1290,7 @@ export class TaskBoard {
       select: { messageId: true, creatorMemberId: true },
     });
     if (!task) throw new AppError("NOT_FOUND");
-    const membership = member.userId
-      ? await this.db.workspaceMembership.findUnique({
-          where: { workspaceId_userId: { workspaceId, userId: member.userId } },
-          select: { role: true },
-        })
-      : null;
-    if (
-      task.creatorMemberId !== member.id &&
-      membership?.role !== "admin" &&
-      membership?.role !== "owner"
-    )
-      throw new AppError("ACCESS_DENIED");
+    if (task.creatorMemberId !== member.id) await this.requireManager(this.db, workspaceId, member);
     await this.db.task.delete({ where: { messageId: task.messageId } });
     return { tasks: [] };
   }
@@ -1349,7 +1298,7 @@ export class TaskBoard {
   private async receipt(
     conversationId: string,
     workspaceId: string,
-    member: { id: string; userId: string | null; agentId: string | null },
+    member: Member,
     command: TaskCommand,
   ): Promise<TaskResult> {
     const receipt = command.receipt;
@@ -1375,20 +1324,7 @@ export class TaskBoard {
       });
       if (!task) throw new AppError("NOT_FOUND");
       if (!task.createsResource) throw new AppError("CONFLICT");
-      const membership = member.userId
-        ? await tx.workspaceMembership.findUnique({
-            where: {
-              workspaceId_userId: { workspaceId, userId: member.userId },
-            },
-            select: { role: true },
-          })
-        : null;
-      if (
-        task.ownerMemberId !== member.id &&
-        membership?.role !== "owner" &&
-        membership?.role !== "admin"
-      )
-        throw new AppError("ACCESS_DENIED");
+      if (task.ownerMemberId !== member.id) await this.requireManager(tx, workspaceId, member);
       const teardownOwner = await tx.agent.findFirst({
         where: {
           workspaceId,
@@ -1465,25 +1401,16 @@ export class TaskBoard {
           },
         },
       });
-      const changed = await tx.task.updateMany({
-        where: {
-          messageId: task.messageId,
-          revision: task.revision,
-          resourceExpiryFollowupId: null,
-        },
-        data: {
+      const updated = await this.commitTaskChange(
+        tx,
+        { messageId: task.messageId, revision: task.revision, resourceExpiryFollowupId: null },
+        {
           resourceReceipt: receipt,
           resourceReceiptRecordedAt: new Date(),
           resourceTeardownOwnerAgentId: teardownOwner.id,
           resourceExpiryFollowupId: reminder.id,
-          revision: { increment: 1 },
         },
-      });
-      if (changed.count !== 1) throw new AppError("CONFLICT");
-      const updated = await tx.task.findUniqueOrThrow({
-        where: { messageId: task.messageId },
-        select: taskSelection,
-      });
+      );
       return { task: updated, reminder, owner: teardownOwner };
     });
     await this.signalTaskChange(result.task);
@@ -1530,14 +1457,10 @@ export class TaskBoard {
 
   private async signalTaskChange(task: SelectedTask) {
     try {
-      const message = await this.db.message.findUniqueOrThrow({
-        where: { id: task.messageId },
-        select: { sequence: true },
-      });
       await this.dependencies.realtime?.messageAvailable({
         conversationId: task.conversationId,
         messageId: task.messageId,
-        sequence: message.sequence,
+        sequence: task.message.sequence,
         publicationId: `${task.messageId}:task:${task.revision}`,
       });
     } catch {

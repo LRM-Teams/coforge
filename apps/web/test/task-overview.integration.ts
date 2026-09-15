@@ -41,7 +41,9 @@ test("TaskBoard overview returns every visible Workspace task without leaking pr
     },
     include: { agents: true },
   });
-  const [aliceAgent, bobAgent] = workspace.agents;
+  // `include` returns agents in storage order; pick them by name.
+  const aliceAgent = workspace.agents.find((agent) => agent.displayName === "Alice Agent");
+  const bobAgent = workspace.agents.find((agent) => agent.displayName === "Bob Agent");
   const otherWorkspace = await db.workspace.create({
     data: {
       slug: `task-overview-other-${suffix}`,
