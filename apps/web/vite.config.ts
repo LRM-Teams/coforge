@@ -66,6 +66,22 @@ const config = defineConfig({
         }
       },
     },
+    {
+      // Nitro's Vite dev middleware treats any request whose Sec-Fetch-Dest is not
+      // "empty"/"document" as a static asset and 404s when no file exists, so an <img>
+      // pointing at /api/attachments/* never reaches the app in local dev. Production
+      // Nitro has no such branch. Present API subresource requests as plain fetches.
+      name: "coforge-api-subresources",
+      apply: "serve",
+      enforce: "pre",
+      configureServer(server) {
+        server.middlewares.use((request, _response, next) => {
+          if (request.url?.startsWith("/api/") && request.headers["sec-fetch-dest"])
+            request.headers["sec-fetch-dest"] = "empty";
+          next();
+        });
+      },
+    },
     paraglideVitePlugin(paraglideOptions),
     tanstackStart(),
     nitro({

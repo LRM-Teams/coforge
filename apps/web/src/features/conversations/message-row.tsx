@@ -1,7 +1,10 @@
 import type { ReactNode, Ref } from "react";
-import { FileIcon } from "@untitledui/file-icons";
+import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
+import { Download01 } from "@untitledui/icons";
 
+import { getReadableFileSize } from "@/components/application/file-upload/file-upload-base";
 import { Avatar } from "@/components/base/avatar/avatar";
+import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
@@ -77,30 +80,69 @@ export function groupsWithPrevious(
   return { dayChanged, grouped };
 }
 
+/** Where an attachment is served from; the one place to change when delivery moves to OSS. */
+export function attachmentUrl(attachment: { id: string }) {
+  return `/api/attachments/${attachment.id}`;
+}
+
+/** An uploaded file on a message: images preview inline, other files show as a file card. */
 export function AttachmentCard({
   attachment,
 }: {
   attachment: NonNullable<MessageView["attachment"]>;
 }) {
+  const href = attachmentUrl(attachment);
+  const download = (
+    <ButtonUtility
+      icon={Download01}
+      size="xs"
+      color="secondary"
+      tooltip={m.conversation_attachment_download()}
+      href={`${href}?download`}
+      className="shrink-0 opacity-0 transition-opacity group-hover/attachment:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+    />
+  );
+  if (attachment.contentType.startsWith("image/"))
+    return (
+      <div className="group/attachment relative mt-1 w-fit max-w-full">
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="block overflow-hidden rounded-lg ring-1 ring-secondary ring-inset focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+        >
+          <img
+            src={href}
+            alt={attachment.fileName}
+            loading="lazy"
+            className="block max-h-80 max-w-full object-contain"
+          />
+        </a>
+        <div className="absolute top-2 right-2">{download}</div>
+      </div>
+    );
+  const extension = attachment.fileName.split(".").pop()?.toUpperCase();
   return (
-    <a
-      href={`/api/attachments/${attachment.id}`}
-      target="_blank"
-      rel="noreferrer"
-      className="mt-1 flex w-fit max-w-full min-w-0 items-center gap-2 rounded-lg border border-secondary px-2.5 py-2 hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-    >
-      <FileIcon
-        aria-hidden="true"
+    <div className="group/attachment mt-1 flex w-fit max-w-full min-w-0 items-center gap-3 rounded-xl bg-primary p-3 pr-2 ring-1 ring-secondary ring-inset">
+      <FileTypeIcon
+        className="size-10 shrink-0 dark:hidden"
         type={attachment.contentType || "empty"}
-        variant="gray"
-        size={24}
-        className="shrink-0"
+        theme="light"
       />
-      <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-        <span className="truncate text-sm font-medium text-primary">{attachment.fileName}</span>
-        <span className="text-xs text-tertiary">{Math.ceil(attachment.sizeBytes / 1024)} KB</span>
-      </span>
-    </a>
+      <FileTypeIcon
+        className="size-10 shrink-0 not-dark:hidden"
+        type={attachment.contentType || "empty"}
+        theme="dark"
+      />
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium text-secondary">{attachment.fileName}</p>
+        <p className="text-sm text-tertiary">
+          {extension && extension !== attachment.fileName.toUpperCase() ? `${extension} · ` : ""}
+          {getReadableFileSize(attachment.sizeBytes)}
+        </p>
+      </div>
+      {download}
+    </div>
   );
 }
 

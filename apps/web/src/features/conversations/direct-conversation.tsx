@@ -1,5 +1,5 @@
 import { useStateWithRef } from "@/hooks/use-state-with-ref";
-import { useResizableWidth } from "@/hooks/use-resizable-width";
+import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { measureElement, observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -219,11 +219,11 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
   }, [conversation.messages]);
   const repliesOf = (rootId: string) => repliesByRoot.get(rootId) ?? [];
   const selectedSequence = selected ? (repliesOf(selected).at(-1)?.sequence ?? 0) : 0;
-  const threadPanel = useResizableWidth({
-    storageKey: "coforge-thread-width",
-    initial: 480,
-    min: 320,
-    maxRatio: 0.6,
+  // The thread pane's share of the width is the user's to set; remembered across visits.
+  const threadLayout = useDefaultLayout({
+    id: "coforge-conversation",
+    panelIds: selected ? ["main", "thread"] : ["main"],
+    onlySaveAfterUserInteractions: true,
   });
   useEffect(() => {
     if (!selected || !selectedSequence || reading.current || document.visibilityState === "hidden")
@@ -269,8 +269,19 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
     return () => window.removeEventListener("hashchange", openAnchoredThread);
   }, [conversation.messages, selected]);
   return (
-    <div data-resize-container className="flex min-h-0 min-w-0 flex-1">
-      <div className={cn("min-h-0 min-w-0 flex-1 flex-col", selected ? "hidden md:flex" : "flex")}>
+    <Group
+      id="conversation"
+      orientation="horizontal"
+      defaultLayout={threadLayout.defaultLayout}
+      onLayoutChanged={threadLayout.onLayoutChanged}
+      className="flex min-h-0 min-w-0 flex-1"
+    >
+      <Panel
+        id="main"
+        // Strings are percentages of the group; numbers would be pixels.
+        minSize="40"
+        className={cn("flex min-h-0 min-w-0 flex-col", selected && "max-md:hidden!")}
+      >
         <ConversationPane
           {...conversationProps}
           header={header}
@@ -367,48 +378,56 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
             return task ? <TaskBadge task={task} /> : null;
           }}
         />
-      </div>
-      {visited.map((rootId) => {
-        const root = mainMessages.find((message) => message.id === rootId);
-        if (!root) return null;
-        return (
-          <section
-            key={rootId}
+      </Panel>
+      {selected && (
+        <>
+          <Separator
             aria-label={m.conversation_thread()}
-            hidden={selected !== rootId}
-            style={{ "--thread-width": `${threadPanel.width}px` } as React.CSSProperties}
-            className={cn(
-              "relative min-h-0 min-w-0 flex-1 flex-col md:w-(--thread-width) md:flex-none md:border-l",
-              selected === rootId ? "flex" : "hidden",
-            )}
+            className="hidden w-px shrink-0 bg-border-secondary transition-colors hover:bg-brand-solid data-[separator=active]:bg-brand-solid md:block"
+          />
+          <Panel
+            id="thread"
+            defaultSize="35"
+            minSize="25"
+            maxSize="60"
+            className="flex min-h-0 min-w-0 flex-col max-md:w-full! max-md:flex-[1_1_100%]!"
           >
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-label={m.conversation_thread()}
-              onPointerDown={threadPanel.onPointerDown}
-              className="absolute inset-y-0 -left-1 z-10 hidden w-2 cursor-col-resize hover:bg-brand-solid/40 active:bg-brand-solid/60 md:block"
-            />
-            <ConversationPane
-              {...conversationProps}
-              active={selected === rootId}
-              root={root}
-              onClose={() => setSelected(undefined)}
-              emptyState={{
-                title: m.conversation_thread_empty_title(),
-                description: m.conversation_thread_empty(),
-                media: <MessageSquare aria-hidden="true" className="size-6 text-tertiary" />,
-              }}
-              conversation={{ ...conversation, messages: repliesOf(rootId) }}
-              onSend={(body, requestId, attachmentId) =>
-                conversationProps.onSend(body, requestId, attachmentId, rootId)
-              }
-              threadHeaderAction={threadHeaderAction?.(rootId)}
-            />
-          </section>
-        );
-      })}
-    </div>
+            {visited.map((rootId) => {
+              const root = mainMessages.find((message) => message.id === rootId);
+              if (!root) return null;
+              return (
+                <section
+                  key={rootId}
+                  aria-label={m.conversation_thread()}
+                  hidden={selected !== rootId}
+                  className={cn(
+                    "min-h-0 min-w-0 flex-1 flex-col",
+                    selected === rootId ? "flex" : "hidden",
+                  )}
+                >
+                  <ConversationPane
+                    {...conversationProps}
+                    active={selected === rootId}
+                    root={root}
+                    onClose={() => setSelected(undefined)}
+                    emptyState={{
+                      title: m.conversation_thread_empty_title(),
+                      description: m.conversation_thread_empty(),
+                      media: <MessageSquare aria-hidden="true" className="size-6 text-tertiary" />,
+                    }}
+                    conversation={{ ...conversation, messages: repliesOf(rootId) }}
+                    onSend={(body, requestId, attachmentId) =>
+                      conversationProps.onSend(body, requestId, attachmentId, rootId)
+                    }
+                    threadHeaderAction={threadHeaderAction?.(rootId)}
+                  />
+                </section>
+              );
+            })}
+          </Panel>
+        </>
+      )}
+    </Group>
   );
 }
 
