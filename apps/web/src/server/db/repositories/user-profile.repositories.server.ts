@@ -38,3 +38,13 @@ export function avatarUrl(objectKey: string | null) {
   const version = objectKey.split("/").at(-2);
   return `/api/me/avatar?v=${encodeURIComponent(version ?? "current")}`;
 }
+
+export function workspaceUserAvatarUrl(
+  workspaceId: string,
+  userId: string,
+  objectKey: string | null,
+) {
+  if (!objectKey) return null;
+  const version = objectKey.split("/").at(-2) ?? "current";
+  return `/api/workspaces/${workspaceId}/users/${userId}/avatar?v=${encodeURIComponent(version)}`;
+}

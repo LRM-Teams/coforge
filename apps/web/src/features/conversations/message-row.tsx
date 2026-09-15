@@ -18,6 +18,7 @@ export type MessageView = {
   senderKind: "user" | "agent" | "system";
   senderMemberId?: string | null;
   senderName: string;
+  senderAvatarUrl?: string | null;
   body: string;
   createdAt: Date | string;
   attachment?: { id: string; fileName: string; contentType: string; sizeBytes: number };
@@ -295,6 +296,7 @@ export function MessageRow({
             <Avatar
               size="sm"
               alt={message.senderName}
+              src={message.senderAvatarUrl}
               initials={avatarInitial(message.senderName)}
               contentClassName={avatarToneClassName(message.senderName)}
             />

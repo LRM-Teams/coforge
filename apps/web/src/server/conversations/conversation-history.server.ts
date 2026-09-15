@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
+import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
 
 const browserMessageFields = {
   id: true,
@@ -14,7 +15,7 @@ const browserMessageFields = {
   sender: {
     select: {
       userId: true,
-      user: { select: { username: true } },
+      user: { select: { username: true, avatarObjectKey: true } },
       agent: { select: { name: true, displayName: true } },
     },
   },
@@ -32,7 +33,7 @@ type BrowserMessageRow = Prisma.MessageGetPayload<{
   select: typeof browserMessageFields;
 }>;
 
-function mapBrowserMessage(message: BrowserMessageRow) {
+function mapBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
   return {
     id: message.id,
     sequence: message.sequence,
@@ -48,6 +49,13 @@ function mapBrowserMessage(message: BrowserMessageRow) {
       : message.sender.userId
         ? `@${message.sender.user?.username}`
         : `@${message.sender.agent?.name}`,
+    senderAvatarUrl: message.sender?.userId
+      ? workspaceUserAvatarUrl(
+          workspaceId,
+          message.sender.userId,
+          message.sender.user?.avatarObjectKey ?? null,
+        )
+      : null,
     body: message.body,
     createdAt: message.createdAt,
     attachment: message.attachment ?? undefined,
@@ -174,7 +182,7 @@ export class ConversationHistory {
       conversationId,
       hasOlder: beforeRows.length > beforeCount + 1,
       hasNewer: afterRows.length > afterCount,
-      messages: messages.map(mapBrowserMessage),
+      messages: messages.map((message) => mapBrowserMessage(message, workspaceId)),
     };
   }
 }

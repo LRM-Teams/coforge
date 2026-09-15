@@ -68,6 +68,7 @@ export type DirectConversationView = {
     senderKind: "user" | "agent" | "system";
     senderMemberId?: string | null;
     senderName: string;
+    senderAvatarUrl?: string | null;
     body: string;
     createdAt: Date | string;
     attachment?: {
@@ -766,6 +767,7 @@ export function ConversationPane({
                 <Avatar
                   size="sm"
                   alt={root.senderName}
+                  src={root.senderAvatarUrl}
                   initials={avatarInitial(root.senderName)}
                   contentClassName={avatarToneClassName(root.senderName)}
                 />

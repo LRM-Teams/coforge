@@ -18,6 +18,7 @@ import { getDatabaseClient } from "../../server/db/client.server";
 import { PrismaDirectConversationRepository } from "../../server/db/repositories/direct-conversation.repositories.server";
 import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 import { withMessageSendTrace } from "../../server/observability/tracing.server";
+import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profile.repositories.server";
 
 async function context(user: { id: string; username: string; name: string }, agentId: string) {
   const db = getDatabaseClient();
@@ -29,7 +30,7 @@ async function context(user: { id: string; username: string; name: string }, age
   });
   if (!agent) throw new Error("conversation scope is not authorized");
   const conversations = new PrismaDirectConversationRepository(db);
-  return { conversations, userId: user.id, workspaceId };
+  return { conversations, db, userId: user.id, workspaceId };
 }
 
 async function historyContext(userId: string) {
@@ -97,7 +98,7 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
       data.requestId,
       { "coforge.agent_id": data.agentId },
       async (sendTrace) => {
-        const { conversations, workspaceId } = await sendTrace.measure("message.context", () =>
+        const { conversations, db, workspaceId } = await sendTrace.measure("message.context", () =>
           context(user, data.agentId),
         );
         const opened = await conversations.memberForUser(workspaceId, user.id, data.agentId);
@@ -119,6 +120,10 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
             threadRootId: data.threadRootId,
           });
         });
+        const profile = await db.user.findUnique({
+          where: { id: user.id },
+          select: { avatarObjectKey: true },
+        });
         return {
           id: message.id,
           sequence: message.sequence,
@@ -126,6 +131,11 @@ export const sendDirectConversationMessage = createServerFn({ method: "POST" })
           senderKind: "user" as const,
           senderMemberId: opened.senderMemberId,
           senderName: `@${user.username}`,
+          senderAvatarUrl: workspaceUserAvatarUrl(
+            workspaceId,
+            user.id,
+            profile?.avatarObjectKey ?? null,
+          ),
           body: message.body,
           createdAt: message.createdAt,
           attachment: message.attachment,

@@ -159,7 +159,14 @@ describe("ConversationHistory", () => {
       sender:
         sequence === 11
           ? { userId: null, user: null, agent: { name: "builder", displayName: "Build Assistant" } }
-          : { userId: "user-1", user: { username: "alice" }, agent: null },
+          : {
+              userId: "user-1",
+              user: {
+                username: "alice",
+                avatarObjectKey: "users/user-1/avatars/avatar-1/original",
+              },
+              agent: null,
+            },
       replies: [],
     });
     const db = {
@@ -217,6 +224,11 @@ describe("ConversationHistory", () => {
       "@alice",
       "@alice",
       "@builder",
+    ]);
+    expect(page.messages.map(({ senderAvatarUrl }) => senderAvatarUrl)).toEqual([
+      "/api/workspaces/workspace-1/users/user-1/avatar?v=avatar-1",
+      "/api/workspaces/workspace-1/users/user-1/avatar?v=avatar-1",
+      null,
     ]);
   });
 });

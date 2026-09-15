@@ -1,4 +1,4 @@
-import { type FC, type ReactNode, useState } from "react";
+import { type FC, type ReactNode, useEffect, useState } from "react";
 import { User01 } from "@untitledui/icons";
 import { cx } from "@/utils/cx";
 import { AvatarOnlineIndicator, VerifiedTick } from "./base-components";
@@ -93,6 +93,7 @@ export const Avatar = ({
     contentClassName,
 }: AvatarProps) => {
     const [isFailed, setIsFailed] = useState(false);
+    useEffect(() => setIsFailed(false), [src]);
 
     const canShowImage = src && !isFailed;
 
