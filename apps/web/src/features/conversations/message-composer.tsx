@@ -1,16 +1,17 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useHydrated } from "@tanstack/react-router";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
-import { ArrowUp, CheckSquare, Paperclip, XClose } from "@untitledui/icons";
+import { ArrowUp, CheckSquare, Download01, Paperclip, Trash01, XClose } from "@untitledui/icons";
+import { Popover as AriaPopover } from "react-aria-components";
 
 import { getReadableFileSize } from "@/components/application/file-upload/file-upload-base";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
-import { ProgressBarBase } from "@/components/base/progress-indicators/progress-indicators";
-import { TagCloseX } from "@/components/base/tags/base-components/tag-close-x";
-import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
+import { ProgressBar } from "@/components/base/progress-indicators/progress-indicators";
+import { Dialog, DialogTrigger } from "@/components/application/modals/modal";
+import { fileIconType } from "./message-row";
 import { useAppToast } from "@/components/ui/toast";
 import { useSubmitGuard } from "@/hooks/use-submit-guard";
 import { m } from "@/paraglide/messages";
@@ -61,58 +62,118 @@ function uploadAttachment(
   });
 }
 
-/** The chosen file as a small square: image thumbnail, or its file-type icon. Hover for details. */
-function AttachmentChip({ attachment }: { attachment: PendingAttachment }) {
+/**
+ * The chosen file as a small square next to the paperclip: an image thumbnail, or the
+ * file-type icon for other files. Clicking it opens the preview with the file's details,
+ * upload progress, and the download and remove actions.
+ */
+function AttachmentChip({
+  attachment,
+  uploading,
+  onRemove,
+  onRetry,
+}: {
+  attachment: PendingAttachment;
+  uploading: boolean;
+  onRemove: () => void;
+  onRetry: () => void;
+}) {
   const { file } = attachment;
   const isImage = file.type.startsWith("image/");
   const [previewUrl, setPreviewUrl] = useState<string>();
   useEffect(() => {
-    if (!isImage) return;
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
-  }, [file, isImage]);
+  }, [file]);
+  const iconType = fileIconType(file.name, file.type);
   const extension = file.name.split(".").pop()?.toUpperCase();
-  const details = `${extension && extension !== file.name.toUpperCase() ? `${extension} · ` : ""}${getReadableFileSize(file.size)}`;
+  const kind = extension && extension !== file.name.toUpperCase() ? extension : file.type;
+  const icon = (size: string) => (
+    <>
+      <FileTypeIcon className={`${size} dark:hidden`} type={iconType} theme="light" />
+      <FileTypeIcon className={`${size} not-dark:hidden`} type={iconType} theme="dark" />
+    </>
+  );
   return (
-    <Tooltip
-      placement="top start"
-      title={
-        isImage && previewUrl ? (
-          <span className="flex flex-col gap-2">
-            <img src={previewUrl} alt="" className="max-h-56 max-w-72 rounded-md object-contain" />
-            <span>{file.name}</span>
-          </span>
-        ) : (
-          file.name
-        )
-      }
-      description={details}
-    >
-      <TooltipTrigger className="rounded-md outline-focus-ring focus-visible:outline-2">
+    <DialogTrigger>
+      <Button
+        color="tertiary"
+        size="sm"
+        noTextPadding
+        aria-label={file.name}
+        className="h-auto rounded-md p-0 hover:bg-transparent"
+      >
         <Avatar
           size="xs"
           rounded={false}
           src={isImage ? previewUrl : undefined}
-          alt={file.name}
+          alt=""
           className="overflow-hidden rounded-md bg-secondary ring-1 ring-secondary ring-inset"
-          placeholder={
-            <>
-              <FileTypeIcon
-                className="size-5 dark:hidden"
-                type={file.type || "empty"}
-                theme="light"
-              />
-              <FileTypeIcon
-                className="size-5 not-dark:hidden"
-                type={file.type || "empty"}
-                theme="dark"
-              />
-            </>
-          }
+          placeholder={icon("size-4")}
         />
-      </TooltipTrigger>
-    </Tooltip>
+      </Button>
+      <AriaPopover
+        placement="top start"
+        offset={8}
+        className="w-[min(24rem,calc(100vw-2rem))] rounded-xl bg-primary shadow-lg ring-1 ring-secondary_alt outline-none"
+      >
+        <Dialog className="flex flex-col outline-none">
+          {({ close }) => (
+            <>
+              {isImage && previewUrl && (
+                <div className="flex justify-center rounded-t-xl bg-secondary p-3">
+                  <img
+                    src={previewUrl}
+                    alt=""
+                    className="max-h-56 max-w-full rounded-md object-contain"
+                  />
+                </div>
+              )}
+              <div className="flex items-center gap-3 p-3">
+                {!isImage && (
+                  <span className="flex size-10 shrink-0 items-center justify-center">
+                    {icon("size-10")}
+                  </span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-primary">{file.name}</p>
+                  <p className="truncate text-sm text-tertiary">
+                    {uploading
+                      ? `${attachment.progress}% · ${getReadableFileSize(file.size)}`
+                      : `${kind} · ${getReadableFileSize(file.size)}`}
+                  </p>
+                  {uploading && <ProgressBar value={attachment.progress} className="mt-1.5" />}
+                  {attachment.failed && (
+                    <Button color="link-destructive" size="sm" onPress={onRetry} className="mt-1">
+                      {m.controls_retry()}
+                    </Button>
+                  )}
+                </div>
+                <ButtonUtility
+                  icon={Download01}
+                  size="sm"
+                  color="tertiary"
+                  tooltip={m.conversation_attachment_download()}
+                  href={previewUrl}
+                  download={file.name}
+                />
+                <ButtonUtility
+                  icon={Trash01}
+                  size="sm"
+                  color="tertiary"
+                  tooltip={m.controls_close()}
+                  onClick={() => {
+                    close();
+                    onRemove();
+                  }}
+                />
+              </div>
+            </>
+          )}
+        </Dialog>
+      </AriaPopover>
+    </DialogTrigger>
   );
 }
 
@@ -269,28 +330,12 @@ export function MessageComposer({
           />
         )}
         {attachment && (
-          <div className="flex min-w-0 items-center gap-1">
-            {/* The remove control sits on the chip's corner and shows on hover or focus. */}
-            <span className="group/chip relative inline-flex">
-              <AttachmentChip attachment={attachment} />
-              <TagCloseX
-                size="sm"
-                aria-label={m.controls_close()}
-                onPress={() => setAttachment(undefined)}
-                className="absolute -top-1.5 -right-1.5 rounded-full bg-primary opacity-0 shadow-xs ring-1 ring-secondary transition-opacity group-hover/chip:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-              />
-            </span>
-            {uploading && <ProgressBarBase value={attachment.progress} className="w-16" />}
-            {attachment.failed && (
-              <Button
-                color="link-destructive"
-                size="sm"
-                onPress={() => void upload(attachment.file)}
-              >
-                {m.controls_retry()}
-              </Button>
-            )}
-          </div>
+          <AttachmentChip
+            attachment={attachment}
+            uploading={uploading}
+            onRemove={() => setAttachment(undefined)}
+            onRetry={() => void upload(attachment.file)}
+          />
         )}
         <input
           ref={fileInputRef}

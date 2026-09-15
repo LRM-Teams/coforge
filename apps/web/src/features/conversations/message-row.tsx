@@ -80,6 +80,61 @@ export function groupsWithPrevious(
   return { dayChanged, grouped };
 }
 
+// The file-type icons the icon set ships, by extension.
+const FILE_ICON_TYPES = new Set([
+  "aep",
+  "ai",
+  "avi",
+  "css",
+  "csv",
+  "dmg",
+  "doc",
+  "docx",
+  "eps",
+  "exe",
+  "fig",
+  "gif",
+  "html",
+  "indd",
+  "java",
+  "jpeg",
+  "jpg",
+  "js",
+  "json",
+  "mkv",
+  "mp3",
+  "mp4",
+  "mpeg",
+  "pdf",
+  "png",
+  "ppt",
+  "pptx",
+  "psd",
+  "rar",
+  "rss",
+  "sql",
+  "svg",
+  "tiff",
+  "txt",
+  "wav",
+  "webp",
+  "xls",
+  "xlsx",
+  "xml",
+  "zip",
+]);
+
+/** The icon-set type for a file: its extension when there is a dedicated icon, else its media kind. */
+export function fileIconType(fileName: string, contentType: string) {
+  const extension = fileName.includes(".") ? fileName.split(".").pop()!.toLowerCase() : "";
+  if (FILE_ICON_TYPES.has(extension)) return extension;
+  if (contentType.startsWith("image/")) return "image";
+  if (contentType.startsWith("video/")) return "video";
+  if (contentType.startsWith("audio/")) return "audio";
+  if (contentType.startsWith("text/")) return "txt";
+  return "empty";
+}
+
 /** Where an attachment is served from; the one place to change when delivery moves to OSS. */
 export function attachmentUrl(attachment: { id: string }) {
   return `/api/attachments/${attachment.id}`;
@@ -122,18 +177,11 @@ export function AttachmentCard({
       </div>
     );
   const extension = attachment.fileName.split(".").pop()?.toUpperCase();
+  const iconType = fileIconType(attachment.fileName, attachment.contentType);
   return (
     <div className="group/attachment mt-1 flex w-fit max-w-full min-w-0 items-center gap-3 rounded-xl bg-primary p-3 pr-2 ring-1 ring-secondary ring-inset">
-      <FileTypeIcon
-        className="size-10 shrink-0 dark:hidden"
-        type={attachment.contentType || "empty"}
-        theme="light"
-      />
-      <FileTypeIcon
-        className="size-10 shrink-0 not-dark:hidden"
-        type={attachment.contentType || "empty"}
-        theme="dark"
-      />
+      <FileTypeIcon className="size-10 shrink-0 dark:hidden" type={iconType} theme="light" />
+      <FileTypeIcon className="size-10 shrink-0 not-dark:hidden" type={iconType} theme="dark" />
       <div className="min-w-0">
         <p className="truncate text-sm font-medium text-secondary">{attachment.fileName}</p>
         <p className="text-sm text-tertiary">
