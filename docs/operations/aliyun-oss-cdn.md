@@ -1,7 +1,10 @@
 # 阿里云 OSS/CDN provisioning runbook
 
 状态：**staging 两个域名已上线**（见第 10 节的实际记录）；生产的
-`files.coforge.cn` 与 `releases.coforge.cn` 仍待 operator 执行，尚不可按本文视为已上线
+`files.coforge.cn` 与 `releases.coforge.cn` 仍待 operator 执行，尚不可按本文视为已上线。
+backend OSS adapter 已实现（`apps/web/src/server/files/oss-file-storage.server.ts`，
+由 `COFORGE_FILE_STORAGE=oss` 启用）；浏览器直传（PostObject policy）与 CDN
+URL-signed 下载仍是后续步骤，尚未实现。
 
 适用范围：两个 private content bucket、两个加速域名 `files.coforge.cn` 与
 `releases.coforge.cn`、最小权限 RAM、访问日志、验收与回滚

@@ -17,13 +17,11 @@
  * "offline", usage gone) after about a day — rerun the seed to refresh.
  */
 import { createHash } from "node:crypto";
-import { dirname } from "node:path";
-import { mkdir } from "node:fs/promises";
 import { RedisClient } from "bun";
 import { DEV_BROWSER_USER } from "../src/server/auth/dev-skip-auth.server";
 import { getDatabaseClient } from "../src/server/db/client.server";
 import { workspaceIdForUser } from "../src/server/workspaces/enrollment.server";
-import { fileStoragePath } from "../src/server/files/file-storage.server";
+import { getFileStorage } from "../src/server/files/file-storage.server";
 import { assignMissingSeedSequences, orderSeedMessages, seedTimestamp } from "./seed-dev-time";
 
 const dbOrUndefined = getDatabaseClient();
@@ -536,9 +534,9 @@ async function ensureAttachment(opts: {
 }) {
   const id = stableId(`attachment:${opts.key}`);
   const objectKey = `workspaces/${workspaceId}/attachments/${id}/original`;
-  const path = fileStoragePath(objectKey);
-  await mkdir(dirname(path), { recursive: true });
-  await Bun.write(path, opts.bytes);
+  await (
+    await getFileStorage()
+  ).put(objectKey, new Blob([opts.bytes as Uint8Array<ArrayBuffer>]), opts.contentType);
   pendingAttachments.push({
     id,
     objectKey,

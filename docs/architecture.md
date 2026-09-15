@@ -272,7 +272,7 @@ PostgreSQL 的首要领域对象是：
 
 ### Alibaba Cloud OSS：私有用户文件数据面
 
-当前验证实现先使用 Web/backend 私有本地文件目录（`COFORGE_FILE_STORAGE_DIR`）保存聊天附件和用户头像字节，PostgreSQL 只保存稳定 object key 和 metadata。该实现不支持多 backend 共享、对象复制、孤立上传自动清理或直接上传；生产部署仍必须切换到下述 private OSS adapter。客户端通过能力接口读取服务端限制，因此切换 adapter 不改变文件契约。
+backend 通过统一的 `FileStorage` port 读写聊天附件和用户头像字节，PostgreSQL 只保存稳定 object key 和 metadata。`COFORGE_FILE_STORAGE=local` 把字节保存在 backend 私有本地目录，仅用于本地开发与测试，不支持多 backend 共享，也没有孤立上传自动清理。`COFORGE_FILE_STORAGE=oss` 通过官方 `ali-oss` SDK 以 V4 签名读写 `COFORGE_OSS_BUCKET` 指定的私有 bucket，凭据来自 AccessKey pair 或 SDK 默认凭据链（ECS instance RAM role STS）。两种模式下浏览器与 daemon 的下载都仍经 backend 代理；下述直传与 CDN 签名下载是后续步骤。客户端通过能力接口读取服务端限制，因此切换 adapter 不改变文件契约。
 
 首个 OSS bucket 承载聊天图片、文件附件和需要登录才能读取的用户头像，必须保持 `private`。聊天附件与头像使用独立 object key 前缀和各自的应用授权规则。Bucket 不使用 `public-read` 或 `public-read-write`；Web 静态资源和以后若需匿名公开的头像使用独立 bucket，不能与私有用户文件混放。浏览器与 OSS 之间的文件传输使用 HTTPS 数据面，不经过 Centrifugo，也不改变 daemon 只使用 WSS/RPC 的传输边界。
 

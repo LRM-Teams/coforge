@@ -473,6 +473,7 @@ describe("staging Authing runtime injection", () => {
     expect(workflow).toContain("secrets.COFORGE_SESSION_SECRET");
     expect(workflow).toContain("secrets.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT");
     expect(workflow).toContain("otel_traces_endpoint");
+    expect(workflow).not.toContain("OSS_ACCESS_KEY");
     expect(workflow).toContain("infra/staging/secrets");
     expect(workflow).toContain('trap \'rm -rf -- "$tar_dir" "$payload"\' EXIT');
     expect(workflow).toContain(String.raw`chmod 700 \"\$secrets_dir\"`);
@@ -482,22 +483,25 @@ describe("staging Authing runtime injection", () => {
 });
 
 describe("staging user file persistence", () => {
-  test("user file bytes are written to a named volume rather than the container layer", async () => {
+  test("user file bytes are stored in the staging OSS bucket, not a local volume", async () => {
     const compose = await Bun.file(
       new URL("../../infra/staging/docker-compose.yml", import.meta.url),
     ).text();
     // The block ends at migrate, not centrifugo: migrate sits between them, so a
-    // wider slice would also pass if the volume were attached to the wrong service.
+    // wider slice would also pass if the config were attached to the wrong service.
     const webStart = compose.indexOf("\n  web:\n");
     const migrateStart = compose.indexOf("\n  migrate:\n");
     expect(migrateStart).toBeGreaterThan(webStart);
     const webBlock = compose.slice(webStart, migrateStart);
 
-    // Without both halves the app falls back to $PWD/.data/files inside the
-    // container, and every deployment silently discards what users uploaded.
-    expect(webBlock).toContain("COFORGE_FILE_STORAGE_DIR: /data/files");
-    expect(webBlock).toContain("- coforge_staging_files:/data/files");
-    expect(compose).toContain("name: coforge_staging_files");
+    // Without the OSS adapter selected, the app falls back to a container-local
+    // directory, and every deployment silently discards what users uploaded.
+    expect(webBlock).toContain("COFORGE_FILE_STORAGE: oss");
+    expect(webBlock).toContain("COFORGE_OSS_BUCKET: coforge-files-staging");
+    expect(webBlock).toContain("COFORGE_OSS_REGION: cn-beijing");
+    expect(webBlock).toContain("ALIBABA_CLOUD_ECS_METADATA: coforge-staging-web");
+    expect(webBlock).not.toContain("COFORGE_FILE_STORAGE_DIR");
+    expect(webBlock).not.toContain("ACCESS_KEY");
   });
 
   test("staging serves install.sh pointing at the staging feed, not the production one", async () => {

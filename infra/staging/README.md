@@ -44,9 +44,21 @@ intentionally unreachable — no plaintext, not even redirects.
 4. Copy the tracked assets from this directory (`docker-compose.yml`,
    `caddy/Caddyfile`, `centrifugo/config.yaml`) to
    `~/coforge-staging/infra/staging/` preserving layout.
-5. Attach an instance RAM role granting only `oss:GetObject`/`PutObject` on the
-   private user-files bucket if the cloud OSS adapter needs object storage. Do not put
-   AK/SK pairs in environment files.
+5. Attach the `coforge-staging-web` instance RAM role to the ECS host (ECS console →
+   实例 → 全部操作 → 实例设置 → 授予 / 收回 RAM 角色). The role trusts `ecs.aliyuncs.com`
+   and carries only the custom policy `CoForgeStagingFilesBucketAccess`:
+   `oss:PutObject`/`oss:GetObject`/`oss:DeleteObject` on `workspaces/*` and `users/*` of
+   the private user-files bucket `coforge-files-staging`, nothing on the release bucket.
+   The Web container reads the role's STS token from the instance metadata service
+   (`ALIBABA_CLOUD_ECS_METADATA` in the Compose file names the role), so no AccessKey
+   pair exists anywhere in this deployment. Verify from the host:
+   ```sh
+   T=$(curl -s -X PUT http://100.100.100.200/latest/api/token \
+     -H 'X-aliyun-ecs-metadata-token-ttl-seconds: 60')
+   curl -s -H "X-aliyun-ecs-metadata-token: $T" \
+     http://100.100.100.200/latest/meta-data/ram/security-credentials/
+   ```
+   It must print `coforge-staging-web`. Never paste the credential JSON itself anywhere.
 6. Create the DNS record `staging.coforge.cn` → the ECS public address. TLS
    uses an ACME certificate over 443 (TLS-ALPN); there is no HTTP-01 path by
    design.
