@@ -1,11 +1,25 @@
+import { QueryClient } from "@tanstack/react-query";
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
+import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query";
 import { GlobalError } from "./features/errors/page-load-error";
 import { deLocalizeUrl, localizeUrl } from "./paraglide/runtime";
 import { routeTree } from "./routeTree.gen";
 
 export function getRouter() {
+  // One QueryClient per request on the server and per app on the client; the SSR
+  // integration dehydrates it into the document and hydrates it before render.
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        // Live pages keep themselves current over realtime; a remount need not refetch.
+        staleTime: 30_000,
+        retry: false,
+      },
+    },
+  });
   const router = createTanStackRouter({
     routeTree,
+    context: { queryClient },
     scrollRestoration: true,
     defaultPreload: "intent",
     defaultPreloadStaleTime: 30_000,
@@ -15,6 +29,7 @@ export function getRouter() {
       output: ({ url }) => (isNonLocalizedPath(url.pathname) ? url : localizeUrl(url)),
     },
   });
+  setupRouterSsrQueryIntegration({ router, queryClient });
 
   return router;
 }
