@@ -19,6 +19,7 @@ import {
   encodeDaemonRuntimeUsageScanResponse,
   decodeAgentMessageDelivery,
   decodeComputerRestartIntent,
+  decodeComputerUpgradeIntent,
   encodeAgentActivity,
   encodeAgentStatus,
   encodeAgentMessageDeliveryAck,
@@ -114,6 +115,7 @@ export interface DaemonConnectionConfig {
   serverHttpUrl?: string;
   /** Requests replacement of only this Workspace runtime. The supervisor supplies recovery evidence. */
   requestRestart?(requestId: string): Promise<void>;
+  requestUpgrade?(requestId: string, expectedVersion?: string): Promise<void>;
 }
 
 export interface AgentMessageHttpClient {
@@ -355,6 +357,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   readonly #supersededActivityLaunches = new Map<string, Set<string>>();
   readonly #latestStatuses = new Map<string, AgentStatus>();
   readonly #restartRequestIds = new Set<string>();
+  readonly #upgradeRequestIds = new Set<string>();
   #statusRefreshTimer: ReturnType<typeof setInterval> | undefined;
   #computerStatusRefreshTimer: unknown;
   #statusRpcQueue = Promise.resolve();
@@ -718,6 +721,24 @@ export class DaemonConnection implements DaemonConnectionClient {
       return;
     } catch {}
     try {
+      const upgrade = decodeComputerUpgradeIntent(data);
+      if (
+        upgrade.protocolMajor === 1 &&
+        upgrade.workspaceId === workspaceId &&
+        upgrade.computerId === config.computerId &&
+        config.requestUpgrade &&
+        !this.#upgradeRequestIds.has(upgrade.requestId)
+      ) {
+        if (this.#upgradeRequestIds.size >= 256)
+          this.#upgradeRequestIds.delete(this.#upgradeRequestIds.values().next().value!);
+        this.#upgradeRequestIds.add(upgrade.requestId);
+        void config.requestUpgrade(upgrade.requestId, upgrade.expectedVersion).catch(() => {
+          this.#upgradeRequestIds.delete(upgrade.requestId);
+        });
+        return;
+      }
+    } catch {}
+    try {
       const restart = decodeComputerRestartIntent(data);
       if (
         restart.protocolMajor === 1 &&
@@ -998,6 +1019,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     this.#supersededActivityLaunches.clear();
     this.#latestStatuses.clear();
     this.#restartRequestIds.clear();
+    this.#upgradeRequestIds.clear();
     this.#statusRpcQueue = Promise.resolve();
     client?.disconnect();
   }

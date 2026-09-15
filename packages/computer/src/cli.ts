@@ -511,10 +511,13 @@ function createLogsCommand(
   };
 }
 
-function createUpdateCommand(io: {
-  stdout: (line: string) => void;
-  stderr: (line: string) => void;
-}): UpdateCommand {
+export function createUpdateCommand(
+  io: {
+    stdout: (line: string) => void;
+    stderr: (line: string) => void;
+  },
+  options: { quietProgress?: boolean } = {},
+): UpdateCommand {
   const installRoot = resolveComputerInstallDirectory({
     platform: process.platform,
     homeDirectory: process.env.HOME ?? process.env.USERPROFILE ?? "",
@@ -558,6 +561,7 @@ function createUpdateCommand(io: {
         platform: process.platform,
         stateDirectory: supervisorStatePath,
       }),
+      quietProgress: options.quietProgress,
     });
   return {
     resolveVersion: (selection) =>
@@ -591,6 +595,13 @@ function createUpdateCommand(io: {
       io.stdout(`Rolled back to ${result.version}`);
     },
   };
+}
+
+export async function runRemoteUpgrade(): Promise<void> {
+  await createUpdateCommand(
+    { stdout: () => {}, stderr: () => {} },
+    { quietProgress: true },
+  ).upgrade(Bun.env.COFORGE_UPGRADE_VERSION ?? "latest");
 }
 
 export async function runComputer(): Promise<void> {

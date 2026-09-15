@@ -201,7 +201,7 @@ describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
     const subject = display();
     const first = await subject.observeStatus(status(1));
     expect(first).toBeDefined();
-    const prefix = "coforge:agent-display:v1:workspace-a:computer-a:agent-a";
+    const prefix = "coforge:workspace:workspace-a:computer:computer-a:agent:agent-a:display:v1";
     expect(await redis.send("TTL", [`${prefix}:revision`])).toBe(-1);
 
     await redis.send("DEL", [`${prefix}:revision`]);
@@ -213,7 +213,7 @@ describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
   test("returns every exact revision when the persistent counter exceeds cjson precision", async () => {
     await redis.send("FLUSHDB", []);
     now = 2_900_000;
-    const prefix = "coforge:agent-display:v1:workspace-a:computer-a:agent-a";
+    const prefix = "coforge:workspace:workspace-a:computer:computer-a:agent:agent-a:display:v1";
     // Above current Redis wall time and cjson precision, within JS safe integers.
     await redis.send("SET", [`${prefix}:revision`, "8000000000000000"]);
     const subject = display();

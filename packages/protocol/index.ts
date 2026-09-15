@@ -10,6 +10,8 @@ export const DAEMON_RUNTIME_USAGE_SCAN_METHOD = "daemon:usage_scan" as const;
 export const DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD = "daemon:usage_scan_result" as const;
 export const COMPUTER_RESTART_METHOD = "computer:restart" as const;
 export const COMPUTER_RESTART_MESSAGE_TYPE = "coforge.rpc.v1.ComputerRestartIntent" as const;
+export const COMPUTER_UPGRADE_METHOD = "computer:upgrade" as const;
+export const COMPUTER_UPGRADE_MESSAGE_TYPE = "coforge.rpc.v1.ComputerUpgradeIntent" as const;
 export const AGENT_START_METHOD = "agent:start" as const;
 export const AGENT_START_MESSAGE_TYPE = "coforge.rpc.v1.AgentStartIntent" as const;
 export const AGENT_STOP_METHOD = "agent:stop" as const;
@@ -152,6 +154,7 @@ export type DaemonRuntimeReadyRequest = {
   startedAt: number;
   runningAgentIds: string[];
   recoveredRestartRequestIds?: string[];
+  recoveredUpgradeRequestIds?: string[];
   capabilities?: string[];
 };
 export type ComputerRestartIntent = {
@@ -160,6 +163,15 @@ export type ComputerRestartIntent = {
   workspaceId: string;
   computerId: string;
   messageType?: typeof COMPUTER_RESTART_MESSAGE_TYPE;
+};
+export type ComputerUpgradeIntent = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  computerId: string;
+  target: "latest";
+  expectedVersion?: string;
+  messageType?: typeof COMPUTER_UPGRADE_MESSAGE_TYPE;
 };
 export type DaemonRuntimeCodeAgentsUpdateRequest = {
   protocolMajor: number;
@@ -240,6 +252,11 @@ export type AgentMessageDeliveryAck = Omit<
   "body" | "conversationId" | "method" | "requestId"
 > & { method: typeof AGENT_MESSAGE_ACK_METHOD; requestId: string };
 export { parseActivityEntries } from "./activity-entries";
+export {
+  compareReleaseVersions,
+  isValidReleaseVersion,
+  parseReleaseVersion,
+} from "./release-version";
 export type { ActivityTrajectoryEntry, ActivitySubagent } from "./activity-entries";
 export type AgentActivity = {
   protocolMajor: number;
@@ -423,6 +440,8 @@ export {
   decodeDaemonRuntimeUsageScanResponse,
   encodeComputerRestartIntent,
   decodeComputerRestartIntent,
+  encodeComputerUpgradeIntent,
+  decodeComputerUpgradeIntent,
 } from "./codec";
 export {
   encodeAgentSessionReport,

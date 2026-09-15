@@ -155,6 +155,8 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
       const lifecycle = () => ({
         recoveredRestartRequestIds:
           (config as { restartRequestIds?: string[] } | null)?.restartRequestIds ?? [],
+        recoveredUpgradeRequestIds:
+          (config as { upgradeRequestIds?: string[] } | null)?.upgradeRequestIds ?? [],
         requestRestart: Bun.env.COFORGE_SUPERVISOR_SOCKET
           ? async (requestId: string) => {
               if (!config) throw new Error("Workspace is not configured");
@@ -165,6 +167,15 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
               }).control("restart", config.workspaceId, requestId);
             }
           : undefined,
+        requestUpgrade: async (requestId: string, expectedVersion?: string) => {
+          if (!config) throw new Error("Workspace is not configured");
+          if (!expectedVersion) throw new Error("upgrade expected version is unavailable");
+          await new LocalDaemonLauncher({
+            executablePath: process.execPath,
+            socketPath: Bun.env.COFORGE_SUPERVISOR_SOCKET!,
+            spawn: () => {},
+          }).control("upgrade", config.workspaceId, requestId, expectedVersion);
+        },
       });
       const daemon = {
         async configure(connection: Parameters<DaemonRuntime["start"]>[0]) {

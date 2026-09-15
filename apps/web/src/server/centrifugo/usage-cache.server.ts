@@ -52,7 +52,7 @@ export class RedisUsageCache implements UsageCache {
     return value ? (JSON.parse(value) as UsageCacheRecord) : undefined;
   }
   private key(key: UsageCacheKey) {
-    return `coforge:usage:v1:${encodeURIComponent(key.workspaceId)}:${encodeURIComponent(key.computerId)}:${encodeURIComponent(key.provider)}`;
+    return `coforge:workspace:${encodeURIComponent(key.workspaceId)}:computer:${encodeURIComponent(key.computerId)}:usage:v1:${encodeURIComponent(key.provider)}`;
   }
 }
 

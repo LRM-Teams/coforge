@@ -27,7 +27,7 @@ export class RedisReminderCapabilityLease implements ReminderCapabilityLease {
       await this.redis.set(key, "supported", "EX", TTL_SECONDS);
   }
   private key(workspaceId: string, computerId: string) {
-    return `coforge:reminder-capability:v1:${encodeURIComponent(workspaceId)}:${encodeURIComponent(computerId)}`;
+    return `coforge:workspace:${encodeURIComponent(workspaceId)}:computer:${encodeURIComponent(computerId)}:reminder-capability:v1`;
   }
 }
 

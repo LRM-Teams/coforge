@@ -8,9 +8,9 @@
  *
  * Two kinds of state live outside Postgres and are seeded directly into
  * Redis, in the exact key/value shape the app's own caches use:
- *   - Agent "active" status (`coforge:agent-status:v2:...`)
- *   - Computer online/offline status (`coforge:computer-status:v1:...`)
- *   - Runtime usage snapshots (`coforge:usage:v1:...`)
+ *   - Agent "active" status (`coforge:workspace:<workspace>:computer:<computer>:agent:<agent>:status:v2`)
+ *   - Computer online/offline status (`coforge:workspace:<workspace>:computer:<computer>:status:v1`)
+ *   - Runtime usage snapshots (`coforge:workspace:<workspace>:computer:<computer>:usage:v1:...`)
  * These caches normally expire in 60-90s because a live daemon refreshes
  * them; this seed sets a ~24h TTL instead so the data survives a dev
  * session, but it will go stale (agents will look "inactive", computers
@@ -238,13 +238,13 @@ await db.computerRuntime.upsert({
 
 // Redis: computer online/offline status (normally set by a live daemon heartbeat).
 await redis.set(
-  `coforge:computer-status:v1:${encodeURIComponent(workspaceId)}:${encodeURIComponent(computerOnlineId)}`,
+  `coforge:workspace:${encodeURIComponent(workspaceId)}:computer:${encodeURIComponent(computerOnlineId)}:status:v1`,
   "online",
   "EX",
   DAY_TTL,
 );
 await redis.set(
-  `coforge:computer-status:v1:${encodeURIComponent(workspaceId)}:${encodeURIComponent(computerOfflineId)}`,
+  `coforge:workspace:${encodeURIComponent(workspaceId)}:computer:${encodeURIComponent(computerOfflineId)}:status:v1`,
   "offline",
   "EX",
   DAY_TTL,
@@ -288,7 +288,7 @@ for (const runtime of onlineRuntimes) {
     },
   };
   await redis.set(
-    `coforge:usage:v1:${encodeURIComponent(workspaceId)}:${encodeURIComponent(computerOnlineId)}:${encodeURIComponent(runtime.provider)}`,
+    `coforge:workspace:${encodeURIComponent(workspaceId)}:computer:${encodeURIComponent(computerOnlineId)}:usage:v1:${encodeURIComponent(runtime.provider)}`,
     JSON.stringify(record),
     "EX",
     DAY_TTL,
@@ -387,7 +387,7 @@ await db.agent.upsert({
 });
 
 async function setAgentActive(agentId: string, computerId: string) {
-  const key = `coforge:agent-status:v2:${encodeURIComponent(workspaceId)}:${encodeURIComponent(computerId)}:${encodeURIComponent(agentId)}`;
+  const key = `coforge:workspace:${encodeURIComponent(workspaceId)}:computer:${encodeURIComponent(computerId)}:agent:${encodeURIComponent(agentId)}:status:v2`;
   const record = {
     status: "active" as const,
     daemonInstanceId: stableId(`daemon:${agentId}`),
@@ -397,7 +397,7 @@ async function setAgentActive(agentId: string, computerId: string) {
   await redis.set(key, JSON.stringify(record), "EX", DAY_TTL);
 }
 async function clearAgentStatus(agentId: string, computerId: string) {
-  const key = `coforge:agent-status:v2:${encodeURIComponent(workspaceId)}:${encodeURIComponent(computerId)}:${encodeURIComponent(agentId)}`;
+  const key = `coforge:workspace:${encodeURIComponent(workspaceId)}:computer:${encodeURIComponent(computerId)}:agent:${encodeURIComponent(agentId)}:status:v2`;
   await redis.del(key);
 }
 await setAgentActive(agentAtlasId, computerOnlineId);

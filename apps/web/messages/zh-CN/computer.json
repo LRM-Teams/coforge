@@ -29,7 +29,6 @@
   "computer_setup_step_description": "然后运行以下命令，将电脑连接到 {workspace}。",
   "computer_copy_setup_command": "复制加入命令",
   "computer_setup_command_copied": "命令已复制",
-  "computer_list_version": "computer v{version}",
   "computer_connected_list": "已连接的电脑",
   "computer_no_code_agents": "未检测到外部 Code Agent",
   "computer_back_to_list": "返回电脑列表",
@@ -110,5 +109,6 @@
   "computer_login_step_description": "然后为这台电脑登录你的 CoForge 账号。终端会显示一个代码，在这里批准即可。",
   "computer_copy_login_command": "复制登录命令",
   "computer_login_command_copied": "命令已复制",
-  "computer_added_by_name": "由 {name} 添加"
+  "computer_added_by_name": "由 {name} 添加",
+  "computer_update_available": "有可用更新"
 }

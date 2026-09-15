@@ -33,6 +33,7 @@ export const LOCAL_RPC_METHODS = {
   SNAPSHOT: "daemon:snapshot",
   PAUSE: "daemon:pause",
   RESUME: "daemon:resume",
+  UPGRADE: "daemon:upgrade",
   AGENT_MESSAGE: "agent:message",
   AGENT_INBOX: "agent:inbox",
   USAGE_SCAN: "usage:scan",
@@ -447,6 +448,7 @@ export type DaemonCommandRequest = {
   requestId: string;
   expectedServerUrl: string;
   workspaceId?: string;
+  expectedVersion?: string;
 };
 export type ManagedRuntimeIdentity = {
   workspaceId: string;
@@ -528,6 +530,7 @@ export function decodeDaemonCommandRequest(bytes: Uint8Array): DaemonCommandRequ
     requestId: value.requestId,
     expectedServerUrl: value.expectedServerUrl,
     workspaceId: value.workspaceId,
+    expectedVersion: value.expectedVersion,
   };
 }
 export function encodeDaemonCommandResponse(value: DaemonCommandResponse): Uint8Array {

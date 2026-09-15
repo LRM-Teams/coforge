@@ -179,7 +179,9 @@ export class DaemonRuntime {
     private readonly stateDirectory = ".coforge-daemon-state",
     private readonly lifecycle: {
       requestRestart?(requestId: string): Promise<void>;
+      requestUpgrade?(requestId: string, expectedVersion?: string): Promise<void>;
       recoveredRestartRequestIds?: string[];
+      recoveredUpgradeRequestIds?: string[];
     } = {},
     private readonly computerVersion?: string,
   ) {
@@ -510,6 +512,7 @@ export class DaemonRuntime {
         computerId: connection.computerId,
         serverHttpUrl: connection.serverHttpUrl,
         requestRestart: this.lifecycle.requestRestart,
+        requestUpgrade: this.lifecycle.requestUpgrade,
       });
       await this.#agentControl.replay();
       await this.#agentSessions.replay();
@@ -527,6 +530,7 @@ export class DaemonRuntime {
         computerVersion: this.computerVersion,
         ...readOperatingSystem(),
         recoveredRestartRequestIds: this.lifecycle.recoveredRestartRequestIds ?? [],
+        recoveredUpgradeRequestIds: this.lifecycle.recoveredUpgradeRequestIds ?? [],
         capabilities: [REMINDER_CAPABILITY],
       }));
       await Promise.all(

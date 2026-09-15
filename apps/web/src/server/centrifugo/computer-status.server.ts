@@ -28,7 +28,7 @@ export class RedisComputerStatusCache implements ComputerStatusCache {
   }
 
   private key(scope: ComputerStatusScope) {
-    return `coforge:computer-status:v1:${encodeURIComponent(scope.workspaceId)}:${encodeURIComponent(scope.computerId)}`;
+    return `coforge:workspace:${encodeURIComponent(scope.workspaceId)}:computer:${encodeURIComponent(scope.computerId)}:status:v1`;
   }
 }
 

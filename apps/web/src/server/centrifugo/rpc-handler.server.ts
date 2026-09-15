@@ -54,6 +54,7 @@ import {
 } from "@coforge/protocol";
 import type { Reminders } from "../reminders/reminders.server";
 import type { ComputerRestartStore } from "../computers/computer-restart-store.server";
+import type { RedisComputerUpgradeStore } from "../computers/computer-upgrade-store.server";
 import {
   computerObservationSchema,
   type ComputerObservation,
@@ -521,6 +522,7 @@ export const createDaemonRuntimeReadyMethod =
       scope: { workspaceId: string; computerId: string },
       metadata: ComputerObservation,
     ) => Promise<void>,
+    upgrades?: RedisComputerUpgradeStore,
   ): CentrifugoRpcMethod =>
   async (payload, metadata) => {
     const request = decodeDaemonRuntimeReadyRequest(payload);
@@ -541,6 +543,9 @@ export const createDaemonRuntimeReadyMethod =
       !request.recoveredRestartRequestIds ||
       new Set(request.recoveredRestartRequestIds).size !==
         request.recoveredRestartRequestIds.length ||
+      !request.recoveredUpgradeRequestIds ||
+      new Set(request.recoveredUpgradeRequestIds).size !==
+        request.recoveredUpgradeRequestIds.length ||
       !request.requestId
     )
       return { code: 400, message: "invalid daemon runtime ready request" };
@@ -578,6 +583,17 @@ export const createDaemonRuntimeReadyMethod =
       );
       if (request.capabilities?.includes("reminder:v1"))
         await reminderRecovery?.snapshotAssigned(request.workspaceId, request.computerId);
+      if (upgrades && request.computerVersion?.trim())
+        await upgrades.ready(
+          { workspaceId: request.workspaceId, computerId: request.computerId },
+          {
+            workerInstanceId: request.workerInstanceId,
+            computerVersion: request.computerVersion,
+            daemonVersion: request.daemonVersion,
+            startedAt: request.startedAt,
+          },
+          request.recoveredUpgradeRequestIds,
+        );
       return new Uint8Array();
     } catch {
       return { code: 503, message: "Agent start recovery failed" };

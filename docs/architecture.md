@@ -172,6 +172,39 @@ Computer 的其他 Workspace 或 Workspace 内其他 Daemon 广播。
 
 #### Workspace-scoped remote Computer restart
 
+#### Workspace-scoped remote Computer upgrade
+
+The Web owner-only upgrade action publishes the versioned
+`coforge.rpc.v1.ComputerUpgradeIntent` on the same private
+`daemon:<workspace_id>:<computer_id>` channel. Web resolves `latest` to a concrete
+release version at acceptance and carries that `expected_version` with the UUID
+`request_id`; both are reused for retries and local coordinator deduplication.
+The Workspace Daemon only validates scope, deduplicates, and asks the machine
+Supervisor to start the unified Computer's hidden remote-upgrade entrypoint;
+it never runs the upgrade in its own service cgroup. Linux uses a systemd user
+transient unit and macOS a per-user launchd job, both outside the managed
+service kill scope. The entrypoint reuses the Computer upgrade coordinator's
+download, checksum, snapshot, health and rollback transaction. Unsupported
+platforms fail closed. Accepted publication is not completion evidence.
+Completion is reported only after a fresh ready identity and the same request
+ID are observed; outcomes are accepted, completed, failed, or unknown.
+The request ID and expected version are durably recorded by the Supervisor's
+serialized atomic binding state, outside every managed Workspace process, and
+injected into the replacement Workspace Daemon config on recovery. Corrupt state
+fails closed. Thus a Coordinator, Supervisor, and Workspace Daemon restart
+replays the same operation rather than creating a new one; duplicate delivery is
+bounded and idempotent. Web completion additionally requires the concrete
+expected version, a new Computer/Daemon process identity, matching Computer and
+Daemon versions, and the distinct `recovered_upgrade_request_ids` evidence;
+missing, conflicting, timed-out, or unknown evidence remains failed or unknown
+(never successful).
+
+Computer-scoped Redis state uses the canonical destructive-update key hierarchy
+`coforge:workspace:<workspace_id>:computer:<computer_id>:<operation>:v<n>`.
+Upgrade, restart, status, usage, reminder capability, and Agent display/status
+keys all use this hierarchy; old operation-first key names are not read or
+dual-written.
+
 经用户批准，Web 可为当前 Workspace 中已授权的 Computer 发布
 `coforge.rpc.v1.ComputerRestartIntent`。Intent 携带稳定 `request_id`、`workspace_id` 与
 `computer_id`，并只进入上述复合 scope control channel；Daemon 在当前进程内按

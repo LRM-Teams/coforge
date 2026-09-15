@@ -130,7 +130,7 @@ Description=CoForge Workspace ${escapeUnit(config.workspaceId)}
 
 [Service]
 Environment="COFORGE_DAEMON_HOME=${escapeUnit(config.stateDirectory)}"
-${config.supervisorSocketPath ? `Environment="COFORGE_SUPERVISOR_SOCKET=${escapeUnit(config.supervisorSocketPath)}"\n` : ""}${config.daemonConnectionEndpoint ? `Environment="COFORGE_DAEMON_CONNECTION_ENDPOINT=${escapeUnit(config.daemonConnectionEndpoint)}"\n` : ""}ExecStart=${escapeUnit(config.executablePath)} __workspace-daemon --socket ${escapeUnit(config.socketPath)} --state-directory ${escapeUnit(config.stateDirectory)}
+${config.supervisorSocketPath ? `Environment="COFORGE_SUPERVISOR_SOCKET=${escapeUnit(config.supervisorSocketPath)}"\nEnvironment="COFORGE_SUPERVISOR_STATE_PATH=${escapeUnit(join(dirname(config.supervisorSocketPath), "upgrade-request-ids.json"))}"\n` : ""}${config.daemonConnectionEndpoint ? `Environment="COFORGE_DAEMON_CONNECTION_ENDPOINT=${escapeUnit(config.daemonConnectionEndpoint)}"\n` : ""}ExecStart=${escapeUnit(config.executablePath)} __workspace-daemon --socket ${escapeUnit(config.socketPath)} --state-directory ${escapeUnit(config.stateDirectory)}
 Restart=on-failure
 RestartSec=1s
 KillMode=mixed

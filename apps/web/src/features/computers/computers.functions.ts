@@ -1,6 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
-import type { CodeAgentModelMetadata, RuntimeProvider } from "@coforge/protocol";
+import {
+  isValidReleaseVersion,
+  type CodeAgentModelMetadata,
+  type RuntimeProvider,
+} from "@coforge/protocol";
 import {
   computerIdInputSchema,
   readRestartStatusInputSchema,
@@ -23,6 +27,9 @@ import { ComputerRuntimeVisibility } from "../../server/computers/computer-runti
 import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/computer-runtime.repositories.server";
 import { RestartComputer } from "../../server/computers/restart-computer.server";
 import { getComputerRestartStore } from "../../server/computers/computer-restart-store.server";
+import { getComputerUpgradeStore } from "../../server/computers/computer-upgrade-store.server";
+import { resolveReleaseFeedUrl } from "../../server/install/install-script.server";
+import { encodeComputerUpgradeIntent } from "@coforge/protocol";
 
 export const restartComputer = createServerFn({ method: "POST" })
   .validator(restartComputerInputSchema)
@@ -39,7 +46,7 @@ export const restartComputer = createServerFn({ method: "POST" })
               where: {
                 workspaceId: scope.workspaceId,
                 computerId: scope.computerId,
-                workspace: { members: { some: { userId: scope.userId } } },
+                workspace: { memberships: { some: { userId: scope.userId } } },
               },
               select: { id: true },
             }),
@@ -61,7 +68,7 @@ export const readComputerRestartStatus = createServerFn({ method: "GET" })
       where: {
         workspaceId,
         computerId: data.computerId,
-        workspace: { members: { some: { userId: user.id } } },
+        workspace: { memberships: { some: { userId: user.id } } },
       },
       select: { id: true },
     });
@@ -175,6 +182,93 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
       };
     }),
   );
+});
+
+export const readComputerUpgradeStatus = createServerFn({ method: "GET" })
+  .validator(readRestartStatusInputSchema)
+  .handler(async ({ data }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Computer persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const connection = await db.workspaceComputer.findFirst({
+      where: {
+        workspaceId,
+        computerId: data.computerId,
+        workspace: { memberships: { some: { userId: user.id } } },
+      },
+      select: { id: true },
+    });
+    if (!connection) throw new Error("Computer is not available");
+    const status = await getComputerUpgradeStore().status(
+      { workspaceId, computerId: data.computerId },
+      data.requestId,
+    );
+    if (!status) throw new Error("Upgrade request is not available");
+    return status;
+  });
+
+export const upgradeComputer = createServerFn({ method: "POST" })
+  .validator(restartComputerInputSchema)
+  .handler(async ({ data }) => {
+    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+    const db = getDatabaseClient();
+    if (!db) throw new Error("Computer persistence is unavailable");
+    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const computer = await db.computer.findFirst({
+      where: { id: data.computerId },
+      select: { ownerId: true },
+    });
+    if (!computer || computer.ownerId !== user.id) throw new Error("Computer is not available");
+    const connection = await db.workspaceComputer.findFirst({
+      where: { workspaceId, computerId: data.computerId },
+      select: { id: true },
+    });
+    if (!connection) throw new Error("Computer is not available");
+    const feedUrl = resolveReleaseFeedUrl();
+    if (!feedUrl) throw new Error("Computer release feed is unavailable");
+    const response = await fetch(`${feedUrl}/latest`, { signal: AbortSignal.timeout(3_000) });
+    const expectedVersion = response.ok ? (await response.text()).trim() : "";
+    if (!isValidReleaseVersion(expectedVersion))
+      throw new Error("Computer release feed returned an invalid version");
+    const store = getComputerUpgradeStore();
+    const registered = await store.begin(
+      { workspaceId, computerId: data.computerId },
+      data.requestId,
+      expectedVersion,
+    );
+    if (!registered.created) return registered.status;
+    try {
+      await createCentrifugoServerApi().publish(
+        `daemon:${workspaceId}:${data.computerId}`,
+        encodeComputerUpgradeIntent({
+          protocolMajor: 1,
+          requestId: data.requestId,
+          workspaceId,
+          computerId: data.computerId,
+          target: "latest",
+          expectedVersion,
+        }),
+      );
+      return registered.status;
+    } catch (error) {
+      await store.publicationFailed({ workspaceId, computerId: data.computerId }, data.requestId);
+      throw error;
+    }
+  });
+
+export const getLatestComputerVersion = createServerFn({ method: "GET" }).handler(async () => {
+  const feedUrl = resolveReleaseFeedUrl();
+  if (!feedUrl) return null;
+
+  try {
+    const response = await fetch(`${feedUrl}/latest`, { signal: AbortSignal.timeout(3_000) });
+    if (!response.ok) return null;
+    const version = (await response.text()).trim();
+    return isValidReleaseVersion(version) ? version : null;
+  } catch {
+    return null;
+  }
 });
 
 export const getComputerRuntimeCatalog = createServerFn({ method: "GET" })

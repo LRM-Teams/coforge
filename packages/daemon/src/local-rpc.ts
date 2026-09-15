@@ -201,7 +201,8 @@ async function handleConnection(
         envelope.method === LOCAL_RPC_METHODS.RESTART ||
         envelope.method === LOCAL_RPC_METHODS.SNAPSHOT ||
         envelope.method === LOCAL_RPC_METHODS.PAUSE ||
-        envelope.method === LOCAL_RPC_METHODS.RESUME
+        envelope.method === LOCAL_RPC_METHODS.RESUME ||
+        envelope.method === LOCAL_RPC_METHODS.UPGRADE
       ) {
         const request = decodeDaemonCommandRequest(envelope.payload);
         configStore?.assertExpectedServer?.(request.expectedServerUrl);

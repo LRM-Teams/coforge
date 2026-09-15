@@ -14,6 +14,8 @@ export type ManagedBinding = DaemonConfig & {
   restartResults?: RestartResult[];
   /** Legacy cloud ready hints, never proof of a completed local operation. */
   restartRequestIds?: string[];
+  upgradeRequestIds?: string[];
+  upgradeRequests?: { requestId: string; expectedVersion: string }[];
 };
 export class WorkspaceRecoveryError extends AggregateError {}
 export interface BindingStore {
@@ -123,6 +125,26 @@ export class MachineSupervisor {
           await this.#start(binding);
         }
       }
+    });
+  }
+
+  recordUpgrade(workspaceId: string, requestId: string, expectedVersion: string) {
+    return this.#serialize(async () => {
+      this.#assertMutable();
+      await this.#refresh();
+      const binding = this.#bindings.find((entry) => entry.workspaceId === workspaceId);
+      if (!binding) throw new Error("Workspace is not registered locally");
+      if (!expectedVersion) throw new Error("upgrade expected version is required");
+      const existing = binding.upgradeRequests?.find((entry) => entry.requestId === requestId);
+      if (existing) {
+        if (existing.expectedVersion !== expectedVersion)
+          throw new Error("upgrade request already has a different expected version");
+        return false;
+      }
+      const requests = [...(binding.upgradeRequests ?? [])];
+      requests.push({ requestId, expectedVersion });
+      await this.#saveBinding({ ...binding, upgradeRequests: requests.slice(-128) });
+      return true;
     });
   }
 

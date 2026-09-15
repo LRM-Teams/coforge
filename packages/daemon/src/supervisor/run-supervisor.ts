@@ -16,6 +16,7 @@ import { SystemdWorkspaceInstance } from "./systemd-workspace-instance";
 import { LaunchdWorkspaceInstance } from "./launchd-workspace-instance";
 import type { WorkspaceInstance } from "./workspace-instance";
 import { COFORGE_DAEMON_SERVER_URL } from "../connection/built-server";
+import { launchComputerUpgrade } from "../platform/computer-upgrade-launcher";
 
 export async function runMachineSupervisor(
   args: string[],
@@ -117,9 +118,18 @@ async function runWithSupervisorLock(
         restart: _restart,
         restartResults: _results,
         restartRequestIds: _legacy,
+        upgradeRequestIds: _upgrades,
+        upgradeRequests,
         ...config
       } = binding;
-      const childConfig = { ...config, restartRequestIds: restartRequestIds.slice(-128) };
+      const childConfig = {
+        ...config,
+        restartRequestIds: restartRequestIds.slice(-128),
+        upgradeRequestIds: (upgradeRequests ?? []).map((entry) => entry.requestId).slice(-128),
+        upgradeExpectedVersions: Object.fromEntries(
+          (upgradeRequests ?? []).map((entry) => [entry.requestId, entry.expectedVersion]),
+        ),
+      };
       await new DaemonConfigStore(directory).save(childConfig);
       const instance = workspaceInstance(binding.workspaceId);
       const processId = await instance.ensureStarted();
@@ -216,7 +226,16 @@ async function runWithSupervisorLock(
         async command(method, request) {
           if (method === "daemon:pause") await supervisor.pause();
           else if (method === "daemon:resume") await supervisor.resume();
-          else if (method !== "daemon:snapshot") {
+          else if (method === "daemon:upgrade") {
+            if (!request.workspaceId || !request.expectedVersion)
+              throw new Error("upgrade requires workspace and expected version");
+            const created = await supervisor.recordUpgrade(
+              request.workspaceId,
+              request.requestId,
+              request.expectedVersion,
+            );
+            if (created) await launchComputerUpgrade(request.requestId, request.expectedVersion);
+          } else if (method !== "daemon:snapshot") {
             const operation = method.slice("daemon:".length);
             if (operation !== "start" && operation !== "stop" && operation !== "restart")
               throw new Error("unknown lifecycle operation");
