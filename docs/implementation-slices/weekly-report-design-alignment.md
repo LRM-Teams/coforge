@@ -1,7 +1,7 @@
 # 周报功能：设计稿对齐清单
 
-日期：2026-09-15  
-状态：待按条目逐项实现（本文只记录差距，不改产品契约）  
+日期：2026-09-15
+状态：待按条目逐项实现（本文只记录差距，不改产品契约）
 对照实现：`apps/web/src/features/records/`、`apps/web/src/server/records/`、[ADR 0009](../adr/0009-workspace-records-weekly-reports.md)、[ADR 0011](../adr/0011-leader-weekly-report-assignment.md)
 
 后续改每一条时，以本文件的 **ID**（`WR-*`）为准，并打开「参照图」列中的 PNG。设计说明以图内底部「交互说明」为准。
