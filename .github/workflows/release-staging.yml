@@ -94,7 +94,7 @@ jobs:
           payload="$(cut -d. -f2 "$token_file" | tr '_-' '/+' | awk '{ n = length($0) % 4; if (n) $0 = $0 substr("==", 1, 4 - n); print }' | base64 -d)"
           printf 'OIDC claims: %s\n' "$(printf '%s' "$payload" | jq -c '{iss, aud, sub, exp}')"
 
-      # This role's trust policy grants only `repo:LRM-Teams/coforge:environment:staging` -
+      # This role's trust policy grants only `repo:LRM-Teams@289986103/coforge@1345850229:environment:staging` -
       # GitHub's OIDC token asserts the workflow's repo/ref/environment, and Alibaba Cloud checks
       # that assertion before issuing an STS token. No long-term AccessKey exists for this
       # publisher; a compromised token can only assume the role from this exact repo/environment,
