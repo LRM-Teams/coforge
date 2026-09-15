@@ -1,22 +1,13 @@
 import { useRef, useState, type FormEvent } from "react";
-import {
-  Building07 as Building,
-  Check,
-  ChevronSelectorVertical,
-  Plus,
-  XClose as X,
-} from "@untitledui/icons";
+import { Building07 as Building, Check, ChevronSelectorVertical, Plus } from "@untitledui/icons";
 import {
   Button as AriaButton,
   Header as AriaHeader,
   MenuItem as AriaMenuItem,
-  Heading,
-  Text,
 } from "react-aria-components";
 
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { useAppToast } from "@/components/ui/toast";
 import { isAppError } from "@/lib/app-error";
@@ -27,6 +18,7 @@ import {
   nameToWorkspaceSlug,
 } from "@/server/workspaces/workspace-slug";
 import { cx } from "@/utils/cx";
+import { DialogHeader } from "@/components/application/modals/dialog-header";
 
 export type WorkspaceOption = { id: string; slug: string; name: string };
 
@@ -213,23 +205,11 @@ function CreateWorkspaceDialog({
       <Modal className="w-[min(480px,calc(100vw-2rem))]">
         <Dialog>
           <form onSubmit={submit}>
-            <div className="flex items-start justify-between gap-6 px-6 pt-6">
-              <div>
-                <Heading slot="title" className="text-base font-semibold text-primary">
-                  {m.workspace_create_title()}
-                </Heading>
-                <Text slot="description" className="mt-2 text-sm text-tertiary">
-                  {m.workspace_create_description()}
-                </Text>
-              </div>
-              <ButtonUtility
-                aria-label={m.controls_close()}
-                icon={X}
-                size="sm"
-                color="tertiary"
-                onClick={close}
-              />
-            </div>
+            <DialogHeader
+              title={m.workspace_create_title()}
+              description={m.workspace_create_description()}
+              onClose={close}
+            />
             <div className="grid gap-4 px-6 py-6">
               <label htmlFor="workspace-create-name" className="grid gap-1.5 text-sm">
                 {m.workspace_name_label()}

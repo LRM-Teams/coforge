@@ -1,8 +1,7 @@
 import type { TaskCommand, TaskHistoryEvent, TaskView } from "@coforge/protocol";
 import { useServerFn } from "@tanstack/react-start";
-import { DotsHorizontal as MoreHorizontal, XClose as X } from "@untitledui/icons";
+import { DotsHorizontal as MoreHorizontal } from "@untitledui/icons";
 import { useEffect, useState } from "react";
-import { Heading, Text } from "react-aria-components";
 
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
@@ -10,6 +9,7 @@ import { Button } from "@/components/base/buttons/button";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { m } from "@/paraglide/messages";
 import { executeTask } from "./tasks.functions";
+import { DialogHeader } from "@/components/application/modals/dialog-header";
 
 type DetailCommand = Omit<TaskCommand, "requestId" | "conversationId"> & { number: number };
 
@@ -76,22 +76,12 @@ export function TaskDetailDialog({
       <Modal className="w-[calc(100vw-2rem)] max-w-2xl">
         <Dialog>
           <div className="flex flex-col gap-5 p-5 sm:p-6">
-            <ButtonUtility
-              tooltip={m.tasks_close()}
-              icon={X}
-              size="sm"
-              color="tertiary"
-              className="absolute top-4 right-4"
-              onClick={() => onOpenChange(false)}
+            <DialogHeader
+              title={m.tasks_details_title({ number: String(task.number) })}
+              description={m.tasks_details_description()}
+              onClose={() => onOpenChange(false)}
+              className="px-0 pt-0"
             />
-            <div>
-              <Heading slot="title" className="text-lg font-semibold text-primary">
-                {m.tasks_details_title({ number: String(task.number) })}
-              </Heading>
-              <Text slot="description" className="mt-1 text-sm text-tertiary">
-                {m.tasks_details_description()}
-              </Text>
-            </div>
 
             <form
               className="flex flex-col gap-4"
