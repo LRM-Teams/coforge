@@ -1074,6 +1074,9 @@ export function ConversationPane({
                   placement="top start"
                   offset={8}
                   crossOffset={-4}
+                  // React Aria sizes the popover to the viewport with an inline max-height,
+                  // which would override the class below; cap it here instead. Ten rows.
+                  maxHeight={400}
                   className={(state) =>
                     cn(
                       "origin-(--trigger-anchor-point) overflow-auto rounded-lg bg-primary shadow-lg ring-1 ring-secondary_alt will-change-transform",
@@ -1081,7 +1084,7 @@ export function ConversationPane({
                         "duration-150 ease-out animate-in fade-in placement-right:slide-in-from-left-0.5 placement-top:slide-in-from-bottom-0.5 placement-bottom:slide-in-from-top-0.5",
                       state.isExiting &&
                         "duration-100 ease-in animate-out fade-out placement-right:slide-out-to-left-0.5 placement-top:slide-out-to-bottom-0.5 placement-bottom:slide-out-to-top-0.5",
-                      "max-h-[228px] w-[min(24rem,calc(100vw-2.5rem))] p-1.5 [scrollbar-width:thin]",
+                      "max-h-[400px] w-[min(24rem,calc(100vw-2.5rem))] p-1.5 [scrollbar-width:thin]",
                     )
                   }
                   onScroll={(event) => {
