@@ -1,11 +1,12 @@
 /** The immutable release label contract shared by the feed, Computer and Web. */
-const RELEASE_VERSION =
+const RELEASE_VERSION = /^[A-Za-z0-9.+-]{1,100}$/;
+const SEMVER_VERSION =
   /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-((?:0|[1-9A-Za-z][0-9A-Za-z]*)(?:\.(?:0|[1-9A-Za-z][0-9A-Za-z]*))*))?(?:\+([0-9A-Za-z.-]+))?$/;
 
 type Parsed = { core: [number, number, number]; prerelease: string[] };
 
 export function parseReleaseVersion(value: string): Parsed | undefined {
-  const match = RELEASE_VERSION.exec(value.trim());
+  const match = SEMVER_VERSION.exec(value.trim());
   if (!match) return undefined;
   return {
     core: [Number(match[1]), Number(match[2]), Number(match[3])],
@@ -14,7 +15,9 @@ export function parseReleaseVersion(value: string): Parsed | undefined {
 }
 
 export function isValidReleaseVersion(value: string): boolean {
-  return parseReleaseVersion(value) !== undefined;
+  return (
+    RELEASE_VERSION.test(value) && value !== "." && !value.includes("..") && !value.startsWith("-")
+  );
 }
 
 /** SemVer precedence: prereleases sort before the corresponding stable release. */

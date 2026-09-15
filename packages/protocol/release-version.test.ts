@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
 import { compareReleaseVersions, isValidReleaseVersion } from "./release-version";
 
-test("accepts the release contract including prereleases and rejects path-like labels", () => {
+test("accepts the release contract including legacy labels and rejects path-like labels", () => {
   expect(isValidReleaseVersion("0.1.0-dev.15")).toBe(true);
   expect(isValidReleaseVersion("1.2.3-rc.1+build.7")).toBe(true);
-  expect(isValidReleaseVersion("1.2")).toBe(false);
+  expect(isValidReleaseVersion("9.9.9-dry-run")).toBe(true);
+  expect(isValidReleaseVersion("1.2")).toBe(true);
   expect(isValidReleaseVersion("1.2.3/evil")).toBe(false);
 });
 
