@@ -63,18 +63,172 @@ export type PendingAgentDelivery = AgentRecoveryContext["resumeMessages"][number
 
 const AGENT_RECOVERY_MESSAGE_LIMIT = 100;
 const PUBLIC_USERNAME_TARGET = /^@[a-z0-9](?:[a-z0-9_-]{1,30}[a-z0-9])?$/;
+/** Eight-hex-character prefix or a full UUID; both address a Message. */
+const MESSAGE_ANCHOR =
+  /^(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+
+const ATTACHMENT_SELECT = {
+  select: { id: true, fileName: true, contentType: true, sizeBytes: true },
+} satisfies Prisma.MessageSelect["attachment"];
+
+/** Message projection sent to the browser client. */
+const BROWSER_MESSAGE_SELECT = {
+  id: true,
+  sequence: true,
+  threadRootId: true,
+  body: true,
+  createdAt: true,
+  attachment: ATTACHMENT_SELECT,
+  sender: {
+    select: {
+      userId: true,
+      user: { select: { username: true } },
+      agent: { select: { name: true, displayName: true } },
+    },
+  },
+} satisfies Prisma.MessageSelect;
+
+/** Just enough of the sender to render its `@handle`. */
+const MESSAGE_SENDER_SELECT = {
+  select: {
+    agentId: true,
+    agent: { select: { name: true } },
+    user: { select: { username: true } },
+  },
+} satisfies NonNullable<Prisma.MessageInclude["sender"]>;
+
+const TASK_METADATA_SELECT = {
+  select: {
+    number: true,
+    status: true,
+    owner: {
+      select: {
+        user: { select: { username: true, displayName: true } },
+        agent: { select: { name: true, displayName: true } },
+      },
+    },
+  },
+} satisfies NonNullable<Prisma.MessageInclude["task"]>;
+
+/** Message projection sent to an Agent. */
+const AGENT_MESSAGE_INCLUDE = {
+  sender: MESSAGE_SENDER_SELECT,
+  attachment: true,
+  task: TASK_METADATA_SELECT,
+} satisfies Prisma.MessageInclude;
 
 type DirectConversationMessageRow = Prisma.MessageGetPayload<{
-  include: {
-    sender: { include: { agent: true; user: true } };
-    attachment: true;
-    task: {
-      include: {
-        owner: { include: { user: true; agent: true } };
-      };
-    };
-  };
+  include: typeof AGENT_MESSAGE_INCLUDE;
 }>;
+
+type BrowserMessageRow = Prisma.MessageGetPayload<{ select: typeof BROWSER_MESSAGE_SELECT }>;
+
+/** A delivery target is the conversation target, suffixed with the thread root when replying. */
+function deliveryTarget(parent: string, rootId?: string | null) {
+  if (!rootId) return parent;
+  return `${parent}:${rootId}`;
+}
+
+/** `#channel` for a public channel, otherwise `@username` of the conversation's user member. */
+function conversationTarget(conversation: {
+  channelName: string | null;
+  members: { user: { username: string } | null }[];
+}) {
+  return conversation.channelName
+    ? `#${conversation.channelName}`
+    : `@${conversation.members[0]?.user?.username}`;
+}
+
+function agentSenderHandle(
+  sender: {
+    agentId: string | null;
+    agent: { name: string } | null;
+    user: { username: string } | null;
+  } | null,
+) {
+  if (!sender) return "system";
+  return sender.agentId ? `@${sender.agent?.name ?? "agent"}` : `@${sender.user?.username}`;
+}
+
+function toAgentMessage(
+  row: Pick<DirectConversationMessageRow, "id" | "sequence" | "body" | "createdAt"> & {
+    sender: Parameters<typeof agentSenderHandle>[0];
+    task: Parameters<typeof messageTask>[0];
+    attachment?: AttachmentMetadata | null;
+  },
+  target: string,
+) {
+  const task = messageTask(row.task);
+  return {
+    id: row.id,
+    sequence: row.sequence,
+    sender: agentSenderHandle(row.sender),
+    body: row.body,
+    createdAt: row.createdAt,
+    target,
+    ...(row.attachment ? { attachment: row.attachment } : {}),
+    ...(task ? { task } : {}),
+  };
+}
+
+function toBrowserMessage(message: BrowserMessageRow) {
+  return {
+    id: message.id,
+    sequence: message.sequence,
+    threadRootId: message.threadRootId ?? undefined,
+    senderKind: !message.sender
+      ? ("system" as const)
+      : message.sender.userId
+        ? ("user" as const)
+        : ("agent" as const),
+    senderName: !message.sender
+      ? "System"
+      : message.sender.userId
+        ? `@${message.sender.user?.username}`
+        : message.sender.agent?.displayName || message.sender.agent?.name || "Agent",
+    body: message.body,
+    createdAt: message.createdAt,
+    attachment: message.attachment ?? undefined,
+  };
+}
+
+/** Messages an Agent has not yet consumed: from users, or system messages delivered to it. */
+function unreadForAgentWhere(agentId: string, isChannel: boolean) {
+  return {
+    OR: [
+      { sender: { userId: { not: null } } },
+      { senderMemberId: null, deliveries: { some: { agentId } } },
+    ],
+    ...(isChannel ? { deliveries: { some: { agentId } } } : {}),
+  } satisfies Prisma.MessageWhereInput;
+}
+
+/** Next sequence for a conversation; holds the conversation row lock until the transaction ends. */
+async function allocateSequence(tx: Prisma.TransactionClient, conversationId: string) {
+  // Serialize sequence allocators for this conversation before observing MAX(sequence).
+  await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${conversationId}::uuid FOR UPDATE`;
+  const last = await tx.message.findFirst({
+    where: { conversationId },
+    orderBy: { sequence: "desc" },
+    select: { sequence: true },
+  });
+  return (last?.sequence ?? 0) + 1;
+}
+
+type AgentRecoveryRow = {
+  id: string;
+  sequence: number;
+  body: string;
+  conversationId: string;
+  threadRootId: string | null;
+  senderMemberId: string | null;
+  deliveryId: string | null;
+  senderUsername: string | null;
+  channelName: string | null;
+  userUsername: string | null;
+  unreadCount: number;
+  globalRank: number;
+};
 
 function taskStatus(value: string): TaskStatus {
   switch (value) {
@@ -270,10 +424,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     if (
       !PUBLIC_USERNAME_TARGET.test(parentTarget!) ||
       extra !== undefined ||
-      (root !== undefined &&
-        !/^(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.test(
-          root,
-        ))
+      (root !== undefined && !MESSAGE_ANCHOR.test(root))
     )
       throw new Error("invalid message target");
     const user = await this.db.user.findUnique({
@@ -285,9 +436,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   }
 
   private async resolveMessage(conversationId: string, anchor: string, rootOnly = false) {
-    if (
-      !/^(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.test(anchor)
-    )
+    if (!MESSAGE_ANCHOR.test(anchor))
       throw new AgentMessageValidationError(
         "message anchor must be eight hexadecimal characters or a full UUID",
       );
@@ -320,11 +469,6 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return root ? (await this.resolveMessage(conversationId, root, true)).id : null;
   }
 
-  private deliveryTarget(sender: string, rootId?: string | null) {
-    if (!rootId) return sender;
-    return `${sender}:${rootId}`;
-  }
-
   getAgentChannel(workspaceId: string, agentId: string, target: string) {
     return getAgentChannel(this.db, workspaceId, agentId, target);
   }
@@ -342,24 +486,31 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     );
   }
 
-  private async conversationForAgentTarget(workspaceId: string, agentId: string, target: string) {
+  /**
+   * Resolve an Agent-facing target (`#channel` or `@user`, optionally `:root` for a thread)
+   * to its conversation, thread root and canonical spelling.
+   */
+  private async resolveAgentTarget(workspaceId: string, agentId: string, target: string) {
     const parentTarget = target.split(":")[0]!;
-    if (parentTarget.startsWith("#"))
-      return this.getAgentChannel(workspaceId, agentId, parentTarget);
-    const userId = await this.userIdForUsername(target);
-    return this.getOrCreateUserAgent(workspaceId, userId, agentId);
+    const isChannel = parentTarget.startsWith("#");
+    const conversation = isChannel
+      ? await this.getAgentChannel(workspaceId, agentId, parentTarget)
+      : await this.getOrCreateUserAgent(workspaceId, await this.userIdForUsername(target), agentId);
+    const threadRootId = await this.targetRoot(conversation.id, target);
+    return {
+      conversationId: conversation.id,
+      threadRootId,
+      canonicalTarget: deliveryTarget(parentTarget, threadRootId),
+      isChannel,
+    };
   }
 
   async searchMessages(workspaceId: string, agentId: string, options: AgentMessageSearchOptions) {
     const limit = Math.min(Math.max(options.limit ?? 20, 1), 100);
     const offset = Math.max(options.offset ?? 0, 0);
-    const conversation = options.target
-      ? await this.conversationForAgentTarget(workspaceId, agentId, options.target)
+    const scope = options.target
+      ? await this.resolveAgentTarget(workspaceId, agentId, options.target)
       : undefined;
-    const threadRootId =
-      conversation && options.target
-        ? await this.targetRoot(conversation.id, options.target)
-        : undefined;
     const before = options.before ? new Date(options.before) : undefined;
     const after = options.after ? new Date(options.after) : undefined;
     if ((before && Number.isNaN(before.getTime())) || (after && Number.isNaN(after.getTime())))
@@ -393,9 +544,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         workspaceId,
         conversation: {
           members: { some: { agentId } },
-          ...(conversation ? { id: conversation.id } : {}),
+          ...(scope ? { id: scope.conversationId } : {}),
         },
-        ...(conversation && options.target?.includes(":") ? { threadRootId } : {}),
+        ...(scope && options.target?.includes(":") ? { threadRootId: scope.threadRootId } : {}),
         ...(searchQuery ? { body: { search: searchQuery } } : {}),
         ...(sender
           ? {
@@ -417,40 +568,25 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       skip: offset,
       take: limit,
       include: {
-        sender: { include: { agent: true, user: true } },
-        task: {
-          include: {
-            owner: { include: { user: true, agent: true } },
-          },
-        },
+        sender: MESSAGE_SENDER_SELECT,
+        task: TASK_METADATA_SELECT,
         conversation: {
           include: {
             members: {
               where: { userId: { not: null } },
-              include: { user: true },
+              select: { user: { select: { username: true } } },
+              take: 1,
             },
           },
         },
       },
     });
-    return rows.map((message) => {
-      const parentTarget = message.conversation.channelName
-        ? `#${message.conversation.channelName}`
-        : `@${message.conversation.members[0]?.user?.username}`;
-      return {
-        id: message.id,
-        sequence: message.sequence,
-        sender: !message.sender
-          ? "system"
-          : message.sender.agentId
-            ? `@${message.sender.agent?.name ?? "agent"}`
-            : `@${message.sender.user?.username}`,
-        body: message.body,
-        createdAt: message.createdAt,
-        target: this.deliveryTarget(parentTarget, message.threadRootId),
-        ...(messageTask(message.task) ? { task: messageTask(message.task) } : {}),
-      };
-    });
+    return rows.map((message) =>
+      toAgentMessage(
+        message,
+        deliveryTarget(conversationTarget(message.conversation), message.threadRootId),
+      ),
+    );
   }
 
   private async advanceThreadRead(
@@ -469,23 +605,25 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   }
 
   async getOrCreateUserAgent(workspaceId: string, userId: string, agentId: string) {
-    const [membership, agent] = await Promise.all([
-      this.db.workspaceMembership.findUnique({
-        where: { workspaceId_userId: { workspaceId, userId } },
-      }),
-      this.db.agent.findUnique({ where: { id: agentId } }),
-    ]);
-    if (!membership || !agent || agent.workspaceId !== workspaceId)
-      throw new Error("conversation scope is not authorized");
-    const directKey = keyFor(userId, agentId);
-    const existing = await this.db.conversation.findUnique({
-      where: { workspaceId_directKey: { workspaceId, directKey } },
-    });
-    if (existing) return existing;
-    return this.db.conversation.create({
-      data: buildUserAgentConversationCreateInput(workspaceId, userId, agentId),
+    const agent = await this.db.agent.findFirst({
+      where: { id: agentId, workspaceId, workspace: { members: { some: { userId } } } },
       select: { id: true },
     });
+    if (!agent) throw new Error("conversation scope is not authorized");
+    const where = { workspaceId_directKey: { workspaceId, directKey: keyFor(userId, agentId) } };
+    const existing = await this.db.conversation.findUnique({ where, select: { id: true } });
+    if (existing) return existing;
+    try {
+      return await this.db.conversation.create({
+        data: buildUserAgentConversationCreateInput(workspaceId, userId, agentId),
+        select: { id: true },
+      });
+    } catch (error) {
+      // A concurrent first open won the insert; reuse its conversation.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
+        return this.db.conversation.findUniqueOrThrow({ where, select: { id: true } });
+      throw error;
+    }
   }
 
   async openForUser(
@@ -519,51 +657,8 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           orderBy: { sequence: "desc" },
           take: limit + 1,
           select: {
-            id: true,
-            sequence: true,
-            threadRootId: true,
-            body: true,
-            createdAt: true,
-            attachment: {
-              select: {
-                id: true,
-                fileName: true,
-                contentType: true,
-                sizeBytes: true,
-              },
-            },
-            sender: {
-              select: {
-                userId: true,
-                user: { select: { username: true } },
-                agent: { select: { name: true, displayName: true } },
-              },
-            },
-            replies: {
-              orderBy: { sequence: "asc" },
-              select: {
-                id: true,
-                sequence: true,
-                threadRootId: true,
-                body: true,
-                createdAt: true,
-                attachment: {
-                  select: {
-                    id: true,
-                    fileName: true,
-                    contentType: true,
-                    sizeBytes: true,
-                  },
-                },
-                sender: {
-                  select: {
-                    userId: true,
-                    user: { select: { username: true } },
-                    agent: { select: { name: true, displayName: true } },
-                  },
-                },
-              },
-            },
+            ...BROWSER_MESSAGE_SELECT,
+            replies: { orderBy: { sequence: "asc" }, select: BROWSER_MESSAGE_SELECT },
           },
         },
       },
@@ -587,24 +682,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       agent: agentMember.agent,
       hasOlder,
       hasNewer: false,
-      messages: messages.map((message) => ({
-        id: message.id,
-        sequence: message.sequence,
-        threadRootId: message.threadRootId ?? undefined,
-        senderKind: !message.sender
-          ? ("system" as const)
-          : message.sender.userId
-            ? ("user" as const)
-            : ("agent" as const),
-        senderName: !message.sender
-          ? "System"
-          : message.sender.userId
-            ? `@${message.sender.user?.username}`
-            : message.sender.agent?.displayName || message.sender.agent?.name || "Agent",
-        body: message.body,
-        createdAt: message.createdAt,
-        attachment: message.attachment ?? undefined,
-      })),
+      messages: messages.map(toBrowserMessage),
     };
   }
 
@@ -622,47 +700,9 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       },
       orderBy: { sequence: "asc" },
       take: 100,
-      select: {
-        id: true,
-        sequence: true,
-        threadRootId: true,
-        body: true,
-        createdAt: true,
-        attachment: {
-          select: {
-            id: true,
-            fileName: true,
-            contentType: true,
-            sizeBytes: true,
-          },
-        },
-        sender: {
-          select: {
-            userId: true,
-            user: { select: { username: true } },
-            agent: { select: { name: true, displayName: true } },
-          },
-        },
-      },
+      select: BROWSER_MESSAGE_SELECT,
     });
-    return messages.map((message) => ({
-      id: message.id,
-      sequence: message.sequence,
-      threadRootId: message.threadRootId ?? undefined,
-      senderKind: !message.sender
-        ? ("system" as const)
-        : message.sender.userId
-          ? ("user" as const)
-          : ("agent" as const),
-      senderName: !message.sender
-        ? "System"
-        : message.sender.userId
-          ? `@${message.sender.user?.username}`
-          : message.sender.agent?.displayName || message.sender.agent?.name || "Agent",
-      body: message.body,
-      createdAt: message.createdAt,
-      attachment: message.attachment ?? undefined,
-    }));
+    return messages.map(toBrowserMessage);
   }
 
   async markThreadReadForUser(
@@ -726,14 +766,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       ? await this.resolveMessage(conversationId, threadRootId, true)
       : undefined;
     const message = await this.db.$transaction(async (tx) => {
-      // Serialize sequence allocators for this conversation before observing MAX(sequence).
-      await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${conversationId}::uuid FOR UPDATE`;
-      const last = await tx.message.findFirst({
-        where: { conversationId },
-        orderBy: { sequence: "desc" },
-        select: { sequence: true },
-      });
-      const sequence = (last?.sequence ?? 0) + 1;
+      const sequence = await allocateSequence(tx, conversationId);
       if (attachmentId) {
         const attachment = await tx.attachment.findFirst({
           where: {
@@ -771,14 +804,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           createdAt: true,
           sequence: true,
           deliveries: { select: { deliveryId: true } },
-          attachment: {
-            select: {
-              id: true,
-              fileName: true,
-              contentType: true,
-              sizeBytes: true,
-            },
-          },
+          attachment: ATTACHMENT_SELECT,
         },
       });
     });
@@ -790,7 +816,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       computerId: agents[0].agent?.computerId ?? undefined,
       target: `@${agents[0].agent?.name ?? "unknown"}`,
       latestSender: `@${sender.user?.username}`,
-      deliveryTarget: this.deliveryTarget(`@${sender.user?.username}`, root?.id),
+      deliveryTarget: deliveryTarget(`@${sender.user?.username}`, root?.id),
       attachment: message.attachment ?? undefined,
     };
   }
@@ -834,6 +860,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
             members: {
               where: { userId: { not: null } },
               select: { user: { select: { username: true } } },
+              take: 1,
             },
           },
         },
@@ -851,15 +878,10 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       const sender = delivery.message.sender
         ? `@${delivery.message.sender.user?.username ?? ""}`
         : "system";
-      const target = delivery.conversation.channelName
-        ? this.deliveryTarget(
-            `#${delivery.conversation.channelName}`,
-            delivery.message.threadRootId,
-          )
-        : this.deliveryTarget(
-            `@${delivery.conversation.members[0]?.user?.username}`,
-            delivery.message.threadRootId,
-          );
+      const target = deliveryTarget(
+        conversationTarget(delivery.conversation),
+        delivery.message.threadRootId,
+      );
       if (sender !== "system" && !PUBLIC_USERNAME_TARGET.test(sender))
         throw new Error("pending Agent delivery sender must be a public @username");
       return {
@@ -889,67 +911,43 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     target: string,
     page: DirectConversationPageOptions = {},
   ) {
-    const conversation = await this.conversationForAgentTarget(workspaceId, agentId, target);
-    const threadRootId = await this.targetRoot(conversation.id, target);
-    const canonicalTarget = this.deliveryTarget(target.split(":")[0]!, threadRootId);
+    const { conversationId, threadRootId, canonicalTarget, isChannel } =
+      await this.resolveAgentTarget(workspaceId, agentId, target);
     const scope = {
-      conversationId: conversation.id,
+      conversationId,
       threadRootId,
-      ...(target.startsWith("#") && page.throughSequence !== undefined
+      ...(isChannel && page.throughSequence !== undefined
         ? { deliveries: { some: { agentId } } }
         : {}),
     };
-    const agentMember = await this.db.conversationMember.findFirst({
-      where: { conversationId: conversation.id, agentId },
-      select: { id: true, agentReadThroughSequence: true },
-    });
+    const limit = Math.min(Math.max(page.limit ?? 50, 1), 100);
+    if ([page.before, page.after, page.around].filter(Boolean).length > 1)
+      throw new Error("use only one range anchor");
+    const anchorId = page.before ?? page.after ?? page.around;
+    const [agentMember, anchor] = await Promise.all([
+      this.db.conversationMember.findUnique({
+        where: { conversationId_agentId: { conversationId, agentId } },
+        select: { id: true, agentReadThroughSequence: true },
+      }),
+      anchorId ? this.resolveMessage(conversationId, anchorId) : undefined,
+    ]);
     if (!agentMember) throw new Error("Agent is not a conversation member");
+    if (anchor && anchor.threadRootId !== threadRootId)
+      throw new AgentMessageValidationError("message anchor is outside this target");
     const threadRead = threadRootId
       ? await this.db.threadRead.findUnique({
           where: {
-            memberId_rootMessageId: {
-              memberId: agentMember.id,
-              rootMessageId: threadRootId,
-            },
+            memberId_rootMessageId: { memberId: agentMember.id, rootMessageId: threadRootId },
           },
+          select: { readThroughSequence: true },
         })
       : null;
     const readThrough = threadRootId
       ? (threadRead?.readThroughSequence ?? 0)
       : agentMember.agentReadThroughSequence;
-    const limit = Math.min(Math.max(page.limit ?? 50, 1), 100);
-    if ([page.before, page.after, page.around].filter(Boolean).length > 1)
-      throw new Error("use only one range anchor");
-    const anchor =
-      (page.before ?? page.after ?? page.around)
-        ? await this.resolveMessage(conversation.id, (page.before ?? page.after ?? page.around)!)
-        : undefined;
-    if (anchor && anchor.threadRootId !== threadRootId)
-      throw new AgentMessageValidationError("message anchor is outside this target");
-    const include = {
-      sender: { include: { agent: true, user: true } },
-      attachment: true,
-      task: {
-        include: {
-          owner: { include: { user: true, agent: true } },
-        },
-      },
-    } as const;
+    const include = AGENT_MESSAGE_INCLUDE;
     const map = (rows: DirectConversationMessageRow[]) =>
-      rows.map((m) => ({
-        id: m.id,
-        sequence: m.sequence,
-        sender: !m.sender
-          ? "system"
-          : m.sender.agentId
-            ? `@${m.sender.agent?.name ?? "agent"}`
-            : `@${m.sender.user?.username}`,
-        body: m.body,
-        createdAt: m.createdAt,
-        target: canonicalTarget,
-        attachment: m.attachment ?? undefined,
-        ...(messageTask(m.task) ? { task: messageTask(m.task) } : {}),
-      }));
+      rows.map((row) => toAgentMessage(row, canonicalTarget));
     if (page.around && anchor) {
       const beforeCount = Math.floor((limit - 1) / 2);
       const afterCount = limit - 1 - beforeCount;
@@ -1009,7 +1007,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     if (agentReadThroughSequence && threadRootId) {
       await this.advanceThreadRead(
         agentMember.id,
-        conversation.id,
+        conversationId,
         workspaceId,
         threadRootId,
         agentReadThroughSequence,
@@ -1017,7 +1015,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     } else if (agentReadThroughSequence) {
       await this.db.conversationMember.updateMany({
         where: {
-          conversationId: conversation.id,
+          conversationId,
           agentId,
           agentReadThroughSequence: { lt: agentReadThroughSequence },
         },
@@ -1035,109 +1033,68 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     workspaceId: string,
     agentId: string,
   ): Promise<AgentRecoveryContext> {
-    return this.db.$transaction(
-      async (tx) => {
-        const members = await tx.conversationMember.findMany({
-          where: { workspaceId, agentId },
-          orderBy: { conversationId: "asc" },
-          select: {
-            conversationId: true,
-            agentReadThroughSequence: true,
-            threadReads: {
-              select: { rootMessageId: true, readThroughSequence: true },
-            },
-            conversation: {
-              select: {
-                channelName: true,
-                messages: {
-                  where: { replies: { some: {} } },
-                  select: { id: true },
-                  orderBy: { sequence: "asc" },
-                },
-                members: {
-                  where: { userId: { not: null } },
-                  select: { user: { select: { username: true } } },
-                },
-              },
-            },
-          },
-        });
-        const resumeMessages: AgentRecoveryContext["resumeMessages"] = [];
-        const unreadSummary: Record<string, number> = {};
-        for (const member of members) {
-          const channelName = member.conversation.channelName;
-          const username = member.conversation.members[0]?.user?.username;
-          if (!channelName && !username)
-            throw new Error("Agent conversation has no public user target");
-          const roots: (string | null)[] = [
-            null,
-            ...(member.conversation.messages ?? []).map((m) => m.id),
-          ];
-          for (const threadRootId of roots) {
-            const target = this.deliveryTarget(
-              channelName ? `#${channelName}` : `@${username}`,
-              threadRootId,
-            );
-            if (target in unreadSummary)
-              throw new Error(`duplicate Agent recovery target: ${target}`);
-            const boundary = threadRootId
-              ? (member.threadReads.find((r) => r.rootMessageId === threadRootId)
-                  ?.readThroughSequence ?? 0)
-              : member.agentReadThroughSequence;
-            const where = {
-              conversationId: member.conversationId,
-              threadRootId,
-              sequence: { gt: boundary },
-              OR: [
-                { sender: { userId: { not: null } } },
-                { senderMemberId: null, deliveries: { some: { agentId } } },
-              ],
-              ...(channelName ? { deliveries: { some: { agentId } } } : {}),
-            } satisfies Prisma.MessageWhereInput;
-            const count = await tx.message.count({ where });
-            if (!count) continue;
-            unreadSummary[target] = count;
-            const budget = AGENT_RECOVERY_MESSAGE_LIMIT - resumeMessages.length;
-            if (!budget) continue;
-            const messages = await tx.message.findMany({
-              where,
-              orderBy: { sequence: "asc" },
-              take: budget,
-              select: {
-                id: true,
-                sequence: true,
-                body: true,
-                sender: { select: { user: { select: { username: true } } } },
-                deliveries: {
-                  where: { agentId },
-                  select: { deliveryId: true },
-                  take: 1,
-                },
-              },
-            });
-            for (const message of messages) {
-              const delivery = message.deliveries[0];
-              if (!delivery) throw new Error(`Unread Agent message has no delivery: ${message.id}`);
-              resumeMessages.push({
-                messageId: message.id,
-                deliveryId: delivery.deliveryId,
-                conversationId: member.conversationId,
-                sequence: message.sequence,
-                target,
-                latestSender: !message.sender
-                  ? "system"
-                  : channelName
-                    ? `@${message.sender.user?.username}`
-                    : `@${username}`,
-                body: message.body,
-              });
-            }
-          }
-        }
-        return { resumeMessages, unreadSummary };
-      },
-      { isolationLevel: "RepeatableRead" },
-    );
+    // One statement over every unread message the Agent owes attention to, ranked globally by
+    // (conversation, thread root, sequence). Rows past the resume budget are kept only for the
+    // first message of each target so unreadSummary stays complete without a second pass.
+    const rows = await this.db.$queryRaw<AgentRecoveryRow[]>`
+      WITH unread AS (
+        SELECT m."id", m."sequence", m."body", m."conversationId", m."threadRootId",
+          m."senderMemberId", COALESCE(r."sequence", 0) AS "rootSequence",
+          d."deliveryId", su."username" AS "senderUsername", c."channelName",
+          (SELECT uu."username" FROM "conversation_members" um
+            JOIN "users" uu ON uu."id" = um."userId"
+            WHERE um."conversationId" = c."id" ORDER BY uu."username" LIMIT 1) AS "userUsername"
+        FROM "messages" m
+        JOIN "conversation_members" am ON am."conversationId" = m."conversationId"
+          AND am."workspaceId" = ${workspaceId}::uuid AND am."agentId" = ${agentId}::uuid
+        JOIN "conversations" c ON c."id" = m."conversationId"
+        LEFT JOIN "messages" r ON r."id" = m."threadRootId"
+        LEFT JOIN "thread_reads" tr ON tr."memberId" = am."id" AND tr."rootMessageId" = m."threadRootId"
+        LEFT JOIN "conversation_members" sm ON sm."id" = m."senderMemberId"
+        LEFT JOIN "users" su ON su."id" = sm."userId"
+        LEFT JOIN "agent_message_deliveries" d ON d."messageId" = m."id" AND d."agentId" = ${agentId}::uuid
+        WHERE m."sequence" > CASE WHEN m."threadRootId" IS NULL
+            THEN am."agentReadThroughSequence" ELSE COALESCE(tr."readThroughSequence", 0) END
+          AND (sm."userId" IS NOT NULL OR (m."senderMemberId" IS NULL AND d."deliveryId" IS NOT NULL))
+          AND (c."channelName" IS NULL OR d."deliveryId" IS NOT NULL)
+      ), ranked AS (
+        SELECT u.*,
+          (COUNT(*) OVER (PARTITION BY "conversationId", "threadRootId"))::int AS "unreadCount",
+          (ROW_NUMBER() OVER (PARTITION BY "conversationId", "threadRootId" ORDER BY "sequence"))::int AS "targetRank",
+          (ROW_NUMBER() OVER (ORDER BY "conversationId", "rootSequence", "sequence"))::int AS "globalRank"
+        FROM unread u
+      )
+      SELECT "id", "sequence", "body", "conversationId", "threadRootId", "senderMemberId",
+        "deliveryId", "senderUsername", "channelName", "userUsername", "unreadCount", "globalRank"
+      FROM ranked
+      WHERE "globalRank" <= ${AGENT_RECOVERY_MESSAGE_LIMIT} OR "targetRank" = 1
+      ORDER BY "globalRank"`;
+    const resumeMessages: AgentRecoveryContext["resumeMessages"] = [];
+    const unreadSummary: Record<string, number> = {};
+    for (const row of rows) {
+      if (!row.channelName && !row.userUsername)
+        throw new Error("Agent conversation has no public user target");
+      const target = deliveryTarget(
+        row.channelName ? `#${row.channelName}` : `@${row.userUsername}`,
+        row.threadRootId,
+      );
+      unreadSummary[target] ??= row.unreadCount;
+      if (row.globalRank > AGENT_RECOVERY_MESSAGE_LIMIT) continue;
+      if (!row.deliveryId) throw new Error(`Unread Agent message has no delivery: ${row.id}`);
+      resumeMessages.push({
+        messageId: row.id,
+        deliveryId: row.deliveryId,
+        conversationId: row.conversationId,
+        sequence: row.sequence,
+        target,
+        latestSender:
+          row.senderMemberId === null
+            ? "system"
+            : `@${row.channelName ? row.senderUsername : row.userUsername}`,
+        body: row.body,
+      });
+    }
+    return { resumeMessages, unreadSummary };
   }
 
   async advanceAgentReadThrough(
@@ -1146,25 +1103,27 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     target: string,
     seenUpToSequence: number,
   ): Promise<number> {
-    const conversation = await this.conversationForAgentTarget(workspaceId, agentId, target);
-    const threadRootId = await this.targetRoot(conversation.id, target);
+    const { conversationId, threadRootId } = await this.resolveAgentTarget(
+      workspaceId,
+      agentId,
+      target,
+    );
     const latest = await this.db.message.findFirst({
-      where: { conversationId: conversation.id, threadRootId },
+      where: { conversationId, threadRootId },
       orderBy: { sequence: "desc" },
       select: { sequence: true },
     });
     const bounded = Math.min(seenUpToSequence, latest?.sequence ?? 0);
     if (bounded && threadRootId) {
       const member = await this.db.conversationMember.findUniqueOrThrow({
-        where: {
-          conversationId_agentId: { conversationId: conversation.id, agentId },
-        },
+        where: { conversationId_agentId: { conversationId, agentId } },
+        select: { id: true },
       });
-      await this.advanceThreadRead(member.id, conversation.id, workspaceId, threadRootId, bounded);
+      await this.advanceThreadRead(member.id, conversationId, workspaceId, threadRootId, bounded);
     } else if (bounded)
       await this.db.conversationMember.updateMany({
         where: {
-          conversationId: conversation.id,
+          conversationId,
           workspaceId,
           agentId,
           agentReadThroughSequence: { lt: bounded },
@@ -1180,20 +1139,17 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     target: string,
     afterSequence?: number,
   ) {
-    const conversation = await this.conversationForAgentTarget(workspaceId, agentId, target);
-    const threadRootId = await this.targetRoot(conversation.id, target);
-    const canonicalTarget = this.deliveryTarget(target.split(":")[0]!, threadRootId);
+    const { conversationId, threadRootId, canonicalTarget, isChannel } =
+      await this.resolveAgentTarget(workspaceId, agentId, target);
     const agentMember = await this.db.conversationMember.findUnique({
-      where: {
-        conversationId_agentId: { conversationId: conversation.id, agentId },
-      },
+      where: { conversationId_agentId: { conversationId, agentId } },
       select: { id: true },
     });
     const latestAgentMessage =
       afterSequence === undefined && agentMember
         ? await this.db.message.findFirst({
             where: {
-              conversationId: conversation.id,
+              conversationId,
               threadRootId,
               senderMemberId: agentMember.id,
             },
@@ -1204,21 +1160,14 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const boundary = afterSequence ?? latestAgentMessage?.sequence ?? 0;
     const rows = await this.db.message.findMany({
       where: {
-        conversationId: conversation.id,
+        conversationId,
         threadRootId,
         sequence: { gt: boundary },
-        OR: [
-          { sender: { userId: { not: null } } },
-          { senderMemberId: null, deliveries: { some: { agentId } } },
-        ],
-        ...(target.startsWith("#") ? { deliveries: { some: { agentId } } } : {}),
+        ...unreadForAgentWhere(agentId, isChannel),
       },
       orderBy: { sequence: "desc" },
       take: 3,
-      include: {
-        sender: { include: { agent: true, user: true } },
-        attachment: true,
-      },
+      include: { sender: MESSAGE_SENDER_SELECT, attachment: true },
     });
     return rows.reverse().map((m) => ({
       id: m.id,
@@ -1251,14 +1200,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       ? await this.resolveMessage(conversationId, threadRootId, true)
       : undefined;
     const result = await this.db.$transaction(async (tx) => {
-      // Serialize sequence allocators for this conversation before observing MAX(sequence).
-      await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${conversationId}::uuid FOR UPDATE`;
-      const last = await tx.message.findFirst({
-        where: { conversationId },
-        orderBy: { sequence: "desc" },
-        select: { sequence: true },
-      });
-      const sequence = (last?.sequence ?? 0) + 1;
+      const sequence = await allocateSequence(tx, conversationId);
       if (conversation.channelName && root) {
         const names = mentionedNames(body);
         const mentioned = await tx.conversationMember.findMany({
@@ -1294,14 +1236,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           createdAt: true,
           sequence: true,
           deliveries: { select: { deliveryId: true } },
-          attachment: {
-            select: {
-              id: true,
-              fileName: true,
-              contentType: true,
-              sizeBytes: true,
-            },
-          },
+          attachment: ATTACHMENT_SELECT,
         },
       });
     });
@@ -1312,7 +1247,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       workspaceId: conversation.workspaceId,
       agentId,
       target: conversation.channelName
-        ? this.deliveryTarget(`#${conversation.channelName}`, root?.id)
+        ? deliveryTarget(`#${conversation.channelName}`, root?.id)
         : "",
       attachment: result.attachment ?? undefined,
     };
