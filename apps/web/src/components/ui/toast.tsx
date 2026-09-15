@@ -57,8 +57,11 @@ export function AppToastProvider({ children }: { children: React.ReactNode }) {
 
 export function useAppToast() {
   return {
-    success(title: string) {
-      toast.success(title, { id: `success:${title}` });
+    success(title: string, options?: { durationMs?: number }) {
+      toast.success(title, {
+        id: `success:${title}`,
+        duration: options?.durationMs,
+      });
     },
     error(title: string, cause?: unknown) {
       toast.error(title, {

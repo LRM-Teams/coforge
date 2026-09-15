@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import {
+  canSendWeeklyAssignmentsNow,
   currentWeekTemplateTitle,
+  formatChipLabel,
   formatSendWindowCountdown,
   isInWeeklySendWindow,
   isWeeklySendArmed,
@@ -11,6 +13,26 @@ import {
 
 test("currentWeekTemplateTitle uses year and week", () => {
   expect(currentWeekTemplateTitle(2026, 36)).toBe("2026 W36 模板");
+});
+
+test("formatChipLabel is year and week, and names only when chips would collide", () => {
+  expect(formatChipLabel({ year: 2026, week: 36 })).toBe("2026 W36 模板");
+  expect(
+    formatChipLabel({
+      year: 2026,
+      week: 36,
+      settingsName: "算法汇报",
+      distinguishSettingsName: true,
+    }),
+  ).toBe("2026 W36 模板 · 算法汇报");
+  expect(
+    formatChipLabel({
+      year: 2026,
+      week: 36,
+      settingsName: "算法汇报",
+      distinguishSettingsName: false,
+    }),
+  ).toBe("2026 W36 模板");
 });
 
 test("splitWeeklyTemplateRoles keeps format templates out of week overviews", () => {
@@ -43,15 +65,15 @@ test("weeklySendWindow is Friday 15:00 through Saturday 00:00 Asia/Shanghai", ()
   expect(window?.end.toISOString()).toBe("2026-09-18T16:00:00.000Z");
 });
 
-test("weeklySendWindow for scheduled send covers the whole send weekday", () => {
+test("weeklySendWindow for scheduled send is the hour before sendTime", () => {
   const window = weeklySendWindow({
     now: new Date("2026-09-18T01:00:00.000Z"),
     sendWeekday: 5,
     sendTime: "15:00",
     scheduleEnabled: true,
   });
-  expect(window?.start.toISOString()).toBe("2026-09-17T16:00:00.000Z");
-  expect(window?.end.toISOString()).toBe("2026-09-18T16:00:00.000Z");
+  expect(window?.start.toISOString()).toBe("2026-09-18T06:00:00.000Z");
+  expect(window?.end.toISOString()).toBe("2026-09-18T07:00:00.000Z");
 });
 
 test("isInWeeklySendWindow is true only after sendTime on the send weekday", () => {
@@ -78,8 +100,9 @@ test("isInWeeklySendWindow is true only after sendTime on the send weekday", () 
   ).toBe(false);
 });
 
-test("scheduled send is armed all day on the send weekday before sendTime", () => {
+test("scheduled chip is armed only in the hour before sendTime", () => {
   const fridayMorningShanghai = new Date("2026-09-18T01:00:00.000Z");
+  const fridayInPreview = new Date("2026-09-18T06:30:00.000Z");
   expect(
     isWeeklySendArmed({
       applied: true,
@@ -89,6 +112,16 @@ test("scheduled send is armed all day on the send weekday before sendTime", () =
       scheduleEnabled: true,
       now: fridayMorningShanghai,
     }),
+  ).toBe(false);
+  expect(
+    isWeeklySendArmed({
+      applied: true,
+      alreadySent: false,
+      sendWeekday: 5,
+      sendTime: "15:00",
+      scheduleEnabled: true,
+      now: fridayInPreview,
+    }),
   ).toBe(true);
   expect(
     isWeeklySendArmed({
@@ -96,24 +129,15 @@ test("scheduled send is armed all day on the send weekday before sendTime", () =
       alreadySent: false,
       sendWeekday: 5,
       sendTime: "15:00",
-      scheduleEnabled: false,
-      now: fridayMorningShanghai,
+      scheduleEnabled: true,
+      autoSendCancelled: true,
+      now: fridayInPreview,
     }),
   ).toBe(false);
 });
 
-test("top chip and send arm gray out after this week's send on the send day", () => {
-  const fridayMorningShanghai = new Date("2026-09-18T01:00:00.000Z");
-  expect(
-    isWeeklySendArmed({
-      applied: true,
-      alreadySent: false,
-      sendWeekday: 5,
-      sendTime: "15:00",
-      scheduleEnabled: true,
-      now: fridayMorningShanghai,
-    }),
-  ).toBe(true);
+test("top chip countdown grays out after this week's send", () => {
+  const fridayInPreview = new Date("2026-09-18T06:30:00.000Z");
   expect(
     isWeeklySendArmed({
       applied: true,
@@ -121,7 +145,44 @@ test("top chip and send arm gray out after this week's send on the send day", ()
       sendWeekday: 5,
       sendTime: "15:00",
       scheduleEnabled: true,
-      now: fridayMorningShanghai,
+      now: fridayInPreview,
+    }),
+  ).toBe(false);
+});
+
+test("after cancel, Leader can still send manually during the send day", () => {
+  const fridayInPreview = new Date("2026-09-18T06:30:00.000Z");
+  const fridayAfterSendTime = new Date("2026-09-18T07:30:00.000Z");
+  expect(
+    canSendWeeklyAssignmentsNow({
+      applied: true,
+      alreadySent: false,
+      sendWeekday: 5,
+      sendTime: "15:00",
+      scheduleEnabled: true,
+      autoSendCancelled: true,
+      now: fridayInPreview,
+    }),
+  ).toBe(true);
+  expect(
+    canSendWeeklyAssignmentsNow({
+      applied: true,
+      alreadySent: false,
+      sendWeekday: 5,
+      sendTime: "15:00",
+      scheduleEnabled: true,
+      autoSendCancelled: true,
+      now: fridayAfterSendTime,
+    }),
+  ).toBe(true);
+  expect(
+    canSendWeeklyAssignmentsNow({
+      applied: true,
+      alreadySent: false,
+      sendWeekday: 5,
+      sendTime: "15:00",
+      scheduleEnabled: true,
+      now: new Date("2026-09-18T01:00:00.000Z"),
     }),
   ).toBe(false);
 });

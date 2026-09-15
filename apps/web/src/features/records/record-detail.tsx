@@ -1,15 +1,26 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useRouter } from "@tanstack/react-router";
+import { useNavigate, useRouter, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { DotsHorizontal, MessageChatCircle as Message, Trash01 as Trash } from "@untitledui/icons";
+import {
+  DotsHorizontal,
+  Download01 as Download,
+  File06 as FileIcon,
+  Heart,
+  MessageChatCircle as Message,
+  Share01 as Share,
+  Target04 as Target,
+  Trash01 as Trash,
+} from "@untitledui/icons";
 
 import { PageHeader } from "@/components/layout/page-header";
+import { Tabs } from "@/components/application/tabs/tabs";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { TextArea } from "@/components/base/textarea/textarea";
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
+import { useAppToast } from "@/components/ui/toast";
 import { ReportSectionEditor } from "./report-editor/report-section-editor";
 import { ReportTabsEditor } from "./report-tabs-editor";
 import type { UploadResult } from "./report-editor/types";
@@ -26,19 +37,34 @@ import {
   markWeeklyAssignmentOpened,
   saveRecordNote,
   saveWeeklyHighlightContent,
+  saveWeeklyHighlightPrompt,
   saveWeeklyReportContent,
   sendWeeklyReportAssignments,
+  setWeeklyReportFavorite,
 } from "./records.functions";
 import {
   clearReportContent,
+  isAutoSendCancelled,
   normalizeReportContent,
+  reportContentToMarkdown,
   withAssignmentUnread,
+  withAutoSendCancelled,
   type HighlightContent,
+  type HighlightPromptState,
   type ReportContent,
 } from "./records-content";
-import { BackToRecords } from "./records-layout";
+import { copyText } from "./report-editor/lib/clipboard";
+import { BackToRecords, WeekBadge, useFormatEditHint } from "./records-layout";
 import { RecordSidePanel } from "./record-side-panel";
 import { TemplateChildrenTable, type TemplateChild } from "./template-children-table";
+import { normalizeLeaderFormatTabs } from "./template-outline-sections";
+import { HighlightPromptEditor } from "./highlight-prompt-editor";
+import { WEEKLY_SEND_TOAST_MS, WeeklySendConfirmDialog } from "./weekly-send-confirm-dialog";
+import {
+  formatSendWindowCountdown,
+  isWeeklySendArmed,
+  weeklySendWindow,
+} from "./weekly-send-window";
 
 type ReportSubject = {
   type: "report";
@@ -48,12 +74,23 @@ type ReportSubject = {
     title: string;
     status: string;
     content: ReportContent;
+    submittedAt?: string | null;
+    sharedBy?: { userId: string; username: string; displayName: string } | null;
     author: { userId: string; username: string; displayName: string };
     cycle: { id: string; year: number; week: number; title: string };
     sourceTemplateId?: string | null;
     unread?: boolean;
     canSendAssignments?: boolean;
+    sendSchedule?: {
+      sendWeekday: number;
+      sendTime: string;
+      scheduleEnabled: boolean;
+      autoSendCancelled: boolean;
+      alreadySent: boolean;
+    } | null;
     editable?: boolean;
+    favorited?: boolean;
+    highlightPrompt?: { text: string; history: Array<{ text: string; updatedAt: string }> };
     surface?: "format" | "overview";
     children?: TemplateChild[];
   };
@@ -66,6 +103,7 @@ type HighlightSubject = {
     title: string;
     content: HighlightContent;
     completedAt: string | null;
+    generating?: boolean;
     cycle: { id: string; year: number; week: number; title: string };
   };
 };
@@ -118,9 +156,11 @@ async function fileToDataUrlUpload(file: File): Promise<UploadResult | null> {
 function ReportDetail({ report }: { report: ReportSubject["report"] }) {
   const router = useRouter();
   const navigate = useNavigate();
+  const toast = useAppToast();
   const save = useServerFn(saveWeeklyReportContent);
   const removeReport = useServerFn(deleteMemberWeeklyReport);
   const markOpened = useServerFn(markWeeklyAssignmentOpened);
+  const setFavorite = useServerFn(setWeeklyReportFavorite);
   const editable = report.editable === true;
   const [content, setContent] = useState(() =>
     editable
@@ -131,12 +171,54 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
   contentRef.current = content;
   const reportIdRef = useRef(report.id);
   reportIdRef.current = report.id;
-  const [sideOpen, setSideOpen] = useState(false);
+  const leaderReading = report.kind === "member" && report.editable !== true;
+  const [sideOpen, setSideOpen] = useState(leaderReading);
   const [saving, setSaving] = useState(false);
+  const [favorited, setFavorited] = useState(Boolean(report.favorited));
+  const [favoriteBusy, setFavoriteBusy] = useState(false);
   const [status, setStatus] = useState(report.status);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const isAssignment = Boolean(report.sourceTemplateId);
   const sent = status === "submitted" || status === "shared";
+
+  useEffect(() => {
+    setFavorited(Boolean(report.favorited));
+  }, [report.favorited, report.id]);
+
+  async function shareReport() {
+    const url = typeof window !== "undefined" ? window.location.href : "";
+    if (!url) return;
+    const ok = await copyText(url);
+    if (ok) toast.success(m.records_report_share_copied());
+    else toast.error(m.records_report_share_failed());
+  }
+
+  function exportReport() {
+    const markdown = reportContentToMarkdown(contentRef.current);
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${report.title}.md`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function toggleFavorite() {
+    if (favoriteBusy || report.kind !== "member") return;
+    setFavoriteBusy(true);
+    const next = !favorited;
+    setFavorited(next);
+    try {
+      const result = await setFavorite({ data: { reportId: report.id, favorited: next } });
+      setFavorited(result.favorited);
+      await router.invalidate({ sync: true });
+    } catch {
+      setFavorited(!next);
+    } finally {
+      setFavoriteBusy(false);
+    }
+  }
 
   async function persist(
     next: ReportContent,
@@ -260,6 +342,24 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
         <PageHeader
           heading={report.title}
           leading={<BackToRecords />}
+          meta={
+            <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-tertiary">
+              {favorited ? (
+                <Heart
+                  aria-label={m.records_report_favorited()}
+                  className="size-5 shrink-0 text-brand-secondary"
+                />
+              ) : null}
+              {report.kind === "member" && report.submittedAt ? (
+                <span>
+                  {m.records_report_shared_meta({
+                    time: new Date(report.submittedAt).toLocaleString(),
+                    name: report.sharedBy?.displayName ?? report.author.displayName,
+                  })}
+                </span>
+              ) : null}
+            </span>
+          }
           actions={
             <div className="flex items-center gap-1">
               {editable && isAssignment ? (
@@ -280,22 +380,40 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
                 aria-pressed={sideOpen}
                 onClick={() => setSideOpen((open) => !open)}
               />
-              {editable ? (
-                <Dropdown.Root>
-                  <ButtonUtility
-                    size="sm"
-                    color="tertiary"
-                    icon={DotsHorizontal}
-                    aria-label={m.records_report_actions()}
-                    isDisabled={saving}
-                  />
-                  <Dropdown.Popover placement="bottom end" className="w-44">
-                    <Dropdown.Menu onAction={() => void removeCurrentReport()}>
+              <Dropdown.Root>
+                <ButtonUtility
+                  size="sm"
+                  color="tertiary"
+                  icon={DotsHorizontal}
+                  aria-label={m.records_report_actions()}
+                  isDisabled={saving || favoriteBusy}
+                />
+                <Dropdown.Popover placement="bottom end" className="w-44">
+                  <Dropdown.Menu
+                    onAction={(key) => {
+                      if (key === "favorite") void toggleFavorite();
+                      if (key === "share") void shareReport();
+                      if (key === "export") exportReport();
+                      if (key === "delete") void removeCurrentReport();
+                    }}
+                  >
+                    {report.kind === "member" ? (
+                      <Dropdown.Item
+                        id="favorite"
+                        icon={Heart}
+                        label={
+                          favorited ? m.records_report_unfavorite() : m.records_report_favorite()
+                        }
+                      />
+                    ) : null}
+                    <Dropdown.Item id="share" icon={Share} label={m.records_report_share()} />
+                    <Dropdown.Item id="export" icon={Download} label={m.records_report_export()} />
+                    {editable ? (
                       <Dropdown.Item id="delete" icon={Trash} label={m.records_report_delete()} />
-                    </Dropdown.Menu>
-                  </Dropdown.Popover>
-                </Dropdown.Root>
-              ) : null}
+                    ) : null}
+                  </Dropdown.Menu>
+                </Dropdown.Popover>
+              </Dropdown.Root>
             </div>
           }
         />
@@ -319,6 +437,7 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
           key={report.id}
           subjectType="report"
           subjectId={report.id}
+          surface={leaderReading ? "member-leader" : "plain"}
           onClose={() => setSideOpen(false)}
         />
       ) : null}
@@ -328,76 +447,185 @@ function ReportDetail({ report }: { report: ReportSubject["report"] }) {
 
 function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
   const router = useRouter();
+  const toast = useAppToast();
+  const setFormatEditing = useFormatEditHint();
   const save = useServerFn(saveWeeklyReportContent);
+  const saveHighlightPrompt = useServerFn(saveWeeklyHighlightPrompt);
   const sendAssignments = useServerFn(sendWeeklyReportAssignments);
   const isOverview = report.surface === "overview";
-  const [content, setContent] = useState(
-    () => readReportDraft(report.id) ?? normalizeReportContent(report.content),
+  const [content, setContent] = useState(() =>
+    normalizeLeaderFormatTabs(readReportDraft(report.id) ?? normalizeReportContent(report.content)),
   );
   const contentRef = useRef(content);
   contentRef.current = content;
   const reportIdRef = useRef(report.id);
   reportIdRef.current = report.id;
-  const [sideOpen, setSideOpen] = useState(false);
+  const formatCancelled = isAutoSendCancelled(content, report.cycle.year, report.cycle.week);
+  const [sideOpen, setSideOpen] = useState(!isOverview);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
+  const [dirty, setDirty] = useState(() => {
+    const draft = readReportDraft(report.id);
+    if (!draft) return false;
+    return (
+      JSON.stringify(normalizeReportContent(draft)) !==
+      JSON.stringify(normalizeReportContent(report.content))
+    );
+  });
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [canSendAssignments, setCanSendAssignments] = useState(Boolean(report.canSendAssignments));
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [formatKind, setFormatKind] = useState<"weekly" | "highlights">("weekly");
+  const [highlightPrompt, setHighlightPrompt] = useState<HighlightPromptState>(
+    () => report.highlightPrompt ?? { text: "", history: [] },
+  );
+  const [promptBusy, setPromptBusy] = useState(false);
+  const [promptDirty, setPromptDirty] = useState(false);
+  const [promptDraft, setPromptDraft] = useState(() => report.highlightPrompt?.text ?? "");
+  const [sideRefresh, setSideRefresh] = useState(0);
+  const [now, setNow] = useState(() => new Date());
+  const sendSchedule = report.sendSchedule;
+  const hasUnsavedEdits = dirty || promptDirty;
+
+  useEffect(() => {
+    if (!sendSchedule || sendSchedule.alreadySent) return;
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, [sendSchedule]);
+
+  const sendArmed = sendSchedule
+    ? isWeeklySendArmed({
+        applied: true,
+        alreadySent: sendSchedule.alreadySent,
+        sendWeekday: sendSchedule.sendWeekday,
+        sendTime: sendSchedule.sendTime,
+        scheduleEnabled: sendSchedule.scheduleEnabled,
+        autoSendCancelled: sendSchedule.autoSendCancelled || formatCancelled,
+        now,
+      })
+    : false;
+  const countdown =
+    sendArmed && sendSchedule
+      ? formatSendWindowCountdown(
+          Math.max(
+            0,
+            (weeklySendWindow({
+              now,
+              sendWeekday: sendSchedule.sendWeekday,
+              sendTime: sendSchedule.sendTime,
+              scheduleEnabled: sendSchedule.scheduleEnabled,
+            })?.end.getTime() ?? now.getTime()) - now.getTime(),
+          ),
+        )
+      : null;
+  const formatCopy: "preview" | "cancelled" | "ready" = formatCancelled
+    ? "cancelled"
+    : sendArmed
+      ? "preview"
+      : "ready";
 
   useEffect(() => {
     setCanSendAssignments(Boolean(report.canSendAssignments));
-  }, [report.canSendAssignments, report.id]);
+    setDirty(false);
+    setPromptDirty(false);
+    setConfirmOpen(false);
+    setFormatKind("weekly");
+    const nextPrompt = report.highlightPrompt ?? { text: "", history: [] };
+    setHighlightPrompt(nextPrompt);
+    setPromptDraft(nextPrompt.text);
+  }, [report.canSendAssignments, report.highlightPrompt, report.id]);
+
+  useEffect(() => {
+    if (isOverview) {
+      setFormatEditing(false);
+      return;
+    }
+    setFormatEditing(hasUnsavedEdits);
+    return () => setFormatEditing(false);
+  }, [hasUnsavedEdits, isOverview, setFormatEditing]);
 
   async function persist(
     next: ReportContent,
     status?: "draft" | "submitted" | "shared",
     reportId = reportIdRef.current,
+    options?: { askToSend?: boolean },
   ) {
     setSaving(true);
     const normalized = normalizeReportContent(next);
     writeReportDraft(reportId, normalized);
     const savePromise = save({
-      data: { reportId, content: normalized, status },
+      data: {
+        reportId,
+        content: normalized,
+        status,
+        askToSend: options?.askToSend,
+      },
     });
     trackReportSave(reportId, savePromise);
     try {
-      await savePromise;
+      const result = await savePromise;
       if (reportId === reportIdRef.current) {
-        setContent(normalized);
-        contentRef.current = normalized;
+        const nextContent = result.autoSendJustCancelled
+          ? withAutoSendCancelled(normalized, report.cycle.year, report.cycle.week)
+          : normalized;
+        setContent(nextContent);
+        contentRef.current = nextContent;
+        writeReportDraft(reportId, nextContent);
+        setDirty(false);
+        if (result.assistantPosted) {
+          setSideOpen(true);
+          setSideRefresh((token) => token + 1);
+        }
+        if (result.autoSendJustCancelled) {
+          await router.invalidate({ sync: true });
+        }
       }
     } finally {
       if (reportId === reportIdRef.current) setSaving(false);
     }
   }
 
-  function schedulePersist(next: ReportContent) {
+  function markLocalContent(next: ReportContent) {
     setContent(next);
     contentRef.current = next;
+    setDirty(true);
     writeReportDraft(reportIdRef.current, next);
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    const reportId = reportIdRef.current;
-    saveTimerRef.current = setTimeout(() => {
-      void persist(contentRef.current, undefined, reportId);
-    }, 900);
+  }
+
+  async function persistHighlightPrompt(text: string) {
+    setPromptBusy(true);
+    try {
+      const result = await saveHighlightPrompt({ data: { reportId: report.id, text } });
+      setHighlightPrompt(result.highlightPrompt);
+      setPromptDraft(result.highlightPrompt.text);
+      setPromptDirty(false);
+      await router.invalidate({ sync: true });
+    } finally {
+      setPromptBusy(false);
+    }
+  }
+
+  async function saveFormatEdits() {
+    if (promptDirty) {
+      await persistHighlightPrompt(promptDraft);
+    }
+    if (dirty) {
+      await persist(contentRef.current, undefined, undefined, { askToSend: true });
+    }
   }
 
   async function onSendAssignments() {
-    if (sending || saving || !canSendAssignments) return;
+    if (sending || !canSendAssignments || hasUnsavedEdits) return;
     setSending(true);
     setSendError(null);
     try {
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = undefined;
-      }
       await waitForReportSave(report.id);
       const draft = contentRef.current;
       try {
         await persist(draft);
       } catch {
         setSendError(m.records_report_send_assignments_error());
+        setConfirmOpen(false);
         return;
       }
       try {
@@ -421,9 +649,12 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
               ? m.records_report_send_no_recipients()
               : m.records_report_send_assignments_error(),
         );
+        setConfirmOpen(false);
         return;
       }
       setCanSendAssignments(false);
+      setConfirmOpen(false);
+      toast.success(m.records_report_shared_toast(), { durationMs: WEEKLY_SEND_TOAST_MS });
       try {
         await router.invalidate({ sync: true });
       } catch {
@@ -440,34 +671,20 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
       if (cancelled) return;
       const draft = readReportDraft(report.id);
       if (draft) {
-        setContent(draft);
-        contentRef.current = draft;
+        const normalized = normalizeLeaderFormatTabs(draft);
+        setContent(normalized);
+        contentRef.current = normalized;
+        setDirty(
+          JSON.stringify(normalizeReportContent(normalized)) !==
+            JSON.stringify(normalizeReportContent(report.content)),
+        );
       }
       void router.invalidate();
     });
     return () => {
       cancelled = true;
     };
-  }, [report.id, router]);
-
-  useEffect(() => {
-    return () => {
-      if (!saveTimerRef.current) return;
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = undefined;
-      const normalized = normalizeReportContent(contentRef.current);
-      writeReportDraft(report.id, normalized);
-      trackReportSave(
-        report.id,
-        save({
-          data: {
-            reportId: report.id,
-            content: normalized,
-          },
-        }),
-      );
-    };
-  }, [report.id, save]);
+  }, [report.content, report.id, router]);
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -480,14 +697,26 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
           actions={
             <div className="flex items-center gap-1">
               {isOverview ? null : (
-                <Button
-                  size="sm"
-                  color="primary"
-                  isDisabled={saving || sending || !canSendAssignments}
-                  onPress={() => void onSendAssignments()}
-                >
-                  {m.records_report_send_assignments()}
-                </Button>
+                <>
+                  {hasUnsavedEdits ? (
+                    <Button
+                      size="sm"
+                      color="primary"
+                      isDisabled={saving || sending || promptBusy}
+                      onPress={() => void saveFormatEdits()}
+                    >
+                      {m.records_report_save()}
+                    </Button>
+                  ) : null}
+                  <Button
+                    size="sm"
+                    color={hasUnsavedEdits ? "secondary" : "primary"}
+                    isDisabled={saving || sending || !canSendAssignments || hasUnsavedEdits}
+                    onPress={() => setConfirmOpen(true)}
+                  >
+                    {m.records_report_send()}
+                  </Button>
+                </>
               )}
               <ButtonUtility
                 size="sm"
@@ -529,17 +758,44 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
             <TemplateChildrenTable children={report.children ?? []} />
           </div>
         ) : (
-          <ReportTabsEditor
-            content={content}
-            editableTabs
-            placeholder={m.records_report_body_placeholder()}
-            onUploadFile={fileToDataUrlUpload}
-            onChange={schedulePersist}
-            onBlur={() => {
-              if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-              void persist(contentRef.current);
-            }}
-          />
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="shrink-0 border-b border-secondary px-4 sm:px-6">
+              <Tabs
+                selectedKey={formatKind}
+                onSelectionChange={(key) =>
+                  setFormatKind(key === "highlights" ? "highlights" : "weekly")
+                }
+              >
+                <Tabs.List type="underline" size="sm">
+                  <Tabs.Item id="weekly" icon={FileIcon} label={m.records_parent_tab_template()} />
+                  <Tabs.Item
+                    id="highlights"
+                    icon={Target}
+                    label={m.records_settings_tab_highlights()}
+                  />
+                </Tabs.List>
+              </Tabs>
+            </div>
+            {formatKind === "highlights" ? (
+              <HighlightPromptEditor
+                prompt={highlightPrompt}
+                text={promptDraft}
+                busy={promptBusy || saving || sending}
+                onChange={(text) => {
+                  setPromptDraft(text);
+                  setPromptDirty(text !== highlightPrompt.text);
+                }}
+              />
+            ) : (
+              <ReportTabsEditor
+                content={content}
+                editableTabs
+                placeholder={m.records_report_body_placeholder()}
+                onUploadFile={fileToDataUrlUpload}
+                onChange={markLocalContent}
+              />
+            )}
+          </div>
         )}
       </div>
 
@@ -548,9 +804,24 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
           key={report.id}
           subjectType="report"
           subjectId={report.id}
+          surface={isOverview ? "plain" : "format"}
+          formatCopy={formatCopy}
+          countdown={countdown}
+          refreshToken={sideRefresh}
+          onRequestSend={() => {
+            if (hasUnsavedEdits) return;
+            setConfirmOpen(true);
+          }}
           onClose={() => setSideOpen(false)}
         />
       ) : null}
+
+      <WeeklySendConfirmDialog
+        open={confirmOpen}
+        busy={sending}
+        onOpenChange={setConfirmOpen}
+        onConfirm={() => void onSendAssignments()}
+      />
     </div>
   );
 }
@@ -560,7 +831,8 @@ function HighlightDetail({ highlight }: { highlight: HighlightSubject["highlight
   const [content, setContent] = useState(highlight.content);
   const contentRef = useRef(content);
   contentRef.current = content;
-  const [sideOpen, setSideOpen] = useState(false);
+  const generating = highlight.generating === true || content.generating === true;
+  const [sideOpen, setSideOpen] = useState(true);
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -569,14 +841,21 @@ function HighlightDetail({ highlight }: { highlight: HighlightSubject["highlight
       >
         <PageHeader
           heading={highlight.title}
-          leading={<BackToRecords />}
+          leading={
+            <span className="flex items-center gap-2">
+              <BackToRecords />
+              <WeekBadge week={highlight.cycle.week} />
+            </span>
+          }
           meta={
             <span className="text-sm text-tertiary">
-              {highlight.completedAt
-                ? m.records_highlight_completed({
-                    time: new Date(highlight.completedAt).toLocaleString(),
-                  })
-                : m.records_highlight_draft()}
+              {generating
+                ? m.records_highlight_generating()
+                : highlight.completedAt
+                  ? m.records_highlight_completed({
+                      time: new Date(highlight.completedAt).toLocaleString(),
+                    })
+                  : m.records_highlight_draft()}
             </span>
           }
           actions={
@@ -591,35 +870,66 @@ function HighlightDetail({ highlight }: { highlight: HighlightSubject["highlight
           }
         />
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
-          {content.blocks.map((block, index) => (
-            <section key={block.id} className="space-y-2">
-              <h2 className="text-sm font-semibold text-primary">{block.heading}</h2>
-              <TextArea
-                value={block.paragraphs.join("\n")}
-                onChange={(value) => {
-                  const next = structuredClone(contentRef.current);
-                  next.blocks[index]!.paragraphs = value.split("\n");
-                  setContent(next);
-                  contentRef.current = next;
-                }}
-                onBlur={() =>
-                  void save({
-                    data: {
-                      highlightId: highlight.id,
-                      content: contentRef.current,
-                    },
-                  })
-                }
-                rows={4}
-              />
-            </section>
-          ))}
+          {generating ? (
+            <p className="text-sm text-tertiary">{m.records_highlight_generating_empty()}</p>
+          ) : (
+            content.blocks.map((block, index) => (
+              <section key={block.id} className="space-y-3">
+                <h2 className="text-sm font-semibold text-primary">{block.heading}</h2>
+                {block.items.length > 0 ? (
+                  <ul className="space-y-3">
+                    {block.items.map((item, itemIndex) => (
+                      <li key={`${block.id}-${itemIndex}`} className="space-y-1">
+                        <p className="text-sm text-primary">{item.text}</p>
+                        {item.sources.length > 0 ? (
+                          <p className="text-xs text-tertiary">
+                            {m.records_highlight_source()}{" "}
+                            {item.sources.map((source) => (
+                              <Link
+                                key={source.reportId}
+                                to="/records/$recordId"
+                                params={{ recordId: source.reportId }}
+                                search={{ tab: "weekly" }}
+                                className="mr-2 font-medium text-brand-secondary"
+                              >
+                                @{source.displayName}
+                              </Link>
+                            ))}
+                          </p>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <TextArea
+                    value={block.paragraphs.join("\n")}
+                    onChange={(value) => {
+                      const next = structuredClone(contentRef.current);
+                      next.blocks[index]!.paragraphs = value.split("\n");
+                      setContent(next);
+                      contentRef.current = next;
+                    }}
+                    onBlur={() =>
+                      void save({
+                        data: {
+                          highlightId: highlight.id,
+                          content: contentRef.current,
+                        },
+                      })
+                    }
+                    rows={4}
+                  />
+                )}
+              </section>
+            ))
+          )}
         </div>
       </div>
       {sideOpen ? (
         <RecordSidePanel
           subjectType="highlight"
           subjectId={highlight.id}
+          surface="highlight"
           onClose={() => setSideOpen(false)}
         />
       ) : null}

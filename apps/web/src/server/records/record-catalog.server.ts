@@ -2,19 +2,35 @@ import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import {
   currentIsoWeek,
-  emptyHighlightContent,
   emptyReportContent,
+  generatingHighlightContent,
   highlightTitle,
   isAssignmentUnread,
+  isAutoSendCancelled,
+  isHighlightGenerating,
   isValidTemplateName,
+  isHourlySendTime,
   memberReportTitle,
   memberWeekTitle,
+  normalizeHighlightContent,
   normalizeReportContent,
+  reportTabsEqual,
+  applyHighlightPromptText,
   withAssignmentUnread,
+  withAutoSendCancelled,
+  withHighlightPrompt,
   type HighlightContent,
+  type HighlightPromptState,
   type ReportContent,
 } from "../../features/records/records-content";
 import {
+  extractWeeklyHighlightContent,
+  looksLikeGenerateHighlightsRequest,
+  type HighlightMemberCandidate,
+  type RecordAssistantPayload,
+} from "../../features/records/weekly-highlight-extract";
+import {
+  canSendWeeklyAssignmentsNow,
   currentWeekTemplateTitle,
   isWeeklySendArmed,
   splitWeeklyTemplateRoles,
@@ -39,8 +55,7 @@ function asReportContent(value: unknown): ReportContent {
 }
 
 function asHighlightContent(value: unknown): HighlightContent {
-  if (value && typeof value === "object" && "blocks" in value) return value as HighlightContent;
-  return emptyHighlightContent();
+  return normalizeHighlightContent(value);
 }
 
 function asStringArray(value: unknown): string[] {
@@ -64,12 +79,21 @@ export class RecordCatalog {
     private readonly delivery?: WeeklyAssignmentDelivery,
   ) {}
 
-  private async canSendWeeklyAssignments(input: {
+  private async loadFormatSendState(input: {
     workspaceId: string;
     userId: string;
     reportId: string;
     now?: Date;
-  }) {
+  }): Promise<{
+    canSend: boolean;
+    schedule: {
+      sendWeekday: number;
+      sendTime: string;
+      scheduleEnabled: boolean;
+      autoSendCancelled: boolean;
+      alreadySent: boolean;
+    } | null;
+  }> {
     const now = input.now ?? new Date();
     const report = await this.db.weeklyReport.findFirst({
       where: {
@@ -78,9 +102,9 @@ export class RecordCatalog {
         authorId: input.userId,
         kind: "template",
       },
-      select: { id: true, settingsId: true },
+      select: { id: true, settingsId: true, content: true },
     });
-    if (!report?.settingsId) return false;
+    if (!report?.settingsId) return { canSend: false, schedule: null };
     const settings = await this.db.weeklyReportTemplate.findFirst({
       where: {
         id: report.settingsId,
@@ -90,7 +114,7 @@ export class RecordCatalog {
       },
       select: { id: true, sendWeekday: true, sendTime: true, scheduleEnabled: true },
     });
-    if (!settings) return false;
+    if (!settings) return { canSend: false, schedule: null };
     const liveFormat = await this.db.weeklyReport.findFirst({
       where: {
         workspaceId: input.workspaceId,
@@ -102,27 +126,54 @@ export class RecordCatalog {
       orderBy: { updatedAt: "desc" },
       select: { id: true },
     });
-    if (liveFormat?.id !== input.reportId) return false;
+    if (liveFormat?.id !== input.reportId) return { canSend: false, schedule: null };
     const currentWeek = currentIsoWeek(zonedCalendarDate(now));
-    const alreadySent = await this.db.weeklyReport.findFirst({
-      where: {
-        workspaceId: input.workspaceId,
-        authorId: input.userId,
-        kind: "template",
-        settingsId: settings.id,
-        cycle: { year: currentWeek.year, week: currentWeek.week },
-        submissions: { some: { kind: "member" } },
-      },
-      select: { id: true },
-    });
-    return isWeeklySendArmed({
-      applied: true,
-      alreadySent: Boolean(alreadySent),
+    const alreadySent = Boolean(
+      await this.db.weeklyReport.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          authorId: input.userId,
+          kind: "template",
+          settingsId: settings.id,
+          cycle: { year: currentWeek.year, week: currentWeek.week },
+          submissions: { some: { kind: "member" } },
+        },
+        select: { id: true },
+      }),
+    );
+    const autoSendCancelled = isAutoSendCancelled(
+      asReportContent(report.content),
+      currentWeek.year,
+      currentWeek.week,
+    );
+    const schedule = {
       sendWeekday: settings.sendWeekday,
       sendTime: settings.sendTime,
       scheduleEnabled: settings.scheduleEnabled,
-      now,
-    });
+      autoSendCancelled,
+      alreadySent,
+    };
+    return {
+      canSend: canSendWeeklyAssignmentsNow({
+        applied: true,
+        alreadySent,
+        sendWeekday: settings.sendWeekday,
+        sendTime: settings.sendTime,
+        scheduleEnabled: settings.scheduleEnabled,
+        autoSendCancelled,
+        now,
+      }),
+      schedule,
+    };
+  }
+
+  private async canSendWeeklyAssignments(input: {
+    workspaceId: string;
+    userId: string;
+    reportId: string;
+    now?: Date;
+  }) {
+    return (await this.loadFormatSendState(input)).canSend;
   }
 
   async loadCatalog(input: { workspaceId: string; userId: string }) {
@@ -132,7 +183,7 @@ export class RecordCatalog {
         where: { workspaceId: input.workspaceId },
         orderBy: [{ year: "desc" }, { week: "desc" }],
         include: {
-          highlight: { select: { id: true, title: true, completedAt: true } },
+          highlight: { select: { id: true, title: true, completedAt: true, content: true } },
           reports: {
             include: {
               author: { select: { id: true, username: true, displayName: true } },
@@ -171,10 +222,15 @@ export class RecordCatalog {
       .map((cycle) => ({
         id: cycle.highlight!.id,
         cycleId: cycle.id,
+        year: cycle.year,
         week: cycle.week,
         title: cycle.highlight!.title,
         completedAt: cycle.highlight!.completedAt?.toISOString() ?? null,
-      }));
+        generating: isHighlightGenerating(asHighlightContent(cycle.highlight!.content)),
+      }))
+      .sort((left, right) =>
+        left.year !== right.year ? right.year - left.year : right.week - left.week,
+      );
 
     const templateEntries = cycles
       .flatMap((cycle) =>
@@ -218,6 +274,7 @@ export class RecordCatalog {
       week: number;
       sendArmed: boolean;
       alreadySent: boolean;
+      autoSendCancelled: boolean;
       interactive: boolean;
       appliedSchedule: {
         sendWeekday: number;
@@ -241,12 +298,22 @@ export class RecordCatalog {
           row.week === currentWeek.week &&
           row.hasAssignments,
       );
+      const formatDoc = await this.db.weeklyReport.findFirst({
+        where: { id: formatReport.id },
+        select: { content: true },
+      });
+      const autoSendCancelled = isAutoSendCancelled(
+        asReportContent(formatDoc?.content),
+        currentWeek.year,
+        currentWeek.week,
+      );
       const sendArmed = isWeeklySendArmed({
         applied: true,
         alreadySent: alreadySentThisWeek,
         sendWeekday: settings.sendWeekday,
         sendTime: settings.sendTime,
         scheduleEnabled: settings.scheduleEnabled,
+        autoSendCancelled,
         now,
       });
       formatChips.push({
@@ -257,6 +324,7 @@ export class RecordCatalog {
         week: currentWeek.week,
         sendArmed,
         alreadySent: alreadySentThisWeek,
+        autoSendCancelled,
         interactive: true,
         appliedSchedule: {
           sendWeekday: settings.sendWeekday,
@@ -274,43 +342,81 @@ export class RecordCatalog {
         week: currentWeek.week,
         sendArmed: false,
         alreadySent: false,
+        autoSendCancelled: false,
         interactive: false,
         appliedSchedule: null,
       });
     }
 
-    const memberTemplates = overviews.map(({ entry: { cycle, report } }) => ({
-      id: report.id,
-      title: report.title,
-      status: report.status,
-      year: cycle.year,
-      week: cycle.week,
-      cycleId: cycle.id,
-      submissions: cycle.reports
-        .filter(
-          (candidate) =>
-            candidate.kind === "member" &&
-            candidate.sourceTemplateId === report.id &&
-            isVisibleTemplateSubmission(candidate.status),
-        )
-        .map((submission) => ({
-          id: submission.id,
-          title: submission.title,
-          status: submission.status,
+    const memberWeeksMap = new Map<
+      string,
+      {
+        year: number;
+        week: number;
+        title: string;
+        submissions: Array<{
+          id: string;
+          title: string;
+          status: string;
+          submittedAt: string | null;
+          sourceTemplateId: string | null;
+          author: { userId: string; username: string; displayName: string };
+        }>;
+      }
+    >();
+    for (const {
+      entry: { cycle, report },
+    } of overviews) {
+      const key = `${cycle.year}-${cycle.week}`;
+      let week = memberWeeksMap.get(key);
+      if (!week) {
+        week = {
+          year: cycle.year,
+          week: cycle.week,
+          title: memberWeekTitle(cycle.year, cycle.week),
+          submissions: [],
+        };
+        memberWeeksMap.set(key, week);
+      }
+      for (const candidate of cycle.reports) {
+        if (
+          candidate.kind !== "member" ||
+          candidate.sourceTemplateId !== report.id ||
+          !isVisibleTemplateSubmission(candidate.status)
+        ) {
+          continue;
+        }
+        if (week.submissions.some((row) => row.id === candidate.id)) continue;
+        const displayName = candidate.author.displayName ?? candidate.author.username;
+        week.submissions.push({
+          id: candidate.id,
+          title: memberReportTitle(displayName, cycle.year, cycle.week),
+          status: candidate.status,
+          submittedAt:
+            candidate.submittedAt instanceof Date ? candidate.submittedAt.toISOString() : null,
+          sourceTemplateId: candidate.sourceTemplateId,
           author: {
-            userId: submission.author.id,
-            username: submission.author.username,
-            displayName: submission.author.displayName ?? submission.author.username,
+            userId: candidate.author.id,
+            username: candidate.author.username,
+            displayName,
           },
-        })),
-    }));
+        });
+      }
+    }
+    const memberWeeks = [...memberWeeksMap.values()].sort((left, right) =>
+      left.year !== right.year ? right.year - left.year : right.week - left.week,
+    );
 
     return {
       actorUserId: input.userId,
       actorDisplayName: me?.displayName ?? me?.username ?? "",
       favorites: favorites.map((row) => ({
         id: row.report.id,
-        title: row.report.title,
+        title: memberReportTitle(
+          row.report.author.displayName ?? row.report.author.username,
+          row.report.cycle.year,
+          row.report.cycle.week,
+        ),
         author: {
           userId: row.report.author.id,
           username: row.report.author.username,
@@ -323,7 +429,11 @@ export class RecordCatalog {
           .filter((report) => report.kind === "member" && report.authorId === input.userId)
           .map((report) => ({
             id: report.id,
-            title: report.title,
+            title: memberReportTitle(
+              me?.displayName ?? me?.username ?? report.title,
+              cycle.year,
+              cycle.week,
+            ),
             status: report.status,
             unread: isAssignmentUnread(asReportContent(report.content)),
             sourceTemplateId: report.sourceTemplateId,
@@ -331,7 +441,7 @@ export class RecordCatalog {
             week: cycle.week,
           })),
       ),
-      memberTemplates,
+      memberWeeks,
       formatChips,
       notes: notes.map((note) => ({
         id: note.id,
@@ -341,6 +451,60 @@ export class RecordCatalog {
         updatedAt: note.updatedAt.toISOString(),
       })),
     };
+  }
+
+  /** Records rail dot: any applied scheduled stream is in the one-hour preview and not cancelled. */
+  async loadNavAttention(input: { workspaceId: string; userId: string; now?: Date }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const now = input.now ?? new Date();
+    const currentWeek = currentIsoWeek(zonedCalendarDate(now));
+    const settings = await this.db.weeklyReportTemplate.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        ownerId: input.userId,
+        applied: true,
+        scheduleEnabled: true,
+      },
+      select: { id: true, sendWeekday: true, sendTime: true },
+    });
+    for (const row of settings) {
+      const alreadySent = await this.db.weeklyReport.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          authorId: input.userId,
+          kind: "template",
+          settingsId: row.id,
+          cycle: { year: currentWeek.year, week: currentWeek.week },
+          submissions: { some: { kind: "member" } },
+        },
+        select: { id: true },
+      });
+      const live = await this.db.weeklyReport.findFirst({
+        where: {
+          workspaceId: input.workspaceId,
+          authorId: input.userId,
+          kind: "template",
+          settingsId: row.id,
+          submissions: { none: { kind: "member" } },
+        },
+        select: { content: true },
+      });
+      const armed = isWeeklySendArmed({
+        applied: true,
+        alreadySent: Boolean(alreadySent),
+        sendWeekday: row.sendWeekday,
+        sendTime: row.sendTime,
+        scheduleEnabled: true,
+        autoSendCancelled: isAutoSendCancelled(
+          asReportContent(live?.content),
+          currentWeek.year,
+          currentWeek.week,
+        ),
+        now,
+      });
+      if (armed) return { preview: true as const };
+    }
+    return { preview: false as const };
   }
 
   /**
@@ -414,10 +578,24 @@ export class RecordCatalog {
       userId: input.userId,
       now: input.now,
     });
-    const content =
+    const previous = await this.db.weeklyReport.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        authorId: input.userId,
+        kind: "template",
+        settingsId: input.settingsId,
+      },
+      orderBy: { updatedAt: "desc" },
+      select: { content: true },
+    });
+    const previousPrompt = asReportContent(previous?.content).highlightPrompt;
+    let content =
       input.sections && input.sections.length > 0
         ? reportContentFromSections(input.sections)
         : emptyReportContent();
+    if (previousPrompt) {
+      content = withHighlightPrompt(content, previousPrompt);
+    }
     const created = await this.db.weeklyReport.create({
       data: {
         workspaceId: input.workspaceId,
@@ -539,7 +717,7 @@ export class RecordCatalog {
         workspaceId: input.workspaceId,
         cycleId: cycle.id,
         title: highlightTitle(cycle.year, cycle.week),
-        content: emptyHighlightContent() as unknown as Prisma.InputJsonValue,
+        content: generatingHighlightContent() as unknown as Prisma.InputJsonValue,
       },
       select: { id: true, title: true },
     });
@@ -807,6 +985,26 @@ export class RecordCatalog {
         continue;
       }
 
+      const liveFormat = await this.db.weeklyReport.findFirst({
+        where: {
+          workspaceId: row.workspaceId,
+          authorId: row.ownerId,
+          kind: "template",
+          settingsId: row.id,
+          submissions: { none: { kind: "member" } },
+        },
+        select: { content: true },
+      });
+      if (liveFormat && isAutoSendCancelled(asReportContent(liveFormat.content), year, week)) {
+        results.push({
+          workspaceId: row.workspaceId,
+          templateId: row.id,
+          status: "skipped",
+          reason: "auto-send-cancelled",
+        });
+        continue;
+      }
+
       const source = await this.ensureFormatForSettings({
         workspaceId: row.workspaceId,
         userId: row.ownerId,
@@ -878,6 +1076,47 @@ export class RecordCatalog {
     return { ok: true as const };
   }
 
+  async setReportFavorite(input: {
+    workspaceId: string;
+    userId: string;
+    reportId: string;
+    favorited: boolean;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const report = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.reportId,
+        workspaceId: input.workspaceId,
+        kind: "member",
+      },
+      select: {
+        id: true,
+        authorId: true,
+        sourceTemplate: { select: { authorId: true } },
+      },
+    });
+    if (!report) throw new AppError("NOT_FOUND");
+    const canAccess =
+      report.authorId === input.userId || report.sourceTemplate?.authorId === input.userId;
+    if (!canAccess) throw new AppError("NOT_FOUND");
+
+    if (input.favorited) {
+      await this.db.weeklyReportFavorite.upsert({
+        where: {
+          userId_reportId: { userId: input.userId, reportId: report.id },
+        },
+        create: { userId: input.userId, reportId: report.id },
+        update: {},
+      });
+      return { favorited: true as const };
+    }
+
+    await this.db.weeklyReportFavorite.deleteMany({
+      where: { userId: input.userId, reportId: report.id },
+    });
+    return { favorited: false as const };
+  }
+
   async deleteTemplateReport(input: { workspaceId: string; userId: string; reportId: string }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
     const report = await this.db.weeklyReport.findFirst({
@@ -912,7 +1151,12 @@ export class RecordCatalog {
       include: {
         author: { select: { id: true, username: true, displayName: true } },
         cycle: { select: { id: true, year: true, week: true, title: true } },
-        sourceTemplate: { select: { authorId: true } },
+        sourceTemplate: {
+          select: {
+            authorId: true,
+            author: { select: { id: true, username: true, displayName: true } },
+          },
+        },
       },
     });
     if (report) {
@@ -974,7 +1218,11 @@ export class RecordCatalog {
               })
             ).map((child) => ({
               id: child.id,
-              title: child.title,
+              title: memberReportTitle(
+                child.author.displayName ?? child.author.username,
+                report.cycle.year,
+                report.cycle.week,
+              ),
               status: child.status,
               author: {
                 userId: child.author.id,
@@ -988,7 +1236,14 @@ export class RecordCatalog {
         report: {
           id: report.id,
           kind: report.kind,
-          title: report.title,
+          title:
+            report.kind === "member"
+              ? memberReportTitle(
+                  report.author.displayName ?? report.author.username,
+                  report.cycle.year,
+                  report.cycle.week,
+                )
+              : report.title,
           status: report.status,
           content,
           submittedAt: report.submittedAt?.toISOString() ?? null,
@@ -998,6 +1253,16 @@ export class RecordCatalog {
             username: report.author.username,
             displayName: report.author.displayName ?? report.author.username,
           },
+          sharedBy:
+            report.kind === "member" && report.sourceTemplate?.author
+              ? {
+                  userId: report.sourceTemplate.author.id,
+                  username: report.sourceTemplate.author.username,
+                  displayName:
+                    report.sourceTemplate.author.displayName ??
+                    report.sourceTemplate.author.username,
+                }
+              : null,
           cycle: report.cycle,
           sourceTemplateId: report.sourceTemplateId,
           unread: isAssignmentUnread(content),
@@ -1013,6 +1278,31 @@ export class RecordCatalog {
                   userId: input.userId,
                   reportId: report.id,
                 })
+              : false,
+          sendSchedule:
+            report.kind === "template" && surface === "format"
+              ? (
+                  await this.loadFormatSendState({
+                    workspaceId: input.workspaceId,
+                    userId: input.userId,
+                    reportId: report.id,
+                  })
+                ).schedule
+              : undefined,
+          highlightPrompt:
+            report.kind === "template" && surface === "format"
+              ? (content.highlightPrompt ?? { text: "", history: [] })
+              : undefined,
+          favorited:
+            report.kind === "member"
+              ? Boolean(
+                  await this.db.weeklyReportFavorite.findUnique({
+                    where: {
+                      userId_reportId: { userId: input.userId, reportId: report.id },
+                    },
+                    select: { reportId: true },
+                  }),
+                )
               : false,
           children,
         },
@@ -1031,6 +1321,7 @@ export class RecordCatalog {
           title: highlight.title,
           content: asHighlightContent(highlight.content),
           completedAt: highlight.completedAt?.toISOString() ?? null,
+          generating: isHighlightGenerating(asHighlightContent(highlight.content)),
           cycle: highlight.cycle,
         },
       };
@@ -1163,12 +1454,48 @@ export class RecordCatalog {
     return { id: report.id, unread: false as const };
   }
 
+  async saveHighlightPrompt(input: {
+    workspaceId: string;
+    userId: string;
+    reportId: string;
+    text: string;
+    now?: Date;
+  }): Promise<{ highlightPrompt: HighlightPromptState }> {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const report = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.reportId,
+        workspaceId: input.workspaceId,
+        authorId: input.userId,
+        kind: "template",
+        submissions: { none: { kind: "member" } },
+      },
+      select: { id: true, content: true },
+    });
+    if (!report) throw new AppError("NOT_FOUND");
+    const stored = asReportContent(report.content);
+    const highlightPrompt = applyHighlightPromptText(
+      stored.highlightPrompt,
+      input.text,
+      input.now ?? new Date(),
+    );
+    const next = withHighlightPrompt(stored, highlightPrompt);
+    await this.db.weeklyReport.update({
+      where: { id: report.id },
+      data: { content: next as unknown as Prisma.InputJsonValue },
+    });
+    return { highlightPrompt };
+  }
+
   async saveReportContent(input: {
     workspaceId: string;
     userId: string;
     reportId: string;
     content: ReportContent;
     status?: "draft" | "submitted" | "shared";
+    now?: Date;
+    /** Explicit「保存」: ask assistant whether to send when still eligible. */
+    askToSend?: boolean;
   }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
     const report = await this.db.weeklyReport.findFirst({
@@ -1178,6 +1505,8 @@ export class RecordCatalog {
         authorId: true,
         kind: true,
         settingsId: true,
+        content: true,
+        cycle: { select: { year: true, week: true } },
         submissions: { where: { kind: "member" }, select: { id: true }, take: 1 },
       },
     });
@@ -1190,7 +1519,47 @@ export class RecordCatalog {
     ) {
       throw new AppError("ACCESS_DENIED");
     }
-    const content = normalizeReportContent(input.content);
+    const stored = asReportContent(report.content);
+    let content = normalizeReportContent(input.content);
+    if (stored.schedule && !content.schedule) {
+      content = { ...content, schedule: stored.schedule };
+    }
+    if (stored.highlightPrompt && !content.highlightPrompt) {
+      content = { ...content, highlightPrompt: stored.highlightPrompt };
+    }
+    const now = input.now ?? new Date();
+    const week = report.cycle ?? currentIsoWeek(zonedCalendarDate(now));
+    const wasCancelled = isAutoSendCancelled(stored, week.year, week.week);
+    let autoSendJustCancelled = false;
+    if (
+      report.kind === "template" &&
+      report.submissions.length === 0 &&
+      report.settingsId &&
+      !reportTabsEqual(stored, content)
+    ) {
+      const settings = await this.db.weeklyReportTemplate.findFirst({
+        where: {
+          id: report.settingsId,
+          workspaceId: input.workspaceId,
+          ownerId: input.userId,
+        },
+        select: { sendWeekday: true, sendTime: true, scheduleEnabled: true },
+      });
+      if (
+        settings?.scheduleEnabled &&
+        canSendWeeklyAssignmentsNow({
+          applied: true,
+          alreadySent: false,
+          sendWeekday: settings.sendWeekday,
+          sendTime: settings.sendTime,
+          scheduleEnabled: true,
+          now,
+        })
+      ) {
+        content = withAutoSendCancelled(content, week.year, week.week);
+        autoSendJustCancelled = !wasCancelled;
+      }
+    }
     const updated = await this.db.weeklyReport.update({
       where: { id: report.id },
       data: {
@@ -1212,7 +1581,45 @@ export class RecordCatalog {
         content,
       });
     }
-    return { id: updated.id, status: updated.status, updatedAt: updated.updatedAt.toISOString() };
+
+    let assistantPosted = false;
+    if (report.kind === "template" && report.submissions.length === 0) {
+      if (autoSendJustCancelled) {
+        await this.writeAssistantComment({
+          workspaceId: input.workspaceId,
+          subjectType: "report",
+          subjectId: report.id,
+          body: "已取消本周自动发送。保存后请手动发送周报模板。",
+        });
+        assistantPosted = true;
+      }
+      if (input.askToSend) {
+        const canSend = await this.canSendWeeklyAssignments({
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          reportId: report.id,
+          now,
+        });
+        if (canSend) {
+          await this.writeAssistantComment({
+            workspaceId: input.workspaceId,
+            subjectType: "report",
+            subjectId: report.id,
+            body: "模板已保存。要现在发送给名单中的成员吗？",
+            payload: { kind: "offer-send" },
+          });
+          assistantPosted = true;
+        }
+      }
+    }
+
+    return {
+      id: updated.id,
+      status: updated.status,
+      updatedAt: updated.updatedAt.toISOString(),
+      autoSendJustCancelled,
+      assistantPosted,
+    };
   }
 
   async saveHighlightContent(input: {
@@ -1231,7 +1638,7 @@ export class RecordCatalog {
     const updated = await this.db.weeklyReportHighlight.update({
       where: { id: highlight.id },
       data: {
-        content: input.content as unknown as Prisma.InputJsonValue,
+        content: normalizeHighlightContent(input.content) as unknown as Prisma.InputJsonValue,
         ...(input.markCompleted ? { completedAt: new Date() } : {}),
       },
     });
@@ -1338,6 +1745,7 @@ export class RecordCatalog {
     await requireMembership(this.db, input.workspaceId, input.userId);
     if (!isValidTemplateName(input.name)) throw new AppError("INVALID_INPUT");
     if (input.sendWeekday < 1 || input.sendWeekday > 7) throw new AppError("INVALID_INPUT");
+    if (!isHourlySendTime(input.sendTime)) throw new AppError("INVALID_INPUT");
     if (!input.allMembers && input.recipientUserIds.length > 0) {
       const members = await this.db.workspaceMembership.count({
         where: {
@@ -1386,6 +1794,7 @@ export class RecordCatalog {
     await requireMembership(this.db, input.workspaceId, input.userId);
     if (!isValidTemplateName(input.name)) throw new AppError("INVALID_INPUT");
     if (input.sendWeekday < 1 || input.sendWeekday > 7) throw new AppError("INVALID_INPUT");
+    if (!isHourlySendTime(input.sendTime)) throw new AppError("INVALID_INPUT");
     const template = await this.db.weeklyReportTemplate.findFirst({
       where: { id: input.templateId, workspaceId: input.workspaceId, ownerId: input.userId },
       select: { id: true, applied: true, name: true },
@@ -1494,6 +1903,257 @@ export class RecordCatalog {
           weeks: Object.fromEntries(byWeek),
         };
       }),
+    };
+  }
+
+  private async writeAssistantComment(input: {
+    workspaceId: string;
+    subjectType: "report" | "highlight" | "cycle";
+    subjectId: string;
+    body: string;
+    payload?: RecordAssistantPayload;
+  }) {
+    return this.db.recordComment.create({
+      data: {
+        workspaceId: input.workspaceId,
+        subjectType: input.subjectType,
+        authorType: "assistant",
+        authorUserId: null,
+        body: input.body,
+        ...(input.payload ? { payload: input.payload as unknown as Prisma.InputJsonValue } : {}),
+        reportId: input.subjectType === "report" ? input.subjectId : null,
+        highlightId: input.subjectType === "highlight" ? input.subjectId : null,
+        cycleId: input.subjectType === "cycle" ? input.subjectId : null,
+      },
+    });
+  }
+
+  private async loadHighlightMembers(input: {
+    workspaceId: string;
+    cycleId: string;
+  }): Promise<HighlightMemberCandidate[]> {
+    const rows = await this.db.weeklyReport.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        cycleId: input.cycleId,
+        kind: "member",
+      },
+      select: {
+        id: true,
+        authorId: true,
+        status: true,
+        author: { select: { displayName: true, username: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    return rows.map((row) => {
+      const submitted = row.status === "submitted" || row.status === "shared";
+      return {
+        userId: row.authorId,
+        displayName: row.author.displayName ?? row.author.username,
+        submitted,
+        reportId: submitted ? row.id : undefined,
+      };
+    });
+  }
+
+  async ensureAssistantIntro(input: {
+    workspaceId: string;
+    userId: string;
+    subjectType: "report" | "highlight" | "cycle";
+    subjectId: string;
+    surface: "format" | "member-leader" | "highlight" | "plain";
+    formatCopy?: "preview" | "cancelled" | "ready";
+  }) {
+    const existing = await this.listComments(input);
+    if (existing.length > 0 || input.surface === "plain") return existing;
+
+    if (input.surface === "format") {
+      const body =
+        input.formatCopy === "cancelled"
+          ? "已取消本周自动发送。保存后请手动发送周报模板。"
+          : input.formatCopy === "preview"
+            ? "本周模板已进入发送预览。一小时内未编辑将自动发给名单；也可现在发送。"
+            : "需要把周报模板发给成员时，保存后点击发送即可。";
+      await this.writeAssistantComment({
+        workspaceId: input.workspaceId,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+        body,
+      });
+    } else if (input.surface === "member-leader" && input.subjectType === "report") {
+      const report = await this.db.weeklyReport.findFirst({
+        where: { id: input.subjectId, workspaceId: input.workspaceId },
+        select: { cycleId: true },
+      });
+      const members = report
+        ? await this.loadHighlightMembers({
+            workspaceId: input.workspaceId,
+            cycleId: report.cycleId,
+          })
+        : [];
+      await this.writeAssistantComment({
+        workspaceId: input.workspaceId,
+        subjectType: "report",
+        subjectId: input.subjectId,
+        body: "要生成本周周报要点吗？可以选择全部已提交成员，或只选部分成员。",
+        payload: { kind: "offer-generate", members },
+      });
+    } else if (input.surface === "highlight") {
+      await this.writeAssistantComment({
+        workspaceId: input.workspaceId,
+        subjectType: "highlight",
+        subjectId: input.subjectId,
+        body: "这是本周周报要点。条目下的 @ 可跳到对应成员周报。",
+      });
+    }
+
+    return this.listComments(input);
+  }
+
+  async postSideChat(input: {
+    workspaceId: string;
+    userId: string;
+    subjectType: "report" | "highlight" | "cycle";
+    subjectId: string;
+    body: string;
+  }) {
+    await this.addUserComment(input);
+    if (input.subjectType === "report" && looksLikeGenerateHighlightsRequest(input.body)) {
+      const report = await this.db.weeklyReport.findFirst({
+        where: { id: input.subjectId, workspaceId: input.workspaceId },
+        select: { cycleId: true },
+      });
+      const leaderTemplate = report
+        ? await this.db.weeklyReport.findFirst({
+            where: {
+              workspaceId: input.workspaceId,
+              cycleId: report.cycleId,
+              authorId: input.userId,
+              kind: "template",
+            },
+            select: { id: true },
+          })
+        : null;
+      if (report && leaderTemplate) {
+        const members = await this.loadHighlightMembers({
+          workspaceId: input.workspaceId,
+          cycleId: report.cycleId,
+        });
+        await this.writeAssistantComment({
+          workspaceId: input.workspaceId,
+          subjectType: "report",
+          subjectId: input.subjectId,
+          body: "请选择要纳入要点的成员，然后确认。",
+          payload: { kind: "pick-members", members },
+        });
+      }
+    }
+    return this.listComments(input);
+  }
+
+  async generateWeeklyHighlights(input: {
+    workspaceId: string;
+    userId: string;
+    reportId: string;
+    memberIds: "all" | string[];
+    now?: Date;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const source = await this.db.weeklyReport.findFirst({
+      where: { id: input.reportId, workspaceId: input.workspaceId },
+      select: { id: true, cycleId: true, cycle: { select: { year: true, week: true } } },
+    });
+    if (!source) throw new AppError("NOT_FOUND");
+    const leaderTemplate = await this.db.weeklyReport.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        cycleId: source.cycleId,
+        authorId: input.userId,
+        kind: "template",
+      },
+      select: { id: true },
+    });
+    if (!leaderTemplate) throw new AppError("ACCESS_DENIED");
+
+    const submissions = await this.db.weeklyReport.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        cycleId: source.cycleId,
+        kind: "member",
+        status: { in: ["submitted", "shared"] },
+      },
+      select: {
+        id: true,
+        authorId: true,
+        content: true,
+        author: { select: { displayName: true, username: true } },
+      },
+    });
+    if (input.memberIds !== "all") {
+      const allowed = new Set(submissions.map((row) => row.authorId));
+      if (input.memberIds.some((id) => !allowed.has(id))) {
+        throw new AppError("INVALID_INPUT");
+      }
+    }
+    const selected =
+      input.memberIds === "all"
+        ? submissions
+        : submissions.filter((row) => input.memberIds.includes(row.authorId));
+    if (selected.length === 0) throw new AppError("INVALID_INPUT");
+
+    const extracted = extractWeeklyHighlightContent(
+      selected.map((row) => ({
+        reportId: row.id,
+        userId: row.authorId,
+        displayName: row.author.displayName ?? row.author.username,
+        content: asReportContent(row.content),
+      })),
+    );
+    const now = input.now ?? new Date();
+    const title = highlightTitle(source.cycle.year, source.cycle.week);
+    const existing = await this.db.weeklyReportHighlight.findUnique({
+      where: { cycleId: source.cycleId },
+      select: { id: true, title: true },
+    });
+    const highlight = existing
+      ? existing
+      : await this.db.weeklyReportHighlight.create({
+          data: {
+            workspaceId: input.workspaceId,
+            cycleId: source.cycleId,
+            title,
+            content: generatingHighlightContent() as unknown as Prisma.InputJsonValue,
+          },
+          select: { id: true, title: true },
+        });
+    await this.db.weeklyReportHighlight.update({
+      where: { id: highlight.id },
+      data: {
+        title,
+        content: extracted as unknown as Prisma.InputJsonValue,
+        completedAt: now,
+      },
+    });
+    await this.writeAssistantComment({
+      workspaceId: input.workspaceId,
+      subjectType: "report",
+      subjectId: source.id,
+      body: "本周周报要点已生成。",
+      payload: { kind: "generated", highlightId: highlight.id },
+    });
+    await this.writeAssistantComment({
+      workspaceId: input.workspaceId,
+      subjectType: "highlight",
+      subjectId: highlight.id,
+      body: "本周周报要点已根据所选成员周报生成。",
+      payload: { kind: "generated", highlightId: highlight.id },
+    });
+    return {
+      highlightId: highlight.id,
+      title,
+      year: source.cycle.year,
+      week: source.cycle.week,
     };
   }
 

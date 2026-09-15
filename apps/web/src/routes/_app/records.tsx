@@ -9,6 +9,7 @@ import {
 import { PageLoadError } from "@/features/errors/page-load-error";
 import { RecordsLayout, type RecordsTab } from "@/features/records/records-layout";
 import { loadRecordsCatalog } from "@/features/records/records.functions";
+import { latestWeeklyHighlight } from "@/features/records/records-sidebar";
 
 export const Route = createFileRoute("/_app/records")({
   validateSearch: (search: Record<string, unknown>): { tab: RecordsTab } => ({
@@ -33,11 +34,17 @@ function RecordsPage() {
     : matchRoute({ to: "/records/stats", fuzzy: false })
       ? "stats"
       : null;
+  const routeRecordId = params?.recordId;
+  const landingHighlightId =
+    tab === "weekly" && !selectedPanel && !routeRecordId
+      ? latestWeeklyHighlight(catalog.highlights)?.id
+      : undefined;
 
   return (
     <RecordsLayout
       catalog={catalog}
-      selectedRecordId={params?.recordId}
+      selectedRecordId={routeRecordId ?? landingHighlightId}
+      detailOpen={Boolean(routeRecordId || selectedPanel)}
       selectedPanel={selectedPanel}
       tab={tab}
       onTabChange={(next) => {

@@ -12,7 +12,7 @@ export const SIDEBAR_RAIL_WIDTH = 70;
 
 type RailItemType = NavItemType & { icon: FC<{ className?: string }>; current?: boolean };
 
-function RailItem({ href, icon: Icon, label, current }: RailItemType) {
+function RailItem({ href, icon: Icon, label, current, badge }: RailItemType) {
   return (
     <a
       href={href}
@@ -22,7 +22,7 @@ function RailItem({ href, icon: Icon, label, current }: RailItemType) {
     >
       <span
         className={cx(
-          "flex size-10 items-center justify-center rounded-lg transition-colors duration-100 ease-linear",
+          "relative flex size-10 items-center justify-center rounded-lg transition-colors duration-100 ease-linear",
           current ? "bg-sidebar-accent" : "group-hover:bg-sidebar-accent",
         )}
       >
@@ -33,6 +33,12 @@ function RailItem({ href, icon: Icon, label, current }: RailItemType) {
             current ? "text-brand-secondary" : "text-tertiary group-hover:text-secondary",
           )}
         />
+        {badge ? (
+          <span
+            aria-hidden="true"
+            className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-brand-solid"
+          />
+        ) : null}
       </span>
       <span
         className={cx(

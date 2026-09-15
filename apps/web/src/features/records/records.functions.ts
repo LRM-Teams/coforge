@@ -9,7 +9,11 @@ import { requireExistingWorkspaceId } from "../../server/workspaces/enrollment.s
 import { preferredWorkspaceSlugFromRequest } from "../../server/workspaces/selection.server";
 import { recordCatalog } from "../../server/records/record-catalog.server";
 import { tryCreateWeeklyAssignmentDelivery } from "../../server/records/weekly-assignment-delivery-composition.server";
-import { normalizeReportContent, type ReportContent } from "./records-content";
+import {
+  normalizeReportContent,
+  normalizeHighlightContent,
+  type ReportContent,
+} from "./records-content";
 
 function catalog() {
   const db = getDatabaseClient();
@@ -39,12 +43,27 @@ const reportContentSchema: z.ZodType<ReportContent> = z.object({
 });
 
 const highlightContentSchema = z.object({
+  generating: z.boolean().optional(),
   blocks: z.array(
     z.object({
       id: z.string().min(1),
       heading: z.string(),
       paragraphs: z.array(z.string()),
-      items: z.array(z.string()),
+      items: z.array(
+        z.union([
+          z.string(),
+          z.object({
+            text: z.string(),
+            sources: z.array(
+              z.object({
+                reportId: z.string().min(1),
+                userId: z.string().min(1),
+                displayName: z.string(),
+              }),
+            ),
+          }),
+        ]),
+      ),
     }),
   ),
 });
@@ -53,6 +72,12 @@ export const loadRecordsCatalog = createServerFn({ method: "GET" }).handler(asyn
   const user = currentUser();
   const workspaceId = await currentWorkspaceId(user.id);
   return catalog().catalog.loadCatalog({ workspaceId, userId: user.id });
+});
+
+export const loadRecordsNavAttention = createServerFn({ method: "GET" }).handler(async () => {
+  const user = currentUser();
+  const workspaceId = await currentWorkspaceId(user.id);
+  return catalog().catalog.loadNavAttention({ workspaceId, userId: user.id });
 });
 
 export const createWeeklyHighlight = createServerFn({ method: "POST" }).handler(async () => {
@@ -82,6 +107,24 @@ export const deleteMemberWeeklyReport = createServerFn({ method: "POST" })
       workspaceId,
       userId: user.id,
       reportId: data.reportId,
+    });
+  });
+
+export const setWeeklyReportFavorite = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      reportId: z.string().uuid(),
+      favorited: z.boolean(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    const workspaceId = await currentWorkspaceId(user.id);
+    return catalog().catalog.setReportFavorite({
+      workspaceId,
+      userId: user.id,
+      reportId: data.reportId,
+      favorited: data.favorited,
     });
   });
 
@@ -155,6 +198,7 @@ export const saveWeeklyReportContent = createServerFn({ method: "POST" })
       reportId: z.string().uuid(),
       content: reportContentSchema,
       status: z.enum(["draft", "submitted", "shared"]).optional(),
+      askToSend: z.boolean().optional(),
     }),
   )
   .handler(async ({ data }) => {
@@ -166,6 +210,7 @@ export const saveWeeklyReportContent = createServerFn({ method: "POST" })
       reportId: data.reportId,
       content: normalizeReportContent(data.content),
       status: data.status,
+      askToSend: data.askToSend,
     });
   });
 
@@ -214,8 +259,26 @@ export const saveWeeklyHighlightContent = createServerFn({ method: "POST" })
       workspaceId,
       userId: user.id,
       highlightId: data.highlightId,
-      content: data.content,
+      content: normalizeHighlightContent(data.content),
       markCompleted: data.markCompleted,
+    });
+  });
+
+export const saveWeeklyHighlightPrompt = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      reportId: z.string().uuid(),
+      text: z.string().max(20_000),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    const workspaceId = await currentWorkspaceId(user.id);
+    return catalog().catalog.saveHighlightPrompt({
+      workspaceId,
+      userId: user.id,
+      reportId: data.reportId,
+      text: data.text,
     });
   });
 
@@ -357,11 +420,51 @@ export const addRecordComment = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = currentUser();
     const workspaceId = await currentWorkspaceId(user.id);
-    return catalog().catalog.addUserComment({
+    return catalog().catalog.postSideChat({
       workspaceId,
       userId: user.id,
       subjectType: data.subjectType,
       subjectId: data.subjectId,
       body: data.body,
+    });
+  });
+
+export const ensureRecordAssistantIntro = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      subjectType: z.enum(["report", "highlight", "cycle"]),
+      subjectId: z.string().uuid(),
+      surface: z.enum(["format", "member-leader", "highlight", "plain"]),
+      formatCopy: z.enum(["preview", "cancelled", "ready"]).optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    const workspaceId = await currentWorkspaceId(user.id);
+    return catalog().catalog.ensureAssistantIntro({
+      workspaceId,
+      userId: user.id,
+      subjectType: data.subjectType,
+      subjectId: data.subjectId,
+      surface: data.surface,
+      formatCopy: data.formatCopy,
+    });
+  });
+
+export const generateWeeklyHighlights = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      reportId: z.string().uuid(),
+      memberIds: z.union([z.literal("all"), z.array(z.string().uuid()).min(1)]),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const user = currentUser();
+    const workspaceId = await currentWorkspaceId(user.id);
+    return catalog().catalog.generateWeeklyHighlights({
+      workspaceId,
+      userId: user.id,
+      reportId: data.reportId,
+      memberIds: data.memberIds,
     });
   });

@@ -1,11 +1,19 @@
-import { useEffect, useState, type ChangeEvent, type DragEvent, type KeyboardEvent } from "react";
-import { Plus, XClose as X } from "@untitledui/icons";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type KeyboardEvent,
+} from "react";
+import { ChevronLeft, ChevronRight, Plus, XClose as X } from "@untitledui/icons";
 
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { m } from "@/paraglide/messages";
+import { LeaderFormatSectionsEditor } from "./leader-format-sections-editor";
 import { ReportSectionEditor } from "./report-editor/report-section-editor";
-import { ReportTemplateOutlineEditor } from "./report-template-outline-editor";
 import type { ReportContent } from "./records-content";
 import { cn } from "@/lib/utils";
 import type { UploadResult } from "./report-editor/types";
@@ -24,7 +32,7 @@ export function ReportTabsEditor({
   editableTabs?: boolean;
   placeholder: string;
   onChange: (content: ReportContent) => void;
-  onBlur: () => void;
+  onBlur?: () => void;
   onUploadFile?: (file: File) => Promise<UploadResult | null>;
 }) {
   const pages = content.tabs ?? { Summary: { markdown: content.markdown ?? "" } };
@@ -33,14 +41,38 @@ export function ReportTabsEditor({
   const [editingTab, setEditingTab] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [draggedTab, setDraggedTab] = useState<string | null>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [tabOverflow, setTabOverflow] = useState({ left: false, right: false });
   const activeTab = tabNames.includes(selectedTab) ? selectedTab : (tabNames[0] ?? "");
 
   useEffect(() => {
     if (!tabNames.includes(selectedTab)) setSelectedTab(tabNames[0] ?? "");
   }, [selectedTab, tabNames.join("\u0000")]);
 
+  function updateTabOverflow() {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    setTabOverflow({
+      left: scroller.scrollLeft > 4,
+      right: scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 4,
+    });
+  }
+
+  useLayoutEffect(() => {
+    updateTabOverflow();
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const observer = new ResizeObserver(() => updateTabOverflow());
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [tabNames.join("\u0000")]);
+
+  function scrollTabs(direction: -1 | 1) {
+    scrollerRef.current?.scrollBy({ left: direction * 160, behavior: "smooth" });
+  }
+
   function defaultTabName() {
-    const base = m.records_template_default_dimension();
+    const base = m.records_template_heading_level_one();
     if (!pages[base]) return base;
     let index = 2;
     while (pages[`${base} ${index}`]) index += 1;
@@ -56,7 +88,8 @@ export function ReportTabsEditor({
       },
     });
     setSelectedTab(name);
-    commitEditingTab();
+    setEditingTab(name);
+    setEditingName("");
   }
 
   function startEditingTab(name: string) {
@@ -142,80 +175,106 @@ export function ReportTabsEditor({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <nav
-        aria-label={m.records_template_dimension()}
-        className="flex shrink-0 items-end gap-4 overflow-x-auto border-b border-secondary px-4 pt-3 sm:gap-6 sm:px-8"
-      >
-        {tabNames.map((name) => (
-          <div
-            key={name}
-            draggable={editableTabs}
-            onDragStart={(event) => handleDragStart(event, name)}
-            onDragOver={(event) => {
-              if (editableTabs) event.preventDefault();
-            }}
-            onDrop={(event) => handleDrop(event, name)}
-            onDragEnd={() => setDraggedTab(null)}
-            className={cn(
-              "flex shrink-0 items-center gap-0.5",
-              draggedTab === name && "opacity-50",
-            )}
-          >
-            {editingTab === name ? (
-              <input
-                autoFocus
-                value={editingName}
-                aria-label={`${m.records_template_dimension()}: ${name}`}
-                onChange={handleEditChange}
-                onBlur={commitEditingTab}
-                onKeyDown={handleEditKeyDown}
-                className="mb-2 h-8 w-28 min-w-0 border-b-2 border-brand bg-transparent px-0.5 text-sm font-semibold text-primary outline-none"
-              />
-            ) : (
-              <Button
-                type="button"
-                size="sm"
-                color="link-gray"
-                aria-selected={name === activeTab}
-                onPress={() => setSelectedTab(name)}
-                onDoubleClick={() => startEditingTab(name)}
-                className={cn(
-                  "rounded-none border-b-2 px-0.5 pt-1 pb-3.5",
-                  name === activeTab
-                    ? "border-brand text-brand-secondary hover:text-brand-secondary"
-                    : "border-transparent text-tertiary hover:border-brand hover:text-brand-secondary",
-                )}
-              >
-                {name}
-              </Button>
-            )}
-            {editableTabs ? (
-              <ButtonUtility
-                size="xs"
-                color="tertiary"
-                icon={X}
-                aria-label={`${m.records_template_delete()}: ${name}`}
-                isDisabled={tabNames.length <= 1}
-                onClick={() => removeTab(name)}
-                className="mb-2 size-5"
-              />
-            ) : null}
-          </div>
-        ))}
-        {editableTabs ? (
+      <div className="flex shrink-0 items-end gap-1 border-b border-secondary px-2 pt-3 sm:px-6">
+        {tabOverflow.left ? (
           <ButtonUtility
             size="xs"
             color="tertiary"
-            icon={Plus}
-            aria-label={m.records_template_add_dimension()}
-            onClick={addTab}
-            className="mb-2 size-6 p-1"
+            icon={ChevronLeft}
+            aria-label={m.records_format_tab_scroll_prev()}
+            onClick={() => scrollTabs(-1)}
+            className="mb-2 size-6 shrink-0 p-1"
           />
         ) : null}
-      </nav>
+        <nav
+          ref={scrollerRef}
+          aria-label={m.records_template_dimension()}
+          onScroll={updateTabOverflow}
+          className="flex min-w-0 flex-1 items-end gap-4 overflow-x-auto pt-0 sm:gap-6"
+        >
+          {tabNames.map((name) => (
+            <div
+              key={name}
+              draggable={editableTabs}
+              onDragStart={(event) => handleDragStart(event, name)}
+              onDragOver={(event) => {
+                if (editableTabs) event.preventDefault();
+              }}
+              onDrop={(event) => handleDrop(event, name)}
+              onDragEnd={() => setDraggedTab(null)}
+              className={cn(
+                "group flex shrink-0 items-center gap-0.5",
+                draggedTab === name && "opacity-50",
+              )}
+            >
+              {editingTab === name ? (
+                <input
+                  autoFocus
+                  value={editingName}
+                  aria-label={`${m.records_template_dimension()}: ${name}`}
+                  onChange={handleEditChange}
+                  onBlur={commitEditingTab}
+                  onKeyDown={handleEditKeyDown}
+                  className="mb-2 h-8 w-28 min-w-0 border-b-2 border-brand bg-transparent px-0.5 text-sm font-semibold text-primary outline-none"
+                />
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  color="link-gray"
+                  aria-selected={name === activeTab}
+                  onPress={() => setSelectedTab(name)}
+                  onDoubleClick={() => startEditingTab(name)}
+                  className={cn(
+                    "rounded-none border-b-2 px-0.5 pt-1 pb-3.5",
+                    name === activeTab
+                      ? "border-brand text-brand-secondary hover:text-brand-secondary"
+                      : "border-transparent text-tertiary hover:border-brand hover:text-brand-secondary",
+                  )}
+                >
+                  {name}
+                </Button>
+              )}
+              {editableTabs ? (
+                <ButtonUtility
+                  size="xs"
+                  color="tertiary"
+                  icon={X}
+                  aria-label={`${m.records_template_delete()}: ${name}`}
+                  isDisabled={tabNames.length <= 1}
+                  onClick={() => removeTab(name)}
+                  className="mb-2 size-5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                />
+              ) : null}
+            </div>
+          ))}
+        </nav>
+        {tabOverflow.right ? (
+          <ButtonUtility
+            size="xs"
+            color="tertiary"
+            icon={ChevronRight}
+            aria-label={m.records_format_tab_scroll_next()}
+            onClick={() => scrollTabs(1)}
+            className="mb-2 size-6 shrink-0 p-1"
+          />
+        ) : null}
+        {editableTabs ? (
+          <Button
+            type="button"
+            size="sm"
+            color="link-gray"
+            iconLeading={Plus}
+            onPress={addTab}
+            className="mb-2 shrink-0 px-1"
+          >
+            {m.records_template_add_heading_level_one()}
+          </Button>
+        ) : null}
+      </div>
 
       {editableTabs ? (
-        <ReportTemplateOutlineEditor
+        <LeaderFormatSectionsEditor
           key={activeTab}
           defaultValue={activeContent}
           onUpdate={updateMarkdown}

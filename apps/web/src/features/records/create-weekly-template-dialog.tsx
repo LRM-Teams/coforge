@@ -10,6 +10,7 @@ import {
 import { XClose as X } from "@untitledui/icons";
 import { Heading } from "react-aria-components";
 
+import { BadgeWithButton } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Checkbox } from "@/components/base/checkbox/checkbox";
@@ -18,11 +19,12 @@ import { Input } from "@/components/base/input/input";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
-import { isValidTemplateName } from "./records-content";
+import { isValidTemplateName, hourlySendTimes } from "./records-content";
 import { parseTemplateSections, type TemplateOutlineSection } from "./template-outline-sections";
-import type { TemplateMemberOption, WeeklyTemplateList } from "./weekly-report-settings";
+import { memberLabel, type TemplateMemberOption } from "./weekly-template-members";
+import type { WeeklyTemplateList } from "./weekly-report-settings";
 
-const SEND_TIMES = ["09:00", "12:00", "15:00", "18:00"] as const;
+const SEND_TIMES = hourlySendTimes();
 const SEND_WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const;
 
 function weekdayLabel(day: number) {
@@ -295,7 +297,7 @@ export function CreateWeeklyTemplateDialog({
                     hideRequiredIndicator
                     onChange={(value) => {
                       setName(value);
-                      setNameError(false);
+                      setNameError(value.trim().length > 0 && !isValidTemplateName(value));
                     }}
                     placeholder={m.records_template_name_placeholder()}
                     isInvalid={nameError}
@@ -346,49 +348,92 @@ export function CreateWeeklyTemplateDialog({
                   </div>
 
                   <Field label={m.records_template_recipients()}>
-                    <Dropdown.Root>
-                      <Button
-                        type="button"
-                        color="secondary"
-                        className="w-full justify-start font-normal"
-                      >
-                        <span className={recipientLabel ? "truncate" : "truncate text-placeholder"}>
-                          {recipientLabel || m.records_template_recipients_placeholder()}
-                        </span>
-                      </Button>
-                      <Dropdown.Popover placement="bottom start" className="w-80">
-                        <div className="border-b border-secondary p-2">
-                          <Input
-                            size="sm"
-                            type="search"
-                            value={recipientQuery}
-                            onChange={setRecipientQuery}
-                            placeholder={m.records_search_placeholder()}
-                          />
+                    <div className="space-y-2">
+                      {allMembers || recipientIds.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {allMembers ? (
+                            <BadgeWithButton
+                              size="sm"
+                              color="gray"
+                              type="modern"
+                              buttonLabel={m.records_template_remove_recipient({
+                                name: m.records_template_all_members(),
+                              })}
+                              onButtonClick={() => {
+                                setAllMembers(false);
+                                setRecipientIds([]);
+                              }}
+                            >
+                              {m.records_template_all_members()}
+                            </BadgeWithButton>
+                          ) : (
+                            recipientIds.map((id) => {
+                              const member = members.find((row) => row.userId === id);
+                              const name = memberLabel(
+                                member ?? { username: id, displayName: null },
+                              );
+                              return (
+                                <BadgeWithButton
+                                  key={id}
+                                  size="sm"
+                                  color="gray"
+                                  type="modern"
+                                  buttonLabel={m.records_template_remove_recipient({ name })}
+                                  onButtonClick={() => toggleRecipient(id)}
+                                >
+                                  {member?.displayName ?? member?.username ?? id}
+                                </BadgeWithButton>
+                              );
+                            })
+                          )}
                         </div>
-                        <Dropdown.Menu
-                          aria-label={m.records_template_recipients_title()}
-                          selectionMode="multiple"
-                          selectedKeys={allMembers ? new Set(["all"]) : new Set(recipientIds)}
-                          onSelectionChange={onRecipientSelectionChange}
-                          className="max-h-64 overflow-y-auto"
+                      ) : null}
+                      <Dropdown.Root>
+                        <Button
+                          type="button"
+                          color="secondary"
+                          className="w-full justify-start font-normal"
                         >
-                          <Dropdown.Item
-                            id="all"
-                            label={m.records_template_all_members()}
-                            selectionIndicator="checkbox"
-                          />
-                          {filteredMembers.map((member) => (
+                          <span
+                            className={recipientLabel ? "truncate" : "truncate text-placeholder"}
+                          >
+                            {recipientLabel || m.records_template_recipients_placeholder()}
+                          </span>
+                        </Button>
+                        <Dropdown.Popover placement="bottom start" className="w-80">
+                          <div className="border-b border-secondary p-2">
+                            <Input
+                              size="sm"
+                              type="search"
+                              value={recipientQuery}
+                              onChange={setRecipientQuery}
+                              placeholder={m.records_search_placeholder()}
+                            />
+                          </div>
+                          <Dropdown.Menu
+                            aria-label={m.records_template_recipients_title()}
+                            selectionMode="multiple"
+                            selectedKeys={allMembers ? new Set(["all"]) : new Set(recipientIds)}
+                            onSelectionChange={onRecipientSelectionChange}
+                            className="max-h-64 overflow-y-auto"
+                          >
                             <Dropdown.Item
-                              key={member.userId}
-                              id={member.userId}
-                              label={`${member.displayName ?? member.username}${member.role ? ` · ${member.role}` : ""}`}
+                              id="all"
+                              label={m.records_template_all_members()}
                               selectionIndicator="checkbox"
                             />
-                          ))}
-                        </Dropdown.Menu>
-                      </Dropdown.Popover>
-                    </Dropdown.Root>
+                            {filteredMembers.map((member) => (
+                              <Dropdown.Item
+                                key={member.userId}
+                                id={member.userId}
+                                label={memberLabel(member)}
+                                selectionIndicator="checkbox"
+                              />
+                            ))}
+                          </Dropdown.Menu>
+                        </Dropdown.Popover>
+                      </Dropdown.Root>
+                    </div>
                   </Field>
 
                   <div className="grid gap-4 sm:grid-cols-2">
