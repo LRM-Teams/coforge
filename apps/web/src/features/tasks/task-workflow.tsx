@@ -4,10 +4,13 @@ import {
   DragOverlay,
   KeyboardSensor,
   PointerSensor,
+  pointerWithin,
+  rectIntersection,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { Columns03 as Columns3, DotsGrid as GripVertical, List } from "@untitledui/icons";
@@ -119,6 +122,7 @@ export function TaskWorkflow<T extends TaskView>({
   return (
     <DndContext
       id={id}
+      collisionDetection={dropUnderPointer}
       sensors={sensors}
       onDragStart={({ active: item }) =>
         setActive(tasks.find((task) => task.messageId === item.id))
@@ -196,6 +200,12 @@ export function TaskWorkflow<T extends TaskView>({
     if (status) await move(task, status);
   }
 }
+
+/** Pointer drags target the column under the cursor; keyboard drags fall back to rect overlap. */
+const dropUnderPointer: CollisionDetection = (args) => {
+  const underPointer = pointerWithin(args);
+  return underPointer.length > 0 ? underPointer : rectIntersection(args);
+};
 
 function DragHandle({ task, disabled }: { task: TaskView; disabled: boolean }) {
   const drag = useDraggable({ id: task.messageId, disabled });
