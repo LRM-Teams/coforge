@@ -2,6 +2,7 @@ import { RefreshCw01 as RefreshCw } from "@untitledui/icons";
 import { useEffect, useRef, useState } from "react";
 import claudeCodeMark from "@lobehub/icons-static-svg/icons/claudecode-color.svg";
 import codexMark from "@lobehub/icons-static-svg/icons/codex-color.svg";
+import kiroMark from "@lobehub/icons-static-svg/icons/kiro-color.svg";
 import piMark from "@lobehub/icons-static-svg/icons/pi.svg";
 
 import type { RuntimeProvider } from "@coforge/protocol";
@@ -38,6 +39,7 @@ export type Runtime = {
 const runtimeMarks = {
   "claude-code": claudeCodeMark,
   codex: codexMark,
+  kiro: kiroMark,
   pi: piMark,
   coforge: "/logo.svg",
 } satisfies Partial<Record<RuntimeProvider, string>>;
@@ -45,16 +47,10 @@ const runtimeMarks = {
 export function RuntimeIdentity({ runtime }: { runtime: Runtime }) {
   return (
     <span className="flex min-w-0 items-center gap-3">
-      {runtime.provider === "kiro" ? (
-        <span
-          aria-hidden="true"
-          className="flex size-6 shrink-0 items-center justify-center rounded-md bg-brand-solid text-sm font-semibold text-white"
-        >
-          K
-        </span>
-      ) : runtime.provider === "claude-code" ||
-        runtime.provider === "codex" ||
-        runtime.provider === "coforge" ? (
+      {runtime.provider === "claude-code" ||
+      runtime.provider === "codex" ||
+      runtime.provider === "kiro" ||
+      runtime.provider === "coforge" ? (
         <img src={runtimeMarks[runtime.provider]} alt="" className="size-6 shrink-0" />
       ) : (
         <span
@@ -68,9 +64,7 @@ export function RuntimeIdentity({ runtime }: { runtime: Runtime }) {
       )}
       <span className="min-w-0">
         <span className="block truncate font-medium text-primary">{runtime.displayName}</span>
-        <span className="mt-0.5 block truncate font-mono text-xs text-tertiary">
-          {runtime.version}
-        </span>
+        <span className="mt-0.5 block truncate text-xs text-tertiary">{runtime.version}</span>
       </span>
     </span>
   );

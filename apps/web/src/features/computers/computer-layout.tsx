@@ -95,7 +95,7 @@ export function ComputerLayout({
           <div className="mt-2 flex h-7 shrink-0 items-center justify-between pr-3 pl-5">
             <span className="text-[11px] font-semibold tracking-wide text-quaternary uppercase">
               {m.computer_page_title()}{" "}
-              <span className="font-mono font-normal text-quaternary/70">{computers.length}</span>
+              <span className="font-normal text-quaternary/70">{computers.length}</span>
             </span>
             <ButtonUtility
               icon={Plus}
@@ -129,7 +129,7 @@ export function ComputerLayout({
                       <span className="truncate text-sm font-semibold">
                         {computerLabel(computer)}
                       </span>
-                      <span className="truncate font-mono text-xs text-tertiary">
+                      <span className="truncate text-xs text-tertiary">
                         {computerVersionLine(computer)}
                       </span>
                     </span>

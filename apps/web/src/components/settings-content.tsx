@@ -530,7 +530,7 @@ function AccountSettings({
             <dl className="grid gap-x-8 gap-y-6 border-t border-secondary pt-6 md:grid-cols-2 xl:grid-cols-3">
               <ProfileValue label={m.settings_name()} value={profile.name} />
               <ProfileValue label={m.settings_email()} value={profile.email} />
-              <ProfileValue label={m.settings_username()} value={`@${profile.username}`} mono />
+              <ProfileValue label={m.settings_username()} value={`@${profile.username}`} />
               <ProfileValue
                 label={m.settings_user_description()}
                 value={profile.description || "-"}
@@ -547,26 +547,17 @@ function AccountSettings({
 function ProfileValue({
   label,
   value,
-  mono = false,
   full = false,
 }: {
   label: string;
   value: string;
-  /** Identifiers (usernames, hostnames, versions, IDs, paths) render in the mono
-   * font; prose like an email address doesn't. */
-  mono?: boolean;
   /** Long values (the description) span the full row. */
   full?: boolean;
 }) {
   return (
     <div className={cn("flex min-w-0 flex-col gap-1", full && "md:col-span-2 xl:col-span-3")}>
       <dt className="text-sm text-tertiary">{label}</dt>
-      <dd
-        className={cn(
-          "min-w-0 text-sm font-medium break-words whitespace-pre-wrap text-primary",
-          mono && "font-mono",
-        )}
-      >
+      <dd className="min-w-0 text-sm font-medium break-words whitespace-pre-wrap text-primary">
         {value}
       </dd>
     </div>

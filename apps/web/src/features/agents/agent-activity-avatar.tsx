@@ -153,7 +153,7 @@ export function AgentActivityAvatar({
                     aria-label={new Date(entry.observedAtMs).toLocaleString(getLocale(), {
                       timeZone: time.resolvedOptions().timeZone,
                     })}
-                    className="shrink-0 font-mono text-tertiary tabular-nums"
+                    className="shrink-0 text-tertiary tabular-nums"
                   >
                     {time.format(new Date(entry.observedAtMs))}
                   </time>
