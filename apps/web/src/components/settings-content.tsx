@@ -670,8 +670,8 @@ function NotificationSettings({
   onEnableBrowserNotifications,
   onTestBrowserNotification,
 }: SettingsContentProps) {
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [saving, guardSave] = useSubmitGuard();
+  const [testing, guardTest] = useSubmitGuard();
   const [testSent, setTestSent] = useState(false);
   const unavailableReason = !browserNotificationsConfigured
     ? m.notifications_push_unconfigured()
@@ -701,14 +701,9 @@ function NotificationSettings({
               aria-label={m.preferences_browser_notifications()}
               isSelected={browserNotificationsEnabled}
               isDisabled={toggleDisabled}
-              onChange={async (isSelected) => {
-                setSaving(true);
+              onChange={(isSelected) => {
                 setTestSent(false);
-                try {
-                  await onBrowserNotificationsChange(isSelected);
-                } finally {
-                  setSaving(false);
-                }
+                void guardSave(() => onBrowserNotificationsChange(isSelected));
               }}
             />
           </div>
@@ -720,14 +715,7 @@ function NotificationSettings({
                   color="secondary"
                   size="sm"
                   isDisabled={saving}
-                  onPress={async () => {
-                    setSaving(true);
-                    try {
-                      await onEnableBrowserNotifications();
-                    } finally {
-                      setSaving(false);
-                    }
-                  }}
+                  onPress={() => void guardSave(() => onEnableBrowserNotifications())}
                 >
                   {m.preferences_browser_notifications_allow_browser()}
                 </Button>
@@ -737,14 +725,9 @@ function NotificationSettings({
                 color="secondary"
                 size="sm"
                 isDisabled={browserNotificationPermission !== "granted" || testing}
-                onPress={async () => {
-                  setTesting(true);
+                onPress={() => {
                   setTestSent(false);
-                  try {
-                    setTestSent(await onTestBrowserNotification());
-                  } finally {
-                    setTesting(false);
-                  }
+                  void guardTest(async () => setTestSent(await onTestBrowserNotification()));
                 }}
               >
                 {testing

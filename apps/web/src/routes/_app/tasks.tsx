@@ -1,7 +1,6 @@
 import { TASK_STATUSES } from "@coforge/protocol";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 
 import { PageLoadError } from "@/features/errors/page-load-error";
@@ -28,16 +27,12 @@ export const Route = createFileRoute("/_app/tasks")({
 });
 
 function TasksPage() {
-  const initial = Route.useLoaderData();
-  const [data, setData] = useState(initial);
-  const scope = useRef(initial);
-  scope.current = initial;
-  useEffect(() => setData(initial), [initial]);
+  const data = Route.useLoaderData();
   const { status, layout } = Route.useSearch();
   const taskLayout = useTaskLayout(layout);
   const navigate = useNavigate({ from: Route.fullPath });
   const execute = useServerFn(executeTask);
-  const load = useServerFn(loadTaskOverview);
+  const router = useRouter();
   return (
     <TaskOverview
       tasks={data.tasks}
@@ -50,7 +45,6 @@ function TasksPage() {
         void navigate({ search: (previous) => ({ ...previous, layout: nextLayout }) })
       }
       onCommand={async (task, command) => {
-        const requestedScope = initial;
         try {
           await execute({
             data: {
@@ -60,8 +54,8 @@ function TasksPage() {
             },
           });
         } finally {
-          const latest = await load();
-          if (scope.current === requestedScope) setData(latest);
+          // The loader re-reads the overview; no local copy to keep in step.
+          await router.invalidate({ sync: true });
         }
       }}
     />

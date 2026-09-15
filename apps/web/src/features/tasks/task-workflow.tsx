@@ -11,7 +11,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { Columns03 as Columns3, DotsGrid as GripVertical, List } from "@untitledui/icons";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
@@ -93,15 +93,18 @@ export function TaskWorkflow<T extends TaskView>({
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor),
   );
-  const displayedTasks = tasks.map((task) =>
-    pending?.messageId === task.messageId && pending.revision === task.revision
-      ? { ...task, status: pending.status }
-      : task,
-  );
-  const groups = statuses.map((status) => ({
-    status,
-    tasks: displayedTasks.filter((task) => task.status === status),
-  }));
+  // Drag-over re-renders the board constantly; only regroup when the inputs change.
+  const groups = useMemo(() => {
+    const displayedTasks = tasks.map((task) =>
+      pending?.messageId === task.messageId && pending.revision === task.revision
+        ? { ...task, status: pending.status }
+        : task,
+    );
+    return statuses.map((status) => ({
+      status,
+      tasks: displayedTasks.filter((task) => task.status === status),
+    }));
+  }, [tasks, pending, statuses]);
 
   const controls = (task: T) => {
     const available = TASK_STATUSES.filter((status) =>

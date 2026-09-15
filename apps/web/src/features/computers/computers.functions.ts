@@ -31,14 +31,14 @@ import { getComputerRestartStore } from "../../server/computers/computer-restart
 import { getComputerUpgradeStore } from "../../server/computers/computer-upgrade-store.server";
 import { resolveReleaseFeedUrl } from "../../server/install/install-script.server";
 import { encodeComputerUpgradeIntent } from "@coforge/protocol";
+import { browserScope } from "../../server/auth/browser-scope.server";
+
+const computerUnavailable = () => new Error("Computer persistence is unavailable");
 
 export const restartComputer = createServerFn({ method: "POST" })
   .validator(restartComputerInputSchema)
   .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Computer persistence is unavailable");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const { user, db, workspaceId } = await browserScope(computerUnavailable);
     return new RestartComputer(
       {
         canRestart: async (scope) =>
@@ -61,10 +61,7 @@ export const restartComputer = createServerFn({ method: "POST" })
 export const readComputerRestartStatus = createServerFn({ method: "GET" })
   .validator(readRestartStatusInputSchema)
   .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Computer persistence is unavailable");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const { user, db, workspaceId } = await browserScope(computerUnavailable);
     const connection = await db.workspaceComputer.findFirst({
       where: {
         workspaceId,
@@ -188,10 +185,7 @@ export const listComputers = createServerFn({ method: "GET" }).handler(async () 
 export const readComputerUpgradeStatus = createServerFn({ method: "GET" })
   .validator(readRestartStatusInputSchema)
   .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Computer persistence is unavailable");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const { user, db, workspaceId } = await browserScope(computerUnavailable);
     const connection = await db.workspaceComputer.findFirst({
       where: {
         workspaceId,
@@ -212,10 +206,7 @@ export const readComputerUpgradeStatus = createServerFn({ method: "GET" })
 export const upgradeComputer = createServerFn({ method: "POST" })
   .validator(restartComputerInputSchema)
   .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Computer persistence is unavailable");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const { user, db, workspaceId } = await browserScope(computerUnavailable);
     const computer = await db.computer.findFirst({
       where: { id: data.computerId },
       select: { ownerId: true },
@@ -326,10 +317,7 @@ export const setRuntimeVisibility = createServerFn({ method: "POST" })
 export const updateComputerDisplayName = createServerFn({ method: "POST" })
   .validator(updateComputerDisplayNameInputSchema)
   .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Computer persistence is unavailable");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const { user, db, workspaceId } = await browserScope(computerUnavailable);
     const result = await db.computer.updateMany({
       where: {
         id: data.computerId,

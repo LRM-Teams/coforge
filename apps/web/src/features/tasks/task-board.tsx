@@ -13,6 +13,7 @@ import { ConversationTaskTabs } from "./conversation-task-tabs";
 import { CreateTaskDialog } from "./create-task-dialog";
 import { TaskDetailMenu } from "./task-detail-dialog";
 import { TaskLayoutToggle, TaskWorkflow, statusLabel, type TaskLayout } from "./task-workflow";
+import { useSubmitGuard } from "@/hooks/use-submit-guard";
 
 export type TaskBoardProps = {
   tasks: TaskView[];
@@ -151,7 +152,7 @@ function TaskCard({
   onCommand: TaskBoardProps["onCommand"];
   moveControls: React.ReactNode;
 }) {
-  const [pending, setPending] = useState(false);
+  const [pending, guard] = useSubmitGuard();
   const available = task.status === "todo" && (!task.owner || own);
   return (
     <article className="rounded-lg border border-secondary bg-primary p-3 shadow-sm">
@@ -206,14 +207,8 @@ function TaskCard({
     </article>
   );
 
-  async function runCommand(command: Parameters<TaskBoardProps["onCommand"]>[0]) {
-    if (pending) return;
-    setPending(true);
-    try {
-      await onCommand(command);
-    } finally {
-      setPending(false);
-    }
+  function runCommand(command: Parameters<TaskBoardProps["onCommand"]>[0]) {
+    return guard(() => onCommand(command));
   }
 }
 

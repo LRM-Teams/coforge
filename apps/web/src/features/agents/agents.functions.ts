@@ -22,7 +22,6 @@ import { requireBrowserUser } from "../../server/auth/require-user.server";
 import { AgentDetailQuery } from "../../server/agents/agent-detail.server";
 import { AgentActivityRepository } from "../../server/db/repositories/agent-activity.repositories.server";
 import { workspaceIdForUser } from "../../server/workspaces/enrollment.server";
-import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 import { ComputerRuntimeVisibility } from "../../server/computers/computer-runtime-visibility.server";
 import { PrismaComputerRuntimeRepository } from "../../server/db/repositories/computer-runtime.repositories.server";
 import { PrismaAgentRuntimeCredentialRepository } from "../../server/db/repositories/agent-runtime-credential.repositories.server";
@@ -44,6 +43,7 @@ import {
 import { createAgentSessions } from "../../server/db/repositories/agent-session.repositories.server";
 import { getAgentDisplay } from "../../server/agents/agent-display.server";
 import { AgentEnvironment } from "../../server/agents/agent-environment.server";
+import { browserScope as sharedBrowserScope } from "../../server/auth/browser-scope.server";
 
 type Database = NonNullable<ReturnType<typeof getDatabaseClient>>;
 
@@ -53,13 +53,7 @@ function database(): Database {
   return db;
 }
 
-/** The browser caller and the Workspace their request is scoped to. */
-async function browserScope() {
-  const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-  const db = database();
-  const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-  return { user, db, workspaceId, scope: { workspaceId, userId: user.id } };
-}
+const browserScope = () => sharedBrowserScope(() => new Error("Agent persistence is unavailable"));
 
 /** Runtime start/stop publisher wired to one database and Agent repository. */
 function runtimeControl(db: Database, agents: PrismaAgentRepository) {

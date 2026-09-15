@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Edit01 as Pencil, RefreshCw01 as RotateCw } from "@untitledui/icons";
 import type { RuntimeProvider } from "@coforge/protocol";
 
@@ -14,6 +14,7 @@ import { computerLabel, operatingSystemLabel, type ComputerIdentity } from "./co
 import { ComputerTile } from "./computer-tile";
 import { RuntimeIdentity, RuntimeUsage, type UsageView } from "./runtime-usage";
 import type { ComputerRestartStatus } from "./computer.schemas";
+import { Input } from "@/components/base/input/input";
 
 export const RESTART_POLL_INTERVAL_MS = 2_000;
 export const RESTART_MAX_POLLS = 31;
@@ -72,6 +73,13 @@ export function ComputerDetail({
   const [savingDisplayName, setSavingDisplayName] = useState(false);
   const [displayNameError, setDisplayNameError] = useState(false);
   const toast = useAppToast();
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
   const [restartState, setRestartState] = useState<
     "idle" | "pending" | "accepted" | "completed" | "error"
   >("idle");
@@ -122,18 +130,15 @@ export function ComputerDetail({
                 }
               }}
             >
-              <label className="sr-only" htmlFor={`display-name-${computer.id}`}>
-                {m.computer_display_name()}
-              </label>
-              <input
-                id={`display-name-${computer.id}`}
+              <Input
+                aria-label={m.computer_display_name()}
+                size="sm"
                 autoFocus
-                required
+                isRequired
                 maxLength={200}
                 value={displayNameDraft}
-                disabled={savingDisplayName}
-                onChange={(event) => setDisplayNameDraft(event.currentTarget.value)}
-                className="h-9 w-full rounded-md border border-secondary bg-primary px-3 outline-none focus-visible:border-brand focus-visible:ring-3 focus-visible:ring-brand/50"
+                isDisabled={savingDisplayName}
+                onChange={setDisplayNameDraft}
               />
               <div className="mt-2 flex gap-2">
                 <Button type="submit" size="sm" isDisabled={savingDisplayName}>
@@ -225,11 +230,17 @@ export function ComputerDetail({
               onPress={() => {
                 setRestartState("pending");
                 const requestId = crypto.randomUUID();
+                // The restart poll outlives navigation; only touch state while still mounted.
+                const settle = (update: () => void) => {
+                  if (mountedRef.current) update();
+                };
                 void onRestart(requestId)
                   .then(async (initial) => {
                     if (initial.status !== "accepted") return initial;
-                    setRestartState("accepted");
-                    toast.success(m.computer_restart_accepted());
+                    settle(() => {
+                      setRestartState("accepted");
+                      toast.success(m.computer_restart_accepted());
+                    });
                     if (!onReadRestartStatus) return initial;
                     for (let poll = 0; poll < restartMaxPolls; poll += 1) {
                       await new Promise((resolve) =>
@@ -241,26 +252,28 @@ export function ComputerDetail({
                     return { requestId, status: "failed" as const, reason: "timeout" as const };
                   })
                   .then(
-                    (result) => {
-                      if (result.status === "completed") {
-                        setRestartState("completed");
-                        toast.success(
-                          m.computer_restart_completed({
-                            version: result.daemonVersion,
-                            process: result.workerInstanceId,
-                          }),
-                        );
-                      } else if (result.status === "accepted") {
-                        setRestartState("accepted");
-                      } else {
+                    (result) =>
+                      settle(() => {
+                        if (result.status === "completed") {
+                          setRestartState("completed");
+                          toast.success(
+                            m.computer_restart_completed({
+                              version: result.daemonVersion,
+                              process: result.workerInstanceId,
+                            }),
+                          );
+                        } else if (result.status === "accepted") {
+                          setRestartState("accepted");
+                        } else {
+                          setRestartState("error");
+                          toast.error(m.computer_restart_error());
+                        }
+                      }),
+                    () =>
+                      settle(() => {
                         setRestartState("error");
                         toast.error(m.computer_restart_error());
-                      }
-                    },
-                    () => {
-                      setRestartState("error");
-                      toast.error(m.computer_restart_error());
-                    },
+                      }),
                   );
               }}
             >
