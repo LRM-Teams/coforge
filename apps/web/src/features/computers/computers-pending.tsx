@@ -16,13 +16,18 @@ export function ComputersPending() {
         aria-label={m.computer_connected_list()}
         className="hidden w-80 shrink-0 flex-col overflow-hidden border-r border-secondary bg-primary md:flex"
       >
-        <div className="flex h-12 shrink-0 items-center border-b border-secondary px-5">
-          <h1 className="text-base font-medium">{m.computer_page_title()}</h1>
+        <div className="flex h-12 shrink-0 items-center border-b border-secondary px-4 sm:px-6">
+          <h1 className="text-lg font-semibold text-primary">{m.computer_page_title()}</h1>
         </div>
-        <div aria-hidden="true" className="space-y-1 p-3 motion-safe:animate-pulse">
+        <div className="mt-2 flex h-7 shrink-0 items-center pl-5">
+          <span className="text-[11px] font-semibold tracking-wide text-quaternary uppercase">
+            {m.computer_page_title()}
+          </span>
+        </div>
+        <div aria-hidden="true" className="space-y-1 px-3 pt-1 motion-safe:animate-pulse">
           {["w-3/5", "w-2/5", "w-1/2"].map((width) => (
-            <div key={width} className="flex h-18 items-center gap-3 px-3">
-              <Skeleton className="size-8 shrink-0 rounded-lg" />
+            <div key={width} className="flex h-16 items-center gap-3 px-3">
+              <Skeleton className="size-9 shrink-0 rounded-[10px]" />
               <div className="min-w-0 flex-1 space-y-2">
                 <Skeleton className={`h-3 ${width}`} />
                 <Skeleton className="h-3 w-4/5" />
@@ -101,7 +106,11 @@ export function ComputerDetailLoadError({ error }: { error: unknown }) {
         <Button
           color="secondary"
           className="justify-self-center"
-          onPress={() => void router.invalidate({ filter: (match) => match.routeId === routeId })}
+          onPress={() =>
+            void router.invalidate({
+              filter: (match) => match.routeId === routeId,
+            })
+          }
         >
           {m.controls_retry()}
         </Button>

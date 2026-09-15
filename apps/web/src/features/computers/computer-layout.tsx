@@ -27,16 +27,17 @@ import {
   type ComputerPlatformInfo,
 } from "./computer-identity";
 import { ComputerTile } from "./computer-tile";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
-import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 
 export type ComputerListItem = ComputerIdentity &
   ComputerPlatformInfo & {
     id: string;
     online: boolean;
     computerVersion?: string | null;
-    creator?: { username: string; displayName: string | null; avatarUrl: string | null } | null;
+    creator?: {
+      username: string;
+      displayName: string | null;
+      avatarUrl: string | null;
+    } | null;
   };
 
 /**
@@ -88,70 +89,56 @@ export function ComputerLayout({
           listHidden ? "hidden" : "flex w-full",
         )}
       >
-        <PageHeader heading={m.computer_page_title()} actions={<AddComputer onAdd={onAdd} />} />
+        <PageHeader heading={m.computer_page_title()} />
 
-        <ul className="flex-1 space-y-1 overflow-y-auto p-3">
-          {computers.map((computer) => {
-            const selected = computer.id === selectedComputerId;
-            return (
-              <li key={computer.id}>
-                <Link
-                  to="/computers/$computerId"
-                  params={{ computerId: computer.id }}
-                  aria-current={selected ? "page" : undefined}
-                  resetScroll={false}
-                  onClick={() => setShowMobileList(false)}
-                  className={cn(
-                    "group flex min-h-18 min-w-0 items-center gap-3 rounded-lg px-3 py-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset",
-                    selected
-                      ? "bg-secondary text-brand-secondary hover:bg-secondary_hover"
-                      : "hover:bg-primary_hover",
-                  )}
-                >
-                  <ComputerTile computer={computer} online={computer.online} />
-                  <span className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className="truncate text-sm font-semibold">
-                      {computerLabel(computer)}
-                    </span>
-                    {computer.name && computer.name !== computerLabel(computer) ? (
-                      <span className="truncate font-mono text-xs text-tertiary">
-                        {computer.name}
-                      </span>
-                    ) : (
-                      <span className="truncate text-xs text-tertiary">
-                        {operatingSystemLabel(computer)}
-                      </span>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="mt-2 flex h-7 shrink-0 items-center justify-between pr-3 pl-5">
+            <span className="text-[11px] font-semibold tracking-wide text-quaternary uppercase">
+              {m.computer_page_title()}{" "}
+              <span className="font-mono font-normal text-quaternary/70">{computers.length}</span>
+            </span>
+            <ButtonUtility
+              icon={Plus}
+              size="xs"
+              color="tertiary"
+              tooltip={m.computer_add_title()}
+              onClick={onAdd}
+            />
+          </div>
+
+          <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pt-1 pb-3">
+            {computers.map((computer) => {
+              const selected = computer.id === selectedComputerId;
+              return (
+                <li key={computer.id}>
+                  <Link
+                    to="/computers/$computerId"
+                    params={{ computerId: computer.id }}
+                    aria-current={selected ? "page" : undefined}
+                    resetScroll={false}
+                    onClick={() => setShowMobileList(false)}
+                    className={cn(
+                      "group flex min-h-16 min-w-0 items-center gap-3 rounded-lg px-3 py-2.5 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-inset",
+                      selected
+                        ? "bg-sidebar-accent text-brand-secondary"
+                        : "text-primary hover:bg-primary_hover",
                     )}
-                  </span>
-                  {computer.creator && (
-                    <Tooltip
-                      title={m.computer_added_by_name({
-                        name: computer.creator.displayName || computer.creator.username,
-                      })}
-                    >
-                      <TooltipTrigger className="shrink-0 rounded-full">
-                        <Avatar
-                          size="xs"
-                          src={computer.creator.avatarUrl}
-                          alt=""
-                          initials={avatarInitial(
-                            computer.creator.displayName || computer.creator.username,
-                          )}
-                          contentClassName={avatarToneClassName(
-                            computer.creator.displayName || computer.creator.username,
-                          )}
-                        />
-                        <span className="sr-only">
-                          {computer.creator.displayName || computer.creator.username}
-                        </span>
-                      </TooltipTrigger>
-                    </Tooltip>
-                  )}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+                  >
+                    <ComputerTile computer={computer} online={computer.online} />
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="truncate text-sm font-semibold">
+                        {computerLabel(computer)}
+                      </span>
+                      <span className="truncate font-mono text-xs text-tertiary">
+                        {computerVersionLine(computer)}
+                      </span>
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       </nav>
 
       <section
@@ -168,12 +155,11 @@ export function ComputerLayout({
   );
 }
 
-function AddComputer({ onAdd }: { onAdd: () => void }) {
-  return (
-    <Button size="sm" color="secondary" iconLeading={Plus} onPress={onAdd}>
-      {m.computer_add_title()}
-    </Button>
-  );
+/** The row's second line: the daemon build the Computer runs, or its OS until it reports one. */
+function computerVersionLine(computer: ComputerListItem) {
+  return computer.computerVersion
+    ? m.computer_list_version({ version: computer.computerVersion })
+    : operatingSystemLabel(computer);
 }
 
 /** Returns to the Computer list on small screens, where only one panel fits. */
