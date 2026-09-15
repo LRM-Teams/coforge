@@ -3,33 +3,48 @@ import { join } from "node:path";
 import { getLogger } from "@logtape/logtape";
 
 import type { NativeProcessIdentity } from "../supervisor/workspace-instance";
+
+export type NativeCommandResult = { code: number; stdout: string; stderr: string };
+
+/**
+ * Native launchd access. Injectable so job lifecycle is testable without
+ * creating, signalling, or removing real user jobs.
+ */
+export type LaunchdJobPlatform = {
+  jobs(): Promise<Map<string, number>>;
+  run(args: string[]): Promise<NativeCommandResult>;
+};
+
 export type LaunchdJobConfig = {
   label: string;
   directory: string;
   command: string[];
   environment?: Record<string, string>;
   restartOnFailure?: boolean;
+  platform?: LaunchdJobPlatform;
 };
 
 /** Native user-job lifecycle. `list` has documented columns; `print` is not an API. */
 export class LaunchdJob {
   readonly path: string;
   readonly target: string;
+  readonly #platform: LaunchdJobPlatform;
   constructor(readonly config: LaunchdJobConfig) {
     if (!/^cn\.coforge\.[A-Za-z0-9.-]+$/.test(config.label)) throw new Error("invalid job label");
     this.path = join(config.directory, `${config.label}.plist`);
     this.target = `gui/${process.getuid!()}/${config.label}`;
+    this.#platform = config.platform ?? nativeLaunchd;
   }
 
   async ensureStarted(): Promise<NativeProcessIdentity> {
     const existing = await this.identity();
     if (existing?.active) return existing;
-    if (!(await launchdJobs()).has(this.config.label)) {
+    if (!(await this.#platform.jobs()).has(this.config.label)) {
       await mkdir(this.config.directory, { recursive: true, mode: 0o700 });
       await writeFile(this.path, jobPlist(this.config), { mode: 0o600 });
-      await launchctl(["bootstrap", `gui/${process.getuid!()}`, this.path]);
+      await this.#launchctl(["bootstrap", `gui/${process.getuid!()}`, this.path]);
     } else {
-      await launchctl(["kickstart", this.target]);
+      await this.#launchctl(["kickstart", this.target]);
     }
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
@@ -41,7 +56,7 @@ export class LaunchdJob {
   }
 
   async identity(): Promise<NativeProcessIdentity | null> {
-    const pid = (await launchdJobs()).get(this.config.label);
+    const pid = (await this.#platform.jobs()).get(this.config.label);
     if (!pid) return null;
     const observed = await capture([
       "/bin/ps",
@@ -61,26 +76,26 @@ export class LaunchdJob {
     // group. This is not a ready identity and must never be adopted or signalled.
     if (Number(match[2]) !== pid) return null;
     if (match[3]!.startsWith("Z")) return null;
-    if ((await launchdJobs()).get(this.config.label) !== pid) return null;
+    if ((await this.#platform.jobs()).get(this.config.label) !== pid) return null;
     return { mainPid: pid, active: true, invocationId: `${pid}:${match[1]}` };
   }
 
   async stop(): Promise<void> {
-    const jobs = await launchdJobs();
+    const jobs = await this.#platform.jobs();
     const pid = jobs.get(this.config.label);
     if (jobs.has(this.config.label)) {
       try {
-        await launchctl(["bootout", this.target]);
+        await this.#launchctl(["bootout", this.target]);
       } catch (error) {
         // The Workspace and Coordinator may both finish cleanup. A failed
         // bootout is successful only when a fresh OS query proves removal;
         // the process-group observation below must still complete.
-        if ((await launchdJobs()).has(this.config.label)) throw error;
+        if ((await this.#platform.jobs()).has(this.config.label)) throw error;
       }
     }
     const deadline = Date.now() + 10_000;
     while (
-      (await launchdJobs()).has(this.config.label) ||
+      (await this.#platform.jobs()).has(this.config.label) ||
       (pid && (await processGroupExists(pid)))
     ) {
       if (Date.now() >= deadline) throw new Error("launchd job cleanup did not complete");
@@ -90,8 +105,25 @@ export class LaunchdJob {
   }
 
   async signal(signal: "SIGINT" | "SIGTERM" | "SIGKILL"): Promise<void> {
-    if ((await launchdJobs()).has(this.config.label))
-      await launchctl(["kill", signal, this.target]);
+    if ((await this.#platform.jobs()).has(this.config.label))
+      await this.#launchctl(["kill", signal, this.target]);
+  }
+
+  async #launchctl(args: string[]): Promise<void> {
+    const result = await this.#platform.run(args);
+    if (!result.code) return;
+    const diagnostic = nativeCommandDiagnostic(result.stderr);
+    getLogger(["coforge", "daemon", "launchd"]).error("Native job command failed", {
+      event: "launchd:command_failed",
+      operation: args[0],
+      exit_code: result.code,
+      ...(diagnostic ? { error_message: diagnostic } : {}),
+    });
+    throw new Error(
+      diagnostic
+        ? `launchctl ${args[0]} failed (${result.code}): ${diagnostic}`
+        : `launchctl ${args[0]} failed (${result.code})`,
+    );
   }
 }
 
@@ -130,23 +162,42 @@ async function capture(command: string[]) {
     env: { LC_ALL: "C" },
     stdin: "ignore",
     stdout: "pipe",
-    stderr: "ignore",
+    stderr: "pipe",
     timeout: 10_000,
   });
-  const [code, stdout] = await Promise.all([child.exited, new Response(child.stdout).text()]);
-  return { code, stdout };
+  const [code, stdout, stderr] = await Promise.all([
+    child.exited,
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+  ]);
+  return { code, stdout, stderr };
 }
-async function launchctl(args: string[]) {
-  const result = await capture(["/bin/launchctl", ...args]);
-  if (result.code) {
-    getLogger(["coforge", "daemon", "launchd"]).error("Native job command failed", {
-      event: "launchd:command_failed",
-      operation: args[0],
-      exit_code: result.code,
-    });
-    throw new Error(`launchctl ${args[0]} failed`);
-  }
+
+/**
+ * launchctl explains a failure only on stderr. Keeping that text is the
+ * difference between an actionable log record and a bare exit code, so a
+ * failed native command must never discard it.
+ */
+export function nativeCommandDiagnostic(stderr: string): string {
+  return stderr
+    .trim()
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(" ")
+    .slice(0, 500);
 }
+
+async function launchctlCommand(args: string[]): Promise<NativeCommandResult> {
+  return await capture(["/bin/launchctl", ...args]);
+}
+
+const nativeLaunchd: LaunchdJobPlatform = {
+  jobs: launchdJobs,
+  run: launchctlCommand,
+};
+
 function xml(value: string): string {
   // XML 1.0 disallows these control characters, including NUL.
   // oxlint-disable-next-line no-control-regex
