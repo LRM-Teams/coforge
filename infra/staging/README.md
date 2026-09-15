@@ -126,7 +126,7 @@ gh workflow run release-staging.yml --repo LRM-Teams/coforge -f version=0.2.0-rc
 workflow 用 GitHub OIDC 换取阿里云 RAM 角色 `coforge-release-publisher` 的临时 STS
 凭据（`ALIBABA_CLOUD_ROLE_ARN` / `ALIBABA_CLOUD_OIDC_PROVIDER_ARN`，见
 `.github/workflows/release-staging.yml`）——该角色的信任策略只认
-`repo:LRM-Teams/coforge:environment:staging`，没有长期 AccessKey，也就不需要在这张表
+`repo:LRM-Teams@289986103/coforge@1345850229:environment:staging`，没有长期 AccessKey，也就不需要在这张表
 里放对应的 secret，跑 `scripts/release/publish.ts` 把 Computer/Daemon 发布到
 `coforge-releases-staging` bucket（`https://releases-staging.coforge.cn`），
 默认只编译四个 POSIX target（不含 Windows，见该脚本的注释）。用
