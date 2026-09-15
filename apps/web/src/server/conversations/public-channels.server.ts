@@ -1,3 +1,4 @@
+import { lockConversation } from "./conversation-lock.server";
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import type { MessageRequestIdempotency } from "./message-request-idempotency.server";
@@ -91,7 +92,7 @@ export class PublicChannels {
     const channel = await getAgentChannel(this.db, workspaceId, agentId, target);
     await this.db.$transaction(async (tx) => {
       // The same conversation lock orders preference changes against message creation.
-      await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${channel.id}::uuid FOR UPDATE`;
+      await lockConversation(tx, channel.id);
       await tx.conversationMember.update({
         where: {
           conversationId_agentId: { conversationId: channel.id, agentId },
@@ -123,7 +124,7 @@ export class PublicChannels {
   async setUserMuted(workspaceId: string, userId: string, channelId: string, muted: boolean) {
     const channel = await this.channel(workspaceId, userId, channelId);
     await this.db.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${channel.id}::uuid FOR UPDATE`;
+      await lockConversation(tx, channel.id);
       const updated = await tx.conversationMember.updateMany({
         where: { conversationId: channel.id, userId },
         data: { channelMuted: muted },
@@ -159,7 +160,7 @@ export class PublicChannels {
     followed: boolean,
   ) {
     await this.db.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${conversationId}::uuid FOR UPDATE`;
+      await lockConversation(tx, conversationId);
       if (followed) {
         await tx.threadFollow.upsert({
           where: { memberId_rootMessageId: { memberId, rootMessageId } },
@@ -403,7 +404,7 @@ export class PublicChannels {
       { workspaceId, senderKind: "user", senderId: userId, requestId },
       () =>
         this.db.$transaction(async (tx) => {
-          await tx.$queryRaw`SELECT "id" FROM "conversations" WHERE "id" = ${channelId}::uuid FOR UPDATE`;
+          await lockConversation(tx, channelId);
           const root = threadRootId
             ? await tx.message.findFirst({
                 where: { id: threadRootId, conversationId: channelId },
