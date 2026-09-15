@@ -7,6 +7,12 @@ import { resolveServerUrl } from "../../packages/computer/src/release-channel";
 // against Bun 1.4.0 by compiling this repository's own entrypoints for every target below and
 // confirming a real ELF/PE binary for the right architecture came out (see the CR description);
 // `bun-windows-arm64` in particular is easy to assume unsupported and is not.
+//
+// The darwin targets need Bun >= 1.4.2 (mise.lock pins it): earlier Bun wrote an invalid ad-hoc
+// code signature into compiled executables (oven-sh/bun#32159). macOS 26 still ran them, but
+// macOS 27 kills them at launch with SIGKILL / OS_REASON_CODESIGNING, so every published
+// Computer built by an older Bun was dead on arrival there. compile-targets.test.ts verifies the
+// signature with `codesign --verify --strict` on macOS hosts.
 const BUN_COMPILE_TARGETS = {
   "linux-x64": "bun-linux-x64",
   "linux-arm64": "bun-linux-arm64",

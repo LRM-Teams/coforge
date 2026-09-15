@@ -231,6 +231,10 @@ jobs:
         run: bun run --cwd packages/protocol generate
       - name: Verify real launchd lifecycle
         run: bun test packages/daemon/test/launchd-job.test.ts packages/daemon/test/launchd-process.test.ts packages/daemon/test/macos-supervisor.test.ts
+      - name: Verify published macOS executable signature and modes
+        # Bun < 1.4.2 wrote an invalid ad-hoc signature that macOS 27 kills at launch; the test
+        # runs `codesign --verify --strict` so the regression fails here, not on user machines.
+        run: bun test scripts/release/compile-targets.test.ts
 
   web:
     name: Validate Web

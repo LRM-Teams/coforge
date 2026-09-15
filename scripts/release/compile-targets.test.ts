@@ -6,6 +6,27 @@ import { join } from "node:path";
 import { LocalDaemonLauncher } from "../../packages/daemon";
 import { isReleaseTarget, resolveBunCompileTarget } from "./compile-targets";
 
+/** Where a test builds and runs the published executable. macOS needs a short, symlink-free
+ * root: `os.tmpdir()` sits under the `/var -> /private/var` link the Daemon's log-path check
+ * rejects, and the per-user `/var/folders/...` prefix pushes the `clean-home` socket path past
+ * the 104-byte `sun_path` limit, where `connect(2)` fails with EINVAL instead of ENOENT. */
+function temporaryRoot(): string {
+  return process.platform === "darwin" ? "/private/tmp" : tmpdir();
+}
+
+/** Bun's in-process Mach-O signer wrote an invalid ad-hoc signature before 1.4.2. macOS 26
+ * still ran those executables; macOS 27 kills them at launch with OS_REASON_CODESIGNING, so a
+ * strict `codesign` verification is the one check that catches the regression on any macOS. */
+function expectValidMacOsSignature(executable: string): void {
+  if (process.platform !== "darwin") return;
+  const verify = Bun.spawnSync(["/usr/bin/codesign", "--verify", "--strict", executable], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  expect(verify.stderr.toString()).toBe("");
+  expect(verify.exitCode).toBe(0);
+}
+
 test.each([
   ["https://releases-staging.coforge.cn", "https://staging.coforge.cn"],
   ["https://releases.coforge.cn", "https://coforge.cn"],
@@ -16,7 +37,9 @@ test.each([
     if (!isReleaseTarget(target)) throw new Error(`unsupported test host: ${target}`);
     // An explicit artifact root transfers cleanup ownership to the calling CI job.
     const artifactRoot = Bun.env.COFORGE_RELEASE_TEST_ARTIFACT_ROOT;
-    const directory = await mkdtemp(join(artifactRoot ?? tmpdir(), "coforge-release-version-"));
+    const directory = await mkdtemp(
+      join(artifactRoot ?? temporaryRoot(), "coforge-release-version-"),
+    );
     try {
       const options = {
         target,
@@ -42,6 +65,7 @@ test.each([
         directory,
         `${target}-coforge-computer${process.platform === "win32" ? ".exe" : ""}`,
       );
+      expectValidMacOsSignature(executable);
       // Await the worker's OS exit and drain its pipes before inspecting results.
       const probe = Bun.spawn(
         [
@@ -85,7 +109,7 @@ test.each([
 test("published unified Computer runs management, Daemon, and Agent modes from one executable", async () => {
   const target = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
   if (!isReleaseTarget(target)) throw new Error(`unsupported test host: ${target}`);
-  const directory = await mkdtemp(join(tmpdir(), "coforge-unified-executable-"));
+  const directory = await mkdtemp(join(temporaryRoot(), "coforge-unified-executable-"));
   const outputDirectory = join(directory, "artifacts");
   try {
     const options = {
@@ -115,6 +139,7 @@ test("published unified Computer runs management, Daemon, and Agent modes from o
     expect(await readdir(outputDirectory)).toEqual([
       `${target}-coforge-computer${process.platform === "win32" ? ".exe" : ""}`,
     ]);
+    expectValidMacOsSignature(executable);
 
     const management = Bun.spawnSync([executable, "--cli-version"], {
       env: { ...Bun.env, COFORGE_COMPUTER_VERSION: "0.0.0-wrong" },
