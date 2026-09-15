@@ -292,7 +292,9 @@ test("applyTemplate toggles off and allows zero applied rows", async () => {
   });
 
   expect(result).toEqual({ id: "settings-1", active: false });
-  expect(updates).toEqual([{ where: { id: "settings-1" }, data: { applied: false } }]);
+  expect(updates).toEqual([
+    { where: { id: "settings-1" }, data: { applied: false, scheduleEnabled: false } },
+  ]);
 });
 
 test("applyTemplate activates one stream without clearing other applied rows", async () => {
@@ -334,24 +336,33 @@ test("applyTemplate activates one stream without clearing other applied rows", a
 
   expect(result).toEqual({ id: "settings-2", active: true });
   expect(ops).toEqual([
-    'update:{"where":{"id":"settings-2"},"data":{"applied":true}}',
+    'update:{"where":{"id":"settings-2"},"data":{"applied":true,"scheduleEnabled":true}}',
     'update:{"where":{"id":"existing-format"},"data":{"title":"产品汇报"}}',
   ]);
   expect(ops).not.toContain("updateMany");
 });
 
-test("setTemplateScheduleEnabled updates the schedule checkbox independently", async () => {
+test("setTemplateScheduleEnabled keeps applied in sync with scheduleEnabled", async () => {
   let updated: Record<string, unknown> | undefined;
   const db = {
     workspaceMembership: {
       findUnique: async () => ({ role: "owner" }),
     },
     weeklyReportTemplate: {
-      findFirst: async () => ({ id: "settings-1" }),
+      findFirst: async () => ({
+        id: "settings-1",
+        name: "算法汇报",
+        applied: false,
+        dimensions: [],
+      }),
       update: async (query: { data: Record<string, unknown> }) => {
         updated = query.data;
         return {};
       },
+    },
+    weeklyReport: {
+      findFirst: async () => ({ id: "format-1" }),
+      update: async () => ({}),
     },
   } as unknown as PrismaClient;
 
@@ -362,8 +373,174 @@ test("setTemplateScheduleEnabled updates the schedule checkbox independently", a
     scheduleEnabled: true,
   });
 
-  expect(result).toEqual({ id: "settings-1", scheduleEnabled: true });
-  expect(updated).toEqual({ scheduleEnabled: true });
+  expect(result).toEqual({ id: "settings-1", scheduleEnabled: true, active: true });
+  expect(updated).toEqual({ scheduleEnabled: true, applied: true });
+});
+
+test("createTemplate with scheduleEnabled writes applied and ensures a format", async () => {
+  const createdTemplates: Array<Record<string, unknown>> = [];
+  const createdReports: Array<Record<string, unknown>> = [];
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+      count: async () => 0,
+    },
+    weeklyReportTemplate: {
+      create: async (query: { data: Record<string, unknown> }) => {
+        createdTemplates.push(query.data);
+        return { id: "settings-new", name: query.data.name, dimensions: query.data.dimensions };
+      },
+    },
+    weeklyReport: {
+      findFirst: async () => null,
+      create: async (query: { data: Record<string, unknown> }) => {
+        createdReports.push(query.data);
+        return { id: "format-new" };
+      },
+    },
+    weeklyReportCycle: {
+      findUnique: async () => ({
+        id: "cycle-1",
+        year: 2026,
+        week: 38,
+        title: "2026 W38 工作周报",
+      }),
+    },
+  } as unknown as PrismaClient;
+
+  const result = await new RecordCatalog(db).createTemplate({
+    workspaceId: "workspace-1",
+    userId: "leader-b",
+    name: "算法汇报",
+    frequency: "weekly",
+    sendTime: "15:00",
+    sendWeekday: 5,
+    scheduleEnabled: true,
+    sections: [{ title: "Summary", children: ["Current Works"] }],
+    allMembers: true,
+    recipientUserIds: [],
+  });
+
+  expect(result).toEqual({ id: "settings-new" });
+  expect(createdTemplates[0]).toMatchObject({
+    applied: true,
+    scheduleEnabled: true,
+    name: "算法汇报",
+  });
+  expect(createdReports[0]).toMatchObject({
+    kind: "template",
+    settingsId: "settings-new",
+    authorId: "leader-b",
+  });
+});
+
+test("createTemplate with scheduleEnabled false stays inactive", async () => {
+  const createdTemplates: Array<Record<string, unknown>> = [];
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReportTemplate: {
+      create: async (query: { data: Record<string, unknown> }) => {
+        createdTemplates.push(query.data);
+        return { id: "settings-off" };
+      },
+    },
+    weeklyReport: {
+      create: async () => {
+        throw new Error("should not ensure format");
+      },
+    },
+  } as unknown as PrismaClient;
+
+  await new RecordCatalog(db).createTemplate({
+    workspaceId: "workspace-1",
+    userId: "leader-b",
+    name: "算法汇报",
+    frequency: "weekly",
+    sendTime: "12:00",
+    sendWeekday: 5,
+    scheduleEnabled: false,
+    sections: [{ title: "Summary", children: [] }],
+    allMembers: true,
+    recipientUserIds: [],
+  });
+
+  expect(createdTemplates[0]).toMatchObject({
+    applied: false,
+    scheduleEnabled: false,
+  });
+});
+
+test("updateTemplate syncs applied with scheduleEnabled and ensures format when enabling", async () => {
+  const updates: Array<Record<string, unknown>> = [];
+  const createdReports: Array<Record<string, unknown>> = [];
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+      count: async () => 0,
+    },
+    weeklyReportTemplate: {
+      findFirst: async () => ({
+        id: "settings-1",
+        applied: false,
+        name: "旧名",
+      }),
+    },
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        weeklyReportTemplateRecipient: {
+          deleteMany: async () => ({ count: 0 }),
+        },
+        weeklyReportTemplate: {
+          update: async (query: { data: Record<string, unknown> }) => {
+            updates.push(query.data);
+            return {};
+          },
+        },
+      };
+      return fn(tx);
+    },
+    weeklyReport: {
+      findFirst: async () => null,
+      create: async (query: { data: Record<string, unknown> }) => {
+        createdReports.push(query.data);
+        return { id: "format-from-update" };
+      },
+    },
+    weeklyReportCycle: {
+      findUnique: async () => ({
+        id: "cycle-1",
+        year: 2026,
+        week: 38,
+        title: "2026 W38 工作周报",
+      }),
+    },
+  } as unknown as PrismaClient;
+
+  await new RecordCatalog(db).updateTemplate({
+    workspaceId: "workspace-1",
+    userId: "leader-b",
+    templateId: "settings-1",
+    name: "算法汇报",
+    frequency: "weekly",
+    sendTime: "15:00",
+    sendWeekday: 5,
+    scheduleEnabled: true,
+    sections: [{ title: "Summary", children: [] }],
+    allMembers: true,
+    recipientUserIds: [],
+  });
+
+  expect(updates[0]).toMatchObject({
+    applied: true,
+    scheduleEnabled: true,
+    name: "算法汇报",
+  });
+  expect(createdReports[0]).toMatchObject({
+    settingsId: "settings-1",
+    kind: "template",
+  });
 });
 
 test("runDueScheduledWeeklyAssignments skips when not due", async () => {
@@ -1229,7 +1406,7 @@ test("applyTemplate scopes activation to the owner without clearing peers", asyn
   });
 
   expect(ops).toEqual([
-    'update:{"where":{"id":"settings-b"},"data":{"applied":true}}',
+    'update:{"where":{"id":"settings-b"},"data":{"applied":true,"scheduleEnabled":true}}',
     'update:{"where":{"id":"existing-format"},"data":{"title":"算法汇报"}}',
   ]);
   expect(ops).not.toContain("updateMany");

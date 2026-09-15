@@ -13,7 +13,6 @@ import { Heading } from "react-aria-components";
 import { BadgeWithButton } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Checkbox } from "@/components/base/checkbox/checkbox";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { Input } from "@/components/base/input/input";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
@@ -85,7 +84,7 @@ export function CreateWeeklyTemplateDialog({
   const [frequency] = useState<"weekly">("weekly");
   const [sendTime, setSendTime] = useState<string>("15:00");
   const [sendWeekday, setSendWeekday] = useState(5);
-  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [enabled, setEnabled] = useState(true);
   const [nameError, setNameError] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -111,7 +110,7 @@ export function CreateWeeklyTemplateDialog({
     setRecipientQuery("");
     setSendTime("15:00");
     setSendWeekday(5);
-    setScheduleEnabled(false);
+    setEnabled(true);
     setNameError(false);
     setSaving(false);
   }
@@ -129,7 +128,7 @@ export function CreateWeeklyTemplateDialog({
     setRecipientQuery("");
     setSendTime(template.sendTime || "15:00");
     setSendWeekday(template.sendWeekday || 5);
-    setScheduleEnabled(Boolean(template.scheduleEnabled));
+    setEnabled(Boolean(template.active));
     setNameError(false);
     setSaving(false);
   }
@@ -233,7 +232,7 @@ export function CreateWeeklyTemplateDialog({
         frequency,
         sendTime,
         sendWeekday,
-        scheduleEnabled,
+        scheduleEnabled: enabled,
         sections: normalizedSections,
         allMembers: allMembers || recipientIds.length === 0,
         recipientUserIds: allMembers ? [] : recipientIds,
@@ -471,13 +470,16 @@ export function CreateWeeklyTemplateDialog({
                     ))}
                   </Select>
 
-                  <Checkbox
+                  <Select
+                    label={m.records_template_enabled()}
                     size="sm"
-                    isSelected={scheduleEnabled}
-                    onChange={setScheduleEnabled}
-                    label={m.records_template_schedule_enabled()}
-                    hint={m.records_template_schedule_enabled_hint()}
-                  />
+                    selectedKey={enabled ? "yes" : "no"}
+                    onSelectionChange={(key) => setEnabled(key !== "no")}
+                    hideRequiredIndicator
+                  >
+                    <Select.Item id="yes" label={m.records_template_enabled_yes()} />
+                    <Select.Item id="no" label={m.records_template_enabled_no()} />
+                  </Select>
                 </div>
 
                 <div className="flex items-center justify-end gap-3 border-t border-secondary px-6 py-4">
