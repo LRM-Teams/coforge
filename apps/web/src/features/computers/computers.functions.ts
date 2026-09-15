@@ -39,7 +39,7 @@ export const restartComputer = createServerFn({ method: "POST" })
               where: {
                 workspaceId: scope.workspaceId,
                 computerId: scope.computerId,
-                workspace: { memberships: { some: { userId: scope.userId } } },
+                workspace: { members: { some: { userId: scope.userId } } },
               },
               select: { id: true },
             }),
@@ -61,7 +61,7 @@ export const readComputerRestartStatus = createServerFn({ method: "GET" })
       where: {
         workspaceId,
         computerId: data.computerId,
-        workspace: { memberships: { some: { userId: user.id } } },
+        workspace: { members: { some: { userId: user.id } } },
       },
       select: { id: true },
     });
