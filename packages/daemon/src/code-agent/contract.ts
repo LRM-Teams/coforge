@@ -3,7 +3,6 @@ import type { AgentSession, AgentSessionOptions, UsageSnapshot } from "@coforge/
 export type {
   AgentActivity,
   AgentActivityLevel,
-  AgentActivityType,
   AgentRuntimeConfig,
   AgentRuntimeEvent,
   AgentRuntimeProviderConfig,

@@ -12,7 +12,7 @@ import type {
   SessionConfigOption,
   NewSessionRequest,
 } from "@agentclientprotocol/sdk";
-import { RUNTIME_PROVIDER } from "@coforge/protocol";
+import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@coforge/protocol";
 import { agentEnvironment } from "../environment";
 import { AgentSessionRecoveryError } from "../contract";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
@@ -270,7 +270,11 @@ class KiroSession implements AgentSession {
           if (generation === this.#generation && !this.#disposed) {
             this.#emit({
               type: "activity",
-              activity: createAgentActivity("runtime_error", "error", "Kiro request failed"),
+              activity: createAgentActivity(
+                AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
+                "error",
+                "Kiro request failed",
+              ),
             });
             this.#emit({ type: "completed", status: "failed" });
           }
@@ -344,7 +348,11 @@ class KiroSession implements AgentSession {
     )
       this.#emit({
         type: "activity",
-        activity: createAgentActivity("runtime_error", "error", "Kiro reported a runtime error"),
+        activity: createAgentActivity(
+          AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
+          "error",
+          "Kiro reported a runtime error",
+        ),
       });
   }
 

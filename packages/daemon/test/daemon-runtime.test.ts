@@ -3192,6 +3192,53 @@ describe("DaemonRuntime", () => {
     await runtime.stop();
   });
 
+  test("publishes a completion Activity without lifecycle detail for a successful turn", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    const activities: import("@coforge/protocol").AgentActivity[] = [];
+    let listener: Parameters<AgentSession["subscribe"]>[0] = () => undefined;
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        async createAgentSession() {
+          return {
+            ...sessionSpy(),
+            subscribe(next) {
+              listener = next;
+              return () => undefined;
+            },
+          };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          sendAgentActivity(activity) {
+            activities.push(activity);
+          },
+          async requestAgentLaunchConfig() {
+            return agentLaunchConfig(`sk_agent_${"a".repeat(43)}`);
+          },
+          async revokeAgentApiKey() {},
+        }),
+      },
+    );
+    try {
+      await runtime.start(connection);
+      await runtime.startAgent("agent-a", config);
+      listener({ type: "completed", status: "completed" });
+      await Bun.sleep(10);
+      expect(activities.map(({ detailKind }) => detailKind)).toEqual(["starting", "idle"]);
+      expect(activities.at(-1)).toMatchObject({ detailKind: "idle", level: "info", detail: "" });
+    } finally {
+      await runtime.stop();
+    }
+  });
+
   test("reports a fenced fresh session and an honest notice without exposing unrelated provider errors", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");

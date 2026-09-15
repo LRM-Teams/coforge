@@ -12,7 +12,7 @@ import {
 import { BrowserRealtimeProvider } from "@/features/realtime/browser-realtime";
 import { getBrowserRealtimeConnectionToken } from "@/features/realtime/realtime.functions";
 import { getBrowserNotificationSettings } from "@/features/notifications/notifications.functions";
-import { listAgents, getAgentActivityConnectionToken } from "@/features/agents/agents.functions";
+import { listAgents, getAgentActivitySubscriptionToken } from "@/features/agents/agents.functions";
 import { getWorkspaceActivity } from "@/features/agents/agent-activity.functions";
 import { useWorkspaceActivity } from "@/features/agents/workspace-activity-realtime";
 import { useAgentStatuses } from "@/features/agents/agent-status-realtime";
@@ -57,7 +57,7 @@ function AppLayout() {
   const getConnectionToken = useCallback(() => getRealtimeToken(), [getRealtimeToken]);
   const refreshAgents = useServerFn(listAgents);
   const refreshActivity = useServerFn(getWorkspaceActivity);
-  const getActivityToken = useServerFn(getAgentActivityConnectionToken);
+  const getActivityToken = useServerFn(getAgentActivitySubscriptionToken);
   const activityView = useWorkspaceActivity({
     workspaceId: currentWorkspace?.id,
     refresh: refreshActivity,

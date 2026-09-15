@@ -143,7 +143,10 @@ instructions for the TanStack Start Web/backend modular monolith.
 - Browser realtime connection ownership belongs to `features/realtime/`. The
   `_app` layout owns one Centrifuge connection for the selected Workspace;
   feature modules may subscribe to authorized channels but must not create
-  additional browser WebSocket connections.
+  additional browser WebSocket connections. `browser-realtime.tsx` exposes
+  `useRealtimeSubscription` for that one connection and owns its client type;
+  a channel with a narrower server-issued grant supplies its own subscription
+  token to the hook.
 
 - `src/routes/__root.tsx` owns the document shell: HTML, global head, global
   providers, styles, `HeadContent`, and `Scripts`.
@@ -338,11 +341,12 @@ instructions for the TanStack Start Web/backend modular monolith.
   at display expiry, refreshes the backend and retries on failure without implementing a
   reducer. It retains the last snapshot when refresh fails; an unavailable initial snapshot
   with no prior value is unknown, not offline.
-- `src/features/agents/agent-activity.ts` owns timeline merging and unresolved-error selection;
-  `agent-activity-realtime.ts` hydrates history and consumes the existing binary Activity
-  channel. History and live entries deduplicate by launch ID/client sequence. Reconnect
-  reloads best-effort history; timeline history never independently changes the unified
-  display snapshot.
+- `src/features/agents/agent-activity.ts` owns the Activity channel, publication
+  decoding/scope checks, timeline merging and unresolved-error selection.
+  `workspace-activity-realtime.ts` hydrates history and consumes the existing binary Activity
+  channel through the shared `features/realtime/` connection. History and live entries
+  deduplicate by launch ID/client sequence. Reconnect reloads best-effort history; timeline
+  history never independently changes the unified display snapshot.
 
 - Keep Daemon process and Activity facts separate. `agent:status` contains only
   `active` or `inactive`, and Activity retains raw detail/entries. The browser displays only

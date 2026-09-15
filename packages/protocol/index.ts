@@ -47,6 +47,23 @@ export const AGENT_MESSAGE_VALIDATION_MESSAGES = [
 export type AgentMessageValidationMessage = (typeof AGENT_MESSAGE_VALIDATION_MESSAGES)[number];
 export const AGENT_STATUS_METHOD = "agent:status" as const;
 export const AGENT_ACTIVITY_METHOD = "agent:activity" as const;
+/** Stable Activity detail kinds shared by the Daemon producer and the Web consumer. */
+export const AGENT_ACTIVITY_DETAIL_KIND = {
+  MODEL_REQUEST_STARTED: "model_request_started",
+  MODEL_RESPONSE_STARTED: "model_response_started",
+  THINKING_STARTED: "thinking_started",
+  FRESHNESS_HOLD: "freshness_hold",
+  STARTING: "starting",
+  STOPPED: "stopped",
+  IDLE: "idle",
+  RUNNING_COMMAND: "running_command",
+  TOOL_STARTED: "tool_started",
+  RUNTIME_RECONNECTING: "runtime_reconnecting",
+  RUNTIME_ERROR: "runtime_error",
+  OTHER: "other",
+} as const;
+export type AgentActivityDetailKind =
+  (typeof AGENT_ACTIVITY_DETAIL_KIND)[keyof typeof AGENT_ACTIVITY_DETAIL_KIND];
 export const AGENT_SESSION_METHOD = "agent:session" as const;
 export type AgentSessionReport = {
   protocolMajor: number;

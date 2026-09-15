@@ -9,7 +9,7 @@ import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { toolActivity } from "../tool-activity";
-import { RUNTIME_PROVIDER } from "@coforge/protocol";
+import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@coforge/protocol";
 import { readClaudeCodeUsage } from "./usage";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -207,7 +207,11 @@ class ClaudeCodeAgentSession implements AgentSession {
         this.#rejectWaitingNotices(error);
         this.#emit({
           type: "activity",
-          activity: createAgentActivity("runtime_error", "error", error.message),
+          activity: createAgentActivity(
+            AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
+            "error",
+            error.message,
+          ),
         });
       }
     });
@@ -233,7 +237,7 @@ class ClaudeCodeAgentSession implements AgentSession {
           this.#emit({
             type: "activity",
             activity: createAgentActivity(
-              "runtime_error",
+              AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
               "error",
               "Claude fresh session launch failed",
             ),
@@ -245,7 +249,11 @@ class ClaudeCodeAgentSession implements AgentSession {
       if (failure && this.#state !== "disposed") {
         this.#emit({
           type: "activity",
-          activity: createAgentActivity("runtime_error", "error", failure.message),
+          activity: createAgentActivity(
+            AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
+            "error",
+            failure.message,
+          ),
         });
       }
       this.#rejectPendingInterrupt(
@@ -616,7 +624,7 @@ class ClaudeCodeAgentSession implements AgentSession {
         this.#emit({
           type: "activity",
           activity: createAgentActivity(
-            "runtime_error",
+            AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
             "error",
             error instanceof Error ? error.message : "Claude session identity report failed",
           ),
@@ -666,7 +674,11 @@ class ClaudeCodeAgentSession implements AgentSession {
     this.#rejectWaitingNotices(error);
     this.#emit({
       type: "activity",
-      activity: createAgentActivity("runtime_error", "error", error.message),
+      activity: createAgentActivity(
+        AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
+        "error",
+        error.message,
+      ),
     });
     // Never block the event reader on process-tree cleanup.
     void this.dispose().catch(() => undefined);

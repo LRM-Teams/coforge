@@ -1,21 +1,13 @@
-import type { RuntimeProvider, ActivityTrajectoryEntry, ActivitySubagent } from "@coforge/protocol";
+import type {
+  RuntimeProvider,
+  ActivityTrajectoryEntry,
+  ActivitySubagent,
+  AgentActivityDetailKind,
+} from "@coforge/protocol";
 
-export type AgentActivityType =
-  | "model_request_started"
-  | "model_response_started"
-  | "thinking_started"
-  | "freshness_hold"
-  | "starting"
-  | "stopped"
-  | "idle"
-  | "running_command"
-  | "tool_started"
-  | "runtime_reconnecting"
-  | "runtime_error"
-  | "warning";
 export type AgentActivityLevel = "info" | "warning" | "error";
 export type AgentActivity = Readonly<{
-  detailKind: AgentActivityType;
+  detailKind: AgentActivityDetailKind;
   level: AgentActivityLevel;
   detail: string;
   observedAtMs: number;

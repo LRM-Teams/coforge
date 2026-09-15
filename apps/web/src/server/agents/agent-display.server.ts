@@ -1,5 +1,9 @@
 import { RedisClient } from "bun";
-import type { AgentActivity, AgentStatus } from "@coforge/protocol";
+import {
+  AGENT_ACTIVITY_DETAIL_KIND,
+  type AgentActivity,
+  type AgentStatus,
+} from "@coforge/protocol";
 import {
   parseAgentDisplaySnapshot,
   type AgentActivityKind,
@@ -9,29 +13,26 @@ import { AGENT_STATUS_LEASE_MS } from "./agent-status.server";
 
 const WORKING_LEASE_MS = 60_000;
 
-const workingKinds = new Set([
-  "model_request_started",
-  "message_received",
-  "model_response_started",
-  "running_command",
-  "tool_started",
-  "working",
-  "freshness_hold",
-  "runtime_progress",
-  "runtime_reconnecting",
-  "runtime_starting",
-  "starting",
-  "checking_messages",
-  "compacting_context",
+const workingKinds = new Set<AgentActivity["detailKind"]>([
+  AGENT_ACTIVITY_DETAIL_KIND.MODEL_REQUEST_STARTED,
+  AGENT_ACTIVITY_DETAIL_KIND.MODEL_RESPONSE_STARTED,
+  AGENT_ACTIVITY_DETAIL_KIND.RUNNING_COMMAND,
+  AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED,
+  AGENT_ACTIVITY_DETAIL_KIND.FRESHNESS_HOLD,
+  AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING,
+  AGENT_ACTIVITY_DETAIL_KIND.STARTING,
 ]);
 
 export function activityKindForObservation(
   observation: Pick<AgentActivity, "detailKind" | "level">,
 ): Exclude<AgentActivityKind, "offline"> | undefined {
-  if (observation.level === "error" || observation.detailKind === "runtime_error") return "error";
-  if (observation.detailKind === "thinking_started") return "thinking";
-  if (observation.detailKind === "idle" || observation.detailKind === "turn_completed")
-    return "online";
+  if (
+    observation.level === "error" ||
+    observation.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR
+  )
+    return "error";
+  if (observation.detailKind === AGENT_ACTIVITY_DETAIL_KIND.THINKING_STARTED) return "thinking";
+  if (observation.detailKind === AGENT_ACTIVITY_DETAIL_KIND.IDLE) return "online";
   if (workingKinds.has(observation.detailKind)) return "working";
   return undefined;
 }

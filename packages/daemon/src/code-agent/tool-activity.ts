@@ -1,3 +1,4 @@
+import { AGENT_ACTIVITY_DETAIL_KIND } from "@coforge/protocol";
 import { createAgentActivity } from "../agent-runtime/agent-activity";
 
 // Verified Raft 1.0.18 aliases, plus the lowercase Pi tools and explicit patch
@@ -39,7 +40,9 @@ export function toolActivity(name: string, args: unknown, occurredAt?: string) {
         ? (input.file_path ?? input.path)
         : undefined;
   const result = createAgentActivity(
-    activity === "running_command" ? "running_command" : "tool_started",
+    activity === "running_command"
+      ? AGENT_ACTIVITY_DETAIL_KIND.RUNNING_COMMAND
+      : AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED,
     "info",
     typeof summary === "string" ? summary : name,
     occurredAt,

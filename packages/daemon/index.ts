@@ -59,11 +59,7 @@ export { agentWorkspaceDirectory } from "./src/agent-runtime/agent-workspace-pat
 export { AgentStateMachine } from "./src/agent-runtime/agent-state-machine";
 export { createAgentActivity } from "./src/agent-runtime/agent-activity";
 export type { AgentRuntime, AgentStatus } from "./src/agent-runtime/agent-process-manager";
-export type {
-  AgentActivity,
-  AgentActivityLevel,
-  AgentActivityType,
-} from "./src/agent-runtime/agent-activity";
+export type { AgentActivity, AgentActivityLevel } from "./src/agent-runtime/agent-activity";
 export type {
   AgentStateEvent,
   AgentStateTransition,
