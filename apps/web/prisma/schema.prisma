@@ -650,6 +650,8 @@ model WeeklyReport {
   authorId         String                 @db.Uuid
   /// When kind=member, optional template this submission was written against.
   sourceTemplateId String?                @db.Uuid
+  /// When kind=template, optional send-settings stream this format/overview belongs to.
+  settingsId       String?                @db.Uuid
   /// member | template
   kind             String
   title            String
@@ -664,6 +666,7 @@ model WeeklyReport {
   author           User                   @relation("WeeklyReportAuthor", fields: [authorId], references: [id], onDelete: Cascade)
   sourceTemplate   WeeklyReport?          @relation("TemplateSubmissions", fields: [sourceTemplateId], references: [id], onDelete: SetNull)
   submissions      WeeklyReport[]         @relation("TemplateSubmissions")
+  settings         WeeklyReportTemplate?  @relation(fields: [settingsId], references: [id], onDelete: SetNull)
   favorites        WeeklyReportFavorite[]
   comments         RecordComment[]        @relation("ReportComments")
 
@@ -671,6 +674,7 @@ model WeeklyReport {
   @@index([cycleId, kind])
   @@index([cycleId, authorId, kind])
   @@index([sourceTemplateId])
+  @@index([settingsId])
   @@map("weekly_reports")
 }
 
@@ -718,7 +722,7 @@ model WeeklyReportTemplate {
   dimensions      Json
   mainTitles      Json
   allMembers      Boolean                         @default(false)
-  /// When true, this owner's Leader send uses this row; at most one applied per (workspace, owner).
+  /// When true, this settings row is an active send stream (multiple allowed per owner).
   applied         Boolean                         @default(false)
   /// When true with applied, scheduled/periodic send is allowed.
   scheduleEnabled Boolean                         @default(false)
@@ -727,6 +731,7 @@ model WeeklyReportTemplate {
   workspace       Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   owner           User                            @relation("WeeklyReportTemplateOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   recipients      WeeklyReportTemplateRecipient[]
+  reports         WeeklyReport[]
 
   @@index([workspaceId])
   @@index([workspaceId, ownerId])

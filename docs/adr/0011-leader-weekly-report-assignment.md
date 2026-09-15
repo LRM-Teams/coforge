@@ -40,22 +40,18 @@ matches the product.
    must not roll back assignments. Dedicated DM or alternate channels remain
    follow-ups. Channel notice wiring is best-effort and is skipped when
    Centrifugo is not configured; missing realtime config must not block send.
-6. **Send settings**: Exactly zero or one `WeeklyReportTemplate` may be
-   `applied` **per owner** (`ownerId`) within a Workspace. Leader「发送给成员」
-   requires that owner’s applied row **and** the current send window (applied
-   weekday; with periodic send the whole send day, otherwise from sendTime
-   through midnight, `Asia/Shanghai`); with none applied, after this week's
-   send, or outside the window the button is disabled. The live format template
-   chip turns purple with a countdown on the send day before this week's send;
-   after manual or scheduled send it grays out (same arming as「发送给成员」).
-   Each sent week’s overview stays under「成员周报」as a separate node for that
-   Leader. Applying a settings row also ensures the Leader has a personal live
-   format document for the top chip; with no applied settings the chip still
-   renders for the current ISO week but is grayed out and not clickable.
-   `scheduleEnabled` (edited in the template dialog) permits periodic
-   send when also applied. Cron calls `POST /api/internal/weekly-report-schedule`
-   with `x-coforge-weekly-report-cron-secret`, and runs each due applied row as
-   its `ownerId`.
+6. **Send settings**: A User may have **zero or more** `WeeklyReportTemplate`
+   rows `applied` within a Workspace (no longer limited to one). Each applied
+   row is an independent send stream: its own recipients, schedule, outline,
+   live format document, and top-chip button (label = settings `name`). Leader
+   「发送给成员」and chip arming are evaluated **per stream** (that row’s
+   weekday/time/`scheduleEnabled`, and whether **that** stream already sent in
+   the current ISO week). With no applied rows, one gray non-interactive chip
+   still renders for the current week. Format/overview `WeeklyReport` rows that
+   belong to a stream store `settingsId`. Cron still calls
+   `POST /api/internal/weekly-report-schedule` with
+   `x-coforge-weekly-report-cron-secret`, and runs each due applied+scheduled
+   row as its `ownerId` against that row’s format.
 
 ## Slice plan (implementation order)
 
@@ -93,7 +89,8 @@ matches the product.
   `submitted` on the same row (overwrite).
 - Schema or Message integration for schedule/delivery may need Frank’s gate when
   those slices add columns or wire protocol. This slice adds `applied`,
-  `scheduleEnabled`, `sendWeekday`, and per-user `ownerId` on
-  `WeeklyReportTemplate`, plus an internal cron HTTP route (not a durable job
-  system). Send settings, format templates, and「成员周报」trees are private to
-  each User within a Workspace.
+  `scheduleEnabled`, `sendWeekday`, per-user `ownerId`, and multi-applied
+  streams linked via `WeeklyReport.settingsId`, plus an internal cron HTTP
+  route (not a durable job system). Send settings, format templates, and
+  「成员周报」trees are private to each User within a Workspace. Multiple
+  applied settings rows each own a top chip and send state machine.

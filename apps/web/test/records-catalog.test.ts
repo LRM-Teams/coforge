@@ -12,6 +12,7 @@ test("sendWeeklyAssignments creates a new parent and unread assignments for reci
     weeklyReport: {
       findFirst: async () => ({
         id: "source-1",
+        settingsId: "settings-1",
         content: { tabs: { Summary: { markdown: "# Outline" } } },
       }),
       update: async () => ({}),
@@ -32,8 +33,9 @@ test("sendWeeklyAssignments creates a new parent and unread assignments for reci
       }),
     },
     weeklyReportTemplate: {
-      findFirst: async (query: { where?: { applied?: boolean } }) => {
+      findFirst: async (query: { where?: { applied?: boolean; id?: string } }) => {
         if (query.where?.applied === false) return null;
+        expect(query.where?.id).toBe("settings-1");
         return {
           id: "settings-1",
           allMembers: false,
@@ -68,6 +70,7 @@ test("sendWeeklyAssignments creates a new parent and unread assignments for reci
   expect(created[0]).toMatchObject({
     kind: "template",
     authorId: "leader",
+    settingsId: "settings-1",
     title: "2026 W38 工作周报",
   });
   expect(created[1]).toMatchObject({
@@ -99,6 +102,7 @@ test("sendWeeklyAssignments notifies the channel delivery after assignments exis
     weeklyReport: {
       findFirst: async () => ({
         id: "source-1",
+        settingsId: "settings-1",
         content: { tabs: { Summary: { markdown: "# Outline" } } },
       }),
       update: async () => ({}),
@@ -159,6 +163,7 @@ test("sendWeeklyAssignments still succeeds when channel delivery fails", async (
     weeklyReport: {
       findFirst: async () => ({
         id: "source-1",
+        settingsId: "settings-1",
         content: { tabs: { Summary: { markdown: "# Outline" } } },
       }),
       update: async () => ({}),
@@ -211,6 +216,7 @@ test("sendWeeklyAssignments rejects when no send settings are applied", async ()
     weeklyReport: {
       findFirst: async () => ({
         id: "source-1",
+        settingsId: "settings-1",
         content: { tabs: { Summary: { markdown: "# Outline" } } },
       }),
       update: async () => ({}),
@@ -234,6 +240,31 @@ test("sendWeeklyAssignments rejects when no send settings are applied", async ()
   });
 });
 
+test("sendWeeklyAssignments rejects when the format has no settings stream", async () => {
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "owner" }),
+    },
+    weeklyReport: {
+      findFirst: async () => ({
+        id: "source-1",
+        settingsId: null,
+        content: { tabs: { Summary: { markdown: "# Outline" } } },
+      }),
+    },
+  } as unknown as PrismaClient;
+
+  await expect(
+    new RecordCatalog(db).sendWeeklyAssignments({
+      workspaceId: "workspace-1",
+      userId: "leader",
+      sourceReportId: "source-1",
+    }),
+  ).rejects.toMatchObject({
+    code: "NOT_FOUND",
+  });
+});
+
 test("applyTemplate toggles off and allows zero applied rows", async () => {
   const updates: Array<Record<string, unknown>> = [];
   const db = {
@@ -241,12 +272,16 @@ test("applyTemplate toggles off and allows zero applied rows", async () => {
       findUnique: async () => ({ role: "owner" }),
     },
     weeklyReportTemplate: {
-      findFirst: async () => ({ id: "settings-1", applied: true }),
+      findFirst: async () => ({
+        id: "settings-1",
+        name: "算法汇报",
+        applied: true,
+        dimensions: [],
+      }),
       update: async (query: { where: { id: string }; data: Record<string, unknown> }) => {
         updates.push(query);
         return {};
       },
-      updateMany: async () => ({ count: 0 }),
     },
   } as unknown as PrismaClient;
 
@@ -260,22 +295,21 @@ test("applyTemplate toggles off and allows zero applied rows", async () => {
   expect(updates).toEqual([{ where: { id: "settings-1" }, data: { applied: false } }]);
 });
 
-test("applyTemplate activates one row and clears other applied rows", async () => {
+test("applyTemplate activates one stream without clearing other applied rows", async () => {
   const ops: string[] = [];
   const db = {
     workspaceMembership: {
       findUnique: async () => ({ role: "owner" }),
     },
-    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(db),
     weeklyReportTemplate: {
-      findFirst: async (query: { where?: { id?: string; ownerId?: string } }) => {
-        if (query.where?.id === "settings-2" && !query.where?.ownerId) {
-          return { id: "settings-2", dimensions: [] };
-        }
-        return { id: "settings-2", applied: false };
-      },
-      updateMany: async (query: { where: object; data: object }) => {
-        ops.push(`updateMany:${JSON.stringify(query)}`);
+      findFirst: async () => ({
+        id: "settings-2",
+        name: "产品汇报",
+        applied: false,
+        dimensions: [],
+      }),
+      updateMany: async () => {
+        ops.push("updateMany");
         return { count: 1 };
       },
       update: async (query: { where: object; data: object }) => {
@@ -285,6 +319,10 @@ test("applyTemplate activates one row and clears other applied rows", async () =
     },
     weeklyReport: {
       findFirst: async () => ({ id: "existing-format" }),
+      update: async (query: { where: object; data: object }) => {
+        ops.push(`update:${JSON.stringify(query)}`);
+        return {};
+      },
     },
   } as unknown as PrismaClient;
 
@@ -296,9 +334,10 @@ test("applyTemplate activates one row and clears other applied rows", async () =
 
   expect(result).toEqual({ id: "settings-2", active: true });
   expect(ops).toEqual([
-    'updateMany:{"where":{"workspaceId":"workspace-1","ownerId":"leader","applied":true},"data":{"applied":false}}',
     'update:{"where":{"id":"settings-2"},"data":{"applied":true}}',
+    'update:{"where":{"id":"existing-format"},"data":{"title":"产品汇报"}}',
   ]);
+  expect(ops).not.toContain("updateMany");
 });
 
 test("setTemplateScheduleEnabled updates the schedule checkbox independently", async () => {
@@ -333,6 +372,7 @@ test("runDueScheduledWeeklyAssignments skips when not due", async () => {
       findMany: async () => [
         {
           id: "settings-1",
+          name: "算法汇报",
           workspaceId: "workspace-1",
           ownerId: "leader",
           sendTime: "15:00",
@@ -364,6 +404,7 @@ test("runDueScheduledWeeklyAssignments skips when the ISO week already has assig
       findMany: async () => [
         {
           id: "settings-1",
+          name: "算法汇报",
           workspaceId: "workspace-1",
           ownerId: "leader",
           sendTime: "15:00",
@@ -372,7 +413,13 @@ test("runDueScheduledWeeklyAssignments skips when the ISO week already has assig
       ],
     },
     weeklyReport: {
-      findFirst: async () => ({ id: "already-parent" }),
+      findFirst: async (query: {
+        where?: { settingsId?: string; submissions?: { some?: unknown } };
+      }) => {
+        expect(query.where?.settingsId).toBe("settings-1");
+        expect(query.where?.submissions?.some).toBeTruthy();
+        return { id: "already-parent" };
+      },
     },
   } as unknown as PrismaClient;
 
@@ -399,6 +446,7 @@ test("runDueScheduledWeeklyAssignments sends when due and not yet sent", async (
       findMany: async () => [
         {
           id: "settings-1",
+          name: "算法汇报",
           workspaceId: "workspace-1",
           ownerId: "leader",
           sendTime: "15:00",
@@ -412,11 +460,18 @@ test("runDueScheduledWeeklyAssignments sends when due and not yet sent", async (
       }),
     },
     weeklyReport: {
-      findFirst: async (query: { where?: { submissions?: unknown; kind?: string } }) => {
-        if (query.where?.submissions) return null;
+      findFirst: async (query: {
+        where?: {
+          id?: string;
+          settingsId?: string;
+          submissions?: { some?: unknown; none?: unknown };
+        };
+      }) => {
+        if (query.where?.submissions?.some) return null;
         return {
           id: "source-1",
           authorId: "leader",
+          settingsId: "settings-1",
           content: { tabs: { Summary: { markdown: "# Outline" } } },
         };
       },
@@ -453,6 +508,10 @@ test("runDueScheduledWeeklyAssignments sends when due and not yet sent", async (
     status: "sent",
     parentId: "parent-1",
     assignmentCount: 1,
+  });
+  expect(created[0]).toMatchObject({
+    kind: "template",
+    settingsId: "settings-1",
   });
   expect(sendCalls).toBeGreaterThan(0);
 });
@@ -657,9 +716,10 @@ test("loadCatalog hides other leaders' template parents under 成员周报", asy
       findUnique: async () => ({ id: "leader-b", username: "b", displayName: "B" }),
     },
     weeklyReportTemplate: {
-      findFirst: async (query: { where?: { ownerId?: string } }) => {
+      findMany: async (query: { where?: { ownerId?: string; applied?: boolean } }) => {
         expect(query.where?.ownerId).toBe("leader-b");
-        return null;
+        expect(query.where?.applied).toBe(true);
+        return [];
       },
     },
   } as unknown as PrismaClient;
@@ -671,16 +731,19 @@ test("loadCatalog hides other leaders' template parents under 成员周报", asy
 
   expect(catalog.memberTemplates.map((row) => row.id)).toEqual(["leader-b-overview"]);
   expect(catalog.memberTemplates.map((row) => row.id)).not.toContain("leader-a-format");
-  expect(catalog.currentWeekTemplate).toMatchObject({
-    id: null,
-    interactive: false,
-    sendArmed: false,
-  });
+  expect(catalog.formatChips).toEqual([
+    expect.objectContaining({
+      id: null,
+      interactive: false,
+      sendArmed: false,
+    }),
+  ]);
   expect(catalog.myReports.map((row) => row.id)).toEqual(["mine"]);
 });
 
 test("loadCatalog creates a personal format when send settings are applied", async () => {
   const created: Array<Record<string, unknown>> = [];
+  const updates: Array<Record<string, unknown>> = [];
   const db = {
     workspaceMembership: {
       findUnique: async () => ({ role: "member" }),
@@ -703,17 +766,26 @@ test("loadCatalog creates a personal format when send settings are applied", asy
       findUnique: async () => ({ id: "leader-b", username: "b", displayName: "B" }),
     },
     weeklyReportTemplate: {
-      findFirst: async () => ({
-        sendWeekday: 5,
-        sendTime: "15:00",
-        scheduleEnabled: false,
-      }),
+      findMany: async () => [
+        {
+          id: "settings-b",
+          name: "算法汇报",
+          sendWeekday: 5,
+          sendTime: "15:00",
+          scheduleEnabled: false,
+          dimensions: [],
+        },
+      ],
     },
     weeklyReport: {
       findFirst: async () => null,
       create: async (query: { data: Record<string, unknown> }) => {
         created.push(query.data);
         return { id: "format-new" };
+      },
+      update: async (query: { data: Record<string, unknown> }) => {
+        updates.push(query.data);
+        return {};
       },
     },
   } as unknown as PrismaClient;
@@ -723,14 +795,133 @@ test("loadCatalog creates a personal format when send settings are applied", asy
     userId: "leader-b",
   });
 
-  expect(catalog.currentWeekTemplate).toMatchObject({
-    id: "format-new",
-    interactive: true,
-  });
+  expect(catalog.formatChips).toEqual([
+    expect.objectContaining({
+      id: "format-new",
+      settingsId: "settings-b",
+      name: "算法汇报",
+      interactive: true,
+    }),
+  ]);
   expect(created[0]).toMatchObject({
     kind: "template",
     authorId: "leader-b",
-    title: "2026 W38 周报模板",
+    settingsId: "settings-b",
+    title: "算法汇报",
+  });
+});
+
+test("loadCatalog exposes one chip per applied settings stream", async () => {
+  const created: Array<Record<string, unknown>> = [];
+  const db = {
+    workspaceMembership: {
+      findUnique: async () => ({ role: "member" }),
+    },
+    weeklyReportCycle: {
+      findMany: async () => [
+        {
+          id: "cycle-1",
+          year: 2026,
+          week: 38,
+          title: "2026 W38 工作周报",
+          highlight: null,
+          reports: [
+            {
+              id: "overview-algo",
+              kind: "template",
+              authorId: "leader-b",
+              title: "2026 W38 工作周报",
+              status: "draft",
+              content: { tabs: { Summary: { markdown: "" } } },
+              sourceTemplateId: null,
+              settingsId: "settings-algo",
+              createdAt: new Date("2026-09-14T01:00:00.000Z"),
+              author: { id: "leader-b", username: "b", displayName: "B" },
+            },
+            {
+              id: "assignment-algo",
+              kind: "member",
+              authorId: "member-a",
+              title: "Alice的周报 · W38",
+              status: "draft",
+              content: { tabs: { Summary: { markdown: "" } } },
+              sourceTemplateId: "overview-algo",
+              settingsId: null,
+              createdAt: new Date("2026-09-14T02:00:00.000Z"),
+              author: { id: "member-a", username: "alice", displayName: "Alice" },
+            },
+          ],
+        },
+      ],
+      findUnique: async () => ({
+        id: "cycle-1",
+        year: 2026,
+        week: 38,
+        title: "2026 W38 工作周报",
+      }),
+    },
+    weeklyReportFavorite: { findMany: async () => [] },
+    recordNote: { findMany: async () => [] },
+    user: {
+      findUnique: async () => ({ id: "leader-b", username: "b", displayName: "B" }),
+    },
+    weeklyReportTemplate: {
+      findMany: async () => [
+        {
+          id: "settings-algo",
+          name: "算法汇报",
+          sendWeekday: 5,
+          sendTime: "15:00",
+          scheduleEnabled: false,
+          dimensions: [],
+        },
+        {
+          id: "settings-product",
+          name: "产品汇报",
+          sendWeekday: 5,
+          sendTime: "15:00",
+          scheduleEnabled: false,
+          dimensions: [],
+        },
+      ],
+    },
+    weeklyReport: {
+      findFirst: async (query: { where?: { settingsId?: string | null } }) => {
+        if (query.where?.settingsId === "settings-algo") return { id: "format-algo" };
+        return null;
+      },
+      create: async (query: { data: Record<string, unknown> }) => {
+        created.push(query.data);
+        return { id: "format-product" };
+      },
+      update: async () => ({}),
+    },
+  } as unknown as PrismaClient;
+
+  const catalog = await new RecordCatalog(db).loadCatalog({
+    workspaceId: "workspace-1",
+    userId: "leader-b",
+  });
+
+  expect(catalog.formatChips).toEqual([
+    expect.objectContaining({
+      id: "format-algo",
+      settingsId: "settings-algo",
+      name: "算法汇报",
+      alreadySent: true,
+      interactive: true,
+    }),
+    expect.objectContaining({
+      id: "format-product",
+      settingsId: "settings-product",
+      name: "产品汇报",
+      alreadySent: false,
+      interactive: true,
+    }),
+  ]);
+  expect(created[0]).toMatchObject({
+    settingsId: "settings-product",
+    title: "产品汇报",
   });
 });
 
@@ -740,18 +931,13 @@ test("applyTemplate ensures a personal format when activating settings", async (
     workspaceMembership: {
       findUnique: async () => ({ role: "member" }),
     },
-    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(db),
     weeklyReportTemplate: {
-      findFirst: async (query: { where?: { id?: string; ownerId?: string } }) => {
-        if (query.where?.id === "settings-b" && !query.where?.ownerId) {
-          return {
-            id: "settings-b",
-            dimensions: [{ title: "Summary", children: ["Current Works"] }],
-          };
-        }
-        return { id: "settings-b", applied: false };
-      },
-      updateMany: async () => ({ count: 0 }),
+      findFirst: async () => ({
+        id: "settings-b",
+        name: "算法汇报",
+        applied: false,
+        dimensions: [{ title: "Summary", children: ["Current Works"] }],
+      }),
       update: async () => ({}),
     },
     weeklyReport: {
@@ -781,6 +967,8 @@ test("applyTemplate ensures a personal format when activating settings", async (
   expect(created[0]).toMatchObject({
     kind: "template",
     authorId: "leader-b",
+    settingsId: "settings-b",
+    title: "算法汇报",
   });
   expect(
     (created[0]?.content as { tabs?: { Summary?: { markdown?: string } } })?.tabs?.Summary
@@ -913,23 +1101,24 @@ test("getSubject overview children only include the assignee's own submission", 
   });
 });
 
-test("applyTemplate clears only the same owner's other applied rows", async () => {
+test("applyTemplate scopes activation to the owner without clearing peers", async () => {
   const ops: string[] = [];
   const db = {
     workspaceMembership: {
       findUnique: async () => ({ role: "member" }),
     },
-    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(db),
     weeklyReportTemplate: {
-      findFirst: async (query: { where?: { ownerId?: string; id?: string } }) => {
-        if (query.where?.id === "settings-b" && !query.where?.ownerId) {
-          return { id: "settings-b", dimensions: [] };
-        }
+      findFirst: async (query: { where?: { ownerId?: string } }) => {
         expect(query.where?.ownerId).toBe("leader-b");
-        return { id: "settings-b", applied: false };
+        return {
+          id: "settings-b",
+          name: "算法汇报",
+          applied: false,
+          dimensions: [],
+        };
       },
-      updateMany: async (query: { where: object; data: object }) => {
-        ops.push(`updateMany:${JSON.stringify(query)}`);
+      updateMany: async () => {
+        ops.push("updateMany");
         return { count: 1 };
       },
       update: async (query: { where: object; data: object }) => {
@@ -939,6 +1128,10 @@ test("applyTemplate clears only the same owner's other applied rows", async () =
     },
     weeklyReport: {
       findFirst: async () => ({ id: "existing-format" }),
+      update: async (query: { where: object; data: object }) => {
+        ops.push(`update:${JSON.stringify(query)}`);
+        return {};
+      },
     },
   } as unknown as PrismaClient;
 
@@ -948,7 +1141,11 @@ test("applyTemplate clears only the same owner's other applied rows", async () =
     templateId: "settings-b",
   });
 
-  expect(ops[0]).toContain('"ownerId":"leader-b"');
+  expect(ops).toEqual([
+    'update:{"where":{"id":"settings-b"},"data":{"applied":true}}',
+    'update:{"where":{"id":"existing-format"},"data":{"title":"算法汇报"}}',
+  ]);
+  expect(ops).not.toContain("updateMany");
 });
 
 test("saveReportContent syncs H1/H2 outline back to applied settings", async () => {
@@ -962,6 +1159,7 @@ test("saveReportContent syncs H1/H2 outline back to applied settings", async () 
         id: "format-1",
         authorId: "leader",
         kind: "template",
+        settingsId: "settings-1",
         submissions: [],
       }),
       update: async () => ({
@@ -971,7 +1169,10 @@ test("saveReportContent syncs H1/H2 outline back to applied settings", async () 
       }),
     },
     weeklyReportTemplate: {
-      findFirst: async () => ({ id: "settings-1" }),
+      findFirst: async (query: { where?: { id?: string } }) => {
+        expect(query.where?.id).toBe("settings-1");
+        return { id: "settings-1" };
+      },
       update: async (query: { data: Record<string, unknown> }) => {
         updates.push(query.data);
         return {};

@@ -10,14 +10,13 @@ import {
   memberReportTitle,
   memberWeekTitle,
   normalizeReportContent,
-  templateDraftTitle,
   withAssignmentUnread,
   type HighlightContent,
   type ReportContent,
 } from "../../features/records/records-content";
 import {
+  currentWeekTemplateTitle,
   isWeeklySendArmed,
-  pickPinnedWeekTemplate,
   splitWeeklyTemplateRoles,
 } from "../../features/records/weekly-send-window";
 import {
@@ -72,45 +71,56 @@ export class RecordCatalog {
     now?: Date;
   }) {
     const now = input.now ?? new Date();
-    const appliedSchedule = await this.db.weeklyReportTemplate.findFirst({
-      where: { workspaceId: input.workspaceId, ownerId: input.userId, applied: true },
-      select: { sendWeekday: true, sendTime: true, scheduleEnabled: true },
-    });
-    if (!appliedSchedule) return false;
-    const currentWeek = currentIsoWeek(zonedCalendarDate(now));
-    const templates = await this.db.weeklyReport.findMany({
-      where: { workspaceId: input.workspaceId, kind: "template", authorId: input.userId },
-      select: {
-        id: true,
-        createdAt: true,
-        cycle: { select: { year: true, week: true } },
-        submissions: { where: { kind: "member" }, select: { id: true }, take: 1 },
+    const report = await this.db.weeklyReport.findFirst({
+      where: {
+        id: input.reportId,
+        workspaceId: input.workspaceId,
+        authorId: input.userId,
+        kind: "template",
       },
-      orderBy: { createdAt: "desc" },
+      select: { id: true, settingsId: true },
     });
-    const { formats } = splitWeeklyTemplateRoles(
-      templates.map((row) => ({
-        year: row.cycle.year,
-        week: row.cycle.week,
-        createdAtMs: row.createdAt.getTime(),
-        id: row.id,
-        hasAssignments: row.submissions.length > 0,
-      })),
-    );
-    const pinned = pickPinnedWeekTemplate(formats, currentWeek);
-    if (pinned?.id !== input.reportId) return false;
-    const alreadySent = templates.some(
-      (row) =>
-        row.cycle.year === currentWeek.year &&
-        row.cycle.week === currentWeek.week &&
-        row.submissions.length > 0,
-    );
+    if (!report?.settingsId) return false;
+    const settings = await this.db.weeklyReportTemplate.findFirst({
+      where: {
+        id: report.settingsId,
+        workspaceId: input.workspaceId,
+        ownerId: input.userId,
+        applied: true,
+      },
+      select: { id: true, sendWeekday: true, sendTime: true, scheduleEnabled: true },
+    });
+    if (!settings) return false;
+    const liveFormat = await this.db.weeklyReport.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        authorId: input.userId,
+        kind: "template",
+        settingsId: settings.id,
+        submissions: { none: { kind: "member" } },
+      },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true },
+    });
+    if (liveFormat?.id !== input.reportId) return false;
+    const currentWeek = currentIsoWeek(zonedCalendarDate(now));
+    const alreadySent = await this.db.weeklyReport.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        authorId: input.userId,
+        kind: "template",
+        settingsId: settings.id,
+        cycle: { year: currentWeek.year, week: currentWeek.week },
+        submissions: { some: { kind: "member" } },
+      },
+      select: { id: true },
+    });
     return isWeeklySendArmed({
       applied: true,
-      alreadySent,
-      sendWeekday: appliedSchedule.sendWeekday,
-      sendTime: appliedSchedule.sendTime,
-      scheduleEnabled: appliedSchedule.scheduleEnabled,
+      alreadySent: Boolean(alreadySent),
+      sendWeekday: settings.sendWeekday,
+      sendTime: settings.sendTime,
+      scheduleEnabled: settings.scheduleEnabled,
       now,
     });
   }
@@ -180,45 +190,94 @@ export class RecordCatalog {
       year: cycle.year,
       week: cycle.week,
       createdAtMs: report.createdAt.getTime(),
+      settingsId: report.settingsId,
       hasAssignments: cycle.reports.some(
         (candidate) => candidate.kind === "member" && candidate.sourceTemplateId === report.id,
       ),
       entry: { cycle, report },
     }));
-    const { formats, overviews } = splitWeeklyTemplateRoles(classified);
-    const pinned = pickPinnedWeekTemplate(formats, currentWeek)?.entry;
-    const alreadySentThisWeek = classified.some(
-      (row) => row.year === currentWeek.year && row.week === currentWeek.week && row.hasAssignments,
-    );
-    const appliedSchedule = await this.db.weeklyReportTemplate.findFirst({
+    const { overviews } = splitWeeklyTemplateRoles(classified);
+    const appliedSettings = await this.db.weeklyReportTemplate.findMany({
       where: { workspaceId: input.workspaceId, ownerId: input.userId, applied: true },
+      orderBy: { updatedAt: "desc" },
       select: {
+        id: true,
+        name: true,
         sendWeekday: true,
         sendTime: true,
         scheduleEnabled: true,
         dimensions: true,
       },
     });
-    const sendArmed = appliedSchedule
-      ? isWeeklySendArmed({
-          applied: true,
-          alreadySent: alreadySentThisWeek,
-          sendWeekday: appliedSchedule.sendWeekday,
-          sendTime: appliedSchedule.sendTime,
-          scheduleEnabled: appliedSchedule.scheduleEnabled,
-          now,
-        })
-      : false;
 
-    const formatReport = appliedSchedule
-      ? await this.ensurePersonalFormatReport({
-          workspaceId: input.workspaceId,
-          userId: input.userId,
-          now,
-          existingFormatId: pinned?.report.id,
-          sections: parseTemplateSections(appliedSchedule.dimensions),
-        })
-      : null;
+    const formatChips: Array<{
+      id: string | null;
+      settingsId: string | null;
+      name: string;
+      year: number;
+      week: number;
+      sendArmed: boolean;
+      alreadySent: boolean;
+      interactive: boolean;
+      appliedSchedule: {
+        sendWeekday: number;
+        sendTime: string;
+        scheduleEnabled: boolean;
+      } | null;
+    }> = [];
+    for (const settings of appliedSettings) {
+      const formatReport = await this.ensureFormatForSettings({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        settingsId: settings.id,
+        settingsName: settings.name,
+        now,
+        sections: parseTemplateSections(settings.dimensions),
+      });
+      const alreadySentThisWeek = classified.some(
+        (row) =>
+          row.settingsId === settings.id &&
+          row.year === currentWeek.year &&
+          row.week === currentWeek.week &&
+          row.hasAssignments,
+      );
+      const sendArmed = isWeeklySendArmed({
+        applied: true,
+        alreadySent: alreadySentThisWeek,
+        sendWeekday: settings.sendWeekday,
+        sendTime: settings.sendTime,
+        scheduleEnabled: settings.scheduleEnabled,
+        now,
+      });
+      formatChips.push({
+        id: formatReport.id,
+        settingsId: settings.id,
+        name: settings.name,
+        year: currentWeek.year,
+        week: currentWeek.week,
+        sendArmed,
+        alreadySent: alreadySentThisWeek,
+        interactive: true,
+        appliedSchedule: {
+          sendWeekday: settings.sendWeekday,
+          sendTime: settings.sendTime,
+          scheduleEnabled: settings.scheduleEnabled,
+        },
+      });
+    }
+    if (formatChips.length === 0) {
+      formatChips.push({
+        id: null,
+        settingsId: null,
+        name: currentWeekTemplateTitle(currentWeek.year, currentWeek.week),
+        year: currentWeek.year,
+        week: currentWeek.week,
+        sendArmed: false,
+        alreadySent: false,
+        interactive: false,
+        appliedSchedule: null,
+      });
+    }
 
     const memberTemplates = overviews.map(({ entry: { cycle, report } }) => ({
       id: report.id,
@@ -273,21 +332,7 @@ export class RecordCatalog {
           })),
       ),
       memberTemplates,
-      currentWeekTemplate: {
-        id: formatReport?.id ?? null,
-        year: currentWeek.year,
-        week: currentWeek.week,
-        sendArmed,
-        interactive: formatReport !== null,
-      },
-      appliedSchedule: appliedSchedule
-        ? {
-            sendWeekday: appliedSchedule.sendWeekday,
-            sendTime: appliedSchedule.sendTime,
-            scheduleEnabled: appliedSchedule.scheduleEnabled,
-          }
-        : null,
-      alreadySentThisWeek,
+      formatChips,
       notes: notes.map((note) => ({
         id: note.id,
         title: note.title,
@@ -299,48 +344,69 @@ export class RecordCatalog {
   }
 
   /**
-   * Ensure the viewer has a personal live format template (no assignments yet).
-   * Created when send settings are applied so the top chip can open an editor.
+   * Ensure a live format document for one applied settings stream (no assignments).
    */
-  private async ensurePersonalFormatReport(input: {
+  private async ensureFormatForSettings(input: {
     workspaceId: string;
     userId: string;
+    settingsId: string;
+    settingsName: string;
     now?: Date;
-    existingFormatId?: string;
     sections?: TemplateOutlineSection[];
     alignContent?: boolean;
   }): Promise<{ id: string }> {
-    if (input.existingFormatId) {
-      if (input.alignContent && input.sections && input.sections.length > 0) {
-        await this.syncFormatReportToSections({
-          workspaceId: input.workspaceId,
-          userId: input.userId,
-          reportId: input.existingFormatId,
-          sections: input.sections,
-        });
-      }
-      return { id: input.existingFormatId };
-    }
-    const existing = await this.db.weeklyReport.findFirst({
+    const linked = await this.db.weeklyReport.findFirst({
       where: {
         workspaceId: input.workspaceId,
         authorId: input.userId,
         kind: "template",
+        settingsId: input.settingsId,
         submissions: { none: { kind: "member" } },
       },
       orderBy: { updatedAt: "desc" },
       select: { id: true },
     });
-    if (existing) {
+    if (linked) {
       if (input.alignContent && input.sections && input.sections.length > 0) {
         await this.syncFormatReportToSections({
           workspaceId: input.workspaceId,
           userId: input.userId,
-          reportId: existing.id,
+          reportId: linked.id,
           sections: input.sections,
         });
       }
-      return existing;
+      await this.db.weeklyReport.update({
+        where: { id: linked.id },
+        data: { title: input.settingsName },
+      });
+      return linked;
+    }
+
+    const orphan = await this.db.weeklyReport.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        authorId: input.userId,
+        kind: "template",
+        settingsId: null,
+        submissions: { none: { kind: "member" } },
+      },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true },
+    });
+    if (orphan) {
+      await this.db.weeklyReport.update({
+        where: { id: orphan.id },
+        data: { settingsId: input.settingsId, title: input.settingsName },
+      });
+      if (input.alignContent && input.sections && input.sections.length > 0) {
+        await this.syncFormatReportToSections({
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          reportId: orphan.id,
+          sections: input.sections,
+        });
+      }
+      return orphan;
     }
 
     const cycle = await this.ensureCurrentCycle({
@@ -357,8 +423,9 @@ export class RecordCatalog {
         workspaceId: input.workspaceId,
         cycleId: cycle.id,
         authorId: input.userId,
+        settingsId: input.settingsId,
         kind: "template",
-        title: templateDraftTitle(cycle.year, cycle.week),
+        title: input.settingsName,
         status: "draft",
         content: content as unknown as Prisma.InputJsonValue,
       },
@@ -391,36 +458,28 @@ export class RecordCatalog {
     });
   }
 
-  private async syncAppliedSettingsFromFormat(input: {
+  private async syncSettingsOutlineFromFormat(input: {
     workspaceId: string;
     userId: string;
+    settingsId: string;
     content: ReportContent;
   }) {
-    const applied = await this.db.weeklyReportTemplate.findFirst({
-      where: { workspaceId: input.workspaceId, ownerId: input.userId, applied: true },
+    const settings = await this.db.weeklyReportTemplate.findFirst({
+      where: {
+        id: input.settingsId,
+        workspaceId: input.workspaceId,
+        ownerId: input.userId,
+      },
       select: { id: true },
     });
-    if (!applied) return;
+    if (!settings) return;
     const sections = sectionsFromReportContent(input.content);
     await this.db.weeklyReportTemplate.update({
-      where: { id: applied.id },
+      where: { id: settings.id },
       data: {
         dimensions: sections as unknown as Prisma.InputJsonValue,
         mainTitles: [],
       },
-    });
-  }
-
-  private async syncFormatFromSettingsRow(input: {
-    workspaceId: string;
-    userId: string;
-    sections: TemplateOutlineSection[];
-  }) {
-    await this.ensurePersonalFormatReport({
-      workspaceId: input.workspaceId,
-      userId: input.userId,
-      sections: input.sections,
-      alignContent: true,
     });
   }
 
@@ -570,9 +629,9 @@ export class RecordCatalog {
         kind: "template",
         authorId: input.userId,
       },
-      select: { id: true, content: true },
+      select: { id: true, content: true, settingsId: true },
     });
-    if (!source) throw new AppError("NOT_FOUND");
+    if (!source?.settingsId) throw new AppError("NOT_FOUND");
 
     const content = normalizeReportContent(input.content ?? asReportContent(source.content));
     if (input.content) {
@@ -583,8 +642,12 @@ export class RecordCatalog {
     }
 
     const sendSettings = await this.db.weeklyReportTemplate.findFirst({
-      where: { workspaceId: input.workspaceId, ownerId: input.userId, applied: true },
-      orderBy: { updatedAt: "desc" },
+      where: {
+        id: source.settingsId,
+        workspaceId: input.workspaceId,
+        ownerId: input.userId,
+        applied: true,
+      },
       include: { recipients: { select: { userId: true } } },
     });
     if (!sendSettings) throw new AppError("INVALID_INPUT", { errorId: "weekly-send-no-settings" });
@@ -609,6 +672,7 @@ export class RecordCatalog {
         workspaceId: input.workspaceId,
         cycleId: cycle.id,
         authorId: input.userId,
+        settingsId: source.settingsId,
         kind: "template",
         title: memberWeekTitle(cycle.year, cycle.week),
         status: "draft",
@@ -686,6 +750,7 @@ export class RecordCatalog {
       where: { applied: true, scheduleEnabled: true, frequency: "weekly" },
       select: {
         id: true,
+        name: true,
         workspaceId: true,
         ownerId: true,
         sendTime: true,
@@ -726,6 +791,7 @@ export class RecordCatalog {
           workspaceId: row.workspaceId,
           kind: "template",
           authorId: row.ownerId,
+          settingsId: row.id,
           cycle: { year, week },
           submissions: { some: { kind: "member" } },
         },
@@ -741,20 +807,13 @@ export class RecordCatalog {
         continue;
       }
 
-      const source = await this.db.weeklyReport.findFirst({
-        where: { workspaceId: row.workspaceId, kind: "template", authorId: row.ownerId },
-        orderBy: { updatedAt: "desc" },
-        select: { id: true, authorId: true },
+      const source = await this.ensureFormatForSettings({
+        workspaceId: row.workspaceId,
+        userId: row.ownerId,
+        settingsId: row.id,
+        settingsName: row.name,
+        now: scheduleNow,
       });
-      if (!source) {
-        results.push({
-          workspaceId: row.workspaceId,
-          templateId: row.id,
-          status: "skipped",
-          reason: "no-source-report",
-        });
-        continue;
-      }
 
       const membership = await this.db.workspaceMembership.findUnique({
         where: {
@@ -1118,6 +1177,7 @@ export class RecordCatalog {
         id: true,
         authorId: true,
         kind: true,
+        settingsId: true,
         submissions: { where: { kind: "member" }, select: { id: true }, take: 1 },
       },
     });
@@ -1144,10 +1204,11 @@ export class RecordCatalog {
           : {}),
       },
     });
-    if (report.kind === "template" && report.submissions.length === 0) {
-      await this.syncAppliedSettingsFromFormat({
+    if (report.kind === "template" && report.submissions.length === 0 && report.settingsId) {
+      await this.syncSettingsOutlineFromFormat({
         workspaceId: input.workspaceId,
         userId: input.userId,
+        settingsId: report.settingsId,
         content,
       });
     }
@@ -1213,12 +1274,12 @@ export class RecordCatalog {
     }));
   }
 
-  /** Toggle whether this send-settings row is the active one used by Leader send. */
+  /** Toggle whether this send-settings row is an active send stream (multiple allowed). */
   async applyTemplate(input: { workspaceId: string; userId: string; templateId: string }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
     const template = await this.db.weeklyReportTemplate.findFirst({
       where: { id: input.templateId, workspaceId: input.workspaceId, ownerId: input.userId },
-      select: { id: true, applied: true },
+      select: { id: true, name: true, applied: true, dimensions: true },
     });
     if (!template) throw new AppError("NOT_FOUND");
     if (template.applied) {
@@ -1228,24 +1289,16 @@ export class RecordCatalog {
       });
       return { id: template.id, active: false as const };
     }
-    await this.db.$transaction(async (tx) => {
-      await tx.weeklyReportTemplate.updateMany({
-        where: { workspaceId: input.workspaceId, ownerId: input.userId, applied: true },
-        data: { applied: false },
-      });
-      await tx.weeklyReportTemplate.update({
-        where: { id: template.id },
-        data: { applied: true },
-      });
-    });
-    const applied = await this.db.weeklyReportTemplate.findFirst({
+    await this.db.weeklyReportTemplate.update({
       where: { id: template.id },
-      select: { dimensions: true },
+      data: { applied: true },
     });
-    await this.ensurePersonalFormatReport({
+    await this.ensureFormatForSettings({
       workspaceId: input.workspaceId,
       userId: input.userId,
-      sections: parseTemplateSections(applied?.dimensions),
+      settingsId: template.id,
+      settingsName: template.name,
+      sections: parseTemplateSections(template.dimensions),
       alignContent: true,
     });
     return { id: template.id, active: true as const };
@@ -1335,7 +1388,7 @@ export class RecordCatalog {
     if (input.sendWeekday < 1 || input.sendWeekday > 7) throw new AppError("INVALID_INPUT");
     const template = await this.db.weeklyReportTemplate.findFirst({
       where: { id: input.templateId, workspaceId: input.workspaceId, ownerId: input.userId },
-      select: { id: true, applied: true },
+      select: { id: true, applied: true, name: true },
     });
     if (!template) throw new AppError("NOT_FOUND");
     if (!input.allMembers && input.recipientUserIds.length > 0) {
@@ -1370,10 +1423,13 @@ export class RecordCatalog {
       });
     });
     if (template.applied) {
-      await this.syncFormatFromSettingsRow({
+      await this.ensureFormatForSettings({
         workspaceId: input.workspaceId,
         userId: input.userId,
+        settingsId: template.id,
+        settingsName: input.name.trim(),
         sections,
+        alignContent: true,
       });
     }
     return { id: template.id };

@@ -226,6 +226,62 @@ describe("CentrifugoRpcHandler", () => {
     ).toEqual({ code: 403, message: "Agent status is not authorized" });
   });
 
+  test("updates Agent display even when status channel publish fails", async () => {
+    const displayObservations: unknown[] = [];
+    const method = createAgentStatusMethod(
+      {
+        getById: async () => ({
+          workspaceId: "workspace-1",
+          computerId: "computer-1",
+        }),
+      },
+      {
+        put: async () => true,
+        get: async () => "active",
+        snapshot: async () => undefined,
+      },
+      {
+        publish: async () => {
+          throw new Error("Centrifugo publish failed (102)");
+        },
+      },
+      () => 1_000,
+      {
+        observeStatus: async (status) => {
+          displayObservations.push(status);
+          return {
+            protocolMajor: 1,
+            workspaceId: "workspace-1",
+            computerId: "computer-1",
+            agentId: "agent-1",
+            revision: 1,
+            activityKind: "online",
+            detailKind: "",
+            detail: "",
+            entries: [],
+            expiresAt: 91_000,
+          };
+        },
+      },
+    );
+    const result = await method(
+      encodeAgentStatus({
+        protocolMajor: 1,
+        requestId: "status-publish-fail",
+        workspaceId: "workspace-1",
+        computerId: "computer-1",
+        agentId: "agent-1",
+        status: "active",
+        daemonInstanceId: "daemon-1",
+        clientSeq: 1,
+        observedAtMs: 1_000,
+      }),
+      { principal: principal() },
+    );
+    expect(result).toBeInstanceOf(Uint8Array);
+    expect(displayObservations).toHaveLength(1);
+  });
+
   test("does not publish stale handler input", async () => {
     const publications: unknown[] = [];
     const method = createAgentStatusMethod(

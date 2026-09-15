@@ -44,6 +44,21 @@ prepare_local_web_runtime() {
   bun_dir=$(CDPATH='' cd -- "$(dirname -- "$bun_path")" && pwd)
   PATH="$bun_dir:$PATH"
   export PATH
+
+  # Bun's dotenv strips embedded double quotes from JSON JWKs in apps/web/.env,
+  # which breaks importJWK. Prefer a file payload for local production Nitro.
+  web_root=$(CDPATH='' cd -- "$(dirname -- "$0")/../apps/web" 2>/dev/null && pwd || true)
+  if [ -z "$web_root" ] || [ ! -d "$web_root" ]; then
+    web_root=
+  fi
+  jwk_file="${COFORGE_WORKER_JWT_PRIVATE_JWK_FILE:-}"
+  if [ -z "$jwk_file" ] && [ -n "$web_root" ]; then
+    jwk_file="$web_root/secrets/worker-jwt-private.jwk.json"
+  fi
+  if [ -n "$jwk_file" ] && [ -f "$jwk_file" ]; then
+    COFORGE_WORKER_JWT_PRIVATE_JWK=$(cat "$jwk_file")
+    export COFORGE_WORKER_JWT_PRIVATE_JWK
+  fi
 }
 
 listener_pids() {

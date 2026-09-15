@@ -24,3 +24,8 @@ infra/secrets/
 /coforge-lifecycle-*-delta.tar.gz
 /parent-v*-fixes.tar.gz
 /race-proof-evidence.tar.gz
+
+apps/web/secrets/
+
+# Local Centrifugo overrides (may contain expanded secrets)
+infra/centrifugo/config.local.yaml
