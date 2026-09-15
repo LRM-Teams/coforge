@@ -8,7 +8,7 @@ import { AgentSessionRecoveryError, type CodeAgentProvider } from "../contract";
 import { agentEnvironment } from "../environment";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { toolActivity } from "../tool-activity";
-import { RUNTIME_PROVIDER } from "@coforge/protocol";
+import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@coforge/protocol";
 import type { RuntimeProvider } from "@coforge/protocol";
 import {
   createSession,
@@ -185,7 +185,7 @@ class AgentSessionImpl implements AgentSession {
         this.#emit({
           type: "activity",
           activity: createAgentActivity(
-            "runtime_error",
+            AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
             "error",
             event.message.errorMessage ?? "Agent failed",
           ),
@@ -211,7 +211,7 @@ class AgentSessionImpl implements AgentSession {
       this.#emit({
         type: "activity",
         activity: createAgentActivity(
-          "runtime_error",
+          AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
           "error",
           error instanceof Error ? error.message : "Agent failed",
         ),

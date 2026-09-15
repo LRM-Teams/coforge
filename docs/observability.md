@@ -79,8 +79,7 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 | --- | --- |
 | `starting` | 开始启动或重启 Agent runtime process |
 | `stopped` | Agent runtime process 已停止或退出 |
-| `turn_completed` | 一次 turn 执行完成 |
-| `idle` | Agent 当前没有执行中的 turn |
+| `idle` | Agent 当前没有执行中的 turn（一次 turn 完成） |
 | `running_command` | Agent 正在执行命令 |
 | `reading_file` / `writing_file` / `editing_file` | Agent 的文件工具操作 |
 | `launch_failed` / `stop_failed` | 启动或安全回收失败；使用脱敏后的可操作原因 |
@@ -121,7 +120,7 @@ message: <driver 上报的完整原始消息>
 `agent:activity(starting)`、`agent:status(active)`；停止时记录
 `agent:activity(stopped)`、`agent:status(inactive)`；租约刷新不新增 Activity。
 重启是在停止后再次记录 `starting`，成功后发送 `agent:status(active)`。一次 turn 完成后记录
-`turn_completed`，没有执行中的 turn 时再记录 `idle`；这些 activity 不改变 Agent status。
+`idle`，不带固定生命周期文案；这些 activity 不改变 Agent status。
 进程意外退出时记录 `stopped`，但只要 Daemon 仍持有可重启配置就不发送 `inactive`；下一条
 消息会先重启 runtime，再发送无正文通知，并在通知成功后 ACK。
 
@@ -165,7 +164,7 @@ provider 初始化/认证失败、模型或 reasoning 配置不支持、Agent ca
 
 Web 在 `src/features/agents/` 内实现 activity timeline，按 `activity` 选择本地化标签和
 动作名称。每条 Activity 在 UI 中只显示时间、动作和有实际明细的 `message`；`starting`、
-`stopped` 和 `turn_completed` 不重复显示固定生命周期文案。不显示 `level`、`launch_id`、
+`stopped` 和 `idle` 不重复显示固定生命周期文案。不显示 `level`、`launch_id`、
 `client_seq` 或原始 activity discriminator；`level` 只用于视觉强调。
 `running_command` 使用终端语义；
 `reading_file`、`writing_file`、`editing_file` 使用对应文件操作语义；`warning` 和

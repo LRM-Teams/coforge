@@ -1,8 +1,9 @@
-export type { AgentActivity, AgentActivityLevel, AgentActivityType } from "@coforge/agent";
-import type { AgentActivity, AgentActivityLevel, AgentActivityType } from "@coforge/agent";
+export type { AgentActivity, AgentActivityLevel } from "@coforge/agent";
+import type { AgentActivity, AgentActivityLevel } from "@coforge/agent";
+import type { AgentActivityDetailKind } from "@coforge/protocol";
 
 export function createAgentActivity(
-  detailKind: AgentActivityType,
+  detailKind: AgentActivityDetailKind,
   level: AgentActivityLevel,
   detail: string,
   occurredAt = new Date().toISOString(),

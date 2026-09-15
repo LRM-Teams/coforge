@@ -30,6 +30,7 @@ import type {
 import {
   WORKSPACE_PROTOCOL_MAJOR,
   TASK_PROTOCOL_MAJOR,
+  AGENT_ACTIVITY_DETAIL_KIND,
   isChannelMessageTarget,
   type AgentActivity,
   type AgentMessageRecord,
@@ -202,7 +203,7 @@ export class DaemonRuntime {
             requestId: crypto.randomUUID(),
             workspaceId: connection.workspaceId,
             agentId,
-            detailKind: "model_request_started",
+            detailKind: AGENT_ACTIVITY_DETAIL_KIND.MODEL_REQUEST_STARTED,
             level: "info",
             detail: "Message received",
             entries: [],
@@ -948,7 +949,7 @@ export class DaemonRuntime {
                     requestId: crypto.randomUUID(),
                     workspaceId: this.#connection.workspaceId,
                     agentId,
-                    detailKind: "other",
+                    detailKind: AGENT_ACTIVITY_DETAIL_KIND.OTHER,
                     level: "info",
                     detail:
                       "Original session history was not found. A new session was started; previous context was not restored.",
@@ -988,7 +989,8 @@ export class DaemonRuntime {
             level: runtimeEvent.activity.level,
             entries: runtimeEvent.activity.entries,
             detail:
-              runtimeEvent.activity.detailKind !== "runtime_reconnecting" &&
+              runtimeEvent.activity.detailKind !==
+                AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING &&
               runtimeEvent.activity.entries?.some((entry) => entry.kind !== "tool_start")
                 ? ""
                 : safeRuntimeActivityMessage(
@@ -1002,7 +1004,7 @@ export class DaemonRuntime {
                 ? { runtimeError: runtimeFailureDiagnostic(runtimeEvent.activity.detail) }
                 : {}),
           });
-          if (runtimeEvent.activity.detailKind === "idle")
+          if (runtimeEvent.activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.IDLE)
             void this.drainAppInboxNotices(agentId).catch(() => {});
           return;
         }
@@ -1021,7 +1023,7 @@ export class DaemonRuntime {
                 requestId: crypto.randomUUID(),
                 workspaceId: this.#connection.workspaceId,
                 agentId,
-                detailKind: "runtime_error",
+                detailKind: AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
                 level: "error",
                 detail: "Agent runtime failed.",
                 runtimeError: runtimeFailureDiagnostic("turn failure"),
@@ -1031,9 +1033,9 @@ export class DaemonRuntime {
                 requestId: crypto.randomUUID(),
                 workspaceId: this.#connection.workspaceId,
                 agentId,
-                detailKind: "idle",
+                detailKind: AGENT_ACTIVITY_DETAIL_KIND.IDLE,
                 level: "info",
-                detail: "Agent turn completed.",
+                detail: "",
               },
         );
         void this.drainAppInboxNotices(agentId).catch(() => {});
@@ -1061,7 +1063,7 @@ export class DaemonRuntime {
           requestId: crypto.randomUUID(),
           workspaceId: this.#connection.workspaceId,
           agentId,
-          detailKind: "stopped",
+          detailKind: AGENT_ACTIVITY_DETAIL_KIND.STOPPED,
           level: "info",
           detail: "Agent runtime stopped",
         });
@@ -1074,7 +1076,7 @@ export class DaemonRuntime {
         requestId,
         workspaceId: this.#connection.workspaceId,
         agentId,
-        detailKind: "starting",
+        detailKind: AGENT_ACTIVITY_DETAIL_KIND.STARTING,
         level: "info",
         detail: "Agent runtime is starting.",
       });
@@ -1098,7 +1100,7 @@ export class DaemonRuntime {
           requestId: crypto.randomUUID(),
           workspaceId: this.#connection.workspaceId,
           agentId,
-          detailKind: "runtime_error",
+          detailKind: AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
           level: "error",
           detail: this.#launchFailureMessage(agentId, stage, error),
         });
@@ -1258,7 +1260,7 @@ export class DaemonRuntime {
             requestId: crypto.randomUUID(),
             workspaceId: this.#connection.workspaceId,
             agentId,
-            detailKind: "runtime_error",
+            detailKind: AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
             level: "error",
             detail: this.#stopFailureMessage(agentId, error),
           });
@@ -1298,7 +1300,7 @@ export class DaemonRuntime {
         requestId: crypto.randomUUID(),
         workspaceId: this.#connection.workspaceId,
         agentId,
-        detailKind: "stopped",
+        detailKind: AGENT_ACTIVITY_DETAIL_KIND.STOPPED,
         level: "info",
         detail: "Agent runtime stopped",
       });
@@ -1332,7 +1334,7 @@ export class DaemonRuntime {
     if (!this.#activityEnabled || this.#currentActivityLaunches.get(agentId) !== launch) return;
     if (
       launch.stopping &&
-      activity.detailKind !== "stopped" &&
+      activity.detailKind !== AGENT_ACTIVITY_DETAIL_KIND.STOPPED &&
       activity.level !== "error" &&
       !activity.entries?.some((entry) => entry.kind !== "tool_start")
     )
@@ -1512,7 +1514,7 @@ export class DaemonRuntime {
             requestId: crypto.randomUUID(),
             workspaceId: this.#connection.workspaceId,
             agentId,
-            detailKind: "freshness_hold",
+            detailKind: AGENT_ACTIVITY_DETAIL_KIND.FRESHNESS_HOLD,
             level: "info",
             detail: "Reply held until the Agent reviews newer messages.",
           });
@@ -1970,8 +1972,12 @@ export class DaemonRuntime {
 function safeRuntimeActivityMessage(activity: string, level: string, message: string): string {
   if (level === "error") return message.slice(0, 512);
   if (level === "warning") return scrubActivityText(message);
-  if (activity === "running_command") return [...scrubActivityText(message)].slice(0, 100).join("");
-  if (activity === "tool_started" || activity === "runtime_reconnecting") {
+  if (activity === AGENT_ACTIVITY_DETAIL_KIND.RUNNING_COMMAND)
+    return [...scrubActivityText(message)].slice(0, 100).join("");
+  if (
+    activity === AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED ||
+    activity === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING
+  ) {
     return scrubActivityText(message);
   }
   return "Agent activity observed.";

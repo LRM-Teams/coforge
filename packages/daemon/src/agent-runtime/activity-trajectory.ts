@@ -1,5 +1,5 @@
 import type { AgentRuntimeEvent } from "@coforge/agent";
-import type { ActivitySubagent } from "@coforge/protocol";
+import { AGENT_ACTIVITY_DETAIL_KIND, type ActivitySubagent } from "@coforge/protocol";
 
 /** One instance per launch. Never retains tool arguments/output or hidden reasoning. */
 export class ActivityTrajectory {
@@ -58,7 +58,10 @@ export class ActivityTrajectory {
     this.emit({
       type: "activity",
       activity: {
-        detailKind: pending.kind === "thinking" ? "thinking_started" : "model_response_started",
+        detailKind:
+          pending.kind === "thinking"
+            ? AGENT_ACTIVITY_DETAIL_KIND.THINKING_STARTED
+            : AGENT_ACTIVITY_DETAIL_KIND.MODEL_RESPONSE_STARTED,
         level: "info",
         detail: "",
         observedAtMs: Date.now(),

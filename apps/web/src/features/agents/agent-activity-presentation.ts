@@ -1,4 +1,5 @@
 import type { ActivityEntry } from "./agent-activity";
+import { AGENT_ACTIVITY_DETAIL_KIND } from "@coforge/protocol";
 import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
 
 export type ActivityObservation = Pick<
@@ -76,23 +77,12 @@ const toolAliases: Readonly<Record<string, string>> = {
   todowrite: "todo_write",
   settodolist: "todo_write",
 };
-const legacyTools: Readonly<Record<string, string>> = {
-  running_command: "bash",
-  reading_file: "read_file",
-  writing_file: "write_file",
-  editing_file: "edit_file",
-  using_tool: "tool",
-};
 
 /** Display-only projection: never derive Agent availability from these tones. */
 export function presentActivity(observation: ActivityObservation): ActivityRow[] {
   const { detailKind: kind, level, detail } = observation;
   if (level !== "error") {
-    const entries = observation.entries?.length
-      ? observation.entries
-      : legacyTools[kind]
-        ? [{ kind: "tool_start" as const, toolName: legacyTools[kind] }]
-        : [];
+    const entries = observation.entries ?? [];
     if (entries.length)
       return entries.flatMap((entry): ActivityRow[] => {
         if (entry.kind === "tool_start") {
@@ -125,7 +115,7 @@ export function presentActivity(observation: ActivityObservation): ActivityRow[]
             recentLabel: entry.text || (thinking ? "Thinking" : "Output"),
             currentLabel: thinking
               ? "Thinking…"
-              : kind === "runtime_reconnecting"
+              : kind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING
                 ? detail || "Working…"
                 : "Working…",
             tone: thinking ? "thinking" : "output",
@@ -144,7 +134,7 @@ export function presentActivity(observation: ActivityObservation): ActivityRow[]
       : observation.activityKind === "online"
         ? "idle"
         : (observation.activityKind ?? "unknown");
-  const starting = tone === "working" && (kind === "starting" || kind === "runtime_starting");
+  const starting = tone === "working" && kind === AGENT_ACTIVITY_DETAIL_KIND.STARTING;
   const label =
     tone === "error"
       ? "Error"
@@ -163,9 +153,7 @@ export function presentActivity(observation: ActivityObservation): ActivityRow[]
     tone === "working"
       ? starting
         ? "Starting…"
-        : kind === "compacting_context"
-          ? "Compacting context…"
-          : detail || "Working…"
+        : detail || "Working…"
       : tone === "thinking"
         ? "Thinking…"
         : tone === "idle"

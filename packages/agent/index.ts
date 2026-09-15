@@ -20,7 +20,6 @@ export {
 export type {
   AgentActivity,
   AgentActivityLevel,
-  AgentActivityType,
   AgentRuntimeConfig,
   AgentRuntimeEvent,
   AgentRuntimeProviderConfig,

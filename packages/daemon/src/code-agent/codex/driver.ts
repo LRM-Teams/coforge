@@ -11,7 +11,7 @@ import { agentEnvironment } from "../environment";
 import { JsonlProcess, JsonlRequestError } from "../jsonl-process";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { COFORGE_DAEMON_VERSION } from "../../version";
-import { RUNTIME_PROVIDER } from "@coforge/protocol";
+import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@coforge/protocol";
 import { getLogger } from "@logtape/logtape";
 import { discoverCodexCatalog, discoverExternalCodeAgents } from "../runtime-inventory";
 import type { ProviderDiscoveryOptions } from "../contract";
@@ -195,7 +195,11 @@ class CodexAgentSession implements AgentSession {
       this.#emit({
         type: "activity",
         activity: {
-          ...createAgentActivity("runtime_reconnecting", "info", "Codex reconnecting to provider…"),
+          ...createAgentActivity(
+            AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING,
+            "info",
+            "Codex reconnecting to provider…",
+          ),
           entries: [{ kind: "text", text: scrubError(text) }],
         },
       });
@@ -203,7 +207,11 @@ class CodexAgentSession implements AgentSession {
     process.onFailure((error) =>
       this.#emit({
         type: "activity",
-        activity: createAgentActivity("runtime_error", "error", error.message),
+        activity: createAgentActivity(
+          AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
+          "error",
+          error.message,
+        ),
       }),
     );
   }
@@ -349,7 +357,12 @@ class CodexAgentSession implements AgentSession {
       }
       this.#emit({
         type: "activity",
-        activity: createAgentActivity("runtime_error", "error", error.message, eventTime(record)),
+        activity: createAgentActivity(
+          AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
+          "error",
+          error.message,
+          eventTime(record),
+        ),
       });
       return;
     }
@@ -371,7 +384,12 @@ class CodexAgentSession implements AgentSession {
         this.#emit({
           type: "activity",
           activity: {
-            ...createAgentActivity("running_command", "info", command, eventTime(record)),
+            ...createAgentActivity(
+              AGENT_ACTIVITY_DETAIL_KIND.RUNNING_COMMAND,
+              "info",
+              command,
+              eventTime(record),
+            ),
             entries: [{ kind: "tool_start", toolName: "bash" }],
           },
         });
@@ -381,7 +399,12 @@ class CodexAgentSession implements AgentSession {
           this.#emit({
             type: "activity",
             activity: {
-              ...createAgentActivity("tool_started", "info", change.path, eventTime(record)),
+              ...createAgentActivity(
+                AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED,
+                "info",
+                change.path,
+                eventTime(record),
+              ),
               entries: [
                 {
                   kind: "tool_start",
@@ -464,11 +487,17 @@ class CodexAgentSession implements AgentSession {
         });
         this.#emit({
           type: "activity",
-          activity: createAgentActivity("runtime_error", "error", errorMessage, eventTime(record), {
-            errorClass: typeof error?.code === "string" ? error.code : "CodexTurnError",
-            errorReason: "turn_failed",
-            fingerprint: fingerprint(errorMessage),
-          }),
+          activity: createAgentActivity(
+            AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
+            "error",
+            errorMessage,
+            eventTime(record),
+            {
+              errorClass: typeof error?.code === "string" ? error.code : "CodexTurnError",
+              errorReason: "turn_failed",
+              fingerprint: fingerprint(errorMessage),
+            },
+          ),
         });
       }
       this.#emit({ type: "completed", status });

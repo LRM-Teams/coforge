@@ -291,7 +291,7 @@ test("activityKindForObservation is stateless and leaves unknown facts unclassif
   expect(activityKindForObservation({ detailKind: "thinking_started", level: "info" })).toBe(
     "thinking",
   );
-  expect(activityKindForObservation({ detailKind: "runtime_progress", level: "info" })).toBe(
+  expect(activityKindForObservation({ detailKind: "running_command", level: "info" })).toBe(
     "working",
   );
   expect(activityKindForObservation({ detailKind: "runtime_reconnecting", level: "info" })).toBe(
