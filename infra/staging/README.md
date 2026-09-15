@@ -92,8 +92,6 @@ Secret 和 Variable 的区别不是「重不重要」，而是**能不能读回�
 | `COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY` | 64 位十六进制 Agent 凭据加密主密钥            |
 | `COFORGE_WEB_PUSH_PRIVATE_KEY`            | 稳定的 VAPID P-256 private key；只挂载到 Web 的只读 secret file |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`      | 阿里云北京 OTLP Traces 接入地址，**含 Token**，所以是 secret 而不是 variable |
-| `ALIYUN_OSS_ACCESS_KEY_ID`                | 发布产物上传用的 RAM 用户                     |
-| `ALIYUN_OSS_ACCESS_KEY_SECRET`            | 同上                                          |
 
 | Variable（staging 环境）    | 用途                                |
 | --------------------------- | ----------------------------------- |
@@ -125,8 +123,11 @@ gh workflow run release-staging.yml --repo LRM-Teams/coforge -f version=0.2.0-rc
 - 上传到一半失败也可以直接重跑同一个版本号：manifest 是最后一个上传的对象，
   半截的发布不会留下它。
 
-workflow 读取上面同一张表里的 `ALIYUN_OSS_ACCESS_KEY_ID` / `ALIYUN_OSS_ACCESS_KEY_SECRET`，
-跑 `scripts/release/publish.ts` 把 Computer/Daemon 发布到
+workflow 用 GitHub OIDC 换取阿里云 RAM 角色 `coforge-release-publisher` 的临时 STS
+凭据（`ALIBABA_CLOUD_ROLE_ARN` / `ALIBABA_CLOUD_OIDC_PROVIDER_ARN`，见
+`.github/workflows/release-staging.yml`）——该角色的信任策略只认
+`repo:LRM-Teams/coforge:environment:staging`，没有长期 AccessKey，也就不需要在这张表
+里放对应的 secret，跑 `scripts/release/publish.ts` 把 Computer/Daemon 发布到
 `coforge-releases-staging` bucket（`https://releases-staging.coforge.cn`），
 默认只编译四个 POSIX target（不含 Windows，见该脚本的注释）。用
 `gh run watch` 或仓库 Actions 页面看进度；发布记录留在 workflow run 里，不写入本

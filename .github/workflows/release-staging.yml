@@ -35,6 +35,11 @@ jobs:
     needs: gates
     runs-on: ubuntu-latest
     environment: staging
+    # `id-token: write` lets this job mint the GitHub OIDC token it exchanges for the Alibaba
+    # Cloud STS credential below; the validation job does not need it.
+    permissions:
+      contents: read
+      id-token: write
     timeout-minutes: 30
     steps:
       - name: Check out source
@@ -73,10 +78,27 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Request an OIDC token for Alibaba Cloud
+        env:
+          AUDIENCE: sts.aliyuncs.com
+        run: |
+          token_file="$RUNNER_TEMP/aliyun-oidc-token"
+          curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$AUDIENCE" \
+            | jq -r '.value' > "$token_file"
+          chmod 600 "$token_file"
+          echo "ALIBABA_CLOUD_OIDC_TOKEN_FILE=$token_file" >> "$GITHUB_ENV"
+
+      # This role's trust policy grants only `repo:LRM-Teams/coforge:environment:staging` -
+      # GitHub's OIDC token asserts the workflow's repo/ref/environment, and Alibaba Cloud checks
+      # that assertion before issuing an STS token. No long-term AccessKey exists for this
+      # publisher; a compromised token can only assume the role from this exact repo/environment,
+      # and it expires with the run.
       - name: Build six platforms, upload, and verify release
         env:
-          ALIYUN_OSS_ACCESS_KEY_ID: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_ID }}
-          ALIYUN_OSS_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_ACCESS_KEY_SECRET }}
+          ALIBABA_CLOUD_ROLE_ARN: acs:ram::1085194890307801:role/coforge-release-publisher
+          ALIBABA_CLOUD_OIDC_PROVIDER_ARN: acs:ram::1085194890307801:oidc-provider/github-actions
+          ALIBABA_CLOUD_ROLE_SESSION_NAME: github-actions-${{ github.run_id }}
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
           RELEASE_COMMIT: ${{ github.sha }}
         run: |

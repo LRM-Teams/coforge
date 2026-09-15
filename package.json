@@ -21,8 +21,11 @@
     "check:ci": "actionlint && bunx oxfmt --check scripts/ci && bunx oxlint scripts/ci"
   },
   "devDependencies": {
+    "@alicloud/credentials": "2.4.7",
     "@bufbuild/buf": "1.72.0",
     "@bufbuild/protoc-gen-es": "^2.14.0",
-    "@tanstack/intent": "^0.3.7"
+    "@tanstack/intent": "^0.3.7",
+    "@types/ali-oss": "^6.23.3",
+    "ali-oss": "6.23.0"
   }
 }
