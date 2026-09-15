@@ -1681,7 +1681,8 @@ export class RecordCatalog {
     }));
   }
 
-  /** Toggle whether this send-settings row is an active send stream (multiple allowed). */
+  /** Toggle whether this send-settings row is an active send stream (multiple allowed).
+   * Product「是否启用」keeps `applied` and `scheduleEnabled` in lockstep (WR-33). */
   async applyTemplate(input: { workspaceId: string; userId: string; templateId: string }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
     const template = await this.db.weeklyReportTemplate.findFirst({
@@ -1692,13 +1693,13 @@ export class RecordCatalog {
     if (template.applied) {
       await this.db.weeklyReportTemplate.update({
         where: { id: template.id },
-        data: { applied: false },
+        data: { applied: false, scheduleEnabled: false },
       });
       return { id: template.id, active: false as const };
     }
     await this.db.weeklyReportTemplate.update({
       where: { id: template.id },
-      data: { applied: true },
+      data: { applied: true, scheduleEnabled: true },
     });
     await this.ensureFormatForSettings({
       workspaceId: input.workspaceId,
@@ -1720,14 +1721,28 @@ export class RecordCatalog {
     await requireMembership(this.db, input.workspaceId, input.userId);
     const template = await this.db.weeklyReportTemplate.findFirst({
       where: { id: input.templateId, workspaceId: input.workspaceId, ownerId: input.userId },
-      select: { id: true },
+      select: { id: true, name: true, applied: true, dimensions: true },
     });
     if (!template) throw new AppError("NOT_FOUND");
     await this.db.weeklyReportTemplate.update({
       where: { id: template.id },
-      data: { scheduleEnabled: input.scheduleEnabled },
+      data: { scheduleEnabled: input.scheduleEnabled, applied: input.scheduleEnabled },
     });
-    return { id: template.id, scheduleEnabled: input.scheduleEnabled };
+    if (input.scheduleEnabled) {
+      await this.ensureFormatForSettings({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        settingsId: template.id,
+        settingsName: template.name,
+        sections: parseTemplateSections(template.dimensions),
+        alignContent: true,
+      });
+    }
+    return {
+      id: template.id,
+      scheduleEnabled: input.scheduleEnabled,
+      active: input.scheduleEnabled,
+    };
   }
 
   async createTemplate(input: {
@@ -1756,6 +1771,7 @@ export class RecordCatalog {
       if (members !== input.recipientUserIds.length) throw new AppError("INVALID_INPUT");
     }
     const sections = parseTemplateSections(input.sections);
+    const enabled = input.scheduleEnabled;
     const created = await this.db.weeklyReportTemplate.create({
       data: {
         workspaceId: input.workspaceId,
@@ -1764,7 +1780,8 @@ export class RecordCatalog {
         frequency: input.frequency,
         sendTime: input.sendTime,
         sendWeekday: input.sendWeekday,
-        scheduleEnabled: input.scheduleEnabled,
+        applied: enabled,
+        scheduleEnabled: enabled,
         dimensions: sections as unknown as Prisma.InputJsonValue,
         mainTitles: [],
         allMembers: input.allMembers,
@@ -1775,6 +1792,16 @@ export class RecordCatalog {
             },
       },
     });
+    if (enabled) {
+      await this.ensureFormatForSettings({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        settingsId: created.id,
+        settingsName: input.name.trim(),
+        sections,
+        alignContent: true,
+      });
+    }
     return { id: created.id };
   }
 
@@ -1810,6 +1837,7 @@ export class RecordCatalog {
       if (members !== input.recipientUserIds.length) throw new AppError("INVALID_INPUT");
     }
     const sections = parseTemplateSections(input.sections);
+    const enabled = input.scheduleEnabled;
     await this.db.$transaction(async (tx) => {
       await tx.weeklyReportTemplateRecipient.deleteMany({ where: { templateId: template.id } });
       await tx.weeklyReportTemplate.update({
@@ -1819,7 +1847,8 @@ export class RecordCatalog {
           frequency: input.frequency,
           sendTime: input.sendTime,
           sendWeekday: input.sendWeekday,
-          scheduleEnabled: input.scheduleEnabled,
+          applied: enabled,
+          scheduleEnabled: enabled,
           dimensions: sections as unknown as Prisma.InputJsonValue,
           mainTitles: [],
           allMembers: input.allMembers,
@@ -1831,7 +1860,7 @@ export class RecordCatalog {
         },
       });
     });
-    if (template.applied) {
+    if (enabled) {
       await this.ensureFormatForSettings({
         workspaceId: input.workspaceId,
         userId: input.userId,

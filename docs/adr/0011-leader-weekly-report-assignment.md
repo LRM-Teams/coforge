@@ -62,8 +62,10 @@ matches the product.
 3. Leader **manual** send: new weekly parent + member assignments from the latest
    `WeeklyReportTemplate` recipients.
 4. Wire `#general` channel notice after manual send.
-5. Scheduled send: dialog-owned `scheduleEnabled` + `sendWeekday`; cron route
-   reuses `sendWeeklyAssignments` with per-cycle idempotency.
+5. Scheduled send: product「是否启用」keeps `applied` (sidebar chip) and
+   `scheduleEnabled` (cron) in lockstep (WR-33). Dialog and table expose one
+   Yes/No; create/update/apply write both columns. Cron still requires
+   applied+`scheduleEnabled`+due window.
 
 ## Rejected alternatives
 
