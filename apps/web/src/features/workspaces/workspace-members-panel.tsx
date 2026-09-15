@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Heading } from "react-aria-components";
 import {
   DotsVertical,
   LogOut01,
@@ -9,7 +8,6 @@ import {
   Shield01,
   UserMinus01,
   UsersPlus,
-  XClose as X,
 } from "@untitledui/icons";
 
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
@@ -34,6 +32,7 @@ import {
   updateWorkspaceMemberRole,
 } from "./members.functions";
 import { useSubmitGuard } from "@/hooks/use-submit-guard";
+import { DialogHeader } from "@/components/application/modals/dialog-header";
 
 type MemberRow = {
   userId: string;
@@ -344,18 +343,7 @@ function InviteMemberDialog({
       <Modal className="w-[min(420px,calc(100vw-2rem))]">
         <Dialog>
           <form onSubmit={submit}>
-            <div className="flex items-start justify-between gap-6 px-6 pt-6">
-              <Heading slot="title" className="text-base font-semibold text-primary">
-                {m.workspace_invite_title()}
-              </Heading>
-              <ButtonUtility
-                aria-label={m.controls_close()}
-                icon={X}
-                size="sm"
-                color="tertiary"
-                onClick={close}
-              />
-            </div>
+            <DialogHeader title={m.workspace_invite_title()} onClose={close} />
             <div className="grid gap-4 px-6 py-6">
               <Input
                 label={m.workspace_invite_username()}

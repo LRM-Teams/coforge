@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { TaskCommand, TaskView } from "@coforge/protocol";
+import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 
 import { executeTask } from "./tasks.functions";
@@ -15,85 +16,74 @@ export function mergeTaskChanges(current: TaskView[], changes: TaskView[]) {
   return [...merged, ...changes.filter((task) => !known.has(task.messageId))];
 }
 
-export function useConversationTasks(conversationId: string) {
-  const execute = useServerFn(executeTask);
-  const [tasks, setTasks] = useState<TaskView[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const conversationRef = useRef(conversationId);
-  const previousConversationRef = useRef(conversationId);
-  const refreshSequenceRef = useRef(0);
-  const mutationSequenceRef = useRef(0);
-  conversationRef.current = conversationId;
-  const refresh = useCallback(
-    async (options?: { preserveError?: boolean }) => {
-      const requestedConversation = conversationId;
-      const refreshSequence = ++refreshSequenceRef.current;
-      const mutationSequence = mutationSequenceRef.current;
-      try {
-        const result = await execute({
+/** The Tasks of one conversation, re-read every 30 seconds while visible and on focus. */
+export const conversationTasksQuery = (conversationId: string) =>
+  queryOptions({
+    queryKey: ["conversation", "tasks", conversationId],
+    queryFn: async () =>
+      (
+        await executeTask({
           data: { operation: "list", requestId: crypto.randomUUID(), conversationId },
-        });
-        if (
-          conversationRef.current === requestedConversation &&
-          refreshSequence === refreshSequenceRef.current &&
-          mutationSequence === mutationSequenceRef.current
-        ) {
-          setTasks(result.tasks);
-          if (!options?.preserveError) setError("");
-        }
-      } catch {
-        if (conversationRef.current === requestedConversation && !options?.preserveError)
-          setError(m.tasks_load_error());
-      } finally {
-        if (conversationRef.current === requestedConversation) setLoading(false);
-      }
-    },
-    [conversationId, execute],
-  );
+        })
+      ).tasks,
+    staleTime: 0,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+  });
+
+export function useConversationTasks(conversationId: string) {
+  const queryClient = useQueryClient();
+  const execute = useServerFn(executeTask);
+  const query = useQuery(conversationTasksQuery(conversationId));
+  const queryKey = conversationTasksQuery(conversationId).queryKey;
+  const [mutationError, setMutationError] = useState("");
+  // A failed command keeps its error on screen through the refetch it triggers; the next
+  // successful read after that clears it, as any later read would.
+  const holdErrorRef = useRef(false);
   useEffect(() => {
-    if (previousConversationRef.current !== conversationId) {
-      previousConversationRef.current = conversationId;
-      setTasks([]);
-      setError("");
+    if (!query.isSuccess) return;
+    if (holdErrorRef.current) holdErrorRef.current = false;
+    else setMutationError("");
+  }, [query.isSuccess, query.dataUpdatedAt]);
+  useEffect(() => {
+    setMutationError("");
+    holdErrorRef.current = false;
+  }, [conversationId]);
+
+  const refresh = async () => {
+    await queryClient.invalidateQueries({ queryKey });
+  };
+
+  const command = async (
+    input: Omit<TaskCommand, "requestId" | "conversationId"> & { requestId?: string },
+  ) => {
+    setMutationError("");
+    try {
+      const result = await execute({
+        data: { ...input, requestId: input.requestId ?? crypto.randomUUID(), conversationId },
+      });
+      // A list read that started before this command must not overwrite its result.
+      await queryClient.cancelQueries({ queryKey });
+      queryClient.setQueryData<TaskView[]>(queryKey, (current = []) =>
+        input.operation === "delete" && input.number
+          ? current.filter((task) => task.number !== input.number)
+          : mergeTaskChanges(current, result.tasks),
+      );
+      return result.tasks;
+    } catch (cause) {
+      setMutationError(m.tasks_mutation_error());
+      holdErrorRef.current = true;
+      await queryClient.refetchQueries({ queryKey });
+      throw cause;
     }
-    setLoading(true);
-    void refresh();
-    const visible = () => {
-      if (document.visibilityState === "visible") void refresh();
-    };
-    const timer = window.setInterval(visible, 30_000);
-    document.addEventListener("visibilitychange", visible);
-    window.addEventListener("focus", visible);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", visible);
-      window.removeEventListener("focus", visible);
-    };
-  }, [refresh]);
-  const command = useCallback(
-    async (input: Omit<TaskCommand, "requestId" | "conversationId"> & { requestId?: string }) => {
-      setError("");
-      try {
-        const result = await execute({
-          data: { ...input, requestId: input.requestId ?? crypto.randomUUID(), conversationId },
-        });
-        mutationSequenceRef.current += 1;
-        if (conversationRef.current === conversationId) {
-          setTasks((current) =>
-            input.operation === "delete" && input.number
-              ? current.filter((task) => task.number !== input.number)
-              : mergeTaskChanges(current, result.tasks),
-          );
-        }
-        return result.tasks;
-      } catch (cause) {
-        setError(m.tasks_mutation_error());
-        await refresh({ preserveError: true });
-        throw cause;
-      }
-    },
-    [conversationId, execute, refresh],
-  );
-  return { tasks, loading, error, refresh, command };
+  };
+
+  return {
+    tasks: query.data ?? [],
+    loading: query.isPending,
+    error: mutationError || (query.isError ? m.tasks_load_error() : ""),
+    refresh,
+    command,
+  };
 }
