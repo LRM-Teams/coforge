@@ -123,3 +123,25 @@ function attachmentUploadRequest(): Request {
     body,
   });
 }
+
+test("attachment responses render safe images inline and everything else as a download", async () => {
+  const { attachmentResponseHeaders } =
+    await import("../src/server/attachments/attachment-response.server");
+  const png = attachmentResponseHeaders({ fileName: 'shot".png', contentType: "image/png" }, false);
+  expect(png["Content-Type"]).toBe("image/png");
+  expect(png["Content-Disposition"]).toBe('inline; filename="shot_.png"');
+  expect(png["Cache-Control"]).toBe("private, no-store");
+
+  const forced = attachmentResponseHeaders(
+    { fileName: "shot.png", contentType: "image/png" },
+    true,
+  );
+  expect(forced["Content-Type"]).toBe("application/octet-stream");
+  expect(forced["Content-Disposition"]).toBe('attachment; filename="shot.png"');
+
+  for (const contentType of ["image/svg+xml", "text/html", "application/pdf"]) {
+    const other = attachmentResponseHeaders({ fileName: "f", contentType }, false);
+    expect(other["Content-Type"]).toBe("application/octet-stream");
+    expect(other["Content-Disposition"]).toStartWith("attachment;");
+  }
+});
