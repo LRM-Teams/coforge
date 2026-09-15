@@ -506,7 +506,11 @@ export function ConversationPane({
       attachmentFileName: message.attachment?.fileName,
     }));
   const ownMessages = onLoadOwnMessages ? ownMessageIndex : loadedOwnMessages;
-  const virtualized = !root;
+  const listRef = useRef<HTMLOListElement>(null);
+  const messagesRef = useRef(conversation.messages);
+  messagesRef.current = conversation.messages;
+  // Content above the list inside the scroll container (thread root, load-older control).
+  const [scrollMargin, setScrollMargin] = useState(0);
   const getMessageKey = useCallback(
     (index: number) => conversation.messages[index]?.id ?? index,
     [conversation.messages],
@@ -524,8 +528,34 @@ export function ConversationPane({
     followOnAppend: true,
     scrollEndThreshold: 48,
     useFlushSync: false,
-    enabled: virtualized,
+    scrollMargin,
   });
+
+  useLayoutEffect(() => {
+    const history = historyRef.current;
+    const list = listRef.current;
+    if (!history || !list) return;
+    const measure = () =>
+      setScrollMargin(
+        Math.max(
+          0,
+          Math.round(
+            list.getBoundingClientRect().top -
+              history.getBoundingClientRect().top +
+              history.scrollTop,
+          ),
+        ),
+      );
+    measure();
+    const observer = new ResizeObserver(measure);
+    for (const child of history.children) if (child !== list) observer.observe(child);
+    return () => observer.disconnect();
+  }, [
+    conversation.conversationId,
+    root?.id,
+    conversation.hasOlder,
+    conversation.messages.length === 0,
+  ]);
 
   useLayoutEffect(() => {
     const firstRender = previousConversationIdRef.current === undefined;
@@ -570,10 +600,22 @@ export function ConversationPane({
       const anchor = window.location.hash.slice(1);
       if (!anchor.startsWith("message-")) return;
       const message = document.getElementById(anchor);
-      if (!message) return;
+      if (message) {
+        followingLatestRef.current = false;
+        setFollowingLatest(false);
+        message.scrollIntoView({ block: "center" });
+        return;
+      }
+      const messageId = anchor.slice("message-".length);
+      const index = messagesRef.current.findIndex((candidate) => candidate.id === messageId);
+      if (index < 0) return;
       followingLatestRef.current = false;
       setFollowingLatest(false);
-      message.scrollIntoView({ block: "center" });
+      messageVirtualizer.scrollToIndex(index, { align: "center" });
+      // The row is positioned from an estimate until it mounts; settle on its measured box.
+      requestAnimationFrame(() =>
+        document.getElementById(anchor)?.scrollIntoView({ block: "center" }),
+      );
     }
     scrollToMessageAnchor();
     window.addEventListener("hashchange", scrollToMessageAnchor);
@@ -708,16 +750,7 @@ export function ConversationPane({
       }
       return;
     }
-    if (virtualized) {
-      messageVirtualizer.scrollToIndex(index, {
-        align: "center",
-        behavior: "smooth",
-      });
-      return;
-    }
-    historyRef.current
-      ?.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`)
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    messageVirtualizer.scrollToIndex(index, { align: "center", behavior: "smooth" });
   }
 
   async function loadOwnMessages(beforeSequence?: number, reportError = true) {
@@ -904,23 +937,11 @@ export function ConversationPane({
             </Empty>
           ) : (
             <ol
-              className={cn(virtualized ? "relative pt-6" : "flex flex-col pt-6")}
-              style={
-                virtualized ? { height: `${messageVirtualizer.getTotalSize() + 24}px` } : undefined
-              }
+              ref={listRef}
+              className="relative pt-6"
+              style={{ height: `${messageVirtualizer.getTotalSize() + 24}px` }}
             >
-              {(virtualized
-                ? messageVirtualizer.getVirtualItems().map((item) => ({
-                    index: item.index,
-                    key: item.key,
-                    start: item.start,
-                  }))
-                : conversation.messages.map((message, index) => ({
-                    index,
-                    key: message.id,
-                    start: undefined,
-                  }))
-              ).map(({ index, key, start }) => {
+              {messageVirtualizer.getVirtualItems().map(({ index, key, start }) => {
                 const message = conversation.messages[index];
                 if (!message) return null;
                 const own = isOwn(message);
@@ -943,12 +964,10 @@ export function ConversationPane({
                   <li
                     key={key}
                     data-message-id={message.id}
-                    data-index={virtualized ? index : undefined}
-                    ref={virtualized ? messageVirtualizer.measureElement : undefined}
-                    className={cn("flex flex-col", virtualized && "absolute top-0 left-0 w-full")}
-                    style={
-                      start === undefined ? undefined : { transform: `translateY(${start + 24}px)` }
-                    }
+                    data-index={index}
+                    ref={messageVirtualizer.measureElement}
+                    className="absolute top-0 left-0 flex w-full flex-col"
+                    style={{ transform: `translateY(${start - scrollMargin + 24}px)` }}
                   >
                     {dayChanged && (
                       <div className="flex items-center gap-3 px-4 py-2 md:px-6">
