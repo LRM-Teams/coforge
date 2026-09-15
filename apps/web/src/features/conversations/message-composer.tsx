@@ -162,7 +162,7 @@ function AttachmentChip({
                   icon={Trash01}
                   size="sm"
                   color="tertiary"
-                  tooltip={m.controls_close()}
+                  tooltip={m.conversation_attachment_remove()}
                   onClick={() => {
                     close();
                     onRemove();
