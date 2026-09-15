@@ -207,11 +207,11 @@ function Profile({
     detail.ownedByCurrentUser && providerKind === "coforge" && Boolean(providerId);
   const nameMatchesDisplayName = detail.name === detail.displayName;
   const fields = [
-    { label: m.agent_profile_id(), value: detail.id, mono: true, breakAll: true },
+    { label: m.agent_profile_id(), value: detail.id, breakAll: true },
     ...(nameMatchesDisplayName
       ? []
       : [
-          { label: m.agent_profile_name(), value: detail.name, mono: true },
+          { label: m.agent_profile_name(), value: detail.name },
           { label: m.agent_profile_display_name(), value: detail.displayName },
         ]),
     ...(detail.description
@@ -238,14 +238,13 @@ function Profile({
           )}
         </div>
         <dl className="mt-5 grid gap-x-8 gap-y-6 md:grid-cols-2 xl:grid-cols-3">
-          {fields.map(({ label, value, mono, breakAll }) => (
+          {fields.map(({ label, value, breakAll }) => (
             <div key={label} className="min-w-0">
               <dt className="text-sm text-tertiary">{label}</dt>
               <dd
                 className={cn(
                   "mt-1 min-w-0 text-sm font-medium whitespace-pre-wrap text-primary",
                   breakAll ? "break-all" : "break-words",
-                  mono && "font-mono",
                 )}
               >
                 {value}

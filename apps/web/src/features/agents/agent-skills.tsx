@@ -122,9 +122,7 @@ function SkillScope({ heading, scope }: { heading: string; scope: AgentSkillsSco
                 <tr key={`${entry.sourcePath}:${entry.name}`}>
                   <td className="py-2 pr-4 font-medium">{entry.name}</td>
                   <td className="py-2 pr-4 text-tertiary">{entry.description || "—"}</td>
-                  <td className="break-all py-2 font-mono text-xs text-tertiary">
-                    {entry.sourcePath}
-                  </td>
+                  <td className="break-all py-2 text-xs text-tertiary">{entry.sourcePath}</td>
                 </tr>
               ))}
             </tbody>

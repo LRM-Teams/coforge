@@ -131,7 +131,7 @@ function ActivityTimelineRow({
             <p
               id={contentId}
               className={cn(
-                "mt-1 select-text whitespace-pre-wrap break-words font-mono text-xs leading-5 text-tertiary",
+                "mt-1 select-text whitespace-pre-wrap break-words text-xs leading-5 text-tertiary",
                 canExpand && !expanded && "line-clamp-2",
               )}
             >

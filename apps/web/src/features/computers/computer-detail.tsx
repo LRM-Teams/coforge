@@ -183,7 +183,7 @@ export function ComputerDetail({
             </div>
           )}
           <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-sm text-tertiary">
-            <span className="font-mono">{computer.name}</span>
+            <span>{computer.name}</span>
             <span aria-hidden="true">·</span>
             <span>{operatingSystemLabel(computer)}</span>
             <span aria-hidden="true">·</span>

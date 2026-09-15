@@ -55,7 +55,7 @@ export function AgentEnvironmentEditor({ onLoad, onSave }: AgentEnvironmentEdito
     }
   }
   const inputClass =
-    "h-10 min-w-0 w-full rounded-lg border border-secondary bg-primary px-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-brand";
+    "h-10 min-w-0 w-full rounded-lg border border-secondary bg-primary px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-brand";
   return (
     <section className="flex flex-col gap-4 py-6">
       <div className="flex items-center justify-between gap-4">

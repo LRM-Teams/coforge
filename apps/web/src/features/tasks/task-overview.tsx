@@ -106,7 +106,7 @@ function TaskOverviewLink({
         {task.title}
       </h3>
       <p className="mt-1.5 flex items-center gap-1.5 text-xs text-tertiary [overflow-wrap:anywhere]">
-        <span className="font-mono">#{task.number}</span>
+        <span>#{task.number}</span>
         <span aria-hidden="true">·</span>
         <span className="truncate">{task.source.label}</span>
       </p>
