@@ -129,6 +129,42 @@ describe("PrismaDirectConversationRepository", () => {
     });
   });
 
+  test("resolves the ids a browser send needs without reading messages", async () => {
+    const calls: string[] = [];
+    const db = {
+      conversationMember: {
+        findUniqueOrThrow: async (input: object) => {
+          calls.push(`member ${JSON.stringify(input)}`);
+          return { id: "user-member" };
+        },
+      },
+      message: {
+        findMany: async () => {
+          calls.push("messages");
+          return [];
+        },
+      },
+    } as unknown as PrismaClient;
+    class TestConversationRepository extends PrismaDirectConversationRepository {
+      override async getOrCreateUserAgent() {
+        calls.push("conversation");
+        return { id: "conversation-1" };
+      }
+    }
+
+    const ids = await new TestConversationRepository(db).memberForUser(
+      "workspace-1",
+      "user-1",
+      "agent-1",
+    );
+
+    expect(ids).toEqual({ conversationId: "conversation-1", senderMemberId: "user-member" });
+    expect(calls).toEqual([
+      "conversation",
+      'member {"where":{"conversationId_userId":{"conversationId":"conversation-1","userId":"user-1"}},"select":{"id":true}}',
+    ]);
+  });
+
   test("pages browser history by thread roots and keeps each loaded thread intact", async () => {
     const queries: object[] = [];
     const message = (id: string, sequence: number, replies: object[] = []) => ({

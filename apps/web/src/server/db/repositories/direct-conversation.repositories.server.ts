@@ -626,6 +626,16 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     }
   }
 
+  /** The ids a browser send needs, without reading any messages. */
+  async memberForUser(workspaceId: string, userId: string, agentId: string) {
+    const conversation = await this.getOrCreateUserAgent(workspaceId, userId, agentId);
+    const member = await this.db.conversationMember.findUniqueOrThrow({
+      where: { conversationId_userId: { conversationId: conversation.id, userId } },
+      select: { id: true },
+    });
+    return { conversationId: conversation.id, senderMemberId: member.id };
+  }
+
   async openForUser(
     workspaceId: string,
     userId: string,
