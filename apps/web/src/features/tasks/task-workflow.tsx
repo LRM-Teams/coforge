@@ -21,6 +21,7 @@ import { getTaskMoveCommand } from "./task-move";
 
 export type TaskLayout = "board" | "list";
 export type TaskMoveCommand = NonNullable<ReturnType<typeof getTaskMoveCommand>>;
+export type TaskControls = { handle: ReactNode; status: ReactNode };
 
 export function useTaskLayout(layout: TaskLayout | undefined): TaskLayout {
   // Keep SSR and initial hydration identical; viewport defaults apply after mount.
@@ -78,7 +79,7 @@ export function TaskWorkflow<T extends TaskView>({
   currentMemberId: (task: T) => string | null;
   disabled?: boolean;
   onMove: (task: T, command: TaskMoveCommand) => Promise<void>;
-  renderTask: (task: T, controls: ReactNode) => ReactNode;
+  renderTask: (task: T, controls: TaskControls) => ReactNode;
 }) {
   const id = useId();
   const [active, setActive] = useState<T>();
@@ -106,33 +107,32 @@ export function TaskWorkflow<T extends TaskView>({
     }));
   }, [tasks, pending, statuses]);
 
-  const controls = (task: T) => {
+  const controls = (task: T): TaskControls => {
     const available = TASK_STATUSES.filter((status) =>
       getTaskMoveCommand(task, currentMemberId(task), status),
     );
+    if (disabled || available.length === 0) return { handle: null, status: null };
     const isPending = Boolean(pending);
-    return (
-      <div className="flex items-center gap-1">
-        {!disabled && available.length > 0 && <DragHandle task={task} disabled={isPending} />}
-        {!disabled && available.length > 0 && (
-          <Select
-            aria-label={m.tasks_change_status()}
-            size="sm"
-            selectedKey={task.status}
-            isDisabled={isPending}
-            onSelectionChange={(key) => {
-              const nextStatus = parseTaskStatus(key === null ? null : String(key));
-              if (nextStatus) void move(task, nextStatus);
-            }}
-          >
-            <Select.Item id={task.status} label={statusLabel(task.status)} />
-            {available.map((status) => (
-              <Select.Item key={status} id={status} label={statusLabel(status)} />
-            ))}
-          </Select>
-        )}
-      </div>
-    );
+    return {
+      handle: <DragHandle task={task} disabled={isPending} />,
+      status: (
+        <Select
+          aria-label={m.tasks_change_status()}
+          size="sm"
+          selectedKey={task.status}
+          isDisabled={isPending}
+          onSelectionChange={(key) => {
+            const nextStatus = parseTaskStatus(key === null ? null : String(key));
+            if (nextStatus) void move(task, nextStatus);
+          }}
+        >
+          <Select.Item id={task.status} label={statusLabel(task.status)} />
+          {available.map((status) => (
+            <Select.Item key={status} id={status} label={statusLabel(status)} />
+          ))}
+        </Select>
+      ),
+    };
   };
 
   return (
@@ -183,8 +183,8 @@ export function TaskWorkflow<T extends TaskView>({
       <DragOverlay dropAnimation={null}>
         {active ? (
           <div className="w-64 rounded-xl border border-secondary bg-primary p-4 shadow-lg">
-            <span className="text-xs text-tertiary">#{active.number}</span>
-            <p className="mt-1 text-sm font-semibold">{active.title}</p>
+            <p className="text-sm leading-snug font-semibold text-primary">{active.title}</p>
+            <span className="mt-2 inline-block text-xs text-tertiary">#{active.number}</span>
           </div>
         ) : null}
       </DragOverlay>
@@ -253,7 +253,7 @@ function TaskGroup({
       aria-label={statusLabel(status)}
       className={
         board
-          ? `min-w-0 rounded-xl bg-secondary p-3 ${drop.isOver ? "ring-2 ring-brand" : ""}`
+          ? `min-w-0 rounded-2xl border border-secondary bg-primary p-3 shadow-xs transition-shadow ${drop.isOver ? "ring-2 ring-brand" : ""}`
           : "min-w-0 overflow-hidden rounded-xl border border-secondary bg-primary shadow-xs"
       }
     >
@@ -261,18 +261,18 @@ function TaskGroup({
         aria-label={`${statusLabel(status)} ${count}`}
         className={
           board
-            ? "mb-4 flex items-center gap-2 px-1 text-sm font-semibold"
+            ? "mb-4 flex items-center gap-2.5 px-1 pt-1 text-sm font-semibold text-primary"
             : "flex items-center gap-2 border-b border-secondary bg-secondary px-5 py-4 text-base font-semibold"
         }
       >
-        <span className="inline-flex items-center gap-2">
+        <span className="inline-flex items-center gap-2.5">
           <span
             aria-hidden="true"
-            className={`size-2 shrink-0 rounded-full ${statusAppearance[status].background}`}
+            className={`shrink-0 rounded-full ${board ? "size-3" : "size-2"} ${statusAppearance[status].background}`}
           />
           {statusLabel(status)}
           <span
-            className={`inline-flex min-h-5 min-w-6 shrink-0 items-center justify-center rounded-md px-1.5 text-xs font-medium tabular-nums ring-1 ring-inset ring-secondary ${statusAppearance[status].badge}`}
+            className={`inline-flex min-h-5 min-w-6 shrink-0 items-center justify-center rounded-full px-2 text-xs font-medium tabular-nums ${statusAppearance[status].badge}`}
           >
             {count}
           </span>
@@ -281,7 +281,7 @@ function TaskGroup({
       <div
         className={
           board
-            ? "flex min-h-24 flex-col gap-3"
+            ? "flex min-h-24 flex-col gap-4"
             : "flex flex-col divide-y divide-secondary [&_article]:rounded-none [&_article]:border-0 [&_article]:shadow-none"
         }
       >
@@ -302,11 +302,11 @@ export function statusLabel(status: TaskStatus) {
 }
 
 const statusAppearance = {
-  todo: { background: "bg-fg-quaternary", badge: "bg-primary" },
-  in_progress: { background: "bg-utility-blue-500", badge: "bg-primary" },
-  in_review: { background: "bg-brand-solid", badge: "bg-primary" },
-  done: { background: "bg-fg-success-primary", badge: "bg-primary" },
-  closed: { background: "bg-offline", badge: "bg-primary" },
+  todo: { background: "bg-fg-quaternary", badge: "bg-secondary text-secondary" },
+  in_progress: { background: "bg-utility-blue-500", badge: "bg-secondary text-secondary" },
+  in_review: { background: "bg-brand-solid", badge: "bg-secondary text-secondary" },
+  done: { background: "bg-fg-success-primary", badge: "bg-secondary text-secondary" },
+  closed: { background: "bg-offline", badge: "bg-secondary text-secondary" },
 } satisfies Record<TaskStatus, { background: string; badge: string }>;
 
 function parseTaskStatus(value: string | null): TaskStatus | undefined {

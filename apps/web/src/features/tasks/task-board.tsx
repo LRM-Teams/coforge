@@ -1,10 +1,5 @@
 import type { TaskCommand, TaskView } from "@coforge/protocol";
-import {
-  Circle as CircleDot,
-  CheckSquare as ListTodo,
-  Lock01 as Lock,
-  UserCircle as UserRound,
-} from "@untitledui/icons";
+import { CheckSquare as ListTodo, Lock01 as Lock } from "@untitledui/icons";
 import { useState } from "react";
 
 import { Button } from "@/components/base/buttons/button";
@@ -12,7 +7,14 @@ import { m } from "@/paraglide/messages";
 import { ConversationTaskTabs } from "./conversation-task-tabs";
 import { CreateTaskDialog } from "./create-task-dialog";
 import { TaskDetailMenu } from "./task-detail-dialog";
-import { TaskLayoutToggle, TaskWorkflow, statusLabel, type TaskLayout } from "./task-workflow";
+import { TaskOwner } from "./task-owner";
+import {
+  TaskLayoutToggle,
+  TaskWorkflow,
+  statusLabel,
+  type TaskControls,
+  type TaskLayout,
+} from "./task-workflow";
 import { useSubmitGuard } from "@/hooks/use-submit-guard";
 
 export type TaskBoardProps = {
@@ -117,7 +119,8 @@ export function TaskBoard({
                 canMutate={canMutate}
                 onOpen={() => onOpenMessage(task.messageId)}
                 onCommand={onCommand}
-                moveControls={controls}
+                controls={controls}
+                list={layout === "list"}
               />
             )}
           />
@@ -143,67 +146,78 @@ function TaskCard({
   canMutate,
   onOpen,
   onCommand,
-  moveControls,
+  controls,
+  list,
 }: {
   task: TaskView;
   own: boolean;
   canMutate: boolean;
   onOpen: () => void | Promise<void>;
   onCommand: TaskBoardProps["onCommand"];
-  moveControls: React.ReactNode;
+  controls: TaskControls;
+  list: boolean;
 }) {
   const [pending, guard] = useSubmitGuard();
   const available = task.status === "todo" && (!task.owner || own);
   return (
-    <article className="rounded-lg border border-secondary bg-primary p-3 shadow-sm">
-      <Button
-        type="button"
-        color="tertiary"
-        onPress={() => void Promise.resolve(onOpen()).catch(() => {})}
-        className="h-auto w-full flex-col items-start px-0 text-left whitespace-normal hover:bg-transparent"
-      >
-        <span className="text-xs text-tertiary">#{task.number}</span>
-        <span className="mt-1 block line-clamp-3 text-sm font-medium [overflow-wrap:anywhere]">
-          {task.title}
-        </span>
-      </Button>
-      <div className="mt-3 flex items-center gap-1 text-xs text-tertiary">
-        {task.owner ? (
-          <UserRound aria-hidden="true" className="size-3.5" />
-        ) : (
-          <CircleDot aria-hidden="true" className="size-3.5" />
+    <article className="rounded-xl border border-secondary bg-primary p-4 shadow-xs transition-shadow hover:shadow-md">
+      <div className="flex items-start justify-between gap-2">
+        <Button
+          type="button"
+          color="tertiary"
+          onPress={() => void Promise.resolve(onOpen()).catch(() => {})}
+          className="h-auto min-w-0 flex-1 items-start px-0 text-left whitespace-normal hover:bg-transparent"
+        >
+          <span className="line-clamp-3 text-sm leading-snug font-semibold text-primary [overflow-wrap:anywhere]">
+            {task.title}
+          </span>
+        </Button>
+        {canMutate && (
+          <div className="-mt-1 -mr-1.5 flex shrink-0 items-center">
+            {controls.handle}
+            <TaskDetailMenu task={task} onCommand={onCommand} />
+          </div>
         )}
-        <span className="truncate">{task.owner?.name ?? m.tasks_unassigned()}</span>
       </div>
-      {canMutate && (
-        <div className="mt-3 flex flex-wrap gap-1">
-          {moveControls}
-          {available && (
-            <TaskAction
-              label={m.tasks_claim()}
-              disabled={pending}
-              onClick={() => runCommand({ operation: "claim", number: task.number })}
-            />
-          )}
-          {own && task.status !== "done" && (
-            <TaskAction
-              label={m.tasks_unclaim()}
-              disabled={pending}
-              onClick={() =>
-                runCommand({
-                  operation: "unclaim",
-                  number: task.number,
-                  expectedRevision: task.revision,
-                })
-              }
-            />
-          )}
-          {!available && !own && task.owner && (
-            <Lock aria-label={m.tasks_owned_by_other()} className="size-3.5" />
-          )}
-          <TaskDetailMenu task={task} onCommand={onCommand} />
-        </div>
+      {task.description && (
+        <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-tertiary [overflow-wrap:anywhere]">
+          {task.description}
+        </p>
       )}
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        <TaskTag>#{task.number}</TaskTag>
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-3 border-t border-secondary pt-3">
+        <TaskOwner owner={task.owner} showName={list || !canMutate} />
+        {canMutate && (
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
+            {controls.status}
+            {available && (
+              <TaskAction
+                label={m.tasks_claim()}
+                disabled={pending}
+                onClick={() => runCommand({ operation: "claim", number: task.number })}
+              />
+            )}
+            {own && task.status !== "done" && (
+              <TaskAction
+                label={m.tasks_unclaim()}
+                disabled={pending}
+                onClick={() =>
+                  runCommand({
+                    operation: "unclaim",
+                    number: task.number,
+                    expectedRevision: task.revision,
+                  })
+                }
+              />
+            )}
+            {!available && !own && task.owner && (
+              <Lock aria-label={m.tasks_owned_by_other()} className="size-3.5 text-fg-quaternary" />
+            )}
+          </div>
+        )}
+      </div>
     </article>
   );
 
@@ -232,6 +246,14 @@ function TaskAction({
     >
       {label}
     </Button>
+  );
+}
+
+export function TaskTag({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex max-w-full items-center rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary">
+      <span className="truncate">{children}</span>
+    </span>
   );
 }
 

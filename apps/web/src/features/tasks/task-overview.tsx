@@ -1,13 +1,19 @@
 import { TASK_STATUSES, type TaskCommand, type TaskStatus, type TaskView } from "@coforge/protocol";
 import { Link } from "@tanstack/react-router";
 import { FilterLines as ListFilter } from "@untitledui/icons";
-import { Avatar } from "@/components/base/avatar/avatar";
-import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
-import { TaskLayoutToggle, TaskWorkflow, statusLabel, type TaskLayout } from "./task-workflow";
+import { TaskTag } from "./task-board";
+import { TaskOwner } from "./task-owner";
+import {
+  TaskLayoutToggle,
+  TaskWorkflow,
+  statusLabel,
+  type TaskControls,
+  type TaskLayout,
+} from "./task-workflow";
 import { TaskDetailMenu } from "./task-detail-dialog";
 
 export type TaskOverviewItem = TaskView & {
@@ -94,48 +100,26 @@ function TaskOverviewLink({
   onCommand,
 }: {
   task: TaskOverviewItem;
-  controls: React.ReactNode;
+  controls: TaskControls;
   list: boolean;
   onCommand?: (
     command: Omit<TaskCommand, "requestId" | "conversationId"> & { number: number },
   ) => Promise<void>;
 }) {
   const content = (
-    <div className="min-w-0 flex-1">
-      <h3 className="text-sm leading-5 font-medium text-primary [overflow-wrap:anywhere]">
+    <>
+      <h3 className="text-sm leading-snug font-semibold text-primary [overflow-wrap:anywhere]">
         {task.title}
       </h3>
-      <p className="mt-1.5 flex items-center gap-1.5 text-xs text-tertiary [overflow-wrap:anywhere]">
-        <span>#{task.number}</span>
-        <span aria-hidden="true">·</span>
-        <span className="truncate">{task.source.label}</span>
-      </p>
-    </div>
-  );
-  const owner = (
-    <div className="flex min-w-0 items-center gap-2 text-xs text-secondary">
-      <span className="sr-only">{m.tasks_overview_owner()}: </span>
-      {task.owner ? (
-        list ? (
-          <>
-            <Avatar size="xs" initials={task.owner.name.trim().charAt(0).toUpperCase()} alt="" />
-            <span className="truncate">{task.owner.name}</span>
-          </>
-        ) : (
-          <Tooltip title={task.owner.name}>
-            <TooltipTrigger className="rounded-full">
-              <Avatar size="xs" initials={task.owner.name.trim().charAt(0).toUpperCase()} alt="" />
-              <span className="sr-only">{task.owner.name}</span>
-            </TooltipTrigger>
-          </Tooltip>
-        )
-      ) : (
-        <span className="text-tertiary">{m.tasks_unassigned()}</span>
+      {task.description && (
+        <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-tertiary [overflow-wrap:anywhere]">
+          {task.description}
+        </p>
       )}
-    </div>
+    </>
   );
   const linkClass =
-    "min-w-0 flex-1 rounded-md outline-none focus-visible:ring-3 focus-visible:ring-brand/50";
+    "block min-w-0 flex-1 rounded-md outline-none focus-visible:ring-3 focus-visible:ring-brand/50";
   const search = { view: "tasks" as const, layout: list ? ("list" as const) : undefined };
   const link = task.source.agentId ? (
     <Link
@@ -156,17 +140,41 @@ function TaskOverviewLink({
       {content}
     </Link>
   );
+  const tags = (
+    <div className="flex min-w-0 flex-wrap gap-1.5">
+      <TaskTag>#{task.number}</TaskTag>
+      <TaskTag>{task.source.label}</TaskTag>
+    </div>
+  );
+  const actions = (
+    <div className="flex shrink-0 items-center">
+      {controls.handle}
+      {onCommand && <TaskDetailMenu task={task} onCommand={onCommand} />}
+    </div>
+  );
+  if (list) {
+    return (
+      <article className="flex flex-col gap-3 rounded-lg border border-secondary bg-primary p-3 shadow-xs transition-colors hover:bg-secondary sm:flex-row sm:items-center sm:gap-4 sm:px-4">
+        {link}
+        <div className="flex min-w-0 flex-wrap items-center gap-3 sm:shrink-0 sm:gap-4">
+          {tags}
+          <TaskOwner owner={task.owner} showName />
+          {controls.status}
+          {actions}
+        </div>
+      </article>
+    );
+  }
   return (
-    <article
-      className={`flex gap-3 rounded-lg border border-secondary bg-primary p-3 shadow-xs transition-colors hover:bg-secondary ${list ? "flex-col sm:flex-row sm:items-center sm:gap-4 sm:px-4" : "flex-col"}`}
-    >
-      {link}
-      <div
-        className={`flex min-w-0 items-center justify-between gap-3 ${list ? "sm:w-auto sm:shrink-0 sm:gap-4" : ""}`}
-      >
-        {owner}
-        {controls}
-        {onCommand && <TaskDetailMenu task={task} onCommand={onCommand} />}
+    <article className="rounded-xl border border-secondary bg-primary p-4 shadow-xs transition-shadow hover:shadow-md">
+      <div className="flex items-start justify-between gap-2">
+        {link}
+        <div className="-mt-1 -mr-1.5">{actions}</div>
+      </div>
+      <div className="mt-3">{tags}</div>
+      <div className="mt-3 flex items-center justify-between gap-3 border-t border-secondary pt-3">
+        <TaskOwner owner={task.owner} showName={false} />
+        {controls.status}
       </div>
     </article>
   );
