@@ -228,23 +228,7 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
     );
     if (!Number.isFinite(statusExpiresAt)) return;
     const timer = window.setTimeout(
-      () =>
-        setVisibleAgents((current) =>
-          current.map((agent) =>
-            agent.status.value === "active" &&
-            typeof agent.status.expiresAt === "number" &&
-            agent.status.expiresAt <= Date.now()
-              ? {
-                  ...agent,
-                  status: {
-                    ...agent.status,
-                    value: "inactive",
-                    expiresAt: null,
-                  },
-                }
-              : agent,
-          ),
-        ),
+      () => setVisibleAgents((current) => expireAgentStatuses(current, Date.now())),
       Math.max(0, statusExpiresAt - Date.now()) + 10,
     );
     return () => window.clearTimeout(timer);

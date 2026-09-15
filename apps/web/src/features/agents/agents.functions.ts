@@ -45,43 +45,51 @@ import { createAgentSessions } from "../../server/db/repositories/agent-session.
 import { getAgentDisplay } from "../../server/agents/agent-display.server";
 import { AgentEnvironment } from "../../server/agents/agent-environment.server";
 
-function dependencies() {
+type Database = NonNullable<ReturnType<typeof getDatabaseClient>>;
+
+function database(): Database {
   const db = getDatabaseClient();
   if (!db) throw new Error("Agent persistence is unavailable");
+  return db;
+}
+
+/** The browser caller and the Workspace their request is scoped to. */
+async function browserScope() {
+  const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  const db = database();
+  const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+  return { user, db, workspaceId, scope: { workspaceId, userId: user.id } };
+}
+
+/** Runtime start/stop publisher wired to one database and Agent repository. */
+function runtimeControl(db: Database, agents: PrismaAgentRepository) {
+  const centrifugo = createCentrifugoServerApi();
+  const sessions = createAgentSessions(db);
+  return new PublishAgentRuntimeControl(
+    new RepositoryAgentAuthorization(agents),
+    centrifugo,
+    async () => {},
+    sessions,
+    new AgentControl(
+      new PrismaAgentControlStore(db),
+      centrifugo,
+      getAgentRuntimeLock(),
+      undefined,
+      sessions,
+    ),
+  );
+}
+
+function dependencies() {
+  const db = database();
   const agents = new PrismaAgentRepository(db);
   const runtimeLock = getAgentRuntimeLock();
   const runtimeVisibility = new ComputerRuntimeVisibility(new PrismaComputerRuntimeRepository(db));
   const agentManagement = new ManageAgents(
     agents,
     {
-      start: (intent, ownerId) =>
-        new PublishAgentRuntimeControl(
-          new RepositoryAgentAuthorization(agents),
-          createCentrifugoServerApi(),
-          async () => {},
-          createAgentSessions(db),
-          new AgentControl(
-            new PrismaAgentControlStore(db),
-            createCentrifugoServerApi(),
-            runtimeLock,
-            undefined,
-            createAgentSessions(db),
-          ),
-        ).start(intent, ownerId),
-      stop: (intent, ownerId) =>
-        new PublishAgentRuntimeControl(
-          new RepositoryAgentAuthorization(agents),
-          createCentrifugoServerApi(),
-          async () => {},
-          createAgentSessions(db),
-          new AgentControl(
-            new PrismaAgentControlStore(db),
-            createCentrifugoServerApi(),
-            runtimeLock,
-            undefined,
-            createAgentSessions(db),
-          ),
-        ).stop(intent, ownerId),
+      start: (intent, ownerId) => runtimeControl(db, agents).start(intent, ownerId),
+      stop: (intent, ownerId) => runtimeControl(db, agents).stop(intent, ownerId),
     },
     {
       canRun: async (workspaceId, userId, computerId, config) => {
@@ -133,69 +141,37 @@ function dependencies() {
   return { agentManagement, db };
 }
 
-function runtimeCredentials(
-  db: NonNullable<ReturnType<typeof getDatabaseClient>>,
-  decrypt = false,
-) {
+function runtimeCredentials(db: Database, decrypt = false) {
   return new AgentRuntimeCredentials(
     new PrismaAgentRuntimeCredentialRepository(db),
     decrypt ? readAgentRuntimeCredentialEncryptionKey(process.env) : undefined,
   );
 }
 
-function changeRuntimeCredential(
-  db: NonNullable<ReturnType<typeof getDatabaseClient>>,
-  decrypt = false,
-) {
+function changeRuntimeCredential(db: Database, decrypt = false) {
   const agents = new PrismaAgentRepository(db);
   return new ChangeAgentRuntimeCredential(
     agents,
     runtimeCredentials(db, decrypt),
-    new PublishAgentRuntimeControl(
-      new RepositoryAgentAuthorization(agents),
-      createCentrifugoServerApi(),
-      async () => {},
-      createAgentSessions(db),
-      new AgentControl(
-        new PrismaAgentControlStore(db),
-        createCentrifugoServerApi(),
-        getAgentRuntimeLock(),
-        undefined,
-        createAgentSessions(db),
-      ),
-    ),
+    runtimeControl(db, agents),
     getAgentRuntimeLock(),
   );
 }
 
-function agentEnvironment(db: NonNullable<ReturnType<typeof getDatabaseClient>>) {
+function agentEnvironment(db: Database) {
   const agents = new PrismaAgentRepository(db);
   return new AgentEnvironment(
     new PrismaAgentRuntimeCredentialRepository(db),
     agents,
-    new PublishAgentRuntimeControl(
-      new RepositoryAgentAuthorization(agents),
-      createCentrifugoServerApi(),
-      async () => {},
-      createAgentSessions(db),
-      new AgentControl(
-        new PrismaAgentControlStore(db),
-        createCentrifugoServerApi(),
-        getAgentRuntimeLock(),
-        undefined,
-        createAgentSessions(db),
-      ),
-    ),
+    runtimeControl(db, agents),
     getAgentRuntimeLock(),
     readAgentRuntimeCredentialEncryptionKey(process.env),
   );
 }
 
 export const listAgents = createServerFn({ method: "GET" }).handler(async () => {
-  const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-  const { agentManagement, db } = dependencies();
-  const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-  const agents = await agentManagement.list({ userId: user.id, workspaceId });
+  const { workspaceId, scope } = await browserScope();
+  const agents = await dependencies().agentManagement.list(scope);
   const statuses = getAgentStatusCache();
   return Promise.all(
     agents.map(async (agent) => {
@@ -239,23 +215,11 @@ export const listAgents = createServerFn({ method: "GET" }).handler(async () => 
 
 export const getAgentStatusConnectionToken = createServerFn({
   method: "GET",
-}).handler(async () => {
-  const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-  const db = getDatabaseClient();
-  if (!db) throw new Error("Agent persistence is unavailable");
-  const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-  return issueBrowserRealtimeToken({ userId: user.id, workspaceId });
-});
+}).handler(async () => issueBrowserRealtimeToken((await browserScope()).scope));
 
 export const getAgentActivitySubscriptionToken = createServerFn({
   method: "GET",
-}).handler(async () => {
-  const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-  const db = getDatabaseClient();
-  if (!db) throw new Error("Agent persistence is unavailable");
-  const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-  return issueAgentActivitySubscriptionToken({ userId: user.id, workspaceId });
-});
+}).handler(async () => issueAgentActivitySubscriptionToken((await browserScope()).scope));
 
 export const createAgent = createServerFn({ method: "POST" })
   .validator(createAgentInputSchema)
@@ -273,19 +237,14 @@ export const createAgent = createServerFn({ method: "POST" })
 export const updateAgent = createServerFn({ method: "POST" })
   .validator(updateAgentInputSchema)
   .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const { agentManagement, db } = dependencies();
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-    return agentManagement.update({ userId: user.id, workspaceId }, data);
+    const { scope } = await browserScope();
+    return dependencies().agentManagement.update(scope, data);
   });
 
 export const getAgentDetail = createServerFn({ method: "GET" })
   .validator(agentIdSchema)
   .handler(async ({ data: agentId }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Agent persistence is unavailable");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const { user, db, workspaceId, scope } = await browserScope();
     const activity = new AgentActivityRepository(db);
     const query = new AgentDetailQuery(
       {
@@ -324,7 +283,7 @@ export const getAgentDetail = createServerFn({ method: "GET" })
     setResponseHeader("cache-control", "no-store");
     const ownedByCurrentUser = result.owner.id === user.id;
     const runtimeCredential = ownedByCurrentUser
-      ? await runtimeCredentials(db).summary({ workspaceId, userId: user.id }, agentId)
+      ? await runtimeCredentials(db).summary(scope, agentId)
       : null;
     return {
       ...result,
@@ -337,44 +296,28 @@ export const getAgentDetail = createServerFn({ method: "GET" })
 export const saveAgentRuntimeCredential = createServerFn({ method: "POST" })
   .validator(saveAgentRuntimeCredentialInputSchema)
   .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Agent persistence is unavailable");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-    return changeRuntimeCredential(db, true).save(
-      { workspaceId, userId: user.id },
-      data.agentId,
-      data.apiKey,
-    );
+    const { db, scope } = await browserScope();
+    return changeRuntimeCredential(db, true).save(scope, data.agentId, data.apiKey);
   });
 
 export const deleteAgentRuntimeCredential = createServerFn({ method: "POST" })
   .validator(agentIdSchema)
   .handler(async ({ data: agentId }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Agent persistence is unavailable");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-    return changeRuntimeCredential(db).delete({ workspaceId, userId: user.id }, agentId);
+    const { db, scope } = await browserScope();
+    return changeRuntimeCredential(db).delete(scope, agentId);
   });
 
 export const getAgentEnvironment = createServerFn({ method: "GET" })
   .validator(agentIdSchema)
   .handler(async ({ data: agentId }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Agent persistence is unavailable");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
+    const { db, scope } = await browserScope();
     setResponseHeader("cache-control", "no-store");
-    return agentEnvironment(db).get({ workspaceId, userId: user.id }, agentId);
+    return agentEnvironment(db).get(scope, agentId);
   });
 
 export const saveAgentEnvironment = createServerFn({ method: "POST" })
   .validator(saveAgentEnvironmentInputSchema)
   .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
-    const db = getDatabaseClient();
-    if (!db) throw new Error("Agent persistence is unavailable");
-    const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
-    return agentEnvironment(db).save({ workspaceId, userId: user.id }, data.agentId, data.envVars);
+    const { db, scope } = await browserScope();
+    return agentEnvironment(db).save(scope, data.agentId, data.envVars);
   });

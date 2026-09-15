@@ -1,3 +1,4 @@
+import { useSubmitGuard } from "@/hooks/use-submit-guard";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import {
   BellRinging01 as BellRing,
@@ -324,8 +325,7 @@ function AccountSettings({
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(profile.name);
   const [description, setDescription] = useState(profile.description);
-  const [saving, setSaving] = useState(false);
-  const savingRef = useRef(false);
+  const [saving, guard] = useSubmitGuard();
   const [pendingAvatar, setPendingAvatar] = useState<File | null>(null);
   const [removeAvatar, setRemoveAvatar] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -358,40 +358,36 @@ function AccountSettings({
   }
 
   async function save() {
-    if (savingRef.current) return;
-    savingRef.current = true;
-    setSaving(true);
-    setSaveError(null);
-    let avatarSaved = false;
-    try {
-      if (pendingAvatar) {
-        await onAvatarUpload(pendingAvatar);
-        avatarSaved = true;
-        setPendingAvatar(null);
-      } else if (removeAvatar) {
-        await onAvatarRemove();
-        avatarSaved = true;
-        setRemoveAvatar(false);
+    await guard(async () => {
+      setSaveError(null);
+      let avatarSaved = false;
+      try {
+        if (pendingAvatar) {
+          await onAvatarUpload(pendingAvatar);
+          avatarSaved = true;
+          setPendingAvatar(null);
+        } else if (removeAvatar) {
+          await onAvatarRemove();
+          avatarSaved = true;
+          setRemoveAvatar(false);
+        }
+        if (name !== profile.name || description !== profile.description)
+          await onProfileSave({ name, description });
+        setSaveSuccess(true);
+        setEditing(false);
+      } catch (cause) {
+        const message = avatarSaved
+          ? m.settings_profile_save_partial_error()
+          : avatarChanged
+            ? m.settings_avatar_save_error()
+            : m.settings_profile_save_error();
+        const reference =
+          isAppError(cause) && cause.errorId
+            ? ` ${m.error_reference({ errorId: cause.errorId })}`
+            : "";
+        setSaveError(`${message}${reference}`);
       }
-      if (name !== profile.name || description !== profile.description)
-        await onProfileSave({ name, description });
-      setSaveSuccess(true);
-      setEditing(false);
-    } catch (cause) {
-      const message = avatarSaved
-        ? m.settings_profile_save_partial_error()
-        : avatarChanged
-          ? m.settings_avatar_save_error()
-          : m.settings_profile_save_error();
-      const reference =
-        isAppError(cause) && cause.errorId
-          ? ` ${m.error_reference({ errorId: cause.errorId })}`
-          : "";
-      setSaveError(`${message}${reference}`);
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
-    }
+    });
   }
 
   function upload(event: ChangeEvent<HTMLInputElement>) {

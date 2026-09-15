@@ -101,6 +101,13 @@ export const RUNTIME_PROVIDER = {
   KIRO: "kiro",
 } as const;
 export type RuntimeProvider = (typeof RUNTIME_PROVIDER)[keyof typeof RUNTIME_PROVIDER];
+const RUNTIME_PROVIDERS: ReadonlySet<string> = new Set(Object.values(RUNTIME_PROVIDER));
+/** The RuntimeProvider a persisted or user-supplied value names, or undefined. */
+export function parseRuntimeProvider(value: unknown): RuntimeProvider | undefined {
+  return typeof value === "string" && RUNTIME_PROVIDERS.has(value)
+    ? (value as RuntimeProvider)
+    : undefined;
+}
 export type AgentRuntimeProviderConfig =
   | { kind: "default" }
   | { kind: "coforge"; providerId: string };

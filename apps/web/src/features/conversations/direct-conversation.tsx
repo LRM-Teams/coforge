@@ -1,3 +1,4 @@
+import { useSubmitGuard } from "@/hooks/use-submit-guard";
 import {
   useCallback,
   useEffect,
@@ -454,7 +455,7 @@ export function ConversationPane({
   const composerId = useId();
   const hydrated = useHydrated();
   const [body, setBody] = useState("");
-  const [sending, setSending] = useState(false);
+  const [sending, guard] = useSubmitGuard();
   const composerDisabled = !hydrated || sending;
   const [error, setError] = useState("");
   const [file, setFile] = useState<File>();
@@ -476,7 +477,6 @@ export function ConversationPane({
   const followingLatestRef = useRef(true);
   const previousConversationIdRef = useRef<string | undefined>(undefined);
   const previousLastSequenceRef = useRef<number | undefined>(undefined);
-  const sendingRef = useRef(false);
   const retryRef = useRef<{ body: string; requestId: string; asTask: boolean } | undefined>(
     undefined,
   );
@@ -788,52 +788,49 @@ export function ConversationPane({
   async function submit(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
     const text = body.trim() || file?.name || "";
-    if (!text || sendingRef.current || readOnlyNotice) return;
-    sendingRef.current = true;
-    setSending(true);
-    setError("");
-    try {
-      const request =
-        retryRef.current?.body === text && retryRef.current.asTask === asTask
-          ? retryRef.current
-          : { body: text, requestId: crypto.randomUUID(), asTask };
-      retryRef.current = request;
-      let attachmentId: string | undefined;
-      if (file) {
-        const form = new FormData();
-        form.set("conversationId", conversation.conversationId);
-        form.set("file", file);
-        const response = await fetch("/api/attachments", {
-          method: "POST",
-          body: form,
-        });
-        if (!response.ok) throw new Error(await response.text());
-        attachmentId = ((await response.json()) as { id: string }).id;
+    if (!text || readOnlyNotice) return;
+    await guard(async () => {
+      setError("");
+      try {
+        const request =
+          retryRef.current?.body === text && retryRef.current.asTask === asTask
+            ? retryRef.current
+            : { body: text, requestId: crypto.randomUUID(), asTask };
+        retryRef.current = request;
+        let attachmentId: string | undefined;
+        if (file) {
+          const form = new FormData();
+          form.set("conversationId", conversation.conversationId);
+          form.set("file", file);
+          const response = await fetch("/api/attachments", {
+            method: "POST",
+            body: form,
+          });
+          if (!response.ok) throw new Error(await response.text());
+          attachmentId = ((await response.json()) as { id: string }).id;
+        }
+        const sentMessage =
+          asTask && !root && onCreateTask
+            ? (await onCreateTask(text, request.requestId, attachmentId), undefined)
+            : await onSend(text, request.requestId, attachmentId);
+        if (sentMessage && onLoadOwnMessages) {
+          setOwnMessageIndex((current) => {
+            const messages = new Map(current.map((message) => [message.id, message]));
+            messages.set(sentMessage.id, sentMessage);
+            return [...messages.values()].sort((left, right) => left.sequence - right.sequence);
+          });
+          scrollOwnMenuToLatestRef.current = true;
+        }
+        retryRef.current = undefined;
+        setBody("");
+        setFile(undefined);
+        setAsTask(false);
+      } catch (cause) {
+        const message = m.conversation_send_error();
+        setError(message);
+        toast.error(message, cause);
       }
-      const sentMessage =
-        asTask && !root && onCreateTask
-          ? (await onCreateTask(text, request.requestId, attachmentId), undefined)
-          : await onSend(text, request.requestId, attachmentId);
-      if (sentMessage && onLoadOwnMessages) {
-        setOwnMessageIndex((current) => {
-          const messages = new Map(current.map((message) => [message.id, message]));
-          messages.set(sentMessage.id, sentMessage);
-          return [...messages.values()].sort((left, right) => left.sequence - right.sequence);
-        });
-        scrollOwnMenuToLatestRef.current = true;
-      }
-      retryRef.current = undefined;
-      setBody("");
-      setFile(undefined);
-      setAsTask(false);
-    } catch (cause) {
-      const message = m.conversation_send_error();
-      setError(message);
-      toast.error(message, cause);
-    } finally {
-      sendingRef.current = false;
-      setSending(false);
-    }
+    });
   }
 
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {

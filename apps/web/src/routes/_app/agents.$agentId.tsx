@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import { AgentDetail } from "@/features/agents/agent-detail";
 import { listAgentReminders } from "@/features/agents/agent-reminders.functions";
@@ -73,48 +73,72 @@ function AgentDetailPage() {
       loadReminders({ data: { agentId: detail.id, ...(cursor ? { cursor } : {}) } }),
     [detail.id, loadReminders],
   );
+  // Profile is memoized; keep everything it receives referentially stable so a
+  // status heartbeat only re-renders the header.
+  const environment = useMemo(
+    () => ({
+      onLoad: () => loadEnvironment({ data: detail.id }),
+      onSave: async (envVars: Parameters<typeof saveEnvironment>[0]["data"]["envVars"]) => {
+        const result = await saveEnvironment({ data: { agentId: detail.id, envVars } });
+        await router.invalidate({ sync: true });
+        return result;
+      },
+    }),
+    [detail.id, loadEnvironment, saveEnvironment, router],
+  );
+  const onExecuteControl = useCallback(
+    (request: Parameters<typeof executeControl>[0]["data"]) => executeControl({ data: request }),
+    [executeControl],
+  );
+  const onLoadRuntimeOptions = useCallback(
+    async (computerId: string) => {
+      const [computers, catalogs] = await Promise.all([
+        loadComputers(),
+        loadCatalog({ data: { computerId } }),
+      ]);
+      return {
+        providers:
+          computers
+            .find((computer) => computer.id === computerId)
+            ?.runtimes.map((runtime) => runtime.provider) ?? [],
+        catalogs,
+      };
+    },
+    [loadComputers, loadCatalog],
+  );
+  const onSaveRuntimeCredential = useCallback(
+    async (apiKey: string) => {
+      await saveCredential({ data: { agentId: detail.id, apiKey } });
+      await router.invalidate({ sync: true });
+    },
+    [saveCredential, detail.id, router],
+  );
+  const onDeleteRuntimeCredential = useCallback(async () => {
+    await deleteCredential({ data: detail.id });
+    await router.invalidate({ sync: true });
+  }, [deleteCredential, detail.id, router]);
+  const onUpdate = useCallback(
+    async (input: Parameters<typeof update>[0]["data"]) => {
+      await update({ data: input });
+      await router.invalidate({ sync: true });
+    },
+    [update, router],
+  );
   return (
     <AgentDetail
       activity={activity.length ? activity : detail.activity}
-      detail={{ ...detail, ...(liveAgent?.display ? { display: liveAgent.display } : {}) }}
+      detail={detail}
+      display={liveAgent?.display ?? detail.display}
       timeZone={timeZone}
       tab={Route.useSearch().tab}
-      environment={{
-        onLoad: () => loadEnvironment({ data: detail.id }),
-        onSave: async (envVars) => {
-          const result = await saveEnvironment({ data: { agentId: detail.id, envVars } });
-          await router.invalidate({ sync: true });
-          return result;
-        },
-      }}
+      environment={environment}
       onLoadSkills={loadAgentSkills}
-      onExecuteControl={(request) => executeControl({ data: request })}
+      onExecuteControl={onExecuteControl}
       onLoadReminders={loadAgentReminders}
-      onLoadRuntimeOptions={async (computerId) => {
-        const [computers, catalogs] = await Promise.all([
-          loadComputers(),
-          loadCatalog({ data: { computerId } }),
-        ]);
-        return {
-          providers:
-            computers
-              .find((computer) => computer.id === computerId)
-              ?.runtimes.map((runtime) => runtime.provider) ?? [],
-          catalogs,
-        };
-      }}
-      onSaveRuntimeCredential={async (apiKey) => {
-        await saveCredential({ data: { agentId: detail.id, apiKey } });
-        await router.invalidate({ sync: true });
-      }}
-      onDeleteRuntimeCredential={async () => {
-        await deleteCredential({ data: detail.id });
-        await router.invalidate({ sync: true });
-      }}
-      onUpdate={async (input) => {
-        await update({ data: input });
-        await router.invalidate({ sync: true });
-      }}
+      onLoadRuntimeOptions={onLoadRuntimeOptions}
+      onSaveRuntimeCredential={onSaveRuntimeCredential}
+      onDeleteRuntimeCredential={onDeleteRuntimeCredential}
+      onUpdate={onUpdate}
     />
   );
 }

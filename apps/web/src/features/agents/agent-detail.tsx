@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { memo, useState, type FormEvent } from "react";
 import {
   AlertCircle,
   Bell01 as Bell,
@@ -6,20 +6,23 @@ import {
   Monitor01 as Monitor,
   Edit01 as Pencil,
   UserCircle as UserRound,
-  XClose as X,
   Activity as ActivityIcon,
 } from "@untitledui/icons";
 import { Link } from "@tanstack/react-router";
-import { Heading, Text } from "react-aria-components";
 
 import { cn } from "@/lib/utils";
+import { useSubmitGuard } from "@/hooks/use-submit-guard";
 import { Button } from "@/components/base/buttons/button";
-import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Input } from "@/components/base/input/input";
+import { TextArea } from "@/components/base/textarea/textarea";
 import { Badge } from "@/components/base/badges/badges";
 import { RelativeTime } from "@/components/ui/relative-time";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
+import { DialogHeader } from "@/components/application/modals/dialog-header";
 import { m } from "@/paraglide/messages";
 import { localizeHref } from "@/paraglide/runtime";
+import { parseRuntimeProvider, RUNTIME_PROVIDER } from "@coforge/protocol";
+import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
 import { AgentRuntimeFields, type RuntimeOptions } from "./agent-runtime-fields";
 import type { UpdateAgentInput } from "./agent.schemas";
 import { latestActivityError, type ActivityEntry } from "./agent-activity";
@@ -35,9 +38,18 @@ import {
 } from "./agent-environment-editor";
 
 type Detail = Awaited<ReturnType<typeof import("./agents.functions").getAgentDetail>>;
+type AgentTab = "profile" | "activity" | "reminders";
+
+const AGENT_TABS: ReadonlyArray<{ value: AgentTab; icon: typeof UserRound; label: () => string }> =
+  [
+    { value: "profile", icon: UserRound, label: () => m.agent_profile_tab() },
+    { value: "activity", icon: ActivityIcon, label: () => m.agent_activity_tab() },
+    { value: "reminders", icon: Bell, label: () => m.agent_reminders_tab() },
+  ];
 
 export function AgentDetail({
   detail,
+  display = detail.display,
   activity = detail.activity,
   tab,
   timeZone,
@@ -51,8 +63,10 @@ export function AgentDetail({
   environment,
 }: {
   detail: Detail;
+  /** Live display snapshot; falls back to the one loaded with the detail. */
+  display?: AgentDisplaySnapshot;
   activity?: ActivityEntry[];
-  tab: "profile" | "activity" | "reminders";
+  tab: AgentTab;
   timeZone: string | null;
   onSaveRuntimeCredential: (apiKey: string) => Promise<void>;
   onDeleteRuntimeCredential: () => Promise<void>;
@@ -63,7 +77,7 @@ export function AgentDetail({
   onLoadReminders?: Parameters<typeof AgentReminders>[0]["onLoad"];
   environment?: AgentEnvironmentEditorProps;
 }) {
-  const view = agentDisplay(detail.display);
+  const view = agentDisplay(display);
   const online = view.isOnline;
   const statusLabel = view.label;
   const latestError = latestActivityError(activity);
@@ -74,7 +88,7 @@ export function AgentDetail({
           <AgentActivityAvatar
             agent={detail}
             size="lg"
-            display={detail.display}
+            display={display}
             activity={activity}
             timeZone={timeZone}
           />
@@ -105,7 +119,7 @@ export function AgentDetail({
         className="flex shrink-0 gap-5 overflow-x-auto border-b border-secondary md:gap-6"
         aria-label={m.agent_detail_tabs()}
       >
-        {(["profile", "activity", "reminders"] as const).map((value) => (
+        {AGENT_TABS.map(({ value, icon: Icon, label }) => (
           <Link
             key={value}
             to="/agents/$agentId"
@@ -114,27 +128,13 @@ export function AgentDetail({
             aria-current={tab === value ? "page" : undefined}
             className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-0.5 pb-3 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand ${tab === value ? "border-brand text-brand-secondary" : "border-transparent text-tertiary hover:border-brand hover:text-brand-secondary"}`}
           >
-            {value === "profile" && <UserRound className="size-4 shrink-0" aria-hidden="true" />}
-            {value === "activity" && (
-              <ActivityIcon className="size-4 shrink-0" aria-hidden="true" />
-            )}
-            {value === "reminders" && <Bell className="size-4 shrink-0" aria-hidden="true" />}
-            {value === "profile"
-              ? m.agent_profile_tab()
-              : value === "activity"
-                ? m.agent_activity_tab()
-                : m.agent_reminders_tab()}
+            <Icon className="size-4 shrink-0" aria-hidden="true" />
+            {label()}
           </Link>
         ))}
       </nav>
       <section
-        aria-label={
-          tab === "profile"
-            ? m.agent_profile_tab()
-            : tab === "activity"
-              ? m.agent_activity_tab()
-              : m.agent_reminders_tab()
-        }
+        aria-label={AGENT_TABS.find((candidate) => candidate.value === tab)?.label()}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-8"
       >
         {tab === "profile" && latestError && (
@@ -175,7 +175,7 @@ export function AgentDetail({
   );
 }
 
-function Profile({
+const Profile = memo(function Profile({
   detail,
   onSaveRuntimeCredential,
   onDeleteRuntimeCredential,
@@ -196,15 +196,18 @@ function Profile({
 }) {
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const savingRef = useRef(false);
+  const [saving, guard] = useSubmitGuard();
   const [editError, setEditError] = useState("");
   const [runtimeError, setRuntimeError] = useState("");
-  const runtime = configValue(detail.runtimeConfig, "runtime");
-  const providerKind = nestedConfigValue(detail.runtimeConfig, "provider", "kind");
-  const providerId = nestedConfigValue(detail.runtimeConfig, "provider", "providerId");
-  const canConfigureCredential =
-    detail.ownedByCurrentUser && providerKind === "coforge" && Boolean(providerId);
+  const { runtime, provider, model, reasoning } = detail.runtimeConfig;
+  const providerId = provider.kind === "coforge" ? provider.providerId : "";
+  const canConfigureCredential = detail.ownedByCurrentUser && Boolean(providerId);
+  const runtimeLabel =
+    runtime === RUNTIME_PROVIDER.COFORGE ? m.agent_provider_pi_builtin() : providerLabel(runtime);
+  const modelFields = [
+    { label: m.agent_form_model(), value: model || m.agent_form_provider_default() },
+    { label: m.agent_form_reasoning(), value: reasoning || m.agent_form_provider_default() },
+  ];
   const nameMatchesDisplayName = detail.name === detail.displayName;
   const fields = [
     { label: m.agent_profile_id(), value: detail.id, breakAll: true },
@@ -257,7 +260,7 @@ function Profile({
       <ModalOverlay
         isOpen={editOpen}
         onOpenChange={(open: boolean) => {
-          if (savingRef.current) return;
+          if (saving) return;
           setEditOpen(open);
           if (open) setEditError("");
         }}
@@ -267,73 +270,61 @@ function Profile({
             <form
               onSubmit={async (event) => {
                 event.preventDefault();
-                if (savingRef.current) return;
-                savingRef.current = true;
-                setEditError("");
-                setSaving(true);
                 const form = new FormData(event.currentTarget);
-                try {
-                  await onUpdate({
-                    agentId: detail.id,
-                    name: String(form.get("name") ?? ""),
-                    description: String(form.get("description") ?? ""),
-                    provider: runtimeProviderValue(form.get("provider")),
-                    modelProvider: String(form.get("modelProvider") ?? ""),
-                    model: String(form.get("model") ?? ""),
-                    reasoning: String(form.get("reasoning") ?? ""),
-                  });
-                  setEditOpen(false);
-                } catch {
-                  setEditError(m.agent_update_error());
-                } finally {
-                  savingRef.current = false;
-                  setSaving(false);
-                }
+                await guard(async () => {
+                  setEditError("");
+                  try {
+                    await onUpdate({
+                      agentId: detail.id,
+                      name: String(form.get("name") ?? ""),
+                      description: String(form.get("description") ?? ""),
+                      provider:
+                        parseRuntimeProvider(form.get("provider")) ?? RUNTIME_PROVIDER.COFORGE,
+                      modelProvider: String(form.get("modelProvider") ?? ""),
+                      model: String(form.get("model") ?? ""),
+                      reasoning: String(form.get("reasoning") ?? ""),
+                    });
+                    setEditOpen(false);
+                  } catch {
+                    setEditError(m.agent_update_error());
+                  }
+                });
               }}
             >
-              <div className="px-6 pt-6">
-                <Heading slot="title" className="text-lg font-semibold text-primary">
-                  {m.agent_edit_title()}
-                </Heading>
-                <Text slot="description" className="mt-2 text-sm text-tertiary">
-                  {m.agent_edit_description()}
-                </Text>
-              </div>
-              <div className="grid gap-5 px-6 py-6 text-sm font-medium">
-                <label>
-                  {m.agent_form_name()}
-                  <input
-                    name="name"
-                    required
-                    defaultValue={detail.name}
-                    className="mt-1.5 h-10 w-full rounded-lg border border-secondary bg-primary px-3 font-normal shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                  />
-                </label>
-                <label>
-                  {m.agent_profile_description()}
-                  <textarea
-                    name="description"
-                    rows={4}
-                    defaultValue={detail.description}
-                    className="mt-1.5 w-full rounded-lg border border-secondary bg-primary p-3 font-normal leading-6 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                  />
-                </label>
-                <label className="sm:col-span-2">
-                  {m.agent_form_computer()}
-                  <input
-                    readOnly
-                    value={detail.computer?.label ?? detail.computerId ?? ""}
-                    className="mt-1.5 h-10 w-full rounded-lg border border-secondary bg-secondary px-3 font-normal shadow-xs"
-                  />
-                </label>
+              <DialogHeader
+                title={m.agent_edit_title()}
+                description={m.agent_edit_description()}
+                onClose={() => setEditOpen(false)}
+              />
+              <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
+                <Input
+                  label={m.agent_form_name()}
+                  name="name"
+                  isRequired
+                  defaultValue={detail.name}
+                  className="min-w-0 sm:col-span-2"
+                />
+                <TextArea
+                  label={m.agent_profile_description()}
+                  name="description"
+                  rows={4}
+                  defaultValue={detail.description}
+                  className="min-w-0 sm:col-span-2"
+                />
+                <Input
+                  label={m.agent_form_computer()}
+                  isReadOnly
+                  value={detail.computer?.label ?? detail.computerId ?? ""}
+                  className="min-w-0 sm:col-span-2"
+                />
                 <AgentRuntimeFields
                   open={editOpen}
                   computerId={detail.computerId ?? ""}
                   initial={{
-                    provider: runtimeProviderValue(runtime),
-                    modelProvider: configValue(detail.runtimeConfig, "modelProvider"),
-                    model: configValue(detail.runtimeConfig, "model"),
-                    reasoning: configValue(detail.runtimeConfig, "reasoning"),
+                    provider: runtime,
+                    modelProvider: detail.runtimeConfig.modelProvider,
+                    model,
+                    reasoning,
                   }}
                   onLoad={onLoadRuntimeOptions}
                 />
@@ -390,11 +381,8 @@ function Profile({
           )}
         </div>
         <div className="mt-5 grid min-w-0 gap-x-8 gap-y-6 md:grid-cols-2 xl:grid-cols-3">
-          <RuntimeField
-            label={m.agent_runtime_field()}
-            value={runtime === "coforge" ? m.agent_provider_pi_builtin() : providerLabel(runtime)}
-          />
-          {providerKind === "coforge" && (
+          <RuntimeField label={m.agent_runtime_field()} value={runtimeLabel} />
+          {provider.kind === "coforge" && (
             <>
               <RuntimeField
                 label={m.agent_runtime_provider_field()}
@@ -410,16 +398,9 @@ function Profile({
               />
             </>
           )}
-          <RuntimeField
-            label={m.agent_form_model()}
-            value={configValue(detail.runtimeConfig, "model") || m.agent_form_provider_default()}
-          />
-          <RuntimeField
-            label={m.agent_form_reasoning()}
-            value={
-              configValue(detail.runtimeConfig, "reasoning") || m.agent_form_provider_default()
-            }
-          />
+          {modelFields.map((field) => (
+            <RuntimeField key={field.label} {...field} />
+          ))}
         </div>
       </section>
       {detail.ownedByCurrentUser && environment && (
@@ -444,7 +425,7 @@ function Profile({
       <ModalOverlay
         isOpen={runtimeDialogOpen}
         onOpenChange={(open: boolean) => {
-          if (savingRef.current) return;
+          if (saving) return;
           setRuntimeDialogOpen(open);
           if (open) setRuntimeError("");
         }}
@@ -455,91 +436,55 @@ function Profile({
               <form
                 onSubmit={async (event: FormEvent<HTMLFormElement>) => {
                   event.preventDefault();
-                  if (savingRef.current) return;
-                  savingRef.current = true;
-                  setRuntimeError("");
-                  setSaving(true);
-                  try {
-                    const apiKey = String(new FormData(event.currentTarget).get("apiKey") ?? "");
-                    await onSaveRuntimeCredential(apiKey);
-                    setRuntimeDialogOpen(false);
-                  } catch {
-                    setRuntimeError(m.agent_runtime_save_error());
-                  } finally {
-                    savingRef.current = false;
-                    setSaving(false);
-                  }
+                  const apiKey = String(new FormData(event.currentTarget).get("apiKey") ?? "");
+                  await guard(async () => {
+                    setRuntimeError("");
+                    try {
+                      await onSaveRuntimeCredential(apiKey);
+                      setRuntimeDialogOpen(false);
+                    } catch {
+                      setRuntimeError(m.agent_runtime_save_error());
+                    }
+                  });
                 }}
               >
-                <div className="flex items-start justify-between gap-6 px-6 pt-6">
-                  <div>
-                    <Heading slot="title" className="text-lg font-semibold text-primary">
-                      {m.agent_runtime_edit_title()}
-                    </Heading>
-                    <Text slot="description" className="mt-2 text-sm text-tertiary">
-                      {m.agent_runtime_edit_description()}
-                    </Text>
-                  </div>
-                  <ButtonUtility
-                    type="button"
-                    aria-label={m.controls_close()}
-                    icon={X}
-                    size="sm"
-                    color="tertiary"
-                    onClick={close}
-                  />
-                </div>
+                <DialogHeader
+                  title={m.agent_runtime_edit_title()}
+                  description={m.agent_runtime_edit_description()}
+                  onClose={close}
+                />
                 <div className="grid gap-4 px-6 py-6 sm:grid-cols-2">
-                  <RuntimeField
-                    label={m.agent_runtime_field()}
-                    value={
-                      runtime === "coforge" ? m.agent_provider_pi_builtin() : providerLabel(runtime)
-                    }
-                  />
+                  <RuntimeField label={m.agent_runtime_field()} value={runtimeLabel} />
                   {runtimeError && (
                     <p role="alert" className="text-sm text-error-primary sm:col-span-2">
                       {runtimeError}
                     </p>
                   )}
-                  {providerKind === "coforge" && providerId && (
+                  {providerId && (
                     <>
                       <RuntimeField label={m.agent_runtime_provider_field()} value={providerId} />
-                      <label className="grid gap-1.5 text-sm sm:col-span-2">
-                        {m.agent_runtime_api_key({ provider: providerId })}
-                        <input
-                          name="apiKey"
-                          type="password"
-                          required
-                          minLength={8}
-                          autoComplete="new-password"
-                          placeholder={m.agent_runtime_api_key_placeholder({
-                            provider: providerId,
-                          })}
-                          className="h-10 rounded-lg border border-secondary bg-primary px-3 shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                        />
-                        {detail.runtimeCredential && (
-                          <span className="text-xs text-tertiary">
-                            {m.agent_runtime_api_key_configured({
-                              hint: detail.runtimeCredential.hint,
-                            })}
-                          </span>
-                        )}
-                      </label>
+                      <Input
+                        label={m.agent_runtime_api_key({ provider: providerId })}
+                        name="apiKey"
+                        type="password"
+                        isRequired
+                        minLength={8}
+                        autoComplete="new-password"
+                        placeholder={m.agent_runtime_api_key_placeholder({ provider: providerId })}
+                        hint={
+                          detail.runtimeCredential
+                            ? m.agent_runtime_api_key_configured({
+                                hint: detail.runtimeCredential.hint,
+                              })
+                            : undefined
+                        }
+                        className="min-w-0 sm:col-span-2"
+                      />
                     </>
                   )}
-                  <RuntimeField
-                    label={m.agent_form_model()}
-                    value={
-                      configValue(detail.runtimeConfig, "model") || m.agent_form_provider_default()
-                    }
-                  />
-                  <RuntimeField
-                    label={m.agent_form_reasoning()}
-                    value={
-                      configValue(detail.runtimeConfig, "reasoning") ||
-                      m.agent_form_provider_default()
-                    }
-                  />
+                  {modelFields.map((field) => (
+                    <RuntimeField key={field.label} {...field} />
+                  ))}
                 </div>
                 <div className="flex justify-between gap-3 border-t border-secondary px-6 py-4">
                   <div>
@@ -549,21 +494,17 @@ function Profile({
                         size="md"
                         color="tertiary"
                         isDisabled={saving}
-                        onPress={async () => {
-                          if (savingRef.current) return;
-                          savingRef.current = true;
-                          setRuntimeError("");
-                          setSaving(true);
-                          try {
-                            await onDeleteRuntimeCredential();
-                            setRuntimeDialogOpen(false);
-                          } catch {
-                            setRuntimeError(m.agent_runtime_delete_error());
-                          } finally {
-                            savingRef.current = false;
-                            setSaving(false);
-                          }
-                        }}
+                        onPress={() =>
+                          guard(async () => {
+                            setRuntimeError("");
+                            try {
+                              await onDeleteRuntimeCredential();
+                              setRuntimeDialogOpen(false);
+                            } catch {
+                              setRuntimeError(m.agent_runtime_delete_error());
+                            }
+                          })
+                        }
                       >
                         {m.agent_runtime_delete_key()}
                       </Button>
@@ -591,27 +532,7 @@ function Profile({
       </ModalOverlay>
     </div>
   );
-}
-
-function runtimeProviderValue(value: FormDataEntryValue | null): UpdateAgentInput["provider"] {
-  if (value === "pi" || value === "codex" || value === "claude-code" || value === "kiro")
-    return value;
-  return "coforge";
-}
-
-function configValue(config: unknown, field: string) {
-  if (!config || typeof config !== "object" || Array.isArray(config)) return "";
-  const value = Reflect.get(config, field);
-  return typeof value === "string" ? value : "";
-}
-
-function nestedConfigValue(config: unknown, field: string, nestedField: string) {
-  if (!config || typeof config !== "object" || Array.isArray(config)) return "";
-  const nested = Reflect.get(config, field);
-  if (!nested || typeof nested !== "object" || Array.isArray(nested)) return "";
-  const value = Reflect.get(nested, nestedField);
-  return typeof value === "string" ? value : "";
-}
+});
 
 function providerLabel(provider: string) {
   if (provider === "pi") return "Pi";

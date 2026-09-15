@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { CodeAgentModelMetadata, RuntimeProvider } from "@coforge/protocol";
+import {
+  parseRuntimeProvider,
+  RUNTIME_PROVIDER,
+  type CodeAgentModelMetadata,
+  type RuntimeProvider,
+} from "@coforge/protocol";
 
 import { Button } from "@/components/base/buttons/button";
 import { Input } from "@/components/base/input/input";
@@ -133,7 +138,7 @@ export function AgentRuntimeFields({
         selectedKey={provider}
         onSelectionChange={(key) => {
           if (key === null) return;
-          setProvider(runtimeProvider(String(key)));
+          setProvider(parseRuntimeProvider(key) ?? RUNTIME_PROVIDER.COFORGE);
           setModelProvider("");
           setModelKey("");
           setReasoning("");
@@ -298,12 +303,6 @@ export function AgentRuntimeFields({
       </Select>
     </>
   );
-}
-
-function runtimeProvider(value: string): RuntimeProvider {
-  if (value === "pi" || value === "codex" || value === "claude-code" || value === "kiro")
-    return value;
-  return "coforge";
 }
 
 function modelOptionValue(model: CodeAgentModelMetadata) {
