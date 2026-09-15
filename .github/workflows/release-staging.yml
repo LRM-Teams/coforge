@@ -88,6 +88,11 @@ jobs:
             | jq -r '.value' > "$token_file"
           chmod 600 "$token_file"
           echo "ALIBABA_CLOUD_OIDC_TOKEN_FILE=$token_file" >> "$GITHUB_ENV"
+          # The RAM role's trust policy matches these three claims exactly; print them so a
+          # trust-policy mismatch is diagnosable from the run log. The payload is public run
+          # metadata; the signature (the only secret part) is never printed.
+          payload="$(cut -d. -f2 "$token_file" | tr '_-' '/+' | awk '{ n = length($0) % 4; if (n) $0 = $0 substr("==", 1, 4 - n); print }' | base64 -d)"
+          printf 'OIDC claims: %s\n' "$(printf '%s' "$payload" | jq -c '{iss, aud, sub, exp}')"
 
       # This role's trust policy grants only `repo:LRM-Teams/coforge:environment:staging` -
       # GitHub's OIDC token asserts the workflow's repo/ref/environment, and Alibaba Cloud checks
