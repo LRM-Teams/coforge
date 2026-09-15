@@ -37,6 +37,7 @@ import {
 } from "@coforge/protocol";
 import { WorkspaceQueryUseCase } from "../workspaces/query.server";
 import { getComputerRestartStore } from "../computers/computer-restart-store.server";
+import { getComputerUpgradeStore } from "../computers/computer-upgrade-store.server";
 import { recordComputerObservation } from "../computers/computer-metadata.server";
 import {
   PrismaAgentRepository,
@@ -226,6 +227,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
             },
           },
           (scope, observation) => recordComputerObservation(db, scope, observation),
+          getComputerUpgradeStore(),
         ),
         [REMINDER_FIRE_METHOD]: createReminderFireMethod(reminders),
         [REMINDER_SNAPSHOT_METHOD]: createReminderSnapshotMethod(reminders),

@@ -64,3 +64,36 @@ test("Coordinator registry rejects missing and mismatched environments without r
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("binding registry fails closed on malformed upgrade requests", async () => {
+  const root = await mkdtemp(join(tmpdir(), "coforge-binding-upgrade-"));
+  const binding = {
+    workspaceId: "a",
+    computerId: "c",
+    workspaceRoot: "/a",
+    enabled: true,
+  };
+  try {
+    for (const upgradeRequests of [
+      [{ requestId: "r" }],
+      [{ requestId: "r", expectedVersion: "" }],
+      [
+        { requestId: "r", expectedVersion: "1.0.0" },
+        { requestId: "r", expectedVersion: "1.0.0" },
+      ],
+    ]) {
+      await Bun.write(
+        join(root, "bindings.json"),
+        JSON.stringify([{ ...binding, upgradeRequests }]),
+      );
+      await expect(new FileBindingStore(root).load()).rejects.toThrow(
+        "invalid binding registry upgrade request",
+      );
+    }
+    const valid = [{ ...binding, upgradeRequests: [{ requestId: "r", expectedVersion: "1.0.0" }] }];
+    await new FileBindingStore(root).save(valid);
+    expect(await new FileBindingStore(root).load()).toEqual(valid);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

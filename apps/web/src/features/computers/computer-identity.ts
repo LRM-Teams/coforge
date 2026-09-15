@@ -1,6 +1,7 @@
 import { Cloud01 as Cloud, Monitor01 as Monitor } from "@untitledui/icons";
 
 import { m } from "@/paraglide/messages";
+import { compareReleaseVersions, parseReleaseVersion } from "@coforge/protocol";
 
 /**
  * How the Web names and pictures one Computer.
@@ -54,4 +55,20 @@ export function operatingSystemLabel(computer: ComputerPlatformInfo): string {
   return name
     ? `${name} ${computer.osVersion || m.computer_metadata_unknown()}`
     : m.computer_metadata_unknown();
+}
+
+/** Compare the numeric portions of release versions without treating an unknown format as newer. */
+export function isComputerUpdateAvailable(
+  currentVersion: string | null | undefined,
+  latestVersion: string | null | undefined,
+): boolean {
+  if (
+    !currentVersion ||
+    !latestVersion ||
+    !parseReleaseVersion(currentVersion) ||
+    !parseReleaseVersion(latestVersion)
+  )
+    return false;
+
+  return compareReleaseVersions(latestVersion!, currentVersion!) > 0;
 }

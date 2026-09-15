@@ -19,7 +19,7 @@ test("stores Computer status in a scoped Redis lease", async () => {
   await cache.put({ workspaceId: "workspace-1", computerId: "computer-1" }, true);
 
   expect(writes).toEqual([
-    ["coforge:computer-status:v1:workspace-1:computer-1", "online", "EX", "90"],
+    ["coforge:workspace:workspace-1:computer:computer-1:status:v1", "online", "EX", "90"],
   ]);
   expect(COMPUTER_STATUS_LEASE_MS).toBe(90_000);
   expect(await cache.get({ workspaceId: "workspace-1", computerId: "computer-1" })).toBe(true);

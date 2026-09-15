@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { LaunchdJob, stopLaunchdJobs } from "../platform/launchd-job";
 import {
   validateWorkspaceEndpoint,
@@ -35,7 +35,13 @@ export class LaunchdWorkspaceInstance implements WorkspaceInstance {
         COFORGE_WORKSPACE_AGENT_PREFIX: this.#agentPrefix,
         COFORGE_WORKSPACE_JOB_DIRECTORY: this.#agentDirectory,
         ...(config.supervisorSocketPath
-          ? { COFORGE_SUPERVISOR_SOCKET: config.supervisorSocketPath }
+          ? {
+              COFORGE_SUPERVISOR_SOCKET: config.supervisorSocketPath,
+              COFORGE_SUPERVISOR_STATE_PATH: join(
+                dirname(config.supervisorSocketPath),
+                "upgrade-request-ids.json",
+              ),
+            }
           : {}),
         ...(config.daemonConnectionEndpoint
           ? { COFORGE_DAEMON_CONNECTION_ENDPOINT: config.daemonConnectionEndpoint }

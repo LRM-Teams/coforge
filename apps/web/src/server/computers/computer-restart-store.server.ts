@@ -191,7 +191,7 @@ export class RedisComputerRestartStore implements ComputerRestartStore {
     return `${this.scopeKey(scope)}:request:${encodeURIComponent(requestId)}`;
   }
   private scopeKey(scope: Scope) {
-    return `coforge:computer-restart:v1:${encodeURIComponent(scope.workspaceId)}:${encodeURIComponent(scope.computerId)}`;
+    return `coforge:workspace:${encodeURIComponent(scope.workspaceId)}:computer:${encodeURIComponent(scope.computerId)}:restart:v1`;
   }
 }
 

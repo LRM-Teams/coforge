@@ -127,9 +127,10 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
   }
 
   async control(
-    operation: "start" | "stop" | "restart" | "snapshot" | "pause" | "resume",
+    operation: "start" | "stop" | "restart" | "snapshot" | "pause" | "resume" | "upgrade",
     workspaceId?: string,
     requestId: string = crypto.randomUUID(),
+    expectedVersion?: string,
   ) {
     let connection: LocalDaemonConnection | undefined;
     try {
@@ -146,6 +147,7 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
                 requestId,
                 workspaceId,
                 expectedServerUrl: this.#serverUrl,
+                expectedVersion,
               }),
             }),
           ),

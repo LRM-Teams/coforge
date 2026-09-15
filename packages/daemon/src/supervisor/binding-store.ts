@@ -110,5 +110,29 @@ function validateBindings(value: unknown): asserts value is ManagedBinding[] {
       if (record(binding.restart) && requests.has(String(binding.restart.requestId)))
         throw new Error("invalid binding registry conflicting restart");
     }
+    if (binding.upgradeRequestIds !== undefined) {
+      if (
+        !Array.isArray(binding.upgradeRequestIds) ||
+        binding.upgradeRequestIds.length > 128 ||
+        binding.upgradeRequestIds.some((requestId) => !text(requestId)) ||
+        new Set(binding.upgradeRequestIds).size !== binding.upgradeRequestIds.length
+      )
+        throw new Error("invalid binding registry upgrade request IDs");
+    }
+    if (binding.upgradeRequests !== undefined) {
+      if (!Array.isArray(binding.upgradeRequests) || binding.upgradeRequests.length > 128)
+        throw new Error("invalid binding registry upgrades");
+      const requests = new Set<string>();
+      for (const request of binding.upgradeRequests) {
+        if (
+          !record(request) ||
+          !text(request.requestId) ||
+          !text(request.expectedVersion) ||
+          requests.has(request.requestId)
+        )
+          throw new Error("invalid binding registry upgrade request");
+        requests.add(request.requestId);
+      }
+    }
   }
 }

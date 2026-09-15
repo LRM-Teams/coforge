@@ -124,7 +124,7 @@ export class RedisAgentStatusCache implements AgentStatusCache {
 
   private key(scope: AgentStatusScope): string {
     const segment = (value: string) => encodeURIComponent(value);
-    return `coforge:agent-status:v2:${segment(scope.workspaceId)}:${segment(scope.computerId)}:${segment(scope.agentId)}`;
+    return `coforge:workspace:${segment(scope.workspaceId)}:computer:${segment(scope.computerId)}:agent:${segment(scope.agentId)}:status:v2`;
   }
 }
 

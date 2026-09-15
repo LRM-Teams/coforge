@@ -33,5 +33,5 @@ test("usage cache stores a non-empty normalized snapshot with a scoped TTL key",
   await expect(
     cache.get({ workspaceId: "w1", computerId: "c1", provider: "codex" }),
   ).resolves.toMatchObject({ scanId: "s1", snapshot: { planType: "pro" } });
-  expect(calls[0]).toContain("coforge:usage:v1:w1:c1:codex:EX:60");
+  expect(calls[0]).toContain("coforge:workspace:w1:computer:c1:usage:v1:codex:EX:60");
 });

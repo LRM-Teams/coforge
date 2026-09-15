@@ -24,6 +24,7 @@ import {
   DaemonRuntimeUsageScanRequestSchema,
   DaemonRuntimeUsageScanResponseSchema,
   ComputerRestartIntentSchema,
+  ComputerUpgradeIntentSchema,
 } from "./gen/coforge/rpc/v1/daemon_runtime_pb";
 import {
   AgentSessionReportSchema,
@@ -61,8 +62,9 @@ import type {
   DaemonRuntimeCodeAgentsUpdateRequest,
   DaemonRuntimeReadyRequest,
   ComputerRestartIntent,
+  ComputerUpgradeIntent,
 } from "./index";
-import { COMPUTER_RESTART_MESSAGE_TYPE } from "./index";
+import { COMPUTER_RESTART_MESSAGE_TYPE, COMPUTER_UPGRADE_MESSAGE_TYPE } from "./index";
 
 const runtimeMetadata = (runtime: RuntimeMetadata) => ({
   ...runtime,
@@ -146,6 +148,7 @@ export function decodeDaemonRuntimeReadyRequest(bytes: Uint8Array): DaemonRuntim
     startedAt: Number(value.startedAt),
     runningAgentIds: [...value.runningAgentIds],
     recoveredRestartRequestIds: [...value.recoveredRestartRequestIds],
+    recoveredUpgradeRequestIds: [...value.recoveredUpgradeRequestIds],
     ...(value.capabilities.length ? { capabilities: [...value.capabilities] } : {}),
   };
 }
@@ -169,6 +172,39 @@ export function decodeComputerRestartIntent(bytes: Uint8Array): ComputerRestartI
     workspaceId: value.workspaceId,
     computerId: value.computerId,
     messageType: COMPUTER_RESTART_MESSAGE_TYPE,
+  };
+}
+
+export function encodeComputerUpgradeIntent(value: ComputerUpgradeIntent): Uint8Array {
+  return toBinary(
+    ComputerUpgradeIntentSchema,
+    create(ComputerUpgradeIntentSchema, {
+      ...value,
+      target: "latest",
+      ...(value.expectedVersion ? { expectedVersion: value.expectedVersion } : {}),
+      messageType: COMPUTER_UPGRADE_MESSAGE_TYPE,
+    }),
+  );
+}
+
+export function decodeComputerUpgradeIntent(bytes: Uint8Array): ComputerUpgradeIntent {
+  const value = fromBinary(ComputerUpgradeIntentSchema, bytes);
+  if (
+    value.messageType !== COMPUTER_UPGRADE_MESSAGE_TYPE ||
+    value.target !== "latest" ||
+    !value.requestId ||
+    !value.workspaceId ||
+    !value.computerId
+  )
+    throw new Error("invalid Computer upgrade intent");
+  return {
+    protocolMajor: value.protocolMajor,
+    requestId: value.requestId,
+    workspaceId: value.workspaceId,
+    computerId: value.computerId,
+    target: "latest",
+    ...(value.expectedVersion ? { expectedVersion: value.expectedVersion } : {}),
+    messageType: COMPUTER_UPGRADE_MESSAGE_TYPE,
   };
 }
 

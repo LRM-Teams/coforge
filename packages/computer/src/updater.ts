@@ -12,12 +12,12 @@ import {
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { acquireProcessLock } from "@coforge/daemon";
+import { isValidReleaseVersion } from "@coforge/protocol";
 import { runInstallationSource } from "./release/installation-source";
 
 const CHECKSUM_PATTERN = /^[0-9a-f]{64}$/;
 // Matches the pointer file, a version directory, and a manifest.json platform entry: a bare
 // version string with no path separators and no traversal segment.
-const VERSION_PATTERN = /^[A-Za-z0-9.+-]{1,100}$/;
 
 /** A version is both a URL segment and an on-disk directory name under "versions/", so beyond
  * the character-class pattern above it must reject two further values that pattern alone would
@@ -27,11 +27,7 @@ const VERSION_PATTERN = /^[A-Za-z0-9.+-]{1,100}$/;
  * would let the value be mistaken for a flag by curl, a shell, or any other tool it later
  * reaches. Both #assertVersion and rollback() must go through this single function so neither
  * path can drift from the other's notion of "valid". */
-function isValidVersion(value: string): boolean {
-  return (
-    VERSION_PATTERN.test(value) && value !== "." && !value.includes("..") && !value.startsWith("-")
-  );
-}
+const isValidVersion = isValidReleaseVersion;
 
 type ArtifactIdentity = { size: number; checksum: string };
 type PlatformArtifact = ArtifactIdentity & {

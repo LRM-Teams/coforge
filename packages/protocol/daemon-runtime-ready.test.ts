@@ -11,6 +11,7 @@ const ready = {
   startedAt: 123,
   runningAgentIds: ["agent-1", "agent-2"],
   recoveredRestartRequestIds: ["restart-1"],
+  recoveredUpgradeRequestIds: ["upgrade-1"],
 };
 
 test("round-trips running Agent IDs in daemon ready", () => {
@@ -49,6 +50,18 @@ test("round-trips a Workspace-scoped Computer restart intent", async () => {
     messageType: "coforge.rpc.v1.ComputerRestartIntent" as const,
   };
   expect(decodeComputerRestartIntent(encodeComputerRestartIntent(intent))).toEqual(intent);
+});
+
+test("round-trips a latest-only Computer upgrade intent", async () => {
+  const { decodeComputerUpgradeIntent, encodeComputerUpgradeIntent } = await import("./codec");
+  const intent = {
+    protocolMajor: 1,
+    requestId: "upgrade-1",
+    workspaceId: "workspace-1",
+    computerId: "computer-1",
+    target: "latest" as const,
+  };
+  expect(decodeComputerUpgradeIntent(encodeComputerUpgradeIntent(intent))).toMatchObject(intent);
 });
 
 test("rejects empty and duplicate running Agent IDs", () => {

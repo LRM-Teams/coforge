@@ -29,7 +29,6 @@
   "computer_setup_step_description": "Then run this command to connect your computer to {workspace}.",
   "computer_copy_setup_command": "Copy setup command",
   "computer_setup_command_copied": "Command copied",
-  "computer_list_version": "computer v{version}",
   "computer_connected_list": "Connected computers",
   "computer_no_code_agents": "No external Code Agents detected",
   "computer_back_to_list": "Back to computers",
@@ -110,5 +109,6 @@
   "computer_login_step_description": "Then sign this computer in to your CoForge account. A code appears in the terminal to approve here.",
   "computer_copy_login_command": "Copy sign-in command",
   "computer_login_command_copied": "Command copied",
-  "computer_added_by_name": "Added by {name}"
+  "computer_added_by_name": "Added by {name}",
+  "computer_update_available": "Update available"
 }

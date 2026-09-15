@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { ComputerUpdater, type LockedComputerUpdater, type PreparedUpdate } from "../updater";
@@ -10,7 +10,10 @@ import {
 
 export type UpgradeOperation = "upgrade" | "rollback";
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export interface UpgradeCoordinatorOptions {
+  requestId?: string;
   installRoot: string;
   binaryDirectory?: string;
   localDirectory?: string;
@@ -52,6 +55,9 @@ export async function coordinateUpgrade(
   options: UpgradeCoordinatorOptions,
   onStage: (stage: string) => void = () => {},
 ): Promise<UpgradeResult> {
+  const requestId = options.requestId ?? Bun.env.COFORGE_UPGRADE_REQUEST_ID;
+  if (requestId !== undefined && !UUID_PATTERN.test(requestId))
+    throw new Error("COFORGE_UPGRADE_REQUEST_ID must be a valid UUID");
   const updater =
     options.updater ??
     new ComputerUpdater({
@@ -171,6 +177,8 @@ export async function runUpgradeCoordinator(args: string[]): Promise<void> {
   if (requestFlag < 0 || !args[requestFlag + 1]) throw new Error("missing --request path");
   const requestPath = args[requestFlag + 1]!;
   const request = JSON.parse(await readFile(requestPath, "utf8")) as CoordinatorRequest;
+  if (request.requestId !== undefined && !UUID_PATTERN.test(request.requestId))
+    throw new Error("upgrade coordinator request ID must be a valid UUID");
   let result: UpgradeResult;
   try {
     result = await coordinateUpgrade(request, (stage) => console.log(`==> ${stage}`));
@@ -186,7 +194,6 @@ export async function runUpgradeCoordinator(args: string[]): Promise<void> {
           };
   }
   await writeJsonAtomic(request.resultPath, result);
-  await rm(requestPath, { force: true });
   // The caller reports the durable error; an uncaught throw would dump a second stack trace.
   if (result.status === "failed") process.exitCode = 1;
 }
@@ -196,6 +203,8 @@ export interface LaunchUpgradeCoordinatorOptions extends Omit<
   "lifecycle" | "updater"
 > {
   executablePath?: string;
+  /** Remote-triggered upgrades suppress terminal progress; normal CLI upgrades show it. */
+  quietProgress?: boolean;
 }
 
 /** Starts an OS-detached copy of the unified executable from the normal CLI. Linux rejects calls
@@ -205,7 +214,9 @@ export async function launchUpgradeCoordinator(
   options: LaunchUpgradeCoordinatorOptions,
 ): Promise<UpgradeResult> {
   await assertCoordinatorOutsideManagedSupervisor();
-  const id = crypto.randomUUID();
+  const id = options.requestId ?? Bun.env.COFORGE_UPGRADE_REQUEST_ID ?? crypto.randomUUID();
+  if (!UUID_PATTERN.test(id))
+    throw new Error("upgrade coordinator request ID must be a valid UUID");
   const directory = join(options.installRoot, "upgrade-results");
   const requestPath = join(directory, `${id}.request.json`);
   const resultPath = join(directory, `${id}.result.json`);
@@ -215,10 +226,10 @@ export async function launchUpgradeCoordinator(
   const child = Bun.spawn({
     cmd: [executablePath, "__upgrade", "--request", requestPath],
     stdin: "ignore",
-    // Progress goes to stdout and is shown to the user; completion still uses the durable
-    // result, never terminal output. Inheriting stdout keeps the coordinator's own progress
-    // (already routed to stdout by the update command) from being discarded.
-    stdout: "inherit",
+    // Completion still uses the durable result, never terminal output. Normal CLI upgrades
+    // inherit stdout so their installation progress remains visible; the remote hidden path
+    // opts into quiet progress explicitly.
+    stdout: options.quietProgress ? "ignore" : "inherit",
     stderr: "inherit",
     detached: true,
     windowsHide: true,

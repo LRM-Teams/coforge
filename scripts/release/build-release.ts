@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { isValidReleaseVersion as isApprovedReleaseVersion } from "../../packages/protocol/release-version";
 
 // Mirrors packages/computer/src/updater.ts's (module-private) isValidVersion and install.sh's/
 // install.ps1's is_valid_version/Test-CoforgeVersion exactly: a version is both a URL segment on
@@ -11,12 +12,8 @@ import { join } from "node:path";
 // for a flag by a tool it is later passed to. Keeping this as one function, checked before any
 // filesystem write below, is what stops a bad version from ever reaching outputDirectory instead
 // of only being caught by whichever consumer happens to read it first.
-const VERSION_PATTERN = /^[A-Za-z0-9.+-]{1,100}$/;
-
 export function isValidReleaseVersion(value: string): boolean {
-  return (
-    VERSION_PATTERN.test(value) && value !== "." && !value.includes("..") && !value.startsWith("-")
-  );
+  return isApprovedReleaseVersion(value);
 }
 
 // A release target is also a URL segment and an on-disk directory name (<version>/<target>/...).

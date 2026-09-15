@@ -1,6 +1,30 @@
 import { expect, test } from "bun:test";
 import { MachineSupervisor, type ManagedBinding } from "../src/supervisor/machine-supervisor";
 
+test("serializes upgrade request persistence and keeps concrete versions across concurrent delivery", async () => {
+  let saved: ManagedBinding[] = [
+    { workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true },
+  ];
+  const supervisor = new MachineSupervisor(
+    {
+      load: async () => structuredClone(saved),
+      save: async (next) => {
+        saved = structuredClone(next);
+      },
+    },
+    { start: async () => "a", stop: async () => {}, instance: async () => "a" },
+  );
+  await supervisor.recover();
+  await Promise.all([
+    supervisor.recordUpgrade("a", "request-a", "1.2.3-rc.1"),
+    supervisor.recordUpgrade("a", "request-b", "1.2.3"),
+  ]);
+  expect(saved[0]?.upgradeRequests).toEqual([
+    { requestId: "request-a", expectedVersion: "1.2.3-rc.1" },
+    { requestId: "request-b", expectedVersion: "1.2.3" },
+  ]);
+});
+
 test("a restart interrupted before OS stop cannot acknowledge replay while the original instance survives", async () => {
   let saved: ManagedBinding[] = [
     { workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true },
