@@ -10,6 +10,7 @@ import type { ReleaseTarget } from "./compile-targets";
 import {
   assertVersionIsUnpublished,
   createOssClient,
+  regionFromEndpoint,
   LATEST_OBJECT_KEY,
   manifestObjectKey,
   parseTargets,
@@ -41,6 +42,9 @@ async function tempDir(prefix: string): Promise<string> {
 
 const CREDENTIALS: OssCredentials = { accessKeyId: "testkey", accessKeySecret: "testsecret" };
 const BUCKET = "coforge-releases-test";
+// The fixture host names no region, so tests pass one explicitly; the real bucket's region is
+// derived from its endpoint (see the `regionFromEndpoint` test).
+const REGION = "oss-cn-beijing";
 // `windows-x64` is here for one reason: it sorts after "manifest.json", so it is what makes the
 // manifest-last upload order load-bearing. With only the POSIX targets (all of which sort before
 // `m`) `tree.files` already ends with the manifest, and reverting publish.ts to upload in plain
@@ -179,7 +183,7 @@ function startFakeOssServer(options: FakeOssOptions = {}): FakeOss {
 /** A fixture endpoint reached like the real bucket - direct HTTP to the fake server's host, no
  * bucket-name-prefixed virtual hosting (`cname: true`), over plain HTTP (`secure: false`). */
 function fixtureConnection(fake: FakeOss, bucket = BUCKET): OssConnection {
-  return { bucket, endpoint: fake.baseUrl, cname: true, secure: false };
+  return { bucket, endpoint: fake.baseUrl, region: REGION, cname: true, secure: false };
 }
 
 /** A fake OSS origin that fails every authenticated request the same way, independent of what
@@ -257,7 +261,12 @@ test("publication uploads every object, verifies it by reading the bytes back, a
     if (call.method === "ANONYMOUS_GET") {
       expect(fake.authHeaders[index]).toBeUndefined();
     } else {
-      expect(fake.authHeaders[index]).toMatch(/^OSS4-HMAC-SHA256\b/);
+      // The credential scope names the bucket's region: OSS rejects a scope for another region
+      // with InvalidArgument, which is exactly what happened when the client defaulted to
+      // ali-oss's oss-cn-hangzhou.
+      expect(fake.authHeaders[index]).toMatch(
+        /^OSS4-HMAC-SHA256 Credential=testkey\/\d{8}\/cn-beijing\/oss\/aliyun_v4_request,/,
+      );
     }
   });
 
@@ -632,4 +641,17 @@ test("runCli requires --version and --feed-url, and rejects a non-https feed URL
   } finally {
     console.error = originalError;
   }
+});
+
+test("regionFromEndpoint reads the region a public OSS endpoint names and nothing else", async () => {
+  expect(regionFromEndpoint("oss-cn-beijing.aliyuncs.com")).toBe("oss-cn-beijing");
+  expect(regionFromEndpoint("https://oss-cn-beijing-internal.aliyuncs.com")).toBe("oss-cn-beijing");
+  expect(regionFromEndpoint("http://127.0.0.1:4567")).toBeUndefined();
+  expect(regionFromEndpoint("files.coforge.cn")).toBeUndefined();
+  await expect(
+    createOssClient(
+      { bucket: BUCKET, endpoint: "http://127.0.0.1:4567", cname: true },
+      CREDENTIALS,
+    ),
+  ).rejects.toThrow("cannot derive the OSS region");
 });

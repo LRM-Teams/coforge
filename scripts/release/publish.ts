@@ -54,8 +54,21 @@ export interface OssCredentials {
 export interface OssConnection {
   bucket: string;
   endpoint: string;
+  /** The bucket's region id (`oss-cn-beijing`), which V4 signing writes into every request's
+   * credential scope. ali-oss does not derive it from `endpoint` and silently defaults to
+   * `oss-cn-hangzhou`, and OSS rejects a scope for the wrong region with `InvalidArgument`.
+   * Defaults to the region named by a public `oss-<region>.aliyuncs.com` endpoint. */
+  region?: string;
   cname?: boolean;
   secure?: boolean;
+}
+
+/** The region id a public OSS endpoint names (`oss-cn-beijing.aliyuncs.com` -> `oss-cn-beijing`),
+ * or undefined for any other host (a fixture server, a custom domain). */
+export function regionFromEndpoint(endpoint: string): string | undefined {
+  const host = endpoint.replace(/^https?:\/\//i, "").replace(/[/:].*$/, "");
+  const match = /^(oss-[a-z0-9-]+?)(?:-internal)?\.aliyuncs\.com$/i.exec(host);
+  return match?.[1];
 }
 
 /** Builds the ali-oss client this script uploads through, with V4 signing (`authorizationV4:
@@ -70,9 +83,17 @@ export async function createOssClient(
   connection: OssConnection,
   credentials?: OssCredentials,
 ): Promise<OSS> {
+  const region = connection.region ?? regionFromEndpoint(connection.endpoint);
+  if (!region) {
+    throw new Error(
+      `cannot derive the OSS region from endpoint ${connection.endpoint}; pass --region (V4 ` +
+        "signing needs the bucket's region in every request)",
+    );
+  }
   const base = {
     bucket: connection.bucket,
     endpoint: connection.endpoint,
+    region,
     cname: connection.cname ?? false,
     secure: connection.secure ?? true,
     authorizationV4: true,
@@ -366,6 +387,8 @@ export interface PublishOptions {
   targets: ReleaseTarget[];
   bucket: string;
   endpoint: string;
+  /** Overrides the region derived from `endpoint`; required for endpoints that do not name one. */
+  region?: string;
   dryRun: boolean;
 }
 
@@ -406,6 +429,7 @@ export async function runPublish(
   const connection: OssConnection = {
     bucket: options.bucket,
     endpoint: options.endpoint,
+    region: options.region,
     cname: false,
     secure: true,
     ...deps.connection,
@@ -476,6 +500,7 @@ interface ParsedArgs {
   targets?: string;
   bucket?: string;
   endpoint?: string;
+  region?: string;
   dryRun: boolean;
 }
 
@@ -510,6 +535,9 @@ function parseArgv(argv: string[]): ParsedArgs {
         break;
       case "--endpoint":
         result.endpoint = requireValue(argv, (index += 1), flag);
+        break;
+      case "--region":
+        result.region = requireValue(argv, (index += 1), flag);
         break;
       default:
         throw new Error(`unknown argument: ${flag}`);
@@ -562,6 +590,7 @@ export async function runCli(argv: string[], deps: CliDependencies = {}): Promis
       targets: parseTargets(args.targets),
       bucket: args.bucket ?? DEFAULT_BUCKET,
       endpoint: args.endpoint ?? DEFAULT_ENDPOINT,
+      region: args.region,
       dryRun: args.dryRun,
     };
     // console.log/console.error, not the injected `deps`, are the actual "script stdout/stderr":
