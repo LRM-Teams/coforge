@@ -533,15 +533,8 @@ export const createDaemonRuntimeReadyMethod =
   ): CentrifugoRpcMethod =>
   async (payload, metadata) => {
     const request = decodeDaemonRuntimeReadyRequest(payload);
-    if (
-      !metadata.principal.userId ||
-      metadata.principal.workspaceId !== request.workspaceId ||
-      metadata.principal.computerId !== request.computerId
-    )
-      return {
-        code: 403,
-        message: "daemon runtime identity is not authorized",
-      };
+    const denied = requireDaemonPrincipal(metadata, request);
+    if (denied) return denied;
     if (
       !request.workspaceId ||
       !request.computerId ||
@@ -642,15 +635,8 @@ export function createDaemonRuntimeCodeAgentsUpdateMethod(inventory: {
 }): CentrifugoRpcMethod {
   return async (payload, metadata) => {
     const request = decodeDaemonRuntimeCodeAgentsUpdateRequest(payload);
-    if (
-      !metadata.principal.userId ||
-      metadata.principal.workspaceId !== request.workspaceId ||
-      metadata.principal.computerId !== request.computerId
-    )
-      return {
-        code: 403,
-        message: "daemon runtime identity is not authorized",
-      };
+    const denied = requireDaemonPrincipal(metadata, request);
+    if (denied) return denied;
     if (
       request.protocolMajor !== 1 ||
       !request.requestId ||
@@ -676,15 +662,8 @@ export function createDaemonRuntimeUsageScanResultMethod(
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
     const response = decodeDaemonRuntimeUsageScanResponse(payload);
-    if (
-      !metadata.principal.userId ||
-      metadata.principal.workspaceId !== response.workspaceId ||
-      metadata.principal.computerId !== response.computerId
-    )
-      return {
-        code: 403,
-        message: "daemon runtime identity is not authorized",
-      };
+    const denied = requireDaemonPrincipal(metadata, response);
+    if (denied) return denied;
     if (response.protocolMajor !== 1 || !response.requestId || !response.provider)
       return { code: 400, message: "invalid usage scan result" };
     const snapshot = response.snapshotJson
@@ -923,6 +902,20 @@ const errors = {
   failed: { code: 500, message: "RPC method failed" },
 } as const;
 
+/** A daemon RPC must come from the Computer it claims to speak for; the 403 to return if not. */
+function requireDaemonPrincipal(
+  metadata: CentrifugoRpcMetadata,
+  claim: { workspaceId: string; computerId: string },
+) {
+  if (
+    !metadata.principal.userId ||
+    metadata.principal.workspaceId !== claim.workspaceId ||
+    metadata.principal.computerId !== claim.computerId
+  )
+    return { code: 403, message: "daemon runtime identity is not authorized" };
+  return undefined;
+}
+
 function response(body: unknown) {
   return new Response(JSON.stringify(body), {
     status: 200,
@@ -1009,11 +1002,8 @@ export class CentrifugoRpcHandler {
         protocol: envelope.protocol,
         encoding: envelope.encoding,
       });
-      if (result instanceof Uint8Array) {
-        let binary = "";
-        for (const byte of result) binary += String.fromCharCode(byte);
-        return response({ result: { b64data: btoa(binary) } });
-      }
+      if (result instanceof Uint8Array)
+        return response({ result: { b64data: Buffer.from(result).toString("base64") } });
       return errorResponse(result);
     } catch (error) {
       return errorResponse(handleRequestError(error));
