@@ -12,6 +12,7 @@ import {
   ConversationPending,
 } from "@/features/conversations/conversation-pending";
 import { useConversationAgentStatus } from "@/features/conversations/conversation-layout";
+import { mergeMessages } from "@/features/conversations/conversation-messages";
 import { createConversationReconciler } from "@/features/conversations/conversation-reconciliation";
 import { useConversationRealtime } from "@/features/conversations/conversation-realtime-client";
 import { loadReminderNotices } from "@/features/conversations/reminder-notices.functions";
@@ -68,12 +69,7 @@ function DirectConversationPage() {
   mergeUpdatesRef.current = (updates) => {
     setConversation((current) => {
       if (current.hasNewer) return current;
-      const messages = new Map(current.messages.map((message) => [message.id, message]));
-      for (const message of updates) messages.set(message.id, message);
-      return {
-        ...current,
-        messages: [...messages.values()].sort((left, right) => left.sequence - right.sequence),
-      };
+      return { ...current, messages: mergeMessages(current.messages, updates) };
     });
   };
   const reconciliation = useMemo(
@@ -96,12 +92,10 @@ function DirectConversationPage() {
   useEffect(() => {
     setConversation((current) => {
       if (current.conversationId !== latestConversation.conversationId) return latestConversation;
-      const messages = new Map(current.messages.map((message) => [message.id, message]));
-      for (const message of latestConversation.messages) messages.set(message.id, message);
       return {
         ...latestConversation,
         hasOlder: Boolean(current.hasOlder && latestConversation.hasOlder),
-        messages: [...messages.values()].sort((left, right) => left.sequence - right.sequence),
+        messages: mergeMessages(current.messages, latestConversation.messages),
       };
     });
   }, [latestConversation]);
@@ -218,15 +212,11 @@ function DirectConversationPage() {
         const older = await loadConversation({
           data: { agentId, beforeSequence },
         });
-        setConversation((current) => {
-          const messages = new Map(older.messages.map((message) => [message.id, message]));
-          for (const message of current.messages) messages.set(message.id, message);
-          return {
-            ...current,
-            hasOlder: older.hasOlder,
-            messages: [...messages.values()].sort((left, right) => left.sequence - right.sequence),
-          };
-        });
+        setConversation((current) => ({
+          ...current,
+          hasOlder: older.hasOlder,
+          messages: mergeMessages(older.messages, current.messages),
+        }));
       }}
     />
   );
