@@ -15,13 +15,11 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "rea
 
 import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
-import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
 import { getTaskMoveCommand } from "./task-move";
 
 export type TaskLayout = "board" | "list";
 export type TaskMoveCommand = NonNullable<ReturnType<typeof getTaskMoveCommand>>;
-export type TaskControls = { handle: ReactNode; status: ReactNode };
 
 export function useTaskLayout(layout: TaskLayout | undefined): TaskLayout {
   // Keep SSR and initial hydration identical; viewport defaults apply after mount.
@@ -70,6 +68,7 @@ export function TaskWorkflow<T extends TaskView>({
   statuses = TASK_STATUSES,
   currentMemberId,
   disabled,
+  error: externalError,
   onMove,
   renderTask,
 }: {
@@ -78,8 +77,10 @@ export function TaskWorkflow<T extends TaskView>({
   statuses?: readonly TaskStatus[];
   currentMemberId: (task: T) => string | null;
   disabled?: boolean;
+  /** When the caller surfaces move failures itself, pass its message here so only one alert renders. */
+  error?: string;
   onMove: (task: T, command: TaskMoveCommand) => Promise<void>;
-  renderTask: (task: T, controls: TaskControls) => ReactNode;
+  renderTask: (task: T, handle: ReactNode) => ReactNode;
 }) {
   const id = useId();
   const [active, setActive] = useState<T>();
@@ -107,32 +108,12 @@ export function TaskWorkflow<T extends TaskView>({
     }));
   }, [tasks, pending, statuses]);
 
-  const controls = (task: T): TaskControls => {
-    const available = TASK_STATUSES.filter((status) =>
+  const handle = (task: T): ReactNode => {
+    const movable = TASK_STATUSES.some((status) =>
       getTaskMoveCommand(task, currentMemberId(task), status),
     );
-    if (disabled || available.length === 0) return { handle: null, status: null };
-    const isPending = Boolean(pending);
-    return {
-      handle: <DragHandle task={task} disabled={isPending} />,
-      status: (
-        <Select
-          aria-label={m.tasks_change_status()}
-          size="sm"
-          selectedKey={task.status}
-          isDisabled={isPending}
-          onSelectionChange={(key) => {
-            const nextStatus = parseTaskStatus(key === null ? null : String(key));
-            if (nextStatus) void move(task, nextStatus);
-          }}
-        >
-          <Select.Item id={task.status} label={statusLabel(task.status)} />
-          {available.map((status) => (
-            <Select.Item key={status} id={status} label={statusLabel(status)} />
-          ))}
-        </Select>
-      ),
-    };
+    if (disabled || !movable) return null;
+    return <DragHandle task={task} disabled={Boolean(pending)} />;
   };
 
   return (
@@ -145,15 +126,15 @@ export function TaskWorkflow<T extends TaskView>({
       onDragCancel={() => setActive(undefined)}
       onDragEnd={(event) => void dropped(event)}
     >
-      {error && (
+      {(externalError || (externalError === undefined && error)) && (
         <p role="alert" className="mb-4 text-sm text-error-primary">
-          {m.tasks_mutation_error()}
+          {externalError || m.tasks_mutation_error()}
         </p>
       )}
       <div
         className={
           layout === "board" && groups.length > 1
-            ? "grid grid-cols-1 items-start gap-4 md:grid-cols-[repeat(5,minmax(15rem,1fr))] md:overflow-x-auto md:pb-2"
+            ? "grid grid-cols-1 items-start gap-4 md:grid-cols-[repeat(5,minmax(12.5rem,1fr))]"
             : layout === "board"
               ? "grid max-w-sm gap-4"
               : "flex flex-col gap-6"
@@ -174,7 +155,7 @@ export function TaskWorkflow<T extends TaskView>({
           >
             {group.tasks.map((task) => (
               <div key={task.messageId} aria-busy={pending?.messageId === task.messageId}>
-                {renderTask(task, controls(task))}
+                {renderTask(task, handle(task))}
               </div>
             ))}
           </TaskGroup>
@@ -253,7 +234,7 @@ function TaskGroup({
       aria-label={statusLabel(status)}
       className={
         board
-          ? `min-w-0 rounded-2xl border border-secondary bg-primary p-3 shadow-xs transition-shadow ${drop.isOver ? "ring-2 ring-brand" : ""}`
+          ? `min-w-0 rounded-2xl border bg-primary p-3 shadow-xs transition-colors ${drop.isOver ? "border-brand bg-brand-primary_alt ring-1 ring-brand ring-inset" : "border-secondary"}`
           : "min-w-0 overflow-hidden rounded-xl border border-secondary bg-primary shadow-xs"
       }
     >

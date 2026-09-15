@@ -5,15 +5,9 @@ import { FilterLines as ListFilter } from "@untitledui/icons";
 import { PageHeader } from "@/components/layout/page-header";
 import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
-import { TaskTag } from "./task-board";
+import { TaskCardBody, TaskCardShell, TaskTag } from "./task-card";
 import { TaskOwner } from "./task-owner";
-import {
-  TaskLayoutToggle,
-  TaskWorkflow,
-  statusLabel,
-  type TaskControls,
-  type TaskLayout,
-} from "./task-workflow";
+import { TaskLayoutToggle, TaskWorkflow, statusLabel, type TaskLayout } from "./task-workflow";
 import { TaskDetailMenu } from "./task-detail-dialog";
 
 export type TaskOverviewItem = TaskView & {
@@ -79,10 +73,10 @@ export function TaskOverview({
           onMove={async (task, command) => {
             await onCommand?.(task, command);
           }}
-          renderTask={(task, controls) => (
+          renderTask={(task, handle) => (
             <TaskOverviewLink
               task={task}
-              controls={controls}
+              handle={handle}
               list={layout === "list"}
               onCommand={onCommand ? (command) => onCommand(task, command) : undefined}
             />
@@ -95,40 +89,28 @@ export function TaskOverview({
 
 function TaskOverviewLink({
   task,
-  controls,
+  handle,
   list,
   onCommand,
 }: {
   task: TaskOverviewItem;
-  controls: TaskControls;
+  handle: React.ReactNode;
   list: boolean;
   onCommand?: (
     command: Omit<TaskCommand, "requestId" | "conversationId"> & { number: number },
   ) => Promise<void>;
 }) {
-  const content = (
-    <>
-      <h3 className="text-sm leading-snug font-semibold text-primary [overflow-wrap:anywhere]">
-        {task.title}
-      </h3>
-      {task.description && (
-        <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-tertiary [overflow-wrap:anywhere]">
-          {task.description}
-        </p>
-      )}
-    </>
-  );
   const linkClass =
-    "block min-w-0 flex-1 rounded-md outline-none focus-visible:ring-3 focus-visible:ring-brand/50";
+    "rounded-xs outline-none hover:underline focus-visible:ring-3 focus-visible:ring-brand/50";
   const search = { view: "tasks" as const, layout: list ? ("list" as const) : undefined };
-  const link = task.source.agentId ? (
+  const title = task.source.agentId ? (
     <Link
       to="/messages/$agentId"
       params={{ agentId: task.source.agentId }}
       search={search}
       className={linkClass}
     >
-      {content}
+      {task.title}
     </Link>
   ) : (
     <Link
@@ -137,46 +119,27 @@ function TaskOverviewLink({
       search={search}
       className={linkClass}
     >
-      {content}
+      {task.title}
     </Link>
   );
-  const tags = (
-    <div className="flex min-w-0 flex-wrap gap-1.5">
-      <TaskTag>#{task.number}</TaskTag>
-      <TaskTag>{task.source.label}</TaskTag>
-    </div>
-  );
-  const actions = (
-    <div className="flex shrink-0 items-center">
-      {controls.handle}
-      {onCommand && <TaskDetailMenu task={task} onCommand={onCommand} />}
-    </div>
-  );
-  if (list) {
-    return (
-      <article className="flex flex-col gap-3 rounded-lg border border-secondary bg-primary p-3 shadow-xs transition-colors hover:bg-secondary sm:flex-row sm:items-center sm:gap-4 sm:px-4">
-        {link}
-        <div className="flex min-w-0 flex-wrap items-center gap-3 sm:shrink-0 sm:gap-4">
-          {tags}
-          <TaskOwner owner={task.owner} showName />
-          {controls.status}
-          {actions}
-        </div>
-      </article>
-    );
-  }
   return (
-    <article className="rounded-xl border border-secondary bg-primary p-4 shadow-xs transition-shadow hover:shadow-md">
-      <div className="flex items-start justify-between gap-2">
-        {link}
-        <div className="-mt-1 -mr-1.5">{actions}</div>
-      </div>
-      <div className="mt-3">{tags}</div>
-      <div className="mt-3 flex items-center justify-between gap-3 border-t border-secondary pt-3">
-        <TaskOwner owner={task.owner} showName={false} />
-        {controls.status}
-      </div>
-    </article>
+    <TaskCardShell
+      list={list}
+      body={<TaskCardBody title={title} description={task.description} />}
+      tags={
+        <>
+          <TaskTag>#{task.number}</TaskTag>
+          <TaskTag>{task.source.label}</TaskTag>
+        </>
+      }
+      owner={<TaskOwner owner={task.owner} showName={list} />}
+      actions={
+        <>
+          {handle}
+          {onCommand && <TaskDetailMenu task={task} onCommand={onCommand} />}
+        </>
+      }
+    />
   );
 }
 

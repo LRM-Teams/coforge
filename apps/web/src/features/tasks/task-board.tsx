@@ -6,15 +6,10 @@ import { Button } from "@/components/base/buttons/button";
 import { m } from "@/paraglide/messages";
 import { ConversationTaskTabs } from "./conversation-task-tabs";
 import { CreateTaskDialog } from "./create-task-dialog";
+import { TaskCardBody, TaskCardShell, TaskTag } from "./task-card";
 import { TaskDetailMenu } from "./task-detail-dialog";
 import { TaskOwner } from "./task-owner";
-import {
-  TaskLayoutToggle,
-  TaskWorkflow,
-  statusLabel,
-  type TaskControls,
-  type TaskLayout,
-} from "./task-workflow";
+import { TaskLayoutToggle, TaskWorkflow, statusLabel, type TaskLayout } from "./task-workflow";
 import { useSubmitGuard } from "@/hooks/use-submit-guard";
 
 export type TaskBoardProps = {
@@ -90,7 +85,7 @@ export function TaskBoard({
           )}
         </div>
       </header>
-      {error && (
+      {error && tasks.length === 0 && (
         <p role="alert" className="mx-5 mt-4 text-sm text-error-primary">
           {error}
         </p>
@@ -110,16 +105,17 @@ export function TaskBoard({
             tasks={tasks}
             layout={layout}
             disabled={!canMutate}
+            error={error ?? ""}
             currentMemberId={() => currentMemberId || null}
             onMove={(_task, command) => onCommand(command)}
-            renderTask={(task, controls) => (
+            renderTask={(task, handle) => (
               <TaskCard
                 task={task}
                 own={task.owner?.memberId === currentMemberId}
                 canMutate={canMutate}
                 onOpen={() => onOpenMessage(task.messageId)}
                 onCommand={onCommand}
-                controls={controls}
+                handle={handle}
                 list={layout === "list"}
               />
             )}
@@ -146,7 +142,7 @@ function TaskCard({
   canMutate,
   onOpen,
   onCommand,
-  controls,
+  handle,
   list,
 }: {
   task: TaskView;
@@ -154,44 +150,42 @@ function TaskCard({
   canMutate: boolean;
   onOpen: () => void | Promise<void>;
   onCommand: TaskBoardProps["onCommand"];
-  controls: TaskControls;
+  handle: React.ReactNode;
   list: boolean;
 }) {
   const [pending, guard] = useSubmitGuard();
   const available = task.status === "todo" && (!task.owner || own);
   return (
-    <article className="rounded-xl border border-secondary bg-primary p-4 shadow-xs transition-shadow hover:shadow-md">
-      <div className="flex items-start justify-between gap-2">
-        <Button
-          type="button"
-          color="tertiary"
-          onPress={() => void Promise.resolve(onOpen()).catch(() => {})}
-          className="h-auto min-w-0 flex-1 items-start px-0 text-left whitespace-normal hover:bg-transparent"
-        >
-          <span className="line-clamp-3 text-sm leading-snug font-semibold text-primary [overflow-wrap:anywhere]">
-            {task.title}
-          </span>
-        </Button>
-        {canMutate && (
-          <div className="-mt-1 -mr-1.5 flex shrink-0 items-center">
-            {controls.handle}
+    <TaskCardShell
+      list={list}
+      body={
+        <TaskCardBody
+          title={
+            <Button
+              type="button"
+              color="link-gray"
+              onPress={() => void Promise.resolve(onOpen()).catch(() => {})}
+              className="h-auto text-left text-sm leading-snug font-semibold whitespace-normal text-primary [overflow-wrap:anywhere]"
+            >
+              {task.title}
+            </Button>
+          }
+          description={task.description}
+        />
+      }
+      tags={<TaskTag>#{task.number}</TaskTag>}
+      owner={<TaskOwner owner={task.owner} showName={list || !canMutate} />}
+      actions={
+        canMutate ? (
+          <>
+            {handle}
             <TaskDetailMenu task={task} onCommand={onCommand} />
-          </div>
-        )}
-      </div>
-      {task.description && (
-        <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-tertiary [overflow-wrap:anywhere]">
-          {task.description}
-        </p>
-      )}
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        <TaskTag>#{task.number}</TaskTag>
-      </div>
-      <div className="mt-3 flex items-center justify-between gap-3 border-t border-secondary pt-3">
-        <TaskOwner owner={task.owner} showName={list || !canMutate} />
-        {canMutate && (
-          <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
-            {controls.status}
+          </>
+        ) : null
+      }
+      extra={
+        canMutate ? (
+          <>
             {available && (
               <TaskAction
                 label={m.tasks_claim()}
@@ -215,10 +209,10 @@ function TaskCard({
             {!available && !own && task.owner && (
               <Lock aria-label={m.tasks_owned_by_other()} className="size-3.5 text-fg-quaternary" />
             )}
-          </div>
-        )}
-      </div>
-    </article>
+          </>
+        ) : null
+      }
+    />
   );
 
   function runCommand(command: Parameters<TaskBoardProps["onCommand"]>[0]) {
@@ -246,14 +240,6 @@ function TaskAction({
     >
       {label}
     </Button>
-  );
-}
-
-export function TaskTag({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex max-w-full items-center rounded-md bg-secondary px-2 py-0.5 text-xs font-medium text-secondary">
-      <span className="truncate">{children}</span>
-    </span>
   );
 }
 
