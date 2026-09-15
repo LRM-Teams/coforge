@@ -1,10 +1,12 @@
 import type { ReactNode, Ref } from "react";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
-import { Download01 } from "@untitledui/icons";
+import { Download01, XClose } from "@untitledui/icons";
 
 import { getReadableFileSize } from "@/components/application/file-upload/file-upload-base";
 import { Avatar } from "@/components/base/avatar/avatar";
+import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Dialog, DialogTrigger, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { m } from "@/paraglide/messages";
@@ -160,19 +162,53 @@ export function AttachmentCard({
   if (attachment.contentType.startsWith("image/"))
     return (
       <div className="group/attachment relative mt-1 w-fit max-w-full">
-        <a
-          href={href}
-          target="_blank"
-          rel="noreferrer"
-          className="block overflow-hidden rounded-lg ring-1 ring-secondary ring-inset focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-        >
-          <img
-            src={href}
-            alt={attachment.fileName}
-            loading="lazy"
-            className="block max-h-80 max-w-full object-contain"
-          />
-        </a>
+        {/* Clicking the preview opens the image at full size in a lightbox. */}
+        <DialogTrigger>
+          <Button
+            color="tertiary"
+            noTextPadding
+            aria-label={attachment.fileName}
+            className="block h-auto overflow-hidden rounded-lg p-0 ring-1 ring-secondary ring-inset hover:bg-transparent"
+          >
+            <img
+              src={href}
+              alt={attachment.fileName}
+              loading="lazy"
+              className="block max-h-80 max-w-full object-contain"
+            />
+          </Button>
+          <ModalOverlay isDismissable>
+            <Modal className="w-fit max-w-[min(96vw,80rem)] bg-transparent shadow-none">
+              <Dialog aria-label={attachment.fileName} className="w-fit">
+                {({ close }) => (
+                  <div className="relative">
+                    <img
+                      src={href}
+                      alt={attachment.fileName}
+                      className="block max-h-[calc(var(--visual-viewport-height)-var(--modal-pt)-var(--modal-pb))] max-w-full rounded-lg object-contain"
+                    />
+                    <div className="absolute top-2 right-2 flex items-center gap-1 rounded-lg bg-primary/90 p-1 shadow-xs">
+                      <ButtonUtility
+                        icon={Download01}
+                        size="sm"
+                        color="tertiary"
+                        tooltip={m.conversation_attachment_download()}
+                        href={`${href}?download`}
+                      />
+                      <ButtonUtility
+                        icon={XClose}
+                        size="sm"
+                        color="tertiary"
+                        tooltip={m.controls_close()}
+                        onClick={close}
+                      />
+                    </div>
+                  </div>
+                )}
+              </Dialog>
+            </Modal>
+          </ModalOverlay>
+        </DialogTrigger>
         <div className="absolute top-2 right-2">{download}</div>
       </div>
     );
