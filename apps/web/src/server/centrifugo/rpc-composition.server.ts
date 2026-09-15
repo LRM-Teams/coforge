@@ -213,17 +213,19 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
                 where: { workspaceId, computerId },
                 select: { id: true, ownerId: true },
               });
-              for (const agent of agents) {
-                const bytes = await reminders.snapshot({
-                  protocolMajor: 1,
-                  requestId: crypto.randomUUID(),
-                  workspaceId,
-                  computerId,
-                  agentId: agent.id,
-                  userId: agent.ownerId,
-                });
-                await centrifugo.publish(daemonControlChannel(workspaceId, computerId), bytes);
-              }
+              await Promise.all(
+                agents.map(async (agent) => {
+                  const bytes = await reminders.snapshot({
+                    protocolMajor: 1,
+                    requestId: crypto.randomUUID(),
+                    workspaceId,
+                    computerId,
+                    agentId: agent.id,
+                    userId: agent.ownerId,
+                  });
+                  await centrifugo.publish(daemonControlChannel(workspaceId, computerId), bytes);
+                }),
+              );
             },
           },
           (scope, observation) => recordComputerObservation(db, scope, observation),

@@ -112,50 +112,56 @@ export class WorkspaceAgentRecovery {
   ) {
     const runningAgents = new Set(runningAgentIds);
     const agents = await this.agents.listForComputer(workspaceId, computerId);
-    for (const listedAgent of agents) {
-      await this.runtimeLock.run(listedAgent.id, async () => {
-        const agent = await this.agents.getById(listedAgent.id);
-        if (!agent || agent.workspaceId !== workspaceId || agent.computerId !== computerId) return;
-        if (runningAgents.has(agent.id)) {
-          const deliveries = await this.conversations.readPendingAgentDeliveries(
-            workspaceId,
-            agent.id,
-          );
-          for (const delivery of deliveries) {
-            await this.api.publish(
-              daemonControlChannel(workspaceId, computerId),
-              encodeAgentMessageDelivery({
-                protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-                requestId: crypto.randomUUID(),
-                workspaceId,
-                agentId: agent.id,
-                method: AGENT_MESSAGE_METHOD,
-                ...delivery,
-              }),
+    // Each Agent recovers under its own lock, so all of them recover at once.
+    await Promise.all(
+      agents.map((listedAgent) =>
+        this.runtimeLock.run(listedAgent.id, async () => {
+          const agent = await this.agents.getById(listedAgent.id);
+          if (!agent || agent.workspaceId !== workspaceId || agent.computerId !== computerId)
+            return;
+          if (runningAgents.has(agent.id)) {
+            const deliveries = await this.conversations.readPendingAgentDeliveries(
+              workspaceId,
+              agent.id,
             );
+            await Promise.all(
+              deliveries.map((delivery) =>
+                this.api.publish(
+                  daemonControlChannel(workspaceId, computerId),
+                  encodeAgentMessageDelivery({
+                    protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+                    requestId: crypto.randomUUID(),
+                    workspaceId,
+                    agentId: agent.id,
+                    method: AGENT_MESSAGE_METHOD,
+                    ...delivery,
+                  }),
+                ),
+              ),
+            );
+            return;
           }
-          return;
-        }
-        const recovery = await this.conversations.readAgentRecoveryContext(workspaceId, agent.id);
-        const intent: AgentStartIntent = {
-          protocolMajor: 1,
-          requestId: crypto.randomUUID(),
-          workspaceId,
-          computerId,
-          agentId: agent.id,
-          ...runtimeStartFields(agent.runtimeConfig),
-          ...recovery,
-        };
-        if (this.control) {
-          await this.control.recover(intent, agent.ownerId);
-          return;
-        }
-        await this.api.publish(
-          daemonControlChannel(workspaceId, computerId),
-          encodeAgentStartIntent(this.sessions ? await this.sessions.prepare(intent) : intent),
-        );
-      });
-    }
+          const recovery = await this.conversations.readAgentRecoveryContext(workspaceId, agent.id);
+          const intent: AgentStartIntent = {
+            protocolMajor: 1,
+            requestId: crypto.randomUUID(),
+            workspaceId,
+            computerId,
+            agentId: agent.id,
+            ...runtimeStartFields(agent.runtimeConfig),
+            ...recovery,
+          };
+          if (this.control) {
+            await this.control.recover(intent, agent.ownerId);
+            return;
+          }
+          await this.api.publish(
+            daemonControlChannel(workspaceId, computerId),
+            encodeAgentStartIntent(this.sessions ? await this.sessions.prepare(intent) : intent),
+          );
+        }),
+      ),
+    );
   }
 }
 
