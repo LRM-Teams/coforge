@@ -44,6 +44,10 @@ run = "bun run --cwd packages/protocol generate && cd packages/computer && bun r
 description = "Build the Computer package"
 run = "bun run --cwd packages/protocol generate && cd packages/computer && bun run build"
 
+[tasks."reload:computer"]
+description = "Rebuild local Computer/Daemon fixture, install to ~/.coforge, restart daemon"
+run = "bash scripts/reload-local-computer.sh"
+
 [tasks."test:web"]
 description = "Run Web package tests"
 run = "bun run --cwd packages/protocol generate && cd apps/web && bun run test"

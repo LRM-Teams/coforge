@@ -205,30 +205,37 @@ export function createAgentStatusMethod(
       return { code: 403, message: "Agent status is not authorized" };
     const accepted = await (statuses ?? getAgentStatusCache()).put(status);
     if (!accepted) return new Uint8Array();
-    if (events) {
-      await events.publish(
-        agentStatusChannel(status.workspaceId),
-        encodeAgentStatusEvent({
-          agentId: status.agentId,
-          status: status.status,
-          expiresAt: status.status === "active" ? now() + AGENT_STATUS_LEASE_MS : null,
-          daemonInstanceId: status.daemonInstanceId,
-          clientSeq: status.clientSeq,
-          observedAtMs: status.observedAtMs,
-        }),
-      );
-    }
+    // Persist the display process lease before optional realtime fan-out. A
+    // Centrifugo publish failure must not leave an accepted status fact offline.
+    let snapshot: Awaited<ReturnType<NonNullable<typeof display>["observeStatus"]>> | undefined;
     if (display) {
       try {
-        const snapshot = await display.observeStatus(status);
-        if (snapshot && displayEvents)
-          await displayEvents.publishJson(agentStatusChannel(status.workspaceId), {
-            type: "agent:display",
-            ...snapshot,
-          });
+        snapshot = await display.observeStatus(status);
       } catch {
         // The optional display read model cannot reject an accepted process fact.
       }
+    }
+    try {
+      if (events) {
+        await events.publish(
+          agentStatusChannel(status.workspaceId),
+          encodeAgentStatusEvent({
+            agentId: status.agentId,
+            status: status.status,
+            expiresAt: status.status === "active" ? now() + AGENT_STATUS_LEASE_MS : null,
+            daemonInstanceId: status.daemonInstanceId,
+            clientSeq: status.clientSeq,
+            observedAtMs: status.observedAtMs,
+          }),
+        );
+      }
+      if (snapshot && displayEvents)
+        await displayEvents.publishJson(agentStatusChannel(status.workspaceId), {
+          type: "agent:display",
+          ...snapshot,
+        });
+    } catch {
+      // Realtime fan-out is best-effort once the process lease is stored.
     }
     return new Uint8Array();
   };

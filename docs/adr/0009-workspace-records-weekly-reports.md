@@ -46,10 +46,11 @@ AI drafting/side-chat replies are deferred; storage must still allow a future
 3. **WeeklyReportTemplate** is **per-User** send configuration within a Workspace
    (`ownerId`: name, frequency, time, recipients, and an outline of level-1 /
    level-2 headings stored in `dimensions` Json). Rows are not shared across
-   Workspace members; at most one may be `applied` per `(workspaceId, ownerId)`.
-   The outline drives the Leader’s live format document under the top chip when
-   a row is applied or updated while applied; edits to that format’s H1/H2
-   headings sync back into the applied settings outline. Legacy flat string
+   Workspace members. **Multiple** rows may be `applied` at once for one owner;
+   each applied row is a send stream with its own top chip and format document
+   (`WeeklyReport.settingsId`). The outline drives that stream’s live format
+   when the row is applied or updated while applied; edits to that format’s
+   H1/H2 headings sync back into that settings outline. Legacy flat string
    `dimensions` arrays are still read as level-1-only sections.
 4. **WeeklyReportFavorite** is per-User favorites of member reports.
 5. **RecordComment** attaches to a subject (`report` | `highlight` | `cycle`) with
