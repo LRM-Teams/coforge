@@ -41,6 +41,8 @@
   "conversation_loading_older": "正在加载更早消息…",
   "conversation_history_load_error": "消息加载失败，请重试。",
   "conversation_attachment_label": "添加附件",
+  "conversation_attachment_download": "下载",
+  "conversation_attachment_remove": "移除附件",
   "conversation_thread": "讨论",
   "conversation_thread_reply": "在讨论中回复",
   "conversation_thread_one_reply": "1 条回复",

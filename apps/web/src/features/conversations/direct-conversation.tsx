@@ -1,35 +1,15 @@
-import { useSubmitGuard } from "@/hooks/use-submit-guard";
 import { useStateWithRef } from "@/hooks/use-state-with-ref";
-import { mergeMessages } from "./conversation-messages";
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-  type KeyboardEvent,
-} from "react";
-import { useHydrated } from "@tanstack/react-router";
+import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { measureElement, observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowDown,
   ArrowLeft,
-  ArrowUp,
-  CheckSquare,
   DotsHorizontal,
   LayoutLeft as PanelLeft,
-  List,
-  Loading01 as LoaderCircle,
   MessageSquare01 as MessageSquare,
-  Paperclip,
-  XClose,
 } from "@untitledui/icons";
-import { FileIcon } from "@untitledui/file-icons";
 import type { TaskView } from "@coforge/protocol";
-import { MenuItem as AriaMenuItem, Popover as AriaPopover } from "react-aria-components";
 
 import { useChannelSidebarVisibility } from "@/components/app-shell";
 import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";
@@ -55,12 +35,17 @@ import { RelativeTime } from "@/components/ui/relative-time";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { useAppToast } from "@/components/ui/toast";
 import { ReminderNotice, type ReminderNoticeView } from "./reminder-notice";
+import { MessageComposer } from "./message-composer";
+import { AttachmentCard, MessageRow, clockLabel, groupsWithPrevious } from "./message-row";
+import {
+  OwnMessagesMenu,
+  useOwnMessagesIndex,
+  type OwnMessageIndexEntry,
+} from "./own-messages-menu";
 import { cn } from "@/lib/utils";
 import { TaskBadge } from "@/features/tasks/task-board";
 import { m } from "@/paraglide/messages";
 import { getLocale } from "@/paraglide/runtime";
-
-const GROUPING_WINDOW_MS = 5 * 60 * 1000;
 
 const observeConversationRect: typeof observeElementRect = (instance, callback) =>
   observeElementRect(instance, (rect) =>
@@ -94,13 +79,7 @@ export type DirectConversationView = {
   }>;
 };
 
-export type OwnMessageIndexEntry = {
-  id: string;
-  sequence: number;
-  body: string;
-  createdAt: Date | string;
-  attachmentFileName?: string;
-};
+export type { OwnMessageIndexEntry };
 
 type ConversationProps = {
   conversation: DirectConversationView;
@@ -227,9 +206,25 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
   const [readThrough, setReadThrough] = useState<Record<string, number>>({});
   const reading = useRef(false);
   const mainMessages = conversation.messages.filter((message) => !message.threadRootId);
-  const selectedSequence =
-    conversation.messages.filter((message) => message.threadRootId === selected).at(-1)?.sequence ??
-    0;
+  // Replies grouped once per message list, instead of a filter per rendered root.
+  const repliesByRoot = useMemo(() => {
+    const byRoot = new Map<string, DirectConversationView["messages"]>();
+    for (const message of conversation.messages) {
+      if (!message.threadRootId) continue;
+      const replies = byRoot.get(message.threadRootId);
+      if (replies) replies.push(message);
+      else byRoot.set(message.threadRootId, [message]);
+    }
+    return byRoot;
+  }, [conversation.messages]);
+  const repliesOf = (rootId: string) => repliesByRoot.get(rootId) ?? [];
+  const selectedSequence = selected ? (repliesOf(selected).at(-1)?.sequence ?? 0) : 0;
+  // The thread pane's share of the width is the user's to set; remembered across visits.
+  const threadLayout = useDefaultLayout({
+    id: "coforge-conversation",
+    panelIds: selected ? ["main", "thread"] : ["main"],
+    onlySaveAfterUserInteractions: true,
+  });
   useEffect(() => {
     if (!selected || !selectedSequence || reading.current || document.visibilityState === "hidden")
       return;
@@ -274,16 +269,25 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
     return () => window.removeEventListener("hashchange", openAnchoredThread);
   }, [conversation.messages, selected]);
   return (
-    <div className="flex min-h-0 min-w-0 flex-1">
-      <div className={cn("min-h-0 min-w-0 flex-1 flex-col", selected ? "hidden md:flex" : "flex")}>
+    <Group
+      id="conversation"
+      orientation="horizontal"
+      defaultLayout={threadLayout.defaultLayout}
+      onLayoutChanged={threadLayout.onLayoutChanged}
+      className="flex min-h-0 min-w-0 flex-1"
+    >
+      <Panel
+        id="main"
+        // Strings are percentages of the group; numbers would be pixels.
+        minSize="40"
+        className={cn("flex min-h-0 min-w-0 flex-col", selected && "max-md:hidden!")}
+      >
         <ConversationPane
           {...conversationProps}
           header={header}
           conversation={{ ...conversation, messages: mainMessages }}
           threadEntry={(message) => {
-            const replies = conversation.messages.filter(
-              (reply) => reply.threadRootId === message.id,
-            );
+            const replies = repliesOf(message.id);
             const boundary = Math.max(
               readThrough[message.id] ?? 0,
               conversation.threadReadThrough?.[message.id] ?? 0,
@@ -325,9 +329,7 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
             );
           }}
           threadPreview={(message) => {
-            const threadReplies = conversation.messages.filter(
-              (reply) => reply.threadRootId === message.id,
-            );
+            const threadReplies = repliesOf(message.id);
             if (!threadReplies.length) return null;
             const label =
               threadReplies.length === 1
@@ -376,44 +378,56 @@ export function ThreadedConversation(props: ThreadedConversationProps) {
             return task ? <TaskBadge task={task} /> : null;
           }}
         />
-      </div>
-      {visited.map((rootId) => {
-        const root = mainMessages.find((message) => message.id === rootId);
-        if (!root) return null;
-        return (
-          <section
-            key={rootId}
+      </Panel>
+      {selected && (
+        <>
+          <Separator
             aria-label={m.conversation_thread()}
-            hidden={selected !== rootId}
-            className={cn(
-              "min-h-0 min-w-0 flex-1 flex-col md:max-w-[480px] md:border-l",
-              selected === rootId ? "flex" : "hidden",
-            )}
+            className="hidden w-px shrink-0 bg-border-secondary transition-colors hover:bg-brand-solid data-[separator=active]:bg-brand-solid md:block"
+          />
+          <Panel
+            id="thread"
+            defaultSize="35"
+            minSize="25"
+            maxSize="60"
+            className="flex min-h-0 min-w-0 flex-col max-md:w-full! max-md:flex-[1_1_100%]!"
           >
-            <ConversationPane
-              {...conversationProps}
-              root={root}
-              onClose={() => setSelected(undefined)}
-              emptyState={{
-                title: m.conversation_thread_empty_title(),
-                description: m.conversation_thread_empty(),
-                media: <MessageSquare aria-hidden="true" className="size-6 text-tertiary" />,
-              }}
-              conversation={{
-                ...conversation,
-                messages: conversation.messages.filter(
-                  (message) => message.threadRootId === rootId,
-                ),
-              }}
-              onSend={(body, requestId, attachmentId) =>
-                conversationProps.onSend(body, requestId, attachmentId, rootId)
-              }
-              threadHeaderAction={threadHeaderAction?.(rootId)}
-            />
-          </section>
-        );
-      })}
-    </div>
+            {visited.map((rootId) => {
+              const root = mainMessages.find((message) => message.id === rootId);
+              if (!root) return null;
+              return (
+                <section
+                  key={rootId}
+                  aria-label={m.conversation_thread()}
+                  hidden={selected !== rootId}
+                  className={cn(
+                    "min-h-0 min-w-0 flex-1 flex-col",
+                    selected === rootId ? "flex" : "hidden",
+                  )}
+                >
+                  <ConversationPane
+                    {...conversationProps}
+                    active={selected === rootId}
+                    root={root}
+                    onClose={() => setSelected(undefined)}
+                    emptyState={{
+                      title: m.conversation_thread_empty_title(),
+                      description: m.conversation_thread_empty(),
+                      media: <MessageSquare aria-hidden="true" className="size-6 text-tertiary" />,
+                    }}
+                    conversation={{ ...conversation, messages: repliesOf(rootId) }}
+                    onSend={(body, requestId, attachmentId) =>
+                      conversationProps.onSend(body, requestId, attachmentId, rootId)
+                    }
+                    threadHeaderAction={threadHeaderAction?.(rootId)}
+                  />
+                </section>
+              );
+            })}
+          </Panel>
+        </>
+      )}
+    </Group>
   );
 }
 
@@ -443,8 +457,11 @@ export function ConversationPane({
   onLoadReminderNotices,
   reminderRefreshKey,
   onCreateTask,
+  active = true,
 }: Omit<ConversationProps, "conversation" | "agentStatus"> & {
   conversation: Omit<DirectConversationView, "agent">;
+  /** A hidden (visited but unselected) thread pane skips its background fetches. */
+  active?: boolean;
   header?: React.ReactNode;
   readOnlyNotice?: React.ReactNode;
   emptyState: { title: string; description: string; media: React.ReactNode };
@@ -455,36 +472,17 @@ export function ConversationPane({
   threadHeaderAction?: React.ReactNode;
   messageFooter?: (message: DirectConversationView["messages"][number]) => React.ReactNode;
 }) {
-  const composerId = useId();
-  const hydrated = useHydrated();
-  const [body, setBody] = useState("");
-  const [sending, guard] = useSubmitGuard();
-  const composerDisabled = !hydrated || sending;
-  const [error, setError] = useState("");
-  const [file, setFile] = useState<File>();
-  const [asTask, setAsTask] = useState(false);
   const [dateLocale, setDateLocale] = useState<string>();
   useEffect(() => setDateLocale(getLocale()), []);
   const toast = useAppToast();
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [followingLatest, followingLatestRef, setFollowingLatest] = useStateWithRef(true);
   const [loadingOlder, loadingOlderRef, setLoadingOlder] = useStateWithRef(false);
-  const [ownMessageIndex, setOwnMessageIndex] = useState<OwnMessageIndexEntry[]>([]);
-  const [hasOlderOwnMessages, setHasOlderOwnMessages] = useState(false);
-  const [loadingOwnMessages, loadingOwnMessagesRef, setLoadingOwnMessages] = useStateWithRef(false);
-  const [ownMessagesOpen, setOwnMessagesOpen] = useState(false);
   const [reminderNotices, setReminderNotices] = useState<ReminderNoticeView[]>([]);
   const historyRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const ownMessagesMenuRef = useRef<HTMLDivElement>(null);
   const previousConversationIdRef = useRef<string | undefined>(undefined);
   const previousLastSequenceRef = useRef<number | undefined>(undefined);
-  const retryRef = useRef<{ body: string; requestId: string; asTask: boolean } | undefined>(
-    undefined,
-  );
   const olderScrollAnchorRef = useRef<{ height: number; top: number } | undefined>(undefined);
-  const ownMenuScrollAnchorRef = useRef<{ height: number; top: number } | undefined>(undefined);
-  const scrollOwnMenuToLatestRef = useRef(false);
   const pendingMessageIdRef = useRef<string | undefined>(undefined);
   const pendingLatestRef = useRef(false);
   const loadReminderNoticesRef = useRef(onLoadReminderNotices);
@@ -512,7 +510,13 @@ export function ConversationPane({
             })),
     [conversation.messages, conversation.senderMemberId, onLoadOwnMessages],
   );
-  const ownMessages = onLoadOwnMessages ? ownMessageIndex : loadedOwnMessages;
+  const ownIndex = useOwnMessagesIndex({
+    conversationId: conversation.conversationId,
+    enabled: !root,
+    onLoad: onLoadOwnMessages,
+    fallback: loadedOwnMessages,
+  });
+  const ownMessages = ownIndex.messages;
   const listRef = useRef<HTMLOListElement>(null);
   const messagesRef = useRef(conversation.messages);
   messagesRef.current = conversation.messages;
@@ -646,41 +650,19 @@ export function ConversationPane({
     pendingLatestRef.current = false;
   }, [conversation.hasNewer, conversation.messages, messageVirtualizer]);
 
-  useLayoutEffect(() => {
-    const menu = ownMessagesMenuRef.current;
-    if (!menu) return;
-    const anchor = ownMenuScrollAnchorRef.current;
-    if (anchor) {
-      menu.scrollTop = anchor.top + menu.scrollHeight - anchor.height;
-      ownMenuScrollAnchorRef.current = undefined;
-    } else if (scrollOwnMenuToLatestRef.current) {
-      menu.scrollTop = menu.scrollHeight;
-      scrollOwnMenuToLatestRef.current = false;
-    }
-  }, [ownMessages[0]?.sequence, ownMessages.at(-1)?.sequence]);
-
   useEffect(() => {
-    setOwnMessageIndex([]);
-    setHasOlderOwnMessages(false);
-    setLoadingOwnMessages(false);
-    setOwnMessagesOpen(false);
-    ownMenuScrollAnchorRef.current = undefined;
-    if (!root && onLoadOwnMessages) void loadOwnMessages(undefined, false);
-  }, [conversation.conversationId]);
-
-  useEffect(() => {
-    if (!loadReminderNoticesRef.current || document.visibilityState === "hidden") return;
-    let active = true;
+    if (!active || !loadReminderNoticesRef.current || document.visibilityState === "hidden") return;
+    let current = true;
     void loadReminderNoticesRef
       .current(root?.id)
       .then((notices) => {
-        if (active) setReminderNotices(notices);
+        if (current) setReminderNotices(notices);
       })
       .catch(() => {});
     return () => {
-      active = false;
+      current = false;
     };
-  }, [conversation.conversationId, reminderRefreshKey, root?.id]);
+  }, [active, conversation.conversationId, reminderRefreshKey, root?.id]);
 
   function scrollToLatest(behavior: ScrollBehavior) {
     const history = historyRef.current;
@@ -748,83 +730,6 @@ export function ConversationPane({
       return;
     }
     messageVirtualizer.scrollToIndex(index, { align: "center", behavior: "smooth" });
-  }
-
-  async function loadOwnMessages(beforeSequence?: number, reportError = true) {
-    if (!onLoadOwnMessages || loadingOwnMessagesRef.current) return;
-    if (beforeSequence !== undefined && !hasOlderOwnMessages) return;
-    const menu = ownMessagesMenuRef.current;
-    if (beforeSequence !== undefined && menu) {
-      ownMenuScrollAnchorRef.current = {
-        height: menu.scrollHeight,
-        top: menu.scrollTop,
-      };
-    } else {
-      scrollOwnMenuToLatestRef.current = true;
-    }
-    setLoadingOwnMessages(true);
-    try {
-      const page = await onLoadOwnMessages(beforeSequence);
-      setHasOlderOwnMessages(page.hasOlder);
-      setOwnMessageIndex((current) => mergeMessages(current, page.messages));
-    } catch (cause) {
-      ownMenuScrollAnchorRef.current = undefined;
-      scrollOwnMenuToLatestRef.current = false;
-      if (reportError) toast.error(m.conversation_history_load_error(), cause);
-    } finally {
-      setLoadingOwnMessages(false);
-    }
-  }
-
-  async function submit(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault();
-    const text = body.trim() || file?.name || "";
-    if (!text || readOnlyNotice) return;
-    await guard(async () => {
-      setError("");
-      try {
-        const request =
-          retryRef.current?.body === text && retryRef.current.asTask === asTask
-            ? retryRef.current
-            : { body: text, requestId: crypto.randomUUID(), asTask };
-        retryRef.current = request;
-        let attachmentId: string | undefined;
-        if (file) {
-          const form = new FormData();
-          form.set("conversationId", conversation.conversationId);
-          form.set("file", file);
-          const response = await fetch("/api/attachments", {
-            method: "POST",
-            body: form,
-          });
-          if (!response.ok) throw new Error(await response.text());
-          attachmentId = ((await response.json()) as { id: string }).id;
-        }
-        const sentMessage =
-          asTask && !root && onCreateTask
-            ? (await onCreateTask(text, request.requestId, attachmentId), undefined)
-            : await onSend(text, request.requestId, attachmentId);
-        if (sentMessage && onLoadOwnMessages) {
-          setOwnMessageIndex((current) => mergeMessages(current, [sentMessage]));
-          scrollOwnMenuToLatestRef.current = true;
-        }
-        retryRef.current = undefined;
-        setBody("");
-        setFile(undefined);
-        setAsTask(false);
-      } catch (cause) {
-        const message = m.conversation_send_error();
-        setError(message);
-        toast.error(message, cause);
-      }
-    });
-  }
-
-  function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      void submit();
-    }
   }
 
   return (
@@ -928,98 +833,30 @@ export function ConversationPane({
               {messageVirtualizer.getVirtualItems().map(({ index, key, start }) => {
                 const message = conversation.messages[index];
                 if (!message) return null;
-                const own = isOwn(message);
-                const day = dayLabel(message.createdAt, dateLocale);
                 const previous = conversation.messages[index - 1];
-                const dayChanged = !previous || dayLabel(previous.createdAt, dateLocale) !== day;
-                const sameSender =
-                  !dayChanged &&
-                  previous !== undefined &&
-                  isOwn(previous) === own &&
-                  (previous.senderMemberId ?? previous.senderName) ===
-                    (message.senderMemberId ?? message.senderName);
-                const grouped =
-                  sameSender &&
-                  Math.abs(
-                    new Date(message.createdAt).getTime() - new Date(previous!.createdAt).getTime(),
-                  ) <= GROUPING_WINDOW_MS;
-                const displayName = own ? m.conversation_you() : message.senderName;
+                const own = isOwn(message);
+                const { dayChanged, grouped } = groupsWithPrevious(
+                  message,
+                  previous,
+                  own,
+                  previous ? isOwn(previous) : false,
+                  dateLocale,
+                );
                 return (
-                  <li
+                  <MessageRow
                     key={key}
-                    data-message-id={message.id}
-                    data-index={index}
-                    ref={messageVirtualizer.measureElement}
-                    className="absolute top-0 left-0 flex w-full flex-col"
-                    style={{ transform: `translateY(${start - scrollMargin + 24}px)` }}
-                  >
-                    {dayChanged && (
-                      <div className="flex items-center gap-3 px-4 py-2 md:px-6">
-                        <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
-                        <span className="shrink-0 bg-primary px-2 text-xs text-tertiary tabular-nums">
-                          {day}
-                        </span>
-                        <span aria-hidden="true" className="h-px flex-1 bg-secondary" />
-                      </div>
-                    )}
-                    <div
-                      id={`message-${message.id}`}
-                      data-message={own ? "own" : "other"}
-                      className={cn(
-                        "group/message relative flex scroll-m-6 gap-3 px-4 transition-[background-color,box-shadow] duration-500 hover:bg-secondary focus-within:bg-secondary target:bg-active target:ring-2 target:ring-brand/50 target:ring-offset-4 target:ring-offset-primary md:px-6",
-                        grouped ? "py-0.5" : "py-2",
-                      )}
-                    >
-                      <div className="flex w-9 shrink-0 items-start justify-center">
-                        {grouped ? (
-                          <time
-                            dateTime={new Date(message.createdAt).toISOString()}
-                            className="mt-0.5 text-xs text-quaternary tabular-nums opacity-0 group-hover/message:opacity-100 group-focus-within/message:opacity-100"
-                          >
-                            {clockLabel(message.createdAt, dateLocale)}
-                          </time>
-                        ) : (
-                          <Avatar
-                            size="sm"
-                            alt={message.senderName}
-                            initials={avatarInitial(message.senderName)}
-                            contentClassName={avatarToneClassName(message.senderName)}
-                          />
-                        )}
-                      </div>
-                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        {!grouped && (
-                          <p className="flex min-h-5 items-baseline gap-2 pr-8">
-                            <span className="min-w-0 truncate text-sm font-semibold text-primary">
-                              {displayName}
-                            </span>
-                            <time
-                              dateTime={new Date(message.createdAt).toISOString()}
-                              className="shrink-0 text-xs text-tertiary tabular-nums"
-                            >
-                              {clockLabel(message.createdAt, dateLocale)}
-                            </time>
-                          </p>
-                        )}
-                        <div
-                          className={cn(
-                            "min-w-0 text-md leading-6 whitespace-pre-wrap text-primary [overflow-wrap:anywhere]",
-                            grouped && threadEntry && "pr-8",
-                          )}
-                        >
-                          {message.body}
-                        </div>
-                        {message.attachment && <AttachmentCard attachment={message.attachment} />}
-                        {messageFooter?.(message)}
-                        {threadPreview?.(message)}
-                      </div>
-                      {threadEntry && (
-                        <div className="absolute top-0.5 right-3 flex items-center opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 [@media(hover:none)]:opacity-100 [@media(any-pointer:coarse)]:opacity-100">
-                          {threadEntry(message)}
-                        </div>
-                      )}
-                    </div>
-                  </li>
+                    message={message}
+                    index={index}
+                    own={own}
+                    dayChanged={dayChanged}
+                    grouped={grouped}
+                    offset={start - scrollMargin + 24}
+                    dateLocale={dateLocale}
+                    measureRef={messageVirtualizer.measureElement}
+                    threadEntry={threadEntry}
+                    threadPreview={threadPreview}
+                    messageFooter={messageFooter}
+                  />
                 );
               })}
             </ol>
@@ -1039,107 +876,20 @@ export function ConversationPane({
             className={cn(
               "absolute right-4 bottom-3 z-10 inline-flex items-center gap-0.5 rounded-full border border-secondary bg-primary p-0.5 shadow-xs transition-opacity",
               followingLatest &&
-                !ownMessagesOpen &&
+                !ownIndex.open &&
                 "pointer-events-none opacity-0 group-hover/history:pointer-events-auto group-hover/history:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
             )}
           >
             {ownMessages.length > 0 && (
-              <Dropdown.Root
-                isOpen={ownMessagesOpen}
-                onOpenChange={(open) => {
-                  setOwnMessagesOpen(open);
-                  if (!open) return;
-                  requestAnimationFrame(() => {
-                    const menu = ownMessagesMenuRef.current;
-                    if (menu) menu.scrollTop = menu.scrollHeight;
-                  });
-                }}
-              >
-                <ButtonUtility
-                  icon={List}
-                  size="xs"
-                  color="tertiary"
-                  className="rounded-full"
-                  aria-label={m.conversation_your_messages()}
-                />
-                {/*
-                  Dropdown.Popover isn't typed to accept a ref (the vendored wrapper
-                  doesn't forward one), and this menu needs to read/set scrollTop for
-                  infinite-loading-older-messages + scroll-to-latest-on-open. Render
-                  the underlying react-aria-components Popover directly instead,
-                  mirroring Dropdown.Popover's own default classes.
-                */}
-                <AriaPopover
-                  ref={ownMessagesMenuRef}
-                  placement="top start"
-                  offset={8}
-                  crossOffset={-4}
-                  // React Aria sizes the popover to the viewport with an inline max-height,
-                  // which would override the class below; cap it here instead. Ten rows.
-                  maxHeight={400}
-                  className={(state) =>
-                    cn(
-                      "origin-(--trigger-anchor-point) overflow-auto rounded-lg bg-primary shadow-lg ring-1 ring-secondary_alt will-change-transform",
-                      state.isEntering &&
-                        "duration-150 ease-out animate-in fade-in placement-right:slide-in-from-left-0.5 placement-top:slide-in-from-bottom-0.5 placement-bottom:slide-in-from-top-0.5",
-                      state.isExiting &&
-                        "duration-100 ease-in animate-out fade-out placement-right:slide-out-to-left-0.5 placement-top:slide-out-to-bottom-0.5 placement-bottom:slide-out-to-top-0.5",
-                      "max-h-[400px] w-[min(24rem,calc(100vw-2.5rem))] p-1.5 [scrollbar-width:thin]",
-                    )
-                  }
-                  onScroll={(event) => {
-                    if (event.currentTarget.scrollTop <= 16) {
-                      void loadOwnMessages(ownMessages[0]?.sequence);
-                    }
-                  }}
-                >
-                  {loadingOwnMessages && (
-                    <div
-                      role="status"
-                      aria-label={m.conversation_loading_your_messages()}
-                      className={cn(
-                        "flex items-center justify-center text-tertiary",
-                        ownMessages.length ? "sticky top-0 z-10 h-7 rounded-md bg-primary" : "h-14",
-                      )}
-                    >
-                      <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
-                      <span className="sr-only">{m.conversation_loading_your_messages()}</span>
-                    </div>
-                  )}
-                  <Dropdown.Menu
-                    aria-label={m.conversation_your_messages()}
-                    onAction={(key) => void showMessage(String(key))}
-                  >
-                    {ownMessages.map((message) => (
-                      <AriaMenuItem
-                        key={message.id}
-                        id={message.id}
-                        textValue={message.body || message.attachmentFileName}
-                        className="group block cursor-pointer px-1.5 py-px outline-hidden"
-                      >
-                        {(state) => (
-                          <div
-                            className={cn(
-                              "flex min-h-9 items-center gap-3 rounded-md px-2.5 py-1.5 outline-focus-ring transition duration-100 ease-linear",
-                              "group-hover:bg-primary_hover",
-                              state.isFocused && "bg-primary_hover",
-                              state.isFocusVisible && "outline-2 -outline-offset-2",
-                            )}
-                          >
-                            <span className="min-w-0 flex-1 truncate font-medium text-secondary">
-                              {message.body || message.attachmentFileName}
-                            </span>
-                            <RelativeTime
-                              value={message.createdAt}
-                              className="shrink-0 text-xs whitespace-nowrap text-tertiary"
-                            />
-                          </div>
-                        )}
-                      </AriaMenuItem>
-                    ))}
-                  </Dropdown.Menu>
-                </AriaPopover>
-              </Dropdown.Root>
+              <OwnMessagesMenu
+                messages={ownMessages}
+                loading={ownIndex.loading}
+                open={ownIndex.open}
+                onOpenChange={ownIndex.setOpen}
+                menuRef={ownIndex.menuRef}
+                onLoadOlder={ownIndex.loadOlder}
+                onSelect={(messageId) => void showMessage(messageId)}
+              />
             )}
             {ownMessages.length > 0 && !followingLatest && (
               <span aria-hidden="true" className="h-4 w-px bg-secondary" />
@@ -1173,183 +923,14 @@ export function ConversationPane({
       </div>
 
       {readOnlyNotice ?? (
-        <form
-          onSubmit={submit}
-          className="mx-3 mt-2 mb-3 flex shrink-0 flex-col gap-1 rounded-xl border border-primary bg-primary p-2 focus-within:ring-2 focus-within:ring-brand md:mx-6"
-        >
-          <label htmlFor={composerId} className="sr-only">
-            {m.conversation_message_label()}
-          </label>
-          <textarea
-            id={composerId}
-            rows={1}
-            value={body}
-            disabled={composerDisabled}
-            onChange={(event) => {
-              setBody(event.target.value);
-              if (retryRef.current && event.target.value.trim() !== retryRef.current.body)
-                retryRef.current = undefined;
-            }}
-            onKeyDown={keyDown}
-            placeholder={m.conversation_message_placeholder()}
-            className="max-h-40 min-h-10 w-full resize-none bg-transparent px-2 py-1 text-md leading-6 outline-none [field-sizing:content] placeholder:text-placeholder disabled:opacity-50"
-          />
-          {file && (
-            <p className="flex items-center gap-2 text-xs text-tertiary">
-              <FileIcon
-                aria-hidden="true"
-                type={file.type || "empty"}
-                variant="gray"
-                size={16}
-                className="shrink-0"
-              />
-              <span className="truncate">{file.name}</span>
-              <Button
-                color="tertiary"
-                size="xs"
-                onPress={() => setFile(undefined)}
-                noTextPadding
-                className="h-auto px-0 py-0 text-tertiary hover:bg-transparent hover:text-primary"
-              >
-                {m.controls_close()}
-              </Button>
-            </p>
-          )}
-          {error && (
-            <p role="alert" className="text-sm text-error-primary">
-              {error}
-            </p>
-          )}
-          <div className="flex items-center gap-2">
-            {!root && onCreateTask ? (
-              <Dropdown.Root>
-                <ButtonUtility
-                  icon={Paperclip}
-                  size="sm"
-                  color="tertiary"
-                  isDisabled={composerDisabled}
-                  aria-label={m.conversation_composer_actions()}
-                />
-                <Dropdown.Popover placement="top start">
-                  <Dropdown.Menu>
-                    <Dropdown.Item
-                      id="attachment"
-                      icon={Paperclip}
-                      label={m.conversation_attachment_label()}
-                      onAction={() => fileInputRef.current?.click()}
-                    />
-                    <Dropdown.Item
-                      id="task"
-                      icon={CheckSquare}
-                      label={m.tasks_as_task()}
-                      onAction={() => setAsTask(true)}
-                    />
-                  </Dropdown.Menu>
-                </Dropdown.Popover>
-              </Dropdown.Root>
-            ) : (
-              <ButtonUtility
-                icon={Paperclip}
-                size="sm"
-                color="tertiary"
-                isDisabled={composerDisabled}
-                tooltip={m.conversation_attachment_label()}
-                onClick={() => fileInputRef.current?.click()}
-              />
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              disabled={composerDisabled}
-              onChange={(event) => setFile(event.target.files?.[0])}
-              className="sr-only"
-            />
-            {!root && onCreateTask && asTask && (
-              <Button
-                color="secondary"
-                size="xs"
-                iconTrailing={XClose}
-                aria-pressed={true}
-                isDisabled={composerDisabled}
-                onPress={() => setAsTask(false)}
-              >
-                {m.tasks_as_task()}
-              </Button>
-            )}
-            <ButtonUtility
-              type="submit"
-              icon={ArrowUp}
-              size="sm"
-              color="tertiary"
-              isDisabled={composerDisabled || (!body.trim() && !file)}
-              tooltip={sending ? m.conversation_sending() : m.conversation_send()}
-              className="ml-auto rounded-full bg-brand-solid text-white hover:bg-brand-solid_hover hover:text-white"
-            />
-          </div>
-        </form>
+        <MessageComposer
+          conversationId={conversation.conversationId}
+          inThread={Boolean(root)}
+          onSend={onSend}
+          onCreateTask={onCreateTask}
+          onSent={ownIndex.add}
+        />
       )}
     </div>
-  );
-}
-
-// Intl.DateTimeFormat construction dominates per-row formatting cost; keep one per locale.
-const dayFormatters = new Map<string, Intl.DateTimeFormat>();
-const clockFormatters = new Map<string, Intl.DateTimeFormat>();
-function cachedFormatter(
-  cache: Map<string, Intl.DateTimeFormat>,
-  locale: string,
-  options: Intl.DateTimeFormatOptions,
-) {
-  let formatter = cache.get(locale);
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat(locale, options);
-    cache.set(locale, formatter);
-  }
-  return formatter;
-}
-
-function dayLabel(value: Date | string, locale?: string): string {
-  // Keep server/first-client markup identical; browser locale and zone apply after mount.
-  if (!locale) return new Date(value).toISOString().slice(0, 10);
-  return cachedFormatter(dayFormatters, locale, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  }).format(new Date(value));
-}
-
-function clockLabel(value: Date | string, locale?: string): string {
-  if (!locale) return "";
-  return cachedFormatter(clockFormatters, locale, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(new Date(value));
-}
-
-function AttachmentCard({
-  attachment,
-}: {
-  attachment: NonNullable<DirectConversationView["messages"][number]["attachment"]>;
-}) {
-  return (
-    <a
-      href={`/api/attachments/${attachment.id}`}
-      target="_blank"
-      rel="noreferrer"
-      className="mt-1 flex w-fit max-w-full min-w-0 items-center gap-2 rounded-lg border border-secondary px-2.5 py-2 hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-    >
-      <FileIcon
-        aria-hidden="true"
-        type={attachment.contentType || "empty"}
-        variant="gray"
-        size={24}
-        className="shrink-0"
-      />
-      <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-        <span className="truncate text-sm font-medium text-primary">{attachment.fileName}</span>
-        <span className="text-xs text-tertiary">{Math.ceil(attachment.sizeBytes / 1024)} KB</span>
-      </span>
-    </a>
   );
 }
