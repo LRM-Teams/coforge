@@ -1,16 +1,21 @@
 import { expect, test } from "bun:test";
+import { realpathSync } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { KiroProvider } from "../src/code-agent/kiro/driver";
 import type { AgentRuntimeEvent } from "../src/code-agent/contract";
 
+// macOS tmpdir lives under /var, a symlink; the Kiro driver rejects a linked
+// agent profile directory (comparing realpath to the literal resolved path).
+const tempRoot = realpathSync(tmpdir());
+
 const command = [process.execPath, new URL("./fixtures/kiro-acp.ts", import.meta.url).pathname];
 
 test.each(["--delayed-config", "--early-config"])(
   "Kiro waits for native model configuration %s",
   async (flag) => {
-    const cwd = await mkdtemp(join(tmpdir(), "kiro-config-"));
+    const cwd = await mkdtemp(join(tempRoot, "kiro-config-"));
     try {
       const session = await new KiroProvider({ command: [...command, flag] }).createAgentSession({
         agentWorkspaceDirectory: cwd,
@@ -32,7 +37,7 @@ test.each(["--delayed-config", "--early-config"])(
 test.each(["--missing-config", "--invalid-model", "--closed-config"])(
   "Kiro fails closed and cleans up %s",
   async (flag) => {
-    const cwd = await mkdtemp(join(tmpdir(), "kiro-config-fail-"));
+    const cwd = await mkdtemp(join(tempRoot, "kiro-config-fail-"));
     try {
       await expect(
         new KiroProvider({ command: [...command, flag], configTimeoutMs: 30 }).createAgentSession({
@@ -59,7 +64,7 @@ test.each(["--missing-config", "--invalid-model", "--closed-config"])(
 );
 
 test("Kiro verifies the selected native session before loading and reapplies model/effort", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "kiro-resume-"));
+  const cwd = await mkdtemp(join(tempRoot, "kiro-resume-"));
   const reports: string[] = [];
   try {
     const session = await new KiroProvider({ command }).createAgentSession({
@@ -95,7 +100,7 @@ test("Kiro verifies the selected native session before loading and reapplies mod
 });
 
 test("Kiro v3 injects native instructions and accepts input before its turn completes", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "kiro-adapter-"));
+  const cwd = await mkdtemp(join(tempRoot, "kiro-adapter-"));
   const identities: string[] = [];
   const session = await new KiroProvider({ command }).createAgentSession({
     agentWorkspaceDirectory: cwd,
@@ -124,7 +129,7 @@ test("Kiro v3 injects native instructions and accepts input before its turn comp
 });
 
 test("Kiro replaces busy input, suppresses late completion, and normalizes ACP events", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "kiro-events-"));
+  const cwd = await mkdtemp(join(tempRoot, "kiro-events-"));
   const session = await new KiroProvider({ command }).createAgentSession({
     agentWorkspaceDirectory: cwd,
     instructions: "Keep the asymmetric marker 719 in the system prompt.",
@@ -158,7 +163,7 @@ test("Kiro replaces busy input, suppresses late completion, and normalizes ACP e
 });
 
 test("Kiro rejects protocol disconnect before admission and mismatched resume identity", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "kiro-failures-"));
+  const cwd = await mkdtemp(join(tempRoot, "kiro-failures-"));
   try {
     const session = await new KiroProvider({ command }).createAgentSession({
       agentWorkspaceDirectory: cwd,

@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
+import { realpathSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// macOS tmpdir lives under /var, a symlink; the state store rejects linked ancestors.
+const tempRoot = realpathSync(tmpdir());
 import { DaemonRuntime } from "../src/daemon-runtime/runtime";
 import {
   DaemonConnection,
@@ -17,7 +21,7 @@ import {
 } from "@lrm/coforge-sdk/internal";
 
 test("WSS Skills query scans a stopped Agent without launching or changing inventory", async () => {
-  const root = await mkdtemp(join(tmpdir(), "skills-routing-"));
+  const root = await mkdtemp(join(tempRoot, "skills-routing-"));
   let connected = () => {};
   let publication = (_data: { channel: string; data: Uint8Array }) => {};
   const result = Promise.withResolvers<AgentSkillsListResult>();
