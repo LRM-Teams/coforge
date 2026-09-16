@@ -197,7 +197,7 @@ the *effect* of a CLI send on a new turn without blocking the sender.
   commands and is also reached from paths that must stay fast. Overloading it
   would have made an already subtle flag mean two unrelated things.
 
-## Validation
+## Validation and rollback
 
 Unit tests over each seam: the runtime gate (a held delivery queued and not
 acknowledged, release resuming in arrival order, idempotence, the busy query
@@ -211,3 +211,10 @@ mid-poll); and the coordinator ordering (`hold` recorded before `stop`, and
 Not verified: no live remote upgrade was run against a real Agent under load, so
 the end-to-end claim that a real mid-tool-call Agent finishes inside 30 s rests
 on the unit-level seams rather than on an observed run.
+
+Rollback is by revert, and is unusually cheap here because nothing is persisted
+and no server behaviour changes. A reverted Coordinator simply stops sending
+`daemon:hold`; a reverted Workspace daemon answers `accepted: false` and is
+treated as unreachable-but-idle, which is today's behaviour. There is no state
+to migrate back and no in-flight operation that a revert can strand: the hold
+lives only in one process's memory and dies with it.
