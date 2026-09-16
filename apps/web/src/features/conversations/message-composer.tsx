@@ -1,4 +1,13 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type CompositionEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import { useHydrated } from "@tanstack/react-router";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
 import { ArrowUp, CheckSquare, Download01, Paperclip, Trash01, XClose } from "@untitledui/icons";
@@ -11,6 +20,7 @@ import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
 import { ProgressBar } from "@/components/base/progress-indicators/progress-indicators";
 import { Dialog, DialogTrigger } from "@/components/application/modals/modal";
+import { filesFromPaste, shouldSendOnEnter } from "./composer-behavior";
 import { fileIconType } from "./message-row";
 import { useAppToast } from "@/components/ui/toast";
 import { useSubmitGuard } from "@/hooks/use-submit-guard";
@@ -210,6 +220,9 @@ export function MessageComposer({
   const retryRef = useRef<{ body: string; requestId: string; asTask: boolean } | undefined>(
     undefined,
   );
+  // IME composition tracking for Enter-to-send: see composer-behavior.ts.
+  const isComposingRef = useRef(false);
+  const lastCompositionEndAtRef = useRef<number | null>(null);
   const uploading = Boolean(attachment && !attachment.id && !attachment.failed);
   const composerDisabled = !hydrated || sending;
 
@@ -258,10 +271,36 @@ export function MessageComposer({
   }
 
   function keyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey) {
+    const send = shouldSendOnEnter(
+      {
+        key: event.key,
+        shiftKey: event.shiftKey,
+        isComposing: event.nativeEvent.isComposing || isComposingRef.current,
+        keyCode: event.keyCode,
+      },
+      { lastCompositionEndAt: lastCompositionEndAtRef.current, now: Date.now() },
+    );
+    if (send) {
       event.preventDefault();
       void submit();
     }
+  }
+
+  function compositionStart(_event: CompositionEvent<HTMLTextAreaElement>) {
+    isComposingRef.current = true;
+  }
+
+  function compositionEnd(_event: CompositionEvent<HTMLTextAreaElement>) {
+    isComposingRef.current = false;
+    lastCompositionEndAtRef.current = Date.now();
+  }
+
+  /** Paste a file (e.g. copied in Finder, or a clipboard screenshot) through the same upload path as the paperclip button. Text-only pastes are left to the browser. */
+  function paste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = filesFromPaste(event.clipboardData);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void upload(files[0]);
   }
 
   const taskMode = !inThread && Boolean(onCreateTask);
@@ -284,6 +323,9 @@ export function MessageComposer({
             retryRef.current = undefined;
         }}
         onKeyDown={keyDown}
+        onCompositionStart={compositionStart}
+        onCompositionEnd={compositionEnd}
+        onPaste={paste}
         placeholder={m.conversation_message_placeholder()}
         className="max-h-40 min-h-10 w-full resize-none bg-transparent px-2 py-1 text-md leading-6 outline-none [field-sizing:content] placeholder:text-placeholder disabled:opacity-50"
       />
