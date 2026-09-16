@@ -38,6 +38,7 @@ import { Route as AppComputersIndexRouteImport } from './routes/_app/computers.i
 import { Route as AppComputersComputerIdRouteImport } from './routes/_app/computers.$computerId'
 import { Route as AppMessagesIndexRouteImport } from './routes/_app/messages.index'
 import { Route as AppMessagesAgentIdRouteImport } from './routes/_app/messages.$agentId'
+import { Route as AppProjectsIndexRouteImport } from './routes/_app/projects.index'
 import { Route as AppProjectsProjectSlugRouteImport } from './routes/_app/projects.$projectSlug'
 import { Route as AppRecordsIndexRouteImport } from './routes/_app/records.index'
 import { Route as AppRecordsRecordIdRouteImport } from './routes/_app/records.$recordId'
@@ -217,6 +218,11 @@ const AppMessagesAgentIdRoute = AppMessagesAgentIdRouteImport.update({
   id: '/$agentId',
   path: '/$agentId',
   getParentRoute: () => AppMessagesRoute,
+} as any)
+const AppProjectsIndexRoute = AppProjectsIndexRouteImport.update({
+  id: '/projects/',
+  path: '/projects/',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppProjectsProjectSlugRoute = AppProjectsProjectSlugRouteImport.update({
   id: '/projects/$projectSlug',
@@ -448,6 +454,7 @@ export interface FileRoutesByFullPath {
   '/agents/': typeof AppAgentsIndexRoute
   '/computers/': typeof AppComputersIndexRoute
   '/messages/': typeof AppMessagesIndexRoute
+  '/projects/': typeof AppProjectsIndexRoute
   '/records/': typeof AppRecordsIndexRoute
   '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
@@ -509,6 +516,7 @@ export interface FileRoutesByTo {
   '/agents': typeof AppAgentsIndexRoute
   '/computers': typeof AppComputersIndexRoute
   '/messages': typeof AppMessagesIndexRoute
+  '/projects': typeof AppProjectsIndexRoute
   '/records': typeof AppRecordsIndexRoute
   '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
@@ -575,6 +583,7 @@ export interface FileRoutesById {
   '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/computers/': typeof AppComputersIndexRoute
   '/_app/messages/': typeof AppMessagesIndexRoute
+  '/_app/projects/': typeof AppProjectsIndexRoute
   '/_app/records/': typeof AppRecordsIndexRoute
   '/_app/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
   '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
@@ -641,6 +650,7 @@ export interface FileRouteTypes {
     | '/agents/'
     | '/computers/'
     | '/messages/'
+    | '/projects/'
     | '/records/'
     | '/messages/channels/$channelId'
     | '/api/agent/v1/events'
@@ -702,6 +712,7 @@ export interface FileRouteTypes {
     | '/agents'
     | '/computers'
     | '/messages'
+    | '/projects'
     | '/records'
     | '/messages/channels/$channelId'
     | '/api/agent/v1/events'
@@ -767,6 +778,7 @@ export interface FileRouteTypes {
     | '/_app/agents/'
     | '/_app/computers/'
     | '/_app/messages/'
+    | '/_app/projects/'
     | '/_app/records/'
     | '/_app/messages/channels/$channelId'
     | '/api/agent/v1/events'
@@ -1041,6 +1053,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/messages/$agentId'
       preLoaderRoute: typeof AppMessagesAgentIdRouteImport
       parentRoute: typeof AppMessagesRoute
+    }
+    '/_app/projects/': {
+      id: '/_app/projects/'
+      path: '/projects'
+      fullPath: '/projects/'
+      preLoaderRoute: typeof AppProjectsIndexRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/projects/$projectSlug': {
       id: '/_app/projects/$projectSlug'
@@ -1340,6 +1359,7 @@ interface AppRouteChildren {
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
   AppProjectsProjectSlugRoute: typeof AppProjectsProjectSlugRoute
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
+  AppProjectsIndexRoute: typeof AppProjectsIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -1351,6 +1371,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
   AppProjectsProjectSlugRoute: AppProjectsProjectSlugRoute,
   AppAgentsIndexRoute: AppAgentsIndexRoute,
+  AppProjectsIndexRoute: AppProjectsIndexRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

@@ -19,67 +19,41 @@ import {
   getAgentStatusSubscriptionToken,
 } from "@/features/agents/agents.functions";
 import { getWorkspaceActivity } from "@/features/agents/agent-activity.functions";
-import { listProjects } from "@/features/projects/projects.functions";
 import { useWorkspaceActivity } from "@/features/agents/workspace-activity-realtime";
 import { useAgentStatuses } from "@/features/agents/agent-status-realtime";
 import { ConversationRealtimeProvider } from "@/features/conversations/conversation-layout";
 import { getUserPreferences } from "@/features/settings/settings.functions";
-import {
-  listPublicChannels,
-  createPublicChannel,
-} from "@/features/conversations/channels.functions";
 
 export const Route = createFileRoute("/_app")({
   staleTime: Infinity,
   loader: async () => {
-    const [user, switcher, notifications, agents, channels, preferences, recordsNav, projects] =
-      await Promise.all([
-        getUserProfile(),
-        loadWorkspaceSwitcher(),
-        getBrowserNotificationSettings(),
-        listAgents(),
-        listPublicChannels(),
-        getUserPreferences(),
-        loadRecordsNavAttention().catch(() => ({ preview: false })),
-        listProjects(),
-      ]);
+    const [user, switcher, notifications, agents, preferences, recordsNav] = await Promise.all([
+      getUserProfile(),
+      loadWorkspaceSwitcher(),
+      getBrowserNotificationSettings(),
+      listAgents(),
+      getUserPreferences(),
+      loadRecordsNavAttention().catch(() => ({ preview: false })),
+    ]);
     return {
       user,
       workspaces: switcher.workspaces,
       currentWorkspace: switcher.current,
       notifications,
       agents,
-      channels,
       timeZone: preferences.timeZone,
       recordsPreview: recordsNav.preview,
-      projects: projects
-        .map((project) => ({
-          id: project.id,
-          name: project.name,
-          slug: project.slug,
-          developmentConversationId: project.developmentConversation?.id ?? "",
-        }))
-        .filter((project) => project.developmentConversationId),
     };
   },
   component: AppLayout,
 });
 
 function AppLayout() {
-  const {
-    user,
-    workspaces,
-    currentWorkspace,
-    agents,
-    channels,
-    timeZone,
-    recordsPreview,
-    projects,
-  } = Route.useLoaderData();
+  const { user, workspaces, currentWorkspace, agents, timeZone, recordsPreview } =
+    Route.useLoaderData();
   const router = useRouter();
   const select = useServerFn(selectWorkspace);
   const create = useServerFn(createWorkspace);
-  const createChannel = useServerFn(createPublicChannel);
   const getRealtimeToken = useServerFn(getBrowserRealtimeConnectionToken);
   const getConnectionToken = useCallback(() => getRealtimeToken(), [getRealtimeToken]);
   const refreshAgents = useServerFn(listAgents);
@@ -111,10 +85,7 @@ function AppLayout() {
           user={{ name: user.name, email: user.email, avatarUrl: user.avatarUrl }}
           workspaces={workspaces}
           currentWorkspace={currentWorkspace}
-          channels={channels}
-          agents={visibleAgents}
           recordsPreview={recordsPreview}
-          projects={projects}
           onSelectWorkspace={async (slug) => {
             await select({ data: { slug } });
             await router.invalidate({ sync: true });
@@ -122,14 +93,6 @@ function AppLayout() {
           onCreateWorkspace={async (input) => {
             await create({ data: input });
             await router.invalidate({ sync: true });
-          }}
-          onCreateChannel={async (name, projectId) => {
-            const channel = await createChannel({ data: { name, projectId } });
-            await router.invalidate({ sync: true });
-            await router.navigate({
-              to: "/messages/channels/$channelId",
-              params: { channelId: channel.id },
-            });
           }}
         >
           <Outlet />

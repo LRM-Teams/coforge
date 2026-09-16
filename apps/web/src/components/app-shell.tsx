@@ -1,10 +1,10 @@
-import { createContext, useCallback, useContext, useMemo, useState, type FC } from "react";
-import { useHotkey } from "@tanstack/react-hotkeys";
-import { useParams, useRouter, useRouterState } from "@tanstack/react-router";
+import { useCallback, type FC } from "react";
+import { useRouter, useRouterState } from "@tanstack/react-router";
 import {
   ChevronSelectorVertical,
   CheckSquare as ListTodo,
   File02 as FileText,
+  Folder,
   LogOut01 as LogOut,
   MessageChatSquare,
   Monitor01 as Monitor,
@@ -16,26 +16,13 @@ import { Button as AriaButton } from "react-aria-components";
 import type { NavItemType } from "@/components/application/app-navigation/config";
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Dropdown } from "@/components/base/dropdown/dropdown";
-import type {
-  SidebarChannel,
-  SidebarProject,
-} from "@/components/layout/sidebar/sidebar-conversations";
 import { SidebarRail } from "@/components/layout/sidebar/sidebar-rail";
 import { MobileDrawerProvider } from "@/components/layout/sidebar/mobile-header";
-import {
-  ChannelSidebar,
-  SidebarMobileDrawer,
-  SIDEBAR_DEFAULT_WIDTH,
-} from "@/components/layout/sidebar/sidebar-channels";
-import { CreateChannelDialog } from "@/features/conversations/create-channel-dialog";
-import { CreateProjectDialog } from "@/features/projects/create-project-dialog";
-import type { ConversationAgent } from "@/features/conversations/conversation-layout";
+import { SidebarMobileDrawer } from "@/components/layout/sidebar/sidebar-channels";
 import { WorkspaceSwitcher, type WorkspaceOption } from "@/features/workspaces/workspace-switcher";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { m } from "@/paraglide/messages";
 import { localizeHref } from "@/paraglide/runtime";
-
-const channelSidebarShortcut = "Mod+B" as const;
 
 export type AppUser = {
   name: string;
@@ -55,6 +42,12 @@ function useNavItems(
       bareHref: "/messages",
       href: localizeHref("/messages"),
       icon: MessageChatSquare,
+    },
+    {
+      label: m.projects_title(),
+      bareHref: "/projects",
+      href: localizeHref("/projects"),
+      icon: Folder,
     },
     {
       label: m.navigation_agents(),
@@ -100,29 +93,12 @@ function useSpaNavigation() {
   );
 }
 
-/** Lets a conversation header, rendered deep inside `children`, show its own
- * "show channels" control when AppShell's sidebar is hidden. */
-export const ChannelSidebarVisibilityContext = createContext<{ hidden: boolean; show: () => void }>(
-  {
-    hidden: false,
-    show: () => {},
-  },
-);
-
-export function useChannelSidebarVisibility() {
-  return useContext(ChannelSidebarVisibilityContext);
-}
-
 export function AppShell({
   user,
   workspaces = [],
   currentWorkspace = null,
-  channels = [],
-  agents = [],
-  projects = [],
   onSelectWorkspace,
   onCreateWorkspace,
-  onCreateChannel,
   onSignOut,
   children,
   recordsPreview = false,
@@ -130,24 +106,13 @@ export function AppShell({
   user: AppUser;
   workspaces?: WorkspaceOption[];
   currentWorkspace?: WorkspaceOption | null;
-  /** Public channels, shown in the Channels sidebar (Slack model). */
-  channels?: SidebarChannel[];
-  /** Agents (with live status), shown as Direct messages under Channels. */
-  agents?: ConversationAgent[];
-  projects?: SidebarProject[];
   onSelectWorkspace?: (slug: string) => Promise<void> | void;
   onCreateWorkspace?: (input: { name: string; slug: string }) => Promise<void>;
-  onCreateChannel?: (name: string, projectId?: string) => Promise<void>;
   onSignOut?: () => Promise<void> | void;
   /** Purple dot on 记录 while a weekly template is in the one-hour preview window. */
   recordsPreview?: boolean;
   children: React.ReactNode;
 }) {
-  const router = useRouter();
-  const [channelSidebarWidth, setChannelSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
-  const [channelSidebarHidden, setChannelSidebarHidden] = useState(false);
-  const [createChannelOpen, setCreateChannelOpen] = useState(false);
-  const [createProjectOpen, setCreateProjectOpen] = useState(false);
   // pathname is de-localized (src/router.tsx); item.href is localized, so we
   // match on bareHref (with sub-route prefix matching) instead.
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -155,30 +120,7 @@ export function AppShell({
   const activeUrl = navItems.find(
     (item) => pathname === item.bareHref || pathname.startsWith(`${item.bareHref}/`),
   )?.href;
-  const isChatRoute = pathname === "/messages" || pathname.startsWith("/messages/");
-  const channelSidebarVisibility = useMemo(
-    () => ({
-      hidden: isChatRoute && channelSidebarHidden,
-      show: () => setChannelSidebarHidden(false),
-    }),
-    [isChatRoute, channelSidebarHidden],
-  );
   const onSidebarClickCapture = useSpaNavigation();
-  const agentParams = useParams({ from: "/_app/messages/$agentId", shouldThrow: false });
-  const channelParams = useParams({
-    from: "/_app/messages/channels/$channelId",
-    shouldThrow: false,
-  });
-
-  useHotkey(channelSidebarShortcut, () => setChannelSidebarHidden((hidden) => !hidden));
-
-  const conversationSections = {
-    channels,
-    agents,
-    selectedChannelId: channelParams?.channelId,
-    selectedAgentId: agentParams?.agentId,
-    onCreateChannel: onCreateChannel ? () => setCreateChannelOpen(true) : undefined,
-  };
 
   return (
     <MobileDrawerProvider>
@@ -198,9 +140,7 @@ export function AppShell({
               />
             }
             footer={<UserMenuCard user={user} onSignOut={onSignOut} />}
-            {...conversationSections}
           />
-
           <SidebarRail
             activeUrl={activeUrl}
             items={navItems}
@@ -214,39 +154,10 @@ export function AppShell({
               />
             }
             footer={<UserMenuCard compact user={user} onSignOut={onSignOut} />}
-            projects={projects}
-            onCreateProject={() => setCreateProjectOpen(true)}
           />
-
-          {isChatRoute && !channelSidebarHidden && (
-            <ChannelSidebar
-              workspaceName={currentWorkspace?.name}
-              onHide={() => setChannelSidebarHidden(true)}
-              width={channelSidebarWidth}
-              onWidthChange={setChannelSidebarWidth}
-              {...conversationSections}
-            />
-          )}
         </div>
 
-        <ChannelSidebarVisibilityContext value={channelSidebarVisibility}>
-          <div className="flex min-w-0 flex-1 flex-col">{children}</div>
-        </ChannelSidebarVisibilityContext>
-        {onCreateChannel && (
-          <CreateChannelDialog
-            open={createChannelOpen}
-            onOpenChange={setCreateChannelOpen}
-            onCreate={onCreateChannel}
-            projects={projects}
-          />
-        )}
-        <CreateProjectDialog
-          open={createProjectOpen}
-          onOpenChange={setCreateProjectOpen}
-          onCreated={async () => {
-            await router.invalidate({ sync: true });
-          }}
-        />
+        <div className="flex min-w-0 flex-1 flex-col">{children}</div>
       </div>
     </MobileDrawerProvider>
   );

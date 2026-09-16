@@ -302,11 +302,28 @@ PostgreSQL 只持久化使用独立环境主密钥 AES-GCM 加密的凭据，以
 GitHub 已轮换 token 但数据库提交前崩溃仍可能需要用户重新授权；这不是分布式原子事务。
 凭据不交给浏览器、Computer 或 Daemon。仓库列表使用 user-token installation endpoint，
 权限为用户权限与 App 安装授权的交集；断开只删除 CoForge 本地连接，不卸载 GitHub App。
-staging 与 production 使用不同 App 和密钥。此阶段不引入 Project、clone、push 或 webhook
+staging 与 production 使用不同 App 和密钥。此阶段不引入 clone、push 或 webhook
 消费；外部撤销在下次请求时发现。实现要求开启 GitHub 的 expiring user access tokens。
 依据：[GitHub App user authorization](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app)、
 [refresh tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens)、
 [user installation repositories](https://docs.github.com/en/rest/apps/installations#list-repositories-accessible-to-the-user-access-token)。
+
+Project 属于一个 Workspace，可关联一个 GitHub 仓库和多个讨论组；讨论组复用
+PublicChannel，不是 Message Thread。创建 Project 时保留自动创建首个讨论组的行为；
+后续讨论组通过 `PublicChannels.create` 校验与 Project 同 Workspace 后建立关联。
+`Conversation.projectId` 使用普通索引，不再使用一对一唯一约束；迁移不重建或删除既有讨论。
+此修复由 Frank 在本线程确认按项目详情实现范围执行。
+
+项目详情的仓库概览由 `GitHubConnection.repositoryOverview` 使用当前查看者的个人
+user token 读取。先校验 installation、repository ID 和完整名称均仍可访问，再校验仓库
+metadata 身份；Workspace 内的 Project 可见性不授予 GitHub 内容访问权，不回退到公共
+匿名请求或 installation token。只读默认分支最近五条提交及根目录文件（GitHub Contents
+API 最多 1,000 项），不持久化代码或向浏览器传递 token；文件与提交链接跳转 GitHub。
+未关联、未授权、空仓库和服务暂不可用分别显示状态，不阻断项目讨论组的使用。
+需要 App 的 repository Contents: read 权限，但本次实现不修改任何现有 App 授权配置。
+依据：[repository metadata](https://docs.github.com/en/rest/repos/repos#get-a-repository)、
+[commits](https://docs.github.com/en/rest/commits/commits#list-commits)、
+[contents](https://docs.github.com/en/rest/repos/contents#get-repository-content)。
 
 PostgreSQL 的首要领域对象是：
 

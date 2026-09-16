@@ -1,8 +1,34 @@
 import { createServerFn } from "@tanstack/react-start";
 import { workspaceUserMiddleware } from "../../server/auth/function-auth";
 import { configuredGitHub } from "../../server/integrations/github-config.server";
-import { AppError } from "../../lib/app-error";
+import { AppError, isAppError } from "../../lib/app-error";
 import { z } from "zod";
+
+export const getProjectRepository = createServerFn({ method: "GET" })
+  .middleware([workspaceUserMiddleware])
+  .validator(z.object({ slug: z.string().min(1) }))
+  .handler(async ({ data, context }) => {
+    const project = await context.db.project.findFirst({
+      where: { workspaceId: context.workspaceId, slug: data.slug },
+      select: { githubInstallationId: true, githubRepositoryId: true, githubFullName: true },
+    });
+    if (!project) throw new AppError("NOT_FOUND");
+    if (!project.githubFullName || !project.githubInstallationId || !project.githubRepositoryId)
+      return { status: "unlinked" as const };
+    try {
+      const github = await configuredGitHub();
+      if (!github) return { status: "unavailable" as const };
+      const overview = await github.connection.repositoryOverview(context.user.id, {
+        installationId: project.githubInstallationId,
+        repositoryId: project.githubRepositoryId,
+        fullName: project.githubFullName,
+      });
+      return { status: "ready" as const, fullName: project.githubFullName, ...overview };
+    } catch (error) {
+      if (isAppError(error) && error.code === "ACCESS_DENIED") return { status: "denied" as const };
+      return { status: "unavailable" as const };
+    }
+  });
 
 export const getProject = createServerFn({ method: "GET" })
   .middleware([workspaceUserMiddleware])
@@ -17,7 +43,15 @@ export const getProject = createServerFn({ method: "GET" })
         slug: true,
         githubFullName: true,
         githubHtmlUrl: true,
-        developmentConversation: { select: { id: true } },
+        conversations: {
+          select: {
+            id: true,
+            channelName: true,
+            createdAt: true,
+            _count: { select: { members: true } },
+          },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        },
       },
     });
   });
@@ -32,7 +66,10 @@ export const listProjects = createServerFn({ method: "GET" })
         id: true,
         name: true,
         slug: true,
-        developmentConversation: { select: { id: true } },
+        conversations: {
+          select: { id: true },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        },
       },
       orderBy: { createdAt: "asc" },
     });
@@ -81,11 +118,11 @@ export const createProject = createServerFn({ method: "POST" })
         githubRepositoryId: data.repositoryId,
         githubFullName: data.fullName,
         githubHtmlUrl: repository ? `https://github.com/${repository.fullName}` : null,
-        developmentConversation: {
+        conversations: {
           create: {
             workspaceId,
             channelName: data.slug,
-            members: { create: { workspaceId, userId: context.user.id } },
+            members: { create: { userId: context.user.id } },
           },
         },
       },
@@ -93,7 +130,10 @@ export const createProject = createServerFn({ method: "POST" })
         id: true,
         name: true,
         slug: true,
-        developmentConversation: { select: { id: true } },
+        conversations: {
+          select: { id: true },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        },
       },
     });
   });

@@ -1,7 +1,8 @@
 // Copied from the official app-navigation/base-components/mobile-header.tsx template
 // (see docs/ui-guidelines.md §2), adapted so the drawer opens from each page's own
 // header instead of a separate app header: one 48px band per page on mobile.
-import { createContext, useContext, useState, type PropsWithChildren } from "react";
+import { createContext, useContext, useEffect, useState, type PropsWithChildren } from "react";
+import { useRouter } from "@tanstack/react-router";
 import { X as CloseIcon, Menu02 } from "@untitledui/icons";
 import {
   Button as AriaButton,
@@ -21,6 +22,14 @@ const MobileDrawerContext = createContext<{
 /** Wraps the whole shell so any page header can open the drawer. */
 export const MobileDrawerProvider = ({ children }: PropsWithChildren) => {
   const [isOpen, setOpen] = useState(false);
+  const router = useRouter();
+  useEffect(() => router.subscribe("onResolved", () => setOpen(false)), [router]);
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const close = () => setOpen(false);
+    desktop.addEventListener("change", close);
+    return () => desktop.removeEventListener("change", close);
+  }, []);
   return <MobileDrawerContext value={{ isOpen, setOpen }}>{children}</MobileDrawerContext>;
 };
 
@@ -36,28 +45,28 @@ export const MobileNavigationHeader = ({ children }: PropsWithChildren) => {
         onOpenChange={setOpen}
         className={({ isEntering, isExiting }) =>
           cx(
-            "fixed inset-0 z-50 cursor-pointer bg-overlay/70 pr-16 backdrop-blur-md lg:hidden",
+            "fixed inset-0 z-50 cursor-pointer bg-overlay/70 pr-16 lg:hidden",
             isEntering && "duration-300 ease-in-out animate-in fade-in",
             isExiting && "duration-200 ease-in-out animate-out fade-out",
           )
         }
       >
         {({ state }) => (
-          <>
-            <AriaButton
-              aria-label={m.navigation_close_menu()}
-              onPress={() => state.close()}
-              className="fixed top-2.5 right-3 flex cursor-pointer items-center justify-center rounded-lg p-2 text-fg-white/70 outline-focus-ring hover:bg-white/10 hover:text-fg-white focus-visible:outline-2 focus-visible:outline-offset-2"
+          <AriaModal className="w-full max-w-74 cursor-auto will-change-transform">
+            <AriaDialog
+              aria-label={m.navigation_open_menu()}
+              className="h-dvh outline-hidden focus:outline-hidden"
             >
-              <CloseIcon className="size-6" />
-            </AriaButton>
-
-            <AriaModal className="w-full max-w-74 cursor-auto will-change-transform">
-              <AriaDialog className="h-dvh outline-hidden focus:outline-hidden">
-                {children}
-              </AriaDialog>
-            </AriaModal>
-          </>
+              <AriaButton
+                aria-label={m.navigation_close_menu()}
+                onPress={() => state.close()}
+                className="fixed top-2.5 left-full ml-2 flex size-11 cursor-pointer items-center justify-center rounded-lg p-2 text-fg-white/70 outline-focus-ring hover:bg-white/10 hover:text-fg-white focus-visible:outline-2 focus-visible:outline-offset-2"
+              >
+                <CloseIcon className="size-6" />
+              </AriaButton>
+              {children}
+            </AriaDialog>
+          </AriaModal>
         )}
       </AriaModalOverlay>
     </>
