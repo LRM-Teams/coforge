@@ -1,0 +1,234 @@
+import { expect, test } from "bun:test";
+
+import { collectComputerStatus } from "../src/status/collect-status";
+import type { StatusBinding, StatusPorts, WorkspaceAgents } from "../src/status/types";
+
+const NOW = new Date("2026-01-01T00:00:00.000Z");
+
+function healthyBinding(overrides: Partial<StatusBinding> = {}): StatusBinding {
+  return { workspaceId: "ws-1", serverHttpUrl: "https://coforge.cn", enabled: true, ...overrides };
+}
+
+function fakePorts(overrides: Partial<StatusPorts> = {}): StatusPorts {
+  return {
+    now: () => NOW,
+    platform: "darwin",
+    releaseFeedUrl: "https://releases.coforge.cn/",
+    socketPath: "/home/user/.coforge/daemon/daemon.sock",
+    activeBinaryPath: "/home/user/.coforge/computer/install/active/coforge-computer",
+    coordinatorLabel: "cn.coforge.computer.daemon",
+    readActiveInstall: async () => ({ kind: "present", current: "1.4.2", previous: "1.4.1" }),
+    locateBinaryOnPath: async () => "/home/user/.local/bin/coforge-computer",
+    // Both the PATH shim and the active symlink resolve to the same real file: a healthy install.
+    resolveRealPath: async () =>
+      "/home/user/.coforge/computer/install/versions/1.4.2/coforge-computer",
+    probeCoordinator: async () => ({ loaded: true, pid: 4821 }),
+    probeDaemonSnapshot: async () => ({
+      reachable: true,
+      runtimes: [{ workspaceId: "ws-1", processId: 111 }],
+    }),
+    loadBindings: async () => ({ ok: true, bindings: [healthyBinding()] }),
+    listWorkspaceAgents: {
+      supported: true,
+      list: async (bindings): Promise<WorkspaceAgents[]> =>
+        bindings.map((binding) => ({ workspaceId: binding.workspaceId, jobs: [], count: 0 })),
+    },
+    probeMachineMutationLock: () => "free",
+    readSupervisorLockOwner: async () => 4821,
+    listLeftoverUpgradeJobs: { supported: true, list: async () => [] },
+    ...overrides,
+  };
+}
+
+test("healthy machine reports every section as readable and reachable", async () => {
+  const report = await collectComputerStatus(fakePorts());
+
+  expect(report.schemaVersion).toBe(1);
+  expect(report.generatedAt).toBe(NOW.toISOString());
+  expect(report.install).toEqual({
+    readable: true,
+    active: { current: "1.4.2", previous: "1.4.1" },
+    binaryOnPath: "/home/user/.local/bin/coforge-computer",
+    resolvesToActive: true,
+    releaseFeedUrl: "https://releases.coforge.cn/",
+  });
+  expect(report.supervisor).toEqual({
+    label: "cn.coforge.computer.daemon",
+    loaded: true,
+    pid: 4821,
+    socketPath: "/home/user/.coforge/daemon/daemon.sock",
+    rpc: { reachable: true, runtimeCount: 1 },
+  });
+  expect(report.workspaces).toEqual({
+    readable: true,
+    workspaces: [
+      {
+        workspaceId: "ws-1",
+        serverHttpUrl: "https://coforge.cn",
+        enabled: true,
+        running: true,
+        pid: 111,
+        pending: [],
+      },
+    ],
+  });
+  expect(report.agents).toEqual({
+    supported: true,
+    workspaces: [{ workspaceId: "ws-1", jobs: [], count: 0 }],
+  });
+  expect(report.locks).toEqual({
+    machineMutationLock: "free",
+    supervisorLock: { present: true, ownerPid: 4821 },
+  });
+  expect(report.leftoverJobs).toEqual({ supported: true, jobs: [] });
+});
+
+test("a corrupt install still produces a report, marked unreadable", async () => {
+  const report = await collectComputerStatus(
+    fakePorts({ readActiveInstall: async () => ({ kind: "corrupt", error: "bad json" }) }),
+  );
+
+  expect(report.install).toEqual({ readable: false, error: "bad json" });
+});
+
+test("an absent install is readable but has no active version", async () => {
+  const report = await collectComputerStatus(
+    fakePorts({
+      readActiveInstall: async () => ({ kind: "absent" }),
+      locateBinaryOnPath: async () => null,
+    }),
+  );
+
+  expect(report.install).toEqual({
+    readable: true,
+    active: null,
+    binaryOnPath: null,
+    resolvesToActive: null,
+    releaseFeedUrl: "https://releases.coforge.cn/",
+  });
+});
+
+test("Coordinator missing: not loaded, no PID, RPC unreachable", async () => {
+  const report = await collectComputerStatus(
+    fakePorts({
+      probeCoordinator: async () => ({ loaded: false, pid: null }),
+      probeDaemonSnapshot: async () => ({ reachable: false, error: "connect ENOENT daemon.sock" }),
+    }),
+  );
+
+  expect(report.supervisor).toEqual({
+    label: "cn.coforge.computer.daemon",
+    loaded: false,
+    pid: null,
+    socketPath: "/home/user/.coforge/daemon/daemon.sock",
+    rpc: { reachable: false, error: "connect ENOENT daemon.sock" },
+  });
+  // The Coordinator being down does not fail the report; other sections still read normally.
+  expect(report.install.readable).toBe(true);
+  // No live runtime snapshot means every binding reports not running.
+  expect(report.workspaces).toEqual({
+    readable: true,
+    workspaces: [
+      {
+        workspaceId: "ws-1",
+        serverHttpUrl: "https://coforge.cn",
+        enabled: true,
+        running: false,
+        pid: null,
+        pending: [],
+      },
+    ],
+  });
+});
+
+test("a stale remote-upgrade job is listed with its PID and run count", async () => {
+  const report = await collectComputerStatus(
+    fakePorts({
+      listLeftoverUpgradeJobs: {
+        supported: true,
+        list: async () => [
+          { label: "cn.coforge.upgrade.5c6b1e0a-1111-4a2b-8c3d-abcdef123456", pid: null, runs: 3 },
+        ],
+      },
+    }),
+  );
+
+  expect(report.leftoverJobs).toEqual({
+    supported: true,
+    jobs: [
+      { label: "cn.coforge.upgrade.5c6b1e0a-1111-4a2b-8c3d-abcdef123456", pid: null, runs: 3 },
+    ],
+  });
+});
+
+test("the machine mutation lock reports held without failing the report", async () => {
+  const report = await collectComputerStatus(fakePorts({ probeMachineMutationLock: () => "held" }));
+
+  expect(report.locks.machineMutationLock).toBe("held");
+});
+
+test("the Supervisor lock with no owner file reports free", async () => {
+  const report = await collectComputerStatus(
+    fakePorts({ readSupervisorLockOwner: async () => null }),
+  );
+
+  expect(report.locks.supervisorLock).toEqual({ present: false, ownerPid: null });
+});
+
+test("bindings missing or corrupt degrades Workspaces and empties Agents, not the whole report", async () => {
+  const report = await collectComputerStatus(
+    fakePorts({ loadBindings: async () => ({ ok: false, error: "invalid binding registry" }) }),
+  );
+
+  expect(report.workspaces).toEqual({ readable: false, error: "invalid binding registry" });
+  // The platform still supports listing Agent jobs; there are simply no bindings to list them for.
+  expect(report.agents).toEqual({ supported: true, workspaces: [] });
+  expect(report.install.readable).toBe(true);
+});
+
+test("Agents section reports unsupported (not just empty) when the platform has no listing helper", async () => {
+  const report = await collectComputerStatus(
+    fakePorts({
+      listWorkspaceAgents: { supported: false, list: async () => [] },
+      loadBindings: async () => ({ ok: false, error: "invalid binding registry" }),
+    }),
+  );
+
+  expect(report.agents).toEqual({ supported: false, workspaces: [] });
+});
+
+test("pending restart and upgrade requests are surfaced without further interpretation", async () => {
+  const report = await collectComputerStatus(
+    fakePorts({
+      loadBindings: async () => ({
+        ok: true,
+        bindings: [
+          healthyBinding({
+            restart: { requestId: "restart-1", phase: "starting" },
+            upgradeRequests: [{ requestId: "upgrade-1", expectedVersion: "1.5.0" }],
+          }),
+        ],
+      }),
+    }),
+  );
+
+  expect(report.workspaces).toMatchObject({
+    readable: true,
+    workspaces: [
+      {
+        pending: [
+          { kind: "restart", requestId: "restart-1", phase: "starting" },
+          { kind: "upgrade", requestId: "upgrade-1", expectedVersion: "1.5.0" },
+        ],
+      },
+    ],
+  });
+});
+
+test("Agents section reports unsupported on a platform without a listing helper", async () => {
+  const report = await collectComputerStatus(
+    fakePorts({ listWorkspaceAgents: { supported: false, list: async () => [] } }),
+  );
+
+  expect(report.agents).toEqual({ supported: false, workspaces: [] });
+});

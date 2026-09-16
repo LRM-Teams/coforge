@@ -19,6 +19,8 @@ import { COFORGE_DAEMON_VERSION } from "./src/version";
 import { LocalDaemonLauncher } from "./src/daemon-host/launcher";
 import { configureDaemonLogging } from "./src/platform/daemon-logging";
 import { stopLaunchdJobs } from "./src/platform/launchd-job";
+export { launchdJobs } from "./src/platform/launchd-job";
+export { FileBindingStore } from "./src/supervisor/binding-store";
 export { runMachineSupervisor } from "./src/supervisor/run-supervisor";
 export { runLaunchdAgent } from "./src/platform/launchd-process";
 
