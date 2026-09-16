@@ -24,6 +24,16 @@ issued a second consecutive hold. A successful send consumes the held state.
 `--after`, or `--around`; these options are mutually exclusive. Sequence
 numbers are server-internal and are never supplied by an Agent.
 
+`coforge message resolve <message-id>` looks up one message by its full UUID
+or an unambiguous 8-hex prefix across every conversation the Agent belongs to,
+and prints it in the same `[target=... msg=... time=...] @sender: body` line
+`message check` uses. It never requires the Agent to know the message's
+target. `coforge message react --message-id <id> --emoji <emoji> [--remove]`
+adds (or, with `--remove`, removes) the Agent's own reaction; the emoji must
+be one to sixteen characters with no whitespace. Both operations are
+idempotent: reacting twice with the same emoji, or removing a reaction that
+is not present, still succeeds.
+
 Pass `--reviewer-isolation` on `message send`, `task claim`, `task update`, or
 `task amend` (or set `COFORGE_REVIEWER_ISOLATION=1`/`true`, accepted
 alongside `0`/`false`) when a reviewer agent must act without seeing newer

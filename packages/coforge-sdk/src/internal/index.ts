@@ -39,12 +39,17 @@ export const isChannelMessageTarget = (target: string): boolean =>
   /^#[a-z0-9][a-z0-9_-]{0,31}(?::(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))?$/.test(
     target,
   );
+/** A reaction emoji: trimmed, one to sixteen characters, no whitespace. */
+export const isValidReactionEmoji = (value: string): boolean =>
+  value.trim() === value && value.length >= 1 && value.length <= 16 && !/\s/.test(value);
 export const AGENT_MESSAGE_VALIDATION_MESSAGES = [
   "message anchor must be eight hexadecimal characters or a full UUID",
   "ambiguous message prefix; use the full UUID",
   "message anchor not found in this conversation",
   "thread root must be a top-level message",
   "message anchor is outside this target",
+  "message not found or not visible to this Agent",
+  "reaction emoji must be one to sixteen characters without whitespace",
 ] as const;
 export type AgentMessageValidationMessage = (typeof AGENT_MESSAGE_VALIDATION_MESSAGES)[number];
 export const AGENT_STATUS_METHOD = "agent:status" as const;
@@ -332,7 +337,16 @@ export type AgentMessageRequest = {
   workspaceId: string;
   fromSequence?: number;
   throughSequence?: number;
-  operation: "read" | "search" | "send" | "mute" | "unmute" | "thread-unfollow";
+  operation:
+    | "read"
+    | "search"
+    | "send"
+    | "mute"
+    | "unmute"
+    | "thread-unfollow"
+    | "resolve"
+    | "react"
+    | "unreact";
   target: string;
   body?: string;
   holdToken?: string;
@@ -347,6 +361,8 @@ export type AgentMessageRequest = {
   offset?: number;
   seenUpToSequence?: number;
   freshnessContextMode?: "inline" | "withheld";
+  messageId?: string;
+  emoji?: string;
 };
 export type CloudAgentMessageResponse = {
   protocolMajor: number;

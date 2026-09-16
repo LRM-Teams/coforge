@@ -226,6 +226,8 @@ message AgentMessageRequest {
   string sort = 19;
   uint32 offset = 20;
   string freshness_context_mode = 21;
+  string message_id = 22;
+  string emoji = 23;
 }
 message CloudAgentMessageRecord {
   string id = 1;

@@ -29,6 +29,8 @@ message LocalAgentMessageRequest {
   string sort = 14;
   uint32 offset = 15;
   string freshness_context_mode = 16;
+  string message_id = 17;
+  string emoji = 18;
 }
 
 message AgentMessageRecord {

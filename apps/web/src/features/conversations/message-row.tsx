@@ -4,7 +4,9 @@ import { Download01, XClose } from "@untitledui/icons";
 
 import { getReadableFileSize } from "@/components/application/file-upload/file-upload-base";
 import { Avatar } from "@/components/base/avatar/avatar";
+import { Badge } from "@/components/base/badges/badges";
 import { Button } from "@/components/base/buttons/button";
+import { Tooltip, TooltipTrigger } from "@/components/base/tooltip/tooltip";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { Dialog, DialogTrigger, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
@@ -22,6 +24,7 @@ export type MessageView = {
   body: string;
   createdAt: Date | string;
   attachment?: { id: string; fileName: string; contentType: string; sizeBytes: number };
+  reactions?: { emoji: string; count: number; reactors: string[] }[];
 };
 
 const GROUPING_WINDOW_MS = 5 * 60 * 1000;
@@ -325,6 +328,19 @@ export function MessageRow({
             {message.body}
           </div>
           {message.attachment && <AttachmentCard attachment={message.attachment} />}
+          {message.reactions && message.reactions.length > 0 && (
+            <div className="flex flex-wrap gap-1 pt-0.5">
+              {message.reactions.map((reaction) => (
+                <Tooltip key={reaction.emoji} title={reaction.reactors.join(", ")}>
+                  <TooltipTrigger>
+                    <Badge size="sm" color="gray">
+                      {reaction.emoji} {reaction.count}
+                    </Badge>
+                  </TooltipTrigger>
+                </Tooltip>
+              ))}
+            </div>
+          )}
           {messageFooter?.(message)}
           {threadPreview?.(message)}
         </div>

@@ -4,6 +4,10 @@ import { Prisma, type PrismaClient } from "../../../../generated/client";
 import { AgentMessageValidationError } from "../../conversations/agent-message-validation-error.server";
 import { getAgentChannel, PublicChannels } from "../../conversations/public-channels.server";
 import { mentionedNames } from "../../conversations/mentions";
+import {
+  MESSAGE_REACTIONS_SELECT,
+  reactionSummaries,
+} from "../../conversations/message-reactions.server";
 import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
 
 export type AttachmentMetadata = {
@@ -88,6 +92,7 @@ const BROWSER_MESSAGE_SELECT = {
       agent: { select: { name: true, displayName: true } },
     },
   },
+  reactions: MESSAGE_REACTIONS_SELECT,
 } satisfies Prisma.MessageSelect;
 
 /** Just enough of the sender to render its `@handle`. */
@@ -198,6 +203,7 @@ function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
     body: message.body,
     createdAt: message.createdAt,
     attachment: message.attachment ?? undefined,
+    reactions: reactionSummaries(message.reactions),
   };
 }
 
@@ -342,6 +348,27 @@ export type DirectConversationRepository = {
     agentId: string,
     options: AgentMessageSearchOptions,
   ): ReturnType<NonNullable<DirectConversationRepository["readMessages"]>>;
+  resolveAgentMessage?(
+    workspaceId: string,
+    agentId: string,
+    anchor: string,
+  ): Promise<{
+    id: string;
+    sequence: number;
+    sender: string;
+    body: string;
+    createdAt: Date;
+    target: string;
+    attachment?: AttachmentMetadata;
+    task?: MessageTaskMetadata;
+  }>;
+  setAgentMessageReaction?(
+    workspaceId: string,
+    agentId: string,
+    anchor: string,
+    emoji: string,
+    active: boolean,
+  ): Promise<{ messageId: string }>;
   readPendingAgentContext?(
     workspaceId: string,
     agentId: string,
@@ -596,6 +623,88 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         deliveryTarget(conversationTarget(message.conversation), message.threadRootId),
       ),
     );
+  }
+
+  /** Looks a Message up by anchor across every conversation the Agent is a member of. */
+  private async resolveAgentScopedMessage(workspaceId: string, agentId: string, anchor: string) {
+    if (!MESSAGE_ANCHOR.test(anchor))
+      throw new AgentMessageValidationError(
+        "message anchor must be eight hexadecimal characters or a full UUID",
+      );
+    const rows = await this.db.message.findMany({
+      where: {
+        workspaceId,
+        conversation: { members: { some: { agentId } } },
+        id:
+          anchor.length === 8
+            ? {
+                gte: `${anchor}-0000-0000-0000-000000000000`,
+                lte: `${anchor}-ffff-ffff-ffff-ffffffffffff`,
+              }
+            : anchor,
+      },
+      take: 2,
+      include: {
+        sender: MESSAGE_SENDER_SELECT,
+        task: TASK_METADATA_SELECT,
+        conversation: {
+          include: {
+            members: {
+              where: { userId: { not: null } },
+              select: { user: { select: { username: true } } },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+    if (rows.length > 1)
+      throw new AgentMessageValidationError("ambiguous message prefix; use the full UUID");
+    const row = rows[0];
+    if (!row)
+      throw new AgentMessageValidationError("message not found or not visible to this Agent");
+    return row;
+  }
+
+  async resolveAgentMessage(workspaceId: string, agentId: string, anchor: string) {
+    const row = await this.resolveAgentScopedMessage(workspaceId, agentId, anchor);
+    return toAgentMessage(
+      row,
+      deliveryTarget(conversationTarget(row.conversation), row.threadRootId),
+    );
+  }
+
+  async setAgentMessageReaction(
+    workspaceId: string,
+    agentId: string,
+    anchor: string,
+    emoji: string,
+    active: boolean,
+  ) {
+    const row = await this.resolveAgentScopedMessage(workspaceId, agentId, anchor);
+    const member = await this.db.conversationMember.findFirst({
+      where: { conversationId: row.conversationId, workspaceId, agentId },
+      select: { id: true },
+    });
+    if (!member)
+      throw new AgentMessageValidationError("message not found or not visible to this Agent");
+    if (active)
+      await this.db.messageReaction.upsert({
+        where: { messageId_memberId_emoji: { messageId: row.id, memberId: member.id, emoji } },
+        create: {
+          messageId: row.id,
+          conversationId: row.conversationId,
+          workspaceId,
+          memberId: member.id,
+          emoji,
+        },
+        update: {},
+      });
+    else
+      await this.db.messageReaction.deleteMany({
+        where: { messageId: row.id, memberId: member.id, emoji },
+      });
+    return { messageId: row.id };
   }
 
   private async advanceThreadRead(

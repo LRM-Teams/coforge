@@ -63,6 +63,8 @@ import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/works
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
 import { Route as ApiAgentV1AttachmentsAttachmentIdRouteImport } from './routes/api/agent/v1/attachments/$attachmentId'
 import { Route as ApiAgentV1AttachmentsCapabilitiesRouteImport } from './routes/api/agent/v1/attachments/capabilities'
+import { Route as ApiAgentV1MessagesMessageIdReactionsRouteImport } from './routes/api/agent/v1/messages_.$messageId.reactions'
+import { Route as ApiAgentV1MessagesMessageIdResolveRouteImport } from './routes/api/agent/v1/messages_.$messageId.resolve'
 import { Route as ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport } from './routes/api/workspaces/$workspaceId/users/$userId/avatar'
 
 const IndexRoute = IndexRouteImport.update({
@@ -344,6 +346,18 @@ const ApiAgentV1AttachmentsCapabilitiesRoute =
     path: '/api/agent/v1/attachments/capabilities',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiAgentV1MessagesMessageIdReactionsRoute =
+  ApiAgentV1MessagesMessageIdReactionsRouteImport.update({
+    id: '/api/agent/v1/messages_/$messageId/reactions',
+    path: '/api/agent/v1/messages/$messageId/reactions',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentV1MessagesMessageIdResolveRoute =
+  ApiAgentV1MessagesMessageIdResolveRouteImport.update({
+    id: '/api/agent/v1/messages_/$messageId/resolve',
+    path: '/api/agent/v1/messages/$messageId/resolve',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute =
   ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport.update({
     id: '/api/workspaces/$workspaceId/users/$userId/avatar',
@@ -405,6 +419,8 @@ export interface FileRoutesByFullPath {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
+  '/api/agent/v1/messages/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
+  '/api/agent/v1/messages/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRoutesByTo {
@@ -458,6 +474,8 @@ export interface FileRoutesByTo {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
+  '/api/agent/v1/messages/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
+  '/api/agent/v1/messages/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRoutesById {
@@ -516,6 +534,8 @@ export interface FileRoutesById {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
+  '/api/agent/v1/messages_/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
+  '/api/agent/v1/messages_/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRouteTypes {
@@ -574,6 +594,8 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
+    | '/api/agent/v1/messages/$messageId/reactions'
+    | '/api/agent/v1/messages/$messageId/resolve'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -627,6 +649,8 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
+    | '/api/agent/v1/messages/$messageId/reactions'
+    | '/api/agent/v1/messages/$messageId/resolve'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
   id:
     | '__root__'
@@ -684,6 +708,8 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
+    | '/api/agent/v1/messages_/$messageId/reactions'
+    | '/api/agent/v1/messages_/$messageId/resolve'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
   fileRoutesById: FileRoutesById
 }
@@ -722,6 +748,8 @@ export interface RootRouteChildren {
   ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
   ApiAgentV1AttachmentsAttachmentIdRoute: typeof ApiAgentV1AttachmentsAttachmentIdRoute
   ApiAgentV1AttachmentsCapabilitiesRoute: typeof ApiAgentV1AttachmentsCapabilitiesRoute
+  ApiAgentV1MessagesMessageIdReactionsRoute: typeof ApiAgentV1MessagesMessageIdReactionsRoute
+  ApiAgentV1MessagesMessageIdResolveRoute: typeof ApiAgentV1MessagesMessageIdResolveRoute
   ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute: typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 
@@ -1105,6 +1133,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentV1AttachmentsCapabilitiesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/agent/v1/messages_/$messageId/reactions': {
+      id: '/api/agent/v1/messages_/$messageId/reactions'
+      path: '/api/agent/v1/messages/$messageId/reactions'
+      fullPath: '/api/agent/v1/messages/$messageId/reactions'
+      preLoaderRoute: typeof ApiAgentV1MessagesMessageIdReactionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/v1/messages_/$messageId/resolve': {
+      id: '/api/agent/v1/messages_/$messageId/resolve'
+      path: '/api/agent/v1/messages/$messageId/resolve'
+      fullPath: '/api/agent/v1/messages/$messageId/resolve'
+      preLoaderRoute: typeof ApiAgentV1MessagesMessageIdResolveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/workspaces/$workspaceId/users/$userId/avatar': {
       id: '/api/workspaces/$workspaceId/users/$userId/avatar'
       path: '/api/workspaces/$workspaceId/users/$userId/avatar'
@@ -1251,6 +1293,10 @@ const rootRouteChildren: RootRouteChildren = {
     ApiAgentV1AttachmentsAttachmentIdRoute,
   ApiAgentV1AttachmentsCapabilitiesRoute:
     ApiAgentV1AttachmentsCapabilitiesRoute,
+  ApiAgentV1MessagesMessageIdReactionsRoute:
+    ApiAgentV1MessagesMessageIdReactionsRoute,
+  ApiAgentV1MessagesMessageIdResolveRoute:
+    ApiAgentV1MessagesMessageIdResolveRoute,
   ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute:
     ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute,
 }

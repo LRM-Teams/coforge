@@ -15,6 +15,11 @@ import {
 } from "../centrifugo/server-api.server";
 import type { MessageNotifier } from "../notifications/web-push-composition.server";
 import { mentionedNames } from "./mentions";
+import {
+  MESSAGE_REACTIONS_SELECT,
+  reactionSummaries,
+  type MessageReactionRow,
+} from "./message-reactions.server";
 import type { ConversationRealtime } from "./conversation-realtime.server";
 import { AgentMessageValidationError } from "./agent-message-validation-error.server";
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
@@ -43,6 +48,7 @@ const CHANNEL_MESSAGE_SELECT = {
     },
   },
   attachment: { select: { id: true, fileName: true, contentType: true, sizeBytes: true } },
+  reactions: MESSAGE_REACTIONS_SELECT,
 } satisfies Prisma.MessageSelect;
 
 type ChannelMessageRow = {
@@ -58,6 +64,7 @@ type ChannelMessageRow = {
     user: { id: string; username: string; avatarObjectKey: string | null } | null;
   } | null;
   attachment: { id: string; fileName: string; contentType: string; sizeBytes: number } | null;
+  reactions: MessageReactionRow[];
 };
 
 /** The browser-facing shape of one channel message, shared by page and update reads. */
@@ -92,6 +99,7 @@ function channelMessageView(message: ChannelMessageRow, workspaceId: string) {
           sizeBytes: message.attachment.sizeBytes,
         }
       : undefined,
+    reactions: reactionSummaries(message.reactions),
   };
 }
 

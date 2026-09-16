@@ -9,6 +9,8 @@ import type {
   AgentMessagesReadRequest,
   AgentMessagesSearchRequest,
   AgentMessagesSendRequest,
+  AgentMessagesResolveRequest,
+  AgentMessagesReactionRequest,
   AgentMessagesResponse,
 } from "./messages";
 
@@ -78,6 +80,9 @@ export type AgentApiClient = {
     read(request: AgentMessagesReadRequest): Promise<AgentMessagesResponse>;
     search(request: AgentMessagesSearchRequest): Promise<AgentMessagesResponse>;
     send(request: AgentMessagesSendRequest): Promise<AgentMessagesResponse>;
+    resolve(request: AgentMessagesResolveRequest): Promise<AgentMessagesResponse>;
+    addReaction(request: AgentMessagesReactionRequest): Promise<AgentMessagesResponse>;
+    removeReaction(request: AgentMessagesReactionRequest): Promise<AgentMessagesResponse>;
   };
   channels: {
     mute(channelId: string): Promise<unknown>;
@@ -115,6 +120,13 @@ export type RawAgentApiClient = {
     read(request: AgentMessagesReadRequest): Promise<AgentApiResult<AgentMessagesResponse>>;
     search(request: AgentMessagesSearchRequest): Promise<AgentApiResult<AgentMessagesResponse>>;
     send(request: AgentMessagesSendRequest): Promise<AgentApiResult<AgentMessagesResponse>>;
+    resolve(request: AgentMessagesResolveRequest): Promise<AgentApiResult<AgentMessagesResponse>>;
+    addReaction(
+      request: AgentMessagesReactionRequest,
+    ): Promise<AgentApiResult<AgentMessagesResponse>>;
+    removeReaction(
+      request: AgentMessagesReactionRequest,
+    ): Promise<AgentApiResult<AgentMessagesResponse>>;
   };
   channels: {
     mute(channelId: string): Promise<AgentApiResult<unknown>>;
@@ -181,6 +193,9 @@ export function createAgentApiClient(transport: AgentApiTransport): AgentApiClie
       read: async (request) => unwrap(await rawClient.messages.read(request)),
       search: async (request) => unwrap(await rawClient.messages.search(request)),
       send: async (request) => unwrap(await rawClient.messages.send(request)),
+      resolve: async (request) => unwrap(await rawClient.messages.resolve(request)),
+      addReaction: async (request) => unwrap(await rawClient.messages.addReaction(request)),
+      removeReaction: async (request) => unwrap(await rawClient.messages.removeReaction(request)),
     },
     channels: {
       mute: async (channelId) => unwrap(await rawClient.channels.mute(channelId)),
@@ -248,6 +263,18 @@ function messageResources(transport: AgentApiTransport): RawAgentApiClient["mess
       transport.request(agentApiRoutes.cloud.messages.send, request) as Promise<
         AgentApiResult<AgentMessagesResponse>
       >,
+    resolve: ({ messageId }) =>
+      transport.request(agentApiRoutes.cloud.messages.resolve.path(messageId)) as Promise<
+        AgentApiResult<AgentMessagesResponse>
+      >,
+    addReaction: ({ messageId, emoji }) =>
+      transport.request(agentApiRoutes.cloud.messages.reactions.path(messageId), {
+        emoji,
+      }) as Promise<AgentApiResult<AgentMessagesResponse>>,
+    removeReaction: ({ messageId, emoji }) =>
+      transport.request(agentApiRoutes.cloud.messages.reactions.path(messageId), {
+        emoji,
+      }) as Promise<AgentApiResult<AgentMessagesResponse>>,
   };
 }
 

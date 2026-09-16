@@ -156,5 +156,6 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       body: message.body,
       createdAt: message.createdAt,
       attachment: message.attachment ?? undefined,
+      reactions: undefined,
     };
   });

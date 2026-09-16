@@ -23,6 +23,17 @@ export const agentApiRoutes = {
     messages: {
       list: { method: "GET", path: "/api/agent/v1/messages" },
       send: { method: "POST", path: "/api/agent/v1/messages" },
+      resolve: {
+        method: "GET",
+        path: (messageId: string) =>
+          `/api/agent/v1/messages/${encodeURIComponent(messageId)}/resolve`,
+      },
+      reactions: {
+        path: (messageId: string) =>
+          `/api/agent/v1/messages/${encodeURIComponent(messageId)}/reactions`,
+        add: { method: "POST" },
+        remove: { method: "DELETE" },
+      },
     },
     channels: {
       mute: {

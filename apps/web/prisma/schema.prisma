@@ -425,22 +425,23 @@ model Conversation {
 }
 
 model ConversationMember {
-  id                       String         @id @default(uuid()) @db.Uuid
-  conversationId           String         @db.Uuid
-  workspaceId              String         @db.Uuid
-  userId                   String?        @db.Uuid
-  agentId                  String?        @db.Uuid
-  agentReadThroughSequence Int            @default(0)
-  channelMuted             Boolean        @default(false)
-  conversation             Conversation   @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
-  workspace                Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user                     User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  agent                    Agent?         @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  id                       String            @id @default(uuid()) @db.Uuid
+  conversationId           String            @db.Uuid
+  workspaceId              String            @db.Uuid
+  userId                   String?           @db.Uuid
+  agentId                  String?           @db.Uuid
+  agentReadThroughSequence Int               @default(0)
+  channelMuted             Boolean           @default(false)
+  conversation             Conversation      @relation(fields: [conversationId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+  workspace                Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user                     User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent                    Agent?            @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
   messages                 Message[]
   threadReads              ThreadRead[]
   threadFollows            ThreadFollow[]
-  ownedTasks               Task[]         @relation("TaskOwner")
-  createdTasks             Task[]         @relation("TaskCreator")
+  reactions                MessageReaction[]
+  ownedTasks               Task[]            @relation("TaskOwner")
+  createdTasks             Task[]            @relation("TaskCreator")
 
   @@unique([id, conversationId, workspaceId])
   @@unique([conversationId, userId])
@@ -467,6 +468,7 @@ model Message {
   replies        Message[]              @relation("MessageThread")
   threadReads    ThreadRead[]
   threadFollows  ThreadFollow[]
+  reactions      MessageReaction[]
   task           Task?
 
   @@unique([id, conversationId])
@@ -553,6 +555,21 @@ model ThreadFollow {
 
   @@id([memberId, rootMessageId])
   @@map("thread_follows")
+}
+
+model MessageReaction {
+  messageId      String             @db.Uuid
+  conversationId String             @db.Uuid
+  workspaceId    String             @db.Uuid
+  memberId       String             @db.Uuid
+  emoji          String
+  createdAt      DateTime           @default(now())
+  message        Message            @relation(fields: [messageId, conversationId], references: [id, conversationId], onDelete: Cascade)
+  member         ConversationMember @relation(fields: [memberId, conversationId, workspaceId], references: [id, conversationId, workspaceId], onDelete: Cascade)
+
+  @@id([messageId, memberId, emoji])
+  @@index([conversationId, messageId])
+  @@map("message_reactions")
 }
 
 model Attachment {

@@ -1593,6 +1593,8 @@ export class DaemonRuntime {
         sender: request.sender,
         sort: request.sort,
         offset: request.offset,
+        messageId: request.messageId,
+        emoji: request.emoji,
       },
       agentApiKey,
     );

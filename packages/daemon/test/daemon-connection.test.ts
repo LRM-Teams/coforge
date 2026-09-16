@@ -19,6 +19,7 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import { DAEMON_RUNTIME_READY_METHOD } from "@lrm/coforge-sdk/internal";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
+import { AgentMessageRequestError } from "../src/connection/agent-message-request-error";
 
 function fakeClient() {
   let connected = () => {};
@@ -884,6 +885,208 @@ test("Agent search HTTP GET request carries the request id", async () => {
   });
   expect(capturedUrl?.searchParams.get("requestId")).toBe("request-search-1");
   expect(capturedUrl?.searchParams.get("query")).toBe("hello");
+});
+
+test("Agent resolve HTTP GET request carries the request id", async () => {
+  let capturedUrl: URL | undefined;
+  const client = createAgentMessageHttpClient(async (input) => {
+    capturedUrl = input as URL;
+    return Response.json({
+      protocolMajor: 1,
+      requestId: "request-resolve-1",
+      accepted: true,
+      attentionCount: 0,
+      messages: [
+        {
+          id: "message-1",
+          sequence: 1,
+          sender: "@ada",
+          body: "hi",
+          createdAt: "now",
+          target: "@ada",
+        },
+      ],
+    });
+  });
+  const result = await client.requestResolve!({
+    url: "https://server.example/api/agent/v1/messages/abcd1234/resolve",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-resolve-1",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "resolve",
+      target: "",
+      messageId: "abcd1234",
+    },
+  });
+  expect(capturedUrl?.pathname).toBe("/api/agent/v1/messages/abcd1234/resolve");
+  expect(capturedUrl?.searchParams.get("requestId")).toBe("request-resolve-1");
+  expect(result.messages).toHaveLength(1);
+});
+
+test.each(["react", "unreact"] as const)(
+  "Agent %s HTTP request carries the emoji in its JSON body",
+  async (operation) => {
+    let capturedInit: RequestInit | undefined;
+    let capturedUrl: string | URL | Request | undefined;
+    const client = createAgentMessageHttpClient(async (url, init) => {
+      capturedUrl = url;
+      capturedInit = init;
+      return Response.json({
+        protocolMajor: 1,
+        requestId: "request-react-1",
+        accepted: true,
+        attentionCount: 0,
+        messages: [],
+        messageId: "abcd1234",
+      });
+    });
+    const method = operation === "react" ? "POST" : "DELETE";
+    const result = await client.requestReaction!({
+      url: "https://server.example/api/agent/v1/messages/abcd1234/reactions",
+      method,
+      agentApiKey: `sk_agent_${"a".repeat(43)}`,
+      daemonApiKey: "daemon-token",
+      request: {
+        protocolMajor: 1,
+        requestId: "request-react-1",
+        workspaceId: "workspace-a",
+        agentId: "agent-a",
+        operation,
+        target: "",
+        messageId: "abcd1234",
+        emoji: "👍",
+      },
+    });
+    expect(capturedUrl).toBe("https://server.example/api/agent/v1/messages/abcd1234/reactions");
+    expect(capturedInit?.method).toBe(method);
+    expect(JSON.parse(capturedInit?.body as string)).toEqual({
+      requestId: "request-react-1",
+      emoji: "👍",
+    });
+    expect(result.messageId).toBe("abcd1234");
+  },
+);
+
+test("resolve and reaction HTTP clients surface safe validation failures as AgentMessageRequestError", async () => {
+  const resolveClient = createAgentMessageHttpClient(
+    async () => new Response("message not found or not visible to this Agent", { status: 400 }),
+  );
+  await expect(
+    resolveClient.requestResolve!({
+      url: "https://server.example/api/agent/v1/messages/abcd1234/resolve",
+      agentApiKey: `sk_agent_${"a".repeat(43)}`,
+      daemonApiKey: "daemon-token",
+      request: {
+        protocolMajor: 1,
+        requestId: "request-resolve-2",
+        workspaceId: "workspace-a",
+        agentId: "agent-a",
+        operation: "resolve",
+        target: "",
+        messageId: "abcd1234",
+      },
+    }),
+  ).rejects.toEqual(
+    AgentMessageRequestError.fromRpc(400, "message not found or not visible to this Agent"),
+  );
+
+  const reactionClient = createAgentMessageHttpClient(
+    async () => new Response("database password leaked", { status: 500 }),
+  );
+  await expect(
+    reactionClient.requestReaction!({
+      url: "https://server.example/api/agent/v1/messages/abcd1234/reactions",
+      method: "POST",
+      agentApiKey: `sk_agent_${"a".repeat(43)}`,
+      daemonApiKey: "daemon-token",
+      request: {
+        protocolMajor: 1,
+        requestId: "request-react-2",
+        workspaceId: "workspace-a",
+        agentId: "agent-a",
+        operation: "react",
+        target: "",
+        messageId: "abcd1234",
+        emoji: "👍",
+      },
+    }),
+  ).rejects.toThrow("server agent request failed (500)");
+});
+
+test("dispatches resolve and reaction operations to their dedicated HTTP client methods", async () => {
+  const fake = fakeClient();
+  const resolveCalls: unknown[] = [];
+  const reactionCalls: unknown[] = [];
+  const response = {
+    protocolMajor: 1,
+    requestId: "request-resolve",
+    accepted: true,
+    attentionCount: 0,
+    messages: [],
+    messageId: "",
+  };
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
+    requestResolve: async (input) => {
+      resolveCalls.push(input);
+      return response;
+    },
+    requestReaction: async (input) => {
+      reactionCalls.push(input);
+      return { ...response, messageId: "abcd1234" };
+    },
+  });
+  await transport.start("daemon-token", {
+    ...config,
+    serverHttpUrl: "https://server.example/api/internal/centrifugo",
+  });
+  await transport.agentMessage({
+    protocolMajor: 1,
+    requestId: "request-resolve",
+    workspaceId: config.workspaceId,
+    agentId: "agent-1",
+    operation: "resolve",
+    target: "",
+    messageId: "abcd1234",
+  });
+  expect(resolveCalls).toEqual([
+    expect.objectContaining({
+      url: `https://server.example${agentApiRoutes.cloud.messages.resolve.path("abcd1234")}`,
+    }),
+  ]);
+  await transport.agentMessage({
+    protocolMajor: 1,
+    requestId: "request-react",
+    workspaceId: config.workspaceId,
+    agentId: "agent-1",
+    operation: "react",
+    target: "",
+    messageId: "abcd1234",
+    emoji: "👍",
+  });
+  await transport.agentMessage({
+    protocolMajor: 1,
+    requestId: "request-unreact",
+    workspaceId: config.workspaceId,
+    agentId: "agent-1",
+    operation: "unreact",
+    target: "",
+    messageId: "abcd1234",
+    emoji: "👍",
+  });
+  expect(reactionCalls).toEqual([
+    expect.objectContaining({
+      url: `https://server.example${agentApiRoutes.cloud.messages.reactions.path("abcd1234")}`,
+      method: "POST",
+    }),
+    expect.objectContaining({
+      url: `https://server.example${agentApiRoutes.cloud.messages.reactions.path("abcd1234")}`,
+      method: "DELETE",
+    }),
+  ]);
 });
 
 test("requests and revokes Agent API keys through the server API route", async () => {
