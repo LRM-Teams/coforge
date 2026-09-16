@@ -6,18 +6,13 @@ import {
 } from "@lrm/coforge-sdk/internal";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { createAgentReminderService } from "#/server/agents/agent-api-http.server";
-import { getDatabaseClient } from "#/server/db/client.server";
 
 export const Route = createFileRoute("/api/agent/v1/reminders")({
   server: {
     middleware: [agentAuthMiddleware],
     handlers: {
-      POST: async ({ request, context }) => {
+      POST: async ({ request, context: { principal, db } }) => {
         try {
-          const principal = context.principal;
-          const db = getDatabaseClient();
-          if (!db || !principal.agentId)
-            return Response.json({ error: "reminder access denied" }, { status: 403 });
           const input = (await request.json()) as AgentReminderOperationRequest;
           const command = decodeAgentReminderOperationRequest(
             encodeAgentReminderOperationRequest(input),

@@ -1,19 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  handleAgentMessagesGet,
-  type AgentMessagesGetDependencies,
-} from "../src/routes/api/agent/v1/messages";
-import type { AgentMessageRepository } from "../src/server/agents/agent-messages.service";
-
-function dependencies(
-  repository: AgentMessageRepository,
-  db: object = {},
-): AgentMessagesGetDependencies {
-  return {
-    database: () => db as never,
-    createRepository: () => repository,
-  };
-}
+import { handleAgentMessagesGet } from "../src/routes/api/agent/v1/messages";
 
 const request = (search: string) =>
   new Request(`https://server.example/api/agent/v1/messages${search}`);
@@ -23,7 +9,7 @@ test("read forwards the sequence window to the repository and returns the canoni
   const result = await handleAgentMessagesGet(
     request("?target=%40ada&fromSequence=5&throughSequence=12&requestId=request-1"),
     { workspaceId: "workspace-1", agentId: "agent-1" },
-    dependencies({
+    {
       setAgentChannelMuted: async () => {},
       setAgentThreadFollowed: async () => {},
       readMessagesPage: async (...args) => {
@@ -43,7 +29,7 @@ test("read forwards the sequence window to the repository and returns the canoni
           hasNewer: true,
         };
       },
-    }),
+    },
   );
   expect(received).toEqual([
     "workspace-1",
@@ -86,11 +72,11 @@ test("read generates a request id when the daemon omits one", async () => {
   const result = await handleAgentMessagesGet(
     request("?target=%40ada"),
     { workspaceId: "workspace-1", agentId: "agent-1" },
-    dependencies({
+    {
       setAgentChannelMuted: async () => {},
       setAgentThreadFollowed: async () => {},
       readMessagesPage: async () => ({ messages: [], hasOlder: false, hasNewer: false }),
-    }),
+    },
   );
   const body = await result.json();
   expect(body.accepted).toBe(true);
@@ -102,7 +88,7 @@ test("search returns the canonical response shape and echoes the request id", as
   const result = await handleAgentMessagesGet(
     request("?query=hello&requestId=request-2"),
     { workspaceId: "workspace-1", agentId: "agent-1" },
-    dependencies({
+    {
       setAgentChannelMuted: async () => {},
       setAgentThreadFollowed: async () => {},
       searchMessages: async () => [
@@ -115,7 +101,7 @@ test("search returns the canonical response shape and echoes the request id", as
           createdAt: new Date("2026-09-15T00:00:00.000Z"),
         },
       ],
-    }),
+    },
   );
   expect(result.status).toBe(200);
   expect(await result.json()).toEqual({
@@ -140,7 +126,7 @@ test("rejects a missing target with 400", async () => {
   const result = await handleAgentMessagesGet(
     request(""),
     { workspaceId: "workspace-1", agentId: "agent-1" },
-    dependencies({ setAgentChannelMuted: async () => {}, setAgentThreadFollowed: async () => {} }),
+    { setAgentChannelMuted: async () => {}, setAgentThreadFollowed: async () => {} },
   );
   expect(result.status).toBe(400);
 });
@@ -149,26 +135,7 @@ test("rejects a non-integer sequence window with 400", async () => {
   const result = await handleAgentMessagesGet(
     request("?target=%40ada&fromSequence=not-a-number"),
     { workspaceId: "workspace-1", agentId: "agent-1" },
-    dependencies({ setAgentChannelMuted: async () => {}, setAgentThreadFollowed: async () => {} }),
+    { setAgentChannelMuted: async () => {}, setAgentThreadFollowed: async () => {} },
   );
   expect(result.status).toBe(400);
-});
-
-test("denies access when the agent identity or database is unavailable", async () => {
-  const deniedWithoutAgent = await handleAgentMessagesGet(
-    request("?target=%40ada"),
-    { workspaceId: "workspace-1" },
-    dependencies({ setAgentChannelMuted: async () => {}, setAgentThreadFollowed: async () => {} }),
-  );
-  expect(deniedWithoutAgent.status).toBe(403);
-
-  const deniedWithoutDb = await handleAgentMessagesGet(
-    request("?target=%40ada"),
-    { workspaceId: "workspace-1", agentId: "agent-1" },
-    dependencies(
-      { setAgentChannelMuted: async () => {}, setAgentThreadFollowed: async () => {} },
-      null as unknown as object,
-    ),
-  );
-  expect(deniedWithoutDb.status).toBe(403);
 });

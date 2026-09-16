@@ -37,41 +37,52 @@ const createAgentApiKeyInputSchema = z.object({
 });
 const revokeAgentApiKeyInputSchema = z.object({ apiKey: z.string().min(1) });
 
+/** The daemon behind a Bearer API key and the database it was verified against, or the error response. */
+async function authenticateDaemon(request: Request) {
+  const header = request.headers.get("authorization");
+  if (!header?.startsWith("Bearer "))
+    return Response.json({ error: "unauthorized" }, { status: 401 });
+  const db = getDatabaseClient();
+  if (!db) return Response.json({ error: "service unavailable" }, { status: 503 });
+  try {
+    const principal = await verifyDaemonApiKey(
+      header.slice(7).trim(),
+      new PrismaDaemonApiKeyRepository(db),
+    );
+    return { principal, db };
+  } catch {
+    return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
+}
+
+/** The parsed request body, or the error response. */
+async function parseBody<T>(request: Request, schema: z.ZodType<T>) {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "bad request" }, { status: 400 });
+  }
+  const input = schema.safeParse(body);
+  return input.success ? input.data : Response.json({ error: "bad request" }, { status: 400 });
+}
+
 export const Route = createFileRoute("/api/agent-api-keys")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const header = request.headers.get("authorization");
-        if (!header?.startsWith("Bearer "))
-          return Response.json({ error: "unauthorized" }, { status: 401 });
-        let principal: Awaited<ReturnType<typeof verifyDaemonApiKey>>;
-        try {
-          const db = getDatabaseClient();
-          if (!db) throw new Error("database unavailable");
-          principal = await verifyDaemonApiKey(
-            header.slice(7).trim(),
-            new PrismaDaemonApiKeyRepository(db),
-          );
-        } catch {
-          return Response.json({ error: "unauthorized" }, { status: 401 });
-        }
-        let body: unknown;
-        try {
-          body = await request.json();
-        } catch {
-          return Response.json({ error: "bad request" }, { status: 400 });
-        }
-        const input = createAgentApiKeyInputSchema.safeParse(body);
-        if (!input.success) return Response.json({ error: "bad request" }, { status: 400 });
-        const db = getDatabaseClient();
-        if (!db) return Response.json({ error: "service unavailable" }, { status: 503 });
+        const daemon = await authenticateDaemon(request);
+        if (daemon instanceof Response) return daemon;
+        const { principal, db } = daemon;
+        const input = await parseBody(request, createAgentApiKeyInputSchema);
+        if (input instanceof Response) return input;
         const agent = await db.agent.findFirst({
           where: {
-            id: input.data.agentId,
-            workspaceId: input.data.workspaceId,
+            id: input.agentId,
+            workspaceId: input.workspaceId,
             computerId: principal.computerId,
             owner: {
-              memberships: { some: { workspaceId: input.data.workspaceId } },
+              memberships: { some: { workspaceId: input.workspaceId } },
             },
             workspace: {
               members: { some: { userId: principal.userId } },
@@ -85,7 +96,7 @@ export const Route = createFileRoute("/api/agent-api-keys")({
             runtimeConfig: true,
           },
         });
-        if (principal.workspaceId !== input.data.workspaceId || !agent)
+        if (principal.workspaceId !== input.workspaceId || !agent)
           return Response.json({ error: "forbidden" }, { status: 403 });
         try {
           const visibility = new ComputerRuntimeVisibility(new PrismaComputerRuntimeRepository(db));
@@ -101,7 +112,7 @@ export const Route = createFileRoute("/api/agent-api-keys")({
             new PrismaAgentControlStore(db),
             createCentrifugoServerApi(),
             getAgentRuntimeLock(),
-          ).authorizeLaunch({ ...input.data, computerId: principal.computerId });
+          ).authorizeLaunch({ ...input, computerId: principal.computerId });
         } catch {
           return Response.json({ error: "forbidden" }, { status: 403 });
         }
@@ -134,34 +145,15 @@ export const Route = createFileRoute("/api/agent-api-keys")({
         );
       },
       DELETE: async ({ request }) => {
-        const header = request.headers.get("authorization");
-        if (!header?.startsWith("Bearer "))
-          return Response.json({ error: "unauthorized" }, { status: 401 });
-        let principal: Awaited<ReturnType<typeof verifyDaemonApiKey>>;
-        try {
-          const db = getDatabaseClient();
-          if (!db) throw new Error("database unavailable");
-          principal = await verifyDaemonApiKey(
-            header.slice(7).trim(),
-            new PrismaDaemonApiKeyRepository(db),
-          );
-        } catch {
-          return Response.json({ error: "unauthorized" }, { status: 401 });
-        }
-        let body: unknown;
-        try {
-          body = await request.json();
-        } catch {
-          return Response.json({ error: "bad request" }, { status: 400 });
-        }
-        const input = revokeAgentApiKeyInputSchema.safeParse(body);
-        if (!input.success) return Response.json({ error: "bad request" }, { status: 400 });
-        const db = getDatabaseClient();
-        if (!db) return Response.json({ error: "service unavailable" }, { status: 503 });
+        const daemon = await authenticateDaemon(request);
+        if (daemon instanceof Response) return daemon;
+        const { principal, db } = daemon;
+        const input = await parseBody(request, revokeAgentApiKeyInputSchema);
+        if (input instanceof Response) return input;
         const repository = new PrismaAgentApiKeyRepository(db);
         let apiKey;
         try {
-          apiKey = await findAgentApiKey(input.data.apiKey, repository);
+          apiKey = await findAgentApiKey(input.apiKey, repository);
         } catch {
           return Response.json({ error: "unauthorized" }, { status: 401 });
         }

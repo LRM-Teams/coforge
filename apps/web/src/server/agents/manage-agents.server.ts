@@ -117,17 +117,7 @@ export class ManageAgents {
       },
     });
     try {
-      await this.runtimeControl.start(
-        {
-          protocolMajor: 1,
-          requestId: crypto.randomUUID(),
-          workspaceId: agent.workspaceId,
-          computerId: input.computerId,
-          agentId: agent.id,
-          ...runtimeStartFields(agent.runtimeConfig),
-        },
-        principal.userId,
-      );
+      await this.runtimeControl.start(agentStartIntent(agent, input.computerId), principal.userId);
       return { agent: publicAgent(agent), startPublished: true as const };
     } catch {
       return { agent: publicAgent(agent), startPublished: false as const };
@@ -223,14 +213,7 @@ export class ManageAgents {
       if (!runtimeChanged) return { agent: publicAgent(agent), restart: "not-required" as const };
       try {
         await this.runtimeControl.start(
-          {
-            protocolMajor: 1,
-            requestId: crypto.randomUUID(),
-            workspaceId: agent.workspaceId,
-            computerId: current.computerId,
-            agentId: agent.id,
-            ...runtimeStartFields(agent.runtimeConfig),
-          },
+          agentStartIntent(agent, current.computerId),
           principal.userId,
         );
         return { agent: publicAgent(agent), restart: "published" as const };
@@ -249,6 +232,24 @@ export class ManageAgents {
 
 function publicAgent(agent: AgentRecord): AgentRecord {
   return { ...agent, runtimeConfig: publicAgentRuntimeConfig(agent.runtimeConfig) };
+}
+
+/** A stop intent for the Agent's current Computer, or an explicit one while it moves. */
+export function agentStopIntent(
+  agent: AgentRecord,
+  computerId = agent.computerId!,
+): AgentStopIntent {
+  return {
+    protocolMajor: 1,
+    requestId: crypto.randomUUID(),
+    workspaceId: agent.workspaceId,
+    computerId,
+    agentId: agent.id,
+  };
+}
+
+export function agentStartIntent(agent: AgentRecord, computerId?: string): AgentStartIntent {
+  return { ...agentStopIntent(agent, computerId), ...runtimeStartFields(agent.runtimeConfig) };
 }
 
 export function runtimeStartFields(config: AgentRecord["runtimeConfig"]) {

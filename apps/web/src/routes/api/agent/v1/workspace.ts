@@ -1,16 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
-import { getDatabaseClient } from "#/server/db/client.server";
 
 export const Route = createFileRoute("/api/agent/v1/workspace")({
   server: {
     middleware: [agentAuthMiddleware],
     handlers: {
-      GET: async ({ context }) => {
+      GET: async ({ context: { principal, db } }) => {
         try {
-          const principal = context.principal;
-          const db = getDatabaseClient();
-          if (!db) return Response.json({ error: "persistence unavailable" }, { status: 503 });
           const [workspace, humans, agents, projects] = await Promise.all([
             db.workspace.findUnique({
               where: { id: principal.workspaceId },
