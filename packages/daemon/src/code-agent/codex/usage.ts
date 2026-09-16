@@ -1,5 +1,6 @@
 import type { UsageSnapshot, UsageWindow } from "../contract";
 import { agentEnvironment } from "../environment";
+import { asRecord } from "../json-record";
 import { JsonlProcess } from "../jsonl-process";
 import { COFORGE_DAEMON_VERSION } from "../../version";
 import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
@@ -61,15 +62,15 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 }
 
 function toSnapshot(response: Readonly<Record<string, unknown>>): UsageSnapshot | null {
-  const result = record(response.result);
-  const nestedLimits = record(result?.rateLimits);
+  const result = asRecord(response.result);
+  const nestedLimits = asRecord(result?.rateLimits);
   const limits = nestedLimits ? { ...result, ...nestedLimits } : result;
   if (!limits) return null;
   const primary = toWindow(limits.primary);
   const secondary = toWindow(limits.secondary);
   if (!primary && !secondary && !("credits" in limits) && typeof limits.planType !== "string")
     return null;
-  const credits = record(limits.credits);
+  const credits = asRecord(limits.credits);
   return {
     provider: RUNTIME_PROVIDER.CODEX,
     ...(typeof limits.planType === "string" ? { planType: limits.planType } : {}),
@@ -82,7 +83,7 @@ function toSnapshot(response: Readonly<Record<string, unknown>>): UsageSnapshot 
 }
 
 function toWindow(value: unknown): UsageWindow | undefined {
-  const item = record(value);
+  const item = asRecord(value);
   if (!item || typeof item.usedPercent !== "number" || typeof item.windowDurationMins !== "number")
     return undefined;
   const reset =
@@ -95,10 +96,4 @@ function toWindow(value: unknown): UsageWindow | undefined {
     windowDurationMinutes: item.windowDurationMins,
     resetsAt: reset.toISOString(),
   };
-}
-
-function record(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
 }

@@ -3,6 +3,7 @@ import {
   AgentProcessCleanupError,
   UsageUnavailableError,
   type AgentRuntimeConfig,
+  type AgentRuntimeEvent,
   type CodeAgentProvider,
   type UsageSnapshot,
 } from "../code-agent/contract";
@@ -73,28 +74,29 @@ import { getLogger } from "@logtape/logtape";
 import { COFORGE_DAEMON_VERSION } from "../version";
 import { ReminderScheduler, reminderAppInboxPreview } from "../agent-reminder/reminder-scheduler";
 import { FileReminderReceiptStore } from "../persistence/reminder-receipt-store";
+import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
 
 const logger = getLogger(["coforge", "daemon", "runtime"]);
 const FULL_THREAD_TARGET =
   /^((?:@[^:]+)|(?:#[a-z0-9][a-z0-9_-]{0,31})):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 const SHORT_THREAD_TARGET = /^((?:@[^:]+)|(?:#[a-z0-9][a-z0-9_-]{0,31})):([0-9a-f]{8})$/;
+const NOT_RUNNING = "daemon runtime is not running";
+const CLEANUP_UNCONFIRMED =
+  "Agent process cleanup could not be confirmed. Replacement launch is blocked.";
 
 type AgentInputCompletion = {
   resolve: () => void;
   reject: (error: unknown) => void;
 };
 
+type AgentRecoveryContext = Pick<
+  AgentStartIntent,
+  "wakeMessage" | "resumeMessages" | "unreadSummary"
+>;
+
 type AgentInput =
-  | {
-      kind: "recovery";
-      context: Pick<AgentStartIntent, "wakeMessage" | "resumeMessages" | "unreadSummary">;
-      completion: AgentInputCompletion;
-    }
-  | {
-      kind: "delivery";
-      message: AgentMessageDelivery;
-      completion: AgentInputCompletion;
-    };
+  | { kind: "recovery"; context: AgentRecoveryContext; completion: AgentInputCompletion }
+  | { kind: "delivery"; message: AgentMessageDelivery; completion: AgentInputCompletion };
 
 type AgentInputQueue = {
   items: AgentInput[];
@@ -102,8 +104,49 @@ type AgentInputQueue = {
   closed: boolean;
 };
 
+type ActivityLaunch = { launchId: string; clientSeq: number; stopping: boolean };
+
+/** An activity envelope before the launch assigns its sequence metadata. */
+type ActivityDraft = Omit<AgentActivity, "launchId" | "clientSeq" | "observedAtMs">;
+
+type SessionMode = "create" | "resume";
+
+/** Cloud-supplied identity for one launch; every field falls back to the previous reference. */
+type LaunchRequest = {
+  sessionId?: string;
+  requestId?: string;
+  previousLaunchId?: string;
+  sessionMode?: SessionMode;
+  control?: { controlEpoch?: number; launchId: string };
+  replacedSessionId?: string;
+};
+
+type AgentProxy = {
+  url: string;
+  issue(agentId: string, agentApiKey: string): string;
+  revoke(token: string): void;
+};
+
 export function generateRuntimeInstanceId(): string {
   return crypto.randomUUID();
+}
+
+function runtimeConfigOf(intent: AgentStartIntent): AgentRuntimeConfig {
+  return {
+    provider: intent.provider,
+    model: intent.model,
+    modelProvider: intent.modelProvider,
+    reasoning: intent.reasoning,
+    providerConfig: intent.providerConfig,
+  };
+}
+
+function recoveryOf(intent: AgentStartIntent): AgentRecoveryContext {
+  return {
+    wakeMessage: intent.wakeMessage,
+    resumeMessages: intent.resumeMessages,
+    unreadSummary: intent.unreadSummary,
+  };
 }
 
 /** A daemon-owned resident runtime for one supervised Workspace. */
@@ -119,16 +162,9 @@ export class DaemonRuntime {
   #started = false;
   #stopping = false;
   #activityEnabled = false;
-  #unsubscribeAgentStart: (() => void) | undefined;
-  #unsubscribeAgentStop: (() => void) | undefined;
-  #unsubscribeAgentWorkspaceReset: (() => void) | undefined;
+  #subscriptions: Array<() => void> = [];
   readonly #agentControl: AgentControl;
   readonly #agentSessions: AgentSessions;
-  #unsubscribeAgentMessage: (() => void) | undefined;
-  #unsubscribeReconnect: (() => void) | undefined;
-  #unsubscribeUsageScan: (() => void) | undefined;
-  #unsubscribeSkillsList: (() => void) | undefined;
-  #unsubscribeReminderSync: (() => void) | undefined;
   #skillsScanning = false;
   readonly #messageAttention: AgentMessageAttentionIndex;
   readonly #reminders: ReminderScheduler;
@@ -147,36 +183,25 @@ export class DaemonRuntime {
       requestId: string;
       provider: AgentRuntimeConfig["provider"];
       sessionId?: string;
-      sessionMode?: "create" | "resume";
+      sessionMode?: SessionMode;
       launchId?: string;
     }
   >();
   readonly #agentInputQueues = new Map<string, AgentInputQueue>();
   readonly #stoppingAgents = new Set<string>();
   readonly #agentStops = new Map<string, Promise<void>>();
-  readonly #currentActivityLaunches = new Map<
-    string,
-    { launchId: string; clientSeq: number; stopping: boolean }
-  >();
+  readonly #currentActivityLaunches = new Map<string, ActivityLaunch>();
   readonly #agentStatusSequences = new Map<string, number>();
   readonly #pendingAgentApiKeyRevokes = new Set<string>();
   readonly #observedUsage = new Map<RuntimeProvider, UsageSnapshot>();
-  readonly #agentProxy?: {
-    url: string;
-    issue(agentId: string, agentApiKey: string): string;
-    revoke(token: string): void;
-  };
+  readonly #agentProxy?: AgentProxy;
 
   constructor(
     connection: DaemonConfig,
     createProvider: CodeAgentProviderFactory,
     credentials: DaemonCredentialStore,
     transportFactory: DaemonConnectionClientFactory,
-    agentProxy?: {
-      url: string;
-      issue(agentId: string, agentApiKey: string): string;
-      revoke(token: string): void;
-    },
+    agentProxy?: AgentProxy,
     private readonly discoverCodeAgents: () => Promise<CodeAgentInventory> = discoverCodeAgentInventory,
     private readonly stateDirectory = ".coforge-daemon-state",
     private readonly lifecycle: {
@@ -199,19 +224,19 @@ export class DaemonRuntime {
       this.#agentProcessManager,
       (ack) => this.#transport.sendAgentDeliveryAck?.(ack) ?? Promise.resolve(),
       (agentId) => {
-        const launch = this.#currentActivityLaunches.get(agentId);
-        if (!launch) return;
         try {
-          this.#emitAgentActivity(agentId, launch, {
-            protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-            requestId: crypto.randomUUID(),
-            workspaceId: connection.workspaceId,
+          this.#emitCurrentActivity(
             agentId,
-            detailKind: AGENT_ACTIVITY_DETAIL_KIND.MODEL_REQUEST_STARTED,
-            level: "info",
-            detail: "Message received",
-            entries: [],
-          });
+            this.#activity(
+              agentId,
+              AGENT_ACTIVITY_DETAIL_KIND.MODEL_REQUEST_STARTED,
+              "info",
+              "Message received",
+              {
+                entries: [],
+              },
+            ),
+          );
         } catch {
           // Best-effort observation must not turn accepted input into failed delivery.
         }
@@ -259,42 +284,27 @@ export class DaemonRuntime {
       },
       launch: async (intent, launchId, replacedSessionId) => {
         if (replacedSessionId) this.#sessionReferences.delete(intent.agentId);
-        const runtime = await this.startAgent(
+        const runtime = await this.#startAgent(
           intent.agentId,
+          runtimeConfigOf(intent),
+          recoveryOf(intent),
           {
-            provider: intent.provider,
-            model: intent.model,
-            modelProvider: intent.modelProvider,
-            reasoning: intent.reasoning,
-            providerConfig: intent.providerConfig,
+            sessionId: intent.sessionId,
+            requestId: intent.requestId,
+            previousLaunchId: intent.previousLaunchId,
+            sessionMode: intent.sessionMode,
+            control: { controlEpoch: intent.controlEpoch, launchId },
+            replacedSessionId,
           },
-          intent.sessionId,
-          intent.requestId,
-          {
-            wakeMessage: intent.wakeMessage,
-            resumeMessages: intent.resumeMessages,
-            unreadSummary: intent.unreadSummary,
-          },
-          intent.previousLaunchId,
-          intent.sessionMode,
-          { controlEpoch: intent.controlEpoch, launchId },
-          replacedSessionId,
         );
         return runtime.session.readSessionIdentity?.();
       },
       wake: async (intent) => {
-        await this.startAgent(
+        await this.#startAgent(
           intent.agentId,
-          {
-            provider: intent.provider,
-            model: intent.model,
-            modelProvider: intent.modelProvider,
-            reasoning: intent.reasoning,
-            providerConfig: intent.providerConfig,
-          },
-          undefined,
-          intent.requestId,
+          runtimeConfigOf(intent),
           { wakeMessage: intent.wakeMessage },
+          { requestId: intent.requestId },
         );
       },
       result: async (result) => {
@@ -307,61 +317,56 @@ export class DaemonRuntime {
     return this.#agentProcessManager;
   }
 
+  #assertRunning(): void {
+    if (this.#stopping || !this.#started) throw new Error(NOT_RUNNING);
+  }
+
+  #assertAgentNotStopping(agentId: string): void {
+    if (this.#stoppingAgents.has(agentId) || this.#agentProcessManager.isStopping(agentId))
+      throw new Error(`Agent runtime is stopping: ${agentId}`);
+  }
+
+  /** Resolves the Agent behind a local context and checks its API key; the transport is checked by the caller. */
+  #authorizedAgent(context: string, agentApiKey: string | undefined): string {
+    this.#assertRunning();
+    const agentId = this.#agentIdForContext(context);
+    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    return agentId;
+  }
+
   async scanUsage(provider: RuntimeProvider): Promise<UsageScanResponse> {
-    const protocolMajor = 1;
-    if (!this.#started) throw new Error("daemon runtime is not running");
+    this.#assertRunning();
+    const result = (
+      status: UsageScanResponse["status"],
+      snapshot?: UsageSnapshot,
+      message?: string,
+    ): UsageScanResponse => ({
+      protocolMajor: 1,
+      requestId: "",
+      accepted: Boolean(snapshot),
+      status,
+      ...(snapshot ? { snapshotJson: new TextEncoder().encode(JSON.stringify(snapshot)) } : {}),
+      ...(message ? { message } : {}),
+    });
     if (provider !== "codex" && provider !== "claude-code" && provider !== "kiro")
-      return {
-        protocolMajor,
-        requestId: "",
-        accepted: false,
-        status: "unsupported",
-        message: "Pi usage scanning is unsupported",
-      };
+      return result("unsupported", undefined, "Pi usage scanning is unsupported");
     const codeAgentProvider = this.#createProvider(provider);
-    if (!codeAgentProvider.readUsage)
-      return { protocolMajor, requestId: "", accepted: false, status: "unsupported" };
+    if (!codeAgentProvider.readUsage) return result("unsupported");
     try {
-      const directlyReadSnapshot = await codeAgentProvider.readUsage({
-        workingDirectory: this.#connection.workspaceRoot,
-        timeoutMs: 10_000,
-      });
-      const snapshot = directlyReadSnapshot ?? this.#currentObservedUsage(provider);
+      const snapshot =
+        (await codeAgentProvider.readUsage({
+          workingDirectory: this.#connection.workspaceRoot,
+          timeoutMs: 10_000,
+        })) ?? this.#currentObservedUsage(provider);
       return snapshot
-        ? {
-            protocolMajor,
-            requestId: "",
-            accepted: true,
-            status: "available",
-            snapshotJson: new TextEncoder().encode(JSON.stringify(snapshot)),
-          }
-        : {
-            protocolMajor,
-            requestId: "",
-            accepted: false,
-            status: "reauth",
-            message: "Provider usage is unavailable",
-          };
+        ? result("available", snapshot)
+        : result("reauth", undefined, "Provider usage is unavailable");
     } catch (error) {
       const snapshot = this.#currentObservedUsage(provider);
-      if (snapshot)
-        return {
-          protocolMajor,
-          requestId: "",
-          accepted: true,
-          status: "available",
-          snapshotJson: new TextEncoder().encode(JSON.stringify(snapshot)),
-        };
-      return {
-        protocolMajor,
-        requestId: "",
-        accepted: false,
-        status: error instanceof UsageUnavailableError ? "unavailable" : "error",
-        message:
-          error instanceof UsageUnavailableError
-            ? "Provider usage is unavailable"
-            : "Usage scan failed",
-      };
+      if (snapshot) return result("available", snapshot);
+      return error instanceof UsageUnavailableError
+        ? result("unavailable", undefined, "Provider usage is unavailable")
+        : result("error", undefined, "Usage scan failed");
     }
   }
 
@@ -382,133 +387,133 @@ export class DaemonRuntime {
     return this.#startPromise;
   }
 
+  #subscribe(unsubscribe: (() => void) | undefined): void {
+    if (unsubscribe) this.#subscriptions.push(unsubscribe);
+  }
+
+  #unsubscribeAll(): void {
+    for (const unsubscribe of this.#subscriptions.splice(0)) unsubscribe();
+  }
+
   async #start(connection: DaemonConfig): Promise<void> {
     mkdirSync(connection.workspaceRoot, { recursive: true });
     await this.#agentControl.initialize();
     const token = await this.#credentials.load(connection.workspaceId, connection.computerId);
     if (!token) throw new Error("Workspace credential is missing");
-    const pending: Array<
-      | { kind: "start"; value: AgentStartIntent }
-      | { kind: "stop"; value: AgentStopIntent }
-      | { kind: "workspace-reset"; value: AgentWorkspaceResetRequest }
-      | { kind: "message"; value: AgentMessageDelivery }
-    > = [];
+    // Publications that arrive before the ready handshake completes are replayed afterwards:
+    // control intents first, in arrival order, then Message deliveries.
+    const pendingControl: Array<() => Promise<void>> = [];
+    const pendingMessages: Array<() => Promise<void>> = [];
     let buffering = true;
-    const receiveAgentStart = (intent: AgentStartIntent) => {
-      if (buffering) {
-        pending.push({ kind: "start", value: intent });
-        return;
-      }
-      void this.handleAgentStart(intent).catch((error) =>
-        this.#logAgentStartFailure(intent, error),
-      );
-    };
-    const receiveAgentStop = (intent: AgentStopIntent) => {
-      if (buffering) {
-        pending.push({ kind: "stop", value: intent });
-        return;
-      }
-      void this.handleAgentStop(intent).catch((error) =>
-        this.#logAgentOperationFailure("stop", intent, error),
-      );
-    };
-    const receiveAgentMessage = (message: AgentMessageDelivery) => {
-      if (buffering) {
-        pending.push({ kind: "message", value: message });
-        return;
-      }
-      void this.handleAgentMessage(message).catch((error) =>
-        this.#logAgentOperationFailure("message_delivery", message, error),
-      );
-    };
-    const receiveAgentWorkspaceReset = (request: AgentWorkspaceResetRequest) => {
-      if (buffering) {
-        pending.push({ kind: "workspace-reset", value: request });
-        return;
-      }
-      void this.handleAgentWorkspaceReset(request).catch((error) =>
-        this.#logAgentOperationFailure("workspace_reset", request, error),
-      );
-    };
+    const receive =
+      <Value>(queue: Array<() => Promise<void>>, handle: (value: Value) => Promise<void>) =>
+      (value: Value) => {
+        if (buffering) queue.push(() => handle(value));
+        else void handle(value);
+      };
+    const failure =
+      <Request extends AgentStopIntent | AgentWorkspaceResetRequest | AgentMessageDelivery>(
+        operation: "stop" | "workspace_reset" | "message_delivery",
+        handle: (request: Request) => Promise<void>,
+      ) =>
+      (request: Request) =>
+        handle(request).catch((error) => this.#logAgentOperationFailure(operation, request, error));
     try {
-      this.#unsubscribeReconnect = this.#transport.onReconnect?.(() => {
-        void this.#reportCodeAgents(connection).catch(() => {});
-        for (const agentId of this.#readyRunningAgentIds())
-          void this.#requestReminderSnapshot(agentId).catch(() => {});
-        void this.#agentControl
-          .replay()
-          .then(() => this.#agentSessions.replay())
-          .catch((error) => {
-            logger.warning("Agent control recovery replay failed", {
-              event: "agent_control:replay_failed",
-              workspace_id: connection.workspaceId,
-              computer_id: connection.computerId,
-              error_code: diagnosticErrorCode(error),
-              outcome: "failed",
+      this.#subscribe(
+        this.#transport.onReconnect?.(() => {
+          void this.#reportCodeAgents(connection).catch(() => {});
+          for (const agentId of this.#readyRunningAgentIds())
+            void this.#requestReminderSnapshot(agentId).catch(() => {});
+          void this.#agentControl
+            .replay()
+            .then(() => this.#agentSessions.replay())
+            .catch((error) => {
+              logger.warning("Agent control recovery replay failed", {
+                event: "agent_control:replay_failed",
+                workspace_id: connection.workspaceId,
+                computer_id: connection.computerId,
+                error_code: diagnosticErrorCode(error),
+                outcome: "failed",
+              });
             });
-          });
-      });
+        }),
+      );
       const transport = this.#transport;
-      this.#unsubscribeSkillsList = transport.onSkillsList?.(async (request) => {
-        if (
-          this.#stopping ||
-          request.workspaceId !== connection.workspaceId ||
-          request.computerId !== connection.computerId
-        )
-          return;
-        const config = this.#agentProcessManager.runtime(request.agentId)?.config;
-        const unavailable = { status: "error" as const, entries: [], directories: [] };
-        let result = { global: unavailable, workspace: unavailable } as Awaited<
-          ReturnType<typeof listAgentSkills>
-        >;
-        if (!this.#skillsScanning && (!config || config.provider === request.provider)) {
-          this.#skillsScanning = true;
-          try {
-            // Launch only adds COFORGE_* capabilities to agentEnvironment;
-            // it does not override HOME or provider-native config roots.
-            result = await listAgentSkills({
-              provider: request.provider,
-              agentWorkspaceDirectory: agentWorkspaceDirectory(
-                connection.workspaceRoot,
-                connection.workspaceId,
-                request.agentId,
-              ),
+      this.#subscribe(
+        transport.onSkillsList?.(async (request) => {
+          if (
+            this.#stopping ||
+            request.workspaceId !== connection.workspaceId ||
+            request.computerId !== connection.computerId
+          )
+            return;
+          const result = await this.#listAgentSkills(connection, request);
+          if (!this.#stopping && this.#transport === transport)
+            await transport.sendSkillsListResult?.({
+              ...request,
+              ...result,
+              scannedAtMs: Date.now(),
             });
-          } catch {
-            // Return safe diagnostics, never file contents or raw filesystem errors.
-          } finally {
-            this.#skillsScanning = false;
-          }
-        }
-        if (!this.#stopping && this.#transport === transport)
-          await transport.sendSkillsListResult?.({
-            ...request,
+        }),
+      );
+      this.#subscribe(
+        this.#transport.onUsageScan?.(async (request) => {
+          if (request.computerId !== connection.computerId) return;
+          const result = await this.scanUsage(request.provider);
+          await this.#transport.sendUsageScanResult?.({
             ...result,
-            scannedAtMs: Date.now(),
+            requestId: request.requestId,
+            workspaceId: connection.workspaceId,
+            computerId: connection.computerId,
+            provider: request.provider,
           });
-      });
-      this.#unsubscribeUsageScan = this.#transport.onUsageScan?.(async (request) => {
-        if (request.computerId !== connection.computerId) return;
-        const result = await this.scanUsage(request.provider);
-        await this.#transport.sendUsageScanResult?.({
-          ...result,
-          requestId: request.requestId,
-          workspaceId: connection.workspaceId,
-          computerId: connection.computerId,
-          provider: request.provider,
-        });
-      });
+        }),
+      );
       // Register publication listeners before the ready RPC. The server may
       // recover persisted Agents immediately as part of that RPC.
-      this.#unsubscribeAgentStart = this.#transport.onAgentStart?.(receiveAgentStart);
-      this.#unsubscribeAgentStop = this.#transport.onAgentStop?.(receiveAgentStop);
-      this.#unsubscribeAgentWorkspaceReset = this.#transport.onAgentWorkspaceReset?.(
-        receiveAgentWorkspaceReset,
+      this.#subscribe(
+        this.#transport.onAgentStart?.(
+          receive(pendingControl, (intent: AgentStartIntent) =>
+            this.handleAgentStart(intent).then(
+              () => {},
+              (error) => this.#logAgentStartFailure(intent, error),
+            ),
+          ),
+        ),
       );
-      this.#unsubscribeAgentMessage = this.#transport.onAgentMessage?.(receiveAgentMessage);
-      this.#unsubscribeReminderSync = this.#transport.onReminderSync?.((sync) => {
-        void this.#reminders.apply(sync).catch(() => {});
-      });
+      this.#subscribe(
+        this.#transport.onAgentStop?.(
+          receive(
+            pendingControl,
+            failure("stop", (intent: AgentStopIntent) => this.handleAgentStop(intent)),
+          ),
+        ),
+      );
+      this.#subscribe(
+        this.#transport.onAgentWorkspaceReset?.(
+          receive(
+            pendingControl,
+            failure("workspace_reset", (request: AgentWorkspaceResetRequest) =>
+              this.handleAgentWorkspaceReset(request),
+            ),
+          ),
+        ),
+      );
+      this.#subscribe(
+        this.#transport.onAgentMessage?.(
+          receive(
+            pendingMessages,
+            failure("message_delivery", (message: AgentMessageDelivery) =>
+              this.handleAgentMessage(message),
+            ),
+          ),
+        ),
+      );
+      this.#subscribe(
+        this.#transport.onReminderSync?.((sync) => {
+          void this.#reminders.apply(sync).catch(() => {});
+        }),
+      );
       await this.#transport.start(token, {
         workspaceId: connection.workspaceId,
         computerId: connection.computerId,
@@ -539,61 +544,14 @@ export class DaemonRuntime {
         this.#readyRunningAgentIds().map((agentId) => this.#requestReminderSnapshot(agentId)),
       );
       await this.#reportCodeAgents(connection).catch(() => {});
-      if (this.#stopping) {
-        pending.length = 0;
-        return;
-      }
-      const buffered = pending.splice(0);
+      if (this.#stopping) return;
+      const buffered = [...pendingControl.splice(0), ...pendingMessages.splice(0)];
       buffering = false;
       this.#started = true;
       this.#activityEnabled = true;
-      const flushes: Promise<unknown>[] = [];
-      for (const publication of buffered) {
-        if (publication.kind === "start")
-          flushes.push(
-            this.handleAgentStart(publication.value).catch((error) =>
-              this.#logAgentStartFailure(publication.value, error),
-            ),
-          );
-        else if (publication.kind === "stop")
-          flushes.push(
-            this.handleAgentStop(publication.value).catch((error) =>
-              this.#logAgentOperationFailure("stop", publication.value, error),
-            ),
-          );
-        else if (publication.kind === "workspace-reset")
-          flushes.push(
-            this.handleAgentWorkspaceReset(publication.value).catch((error) =>
-              this.#logAgentOperationFailure("workspace_reset", publication.value, error),
-            ),
-          );
-      }
-      for (const publication of buffered)
-        if (publication.kind === "message")
-          flushes.push(
-            this.handleAgentMessage(publication.value).catch((error) =>
-              this.#logAgentOperationFailure("message_delivery", publication.value, error),
-            ),
-          );
-      await Promise.all(flushes);
+      await Promise.all(buffered.map((flush) => flush()));
     } catch (error) {
-      this.#unsubscribeAgentStart?.();
-      this.#unsubscribeAgentStart = undefined;
-      this.#unsubscribeAgentStop?.();
-      this.#unsubscribeAgentStop = undefined;
-      this.#unsubscribeAgentWorkspaceReset?.();
-      this.#unsubscribeAgentWorkspaceReset = undefined;
-      this.#unsubscribeAgentMessage?.();
-      this.#unsubscribeAgentMessage = undefined;
-      this.#unsubscribeReminderSync?.();
-      this.#unsubscribeReminderSync = undefined;
-      this.#unsubscribeUsageScan?.();
-      this.#unsubscribeUsageScan = undefined;
-      this.#unsubscribeSkillsList?.();
-      this.#unsubscribeSkillsList = undefined;
-      this.#unsubscribeReconnect?.();
-      this.#unsubscribeReconnect = undefined;
-      pending.length = 0;
+      this.#unsubscribeAll();
       this.#started = false;
       // A transport may retain partial state after a failed start; never reuse it.
       this.#transport = this.#transportFactory.create(this.#connection);
@@ -601,8 +559,41 @@ export class DaemonRuntime {
     }
   }
 
+  async #listAgentSkills(
+    connection: DaemonConfig,
+    request: { agentId: string; provider: RuntimeProvider },
+  ): Promise<Awaited<ReturnType<typeof listAgentSkills>>> {
+    const unavailable = { status: "error" as const, entries: [], directories: [] };
+    const config = this.#agentProcessManager.runtime(request.agentId)?.config;
+    if (this.#skillsScanning || (config && config.provider !== request.provider))
+      return { global: unavailable, workspace: unavailable };
+    this.#skillsScanning = true;
+    try {
+      // Launch only adds COFORGE_* capabilities to agentEnvironment;
+      // it does not override HOME or provider-native config roots.
+      return await listAgentSkills({
+        provider: request.provider,
+        agentWorkspaceDirectory: agentWorkspaceDirectory(
+          connection.workspaceRoot,
+          connection.workspaceId,
+          request.agentId,
+        ),
+      });
+    } catch {
+      // Return safe diagnostics, never file contents or raw filesystem errors.
+      return { global: unavailable, workspace: unavailable };
+    } finally {
+      this.#skillsScanning = false;
+    }
+  }
+
   async #reportCodeAgents(connection: DaemonConfig): Promise<void> {
     const requestId = crypto.randomUUID();
+    const scope = {
+      request_id: requestId,
+      workspace_id: connection.workspaceId,
+      computer_id: connection.computerId,
+    };
     try {
       const inventory = await this.discoverCodeAgents();
       await this.#transport.updateCodeAgents?.({
@@ -614,9 +605,7 @@ export class DaemonRuntime {
       });
       logger.info("Code Agent inventory reported", {
         event: "code_agent_inventory:reported",
-        request_id: requestId,
-        workspace_id: connection.workspaceId,
-        computer_id: connection.computerId,
+        ...scope,
         runtime_count: inventory.runtimes.length,
         catalog_count: inventory.catalogs.length,
         outcome: "ok",
@@ -624,9 +613,7 @@ export class DaemonRuntime {
     } catch (error) {
       logger.warning("Code Agent inventory report failed", {
         event: "code_agent_inventory:report_failed",
-        request_id: requestId,
-        workspace_id: connection.workspaceId,
-        computer_id: connection.computerId,
+        ...scope,
         error_code: diagnosticErrorCode(error),
         outcome: "failed",
       });
@@ -668,27 +655,40 @@ export class DaemonRuntime {
     config: AgentRuntimeConfig,
     sessionId?: string,
     requestId?: string,
-    recovery?: Pick<AgentStartIntent, "wakeMessage" | "resumeMessages" | "unreadSummary">,
+    recovery?: AgentRecoveryContext,
     previousLaunchId?: string,
-    sessionMode?: "create" | "resume",
+    sessionMode?: SessionMode,
     control?: { controlEpoch?: number; launchId: string },
     replacedSessionId?: string,
   ): Promise<AgentRuntime> {
-    if (this.#stopping || !this.#started)
-      return Promise.reject(new Error("daemon runtime is not running"));
-    if (this.#stoppingAgents.has(agentId) || this.#agentProcessManager.isStopping(agentId))
-      return Promise.reject(new Error(`Agent runtime is stopping: ${agentId}`));
+    return this.#startAgent(agentId, config, recovery, {
+      sessionId,
+      requestId,
+      previousLaunchId,
+      sessionMode,
+      control,
+      replacedSessionId,
+    });
+  }
+
+  #startAgent(
+    agentId: string,
+    config: AgentRuntimeConfig,
+    recovery: AgentRecoveryContext | undefined,
+    request: LaunchRequest,
+  ): Promise<AgentRuntime> {
+    try {
+      this.#assertRunning();
+      this.#assertAgentNotStopping(agentId);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const enqueueRecovery = (context: AgentRecoveryContext) =>
+      this.#enqueueAgentInput(agentId, (completion) => ({ kind: "recovery", context, completion }));
     const existingLaunch = this.#agentLaunches.get(agentId);
     if (existingLaunch) {
-      const recoveryCompletion = recovery
-        ? this.#enqueueAgentInput(agentId, (completion) => ({
-            kind: "recovery",
-            context: recovery,
-            completion,
-          }))
-        : undefined;
-      if (!recoveryCompletion) return existingLaunch;
-      const extendedLaunch = Promise.all([existingLaunch, recoveryCompletion])
+      if (!recovery) return existingLaunch;
+      const extendedLaunch = Promise.all([existingLaunch, enqueueRecovery(recovery)])
         .then(([runtime]) => runtime)
         .finally(() => {
           if (this.#agentLaunches.get(agentId) === extendedLaunch)
@@ -701,40 +701,19 @@ export class DaemonRuntime {
     if (activeRuntime) {
       if (!recovery)
         return Promise.reject(new Error(`Agent runtime is already active: ${agentId}`));
-      const recoveryCompletion = recovery.wakeMessage
-        ? this.#enqueueAgentInput(agentId, (completion) => ({
-            kind: "recovery",
-            context: { wakeMessage: recovery.wakeMessage },
-            completion,
-          }))
-        : undefined;
-      if (!recoveryCompletion) return Promise.resolve(activeRuntime);
+      if (!recovery.wakeMessage) return Promise.resolve(activeRuntime);
+      const recoveryCompletion = enqueueRecovery({ wakeMessage: recovery.wakeMessage });
       this.#ensureAgentInputDrain(agentId);
       return recoveryCompletion.then(() => activeRuntime);
     }
 
     this.#messageAttention.clearAgent(agentId);
 
-    const recoveryCompletion = recovery
-      ? this.#enqueueAgentInput(agentId, (completion) => ({
-          kind: "recovery",
-          context: recovery,
-          completion,
-        }))
-      : undefined;
+    const recoveryCompletion = recovery ? enqueueRecovery(recovery) : undefined;
     // Register the launch before its first await so concurrent starts cannot mint twice.
     // Launch failure is surfaced by `launch`; the item completion is also rejected when cleared.
     void recoveryCompletion?.catch(() => {});
-    const launch = this.#launchAgent(
-      agentId,
-      config,
-      sessionId,
-      requestId,
-      previousLaunchId,
-      sessionMode,
-      control,
-      replacedSessionId,
-    )
+    const launch = this.#launchAgent(agentId, config, request)
       .then(
         async (runtime) => {
           this.#ensureAgentInputDrain(agentId);
@@ -784,8 +763,8 @@ export class DaemonRuntime {
     while (!queue.closed) {
       const item = queue.items.shift();
       if (!item) return;
-      if (item.kind === "delivery") {
-        try {
+      try {
+        if (item.kind === "delivery") {
           await this.#messageAttention.receive(item.message);
           logger.info("Agent delivery indexed", {
             event: "agent.message.delivery_indexed",
@@ -795,47 +774,52 @@ export class DaemonRuntime {
             target: item.message.target,
             sequence: item.message.sequence,
           });
-          item.completion.resolve();
-        } catch (error) {
-          item.completion.reject(error);
-        }
-        continue;
-      }
-      const messages = [
-        ...(item.context.wakeMessage ? [item.context.wakeMessage] : []),
-        ...(item.context.resumeMessages ?? []),
-      ];
-      try {
-        if (messages.length || Object.keys(item.context.unreadSummary ?? {}).length)
-          await this.#messageAttention.recover(agentId, messages, item.context.unreadSummary ?? {});
+        } else await this.#recoverAttention(agentId, item.context);
       } catch (error) {
-        logger.warn("Agent recovery notice was not accepted; canonical unread state remains", {
-          event: "agent.recovery_notice.rejected",
-          agent_id: agentId,
-          error_code: error instanceof Error ? error.name : "UnknownError",
-        });
-        if (this.#agentLaunches.has(agentId)) {
-          this.#stoppingAgents.add(agentId);
-          this.#closeAgentInputQueue(agentId, error);
-          const activityLaunch = this.#currentActivityLaunches.get(agentId);
-          if (activityLaunch) activityLaunch.stopping = true;
-          this.#revokeLocalLaunch(
-            agentId,
-            this.#agentContexts.get(agentId),
-            this.#agentProxyTokens.get(agentId),
-          );
-          let rejection = error;
-          try {
-            await this.#releaseAgentRuntime(agentId);
-            if (!this.#agentStops.has(agentId)) this.#stoppingAgents.delete(agentId);
-          } catch (cleanupError) {
-            rejection = cleanupError;
-          }
-          item.completion.reject(rejection);
+        if (item.kind === "recovery" && this.#agentLaunches.has(agentId)) {
+          item.completion.reject(await this.#abandonLaunch(agentId, error));
           return;
+        }
+        if (item.kind === "delivery") {
+          item.completion.reject(error);
+          continue;
         }
       }
       item.completion.resolve();
+    }
+  }
+
+  async #recoverAttention(agentId: string, context: AgentRecoveryContext): Promise<void> {
+    const messages = [
+      ...(context.wakeMessage ? [context.wakeMessage] : []),
+      ...(context.resumeMessages ?? []),
+    ];
+    try {
+      if (messages.length || Object.keys(context.unreadSummary ?? {}).length)
+        await this.#messageAttention.recover(agentId, messages, context.unreadSummary ?? {});
+    } catch (error) {
+      logger.warn("Agent recovery notice was not accepted; canonical unread state remains", {
+        event: "agent.recovery_notice.rejected",
+        agent_id: agentId,
+        error_code: error instanceof Error ? error.name : "UnknownError",
+      });
+      throw error;
+    }
+  }
+
+  /** Tears down a launch whose recovery notice was rejected; returns the error to surface. */
+  async #abandonLaunch(agentId: string, error: unknown): Promise<unknown> {
+    this.#stoppingAgents.add(agentId);
+    this.#closeAgentInputQueue(agentId, error);
+    const activityLaunch = this.#currentActivityLaunches.get(agentId);
+    if (activityLaunch) activityLaunch.stopping = true;
+    this.#revokeLocalLaunch(agentId);
+    try {
+      await this.#releaseAgentRuntime(agentId);
+      if (!this.#agentStops.has(agentId)) this.#stoppingAgents.delete(agentId);
+      return error;
+    } catch (cleanupError) {
+      return cleanupError;
     }
   }
 
@@ -849,61 +833,61 @@ export class DaemonRuntime {
     if (!queue.drain) this.#agentInputQueues.delete(agentId);
   }
 
+  async #requestLaunchConfig(
+    agentId: string,
+    requestId: string,
+    launch: ActivityLaunch,
+    control: LaunchRequest["control"],
+  ) {
+    const { workspaceId } = this.#connection;
+    if (this.#transport.requestAgentLaunchConfig)
+      return this.#transport.requestAgentLaunchConfig({
+        agentId,
+        workspaceId,
+        ...(control
+          ? { controlEpoch: control.controlEpoch, requestId, launchId: launch.launchId }
+          : {}),
+      });
+    if (this.#transport.requestAgentApiKey)
+      return { agentApiKey: await this.#transport.requestAgentApiKey({ agentId, workspaceId }) };
+    throw new Error("Agent API key endpoint is not configured");
+  }
+
   async #launchAgent(
     agentId: string,
     config: AgentRuntimeConfig,
-    sessionId?: string,
-    requestedId?: string,
-    cloudPreviousLaunchId?: string,
-    sessionMode?: "create" | "resume",
-    control?: { controlEpoch?: number; launchId: string },
-    recoveryReplacedSessionId?: string,
+    request: LaunchRequest,
   ): Promise<AgentRuntime> {
+    const { control } = request;
     const previous = this.#sessionReferences.get(agentId);
     const continuing =
       previous?.provider === config.provider &&
-      (!requestedId || requestedId === previous.requestId);
-    const requestId = requestedId ?? (continuing ? previous.requestId : crypto.randomUUID());
+      (!request.requestId || request.requestId === previous.requestId);
+    const requestId = request.requestId ?? (continuing ? previous.requestId : crypto.randomUUID());
     const reference = {
       requestId,
       provider: config.provider,
-      sessionId: sessionId ?? (continuing ? previous.sessionId : undefined),
-      sessionMode: sessionMode ?? (continuing ? previous.sessionMode : undefined),
-      launchId: cloudPreviousLaunchId ?? (continuing ? previous.launchId : undefined),
+      sessionId: request.sessionId ?? (continuing ? previous.sessionId : undefined),
+      sessionMode: request.sessionMode ?? (continuing ? previous.sessionMode : undefined),
+      launchId: request.previousLaunchId ?? (continuing ? previous.launchId : undefined),
     };
     const previousLaunchId = reference.launchId;
     this.#sessionReferences.set(agentId, reference);
-    const launch = {
+    const launch: ActivityLaunch = {
       launchId: control?.launchId ?? crypto.randomUUID(),
       clientSeq: 0,
       stopping: false,
     };
     this.#currentActivityLaunches.set(agentId, launch);
+    const current = () => this.#currentActivityLaunches.get(agentId) === launch && !launch.stopping;
     let agentApiKey: string | undefined;
     let stage: "credential" | "runtime" = "credential";
     try {
-      const launchConfig = this.#transport.requestAgentLaunchConfig
-        ? await this.#transport.requestAgentLaunchConfig({
-            agentId,
-            workspaceId: this.#connection.workspaceId,
-            ...(control
-              ? { controlEpoch: control.controlEpoch, requestId, launchId: launch.launchId }
-              : {}),
-          })
-        : this.#transport.requestAgentApiKey
-          ? {
-              agentApiKey: await this.#transport.requestAgentApiKey({
-                agentId,
-                workspaceId: this.#connection.workspaceId,
-              }),
-            }
-          : undefined;
-      if (!launchConfig) throw new Error("Agent API key endpoint is not configured");
+      const launchConfig = await this.#requestLaunchConfig(agentId, requestId, launch, control);
       agentApiKey = launchConfig.agentApiKey;
       this.#pendingAgentApiKeyRevokes.add(agentApiKey);
-      if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
-      if (this.#stoppingAgents.has(agentId) || this.#agentProcessManager.isStopping(agentId))
-        throw new Error(`Agent runtime is stopping: ${agentId}`);
+      this.#assertRunning();
+      this.#assertAgentNotStopping(agentId);
       this.#agentApiKeys.set(agentId, agentApiKey);
       const proxyToken = this.#agentProxy?.issue(agentId, agentApiKey);
       if (proxyToken) this.#agentProxyTokens.set(agentId, proxyToken);
@@ -930,12 +914,9 @@ export class DaemonRuntime {
         launch.launchId,
         this.#transport.reportAgentSession
           ? async (reportedSessionId, replacedSessionId) => {
-              if (
-                this.#currentActivityLaunches.get(agentId) !== launch ||
-                launch.stopping ||
-                this.#stopping
-              )
+              if (!current() || this.#stopping)
                 throw new Error("Agent session launch was superseded");
+              const replaced = replacedSessionId ?? request.replacedSessionId;
               await this.#transport.reportAgentSession!({
                 protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
                 requestId: crypto.randomUUID(),
@@ -944,31 +925,28 @@ export class DaemonRuntime {
                 agentId,
                 provider: config.provider,
                 sessionId: reportedSessionId,
-                ...((replacedSessionId ?? recoveryReplacedSessionId)
-                  ? { replacedSessionId: replacedSessionId ?? recoveryReplacedSessionId }
-                  : {}),
+                ...(replaced ? { replacedSessionId: replaced } : {}),
                 startRequestId: requestId,
                 daemonInstanceId: this.#runtimeInstanceId,
                 launchId: launch.launchId,
                 ...(control?.controlEpoch ? { controlEpoch: control.controlEpoch } : {}),
                 ...(previousLaunchId ? { previousLaunchId } : {}),
               });
-              if (this.#currentActivityLaunches.get(agentId) === launch && !launch.stopping) {
-                reference.sessionId = reportedSessionId;
-                reference.sessionMode = "resume";
-                reference.launchId = launch.launchId;
-                if (replacedSessionId ?? recoveryReplacedSessionId)
-                  this.#emitAgentActivity(agentId, launch, {
-                    protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-                    requestId: crypto.randomUUID(),
-                    workspaceId: this.#connection.workspaceId,
+              if (!current()) return;
+              reference.sessionId = reportedSessionId;
+              reference.sessionMode = "resume";
+              reference.launchId = launch.launchId;
+              if (replaced)
+                this.#emitAgentActivity(
+                  agentId,
+                  launch,
+                  this.#activity(
                     agentId,
-                    detailKind: AGENT_ACTIVITY_DETAIL_KIND.OTHER,
-                    level: "info",
-                    detail:
-                      "Original session history was not found. A new session was started; previous context was not restored.",
-                  });
-              }
+                    AGENT_ACTIVITY_DETAIL_KIND.OTHER,
+                    "info",
+                    "Original session history was not found. A new session was started; previous context was not restored.",
+                  ),
+                );
             }
           : undefined,
         reference.sessionMode,
@@ -977,83 +955,9 @@ export class DaemonRuntime {
         await this.#agentProcessManager.stop(agentId);
         throw new Error(`Agent runtime is stopping: ${agentId}`);
       }
-      const emit = (activity: Omit<AgentActivity, "launchId" | "clientSeq" | "observedAtMs">) => {
-        this.#emitAgentActivity(agentId, launch, activity);
-      };
-      const trajectory = new ActivityTrajectory((runtimeEvent) => {
-        if (runtimeEvent.type === "session") {
-          if (control)
-            void this.#agentSessions
-              .update(agentId, launch.launchId, runtimeEvent.identity)
-              .catch(() => {});
-          return;
-        }
-        if (runtimeEvent.type === AGENT_RUNTIME_EVENT_TYPE.USAGE) {
-          if (runtimeEvent.snapshot.provider === config.provider)
-            this.#rememberUsage(runtimeEvent.snapshot);
-          return;
-        }
-        if (runtimeEvent.type === "activity") {
-          emit({
-            protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-            requestId: crypto.randomUUID(),
-            workspaceId: this.#connection.workspaceId,
-            agentId,
-            detailKind: runtimeEvent.activity.detailKind,
-            level: runtimeEvent.activity.level,
-            entries: runtimeEvent.activity.entries,
-            detail:
-              runtimeEvent.activity.detailKind !==
-                AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING &&
-              runtimeEvent.activity.entries?.some((entry) => entry.kind !== "tool_start")
-                ? ""
-                : safeRuntimeActivityMessage(
-                    runtimeEvent.activity.detailKind,
-                    runtimeEvent.activity.level,
-                    runtimeEvent.activity.detail,
-                  ),
-            ...(runtimeEvent.activity.runtimeError
-              ? { runtimeError: runtimeEvent.activity.runtimeError }
-              : runtimeEvent.activity.level === "error"
-                ? { runtimeError: runtimeFailureDiagnostic(runtimeEvent.activity.detail) }
-                : {}),
-          });
-          if (runtimeEvent.activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.IDLE)
-            void this.drainAppInboxNotices(agentId).catch(() => {});
-          return;
-        }
-        if (runtimeEvent.type !== "completed") return;
-        if (control)
-          void runtime.session
-            .readSessionIdentity?.()
-            .then(async (identity) => {
-              if (identity) await this.#agentSessions.update(agentId, launch.launchId, identity);
-            })
-            .catch(() => {});
-        emit(
-          runtimeEvent.status === "failed"
-            ? {
-                protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-                requestId: crypto.randomUUID(),
-                workspaceId: this.#connection.workspaceId,
-                agentId,
-                detailKind: AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
-                level: "error",
-                detail: "Agent runtime failed.",
-                runtimeError: runtimeFailureDiagnostic("turn failure"),
-              }
-            : {
-                protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-                requestId: crypto.randomUUID(),
-                workspaceId: this.#connection.workspaceId,
-                agentId,
-                detailKind: AGENT_ACTIVITY_DETAIL_KIND.IDLE,
-                level: "info",
-                detail: "",
-              },
-        );
-        void this.drainAppInboxNotices(agentId).catch(() => {});
-      });
+      const trajectory = new ActivityTrajectory((event) =>
+        this.#observeRuntimeEvent(agentId, launch, config, runtime, Boolean(control), event),
+      );
       const unsubscribe = runtime.session.subscribe((event) => trajectory.accept(event));
       runtime.session.onExit(() => {
         trajectory.dispose();
@@ -1072,34 +976,24 @@ export class DaemonRuntime {
             .then((identity) => this.#agentControl.stopped(agentId, launch.launchId, identity))
             .then(() => this.#agentSessions.replay(agentId))
             .catch(() => {});
-        emit({
-          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-          requestId: crypto.randomUUID(),
-          workspaceId: this.#connection.workspaceId,
-          agentId,
-          detailKind: AGENT_ACTIVITY_DETAIL_KIND.STOPPED,
-          level: "info",
-          detail: "Agent runtime stopped",
-        });
+        this.#emitAgentActivity(agentId, launch, this.#stoppedActivity(agentId));
         if (this.#currentActivityLaunches.get(agentId) === launch)
           this.#currentActivityLaunches.delete(agentId);
       });
       this.#sendAgentStatus(agentId, "active");
       this.#emitAgentActivity(agentId, launch, {
-        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+        ...this.#activity(
+          agentId,
+          AGENT_ACTIVITY_DETAIL_KIND.STARTING,
+          "info",
+          "Agent runtime is starting.",
+        ),
         requestId,
-        workspaceId: this.#connection.workspaceId,
-        agentId,
-        detailKind: AGENT_ACTIVITY_DETAIL_KIND.STARTING,
-        level: "info",
-        detail: "Agent runtime is starting.",
       });
       void this.drainAppInboxNotices(agentId).catch(() => {});
       return runtime;
     } catch (error) {
-      const proxyToken = this.#agentProxyTokens.get(agentId);
-      const localContext = this.#agentContexts.get(agentId);
-      this.#revokeLocalLaunch(agentId, localContext, proxyToken);
+      this.#revokeLocalLaunch(agentId);
       if (agentApiKey) {
         try {
           await this.#revokeAgentApiKey(agentApiKey);
@@ -1109,20 +1003,80 @@ export class DaemonRuntime {
       }
       if (!this.#stopping && !this.#stoppingAgents.has(agentId)) {
         this.#sendAgentStatus(agentId, "inactive");
-        this.#emitAgentActivity(agentId, launch, {
-          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-          requestId: crypto.randomUUID(),
-          workspaceId: this.#connection.workspaceId,
+        this.#emitAgentActivity(
           agentId,
-          detailKind: AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
-          level: "error",
-          detail: this.#launchFailureMessage(agentId, stage, error),
-        });
+          launch,
+          this.#runtimeErrorActivity(agentId, this.#launchFailureMessage(agentId, stage, error)),
+        );
       }
       if (this.#currentActivityLaunches.get(agentId) === launch)
         this.#currentActivityLaunches.delete(agentId);
       throw error;
     }
+  }
+
+  /** Translates one coalesced provider event into cloud Activity, Session and usage updates. */
+  #observeRuntimeEvent(
+    agentId: string,
+    launch: ActivityLaunch,
+    config: AgentRuntimeConfig,
+    runtime: AgentRuntime,
+    controlled: boolean,
+    event: AgentRuntimeEvent,
+  ): void {
+    if (event.type === "session") {
+      if (controlled)
+        void this.#agentSessions.update(agentId, launch.launchId, event.identity).catch(() => {});
+      return;
+    }
+    if (event.type === AGENT_RUNTIME_EVENT_TYPE.USAGE) {
+      if (event.snapshot.provider === config.provider) this.#rememberUsage(event.snapshot);
+      return;
+    }
+    if (event.type === "activity") {
+      const { activity } = event;
+      const carriesEntries =
+        activity.detailKind !== AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING &&
+        activity.entries?.some((entry) => entry.kind !== "tool_start");
+      this.#emitAgentActivity(agentId, launch, {
+        ...this.#activity(
+          agentId,
+          activity.detailKind,
+          activity.level,
+          carriesEntries
+            ? ""
+            : safeRuntimeActivityMessage(activity.detailKind, activity.level, activity.detail),
+          { entries: activity.entries },
+        ),
+        ...(activity.runtimeError
+          ? { runtimeError: activity.runtimeError }
+          : activity.level === "error"
+            ? { runtimeError: runtimeFailureDiagnostic(activity.detail) }
+            : {}),
+      });
+      if (activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.IDLE)
+        void this.drainAppInboxNotices(agentId).catch(() => {});
+      return;
+    }
+    if (event.type !== "completed") return;
+    if (controlled)
+      void runtime.session
+        .readSessionIdentity?.()
+        .then(async (identity) => {
+          if (identity) await this.#agentSessions.update(agentId, launch.launchId, identity);
+        })
+        .catch(() => {});
+    this.#emitAgentActivity(
+      agentId,
+      launch,
+      event.status === "failed"
+        ? {
+            ...this.#runtimeErrorActivity(agentId, "Agent runtime failed."),
+            runtimeError: runtimeFailureDiagnostic("turn failure"),
+          }
+        : this.#activity(agentId, AGENT_ACTIVITY_DETAIL_KIND.IDLE, "info", ""),
+    );
+    void this.drainAppInboxNotices(agentId).catch(() => {});
   }
 
   #rememberUsage(snapshot: UsageSnapshot): void {
@@ -1150,13 +1104,24 @@ export class DaemonRuntime {
     return current;
   }
 
-  async handleAgentStart(intent: AgentStartIntent): Promise<AgentRuntime> {
+  #assertOwnIntent(intent: {
+    protocolMajor: number;
+    workspaceId: string;
+    computerId?: string;
+  }): void {
     if (intent.protocolMajor !== WORKSPACE_PROTOCOL_MAJOR)
       throw new Error("unsupported agent protocol major");
     if (intent.workspaceId !== this.#connection.workspaceId)
       throw new Error("agent intent targets another Workspace");
-    if (intent.computerId && intent.computerId !== this.#connection.computerId)
+    if (intent.computerId !== this.#connection.computerId)
       throw new Error("agent intent targets another Computer");
+  }
+
+  async handleAgentStart(intent: AgentStartIntent): Promise<AgentRuntime> {
+    this.#assertOwnIntent({
+      ...intent,
+      computerId: intent.computerId || this.#connection.computerId,
+    });
     if (intent.controlEpoch) {
       await this.#agentControl.start(intent);
       await this.#agentSessions.replay(intent.agentId);
@@ -1168,25 +1133,12 @@ export class DaemonRuntime {
       throw new Error("Agent requires a fenced Start");
     const stopping = this.#agentStops.get(intent.agentId);
     if (stopping) await stopping;
-    return this.startAgent(
-      intent.agentId,
-      {
-        provider: intent.provider,
-        model: intent.model,
-        modelProvider: intent.modelProvider,
-        reasoning: intent.reasoning,
-        providerConfig: intent.providerConfig,
-      },
-      intent.sessionId,
-      intent.requestId,
-      {
-        wakeMessage: intent.wakeMessage,
-        resumeMessages: intent.resumeMessages,
-        unreadSummary: intent.unreadSummary,
-      },
-      intent.previousLaunchId,
-      intent.sessionMode,
-    );
+    return this.#startAgent(intent.agentId, runtimeConfigOf(intent), recoveryOf(intent), {
+      sessionId: intent.sessionId,
+      requestId: intent.requestId,
+      previousLaunchId: intent.previousLaunchId,
+      sessionMode: intent.sessionMode,
+    });
   }
 
   async handleAgentWorkspaceReset(request: AgentWorkspaceResetRequest): Promise<void> {
@@ -1201,12 +1153,7 @@ export class DaemonRuntime {
   }
 
   async handleAgentStop(intent: AgentStopIntent): Promise<void> {
-    if (intent.protocolMajor !== WORKSPACE_PROTOCOL_MAJOR)
-      throw new Error("unsupported agent protocol major");
-    if (intent.workspaceId !== this.#connection.workspaceId)
-      throw new Error("agent intent targets another Workspace");
-    if (intent.computerId !== this.#connection.computerId)
-      throw new Error("agent intent targets another Computer");
+    this.#assertOwnIntent(intent);
     if (intent.provider !== undefined && intent.controlEpoch !== undefined) {
       await this.#agentControl.stop({
         protocolMajor: intent.protocolMajor,
@@ -1224,7 +1171,7 @@ export class DaemonRuntime {
   }
 
   async handleAgentMessage(message: AgentMessageDelivery): Promise<void> {
-    if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
+    this.#assertRunning();
     if (this.#stoppingAgents.has(message.agentId))
       throw new Error(`Agent runtime is stopping: ${message.agentId}`);
     if (message.protocolMajor !== WORKSPACE_PROTOCOL_MAJOR)
@@ -1236,20 +1183,20 @@ export class DaemonRuntime {
       message,
       completion,
     }));
-    if (!this.#agentProcessManager.session(message.agentId)) {
-      const wakeable = this.#agentProcessManager.restartConfig(message.agentId);
-      if (!wakeable && !this.#agentLaunches.has(message.agentId)) {
-        this.#closeAgentInputQueue(message.agentId, new Error("Agent is inactive"));
-        return delivery;
-      }
-      if (this.#agentLaunches.has(message.agentId)) return delivery;
-      if (!wakeable) return delivery;
-      const launch = this.startAgent(message.agentId, wakeable.config, wakeable.sessionId);
-      await Promise.all([launch, delivery]);
-      return;
+    if (this.#agentProcessManager.session(message.agentId)) {
+      this.#ensureAgentInputDrain(message.agentId);
+      return delivery;
     }
-    this.#ensureAgentInputDrain(message.agentId);
-    await delivery;
+    if (this.#agentLaunches.has(message.agentId)) return delivery;
+    const wakeable = this.#agentProcessManager.restartConfig(message.agentId);
+    if (!wakeable) {
+      this.#closeAgentInputQueue(message.agentId, new Error("Agent is inactive"));
+      return delivery;
+    }
+    const launch = this.#startAgent(message.agentId, wakeable.config, undefined, {
+      sessionId: wakeable.sessionId,
+    });
+    await Promise.all([launch, delivery]);
   }
 
   stopAgent(agentId: string): Promise<void> {
@@ -1261,23 +1208,15 @@ export class DaemonRuntime {
     this.#closeAgentInputQueue(agentId, new Error(`Agent runtime is stopping: ${agentId}`));
     const activityLaunch = this.#currentActivityLaunches.get(agentId);
     if (activityLaunch) activityLaunch.stopping = true;
-    this.#revokeLocalLaunch(
-      agentId,
-      this.#agentContexts.get(agentId),
-      this.#agentProxyTokens.get(agentId),
-    );
+    this.#revokeLocalLaunch(agentId);
     const stopping = this.#stopAgent(agentId)
       .catch((error) => {
         if (activityLaunch)
-          this.#emitAgentActivity(agentId, activityLaunch, {
-            protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-            requestId: crypto.randomUUID(),
-            workspaceId: this.#connection.workspaceId,
+          this.#emitAgentActivity(
             agentId,
-            detailKind: AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
-            level: "error",
-            detail: this.#stopFailureMessage(agentId, error),
-          });
+            activityLaunch,
+            this.#runtimeErrorActivity(agentId, this.#stopFailureMessage(agentId, error)),
+          );
         throw error;
       })
       .finally(() => {
@@ -1309,15 +1248,7 @@ export class DaemonRuntime {
     this.#messageAttention.clearAgent(agentId);
     this.#sendAgentStatus(agentId, "inactive");
     if (publishStopped && activityLaunch)
-      this.#emitAgentActivity(agentId, activityLaunch, {
-        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-        requestId: crypto.randomUUID(),
-        workspaceId: this.#connection.workspaceId,
-        agentId,
-        detailKind: AGENT_ACTIVITY_DETAIL_KIND.STOPPED,
-        level: "info",
-        detail: "Agent runtime stopped",
-      });
+      this.#emitAgentActivity(agentId, activityLaunch, this.#stoppedActivity(agentId));
     this.#currentActivityLaunches.delete(agentId);
   }
 
@@ -1332,7 +1263,12 @@ export class DaemonRuntime {
       );
   }
 
-  #revokeLocalLaunch(agentId: string, context?: string, proxyToken?: string): void {
+  /** Revokes the Agent's local context and proxy token; defaults to whatever is currently issued. */
+  #revokeLocalLaunch(
+    agentId: string,
+    context = this.#agentContexts.get(agentId),
+    proxyToken = this.#agentProxyTokens.get(agentId),
+  ): void {
     if (context && this.#agentContexts.get(agentId) === context)
       this.#agentContexts.delete(agentId);
     if (proxyToken && this.#agentProxyTokens.get(agentId) === proxyToken)
@@ -1340,11 +1276,45 @@ export class DaemonRuntime {
     if (proxyToken) this.#agentProxy?.revoke(proxyToken);
   }
 
-  #emitAgentActivity(
+  #activity(
     agentId: string,
-    launch: { launchId: string; clientSeq: number; stopping: boolean },
-    activity: Omit<AgentActivity, "launchId" | "clientSeq" | "observedAtMs">,
-  ): void {
+    detailKind: AgentActivity["detailKind"],
+    level: AgentActivity["level"],
+    detail: string,
+    extra: Partial<ActivityDraft> = {},
+  ): ActivityDraft {
+    return {
+      protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+      requestId: crypto.randomUUID(),
+      workspaceId: this.#connection.workspaceId,
+      agentId,
+      detailKind,
+      level,
+      detail,
+      ...extra,
+    };
+  }
+
+  #runtimeErrorActivity(agentId: string, detail: string): ActivityDraft {
+    return this.#activity(agentId, AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR, "error", detail);
+  }
+
+  #stoppedActivity(agentId: string): ActivityDraft {
+    return this.#activity(
+      agentId,
+      AGENT_ACTIVITY_DETAIL_KIND.STOPPED,
+      "info",
+      "Agent runtime stopped",
+    );
+  }
+
+  /** Emits against the Agent's current launch, if one exists. */
+  #emitCurrentActivity(agentId: string, activity: ActivityDraft): void {
+    const launch = this.#currentActivityLaunches.get(agentId);
+    if (launch) this.#emitAgentActivity(agentId, launch, activity);
+  }
+
+  #emitAgentActivity(agentId: string, launch: ActivityLaunch, activity: ActivityDraft): void {
     if (!this.#activityEnabled || this.#currentActivityLaunches.get(agentId) !== launch) return;
     if (
       launch.stopping &&
@@ -1377,17 +1347,21 @@ export class DaemonRuntime {
     });
   }
 
+  #cleanupUnconfirmed(agentId: string, error: unknown): boolean {
+    return (
+      error instanceof AgentProcessCleanupError || this.#agentProcessManager.isStopping(agentId)
+    );
+  }
+
   #launchFailureMessage(agentId: string, stage: "credential" | "runtime", error: unknown): string {
-    if (error instanceof AgentProcessCleanupError || this.#agentProcessManager.isStopping(agentId))
-      return "Agent process cleanup could not be confirmed. Replacement launch is blocked.";
+    if (this.#cleanupUnconfirmed(agentId, error)) return CLEANUP_UNCONFIRMED;
     return stage === "credential"
       ? "Agent authorization could not be prepared."
       : "Agent runtime could not be started.";
   }
 
   #stopFailureMessage(agentId: string, error: unknown): string {
-    if (error instanceof AgentProcessCleanupError || this.#agentProcessManager.isStopping(agentId))
-      return "Agent process cleanup could not be confirmed. Replacement launch is blocked.";
+    if (this.#cleanupUnconfirmed(agentId, error)) return CLEANUP_UNCONFIRMED;
     return "Agent authorization could not be revoked. The Agent process has been stopped.";
   }
 
@@ -1405,9 +1379,8 @@ export class DaemonRuntime {
     request: LocalAgentMessageRequest,
     agentApiKey?: string,
   ): Promise<AgentMessageResponse> {
-    if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
-    const agentId = [...this.#agentContexts.entries()].find(([, value]) => value === context)?.[0];
-    if (!agentId) throw new Error("invalid agent local context");
+    this.#assertRunning();
+    const agentId = this.#agentIdForContext(context);
     if (!this.#transport.agentMessage) throw new Error("daemon connection is not connected");
     if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
     logger.info("Agent message operation received", {
@@ -1419,177 +1392,197 @@ export class DaemonRuntime {
     const target = request.target
       ? await this.#canonicalAgentMessageTarget(agentId, request.target, agentApiKey)
       : undefined;
-    if (request.operation === "check") {
-      const startedAt = performance.now();
-      const attention = this.#messageAttention
-        .check(agentId)
-        .filter((item) => !target || item.target === target);
-      logger.info("Agent message check queried attention", {
-        event: "agent.message.check_attention",
-        agent_id: agentId,
-        target: target ?? "*",
-        attention_count: attention.length,
-      });
-      const messages: AgentMessageRecord[] = [];
-      for (const item of attention) {
-        let fromSequence: number | undefined;
-        let visibleSequence = 0;
-        while (fromSequence === undefined || fromSequence <= item.latestSequence) {
-          const result = await this.#transport.agentMessage(
-            {
-              protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-              requestId: request.requestId,
-              agentId,
-              workspaceId: this.#connection.workspaceId,
-              operation: "read",
-              target: item.target,
-              limit: request.limit,
-              fromSequence,
-              throughSequence: item.latestSequence,
-            },
-            agentApiKey,
-          );
-          if (!result.accepted) break;
-          const page = result.messages.filter(
-            ({ sequence, target }) =>
-              target === item.target &&
-              (fromSequence === undefined || sequence >= fromSequence) &&
-              sequence <= item.latestSequence,
-          );
-          if (!page.length) break;
-          messages.push(
-            ...page.filter(
-              ({ sender }) =>
-                isChannelMessageTarget(item.target) || sender === item.target.split(":")[0],
-            ),
-          );
-          visibleSequence = Math.max(visibleSequence, ...page.map(({ sequence }) => sequence));
-          fromSequence = visibleSequence + 1;
-          if (!result.hasNewer) break;
-        }
-        if (visibleSequence > 0)
-          this.#messageAttention.recordModelSeen(agentId, item.target, visibleSequence);
-      }
-      logger.info("Agent checked pending messages", {
-        event: "agent.message.checked",
-        request_id: request.requestId,
-        workspace_id: this.#connection.workspaceId,
-        computer_id: this.#connection.computerId,
-        agent_id: agentId,
-        target_count: attention.length,
-        pending_count: attention.reduce((count, item) => count + item.pendingCount, 0),
-        displayed_count: messages.length,
-        sequence_ranges: attention.map((item) => ({
-          first: item.firstPendingSequence,
-          latest: item.latestSequence,
-        })),
-        duration_ms: Math.round(performance.now() - startedAt),
-        outcome: "ok",
-      });
-      return {
-        requestId: request.requestId,
-        accepted: true,
-        attentionCount: attention.reduce((n, a) => n + a.pendingCount, 0),
-        summaries: attention.map((item) => ({ ...item, flags: [...item.flags] })),
-        messages,
-        messageId: "",
-      };
-    }
-    if (request.operation === "send" && target) {
-      const startedAt = performance.now();
-      const inbox = this.#agentInbox(agentId);
-      const draft = request.sendDraft ? await inbox.draft(target) : undefined;
-      if (request.sendDraft && !draft) throw new Error(`No held draft for target: ${target}`);
-      const body = draft?.body ?? request.body;
-      if (body === undefined) throw new Error("Agent message body is required");
-      if (!request.sendDraft) await inbox.save(target, body);
-      if (request.sendDraft && !draft?.holdToken)
-        throw new Error(`Held draft token is unavailable for target: ${target}`);
-      const result = await this.#transport.agentMessage(
-        {
-          protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-          requestId: request.requestId,
-          agentId,
-          workspaceId: this.#connection.workspaceId,
-          operation: "send",
-          target,
-          body,
-          holdToken: draft?.holdToken,
-          continueAnyway: request.continueAnyway,
-          seenUpToSequence: this.#messageAttention.modelSeenSequence(agentId, target) || undefined,
-          freshnessContextMode: request.freshnessContextMode,
-        },
-        agentApiKey,
-      );
-      if (result.sideEffectDecision === "hold" && result.holdToken)
-        await inbox.replace(target, body, result.holdToken);
-      else if (result.accepted) await inbox.clear(target);
-      const targetMessages = result.messages.filter((message) => message.target === target);
-      if (request.freshnessContextMode !== "withheld" && targetMessages.length > 0) {
-        this.#messageAttention.recordModelSeen(
-          agentId,
-          target,
-          Math.max(...targetMessages.map(({ sequence }) => sequence)),
-        );
-      }
-      if (result.sideEffectDecision === "hold") {
-        const launch = this.#currentActivityLaunches.get(agentId);
-        if (launch)
-          this.#emitAgentActivity(agentId, launch, {
+    const { operation } = request;
+    if (operation === "check")
+      return this.#checkAgentMessages(agentId, request, target, agentApiKey);
+    if (operation === "send" && target)
+      return this.#sendAgentMessage(agentId, request, target, agentApiKey);
+    return this.#forwardAgentMessage(agentId, request, operation, target, agentApiKey);
+  }
+
+  /** Reads every pending thread for the Agent and marks what the model has now seen. */
+  async #checkAgentMessages(
+    agentId: string,
+    request: LocalAgentMessageRequest,
+    target: string | undefined,
+    agentApiKey: string,
+  ): Promise<AgentMessageResponse> {
+    const startedAt = performance.now();
+    const attention = this.#messageAttention
+      .check(agentId)
+      .filter((item) => !target || item.target === target);
+    logger.info("Agent message check queried attention", {
+      event: "agent.message.check_attention",
+      agent_id: agentId,
+      target: target ?? "*",
+      attention_count: attention.length,
+    });
+    const messages: AgentMessageRecord[] = [];
+    for (const item of attention) {
+      let fromSequence: number | undefined;
+      let visibleSequence = 0;
+      while (fromSequence === undefined || fromSequence <= item.latestSequence) {
+        const result = await this.#transport.agentMessage!(
+          {
             protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-            requestId: crypto.randomUUID(),
-            workspaceId: this.#connection.workspaceId,
+            requestId: request.requestId,
             agentId,
-            detailKind: AGENT_ACTIVITY_DETAIL_KIND.FRESHNESS_HOLD,
-            level: "info",
-            detail: "Reply held until the Agent reviews newer messages.",
-          });
+            workspaceId: this.#connection.workspaceId,
+            operation: "read",
+            target: item.target,
+            limit: request.limit,
+            fromSequence,
+            throughSequence: item.latestSequence,
+          },
+          agentApiKey,
+        );
+        if (!result.accepted) break;
+        const page = result.messages.filter(
+          ({ sequence, target }) =>
+            target === item.target &&
+            (fromSequence === undefined || sequence >= fromSequence) &&
+            sequence <= item.latestSequence,
+        );
+        if (!page.length) break;
+        messages.push(
+          ...page.filter(
+            ({ sender }) =>
+              isChannelMessageTarget(item.target) || sender === item.target.split(":")[0],
+          ),
+        );
+        visibleSequence = Math.max(visibleSequence, ...page.map(({ sequence }) => sequence));
+        fromSequence = visibleSequence + 1;
+        if (!result.hasNewer) break;
       }
-      logger.info("Agent sent a message", {
-        event: "agent.message.sent",
-        request_id: request.requestId,
-        workspace_id: this.#connection.workspaceId,
-        computer_id: this.#connection.computerId,
-        agent_id: agentId,
-        freshness_decision: result.sideEffectDecision ?? "forward",
-        accepted: result.accepted,
-        message_id: result.messageId,
-        duration_ms: Math.round(performance.now() - startedAt),
-        outcome: result.accepted ? "ok" : "rejected",
-      });
-      return {
-        requestId: request.requestId,
-        accepted: result.accepted,
-        attentionCount: result.attentionCount,
-        messageId: result.messageId ?? "",
-        messages: request.freshnessContextMode === "withheld" ? [] : result.messages,
-        summaries: [],
-        sideEffectDecision:
-          result.sideEffectDecision === "anyway_accepted"
-            ? "bypass"
-            : result.sideEffectDecision === "anyway_denied"
-              ? undefined
-              : result.sideEffectDecision,
-        anywayAllowed: result.anywayAllowed,
-        freshnessContextMode: result.freshnessContextMode,
-        withheldMessageCount:
-          request.freshnessContextMode === "withheld"
-            ? (result.withheldMessageCount ?? result.attentionCount)
-            : undefined,
-      };
+      if (visibleSequence > 0)
+        this.#messageAttention.recordModelSeen(agentId, item.target, visibleSequence);
     }
-    const attentionUpperBound =
-      request.operation === "read" && target && !request.before && !request.after && !request.around
-        ? this.#messageAttention.check(agentId).find((item) => item.target === target)
-            ?.latestSequence
-        : undefined;
-    const result = await this.#transport.agentMessage(
+    logger.info("Agent checked pending messages", {
+      event: "agent.message.checked",
+      ...this.#agentLogScope(agentId, request.requestId),
+      target_count: attention.length,
+      pending_count: attention.reduce((count, item) => count + item.pendingCount, 0),
+      displayed_count: messages.length,
+      sequence_ranges: attention.map((item) => ({
+        first: item.firstPendingSequence,
+        latest: item.latestSequence,
+      })),
+      duration_ms: Math.round(performance.now() - startedAt),
+      outcome: "ok",
+    });
+    return {
+      requestId: request.requestId,
+      accepted: true,
+      attentionCount: attention.reduce((n, a) => n + a.pendingCount, 0),
+      summaries: attention.map((item) => ({ ...item, flags: [...item.flags] })),
+      messages,
+      messageId: "",
+    };
+  }
+
+  /** Sends a body or a held draft, honouring the server's freshness hold decision. */
+  async #sendAgentMessage(
+    agentId: string,
+    request: LocalAgentMessageRequest,
+    target: string,
+    agentApiKey: string,
+  ): Promise<AgentMessageResponse> {
+    const startedAt = performance.now();
+    const inbox = this.#agentInbox(agentId);
+    const draft = request.sendDraft ? await inbox.draft(target) : undefined;
+    if (request.sendDraft && !draft) throw new Error(`No held draft for target: ${target}`);
+    const body = draft?.body ?? request.body;
+    if (body === undefined) throw new Error("Agent message body is required");
+    if (!request.sendDraft) await inbox.save(target, body);
+    if (request.sendDraft && !draft?.holdToken)
+      throw new Error(`Held draft token is unavailable for target: ${target}`);
+    const result = await this.#transport.agentMessage!(
       {
         protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
         requestId: request.requestId,
         agentId,
         workspaceId: this.#connection.workspaceId,
-        operation: request.operation,
+        operation: "send",
+        target,
+        body,
+        holdToken: draft?.holdToken,
+        continueAnyway: request.continueAnyway,
+        seenUpToSequence: this.#messageAttention.modelSeenSequence(agentId, target) || undefined,
+        freshnessContextMode: request.freshnessContextMode,
+      },
+      agentApiKey,
+    );
+    const held = result.sideEffectDecision === "hold";
+    if (held && result.holdToken) await inbox.replace(target, body, result.holdToken);
+    else if (result.accepted) await inbox.clear(target);
+    const withheld = request.freshnessContextMode === "withheld";
+    const targetMessages = result.messages.filter((message) => message.target === target);
+    if (!withheld && targetMessages.length > 0)
+      this.#messageAttention.recordModelSeen(
+        agentId,
+        target,
+        Math.max(...targetMessages.map(({ sequence }) => sequence)),
+      );
+    if (held)
+      this.#emitCurrentActivity(
+        agentId,
+        this.#activity(
+          agentId,
+          AGENT_ACTIVITY_DETAIL_KIND.FRESHNESS_HOLD,
+          "info",
+          "Reply held until the Agent reviews newer messages.",
+        ),
+      );
+    logger.info("Agent sent a message", {
+      event: "agent.message.sent",
+      ...this.#agentLogScope(agentId, request.requestId),
+      freshness_decision: result.sideEffectDecision ?? "forward",
+      accepted: result.accepted,
+      message_id: result.messageId,
+      duration_ms: Math.round(performance.now() - startedAt),
+      outcome: result.accepted ? "ok" : "rejected",
+    });
+    return {
+      requestId: request.requestId,
+      accepted: result.accepted,
+      attentionCount: result.attentionCount,
+      messageId: result.messageId ?? "",
+      messages: withheld ? [] : result.messages,
+      summaries: [],
+      sideEffectDecision:
+        result.sideEffectDecision === "anyway_accepted"
+          ? "bypass"
+          : result.sideEffectDecision === "anyway_denied"
+            ? undefined
+            : result.sideEffectDecision,
+      anywayAllowed: result.anywayAllowed,
+      freshnessContextMode: result.freshnessContextMode,
+      withheldMessageCount: withheld
+        ? (result.withheldMessageCount ?? result.attentionCount)
+        : undefined,
+    };
+  }
+
+  /** Forwards read/search/mute/unmute/unfollow unchanged; an unpaged read settles attention. */
+  async #forwardAgentMessage(
+    agentId: string,
+    request: LocalAgentMessageRequest,
+    operation: Exclude<LocalAgentMessageRequest["operation"], "check">,
+    target: string | undefined,
+    agentApiKey: string,
+  ): Promise<AgentMessageResponse> {
+    const settlesAttention =
+      operation === "read" && target && !request.before && !request.after && !request.around;
+    const attentionUpperBound = settlesAttention
+      ? this.#messageAttention.check(agentId).find((item) => item.target === target)?.latestSequence
+      : undefined;
+    const result = await this.#transport.agentMessage!(
+      {
+        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+        requestId: request.requestId,
+        agentId,
+        workspaceId: this.#connection.workspaceId,
+        operation,
         target: target ?? "",
         body: request.body,
         before: request.before,
@@ -1603,14 +1596,7 @@ export class DaemonRuntime {
       },
       agentApiKey,
     );
-    if (
-      request.operation === "read" &&
-      result.accepted &&
-      target &&
-      !request.before &&
-      !request.after &&
-      !request.around
-    ) {
+    if (settlesAttention && result.accepted) {
       const visibleSequence = Math.max(
         ...result.messages
           .filter((message) => message.target === target)
@@ -1636,16 +1622,22 @@ export class DaemonRuntime {
     };
   }
 
+  #agentLogScope(agentId: string, requestId: string) {
+    return {
+      request_id: requestId,
+      workspace_id: this.#connection.workspaceId,
+      computer_id: this.#connection.computerId,
+      agent_id: agentId,
+    };
+  }
+
   async workspaceInfo(
     context: string,
     request: WorkspaceInfoRequest,
     agentApiKey?: string,
   ): Promise<WorkspaceInfoResponse> {
-    if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
-    const agentId = [...this.#agentContexts.entries()].find(([, value]) => value === context)?.[0];
-    if (!agentId) throw new Error("invalid agent local context");
+    this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.workspaceInfo) throw new Error("daemon connection is not connected");
-    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
     return this.#transport.workspaceInfo(request, agentApiKey);
   }
 
@@ -1654,72 +1646,16 @@ export class DaemonRuntime {
     command: TaskCommand,
     agentApiKey?: string,
   ): Promise<TaskResult> {
-    if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
-    const agentId = [...this.#agentContexts.entries()].find(([, value]) => value === context)?.[0];
-    if (!agentId) throw new Error("invalid agent local context");
+    this.#assertRunning();
+    const agentId = this.#agentIdForContext(context);
     if (!this.#transport.agentTask) throw new Error("daemon connection is not connected");
     if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
     const freshnessAction = command.operation === "claim" || command.operation === "update";
     if (freshnessAction && command.target) {
-      const attention = this.#messageAttention
-        .check(agentId)
-        .find((item) => item.target === command.target);
-      if (command.freshnessContextMode === "withheld" && attention)
-        return {
-          tasks: [],
-          state: "held",
-          freshnessContextMode: "withheld",
-          withheldMessageCount: attention.pendingCount,
-        };
-
-      const modelSeen = this.#messageAttention.modelSeenSequence(agentId, command.target);
-      if (command.freshnessContextMode !== "withheld" && (attention || modelSeen === 0)) {
-        const context = await this.#transport.agentMessage?.(
-          {
-            protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
-            requestId: crypto.randomUUID(),
-            agentId,
-            workspaceId: this.#connection.workspaceId,
-            operation: "read",
-            target: command.target,
-            limit: 3,
-            ...(attention
-              ? {
-                  fromSequence: attention.firstPendingSequence,
-                  throughSequence: attention.latestSequence,
-                }
-              : {}),
-          },
-          agentApiKey,
-        );
-        const heldMessages = (context?.accepted ? context.messages : [])
-          .filter((message) => message.target === command.target && message.sequence > modelSeen)
-          .slice(-3);
-        if (heldMessages.length > 0) {
-          this.#messageAttention.recordModelSeen(
-            agentId,
-            command.target,
-            Math.max(...heldMessages.map(({ sequence }) => sequence)),
-          );
-          return {
-            tasks: [],
-            state: "held",
-            freshnessContextMode: "inline",
-            heldMessages,
-            newMessageCount: attention?.pendingCount ?? heldMessages.length,
-          };
-        }
-        if (attention)
-          return {
-            tasks: [],
-            state: "held",
-            freshnessContextMode: "inline",
-            heldMessages: [],
-            newMessageCount: attention.pendingCount,
-          };
-      }
+      const held = await this.#heldTaskResult(agentId, command, command.target, agentApiKey);
+      if (held) return held;
     }
-    const result = await this.#transport.agentTask(
+    return this.#transport.agentTask(
       {
         ...command,
         protocolMajor: TASK_PROTOCOL_MAJOR,
@@ -1728,7 +1664,70 @@ export class DaemonRuntime {
       },
       agentApiKey,
     );
-    return result;
+  }
+
+  /** Applies the attention preflight to a Task claim/update; returns the held result, if any. */
+  async #heldTaskResult(
+    agentId: string,
+    command: TaskCommand,
+    target: string,
+    agentApiKey: string,
+  ): Promise<TaskResult | undefined> {
+    const attention = this.#messageAttention.check(agentId).find((item) => item.target === target);
+    if (command.freshnessContextMode === "withheld")
+      return attention
+        ? {
+            tasks: [],
+            state: "held",
+            freshnessContextMode: "withheld",
+            withheldMessageCount: attention.pendingCount,
+          }
+        : undefined;
+    const modelSeen = this.#messageAttention.modelSeenSequence(agentId, target);
+    if (!attention && modelSeen !== 0) return undefined;
+    const context = await this.#transport.agentMessage?.(
+      {
+        protocolMajor: WORKSPACE_PROTOCOL_MAJOR,
+        requestId: crypto.randomUUID(),
+        agentId,
+        workspaceId: this.#connection.workspaceId,
+        operation: "read",
+        target,
+        limit: 3,
+        ...(attention
+          ? {
+              fromSequence: attention.firstPendingSequence,
+              throughSequence: attention.latestSequence,
+            }
+          : {}),
+      },
+      agentApiKey,
+    );
+    const heldMessages = (context?.accepted ? context.messages : [])
+      .filter((message) => message.target === target && message.sequence > modelSeen)
+      .slice(-3);
+    if (heldMessages.length > 0) {
+      this.#messageAttention.recordModelSeen(
+        agentId,
+        target,
+        Math.max(...heldMessages.map(({ sequence }) => sequence)),
+      );
+      return {
+        tasks: [],
+        state: "held",
+        freshnessContextMode: "inline",
+        heldMessages,
+        newMessageCount: attention?.pendingCount ?? heldMessages.length,
+      };
+    }
+    if (!attention) return undefined;
+    return {
+      tasks: [],
+      state: "held",
+      freshnessContextMode: "inline",
+      heldMessages: [],
+      newMessageCount: attention.pendingCount,
+    };
   }
 
   async #canonicalAgentMessageTarget(
@@ -1771,9 +1770,7 @@ export class DaemonRuntime {
   }
 
   async reminder(context: string, request: LocalReminderRequest, agentApiKey: string) {
-    if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
-    const agentId = this.#agentIdForContext(context);
-    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    const agentId = this.#authorizedAgent(context, agentApiKey);
     if (request.operation === "ack" || request.operation === "dismiss") {
       const accepted = await this.#reminders.acknowledge(
         agentId,
@@ -1827,7 +1824,7 @@ export class DaemonRuntime {
   }
 
   async inbox(context: string, request: LocalInboxRequest): Promise<InboxResponse> {
-    if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
+    this.#assertRunning();
     const agentId = this.#agentIdForContext(context);
     const inbox = await this.#appInbox(agentId);
     return {
@@ -1874,7 +1871,11 @@ export class DaemonRuntime {
       if (!session) {
         const wakeable = this.#agentProcessManager.restartConfig(agentId);
         if (!wakeable) return false;
-        session = (await this.startAgent(agentId, wakeable.config, wakeable.sessionId)).session;
+        session = (
+          await this.#startAgent(agentId, wakeable.config, undefined, {
+            sessionId: wakeable.sessionId,
+          })
+        ).session;
       }
       if (!session.notify) return false;
       await session.notify("New app item available. Run coforge inbox check.");
@@ -1902,10 +1903,7 @@ export class DaemonRuntime {
     attachmentId: string,
     agentApiKey?: string,
   ): Promise<Response> {
-    if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
-    const agentId = [...this.#agentContexts.entries()].find(([, value]) => value === context)?.[0];
-    if (!agentId) throw new Error("invalid agent local context");
-    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    this.#authorizedAgent(context, agentApiKey);
     if (!this.#transport.agentAttachment) throw new Error("daemon connection is not connected");
     return this.#transport.agentAttachment(attachmentId, agentApiKey);
   }
@@ -1917,7 +1915,7 @@ export class DaemonRuntime {
   }
 
   issueAgentContext(agentId: string, context: string = crypto.randomUUID()): string {
-    if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
+    this.#assertRunning();
     this.#agentContexts.set(agentId, context);
     void this.#requestReminderSnapshot(agentId).catch(() => {});
     return context;
@@ -1931,23 +1929,8 @@ export class DaemonRuntime {
     this.#activityEnabled = false;
     for (const agentId of this.#agentInputQueues.keys())
       this.#closeAgentInputQueue(agentId, new Error("daemon runtime is stopping"));
-    this.#unsubscribeAgentStart?.();
-    this.#unsubscribeAgentStart = undefined;
-    this.#unsubscribeAgentStop?.();
-    this.#unsubscribeAgentStop = undefined;
-    this.#unsubscribeAgentWorkspaceReset?.();
-    this.#unsubscribeAgentWorkspaceReset = undefined;
-    this.#unsubscribeAgentMessage?.();
-    this.#unsubscribeAgentMessage = undefined;
-    this.#unsubscribeReminderSync?.();
-    this.#unsubscribeReminderSync = undefined;
+    this.#unsubscribeAll();
     this.#reminders.stop();
-    this.#unsubscribeUsageScan?.();
-    this.#unsubscribeUsageScan = undefined;
-    this.#unsubscribeSkillsList?.();
-    this.#unsubscribeSkillsList = undefined;
-    this.#unsubscribeReconnect?.();
-    this.#unsubscribeReconnect = undefined;
     for (const token of this.#agentProxyTokens.values()) this.#agentProxy?.revoke(token);
     this.#agentProxyTokens.clear();
     this.#agentContexts.clear();
@@ -2020,11 +2003,6 @@ function safeRuntimeActivityMessage(activity: string, level: string, message: st
     return scrubActivityText(message);
   }
   return "Agent activity observed.";
-}
-
-function diagnosticErrorCode(error: unknown): string {
-  if (error && typeof error === "object" && "code" in error) return String(error.code);
-  return error instanceof Error ? error.name : "UnknownError";
 }
 
 function scrubActivityText(message: string): string {

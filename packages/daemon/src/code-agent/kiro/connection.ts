@@ -1,3 +1,4 @@
+import { asRecord as record } from "../json-record";
 import {
   client,
   type AnyMessage,
@@ -134,8 +135,4 @@ export async function bounded<T>(promise: Promise<T>, timeoutMs = 30_000): Promi
   }
 }
 
-export function record(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
+export { record };

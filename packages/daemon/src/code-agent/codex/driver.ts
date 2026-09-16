@@ -15,6 +15,7 @@ import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/i
 import { getLogger } from "@logtape/logtape";
 import { discoverCodexCatalog, discoverExternalCodeAgents } from "../runtime-inventory";
 import type { ProviderDiscoveryOptions } from "../contract";
+import { asRecord, eventTime } from "../json-record";
 
 const logger = getLogger(["coforge", "daemon", "code-agent", "codex"]);
 
@@ -526,12 +527,6 @@ type CodexSessionState =
   | { type: "interrupting"; turnId: string }
   | { type: "disposed" };
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
 function assertSkillsLoaded(response: Record<string, unknown>, cwd: string): void {
   const data = asRecord(response.result)?.data;
   if (!Array.isArray(data)) throw new Error("Codex did not report loaded skills");
@@ -539,12 +534,6 @@ function assertSkillsLoaded(response: Record<string, unknown>, cwd: string): voi
   if (!workspace || !Array.isArray(workspace.errors) || workspace.errors.length > 0) {
     throw new Error("Codex failed to load workspace skills");
   }
-}
-
-function eventTime(record: Readonly<Record<string, unknown>>): string {
-  return typeof record.timestamp === "string" && !Number.isNaN(Date.parse(record.timestamp))
-    ? record.timestamp
-    : new Date().toISOString();
 }
 
 function scrubError(message: string): string {
