@@ -23,6 +23,7 @@ import {
   type AgentSessionReport,
   decodeAgentStartIntent,
   decodeAgentStopIntent,
+  decodeAgentActivityProbe,
   decodeAgentSkillsListRequest,
   encodeAgentSkillsListResult,
   AGENT_SKILLS_LIST_RESULT_METHOD,
@@ -55,6 +56,7 @@ import {
   type AgentStatus,
   type AgentStartIntent,
   type AgentStopIntent,
+  type AgentActivityProbe,
   type AgentMessageDelivery,
   type AgentMessageDeliveryAck,
   type AgentMessageRequest,
@@ -294,6 +296,7 @@ export interface DaemonConnectionClient {
   onReconnect?(callback: () => void): () => void;
   onAgentStart?(callback: (intent: AgentStartIntent) => void): () => void;
   onAgentStop?(callback: (intent: AgentStopIntent) => void): () => void;
+  onAgentActivityProbe?(callback: (probe: AgentActivityProbe) => void): () => void;
   onAgentMessage?(callback: (message: AgentMessageDelivery) => void): () => void;
   onReminderSync?(callback: (sync: ReminderSync) => void): () => void;
   requestSnapshot?(request: ReminderSnapshotRequest): Promise<ReminderSync>;
@@ -586,6 +589,7 @@ export class DaemonConnection implements DaemonConnectionClient {
   #serverHttpUrl = "";
   readonly #agentStart = new ListenerSlot<(intent: AgentStartIntent) => void>();
   readonly #agentStop = new ListenerSlot<(intent: AgentStopIntent) => void>();
+  readonly #agentActivityProbe = new ListenerSlot<(probe: AgentActivityProbe) => void>();
   readonly #agentWorkspaceReset = new ListenerSlot<(request: AgentWorkspaceResetRequest) => void>();
   readonly #agentMessage = new ListenerSlot<(message: AgentMessageDelivery) => void>();
   readonly #reminderSync = new ListenerSlot<(sync: ReminderSync) => void>();
@@ -692,6 +696,10 @@ export class DaemonConnection implements DaemonConnectionClient {
 
   onAgentStop(callback: (intent: AgentStopIntent) => void): () => void {
     return this.#agentStop.set(callback);
+  }
+
+  onAgentActivityProbe(callback: (probe: AgentActivityProbe) => void): () => void {
+    return this.#agentActivityProbe.set(callback);
   }
 
   onAgentMessage(callback: (message: AgentMessageDelivery) => void): () => void {
@@ -1181,6 +1189,11 @@ export class DaemonConnection implements DaemonConnectionClient {
           return false;
         void this.#usageScan.current?.(usage);
         return true;
+      }) ||
+      this.#route(data, decodeAgentActivityProbe, (probe) => {
+        if (probe.protocolMajor !== 1 || !ownsDaemon(probe)) return false;
+        this.#deliver(this.#agentActivityProbe, probe);
+        return true;
       });
     if (handled) return;
     // Agent publications are the common case and must decode as exactly one intent kind.
@@ -1403,6 +1416,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     for (const slot of [
       this.#agentStart,
       this.#agentStop,
+      this.#agentActivityProbe,
       this.#agentWorkspaceReset,
       this.#agentMessage,
       this.#reminderSync,

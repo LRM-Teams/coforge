@@ -130,6 +130,19 @@ message AgentRuntimeProviderConfig {
   string provider_id = 2;
 }
 
+// Versioned server-to-daemon liveness probe. The daemon answers with an
+// ordinary AgentActivity carrying the same probe_id.
+message AgentActivityProbe {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string workspace_id = 3;
+  string computer_id = 4;
+  string agent_id = 5;
+  string probe_id = 6;
+  // Explicit envelope discriminator; never infer message type from payload fields.
+  string message_type = 7;
+}
+
 // Versioned server-to-daemon canonical direct message delivery.
 message AgentMessageDelivery {
   uint32 protocol_major = 1;
@@ -182,6 +195,8 @@ message AgentActivity {
   // True when this frame re-sends the last busy activity to renew the
   // display lease during a long silent turn; carries no new content.
   bool is_heartbeat = 18;
+  // Set only on the daemon's reply to an AgentActivityProbe; echoes its probe_id.
+  string probe_id = 19;
 }
 
 // Display-only trajectory. The oneof makes kind/payload mismatches impossible.

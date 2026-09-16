@@ -99,6 +99,24 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 原始 reasoning 增量、Kiro 的压缩进度通知）；Daemon 按 Agent 把它限流到最多每 10 秒一条，
 同样不产生新的 Agent 业务状态。
 
+心跳只覆盖续租，不覆盖租约已经到期之后的情形：租约一旦到期，服务端没有可信来源，只能在
+下一次读写时把 Agent 惰性投影为 `online`。为此服务端自己运行一个 liveness sweep（ADR
+0020），而不是等浏览器按需触发：`OBSERVE_ACTIVITY`/`OBSERVE_STATUS` 维护一个按
+`expiresAt` 排序的 lease 索引（busy 时 `ZADD`，转为非 busy 或 `inactive` 时 `ZREM`）；
+`AgentActivitySweep` 每 5 秒（`ACTIVITY_SWEEP_INTERVAL_MS`）在一个 Redis 锁下 tick 一次
+（`NX PX 4500`，未抢到锁的实例整轮跳过，保证同一时刻整个集群只有一个实例在扫描），批量
+取出已过期的 lease，对每个成员运行 `SWEEP_STALE`：还新鲜则从索引移除；刚过期且未探测过
+则记录一次待定探测并向其 Daemon 发布新的 `agent:activity_probe` 意图；已探测但仍在等待则
+跳过；探测已经等待超过 `ACTIVITY_PROBE_TIMEOUT_MS`（5 秒）则判定为不可达，清除可见忙碌
+状态并直接把结果推给 `agent:status:<workspace_id>`，浏览器不必等自己下一次刷新就能看到
+Agent 变回 online。Daemon 用一条普通 `agent:activity` 应答（重发最近一条忙碌 Activity 并
+带上 `probe_id`，或在 Agent 已转为 idle 时回复 `idle`）；服务端把这条应答当成真实观测处理，
+而不是当成心跳：只有心跳和 `runtime_progress` 本身不改变可见状态，探测应答可以把展示从
+`working`/`thinking` 纠正为 `idle`，也可以续租并保持忙碌，并清除该 Agent 待定的探测记录。
+探测应答同样不写入 `agent_activities` 历史，也不进入前端“最近活动”列表。浏览器自身完全
+不发起探测请求；`useAgentStatuses` 只是把 `expiresAt` 之后的 `refresh()` 再推迟
+`ACTIVITY_PROBE_TIMEOUT_MS + 1000ms`，作为 sweep 推送丢失时的兜底，而不是触发探测的手段。
+
 ```text
 event: agent:activity
 activity: running_command

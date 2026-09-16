@@ -46,9 +46,12 @@ export function decodeActivityObservation(
       !Number.isSafeInteger(event.observedAtMs) ||
       event.observedAtMs < 1 ||
       // A busy heartbeat only renews the display lease; a runtime_progress frame
-      // carries no rendered content. Neither belongs in the recent-activity list.
+      // carries no rendered content; a reply to the server's own liveness probe
+      // (ADR 0020) is a liveness fact, not new content. None belong in the
+      // recent-activity list.
       event.isHeartbeat === true ||
-      event.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS
+      event.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS ||
+      Boolean(event.probeId)
     )
       return undefined;
     return {

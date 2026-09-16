@@ -53,3 +53,14 @@ test("omits isHeartbeat on decode when the frame was not a heartbeat", () => {
   const decoded = decodeAgentActivity(encodeAgentActivity(activity));
   expect(decoded.isHeartbeat).toBeUndefined();
 });
+
+test("round trips a probe reply's probeId", () => {
+  const probeReply: AgentActivity = { ...activity, probeId: "probe-1" };
+  const decoded = decodeAgentActivity(encodeAgentActivity(probeReply));
+  expect(decoded.probeId).toBe("probe-1");
+});
+
+test("omits probeId on decode when the frame was not a probe reply", () => {
+  const decoded = decodeAgentActivity(encodeAgentActivity(activity));
+  expect(decoded.probeId).toBeUndefined();
+});
