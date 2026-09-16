@@ -27,6 +27,24 @@ export function generalChannelForCreator(userId: string) {
 }
 
 /** Enroll Workspace humans and Agents. Membership alone never creates attention. */
+/** Just the columns channelMessageView renders; the Agent row carries runtime JSON we never send. */
+const CHANNEL_MESSAGE_SELECT = {
+  id: true,
+  sequence: true,
+  threadRootId: true,
+  senderMemberId: true,
+  body: true,
+  createdAt: true,
+  sender: {
+    select: {
+      agentId: true,
+      agent: { select: { name: true } },
+      user: { select: { id: true, username: true, avatarObjectKey: true } },
+    },
+  },
+  attachment: { select: { id: true, fileName: true, contentType: true, sizeBytes: true } },
+} satisfies Prisma.MessageSelect;
+
 type ChannelMessageRow = {
   id: string;
   sequence: number;
@@ -352,16 +370,9 @@ export class PublicChannels {
         },
         orderBy: { sequence: "desc" },
         take: limit + 1,
-        include: {
-          sender: { include: { user: true, agent: true } },
-          attachment: true,
-          replies: {
-            orderBy: { sequence: "asc" },
-            include: {
-              sender: { include: { user: true, agent: true } },
-              attachment: true,
-            },
-          },
+        select: {
+          ...CHANNEL_MESSAGE_SELECT,
+          replies: { orderBy: { sequence: "asc" }, select: CHANNEL_MESSAGE_SELECT },
         },
       }),
     ]);
@@ -396,10 +407,7 @@ export class PublicChannels {
       },
       orderBy: { sequence: "asc" },
       take: 100,
-      include: {
-        sender: { include: { user: true, agent: true } },
-        attachment: true,
-      },
+      select: CHANNEL_MESSAGE_SELECT,
     });
     return messages.map((message) => channelMessageView(message, workspaceId));
   }
@@ -519,10 +527,12 @@ export class PublicChannels {
         conversationId: channelId,
         senderMemberId: member.id,
       },
-      include: {
-        sender: { include: { user: true } },
-        deliveries: { include: { agent: true } },
-        attachment: true,
+      select: {
+        ...CHANNEL_MESSAGE_SELECT,
+        sender: { select: { user: { select: { username: true, avatarObjectKey: true } } } },
+        deliveries: {
+          select: { deliveryId: true, agentId: true, agent: { select: { computerId: true } } },
+        },
       },
     });
     if (created) await this.notifications?.notifyMessage(message.id);

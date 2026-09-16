@@ -1238,7 +1238,10 @@ export class TaskBoard {
             workspaceId: task.workspaceId,
           },
         },
-        include: { user: true, agent: true },
+        select: {
+          agent: { select: { displayName: true } },
+          user: { select: { displayName: true, username: true } },
+        },
       });
       const updated = await this.commitTaskChange(
         tx,
