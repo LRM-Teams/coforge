@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../generated/client";
-import { PublicChannels } from "../src/server/conversations/public-channels.server";
+import {
+  PublicChannels,
+  enrollGeneralChannel,
+} from "../src/server/conversations/public-channels.server";
 import { RedisClient } from "bun";
 import { RedisMessageRequestIdempotency } from "../src/server/conversations/redis-message-request-idempotency.server";
 import { PrismaWorkspaceCatalogStore } from "../src/server/workspaces/catalog.server";
@@ -16,7 +19,7 @@ import { PrismaAgentRepository } from "../src/server/db/repositories/agent.repos
 import { PrismaWebPushSubscriptionStore } from "../src/server/notifications/prisma-web-push-subscriptions.server";
 import { ConversationHistory } from "../src/server/conversations/conversation-history.server";
 
-test("existing Workspace humans automatically join one general channel; outsiders cannot discover it", async () => {
+test("Workspace humans enrolled in general see one general channel; outsiders cannot discover it", async () => {
   const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
   if (!connectionString)
     throw new Error("CHANNEL_TEST_DATABASE_URL must point to local PostgreSQL");
@@ -36,6 +39,7 @@ test("existing Workspace humans automatically join one general channel; outsider
     },
   });
   try {
+    await enrollGeneral(db, workspace.id);
     await db.user.updateMany({
       where: { id: { in: [alice.id, bob.id] } },
       data: { browserNotificationsEnabled: true },
@@ -268,7 +272,7 @@ test("existing Workspace humans automatically join one general channel; outsider
       });
       const id = typeof created === "string" ? created : created.id;
       try {
-        // Check the creation transaction itself, before discovery can repair old enrollments.
+        // Workspace creation itself enrolls the creator; reads never repair enrollment.
         const general = await db.conversation.findFirst({
           where: { workspaceId: id, channelName: "general" },
           include: { members: true },
@@ -317,6 +321,7 @@ test("Agent channel mute suppresses ordinary notices, preserves mentions and rea
         runtimeConfig: {},
       },
     });
+    await enrollGeneral(db, workspace.id);
     const published: ReturnType<typeof decodeAgentMessageDelivery>[] = [];
     let rejectNextPublish = false;
     const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
@@ -642,6 +647,8 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
         runtimeConfig: {},
       },
     });
+    await enrollGeneral(db, workspace.id);
+    await enrollGeneral(db, foreignWorkspace.id);
     const published: ReturnType<typeof decodeAgentMessageDelivery>[] = [];
     const channels = new PublicChannels(db, new RedisMessageRequestIdempotency(redis), {
       publish: async (_channel, payload) => {
@@ -929,5 +936,92 @@ test("channel threads enforce channel scope and isolate reads, recovery, notific
     await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
     await db.$disconnect();
     redis.close();
+  }
+});
+
+function enrollGeneral(db: PrismaClient, workspaceId: string) {
+  return db.$transaction((tx) => enrollGeneralChannel(tx, workspaceId));
+}
+
+test("reads never enroll: general membership comes from write points and the backfill migration", async () => {
+  const connectionString = Bun.env.CHANNEL_TEST_DATABASE_URL;
+  if (!connectionString) throw new Error("CHANNEL_TEST_DATABASE_URL is required");
+  const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const suffix = crypto.randomUUID().slice(0, 8);
+  const alice = await db.user.create({ data: { username: `ea${suffix}` } });
+  const bob = await db.user.create({ data: { username: `eb${suffix}` } });
+  // A pre-backfill Workspace: humans and an Agent exist, general does not.
+  const workspace = await db.workspace.create({
+    data: {
+      slug: `enroll-${suffix}`,
+      name: "Legacy workspace",
+      members: { create: [{ userId: alice.id }, { userId: bob.id }] },
+    },
+  });
+  try {
+    const computer = await db.computer.create({
+      data: { ownerId: alice.id, machineId: crypto.randomUUID() },
+    });
+    const agent = await db.agent.create({
+      data: {
+        workspaceId: workspace.id,
+        ownerId: alice.id,
+        computerId: computer.id,
+        name: "legacy-helper",
+        displayName: "Legacy Helper",
+        runtimeConfig: {},
+      },
+    });
+    const channels = new PublicChannels(db);
+    expect(await channels.list(workspace.id, alice.id)).toEqual([]);
+
+    const migration = (
+      await Bun.file(
+        new URL(
+          "../prisma/migrations/20260915120000_backfill_general_channel/migration.sql",
+          import.meta.url,
+        ),
+      ).text()
+    )
+      .split("\n")
+      .filter((line) => !line.startsWith("--"))
+      .join("\n")
+      .split(";")
+      .filter((part) => part.trim());
+    for (const statement of migration) await db.$executeRawUnsafe(statement);
+    const general = await db.conversation.findUniqueOrThrow({
+      where: { workspaceId_channelName: { workspaceId: workspace.id, channelName: "general" } },
+      include: { members: { orderBy: { userId: "asc" } } },
+    });
+    expect(general.members.map((m) => m.userId ?? m.agentId).sort()).toEqual(
+      [alice.id, bob.id, agent.id].sort(),
+    );
+    expect(await channels.list(workspace.id, bob.id)).toEqual([
+      { id: general.id, name: "general", joined: true },
+    ]);
+
+    // Re-running the backfill is a no-op.
+    for (const statement of migration) await db.$executeRawUnsafe(statement);
+    expect(await db.conversationMember.count({ where: { conversationId: general.id } })).toBe(3);
+
+    // A membership row written outside the write points is not repaired by reads.
+    const carol = await db.user.create({ data: { username: `ec${suffix}` } });
+    try {
+      await db.workspaceMembership.create({
+        data: { workspaceId: workspace.id, userId: carol.id },
+      });
+      expect(await channels.list(workspace.id, carol.id)).toEqual([
+        { id: general.id, name: "general", joined: false },
+      ]);
+      await channels.open(workspace.id, carol.id, general.id);
+      expect(await db.conversationMember.count({ where: { conversationId: general.id } })).toBe(3);
+    } finally {
+      await db.user.delete({ where: { id: carol.id } });
+    }
+  } finally {
+    await db.workspace.delete({ where: { id: workspace.id } });
+    await db.computer.deleteMany({ where: { ownerId: alice.id } });
+    await db.user.deleteMany({ where: { id: { in: [alice.id, bob.id] } } });
+    await db.$disconnect();
   }
 });
