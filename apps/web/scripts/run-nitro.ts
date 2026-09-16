@@ -15,7 +15,11 @@ export async function runNitro(port: number): Promise<void> {
     process.exit(1);
   }
 
-  console.log(`==> Starting production Nitro server on http://127.0.0.1:${port}`);
+  // Default to localhost so the printed origin matches AUTHING_REDIRECT_URI
+  // (http://localhost:<port>/auth/callback). Binding 127.0.0.1 while Authing
+  // redirects to localhost breaks the host-only OAuth state cookie.
+  const host = process.env.HOST?.trim() || "localhost";
+  console.log(`==> Starting production Nitro server on http://${host}:${port}`);
 
   const child = Bun.spawn([bunExecutable(), serverEntry], {
     cwd: webRoot,
@@ -23,7 +27,7 @@ export async function runNitro(port: number): Promise<void> {
     stderr: "inherit",
     stdin: "inherit",
     env: bunChildEnv({
-      HOST: process.env.HOST?.trim() || "127.0.0.1",
+      HOST: host,
       PORT: String(port),
       NODE_ENV: process.env.NODE_ENV?.trim() || "production",
     }),
