@@ -1,7 +1,13 @@
+import { join } from "node:path";
+import { realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import type { LaunchdJobPlatform } from "../src/platform/launchd-job";
 import { sweepLeftoverComputerUpgradeJobs } from "../src/platform/computer-upgrade-sweep";
+
+// macOS tmpdir lives under /var, a symlink; resolve it so launchd-style path checks and Linux runners both work.
+const tempRoot = realpathSync(tmpdir());
 
 const doneId = "123e4567-e89b-42d3-a456-426614174000";
 const pendingId = "223e4567-e89b-42d3-a456-426614174000";
@@ -24,7 +30,7 @@ function fakeLaunchd(initial: Record<string, number>) {
 }
 
 test("removes leftover darwin upgrade jobs whose result file already exists", async () => {
-  const root = await mkdtemp("/private/tmp/cf-upgrade-sweep-");
+  const root = await mkdtemp(join(tempRoot, "cf-upgrade-sweep-"));
   try {
     const { platform, bootedOut } = fakeLaunchd({
       [`cn.coforge.upgrade.${doneId}`]: 0,
@@ -62,7 +68,7 @@ test("never lists or touches jobs on a non-darwin platform", async () => {
 });
 
 test("leaves a job alone when no result file exists yet", async () => {
-  const root = await mkdtemp("/private/tmp/cf-upgrade-sweep-");
+  const root = await mkdtemp(join(tempRoot, "cf-upgrade-sweep-"));
   try {
     const { platform, bootedOut } = fakeLaunchd({ [`cn.coforge.upgrade.${pendingId}`]: 0 });
     await sweepLeftoverComputerUpgradeJobs({
