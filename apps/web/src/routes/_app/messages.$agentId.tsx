@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
@@ -17,6 +17,7 @@ import {
   useConversationQuery,
 } from "@/features/conversations/conversation-queries";
 import { loadReminderNotices } from "@/features/conversations/reminder-notices.functions";
+import { useConversationView } from "@/features/conversations/use-conversation-view";
 import { TaskBoard } from "@/features/tasks/task-board";
 import { useTaskLayout } from "@/features/tasks/task-workflow";
 import { useConversationTasks } from "@/features/tasks/use-conversation-tasks";
@@ -48,7 +49,6 @@ function DirectConversationPage() {
   const agentStatus = useConversationAgentStatus(agentId);
   const { view, layout } = Route.useSearch();
   const taskLayout = useTaskLayout(layout);
-  const router = useRouter();
   const send = useServerFn(sendDirectConversationMessage);
   const markRead = useServerFn(markDirectThreadRead);
   const loadOwnMessages = useServerFn(loadOwnConversationMessages);
@@ -60,25 +60,8 @@ function DirectConversationPage() {
   });
   const { conversation } = page;
   const taskView = useConversationTasks(conversation.conversationId);
+  const { showChat, showTasks, changeLayout, openTask } = useConversationView(page.ensureLoaded);
 
-  const showChat = () =>
-    void router.navigate({
-      from: Route.fullPath,
-      search: (previous) => ({ ...previous, view: "chat" }),
-    });
-  const showTasks = () =>
-    void router.navigate({
-      from: Route.fullPath,
-      search: (previous) => ({ ...previous, view: "tasks" }),
-    });
-  const openTask = async (messageId: string) => {
-    await page.ensureLoaded(messageId);
-    await router.navigate({
-      from: Route.fullPath,
-      search: (previous) => ({ ...previous, view: "chat" }),
-      hash: `message-${messageId}`,
-    });
-  };
   if (view === "tasks")
     return (
       <TaskBoard
@@ -91,12 +74,7 @@ function DirectConversationPage() {
           />
         }
         layout={taskLayout}
-        onLayoutChange={(nextLayout) =>
-          void router.navigate({
-            from: Route.fullPath,
-            search: (previous) => ({ ...previous, layout: nextLayout }),
-          })
-        }
+        onLayoutChange={changeLayout}
         tasks={taskView.tasks}
         conversationName={conversation.agent.displayName}
         currentMemberId={conversation.senderMemberId}

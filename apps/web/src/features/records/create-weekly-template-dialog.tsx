@@ -20,30 +20,11 @@ import { Select } from "@/components/base/select/select";
 import { m } from "@/paraglide/messages";
 import { isValidTemplateName, hourlySendTimes } from "./records-content";
 import { parseTemplateSections, type TemplateOutlineSection } from "./template-outline-sections";
-import { memberLabel, type TemplateMemberOption } from "./weekly-template-members";
+import { memberLabel, weekdayLabel, type TemplateMemberOption } from "./weekly-template-members";
 import type { WeeklyTemplateList } from "./weekly-report-settings";
 
 const SEND_TIMES = hourlySendTimes();
 const SEND_WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const;
-
-function weekdayLabel(day: number) {
-  switch (day) {
-    case 1:
-      return m.records_template_weekday_mon();
-    case 2:
-      return m.records_template_weekday_tue();
-    case 3:
-      return m.records_template_weekday_wed();
-    case 4:
-      return m.records_template_weekday_thu();
-    case 5:
-      return m.records_template_weekday_fri();
-    case 6:
-      return m.records_template_weekday_sat();
-    default:
-      return m.records_template_weekday_sun();
-  }
-}
 
 function emptySection(): TemplateOutlineSection {
   return { title: "", children: [] };

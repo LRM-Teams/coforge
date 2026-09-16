@@ -1,4 +1,4 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import {
@@ -15,6 +15,7 @@ import {
   useConversationQuery,
 } from "@/features/conversations/conversation-queries";
 import { loadReminderNotices } from "@/features/conversations/reminder-notices.functions";
+import { useConversationView } from "@/features/conversations/use-conversation-view";
 import { TaskBoard } from "@/features/tasks/task-board";
 import { useTaskLayout } from "@/features/tasks/task-workflow";
 import { useConversationTasks } from "@/features/tasks/use-conversation-tasks";
@@ -48,7 +49,6 @@ function ChannelPage() {
   const { channelId } = Route.useParams();
   const { view, layout } = Route.useSearch();
   const taskLayout = useTaskLayout(layout);
-  const router = useRouter();
   const send = useServerFn(sendPublicChannelMessage);
   const join = useServerFn(joinPublicChannel);
   const markRead = useServerFn(markPublicChannelThreadRead);
@@ -63,30 +63,15 @@ function ChannelPage() {
   });
   const { conversation } = page;
   const taskView = useConversationTasks(conversation.conversationId);
+  const { router, showChat, showTasks, changeLayout, openTask } = useConversationView(
+    page.ensureLoaded,
+  );
 
-  const showChat = () =>
-    void router.navigate({
-      from: Route.fullPath,
-      search: (previous) => ({ ...previous, view: "chat" }),
-    });
-  const showTasks = () =>
-    void router.navigate({
-      from: Route.fullPath,
-      search: (previous) => ({ ...previous, view: "tasks" }),
-    });
   // Membership changes reach the sidebar through the layout loader and this page
   // through its query; both are refreshed.
   const changeMuted = async (muted: boolean) => {
     await setMuted({ data: { channelId, muted } });
     await Promise.all([page.invalidate(), router.invalidate({ sync: true })]);
-  };
-  const openTask = async (messageId: string) => {
-    await page.ensureLoaded(messageId);
-    await router.navigate({
-      from: Route.fullPath,
-      search: (previous) => ({ ...previous, view: "chat" }),
-      hash: `message-${messageId}`,
-    });
   };
   const followThread = (threadRootId: string) =>
     page.patch((current) => ({
@@ -108,12 +93,7 @@ function ChannelPage() {
           />
         }
         layout={taskLayout}
-        onLayoutChange={(nextLayout) =>
-          void router.navigate({
-            from: Route.fullPath,
-            search: (previous) => ({ ...previous, layout: nextLayout }),
-          })
-        }
+        onLayoutChange={changeLayout}
         tasks={taskView.tasks}
         conversationName={`#${conversation.name}`}
         currentMemberId={conversation.senderMemberId}
