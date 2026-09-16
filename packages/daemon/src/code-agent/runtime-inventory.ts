@@ -23,6 +23,12 @@ import type { CodeAgentProbe } from "./contract";
 import { createCodeAgentProvider } from "./registry";
 import { asRecord } from "./json-record";
 import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
+import {
+  CATALOG_CACHE_TTL_MS,
+  fileStatCacheKey,
+  readInventoryCache,
+  writeInventoryCache,
+} from "./runtime-inventory-cache";
 
 const logger = getLogger(["coforge", "daemon", "runtime-inventory"]);
 
@@ -60,14 +66,51 @@ const externalCodeAgents = [
   { provider: RUNTIME_PROVIDER.KIRO, executable: "kiro-cli" },
 ] as const;
 
+/** The three probe strategies external providers use to turn a resolved executable into a version. */
+async function probeRuntimeVersion(
+  provider: RuntimeMetadata["provider"],
+  name: string,
+  executable: string,
+  probe: ExternalCodeAgentProbe,
+): Promise<RuntimeMetadata | undefined> {
+  const providerProbe =
+    provider === RUNTIME_PROVIDER.CODEX ? probe.probe?.(provider, executable) : undefined;
+  if (providerProbe !== undefined) {
+    const version = await within(providerProbe);
+    return version ? { provider, version, displayName: "Codex" } : undefined;
+  }
+  if (provider === RUNTIME_PROVIDER.CLAUDE_CODE) {
+    const version = await probeClaudeCodeVersion(executable, probe.spawn);
+    return version ? { provider, version, displayName: "Claude Code" } : undefined;
+  }
+  const { output, exitCode } = await versionProbeOutput(probe.spawn(executable));
+  if (exitCode !== 0) {
+    logger.warning("Code Agent version probe exited unsuccessfully", {
+      event: "code_agent_runtime:probe_failed",
+      provider,
+      executable_name: name,
+      exit_code: exitCode,
+      outcome: "unavailable",
+    });
+    return undefined;
+  }
+  const version = lastWord(output);
+  return version
+    ? { provider, version, displayName: externalRuntimeDisplayName(provider) }
+    : undefined;
+}
+
 export async function discoverExternalCodeAgents(
   probe: ExternalCodeAgentProbe = bunProbe,
   environment: Readonly<Record<string, string | undefined>> = Bun.env,
   platform: NodeJS.Platform = process.platform,
   requestedProvider?: RuntimeMetadata["provider"],
+  cacheDirectory?: string,
 ): Promise<RuntimeMetadata[]> {
   const runtimes: RuntimeMetadata[] = [];
   const searchPath = codeAgentExecutableSearchPath(environment, platform);
+  const cache = cacheDirectory ? await readInventoryCache(cacheDirectory) : undefined;
+  let dirty = false;
   for (const { provider, executable: name } of externalCodeAgents) {
     if (requestedProvider && requestedProvider !== provider) continue;
     try {
@@ -82,41 +125,26 @@ export async function discoverExternalCodeAgents(
         });
         continue;
       }
-      const providerProbe =
-        provider === RUNTIME_PROVIDER.CODEX ? probe.probe?.(provider, executable) : undefined;
-      if (providerProbe !== undefined) {
-        const version = await within(providerProbe);
-        if (version)
-          runtimes.push({
-            provider,
-            version,
-            displayName: provider === RUNTIME_PROVIDER.CODEX ? "Codex" : "Claude Code",
-          });
-        continue;
-      }
-      if (provider === RUNTIME_PROVIDER.CLAUDE_CODE) {
-        const version = await probeClaudeCodeVersion(executable, probe.spawn);
-        if (version) runtimes.push({ provider, version, displayName: "Claude Code" });
-        continue;
-      }
-      const { output, exitCode } = await versionProbeOutput(probe.spawn(executable));
-      if (exitCode !== 0) {
-        logger.warning("Code Agent version probe exited unsuccessfully", {
-          event: "code_agent_runtime:probe_failed",
+      const cacheKey = cache ? await fileStatCacheKey([executable]) : undefined;
+      const cached = cacheKey ? cache?.[provider] : undefined;
+      if (cacheKey && cached?.key === cacheKey && cached.runtime) {
+        runtimes.push(cached.runtime);
+        logger.info("Code Agent runtime probe served from cache", {
+          event: "code_agent_runtime:cache_hit",
           provider,
           executable_name: name,
-          exit_code: exitCode,
-          outcome: "unavailable",
+          outcome: "ok",
         });
         continue;
       }
-      const version = lastWord(output);
-      if (version)
-        runtimes.push({
-          provider,
-          version,
-          displayName: externalRuntimeDisplayName(provider),
-        });
+      const runtime = await probeRuntimeVersion(provider, name, executable, probe);
+      if (runtime) {
+        runtimes.push(runtime);
+        if (cache && cacheKey) {
+          cache[provider] = { ...cache[provider], key: cacheKey, runtime };
+          dirty = true;
+        }
+      }
     } catch (error) {
       logger.warning("Code Agent runtime probe failed", {
         event: "code_agent_runtime:probe_failed",
@@ -128,6 +156,7 @@ export async function discoverExternalCodeAgents(
       // An executable without a usable version is not available inventory.
     }
   }
+  if (cache && dirty && cacheDirectory) await writeInventoryCache(cacheDirectory, cache);
   return runtimes;
 }
 
@@ -141,14 +170,182 @@ type CatalogCommands = {
   kiro?: readonly string[];
 };
 
+export type CodeAgentDiscoveryOptions = {
+  probe?: ExternalCodeAgentProbe;
+  commands?: CatalogCommands;
+  cwd?: string;
+  environment?: Readonly<Record<string, string | undefined>>;
+  platform?: NodeJS.Platform;
+  /** The daemon state directory; when set, probe results are cached there across restarts. */
+  cacheDirectory?: string;
+};
+
+/** A provider whose model catalog is expensive enough (spawns a CLI) to be worth caching. */
+const CACHEABLE_CATALOG_PROVIDERS = [
+  RUNTIME_PROVIDER.PI,
+  RUNTIME_PROVIDER.CODEX,
+  RUNTIME_PROVIDER.KIRO,
+] as const;
+
+function piAgentDirectory(environment: Readonly<Record<string, string | undefined>>): string {
+  const home = environment.HOME ?? environment.USERPROFILE;
+  return environment.PI_CODING_AGENT_DIR ?? (home ? join(home, ".pi", "agent") : getAgentDir());
+}
+
+function piCacheKeyPaths(environment: Readonly<Record<string, string | undefined>>): string[] {
+  const agentDir = piAgentDirectory(environment);
+  return [join(agentDir, "models.json"), join(agentDir, "auth.json")];
+}
+
+/** The file(s) whose mtime+size stand in for "has this provider's install changed?". */
+async function catalogCacheKeyPaths(
+  provider: (typeof CACHEABLE_CATALOG_PROVIDERS)[number],
+  probe: ExternalCodeAgentProbe,
+  searchPath: string | undefined,
+  environment: Readonly<Record<string, string | undefined>>,
+): Promise<string[] | undefined> {
+  if (provider === RUNTIME_PROVIDER.PI) return piCacheKeyPaths(environment);
+  const name = provider === RUNTIME_PROVIDER.CODEX ? "codex" : "kiro-cli";
+  const executable = probe.which(name, searchPath);
+  return executable ? [executable] : undefined;
+}
+
+/**
+ * Runtimes-only discovery: cheap PATH lookups plus a version probe per external provider (the
+ * only spawning one is Codex, which starts `app-server` for a handshake). This is the fast half
+ * of Code Agent discovery and is safe to await before a daemon reports itself ready.
+ */
+export async function discoverCodeAgentRuntimes(
+  options: CodeAgentDiscoveryOptions = {},
+): Promise<RuntimeMetadata[]> {
+  const probe = options.probe ?? bunProbe;
+  const environment = options.environment ?? Bun.env;
+  return [
+    COFORGE_AGENT_RUNTIME_METADATA,
+    { provider: RUNTIME_PROVIDER.PI, version: PI_SDK_VERSION, displayName: "Pi" },
+    ...(await discoverExternalCodeAgents(
+      probe,
+      environment,
+      options.platform,
+      undefined,
+      options.cacheDirectory,
+    )),
+  ];
+}
+
+/**
+ * Reads only what the on-disk probe cache already has, without spawning anything. Static catalogs
+ * (CoForge, Claude Code) are always included since they cost nothing. Every cacheable provider
+ * without a fresh cache entry is left out and flags `needsRefresh`, so the caller knows to run a
+ * live `discoverCodeAgentCatalogs` in the background.
+ */
+export async function loadCachedCodeAgentCatalogs(
+  runtimes: RuntimeMetadata[],
+  options: CodeAgentDiscoveryOptions = {},
+): Promise<{ catalogs: CodeAgentModelCatalog[]; needsRefresh: boolean }> {
+  const probe = options.probe ?? bunProbe;
+  const environment = options.environment ?? Bun.env;
+  const searchPath = codeAgentExecutableSearchPath(environment, options.platform);
+  const catalogs: CodeAgentModelCatalog[] = [discoverCoforgeCatalog()];
+  if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.CLAUDE_CODE))
+    catalogs.push(claudeStaticCatalog());
+  const cache = options.cacheDirectory
+    ? await readInventoryCache(options.cacheDirectory)
+    : undefined;
+  let needsRefresh = false;
+  const providers = CACHEABLE_CATALOG_PROVIDERS.filter(
+    (provider) =>
+      provider === RUNTIME_PROVIDER.PI || runtimes.some((runtime) => runtime.provider === provider),
+  );
+  for (const provider of providers) {
+    const keyPaths = await catalogCacheKeyPaths(provider, probe, searchPath, environment);
+    const key = keyPaths ? await fileStatCacheKey(keyPaths) : undefined;
+    const cached = key && cache ? cache[provider] : undefined;
+    const fresh = key !== undefined && cached?.key === key && cached.catalog !== undefined;
+    if (fresh) catalogs.push(cached.catalog!);
+    if (!fresh || Date.now() - (cached?.catalogProbedAt ?? 0) > CATALOG_CACHE_TTL_MS)
+      needsRefresh = true;
+  }
+  return { catalogs, needsRefresh };
+}
+
+/**
+ * Live catalog discovery: spawns each provider's CLI as needed (Kiro and Pi are the slow ones;
+ * Codex's `model/list` is comparatively cheap). Successful cacheable results are written back to
+ * the probe cache in a single pass once every discovery has settled, avoiding concurrent
+ * read-modify-write races between providers.
+ */
+export async function discoverCodeAgentCatalogs(
+  runtimes: RuntimeMetadata[],
+  options: CodeAgentDiscoveryOptions = {},
+): Promise<CodeAgentModelCatalog[]> {
+  const probe = options.probe ?? bunProbe;
+  const environment = options.environment ?? Bun.env;
+  const searchPath = codeAgentExecutableSearchPath(environment, options.platform);
+  const cwd = options.cwd ?? process.cwd();
+  const commands = options.commands ?? {};
+  type Discovered = {
+    provider?: (typeof CACHEABLE_CATALOG_PROVIDERS)[number];
+    keyPaths?: string[];
+    catalog: CodeAgentModelCatalog | undefined;
+  };
+  const discoveries: Array<Promise<Discovered>> = [];
+  discoveries.push(Promise.resolve({ catalog: discoverCoforgeCatalog() }));
+  discoveries.push(
+    discoverPiCatalog(cwd, environment).then((catalog) => ({
+      provider: RUNTIME_PROVIDER.PI,
+      keyPaths: piCacheKeyPaths(environment),
+      catalog,
+    })),
+  );
+  if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.CODEX)) {
+    const executable = probe.which("codex", searchPath);
+    if (executable)
+      discoveries.push(
+        discoverCodexCatalog(commands.codex ?? [executable, "app-server"], cwd, environment).then(
+          (catalog) => ({ provider: RUNTIME_PROVIDER.CODEX, keyPaths: [executable], catalog }),
+        ),
+      );
+  }
+  if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.CLAUDE_CODE)) {
+    discoveries.push(Promise.resolve({ catalog: claudeStaticCatalog() }));
+  }
+  if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.KIRO)) {
+    const executable = probe.which("kiro-cli", searchPath);
+    if (executable)
+      discoveries.push(
+        discoverKiroCatalog(
+          commands.kiro ?? [executable, "acp", "--agent-engine", "v3", "--auth-method", "cli"],
+          cwd,
+          environment,
+        )
+          .catch(() => undefined)
+          .then((catalog) => ({
+            provider: RUNTIME_PROVIDER.KIRO,
+            keyPaths: [executable],
+            catalog,
+          })),
+      );
+  }
+  const results = await Promise.all(discoveries);
+  if (options.cacheDirectory) {
+    const cacheDirectory = options.cacheDirectory;
+    const cache = await readInventoryCache(cacheDirectory);
+    let dirty = false;
+    for (const { provider, keyPaths, catalog } of results) {
+      if (!provider || !keyPaths || !catalog) continue;
+      const key = await fileStatCacheKey(keyPaths);
+      if (!key) continue;
+      cache[provider] = { ...cache[provider], key, catalog, catalogProbedAt: Date.now() };
+      dirty = true;
+    }
+    if (dirty) await writeInventoryCache(cacheDirectory, cache);
+  }
+  return results.flatMap(({ catalog }) => (catalog ? [catalog] : []));
+}
+
 export async function discoverCodeAgentInventory(
-  options: {
-    probe?: ExternalCodeAgentProbe;
-    commands?: CatalogCommands;
-    cwd?: string;
-    environment?: Readonly<Record<string, string | undefined>>;
-    platform?: NodeJS.Platform;
-  } = {},
+  options: CodeAgentDiscoveryOptions = {},
 ): Promise<CodeAgentInventory> {
   if (!options.probe && !options.commands) {
     const providers = Object.values(RUNTIME_PROVIDER).map(createCodeAgentProvider);
@@ -173,43 +370,8 @@ export async function discoverCodeAgentInventory(
       catalogs: discovered.flatMap(({ catalog }) => (catalog ? [catalog] : [])),
     };
   }
-  const probe = options.probe ?? bunProbe;
-  const environment = options.environment ?? Bun.env;
-  const searchPath = codeAgentExecutableSearchPath(environment, options.platform);
-  const runtimes = [
-    COFORGE_AGENT_RUNTIME_METADATA,
-    { provider: RUNTIME_PROVIDER.PI, version: PI_SDK_VERSION, displayName: "Pi" },
-    ...(await discoverExternalCodeAgents(probe, environment, options.platform)),
-  ];
-  const cwd = options.cwd ?? process.cwd();
-  const commands = options.commands ?? {};
-  const discoveries: Array<Promise<CodeAgentModelCatalog | undefined>> = [];
-  discoveries.push(Promise.resolve(discoverCoforgeCatalog()));
-  discoveries.push(discoverPiCatalog(cwd, environment));
-  if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.CODEX)) {
-    const executable = probe.which("codex", searchPath);
-    if (executable)
-      discoveries.push(
-        discoverCodexCatalog(commands.codex ?? [executable, "app-server"], cwd, environment),
-      );
-  }
-  if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.CLAUDE_CODE)) {
-    discoveries.push(Promise.resolve(claudeStaticCatalog()));
-  }
-  if (runtimes.some((runtime) => runtime.provider === RUNTIME_PROVIDER.KIRO)) {
-    const executable = probe.which("kiro-cli", searchPath);
-    if (executable)
-      discoveries.push(
-        discoverKiroCatalog(
-          commands.kiro ?? [executable, "acp", "--agent-engine", "v3", "--auth-method", "cli"],
-          cwd,
-          environment,
-        ).catch(() => undefined),
-      );
-  }
-  const catalogs = (await Promise.all(discoveries)).filter(
-    (catalog): catalog is CodeAgentModelCatalog => catalog !== undefined,
-  );
+  const runtimes = await discoverCodeAgentRuntimes(options);
+  const catalogs = await discoverCodeAgentCatalogs(runtimes, options);
   return { runtimes, catalogs };
 }
 
@@ -439,9 +601,7 @@ export async function discoverPiCatalog(
   environment: Readonly<Record<string, string | undefined>>,
 ): Promise<CodeAgentModelCatalog | undefined> {
   try {
-    const home = environment.HOME ?? environment.USERPROFILE;
-    const agentDir =
-      environment.PI_CODING_AGENT_DIR ?? (home ? join(home, ".pi", "agent") : getAgentDir());
+    const agentDir = piAgentDirectory(environment);
     const models = await discoverPiModels(cwd, {
       agentDir,
       environment: definedEnvironment(environment),

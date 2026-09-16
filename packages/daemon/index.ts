@@ -5,7 +5,6 @@ import { dispose, getLogger, withContext } from "@logtape/logtape";
 import { startDaemonLocalRpcServer } from "./src/local-rpc";
 import { startAgentProxy } from "./src/agent-proxy";
 import { createCodeAgentProvider } from "./src/code-agent/registry";
-import { discoverCodeAgentInventory } from "./src/code-agent/runtime-inventory";
 import {
   DaemonRuntime,
   type BusyAgentReport,
@@ -182,7 +181,7 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
               ),
           },
           agentProxy,
-          discoverCodeAgentInventory,
+          undefined,
           daemonStateDirectory,
           {
             recoveredRestartRequestIds:
@@ -247,7 +246,10 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
       function stampWorkspace(agents: BusyAgentReport[] = []) {
         return agents.map((agent) => ({ ...agent, workspaceId: config?.workspaceId ?? "" }));
       }
-      if (supervisorSocket) await daemon.start();
+      // The Coordinator polls this socket for readiness within a 30s budget after spawning the
+      // Workspace, so it must open before anything that can block on the network (Code Agent
+      // discovery, in particular). The handshake it answers only needs pid/version/serverUrl, so
+      // starting it ahead of `daemon.start()` is safe for both the supervised and standalone paths.
       const localRpc = await startDaemonLocalRpcServer({
         socketPath,
         version: COFORGE_DAEMON_VERSION,

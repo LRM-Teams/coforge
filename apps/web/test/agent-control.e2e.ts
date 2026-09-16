@@ -83,10 +83,13 @@ test("Profile controls and Skills cross Web, WSS, native child and Session persi
         credentials,
         { create: () => new DaemonConnection("ws://127.0.0.1:8000/connection/websocket") },
         undefined,
-        async () => ({
-          runtimes: [{ provider: "pi", version: "fixture", displayName: "Pi protocol fixture" }],
-          catalogs: [],
-        }),
+        {
+          runtimes: async () => [
+            { provider: "pi", version: "fixture", displayName: "Pi protocol fixture" },
+          ],
+          cachedCatalogs: async () => ({ catalogs: [], needsRefresh: false }),
+          catalogs: async () => [],
+        },
         join(root, "state"),
       );
     runtime = createRuntime();

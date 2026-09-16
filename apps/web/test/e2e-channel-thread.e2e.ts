@@ -108,10 +108,13 @@ test("channel threads cross real WSS and Agent HTTP transport without notificati
           ),
       },
       proxy,
-      async () => ({
-        runtimes: [{ provider: "pi", version: "fixture", displayName: "Channel fixture" }],
-        catalogs: [],
-      }),
+      {
+        runtimes: async () => [
+          { provider: "pi", version: "fixture", displayName: "Channel fixture" },
+        ],
+        cachedCatalogs: async () => ({ catalogs: [], needsRefresh: false }),
+        catalogs: async () => [],
+      },
       daemonStateDirectory,
     );
     await runtime.start({

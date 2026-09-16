@@ -199,10 +199,11 @@ test("Agent runtime, status, Message Inbox, and App Inbox cross the real system"
         ),
     },
     proxy,
-    async () => ({
-      runtimes: [{ provider: "pi", version: "fixture", displayName: "Pi E2E fixture" }],
-      catalogs: [],
-    }),
+    {
+      runtimes: async () => [{ provider: "pi", version: "fixture", displayName: "Pi E2E fixture" }],
+      cachedCatalogs: async () => ({ catalogs: [], needsRefresh: false }),
+      catalogs: async () => [],
+    },
     daemonStateDirectory,
   );
   const statusEvents: AgentStatusEvent[] = [];

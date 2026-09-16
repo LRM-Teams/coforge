@@ -126,10 +126,11 @@ test("real Kiro v3 reads and replies through Web, Centrifugo and Daemon", async 
           ),
       },
       proxy,
-      async () => ({
-        runtimes: [{ provider: "kiro", version: "2.21.2", displayName: "Kiro v3" }],
-        catalogs: [],
-      }),
+      {
+        runtimes: async () => [{ provider: "kiro", version: "2.21.2", displayName: "Kiro v3" }],
+        cachedCatalogs: async () => ({ catalogs: [], needsRefresh: false }),
+        catalogs: async () => [],
+      },
       join(root, "state"),
     );
     await runtime.start(config);

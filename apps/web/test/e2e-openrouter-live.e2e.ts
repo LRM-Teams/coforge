@@ -189,10 +189,11 @@ test("live OpenRouter Pi delivery writes an Agent reply to canonical DB", async 
           ),
       },
       proxy,
-      async () => ({
-        runtimes: [{ provider: "pi", version: "live", displayName: "Pi" }],
-        catalogs: [],
-      }),
+      {
+        runtimes: async () => [{ provider: "pi", version: "live", displayName: "Pi" }],
+        cachedCatalogs: async () => ({ catalogs: [], needsRefresh: false }),
+        catalogs: async () => [],
+      },
       state,
     );
     await mkdir(root, { recursive: true });
