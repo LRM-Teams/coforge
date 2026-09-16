@@ -19,7 +19,7 @@ import { AgentControl } from "../../server/agents/agent-control.server";
 import { getAgentControlSignal } from "../../server/agents/agent-control-signal.server";
 import { PrismaAgentControlStore } from "../../server/db/repositories/agent-control.repositories.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
-import { authMiddleware, workspaceMemberMiddleware } from "../../server/auth/function-auth";
+import { authMiddleware, workspaceUserMiddleware } from "../../server/auth/function-auth";
 import { AgentDetailQuery } from "../../server/agents/agent-detail.server";
 import { AgentActivityRepository } from "../../server/db/repositories/agent-activity.repositories.server";
 import { workspaceIdForUser } from "../../server/workspaces/enrollment.server";
@@ -154,7 +154,7 @@ function agentEnvironment(db: Database) {
 }
 
 export const listAgents = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .handler(async ({ context: { user, db, workspaceId } }) => {
     const agents = await manageAgents(db).list({ userId: user.id, workspaceId });
     const statuses = getAgentStatusCache();
@@ -201,7 +201,7 @@ export const listAgents = createServerFn({ method: "GET" })
 export const getAgentStatusConnectionToken = createServerFn({
   method: "GET",
 })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
     const { user, workspaceId } = context;
     return issueBrowserRealtimeToken({ userId: user.id, workspaceId });
@@ -210,7 +210,7 @@ export const getAgentStatusConnectionToken = createServerFn({
 export const getAgentActivitySubscriptionToken = createServerFn({
   method: "GET",
 })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
     const { user, workspaceId } = context;
     return issueAgentActivitySubscriptionToken({ userId: user.id, workspaceId });
@@ -231,14 +231,14 @@ export const createAgent = createServerFn({ method: "POST" })
   });
 
 export const updateAgent = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(updateAgentInputSchema)
   .handler(async ({ data, context: { user, db, workspaceId } }) => {
     return manageAgents(db).update({ userId: user.id, workspaceId }, data);
   });
 
 export const getAgentDetail = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(agentIdSchema)
   .handler(async ({ data: agentId, context }) => {
     const { user, db, workspaceId } = context;
@@ -291,7 +291,7 @@ export const getAgentDetail = createServerFn({ method: "GET" })
   });
 
 export const saveAgentRuntimeCredential = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(saveAgentRuntimeCredentialInputSchema)
   .handler(async ({ data, context }) => {
     const { user, db, workspaceId } = context;
@@ -303,7 +303,7 @@ export const saveAgentRuntimeCredential = createServerFn({ method: "POST" })
   });
 
 export const deleteAgentRuntimeCredential = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(agentIdSchema)
   .handler(async ({ data: agentId, context }) => {
     const { user, db, workspaceId } = context;
@@ -311,7 +311,7 @@ export const deleteAgentRuntimeCredential = createServerFn({ method: "POST" })
   });
 
 export const getAgentEnvironment = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(agentIdSchema)
   .handler(async ({ data: agentId, context }) => {
     const { user, db, workspaceId } = context;
@@ -320,7 +320,7 @@ export const getAgentEnvironment = createServerFn({ method: "GET" })
   });
 
 export const saveAgentEnvironment = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(saveAgentEnvironmentInputSchema)
   .handler(async ({ data, context }) => {
     const { user, db, workspaceId } = context;

@@ -5,7 +5,7 @@ import { z } from "zod";
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
-import { workspaceMemberMiddleware } from "../../server/auth/function-auth";
+import { workspaceUserMiddleware } from "../../server/auth/function-auth";
 import { TaskBoard } from "../../server/tasks/task-board.server";
 
 const taskCommand = z
@@ -55,14 +55,14 @@ const taskCommand = z
   .strict();
 
 export const loadTaskOverview = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
     const { user, db, workspaceId } = context;
     return new TaskBoard(db).overview(workspaceId, user.id);
   });
 
 export const executeTask = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator((data: unknown): TaskCommand => taskCommand.parse(data))
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;

@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import {
-  workspaceMemberMiddleware,
-  type WorkspaceMemberContext,
+  workspaceUserMiddleware,
+  type WorkspaceUserContext,
 } from "../../server/auth/function-auth";
 import {
   agentConversationPageInputSchema,
@@ -22,7 +22,7 @@ import { workspaceUserAvatarUrl } from "../../server/db/repositories/user-profil
 
 /** The caller's own direct conversation repository, or a failure when the Agent is not theirs. */
 async function ownedConversations(
-  { db, workspaceId, user }: WorkspaceMemberContext,
+  { db, workspaceId, user }: WorkspaceUserContext,
   agentId: string,
 ) {
   const agent = await db.agent.findFirst({
@@ -34,7 +34,7 @@ async function ownedConversations(
 }
 
 export const loadDirectConversation = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(agentConversationPageInputSchema)
   .handler(async ({ context, data }) => {
     const { user, workspaceId } = context;
@@ -45,7 +45,7 @@ export const loadDirectConversation = createServerFn({ method: "GET" })
   });
 
 export const loadDirectConversationUpdates = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(agentConversationUpdatesInputSchema)
   .handler(async ({ context, data }) => {
     const { user, workspaceId } = context;
@@ -54,7 +54,7 @@ export const loadDirectConversationUpdates = createServerFn({ method: "GET" })
   });
 
 export const loadOwnConversationMessages = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(ownMessageIndexInputSchema)
   .handler(async ({ context: { user, db, workspaceId }, data }) => {
     return new ConversationHistory(db).listOwnMessages(workspaceId, user.id, data.conversationId, {
@@ -63,7 +63,7 @@ export const loadOwnConversationMessages = createServerFn({ method: "GET" })
   });
 
 export const loadConversationAround = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(conversationAroundInputSchema)
   .handler(async ({ context: { user, db, workspaceId }, data }) => {
     return new ConversationHistory(db).loadAround(
@@ -75,7 +75,7 @@ export const loadConversationAround = createServerFn({ method: "GET" })
   });
 
 export const markDirectThreadRead = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(readConversationThreadInputSchema)
   .handler(async ({ context, data }) => {
     const { user, workspaceId } = context;
@@ -90,7 +90,7 @@ export const markDirectThreadRead = createServerFn({ method: "POST" })
   });
 
 export const sendDirectConversationMessage = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(sendConversationMessageInputSchema)
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;

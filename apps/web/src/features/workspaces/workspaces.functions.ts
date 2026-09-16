@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { createWorkspaceInputSchema, selectWorkspaceInputSchema } from "./workspace.schemas";
 
 import { AppError } from "../../lib/app-error";
-import { authMiddleware, workspaceMemberMiddleware } from "../../server/auth/function-auth";
+import { authMiddleware, workspaceUserMiddleware } from "../../server/auth/function-auth";
 import { getDatabaseClient } from "../../server/db/client.server";
 import {
   PrismaWorkspaceCatalogStore,
@@ -30,7 +30,7 @@ export const loadWorkspaceSwitcher = createServerFn({ method: "GET" })
   });
 
 export const listWorkspaceMembers = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
     const { user, db, workspaceId } = context;
     return new WorkspaceMembers(db).list(workspaceId, user.id);

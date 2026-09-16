@@ -2,8 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { setResponseHeader } from "@tanstack/react-start/server";
 import { z } from "zod";
 import {
-  workspaceMemberMiddleware,
-  type WorkspaceMemberContext,
+  workspaceUserMiddleware,
+  type WorkspaceUserContext,
 } from "../../server/auth/function-auth";
 import { AgentControl } from "../../server/agents/agent-control.server";
 import { getAgentControlSignal } from "../../server/agents/agent-control-signal.server";
@@ -20,7 +20,7 @@ const executeInput = z.object({
   confirmed: z.boolean().optional(),
 });
 
-function agentControl(db: WorkspaceMemberContext["db"]) {
+function agentControl(db: WorkspaceUserContext["db"]) {
   return new AgentControl(
     new PrismaAgentControlStore(db),
     createCentrifugoServerApi(),
@@ -32,7 +32,7 @@ function agentControl(db: WorkspaceMemberContext["db"]) {
 }
 
 export const executeAgentControl = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(executeInput)
   .handler(async ({ data, context: { user, db, workspaceId } }) => {
     setResponseHeader("cache-control", "no-store");

@@ -6,19 +6,19 @@ import {
   issueBrowserRealtimeToken,
   issueConversationRealtimeToken,
 } from "../../server/auth/browser-realtime-token.server";
-import { workspaceMemberMiddleware } from "../../server/auth/function-auth";
+import { workspaceUserMiddleware } from "../../server/auth/function-auth";
 
 export const getBrowserRealtimeConnectionToken = createServerFn({
   method: "GET",
 })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
     const { user, workspaceId } = context;
     return issueBrowserRealtimeToken({ userId: user.id, workspaceId });
   });
 
 export const getConversationRealtimeToken = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(z.object({ conversationId: z.uuid() }))
   .handler(async ({ data, context }) => {
     const { user, db, workspaceId } = context;

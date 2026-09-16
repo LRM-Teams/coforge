@@ -16,8 +16,8 @@ import {
   updateComputerDisplayNameInputSchema,
 } from "./computer.schemas";
 import {
-  workspaceMemberMiddleware,
-  type WorkspaceMemberContext,
+  workspaceUserMiddleware,
+  type WorkspaceUserContext,
 } from "../../server/auth/function-auth";
 import {
   createCentrifugoServerApi,
@@ -34,7 +34,7 @@ import { resolveReleaseFeedUrl } from "../../server/install/install-script.serve
 import { encodeComputerUpgradeIntent } from "@lrm/coforge-sdk/internal";
 
 export const restartComputer = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(restartComputerInputSchema)
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
@@ -58,7 +58,7 @@ export const restartComputer = createServerFn({ method: "POST" })
   });
 
 export const readComputerRestartStatus = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(readRestartStatusInputSchema)
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
@@ -79,12 +79,12 @@ export const readComputerRestartStatus = createServerFn({ method: "GET" })
     return status;
   });
 
-function runtimeVisibility(db: WorkspaceMemberContext["db"]) {
+function runtimeVisibility(db: WorkspaceUserContext["db"]) {
   return new ComputerRuntimeVisibility(new PrismaComputerRuntimeRepository(db));
 }
 
 export const scanUsage = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(scanUsageInputSchema)
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
@@ -102,7 +102,7 @@ export const scanUsage = createServerFn({ method: "POST" })
   });
 
 export const readUsage = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(readUsageInputSchema)
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
@@ -120,7 +120,7 @@ export const readUsage = createServerFn({ method: "GET" })
   });
 
 export const listComputers = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
     const { user, db, workspaceId } = context;
     const visibility = runtimeVisibility(db);
@@ -179,7 +179,7 @@ export const listComputers = createServerFn({ method: "GET" })
   });
 
 export const readComputerUpgradeStatus = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(readRestartStatusInputSchema)
   .handler(async ({ context: { user, db, workspaceId }, data }) => {
     const connection = await db.workspaceComputer.findFirst({
@@ -200,7 +200,7 @@ export const readComputerUpgradeStatus = createServerFn({ method: "GET" })
   });
 
 export const upgradeComputer = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(restartComputerInputSchema)
   .handler(async ({ context: { user, db, workspaceId }, data }) => {
     const computer = await db.computer.findFirst({
@@ -260,7 +260,7 @@ export const getLatestComputerVersion = createServerFn({ method: "GET" }).handle
 });
 
 export const getComputerRuntimeCatalog = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(computerIdInputSchema)
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
@@ -302,7 +302,7 @@ export const getComputerRuntimeCatalog = createServerFn({ method: "GET" })
   });
 
 export const setRuntimeVisibility = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(setRuntimeVisibilityInputSchema)
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;
@@ -311,7 +311,7 @@ export const setRuntimeVisibility = createServerFn({ method: "POST" })
   });
 
 export const updateComputerDisplayName = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(updateComputerDisplayNameInputSchema)
   .handler(async ({ context, data }) => {
     const { user, db, workspaceId } = context;

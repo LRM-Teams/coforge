@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { AppError } from "../../lib/app-error";
-import { authMiddleware, workspaceMemberMiddleware } from "../../server/auth/function-auth";
+import { authMiddleware, workspaceUserMiddleware } from "../../server/auth/function-auth";
 import { requireDatabaseClient } from "../../server/db/client.server";
 import { workspaceMemberDirectory } from "../../server/workspaces/member-directory-store.server";
 import { INVITABLE_WORKSPACE_ROLES } from "../../server/workspaces/member-role.server";
@@ -21,7 +21,7 @@ const targetUserInputSchema = z.object({ userId: z.string().uuid() });
 const invitationIdInputSchema = z.object({ invitationId: z.string().uuid() });
 
 export const loadWorkspaceMembers = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .handler(async ({ context: { user, db, workspaceId } }) => {
     const members = workspaceMemberDirectory(db);
     const actor = await db.workspaceMembership.findUnique({
@@ -44,7 +44,7 @@ export const loadWorkspaceMembers = createServerFn({ method: "GET" })
   });
 
 export const inviteWorkspaceMember = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(inviteInputSchema)
   .handler(async ({ data, context: { user, db, workspaceId } }) => {
     return workspaceMemberDirectory(db).invite({
@@ -78,7 +78,7 @@ export const declineWorkspaceInvitation = createServerFn({ method: "POST" })
   });
 
 export const revokeWorkspaceInvitation = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(invitationIdInputSchema)
   .handler(async ({ data, context: { user, db, workspaceId } }) => {
     return workspaceMemberDirectory(db).revokeInvitation({
@@ -89,7 +89,7 @@ export const revokeWorkspaceInvitation = createServerFn({ method: "POST" })
   });
 
 export const updateWorkspaceMemberRole = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(updateRoleInputSchema)
   .handler(async ({ data, context: { user, db, workspaceId } }) => {
     return workspaceMemberDirectory(db).updateRole({
@@ -101,7 +101,7 @@ export const updateWorkspaceMemberRole = createServerFn({ method: "POST" })
   });
 
 export const removeWorkspaceMember = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(targetUserInputSchema)
   .handler(async ({ data, context: { user, db, workspaceId } }) => {
     await workspaceMemberDirectory(db).removeMember({
@@ -113,7 +113,7 @@ export const removeWorkspaceMember = createServerFn({ method: "POST" })
   });
 
 export const leaveWorkspace = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .handler(async ({ context: { user, db, workspaceId } }) => {
     await workspaceMemberDirectory(db).leave({ workspaceId, userId: user.id });
     return { ok: true as const };

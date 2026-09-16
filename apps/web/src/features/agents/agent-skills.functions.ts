@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { setResponseHeader } from "@tanstack/react-start/server";
 import { encodeAgentSkillsListRequest } from "@lrm/coforge-sdk/internal";
 import { agentIdSchema } from "./agent.schemas";
-import { workspaceMemberMiddleware } from "../../server/auth/function-auth";
+import { workspaceUserMiddleware } from "../../server/auth/function-auth";
 import {
   AgentSkillsQuery,
   findOwnedSkillsAssignment,
@@ -15,7 +15,7 @@ import { getComputerStatusCache } from "../../server/centrifugo/computer-status.
 import { getAgentSkillsResults } from "../../server/centrifugo/agent-skills-cache.server";
 
 export const getAgentSkills = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(agentIdSchema)
   .handler(async ({ data: agentId, context }) => {
     setResponseHeader("Cache-Control", "no-store");

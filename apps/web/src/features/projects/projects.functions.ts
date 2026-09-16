@@ -1,11 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
-import { workspaceMemberMiddleware } from "../../server/auth/function-auth";
+import { workspaceUserMiddleware } from "../../server/auth/function-auth";
 import { configuredGitHub } from "../../server/integrations/github-config.server";
 import { AppError } from "../../lib/app-error";
 import { z } from "zod";
 
 export const getProject = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(z.object({ slug: z.string().min(1) }))
   .handler(async ({ data, context }) => {
     const { db, workspaceId } = context;
@@ -23,7 +23,7 @@ export const getProject = createServerFn({ method: "GET" })
   });
 
 export const listProjects = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
     const { db, workspaceId } = context;
     return db.project.findMany({
@@ -39,7 +39,7 @@ export const listProjects = createServerFn({ method: "GET" })
   });
 
 export const createProject = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
       name: z.string().trim().min(1).max(100),

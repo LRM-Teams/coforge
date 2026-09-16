@@ -1,8 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import {
-  workspaceMemberMiddleware,
-  type WorkspaceMemberContext,
+  workspaceUserMiddleware,
+  type WorkspaceUserContext,
 } from "../../server/auth/function-auth";
 import { PublicChannels } from "../../server/conversations/public-channels.server";
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
@@ -25,7 +25,7 @@ const channelThreadFollowInput = channelInput.extend({
   threadRootId: z.uuid(),
   followed: z.boolean(),
 });
-function channelScope({ db, workspaceId, user }: WorkspaceMemberContext) {
+function channelScope({ db, workspaceId, user }: WorkspaceUserContext) {
   return {
     channels: new PublicChannels(db),
     db,
@@ -36,14 +36,14 @@ function channelScope({ db, workspaceId, user }: WorkspaceMemberContext) {
 }
 
 export const listPublicChannels = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .handler(async ({ context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
     return channels.list(workspaceId, userId);
   });
 
 export const createPublicChannel = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(
     z.object({
       name: z
@@ -59,7 +59,7 @@ export const createPublicChannel = createServerFn({ method: "POST" })
   });
 
 export const loadPublicChannel = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(channelPageInput)
   .handler(async ({ data, context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
@@ -69,7 +69,7 @@ export const loadPublicChannel = createServerFn({ method: "GET" })
   });
 
 export const loadPublicChannelUpdates = createServerFn({ method: "GET" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(channelUpdatesInput)
   .handler(async ({ data, context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
@@ -77,7 +77,7 @@ export const loadPublicChannelUpdates = createServerFn({ method: "GET" })
   });
 
 export const joinPublicChannel = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(channelInput)
   .handler(async ({ data, context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
@@ -85,7 +85,7 @@ export const joinPublicChannel = createServerFn({ method: "POST" })
   });
 
 export const setPublicChannelMuted = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(channelInput.extend({ muted: z.boolean() }))
   .handler(async ({ data, context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
@@ -93,7 +93,7 @@ export const setPublicChannelMuted = createServerFn({ method: "POST" })
   });
 
 export const markPublicChannelThreadRead = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(channelThreadReadInput)
   .handler(async ({ data, context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
@@ -107,7 +107,7 @@ export const markPublicChannelThreadRead = createServerFn({ method: "POST" })
   });
 
 export const setPublicChannelThreadFollowed = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(channelThreadFollowInput)
   .handler(async ({ data, context }) => {
     const { channels, workspaceId, userId } = channelScope(context);
@@ -121,7 +121,7 @@ export const setPublicChannelThreadFollowed = createServerFn({ method: "POST" })
   });
 
 export const sendPublicChannelMessage = createServerFn({ method: "POST" })
-  .middleware([workspaceMemberMiddleware])
+  .middleware([workspaceUserMiddleware])
   .validator(
     channelInput.extend({
       requestId: z.uuid(),
