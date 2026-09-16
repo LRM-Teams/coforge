@@ -1,4 +1,5 @@
 import { m } from "@/paraglide/messages";
+import { isAppError } from "@/lib/app-error";
 
 /** Why an upgrade request ended without a verified new Computer version. */
 export type ComputerUpgradeFailure = {
@@ -22,4 +23,28 @@ const REASONS: Record<ComputerUpgradeFailure["reason"], () => string> = {
 export function describeComputerUpgradeFailure(failure: ComputerUpgradeFailure): string {
   const headline = (REASONS[failure.reason] ?? m.computer_upgrade_failed_unknown)();
   return failure.error ? `${headline}: ${failure.error}` : `${headline}.`;
+}
+
+/** One line and an optional reference id, never the raw `COFORGE_APP_ERROR:` wire encoding. */
+export type UpgradeRequestErrorCopy = { headline: string; errorId?: string };
+
+/**
+ * Why the upgrade request itself never got off the ground - the Computer was unreachable, the
+ * release feed failed, or something else broke before an operation could even be registered.
+ * A decoded AppError maps to a sentence a Workspace member can act on, with its `errorId` kept
+ * as a quiet reference; anything else (including the synthetic errors this module raises while
+ * polling a terminal status, via `describeComputerUpgradeFailure`) is already a finished
+ * sentence and passes through unchanged.
+ */
+export function describeUpgradeRequestError(error: unknown): UpgradeRequestErrorCopy {
+  if (isAppError(error)) {
+    if (error.code === "COMPUTER_OFFLINE")
+      return { headline: m.computer_upgrade_offline(), errorId: error.errorId };
+    if (error.code === "RELEASE_FEED_UNAVAILABLE")
+      return { headline: m.computer_upgrade_feed_unavailable(), errorId: error.errorId };
+    return { headline: m.computer_upgrade_request_failed(), errorId: error.errorId };
+  }
+  return {
+    headline: error instanceof Error ? error.message : m.computer_upgrade_failed_unknown(),
+  };
 }

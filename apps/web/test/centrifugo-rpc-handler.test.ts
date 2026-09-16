@@ -8,6 +8,7 @@ import {
   createDaemonRuntimeReadyMethod,
   createDaemonRuntimeUsageScanResultMethod,
   createComputerUpgradeResultMethod,
+  createDaemonConnectionStatusMethod,
   type CentrifugoRpcMethod,
 } from "../src/server/centrifugo/rpc-handler.server";
 import { createCentrifugoRpcHandler } from "../src/server/centrifugo/rpc-composition.server";
@@ -108,6 +109,73 @@ describe("Computer upgrade result method", () => {
     expect(await method(upgradeResultPayload(), { principal: principal() })).toMatchObject({
       code: 503,
     });
+  });
+});
+
+describe("Daemon connection status method", () => {
+  const statusPayload = (value: Record<string, unknown>) =>
+    new TextEncoder().encode(JSON.stringify(value));
+
+  test("a periodic online status renews the Computer's upgrade identity lease", async () => {
+    const touched: unknown[] = [];
+    const method = createDaemonConnectionStatusMethod(
+      { put: async () => {}, get: async () => true },
+      undefined,
+      {
+        touchIdentity: async (scope) => {
+          touched.push(scope);
+        },
+      },
+    );
+
+    const reply = await method(
+      statusPayload({ workspaceId: "workspace-1", computerId: "computer-1", online: true }),
+      { principal: principal() },
+    );
+
+    expect(reply).toBeInstanceOf(Uint8Array);
+    expect(touched).toEqual([{ workspaceId: "workspace-1", computerId: "computer-1" }]);
+  });
+
+  test("an offline status never renews an identity for a Computer that just disconnected", async () => {
+    const touched: unknown[] = [];
+    const method = createDaemonConnectionStatusMethod(
+      { put: async () => {}, get: async () => false },
+      undefined,
+      {
+        touchIdentity: async (scope) => {
+          touched.push(scope);
+        },
+      },
+    );
+
+    await method(
+      statusPayload({ workspaceId: "workspace-1", computerId: "computer-1", online: false }),
+      { principal: principal() },
+    );
+
+    expect(touched).toEqual([]);
+  });
+
+  test("an unauthorized status is refused before it can renew anything", async () => {
+    const touched: unknown[] = [];
+    const method = createDaemonConnectionStatusMethod(
+      { put: async () => {}, get: async () => true },
+      undefined,
+      {
+        touchIdentity: async (scope) => {
+          touched.push(scope);
+        },
+      },
+    );
+
+    expect(
+      await method(
+        statusPayload({ workspaceId: "workspace-2", computerId: "computer-1", online: true }),
+        { principal: principal() },
+      ),
+    ).toMatchObject({ code: 403 });
+    expect(touched).toEqual([]);
   });
 });
 

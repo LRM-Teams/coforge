@@ -230,6 +230,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
         [DAEMON_CONNECTION_STATUS_METHOD]: createDaemonConnectionStatusMethod(
           undefined,
           reminderLease,
+          getComputerUpgradeStore(),
         ),
         [DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD]: createDaemonRuntimeCodeAgentsUpdateMethod(
           new PrismaComputerRuntimeRepository(db),

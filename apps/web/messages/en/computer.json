@@ -120,5 +120,9 @@
   "computer_new_version": "New version {version}",
   "computer_upgrade_action": "Upgrade to {version}",
   "computer_upgrade_succeeded_inline": "Upgraded",
-  "computer_upgrade_retry": "Retry upgrade"
+  "computer_upgrade_retry": "Retry upgrade",
+  "computer_upgrade_offline": "This Computer is offline; it cannot be upgraded right now",
+  "computer_upgrade_feed_unavailable": "The release feed is unavailable",
+  "computer_upgrade_request_failed": "The upgrade request failed",
+  "computer_upgrade_error_reference": "Error reference {id}"
 }

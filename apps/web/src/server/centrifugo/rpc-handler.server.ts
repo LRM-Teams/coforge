@@ -376,6 +376,7 @@ export function createComputerUpgradeResultMethod(
 export function createDaemonConnectionStatusMethod(
   statusCache?: ComputerStatusCache,
   reminderCapabilities?: { refresh(workspaceId: string, computerId: string): Promise<void> },
+  upgrades?: Pick<RedisComputerUpgradeStore, "touchIdentity">,
 ): CentrifugoRpcMethod {
   return async (payload, metadata) => {
     const request = JSON.parse(new TextDecoder().decode(payload)) as {
@@ -393,8 +394,17 @@ export function createDaemonConnectionStatusMethod(
       { workspaceId: request.workspaceId, computerId: request.computerId },
       request.online,
     );
-    if (request.online)
+    if (request.online) {
       await reminderCapabilities?.refresh(request.workspaceId, request.computerId);
+      // The Computer is still connected: keep its upgrade identity from expiring on the same
+      // lease as its presence, so an upgrade request never fails an online Computer with
+      // "offline" just because it has been connected longer than the identity's old, unrelated
+      // 10-minute TTL.
+      await upgrades?.touchIdentity({
+        workspaceId: request.workspaceId,
+        computerId: request.computerId,
+      });
+    }
     return new Uint8Array();
   };
 }

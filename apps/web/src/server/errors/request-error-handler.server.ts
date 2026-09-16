@@ -25,6 +25,8 @@ export function handleRequestError(error: unknown): HandledRequestError {
       TEMPORARILY_UNAVAILABLE: 503,
       WORKSPACE_REQUIRED: 400,
       INTERNAL_ERROR: 500,
+      COMPUTER_OFFLINE: 409,
+      RELEASE_FEED_UNAVAILABLE: 503,
     }[error.code];
     return { code, message: error.message };
   }

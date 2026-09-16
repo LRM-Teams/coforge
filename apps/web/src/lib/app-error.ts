@@ -6,6 +6,8 @@ export const APP_ERROR_CODES = [
   "TEMPORARILY_UNAVAILABLE",
   "INTERNAL_ERROR",
   "WORKSPACE_REQUIRED",
+  "COMPUTER_OFFLINE",
+  "RELEASE_FEED_UNAVAILABLE",
 ] as const;
 
 export type AppErrorCode = (typeof APP_ERROR_CODES)[number];
