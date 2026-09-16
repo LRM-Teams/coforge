@@ -4,8 +4,9 @@ import {
   BellOff01 as BellOff,
   Hash01 as Hash,
   LayoutLeft as PanelLeft,
+  Share04 as Share,
 } from "@untitledui/icons";
-import type { TaskView } from "@coforge/protocol";
+import type { TaskView } from "@lrm/coforge-sdk/internal";
 import { useChannelSidebarVisibility } from "@/components/app-shell";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
@@ -21,6 +22,13 @@ import type { ReminderNoticeView } from "./reminder-notice";
 
 export type ChannelConversationView = Omit<DirectConversationView, "agent" | "messages"> & {
   name: string;
+  project?: {
+    id: string;
+    name: string;
+    slug: string;
+    githubFullName: string;
+    githubHtmlUrl: string;
+  };
   muted: boolean;
   followedThreadRootIds?: string[];
   messages: DirectConversationView["messages"];
@@ -58,6 +66,22 @@ export function ChannelConversationHeader({
         )}
         <MobileNavigationButton />
         <h1 className="truncate text-base font-semibold">#{conversation.name}</h1>
+        {conversation.project && (
+          <div className="hidden min-w-0 items-center gap-2 text-xs text-tertiary sm:flex">
+            <span className="shrink-0">Project</span>
+            <span className="truncate font-medium text-primary">{conversation.project.name}</span>
+            <a
+              href={conversation.project.githubHtmlUrl}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={`View ${conversation.project.githubFullName} on GitHub`}
+              className="inline-flex shrink-0 items-center gap-1 text-brand-secondary hover:underline"
+            >
+              {conversation.project.githubFullName}
+              <Share aria-hidden="true" className="size-3.5" />
+            </a>
+          </div>
+        )}
         <span className="ml-auto hidden rounded-md border border-secondary px-2 py-0.5 text-xs font-medium text-tertiary sm:block">
           {m.channel_public()}
         </span>

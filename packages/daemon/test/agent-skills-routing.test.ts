@@ -14,7 +14,7 @@ import {
   decodeAgentSkillsListResult,
   encodeAgentSkillsListRequest,
   type AgentSkillsListResult,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 
 test("WSS Skills query scans a stopped Agent without launching or changing inventory", async () => {
   const root = await mkdtemp(join(tmpdir(), "skills-routing-"));

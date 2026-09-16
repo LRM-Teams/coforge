@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { AgentDetailQuery } from "../src/server/agents/agent-detail.server";
 import { presentActivity, agentDisplay } from "../src/features/agents/agent-activity-presentation";
-import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
+import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
 function display(overrides: Partial<AgentDisplaySnapshot> = {}): AgentDisplaySnapshot {
   return {

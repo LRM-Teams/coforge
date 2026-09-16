@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Edit01 as Pencil, RefreshCw01 as RotateCw } from "@untitledui/icons";
-import type { RuntimeProvider } from "@coforge/protocol";
+import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 
 import { Avatar } from "@/components/base/avatar/avatar";
 import { Button } from "@/components/base/buttons/button";

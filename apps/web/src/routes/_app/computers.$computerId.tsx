@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, notFound, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import type { RuntimeProvider } from "@coforge/protocol";
+import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 
 import { ComputerDetail } from "@/features/computers/computer-detail";
 import { ComputerNotFound } from "@/features/computers/computer-not-found";

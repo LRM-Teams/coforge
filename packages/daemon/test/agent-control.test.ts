@@ -10,7 +10,7 @@ import type {
   AgentWorkspaceResetRequest,
   AgentControlResult,
   AgentStartIntent,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { AgentSessionRecoveryError, AgentProcessCleanupError } from "../src/code-agent/contract";
 
 test.each([true, false])(

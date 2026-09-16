@@ -70,7 +70,7 @@ describe("AgentProcessManager", () => {
     expect(startedOptions.instructions.match(/^- Agent workspace: /gm)).toHaveLength(1);
     expect(startedOptions.instructions.split(workspace)).toHaveLength(2);
     expect(startedOptions.instructions).toContain("## CoForge communication");
-    expect(startedOptions.instructions).toContain("reply with `coforge message send`");
+    expect(startedOptions.instructions).toContain("coforge message send");
     expect(manager.size).toBe(1);
     expect(manager.status("agent-1")).toBe("active");
     expect(manager.status("agent-2")).toBe("inactive");

@@ -1,6 +1,6 @@
 import type { UsageSnapshot, UsageWindow } from "../contract";
 import { agentEnvironment } from "../environment";
-import { RUNTIME_PROVIDER } from "@coforge/protocol";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
 export async function readClaudeCodeUsage(
   workingDirectory: string,

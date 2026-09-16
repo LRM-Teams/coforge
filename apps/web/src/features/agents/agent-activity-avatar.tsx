@@ -1,7 +1,7 @@
 import { Heading } from "react-aria-components";
 
 import { Avatar, type AvatarProps } from "@/components/base/avatar/avatar";
-import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
+import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 import { HoverPopover } from "@/components/ui/hover-popover";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";

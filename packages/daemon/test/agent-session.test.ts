@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { AgentSessionSnapshot } from "@coforge/protocol";
+import type { AgentSessionSnapshot } from "@lrm/coforge-sdk/internal";
 import { AgentSessions } from "../src/agent-runtime/agent-session";
 import {
   AgentRuntimeState,

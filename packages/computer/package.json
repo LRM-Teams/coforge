@@ -13,12 +13,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@coforge/cli": "workspace:*",
-    "@coforge/daemon": "workspace:*",
-    "@coforge/protocol": "workspace:*",
     "@logtape/file": "2.3.2",
     "@logtape/logtape": "2.3.2",
     "@logtape/redaction": "2.3.2",
+    "@lrm/coforge-daemon": "workspace:*",
     "commander": "15.0.0",
     "picocolors": "1.1.1",
     "zod": "4.5.4"

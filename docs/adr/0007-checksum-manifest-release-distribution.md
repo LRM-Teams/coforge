@@ -96,7 +96,7 @@ platform and buys nothing at present.
 
 ## Consequences
 
-`packages/protocol/release-envelope.ts`, the envelope verification in
+`packages/coforge-sdk/release-envelope.ts`, the envelope verification in
 `packages/computer/src/updater.ts`, `channels.json`, release sets, installation
 bundles, component manifests, the `test` channel, generation-based rollback
 protection and `release/trusted-keys/` are all deleted. The staging signing key

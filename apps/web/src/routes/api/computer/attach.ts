@@ -1,4 +1,4 @@
-import { COMPUTER_REGISTER_METHOD } from "@coforge/protocol";
+import { COMPUTER_REGISTER_METHOD } from "@lrm/coforge-sdk/internal";
 import { createFileRoute } from "@tanstack/react-router";
 
 import { createComputerHttpHandler } from "#/server/computers/computer-http.server";

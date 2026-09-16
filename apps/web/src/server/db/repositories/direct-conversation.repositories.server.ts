@@ -1,5 +1,5 @@
 import { lockConversation } from "../../conversations/conversation-lock.server";
-import type { MessageTaskMetadata, TaskStatus } from "@coforge/protocol";
+import type { MessageTaskMetadata, TaskStatus } from "@lrm/coforge-sdk/internal";
 import { Prisma, type PrismaClient } from "../../../../generated/client";
 import { AgentMessageValidationError } from "../../conversations/agent-message-validation-error.server";
 import { getAgentChannel, PublicChannels } from "../../conversations/public-channels.server";

@@ -1,4 +1,4 @@
-import type { TaskStatus, TaskView } from "@coforge/protocol";
+import type { TaskStatus, TaskView } from "@lrm/coforge-sdk/internal";
 
 export type TaskMoveCommand =
   | { operation: "claim"; number: number }

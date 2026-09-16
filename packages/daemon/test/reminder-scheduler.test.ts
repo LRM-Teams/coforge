@@ -4,7 +4,7 @@ import type {
   ReminderFireResponse,
   ReminderJob,
   ReminderSync,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import {
   ReminderScheduler,
   type ReminderClock,

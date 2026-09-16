@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { LaunchdDaemonHost, launchdPlist } from "@coforge/daemon";
+import { LaunchdDaemonHost, launchdPlist } from "@lrm/coforge-daemon";
 
 test("launchd service dispatches the daemon through the unified executable", () => {
   const plist = launchdPlist({

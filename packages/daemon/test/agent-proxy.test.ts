@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import { startAgentProxy } from "../src/agent-proxy";
 import { AgentMessageRequestError } from "../src/connection/agent-message-request-error";
 import { AgentTaskRequestError } from "../src/connection/agent-task-request-error";
@@ -55,19 +56,19 @@ test("proxy redacts known request errors in reviewer-isolated mode", async () =>
   proxies.push(proxy);
   const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
   const post = (path: string, body: Record<string, unknown>) =>
-    fetch(proxy.url.replace("/agent/message", path), {
+    fetch(proxy.url.replace(agentApiRoutes.proxy.messages.path, path), {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ ...body, freshnessContextMode: "withheld" }),
     });
-  const message = await post("/agent/message", {
+  const message = await post(agentApiRoutes.proxy.messages.path, {
     requestId: "message",
     operation: "send",
     target: "@ada",
     body: "reply",
   });
   expect([message.status, await message.text()]).toEqual([502, "proxy request failed"]);
-  const task = await post("/agent/task", {
+  const task = await post(agentApiRoutes.proxy.tasks.path, {
     requestId: "task",
     operation: "claim",
     target: "#general",
@@ -325,7 +326,7 @@ test("proxy forwards an authorized attachment download without exposing the Agen
     runtime: {
       agentMessage: async () => ({}),
       agentAttachment: async (_context, attachmentId, apiKey) => {
-        expect(attachmentId).toBe("attachment-1");
+        expect(attachmentId).toBe("attachment/1");
         expect(apiKey).toMatch(/^sk_agent_/);
         return new Response("file contents", {
           headers: { "content-type": "text/plain" },
@@ -336,11 +337,19 @@ test("proxy forwards an authorized attachment download without exposing the Agen
   proxies.push(proxy);
   const token = proxy.issue("agent-1", `sk_agent_${"a".repeat(43)}`);
   const response = await fetch(
-    `${proxy.url.replace("/agent/message", "/agent/attachment")}\u003fattachmentId=attachment-1`,
+    proxy.url.replace(
+      agentApiRoutes.proxy.messages.path,
+      agentApiRoutes.local.attachments.path("attachment/1"),
+    ),
     {
       headers: { authorization: `Bearer ${token}` },
     },
   );
   expect(response.status).toBe(200);
   expect(await response.text()).toBe("file contents");
+
+  const legacyResponse = await fetch(`${proxy.url}/agent/attachment?attachmentId=attachment-1`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  expect(legacyResponse.status).toBe(404);
 });

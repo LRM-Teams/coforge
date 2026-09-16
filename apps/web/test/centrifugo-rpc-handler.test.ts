@@ -20,7 +20,7 @@ import {
   encodeDaemonRuntimeCodeAgentsUpdateRequest,
   encodeDaemonRuntimeReadyRequest,
   encodeDaemonRuntimeUsageScanResponse,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 
 const encoded = (value: string) => btoa(value);
 const json = (value: unknown) =>
@@ -428,6 +428,7 @@ describe("CentrifugoRpcHandler", () => {
       startedAt: 1,
       runningAgentIds: ["agent-running"],
       recoveredRestartRequestIds: ["restart-1"],
+      recoveredUpgradeRequestIds: [],
     });
 
     expect(await method(payload, { principal: principal() })).toBeInstanceOf(Uint8Array);
@@ -489,6 +490,7 @@ describe("CentrifugoRpcHandler", () => {
         startedAt: 1,
         runningAgentIds: [],
         recoveredRestartRequestIds: [],
+        recoveredUpgradeRequestIds: [],
         ...metadata,
       });
       expect(await method(payload, { principal: principal() })).toEqual({

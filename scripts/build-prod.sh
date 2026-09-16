@@ -53,7 +53,7 @@ echo "==> Building web app (@coforge/web)"
 if command -v mise >/dev/null 2>&1; then
   mise run build:web
 else
-  bun run --cwd packages/protocol generate
+  bun run --cwd packages/coforge-sdk generate
   bun run --cwd apps/web build
 fi
 

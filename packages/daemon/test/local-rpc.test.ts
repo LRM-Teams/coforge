@@ -11,7 +11,7 @@ import {
   frameLocalRpc,
   readLocalRpcFrames,
   LOCAL_RPC_METHODS,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { LocalDaemonLauncher } from "../src/daemon-host/launcher";
 import { startDaemonLocalRpcServer } from "../src/local-rpc";
 import { InMemoryDaemonCredentialStore } from "../src/credentials/credential-store";

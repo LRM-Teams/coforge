@@ -1,5 +1,5 @@
 import { RedisClient } from "bun";
-import type { AgentStatus } from "@coforge/protocol";
+import type { AgentStatus } from "@lrm/coforge-sdk/internal";
 
 const ACTIVE_TTL_SECONDS = "90";
 export const AGENT_STATUS_LEASE_MS = Number(ACTIVE_TTL_SECONDS) * 1_000;

@@ -1,5 +1,5 @@
 import { afterAll, expect, mock, test } from "bun:test";
-import { RUNTIME_PROVIDER } from "@coforge/protocol";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import { AgentEnvironment } from "../src/server/agents/agent-environment.server";
 import type { AgentRuntimeConfig } from "../src/server/agents/agent-runtime-config.server";
 

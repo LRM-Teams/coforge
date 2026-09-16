@@ -1,0 +1,49 @@
+export type AgentMessageOperation = "read" | "search" | "send";
+
+export type AgentMessagesReadRequest = {
+  target: string;
+  before?: string;
+  after?: string;
+  around?: string;
+  limit?: number;
+};
+
+export type AgentMessagesSearchRequest = {
+  query: string;
+  target?: string;
+  sender?: string;
+  sort?: "relevance" | "recent";
+  offset?: number;
+  limit?: number;
+};
+
+export type AgentMessagesSendRequest = {
+  target: string;
+  body: string;
+  sendDraft?: boolean;
+  continueAnyway?: boolean;
+};
+
+export type AgentMessagesResponse = {
+  requestId: string;
+  accepted: boolean;
+  messages: readonly AgentMessage[];
+  attentionCount?: number;
+  messageId?: string;
+  sideEffectDecision?: "forward" | "hold" | "anyway_denied" | "anyway_accepted";
+};
+
+export type AgentMessage = {
+  id: string;
+  sequence: number;
+  sender: string;
+  target: string;
+  body: string;
+  createdAt: string;
+  attachment?: {
+    id: string;
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+  };
+};

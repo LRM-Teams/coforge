@@ -9,7 +9,7 @@ import {
   encodeReminderSnapshotRequest,
   encodeReminderSync,
   type AgentReminderOperationRequest,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { PrismaClient } from "../generated/client";
 import { ReminderNotices } from "../src/server/conversations/reminder-notices.server";
 import {

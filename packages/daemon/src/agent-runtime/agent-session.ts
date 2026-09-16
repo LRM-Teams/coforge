@@ -1,4 +1,4 @@
-import type { AgentSessionSnapshot, SessionIdentity } from "@coforge/protocol";
+import type { AgentSessionSnapshot, SessionIdentity } from "@lrm/coforge-sdk/internal";
 import type { AgentRuntimeRecord, AgentRuntimeState } from "./agent-runtime-state";
 
 /** Owns native Session bindings and reliable current-snapshot reporting. */

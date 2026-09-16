@@ -1,8 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
 import { saveUserTimeZoneInputSchema } from "./settings.schemas";
 
-import { requireBrowserUser } from "../../server/auth/require-user.server";
+import { authMiddleware } from "../../server/auth/function-auth";
 import { getDatabaseClient } from "../../server/db/client.server";
 import {
   PrismaUserPreferencesRepository,
@@ -15,18 +14,17 @@ function preferences() {
   return new UserPreferences(new PrismaUserPreferencesRepository(db));
 }
 
-function currentUserId() {
-  return requireBrowserUser(getRequest().headers.get("cookie") ?? undefined).id;
-}
-
-export const getUserPreferences = createServerFn({ method: "GET" }).handler(async () => {
-  const userId = currentUserId();
-  return { timeZone: await preferences().get(userId) };
-});
+export const getUserPreferences = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const userId = context.user.id;
+    return { timeZone: await preferences().get(userId) };
+  });
 
 export const saveUserTimeZone = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(saveUserTimeZoneInputSchema)
-  .handler(async ({ data }) => {
-    const userId = currentUserId();
+  .handler(async ({ data, context }) => {
+    const userId = context.user.id;
     return { timeZone: await preferences().set(userId, data.timeZone) };
   });

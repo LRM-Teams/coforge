@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { decodeTaskResponse, encodeTaskRequest } from "@coforge/protocol";
+import { decodeTaskResponse, encodeTaskRequest } from "@lrm/coforge-sdk/internal";
 import { createAgentTaskMethod } from "../src/server/agents/agent-task-http.server";
 
 test("Agent Task method trusts authenticated identity rather than payload identity", async () => {

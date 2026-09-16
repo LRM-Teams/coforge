@@ -1,4 +1,4 @@
-import { formatValidationError, isValidationError } from "@coforge/protocol/validation";
+import { formatValidationError, isValidationError } from "@lrm/coforge-sdk/internal";
 import { isAppError } from "@/lib/app-error";
 import { AgentMessageValidationError } from "../conversations/agent-message-validation-error.server";
 import { MessageRequestInProgressError } from "../conversations/message-request-idempotency.server";

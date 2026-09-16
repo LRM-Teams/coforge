@@ -24,7 +24,7 @@ import type {
   CloudAgentMessageResponse,
   TaskRequest,
   TaskResponse,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 
 function sessionSpy() {
   return {
@@ -59,7 +59,7 @@ const config: AgentRuntimeConfig = {
 test("ready and reconnect snapshots report the executable version and observed OS", async () => {
   const credentials = new InMemoryDaemonCredentialStore();
   await credentials.save(connection.workspaceId, connection.computerId, "token-a");
-  let snapshot: (() => import("@coforge/protocol").DaemonRuntimeReadyRequest) | undefined;
+  let snapshot: (() => import("@lrm/coforge-sdk/internal").DaemonRuntimeReadyRequest) | undefined;
   const runtime = new DaemonRuntime(
     connection,
     () => ({ provider: "pi", createAgentSession: async () => sessionSpy() }),
@@ -252,7 +252,7 @@ test("returned identity is acknowledged before Agent readiness and retired callb
   const reported = Promise.withResolvers<void>();
   const acknowledged = Promise.withResolvers<void>();
   let callback: ((id: string) => Promise<void>) | undefined;
-  const reports: import("@coforge/protocol").AgentSessionReport[] = [];
+  const reports: import("@lrm/coforge-sdk/internal").AgentSessionReport[] = [];
   const runtime = new DaemonRuntime(
     connection,
     () => ({
@@ -319,7 +319,7 @@ test("cloud-authorized wake restores the acknowledged identity with a successor 
   const exits: Array<() => void> = [];
   const selected: Array<string | undefined> = [];
   const callbacks: Array<(id: string) => Promise<void>> = [];
-  const reports: import("@coforge/protocol").AgentSessionReport[] = [];
+  const reports: import("@lrm/coforge-sdk/internal").AgentSessionReport[] = [];
   const runtime = new DaemonRuntime(
     connection,
     () => ({
@@ -421,7 +421,7 @@ async function queueHarness(
     notify?: (notice: string) => void | Promise<void>;
     dispose?: () => void | Promise<void>;
     lifecycle?: (event: string) => void;
-    activity?: (activity: import("@coforge/protocol").AgentActivity) => void;
+    activity?: (activity: import("@lrm/coforge-sdk/internal").AgentActivity) => void;
   } = {},
 ) {
   const credentials = new InMemoryDaemonCredentialStore();
@@ -1506,7 +1506,7 @@ describe("DaemonRuntime", () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const exits = new Set<() => void>();
-    const statuses: import("@coforge/protocol").AgentStatus[] = [];
+    const statuses: import("@lrm/coforge-sdk/internal").AgentStatus[] = [];
     const notices: string[] = [];
     const acknowledgements: string[] = [];
     let starts = 0;
@@ -1585,7 +1585,7 @@ describe("DaemonRuntime", () => {
   test("reports active Agents inactive before a graceful daemon shutdown", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
-    const statuses: import("@coforge/protocol").AgentStatus[] = [];
+    const statuses: import("@lrm/coforge-sdk/internal").AgentStatus[] = [];
     let statusAtTransportStop: string | undefined;
     const runtime = new DaemonRuntime(
       connection,
@@ -2352,7 +2352,7 @@ describe("DaemonRuntime", () => {
     const entered = Promise.withResolvers<void>();
     const gate = Promise.withResolvers<void>();
     const events: string[] = [];
-    const activities: import("@coforge/protocol").AgentActivity[] = [];
+    const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
     const harness = await queueHarness({
       lifecycle: (event) => events.push(event),
       activity: (activity) => activities.push(activity),
@@ -2394,7 +2394,7 @@ describe("DaemonRuntime", () => {
     async (kind) => {
       const entered = Promise.withResolvers<void>();
       const gate = Promise.withResolvers<void>();
-      const activities: import("@coforge/protocol").AgentActivity[] = [];
+      const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
       const harness = await queueHarness({
         activity: (activity) => activities.push(activity),
         notify: async () => {
@@ -2991,7 +2991,7 @@ describe("DaemonRuntime", () => {
   test("publishes current-launch command and tool Activity details", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
-    const activities: import("@coforge/protocol").AgentActivity[] = [];
+    const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
     const sessions: Array<{
       event(event: Parameters<Parameters<AgentSession["subscribe"]>[0]>[0]): void;
       delayedExit(): void;
@@ -3195,7 +3195,7 @@ describe("DaemonRuntime", () => {
   test("publishes a completion Activity without lifecycle detail for a successful turn", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
-    const activities: import("@coforge/protocol").AgentActivity[] = [];
+    const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
     let listener: Parameters<AgentSession["subscribe"]>[0] = () => undefined;
     const runtime = new DaemonRuntime(
       connection,
@@ -3242,9 +3242,9 @@ describe("DaemonRuntime", () => {
   test("reports a fenced fresh session and an honest notice without exposing unrelated provider errors", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
-    const activities: import("@coforge/protocol").AgentActivity[] = [];
+    const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
     let fail = false;
-    const reports: import("@coforge/protocol").AgentSessionReport[] = [];
+    const reports: import("@lrm/coforge-sdk/internal").AgentSessionReport[] = [];
     const runtime = new DaemonRuntime(
       connection,
       () => ({
@@ -3302,7 +3302,7 @@ describe("DaemonRuntime", () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const lifecycle: string[] = [];
-    const activities: import("@coforge/protocol").AgentActivity[] = [];
+    const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
     let credentialRequests = 0;
     const runtime = new DaemonRuntime(
       connection,
@@ -3355,7 +3355,7 @@ describe("DaemonRuntime", () => {
   test("reports stop failure when process-tree exit cannot be confirmed", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
-    const activities: import("@coforge/protocol").AgentActivity[] = [];
+    const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
     const runtime = new DaemonRuntime(
       connection,
       () => ({
@@ -3410,7 +3410,7 @@ describe("DaemonRuntime", () => {
   test("does not publish an old session exit after daemon stop and restart", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
-    const activities: import("@coforge/protocol").AgentActivity[] = [];
+    const activities: import("@lrm/coforge-sdk/internal").AgentActivity[] = [];
     const oldExitListeners: Array<() => void> = [];
     let launches = 0;
     const runtime = new DaemonRuntime(
@@ -3713,7 +3713,7 @@ describe("DaemonRuntime", () => {
     const notifyStarted = Promise.withResolvers<void>();
     const exits = new Set<() => void>();
     let sessions = 0;
-    let receiveReminder!: (sync: import("@coforge/protocol").ReminderSync) => void;
+    let receiveReminder!: (sync: import("@lrm/coforge-sdk/internal").ReminderSync) => void;
     const reminderId = "123e4567-e89b-42d3-a456-426614174000";
     const runtime = new DaemonRuntime(
       connection,
@@ -3812,7 +3812,7 @@ describe("DaemonRuntime", () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
     const notified = Promise.withResolvers<void>();
-    let receiveReminder!: (sync: import("@coforge/protocol").ReminderSync) => void;
+    let receiveReminder!: (sync: import("@lrm/coforge-sdk/internal").ReminderSync) => void;
     const fullTitle = `  检查\n\t${"中".repeat(115)}😀${"长期项目进度".repeat(30)}  `;
     const reminderId = "123e4567-e89b-42d3-a456-426614174000";
     const runtime = new DaemonRuntime(

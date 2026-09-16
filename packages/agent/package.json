@@ -27,8 +27,8 @@
     "check:models": "bun scripts/generate-coforge-models.ts --check"
   },
   "dependencies": {
-    "@coforge/protocol": "workspace:*",
-    "@earendil-works/pi-coding-agent": "0.84.3"
+    "@earendil-works/pi-coding-agent": "0.84.3",
+    "@lrm/coforge-sdk": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "1.4.0",

@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
+import { authMiddleware } from "../../server/auth/function-auth";
 import {
   agentConversationPageInputSchema,
   agentConversationUpdatesInputSchema,
@@ -8,7 +8,6 @@ import {
   readConversationThreadInputSchema,
   sendConversationMessageInputSchema,
 } from "./conversation.schemas";
-import { requireBrowserUser } from "../../server/auth/require-user.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 import { SendDirectMessage } from "../../server/conversations/direct-message.server";
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
@@ -41,9 +40,9 @@ async function historyContext(userId: string) {
 }
 
 export const loadDirectConversation = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
   .validator(agentConversationPageInputSchema)
-  .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  .handler(async ({ context: { user }, data }) => {
     const { conversations, workspaceId } = await context(user, data.agentId);
     return conversations.openForUser(workspaceId, user.id, data.agentId, {
       beforeSequence: data.beforeSequence,
@@ -51,17 +50,17 @@ export const loadDirectConversation = createServerFn({ method: "GET" })
   });
 
 export const loadDirectConversationUpdates = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
   .validator(agentConversationUpdatesInputSchema)
-  .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  .handler(async ({ context: { user }, data }) => {
     const { conversations, workspaceId } = await context(user, data.agentId);
     return conversations.updatesForUser(workspaceId, user.id, data.agentId, data.afterSequence);
   });
 
 export const loadOwnConversationMessages = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
   .validator(ownMessageIndexInputSchema)
-  .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  .handler(async ({ context: { user }, data }) => {
     const { history, workspaceId } = await historyContext(user.id);
     return history.listOwnMessages(workspaceId, user.id, data.conversationId, {
       beforeSequence: data.beforeSequence,
@@ -69,17 +68,17 @@ export const loadOwnConversationMessages = createServerFn({ method: "GET" })
   });
 
 export const loadConversationAround = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
   .validator(conversationAroundInputSchema)
-  .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  .handler(async ({ context: { user }, data }) => {
     const { history, workspaceId } = await historyContext(user.id);
     return history.loadAround(workspaceId, user.id, data.conversationId, data.messageId);
   });
 
 export const markDirectThreadRead = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(readConversationThreadInputSchema)
-  .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  .handler(async ({ context: { user }, data }) => {
     const { conversations, workspaceId } = await context(user, data.agentId);
     await conversations.markThreadReadForUser(
       workspaceId,
@@ -91,9 +90,9 @@ export const markDirectThreadRead = createServerFn({ method: "POST" })
   });
 
 export const sendDirectConversationMessage = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(sendConversationMessageInputSchema)
-  .handler(async ({ data }) => {
-    const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+  .handler(async ({ context: { user }, data }) => {
     return withMessageSendTrace(
       data.requestId,
       { "coforge.agent_id": data.agentId },

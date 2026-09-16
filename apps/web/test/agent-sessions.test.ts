@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { encodeAgentSessionReport } from "@coforge/protocol";
+import { encodeAgentSessionReport } from "@lrm/coforge-sdk/internal";
 import { createAgentSessionMethod } from "../src/server/centrifugo/rpc-handler.server";
 import {
   AgentSessions,

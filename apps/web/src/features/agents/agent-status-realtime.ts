@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   parseAgentDisplaySnapshot,
   type AgentDisplaySnapshot,
-} from "@coforge/protocol/agent-display";
+} from "@lrm/coforge-sdk/internal";
 
 import { useRealtimeSubscription } from "../realtime/browser-realtime";
 

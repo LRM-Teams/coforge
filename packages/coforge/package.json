@@ -1,0 +1,38 @@
+{
+  "name": "@lrm/coforge",
+  "version": "0.1.0",
+  "bin": {
+    "coforge": "./src/cli.ts"
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "README.md",
+    "dist"
+  ],
+  "type": "module",
+  "module": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./runner": "./src/cli.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "lint": "oxlint .",
+    "typecheck": "tsc --noEmit",
+    "check": "bun run format:check && bun run lint && bun run typecheck",
+    "build": "bun build --compile ./src/cli.ts --outfile ./dist/coforge"
+  },
+  "dependencies": {
+    "@lrm/coforge-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@lrm/coforge-sdk": "workspace:*",
+    "@types/bun": "1.4.0",
+    "oxfmt": "0.65.0",
+    "oxlint": "1.80.0",
+    "typescript": "7.0.2"
+  }
+}

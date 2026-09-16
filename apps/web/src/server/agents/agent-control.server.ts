@@ -6,7 +6,7 @@ import {
   type AgentControlScope,
   type AgentStartIntent,
   type SessionIdentity,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { daemonControlChannel, type CentrifugoServerApi } from "../centrifugo/server-api.server";
 import type { AgentRuntimeConfig } from "./agent-runtime-config.server";
 import { runtimeStartFields } from "./manage-agents.server";

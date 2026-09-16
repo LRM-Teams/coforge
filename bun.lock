@@ -18,13 +18,13 @@
       "version": "0.1.0",
       "dependencies": {
         "@alicloud/credentials": "2.4.7",
-        "@coforge/protocol": "workspace:*",
         "@dnd-kit/core": "6.3.1",
         "@floating-ui/dom": "^1.7.6",
         "@fontsource-variable/geist": "^5.3.0",
         "@fontsource-variable/inter": "^5.3.0",
         "@fontsource-variable/jetbrains-mono": "^5.3.0",
         "@lobehub/icons-static-svg": "^1.95.0",
+        "@lrm/coforge-sdk": "workspace:*",
         "@opentelemetry/api": "^1.9.1",
         "@opentelemetry/exporter-trace-otlp-proto": "^0.222.0",
         "@opentelemetry/resources": "^2.11.0",
@@ -113,8 +113,8 @@
         "coforge-agent": "./src/runner.ts",
       },
       "dependencies": {
-        "@coforge/protocol": "workspace:*",
         "@earendil-works/pi-coding-agent": "0.84.3",
+        "@lrm/coforge-sdk": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "1.4.0",
@@ -123,14 +123,31 @@
         "typescript": "7.0.2",
       },
     },
-    "packages/cli": {
-      "name": "@coforge/cli",
+    "packages/coforge": {
+      "name": "@lrm/coforge",
       "version": "0.1.0",
       "bin": {
         "coforge": "./src/cli.ts",
       },
+      "dependencies": {
+        "@lrm/coforge-sdk": "workspace:*",
+      },
       "devDependencies": {
-        "@coforge/protocol": "workspace:*",
+        "@lrm/coforge-sdk": "workspace:*",
+        "@types/bun": "1.4.0",
+        "oxfmt": "0.65.0",
+        "oxlint": "1.80.0",
+        "typescript": "7.0.2",
+      },
+    },
+    "packages/coforge-sdk": {
+      "name": "@lrm/coforge-sdk",
+      "version": "0.1.0",
+      "dependencies": {
+        "@bufbuild/protobuf": "^2.14.0",
+        "@bufbuild/protovalidate": "1.2.0",
+      },
+      "devDependencies": {
         "@types/bun": "1.4.0",
         "oxfmt": "0.65.0",
         "oxlint": "1.80.0",
@@ -141,12 +158,10 @@
       "name": "@coforge/computer",
       "version": "0.1.0",
       "dependencies": {
-        "@coforge/cli": "workspace:*",
-        "@coforge/daemon": "workspace:*",
-        "@coforge/protocol": "workspace:*",
         "@logtape/file": "2.3.2",
         "@logtape/logtape": "2.3.2",
         "@logtape/redaction": "2.3.2",
+        "@lrm/coforge-daemon": "workspace:*",
         "commander": "15.0.0",
         "picocolors": "1.1.1",
         "zod": "4.5.4",
@@ -159,33 +174,19 @@
       },
     },
     "packages/daemon": {
-      "name": "@coforge/daemon",
+      "name": "@lrm/coforge-daemon",
       "version": "0.1.0",
       "dependencies": {
         "@agentclientprotocol/sdk": "1.4.0",
-        "@coforge/agent": "0.1.0",
-        "@coforge/protocol": "workspace:*",
+        "@coforge/agent": "workspace:*",
         "@logtape/file": "2.3.2",
         "@logtape/logtape": "2.3.2",
         "@logtape/redaction": "2.3.2",
+        "@lrm/coforge-sdk": "workspace:*",
         "centrifuge": "5.2.1",
       },
       "devDependencies": {
-        "@coforge/cli": "workspace:*",
-        "@types/bun": "1.4.0",
-        "oxfmt": "0.65.0",
-        "oxlint": "1.80.0",
-        "typescript": "7.0.2",
-      },
-    },
-    "packages/protocol": {
-      "name": "@coforge/protocol",
-      "version": "0.1.0",
-      "dependencies": {
-        "@bufbuild/protobuf": "^2.14.0",
-        "@bufbuild/protovalidate": "^1.2.0",
-      },
-      "devDependencies": {
+        "@lrm/coforge": "workspace:*",
         "@types/bun": "1.4.0",
         "oxfmt": "0.65.0",
         "oxlint": "1.80.0",
@@ -326,13 +327,7 @@
 
     "@coforge/agent": ["@coforge/agent@workspace:packages/agent"],
 
-    "@coforge/cli": ["@coforge/cli@workspace:packages/cli"],
-
     "@coforge/computer": ["@coforge/computer@workspace:packages/computer"],
-
-    "@coforge/daemon": ["@coforge/daemon@workspace:packages/daemon"],
-
-    "@coforge/protocol": ["@coforge/protocol@workspace:packages/protocol"],
 
     "@coforge/web": ["@coforge/web@workspace:apps/web"],
 
@@ -413,6 +408,12 @@
     "@logtape/logtape": ["@logtape/logtape@2.3.2", "", {}, "sha512-SfxHfSdDlTp6tLpYP5uezNitSCTQUB3FZ1MXDbgDBN9t9kvF+XL0rOGTIa/pJcDMy1o9FELaZ25E/Ypmsf5fNQ=="],
 
     "@logtape/redaction": ["@logtape/redaction@2.3.2", "", { "peerDependencies": { "@logtape/logtape": "^2.3.2" } }, "sha512-tLiLxtMm99oKP6g19+yBUmk54HawuVKh4xlW9lAPhyayjisnJ9gwjihxjqd6lo0Bf090/gQvI9eJ3MWSS8w+aw=="],
+
+    "@lrm/coforge": ["@lrm/coforge@workspace:packages/coforge"],
+
+    "@lrm/coforge-daemon": ["@lrm/coforge-daemon@workspace:packages/daemon"],
+
+    "@lrm/coforge-sdk": ["@lrm/coforge-sdk@workspace:packages/coforge-sdk"],
 
     "@mariozechner/clipboard": ["@mariozechner/clipboard@0.3.9", "", { "optionalDependencies": { "@mariozechner/clipboard-darwin-arm64": "0.3.9", "@mariozechner/clipboard-darwin-universal": "0.3.9", "@mariozechner/clipboard-darwin-x64": "0.3.9", "@mariozechner/clipboard-linux-arm64-gnu": "0.3.9", "@mariozechner/clipboard-linux-arm64-musl": "0.3.9", "@mariozechner/clipboard-linux-riscv64-gnu": "0.3.9", "@mariozechner/clipboard-linux-x64-gnu": "0.3.9", "@mariozechner/clipboard-linux-x64-musl": "0.3.9", "@mariozechner/clipboard-win32-arm64-msvc": "0.3.9", "@mariozechner/clipboard-win32-x64-msvc": "0.3.9" } }, "sha512-ABnA53mdfkGZwOFUdZNv2S0CWGO/EIuPj8Vv9xmBFmSYg/qFc7ihO6q5FcQjvoE67kZpWkEc4AhD6B/os04yuA=="],
 

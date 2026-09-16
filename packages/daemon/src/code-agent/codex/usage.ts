@@ -2,7 +2,7 @@ import type { UsageSnapshot, UsageWindow } from "../contract";
 import { agentEnvironment } from "../environment";
 import { JsonlProcess } from "../jsonl-process";
 import { COFORGE_DAEMON_VERSION } from "../../version";
-import { RUNTIME_PROVIDER } from "@coforge/protocol";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
 export async function readCodexUsage(
   workingDirectory: string,

@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
-import { requireBrowserUser } from "../../server/auth/require-user.server";
+import { authMiddleware } from "../../server/auth/function-auth";
 import { getDatabaseClient } from "../../server/db/client.server";
 import { requireWorkspaceIdForRequest } from "../../server/workspaces/selection.server";
 import { PublicChannels } from "../../server/conversations/public-channels.server";
@@ -26,8 +25,7 @@ const channelThreadFollowInput = channelInput.extend({
   threadRootId: z.uuid(),
   followed: z.boolean(),
 });
-async function context() {
-  const user = requireBrowserUser(getRequest().headers.get("cookie") ?? undefined);
+async function context(user: { id: string; username: string }) {
   const db = getDatabaseClient();
   if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
   const workspaceId = await requireWorkspaceIdForRequest(db, user.id);
@@ -40,59 +38,68 @@ async function context() {
   };
 }
 
-export const listPublicChannels = createServerFn({ method: "GET" }).handler(async () => {
-  const { channels, workspaceId, userId } = await context();
-  return channels.list(workspaceId, userId);
-});
+export const listPublicChannels = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context: authContext }) => {
+    const { channels, workspaceId, userId } = await context(authContext.user);
+    return channels.list(workspaceId, userId);
+  });
 
 export const createPublicChannel = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(
     z.object({
       name: z
         .string()
         .trim()
         .regex(/^[a-z0-9][a-z0-9_-]{0,31}$/),
+      projectId: z.uuid().optional(),
     }),
   )
-  .handler(async ({ data }) => {
-    const { channels, workspaceId, userId } = await context();
-    return channels.create(workspaceId, userId, data.name);
+  .handler(async ({ data, context: authContext }) => {
+    const { channels, workspaceId, userId } = await context(authContext.user);
+    return channels.create(workspaceId, userId, data.name, data.projectId);
   });
 
 export const loadPublicChannel = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
   .validator(channelPageInput)
-  .handler(async ({ data }) => {
-    const { channels, workspaceId, userId } = await context();
+  .handler(async ({ data, context: authContext }) => {
+    const { channels, workspaceId, userId } = await context(authContext.user);
     return channels.open(workspaceId, userId, data.channelId, {
       beforeSequence: data.beforeSequence,
     });
   });
 
 export const loadPublicChannelUpdates = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
   .validator(channelUpdatesInput)
-  .handler(async ({ data }) => {
-    const { channels, workspaceId, userId } = await context();
+  .handler(async ({ data, context: authContext }) => {
+    const { channels, workspaceId, userId } = await context(authContext.user);
     return channels.updates(workspaceId, userId, data.channelId, data.afterSequence);
   });
 
 export const joinPublicChannel = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(channelInput)
-  .handler(async ({ data }) => {
-    const { channels, workspaceId, userId } = await context();
+  .handler(async ({ data, context: authContext }) => {
+    const { channels, workspaceId, userId } = await context(authContext.user);
     await channels.join(workspaceId, userId, data.channelId);
   });
 
 export const setPublicChannelMuted = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(channelInput.extend({ muted: z.boolean() }))
-  .handler(async ({ data }) => {
-    const { channels, workspaceId, userId } = await context();
+  .handler(async ({ data, context: authContext }) => {
+    const { channels, workspaceId, userId } = await context(authContext.user);
     return channels.setUserMuted(workspaceId, userId, data.channelId, data.muted);
   });
 
 export const markPublicChannelThreadRead = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(channelThreadReadInput)
-  .handler(async ({ data }) => {
-    const { channels, workspaceId, userId } = await context();
+  .handler(async ({ data, context: authContext }) => {
+    const { channels, workspaceId, userId } = await context(authContext.user);
     await channels.markThreadReadForUser(
       workspaceId,
       userId,
@@ -103,9 +110,10 @@ export const markPublicChannelThreadRead = createServerFn({ method: "POST" })
   });
 
 export const setPublicChannelThreadFollowed = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(channelThreadFollowInput)
-  .handler(async ({ data }) => {
-    const { channels, workspaceId, userId } = await context();
+  .handler(async ({ data, context: authContext }) => {
+    const { channels, workspaceId, userId } = await context(authContext.user);
     return channels.setUserThreadFollowed(
       workspaceId,
       userId,
@@ -116,6 +124,7 @@ export const setPublicChannelThreadFollowed = createServerFn({ method: "POST" })
   });
 
 export const sendPublicChannelMessage = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .validator(
     channelInput.extend({
       requestId: z.uuid(),
@@ -124,8 +133,8 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       threadRootId: z.uuid().optional(),
     }),
   )
-  .handler(async ({ data }) => {
-    const { db, workspaceId, userId, username } = await context();
+  .handler(async ({ data, context: authContext }) => {
+    const { db, workspaceId, userId, username } = await context(authContext.user);
     const centrifugo = createCentrifugoServerApi();
     const channels = new PublicChannels(
       db,

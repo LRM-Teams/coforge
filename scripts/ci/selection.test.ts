@@ -12,7 +12,7 @@ test("dependency changes include downstream consumers, but not unrelated modules
     "macos-lifecycle",
     "windows-release",
   ]);
-  expect(selectChecks(["packages/cli/src/cli.ts"], "changes")).toEqual([
+  expect(selectChecks(["packages/coforge/src/cli.ts"], "changes")).toEqual([
     "cli",
     "computer",
     "daemon",
@@ -55,7 +55,7 @@ test("documentation skips application checks, while shared and unknown inputs fa
     "apps/web/package.json",
     ".github/workflows/ci.yml",
     "packages/new/src/index.ts",
-    "packages/protocol/messages.ts",
+    "packages/coforge-sdk/messages.ts",
   ]) {
     expect(selectChecks([path], "changes")).toEqual(all);
   }
@@ -114,7 +114,7 @@ test("manual local publication always validates its complete track, regardless o
 
 test("workflow selection accepts NUL-delimited filenames and emits job and matrix outputs", async () => {
   const child = Bun.spawn([process.execPath, "scripts/ci/selection.ts", "changes"], {
-    stdin: new Blob(["apps/web/src/a\npage.tsx\0packages/cli/src/cli.ts\0"]),
+    stdin: new Blob(["apps/web/src/a\npage.tsx\0packages/coforge/src/cli.ts\0"]),
     stdout: "pipe",
     stderr: "pipe",
   });

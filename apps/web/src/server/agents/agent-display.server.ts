@@ -1,10 +1,10 @@
 import { RedisClient } from "bun";
-import type { AgentActivity, AgentStatus } from "@coforge/protocol";
+import type { AgentActivity, AgentStatus } from "@lrm/coforge-sdk/internal";
 import {
   parseAgentDisplaySnapshot,
   type AgentActivityKind,
   type AgentDisplaySnapshot,
-} from "@coforge/protocol/agent-display";
+} from "@lrm/coforge-sdk/internal";
 import { AGENT_STATUS_LEASE_MS } from "./agent-status.server";
 
 const WORKING_LEASE_MS = 60_000;

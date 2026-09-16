@@ -7,16 +7,16 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 // Dispatch before importing either runtime so Agent commands never initialize
 // Computer logging, Daemon sockets, or Workspace recovery.
 if (Bun.argv[2] === "__agent-cli") {
-  const { runAgentCli } = await import("@coforge/cli/runner");
+  const { runAgentCli } = await import("@lrm/coforge/runner");
   await runAgentCli(Bun.argv.slice(3));
 } else if (Bun.argv[2] === "__daemon") {
-  const { runMachineSupervisor } = await import("@coforge/daemon");
+  const { runMachineSupervisor } = await import("@lrm/coforge-daemon");
   await runMachineSupervisor(Bun.argv.slice(3));
 } else if (Bun.argv[2] === "__managed-agent") {
-  const { runLaunchdAgent } = await import("@coforge/daemon");
+  const { runLaunchdAgent } = await import("@lrm/coforge-daemon");
   await runLaunchdAgent(Bun.argv[3]!);
 } else if (Bun.argv[2] === "__workspace-daemon") {
-  const { runDaemon } = await import("@coforge/daemon");
+  const { runDaemon } = await import("@lrm/coforge-daemon");
   const { COFORGE_COMPUTER_VERSION } = await import("./version");
   await runDaemon(Bun.argv.slice(3), COFORGE_COMPUTER_VERSION);
 } else if (Bun.argv[2] === "__upgrade") {

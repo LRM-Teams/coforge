@@ -2,7 +2,7 @@ import type {
   AgentSkillsListRequest,
   AgentSkillsListResult,
   RuntimeProvider,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import type { PrismaClient } from "../../../generated/client";
 import { parseAgentRuntimeConfig } from "./agent-runtime-config.server";
 

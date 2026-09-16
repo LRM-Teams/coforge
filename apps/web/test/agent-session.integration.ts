@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../generated/client";
 import { AgentControl, agentControlRevision } from "../src/server/agents/agent-control.server";
-import { decodeAgentStartIntent, type AgentStartIntent } from "@coforge/protocol";
+import { decodeAgentStartIntent, type AgentStartIntent } from "@lrm/coforge-sdk/internal";
 import { AgentSessions } from "../src/server/agents/agent-sessions.server";
 import { PrismaAgentControlStore } from "../src/server/db/repositories/agent-control.repositories.server";
 import { PrismaAgentSessionRepository } from "../src/server/db/repositories/agent-session.repositories.server";

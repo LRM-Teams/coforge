@@ -2,14 +2,14 @@ import type {
   ComputerRegisterRequest,
   ComputerRegisterResponse,
   ComputerRegisterTransport,
-} from "@coforge/protocol";
-import { WORKSPACE_GET_METHOD, WORKSPACE_PROTOCOL_MAJOR } from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
+import { WORKSPACE_GET_METHOD, WORKSPACE_PROTOCOL_MAJOR } from "@lrm/coforge-sdk/internal";
 import {
   decodeComputerRegisterResponse,
   decodeWorkspaceGetResponse,
   encodeComputerRegisterRequest,
   encodeWorkspaceGetRequest,
-} from "@coforge/protocol/codec";
+} from "@lrm/coforge-sdk/internal/codec";
 import { z } from "zod";
 import { loginError, RemoteRpcError } from "./errors";
 import type { AccessibleWorkspace, Credential } from "./login";
@@ -106,7 +106,7 @@ export class HttpComputerRegisterTransport implements ComputerRegisterTransport 
   ) {}
 
   async request(
-    method: typeof import("@coforge/protocol").COMPUTER_REGISTER_METHOD,
+    method: typeof import("@lrm/coforge-sdk/internal").COMPUTER_REGISTER_METHOD,
     payload: ComputerRegisterRequest,
   ): Promise<ComputerRegisterResponse> {
     const bytes = await callHttpRpc(

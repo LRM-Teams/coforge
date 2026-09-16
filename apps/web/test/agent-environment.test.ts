@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { RUNTIME_PROVIDER } from "@coforge/protocol";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 import {
   AgentEnvironment,
   decryptAgentEnvironment,

@@ -1,5 +1,6 @@
-import type { TaskCommand, TaskView } from "@coforge/protocol";
+import type { TaskCommand, TaskView } from "@lrm/coforge-sdk/internal";
 import { CheckSquare as ListTodo, Lock01 as Lock } from "@untitledui/icons";
+
 import { useState } from "react";
 
 import { Button } from "@/components/base/buttons/button";

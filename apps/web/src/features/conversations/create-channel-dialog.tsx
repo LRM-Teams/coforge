@@ -4,6 +4,7 @@ import { Heading, Text } from "react-aria-components";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
+import { Select } from "@/components/base/select/select";
 import { isAppError } from "@/lib/app-error";
 import { m } from "@/paraglide/messages";
 
@@ -11,13 +12,16 @@ export function CreateChannelDialog({
   open,
   onOpenChange,
   onCreate,
+  projects = [],
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (name: string) => Promise<void>;
+  onCreate: (name: string, projectId?: string) => Promise<void>;
+  projects?: { id: string; name: string; slug: string }[];
 }) {
   const id = useId();
   const [name, setName] = useState("");
+  const [projectId, setProjectId] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const busy = useRef(false);
@@ -28,8 +32,9 @@ export function CreateChannelDialog({
     setSaving(true);
     setError("");
     try {
-      await onCreate(name.trim());
+      await onCreate(name.trim(), projectId || undefined);
       setName("");
+      setProjectId("");
       onOpenChange(false);
     } catch (cause) {
       setError(
@@ -84,6 +89,23 @@ export function CreateChannelDialog({
                 <p id={`${id}-hint`} className="text-xs text-tertiary">
                   {m.channel_name_hint()}
                 </p>
+                {projects.length > 0 && (
+                  <Select
+                    aria-label="Project"
+                    placeholder="No Project"
+                    selectedKey={projectId || null}
+                    onSelectionChange={(key) => setProjectId(String(key))}
+                    isDisabled={saving}
+                  >
+                    {projects.map((project) => (
+                      <Select.Item
+                        key={project.id}
+                        id={project.id}
+                        label={`${project.name} (${project.slug})`}
+                      />
+                    ))}
+                  </Select>
+                )}
                 {error && (
                   <p role="alert" className="text-sm text-error-primary">
                     {error}

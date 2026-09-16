@@ -1,4 +1,8 @@
-import type { CodeAgentModelCatalog, RuntimeMetadata, RuntimeProvider } from "@coforge/protocol";
+import type {
+  CodeAgentModelCatalog,
+  RuntimeMetadata,
+  RuntimeProvider,
+} from "@lrm/coforge-sdk/internal";
 import type { AgentSession, AgentSessionOptions, UsageSnapshot } from "@coforge/agent";
 export type {
   AgentActivity,

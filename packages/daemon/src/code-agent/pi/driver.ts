@@ -8,8 +8,8 @@ import { AgentSessionRecoveryError, type CodeAgentProvider } from "../contract";
 import { agentEnvironment } from "../environment";
 import { createAgentActivity } from "../../agent-runtime/agent-activity";
 import { toolActivity } from "../tool-activity";
-import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@coforge/protocol";
-import type { RuntimeProvider } from "@coforge/protocol";
+import { AGENT_ACTIVITY_DETAIL_KIND, RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
+import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 import {
   createSession,
   getAgentDir,
@@ -18,7 +18,7 @@ import {
   PI_SDK_VERSION,
 } from "@coforge/agent";
 import { join } from "node:path";
-import type { RuntimeMetadata } from "@coforge/protocol";
+import type { RuntimeMetadata } from "@lrm/coforge-sdk/internal";
 import { discoverCoforgeCatalog, discoverPiCatalog } from "../runtime-inventory";
 import { COFORGE_AGENT_RUNTIME_METADATA } from "./metadata";
 

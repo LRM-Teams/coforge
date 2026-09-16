@@ -1,8 +1,5 @@
-import {
-  AGENT_ACTIVITY_DETAIL_KIND,
-  decodeAgentActivity,
-  encodeAgentActivity,
-} from "@coforge/protocol";
+import { AGENT_ACTIVITY_DETAIL_KIND } from "@lrm/coforge-sdk/internal";
+import { decodeAgentActivity, encodeAgentActivity } from "@lrm/coforge-sdk/internal";
 
 import { getDatabaseClient } from "../db/client.server";
 import { PrismaAgentRepository } from "../db/repositories/agent.repositories.server";
@@ -18,7 +15,7 @@ import {
 import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
 import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
 import { agentActivityChannel } from "../../features/agents/agent-activity";
-import type { AgentActivityKind } from "@coforge/protocol/agent-display";
+import type { AgentActivityKind } from "@lrm/coforge-sdk/internal";
 
 type AgentActivityPublicationDependencies = {
   proxySecret: string | undefined;

@@ -5,7 +5,7 @@ import {
   decodeAgentStopIntent,
   encodeAgentActivity,
   RUNTIME_PROVIDER,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import {
   PublishAgentRuntimeControl,
   WorkspaceAgentRecovery,

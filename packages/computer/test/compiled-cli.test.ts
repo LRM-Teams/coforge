@@ -31,7 +31,7 @@ test("single-file installation provides management and Agent CLI without a Daemo
     async fetch(request) {
       const path = new URL(request.url).pathname;
       requests.push(path);
-      if (path === "/agent/message") {
+      if (path.startsWith("/api/agent/v1/")) {
         const body = await request.json();
         return Response.json({ operation: body.operation, body: body.body, messages: [] });
       }
@@ -83,7 +83,7 @@ test("single-file installation provides management and Agent CLI without a Daemo
           HOME: join(directory, "agent-home"),
           PATH: bin,
           COFORGE_AGENT_CONTEXT: `sfp_${"a".repeat(43)}`,
-          COFORGE_AGENT_PROXY_URL: `${server.url}agent/message`,
+          COFORGE_AGENT_PROXY_URL: `${server.url}api/agent/v1/messages`,
         },
         stdin: new Blob([input]),
         stdout: "pipe",
@@ -96,9 +96,9 @@ test("single-file installation provides management and Agent CLI without a Daemo
         stderr: await new Response(child.stderr).text(),
       };
     };
-    expect(await invoke(["message", "check"])).toEqual({
+    expect(await invoke(["inbox", "check"])).toEqual({
       code: 0,
-      stdout: "No new inbox messages.\n",
+      stdout: '{"operation":"check","messages":[]}\n',
       stderr: "",
     });
     const sent = await invoke(["message", "send", "--target", "@user"], "release-only hello");

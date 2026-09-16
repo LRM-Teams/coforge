@@ -1,4 +1,4 @@
-import type { TaskCommand, TaskHistoryEvent, TaskView } from "@coforge/protocol";
+import type { TaskCommand, TaskHistoryEvent, TaskView } from "@lrm/coforge-sdk/internal";
 import { useServerFn } from "@tanstack/react-start";
 import { DotsHorizontal as MoreHorizontal } from "@untitledui/icons";
 import { useEffect, useState } from "react";

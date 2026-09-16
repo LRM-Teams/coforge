@@ -71,6 +71,14 @@ instructions for the TanStack Start Web/backend modular monolith.
 
 ## Route and page organization
 
+- Personal GitHub connections belong to `server/integrations/github-connection.server.ts`.
+  `GitHubConnection` owns authorization attempts, encrypted user credentials,
+  refresh serialization, installation/repository access and disconnect. GitHub
+  connections do not create login identities or confer Workspace authority.
+  `features/integrations/github.functions.ts` exposes authenticated browser
+  operations; the raw OAuth callback is a thin route adapter. Settings owns
+  the Integrations section, with its GitHub view in `features/integrations/`.
+
 - `src/features/landing/` owns the single-page public homepage composition and its
   inline Terminal demonstration. The demo has no copy action; actionable
   installation instructions belong in the authenticated Computer UI.
@@ -119,7 +127,7 @@ instructions for the TanStack Start Web/backend modular monolith.
   `features/tasks/tasks.functions.ts` exposes `executeTask` to the browser;
   `features/tasks/` owns the board and message actions. Agent Task RPC adapters
   under `server/agents/` call the same TaskBoard, never duplicate business rules.
-  `packages/protocol/tasks.ts` owns the framework-free shared contract.
+  `packages/coforge-sdk/tasks.ts` owns the framework-free shared contract.
   `TaskBoard.overview(workspaceId, userId)` owns the browser-only Workspace
   overview query under existing conversation visibility rules;
   `features/tasks/tasks.functions.ts` exposes `loadTaskOverview` and
@@ -276,7 +284,7 @@ instructions for the TanStack Start Web/backend modular monolith.
   counter persists with a Redis server-time floor. RPC and publication adapters
   invoke this seam, never duplicate its transition rules. The current
   `runtimeSession` launch read is a best-effort fence, not a Redis-atomic guarantee.
-  `packages/protocol/agent-display.ts` owns the additive browser display contract.
+  `packages/coforge-sdk/agent-display.ts` owns the additive browser display contract.
   Process leases and Activity remain separate Daemon facts, not separate UI states.
 - `agent-activity-presentation.ts` projects existing Activity fields into status,
   tool, thinking and output rows for the timeline, recent-activity popover and

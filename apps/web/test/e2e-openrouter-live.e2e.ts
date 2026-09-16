@@ -70,6 +70,7 @@ class DiagnosticPiProvider extends PiProvider {
         ...(event.type === "tool-start" ? { tool: event.name } : {}),
         ...(event.type === "tool-end" ? { error: event.isError } : {}),
         ...(event.type === "completed" ? { status: event.status } : {}),
+        ...(event.type === "tool-output" ? { text: event.text.slice(-2000) } : {}),
         ...(event.type === "text-delta" ? { textLength: event.text.length } : {}),
       });
     });
@@ -86,12 +87,18 @@ test("live OpenRouter Pi delivery writes an Agent reply to canonical DB", async 
   let runtime: DaemonRuntime | undefined;
   let workspace: { id: string; slug: string } | undefined;
   let user: { id: string } | undefined;
+  const proxyRequests: Array<{ method: string; path: string }> = [];
   const proxy = startAgentProxy({
+    onRequest: (request) => {
+      proxyRequests.push(request);
+      diagnostic("proxy_request", request);
+    },
     runtime: {
       agentMessage: (...args) => runtime!.agentMessage(...args),
       agentTask: (...args) => runtime!.agentTask(...args),
       agentAttachment: (...args) => runtime!.agentAttachment(...args),
       inbox: (...args) => runtime!.inbox(...args),
+      workspaceInfo: (...args) => runtime!.workspaceInfo(...args),
       issueAgentContext: (agentId, context) => runtime!.issueAgentContext(agentId, context),
     },
   });

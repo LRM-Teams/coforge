@@ -1,4 +1,4 @@
-import { RUNTIME_PROVIDER, type RuntimeMetadata } from "@coforge/protocol";
+import { RUNTIME_PROVIDER, type RuntimeMetadata } from "@lrm/coforge-sdk/internal";
 import { COFORGE_DAEMON_VERSION } from "../../version";
 
 /** Release-provided CoForge Agent identity. */

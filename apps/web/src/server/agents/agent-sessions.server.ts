@@ -1,4 +1,4 @@
-import type { AgentSessionReport, AgentStartIntent } from "@coforge/protocol";
+import type { AgentSessionReport, AgentStartIntent } from "@lrm/coforge-sdk/internal";
 
 export type RuntimeSessionReference = {
   provider: string;

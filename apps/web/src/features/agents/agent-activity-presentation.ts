@@ -1,6 +1,6 @@
 import type { ActivityEntry } from "./agent-activity";
-import { AGENT_ACTIVITY_DETAIL_KIND } from "@coforge/protocol";
-import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
+import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
+import { AGENT_ACTIVITY_DETAIL_KIND } from "@lrm/coforge-sdk/internal";
 
 export type ActivityObservation = Pick<
   ActivityEntry,

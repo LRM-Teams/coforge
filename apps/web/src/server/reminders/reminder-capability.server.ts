@@ -1,5 +1,5 @@
 import { RedisClient } from "bun";
-import { REMINDER_CAPABILITY } from "@coforge/protocol";
+import { REMINDER_CAPABILITY } from "@lrm/coforge-sdk/internal";
 import type { ReminderCapabilityLease } from "./reminders.server";
 
 const TTL_SECONDS = "90";

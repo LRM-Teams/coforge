@@ -6,10 +6,14 @@ import {
   type LocalInboxRequest,
   type LocalReminderRequest,
   type TaskCommand,
-} from "@coforge/protocol";
+  type WorkspaceInfoRequest,
+  type WorkspaceInfoResponse,
+} from "@lrm/coforge-sdk/internal";
+import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
 import { isAgentApiKey } from "./credentials/agent-api-key";
 import { AgentMessageRequestError } from "./connection/agent-message-request-error";
 import { AgentTaskRequestError } from "./connection/agent-task-request-error";
+import { getLogger } from "@logtape/logtape";
 
 export type AgentProxy = {
   url: string;
@@ -19,9 +23,13 @@ export type AgentProxy = {
 };
 
 const LOCAL_PROXY_TOKEN = /^sfp_[A-Za-z0-9_-]{43}$/;
+const LOCAL_ATTACHMENT_ROUTE_PREFIX = agentApiRoutes.local.attachments.path("");
+const LOCAL_PROXY_ROUTES = agentApiRoutes.proxy;
+const logger = getLogger(["coforge", "daemon", "agent-proxy"]);
 
 /** One daemon-local HTTP boundary shared by all Agent child processes. */
 export function startAgentProxy(input: {
+  onRequest?: (request: { method: string; path: string }) => void;
   runtime: {
     agentMessage(
       context: string,
@@ -36,6 +44,11 @@ export function startAgentProxy(input: {
       agentApiKey: string,
     ): Promise<unknown>;
     agentTask?(context: string, request: TaskCommand, agentApiKey: string): Promise<unknown>;
+    workspaceInfo?(
+      context: string,
+      request: WorkspaceInfoRequest,
+      agentApiKey?: string,
+    ): Promise<WorkspaceInfoResponse>;
     issueAgentContext?: (agentId: string, context?: string) => string;
   };
   port?: number;
@@ -52,12 +65,19 @@ export function startAgentProxy(input: {
     async fetch(request) {
       let reviewerMode = false;
       const requestUrl = new URL(request.url);
+      input.onRequest?.({ method: request.method, path: requestUrl.pathname });
+      logger.info("Agent proxy request", {
+        event: "agent.proxy.request",
+        method: request.method,
+        path: requestUrl.pathname,
+      });
       if (
-        (request.method !== "POST" || requestUrl.pathname !== "/agent/message") &&
-        (request.method !== "POST" || requestUrl.pathname !== "/agent/inbox") &&
-        (request.method !== "POST" || requestUrl.pathname !== "/agent/reminder") &&
-        (request.method !== "POST" || requestUrl.pathname !== "/agent/task") &&
-        (request.method !== "GET" || requestUrl.pathname !== "/agent/attachment")
+        (request.method !== LOCAL_PROXY_ROUTES.workspace.method || requestUrl.pathname !== LOCAL_PROXY_ROUTES.workspace.path) &&
+        (request.method !== LOCAL_PROXY_ROUTES.messages.method || requestUrl.pathname !== LOCAL_PROXY_ROUTES.messages.path) &&
+        (request.method !== LOCAL_PROXY_ROUTES.inbox.method || requestUrl.pathname !== LOCAL_PROXY_ROUTES.inbox.path) &&
+        (request.method !== LOCAL_PROXY_ROUTES.reminders.method || requestUrl.pathname !== LOCAL_PROXY_ROUTES.reminders.path) &&
+        (request.method !== LOCAL_PROXY_ROUTES.tasks.method || requestUrl.pathname !== LOCAL_PROXY_ROUTES.tasks.path) &&
+        (request.method !== "GET" || !requestUrl.pathname.startsWith(LOCAL_ATTACHMENT_ROUTE_PREFIX))
       )
         return new Response("not found", { status: 404 });
       const authorization = request.headers.get("authorization");
@@ -65,8 +85,28 @@ export function startAgentProxy(input: {
       const token = candidate && LOCAL_PROXY_TOKEN.test(candidate) ? candidate : undefined;
       const binding = token ? contexts.get(token) : undefined;
       if (!binding) return new Response("unauthorized", { status: 401 });
-      if (requestUrl.pathname === "/agent/attachment") {
-        const attachmentId = requestUrl.searchParams.get("attachmentId");
+      if (requestUrl.pathname === LOCAL_PROXY_ROUTES.workspace.path) {
+        if (!input.runtime.workspaceInfo) return new Response("not found", { status: 404 });
+        try {
+          return Response.json(
+            await input.runtime.workspaceInfo(binding.context, {
+              requestId: crypto.randomUUID(),
+              protocolMajor: 1,
+            }),
+          );
+        } catch {
+          return new Response("workspace info failed", { status: 502 });
+        }
+      }
+      if (requestUrl.pathname.startsWith(LOCAL_ATTACHMENT_ROUTE_PREFIX)) {
+        let attachmentId: string;
+        try {
+          attachmentId = decodeURIComponent(
+            requestUrl.pathname.slice(LOCAL_ATTACHMENT_ROUTE_PREFIX.length),
+          );
+        } catch {
+          return new Response("bad request", { status: 400 });
+        }
         if (!attachmentId || !input.runtime.agentAttachment)
           return new Response("bad request", { status: 400 });
         try {
@@ -97,7 +137,7 @@ export function startAgentProxy(input: {
           return new Response("bad request", { status: 400 });
         const payload = body as Record<string, unknown>;
         reviewerMode = payload.freshnessContextMode === "withheld";
-        if (requestUrl.pathname === "/agent/reminder") {
+        if (requestUrl.pathname === LOCAL_PROXY_ROUTES.reminders.path) {
           if (!input.runtime.reminder) return new Response("not found", { status: 404 });
           const local = { ...payload, context: binding.context } as LocalReminderRequest;
           encodeLocalReminderRequest(local);
@@ -105,7 +145,7 @@ export function startAgentProxy(input: {
             await input.runtime.reminder(binding.context, local, binding.agentApiKey),
           );
         }
-        if (requestUrl.pathname === "/agent/task") {
+        if (requestUrl.pathname === LOCAL_PROXY_ROUTES.tasks.path) {
           if (!input.runtime.agentTask) return new Response("not found", { status: 404 });
           const command = payload as TaskCommand;
           validateTaskRequest({
@@ -121,7 +161,7 @@ export function startAgentProxy(input: {
           );
           return Response.json(result);
         }
-        if (requestUrl.pathname === "/agent/inbox") {
+        if (requestUrl.pathname === LOCAL_PROXY_ROUTES.inbox.path) {
           if (!input.runtime.inbox) return new Response("not found", { status: 404 });
           if (typeof payload.requestId !== "string" || payload.operation !== "check")
             return new Response("bad request", { status: 400 });
@@ -219,7 +259,7 @@ export function startAgentProxy(input: {
     },
   });
   return {
-    url: `http://127.0.0.1:${server.port}/agent/message`,
+    url: `http://127.0.0.1:${server.port}${LOCAL_PROXY_ROUTES.messages.path}`,
     issue(agentId, agentApiKey) {
       if (!isAgentApiKey(agentApiKey)) throw new Error("invalid Agent API key");
       const token = `sfp_${randomBytes(32).toString("base64url")}`;

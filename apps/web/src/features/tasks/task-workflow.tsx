@@ -1,4 +1,4 @@
-import { TASK_STATUSES, type TaskStatus, type TaskView } from "@coforge/protocol";
+import { TASK_STATUSES, type TaskStatus, type TaskView } from "@lrm/coforge-sdk/internal";
 import {
   DndContext,
   DragOverlay,

@@ -1,5 +1,5 @@
-import { useStateWithRef } from "@/hooks/use-state-with-ref";
 import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panels";
+import { useStateWithRef } from "@/hooks/use-state-with-ref";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { measureElement, observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -9,7 +9,7 @@ import {
   LayoutLeft as PanelLeft,
   MessageSquare01 as MessageSquare,
 } from "@untitledui/icons";
-import type { TaskView } from "@coforge/protocol";
+import type { TaskView } from "@lrm/coforge-sdk/internal";
 
 import { useChannelSidebarVisibility } from "@/components/app-shell";
 import { ConversationTaskTabs } from "@/features/tasks/conversation-task-tabs";

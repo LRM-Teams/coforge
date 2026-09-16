@@ -1,6 +1,6 @@
 export type { AgentActivity, AgentActivityLevel } from "@coforge/agent";
 import type { AgentActivity, AgentActivityLevel } from "@coforge/agent";
-import type { AgentActivityDetailKind } from "@coforge/protocol";
+import type { AgentActivityDetailKind } from "@lrm/coforge-sdk/internal";
 
 export function createAgentActivity(
   detailKind: AgentActivityDetailKind,

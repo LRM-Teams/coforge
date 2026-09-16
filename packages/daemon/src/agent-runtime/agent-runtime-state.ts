@@ -3,7 +3,7 @@ import type {
   AgentControlResult,
   AgentSessionSnapshot,
   SessionIdentity,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 
 /** Existing on-disk shape: control and Session facts commit atomically. */
 export type AgentRuntimeRecord = {

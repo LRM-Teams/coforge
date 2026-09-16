@@ -2,9 +2,9 @@ import type {
   AgentMessageDelivery,
   AgentMessageDeliveryAck,
   AgentRecoveryMessage,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import { getLogger } from "@logtape/logtape";
-import { isChannelMessageTarget } from "@coforge/protocol";
+import { isChannelMessageTarget } from "@lrm/coforge-sdk/internal";
 import type { AgentProcessManager } from "../agent-runtime/agent-process-manager";
 
 const logger = getLogger(["coforge", "daemon", "message-attention"]);

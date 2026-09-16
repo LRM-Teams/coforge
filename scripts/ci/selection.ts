@@ -34,10 +34,10 @@ export function selectChecks(paths: string[], track: "changes" | "web" | "local"
       affected = ["web"];
     } else if (path.startsWith("packages/computer/")) {
       affected = ["computer", "macos-lifecycle", "windows-release"];
-    } else if (/^packages\/(agent|cli|daemon)\//.test(path)) {
+    } else if (/^packages\/(agent|cli|coforge|daemon)\//.test(path)) {
       affected = ["computer", "daemon", "macos-lifecycle", "windows-release"];
       if (path.startsWith("packages/agent/")) affected.push("agent", "web");
-      if (path.startsWith("packages/cli/")) affected.push("cli");
+      if (path.startsWith("packages/coforge/")) affected.push("cli");
     } else if (path.startsWith("scripts/release/")) {
       affected = ["computer", "daemon", "macos-lifecycle", "release", "windows-release"];
     } else if (path.startsWith("scripts/deploy/") || path.startsWith("infra/")) {

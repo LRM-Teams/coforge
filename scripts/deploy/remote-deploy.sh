@@ -88,6 +88,15 @@ load_compose_secrets() {
 	COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY="$(cat "$secrets_dir/coforge_agent_credential_encryption_key")"
 	COFORGE_WEB_PUSH_PUBLIC_KEY="$(cat "$secrets_dir/coforge_web_push_public_key")"
 	COFORGE_WEB_PUSH_PRIVATE_KEY="$(cat "$secrets_dir/coforge_web_push_private_key")"
+	# Optional until the staging GitHub App has been configured.
+	COFORGE_GITHUB_CLIENT_SECRET=""
+	COFORGE_GITHUB_CREDENTIAL_ENCRYPTION_KEY=""
+	COFORGE_GITHUB_APP_SLUG=""
+	for name in COFORGE_GITHUB_CLIENT_SECRET COFORGE_GITHUB_CREDENTIAL_ENCRYPTION_KEY COFORGE_GITHUB_APP_SLUG; do
+		if [ -f "$secrets_dir/${name,,}" ]; then
+			printf -v "$name" '%s' "$(cat "$secrets_dir/${name,,}")"
+		fi
+	done
 	for name in AUTHING_APP_ID AUTHING_APP_SECRET COFORGE_SESSION_SECRET COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY COFORGE_WEB_PUSH_PUBLIC_KEY COFORGE_WEB_PUSH_PRIVATE_KEY; do
 		[ -n "${!name}" ] || {
 			printf '%s secret file is empty\n' "$name" >&2
@@ -103,6 +112,9 @@ compose() {
 		COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY="$COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY" \
 		COFORGE_WEB_PUSH_PUBLIC_KEY="$COFORGE_WEB_PUSH_PUBLIC_KEY" \
 		COFORGE_WEB_PUSH_PRIVATE_KEY="$COFORGE_WEB_PUSH_PRIVATE_KEY" \
+		COFORGE_GITHUB_CLIENT_SECRET="$COFORGE_GITHUB_CLIENT_SECRET" \
+		COFORGE_GITHUB_CREDENTIAL_ENCRYPTION_KEY="$COFORGE_GITHUB_CREDENTIAL_ENCRYPTION_KEY" \
+		COFORGE_GITHUB_APP_SLUG="$COFORGE_GITHUB_APP_SLUG" \
 		docker compose "${COMPOSE_ARGS[@]}" "$@"
 }
 

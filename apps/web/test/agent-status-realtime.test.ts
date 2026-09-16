@@ -14,7 +14,7 @@ import type {
 import {
   parseAgentDisplaySnapshot,
   type AgentDisplaySnapshot,
-} from "@coforge/protocol/agent-display";
+} from "@lrm/coforge-sdk/internal";
 
 const ordering = {
   daemonInstanceId: "daemon-1",

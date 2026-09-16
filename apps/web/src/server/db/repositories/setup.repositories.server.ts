@@ -1,5 +1,5 @@
 import type { PrismaClient } from "../../../../generated/client";
-import type { ComputerRegisterRequest } from "@coforge/protocol";
+import type { ComputerRegisterRequest } from "@lrm/coforge-sdk/internal";
 import type { AuthenticatedPrincipal, Workspace } from "../../computers/registration.server";
 import type {
   ComputerRegistrationRepository,

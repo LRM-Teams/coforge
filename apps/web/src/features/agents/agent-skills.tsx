@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshCw01 as RefreshCw } from "@untitledui/icons";
-import type { AgentSkillsListResult, AgentSkillsScope } from "@coforge/protocol";
+import type { AgentSkillsListResult, AgentSkillsScope } from "@lrm/coforge-sdk/internal";
 
 import { Button } from "@/components/base/buttons/button";
 import { m } from "@/paraglide/messages";

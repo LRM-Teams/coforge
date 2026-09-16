@@ -1,4 +1,4 @@
-import type { DaemonCommandRunner } from "@coforge/daemon";
+import type { DaemonCommandRunner } from "@lrm/coforge-daemon";
 import type { Logger } from "@logtape/logtape";
 
 export function createCommand(input: {

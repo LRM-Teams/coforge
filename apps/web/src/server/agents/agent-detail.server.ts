@@ -2,7 +2,7 @@ import type { Prisma } from "../../../generated/client";
 import { latestActivityError, type ActivityEntry } from "../../features/agents/agent-activity";
 import type { AgentStatusCache } from "./agent-status.server";
 import type { AgentDisplay } from "./agent-display.server";
-import type { AgentDisplaySnapshot } from "@coforge/protocol/agent-display";
+import type { AgentDisplaySnapshot } from "@lrm/coforge-sdk/internal";
 
 type DetailActivity = ActivityEntry & { computerId: string };
 

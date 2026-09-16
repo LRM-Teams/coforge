@@ -22,27 +22,27 @@ run = "bun run build"
 
 [tasks."test:computer"]
 description = "Run Computer package tests"
-run = "bun run --cwd packages/protocol generate && cd packages/computer && bun test"
+run = "bun run --cwd packages/coforge-sdk generate && cd packages/computer && bun test"
 
 [tasks."test:daemon"]
 description = "Run Daemon package tests"
-run = "bun run --cwd packages/protocol generate && cd packages/daemon && bun run test"
+run = "bun run --cwd packages/coforge-sdk generate && cd packages/daemon && bun run test"
 
 [tasks."check:daemon"]
 description = "Run Daemon package checks"
-run = "bun run --cwd packages/protocol generate && cd packages/daemon && bun run check"
+run = "bun run --cwd packages/coforge-sdk generate && cd packages/daemon && bun run check"
 
 [tasks."build:daemon"]
 description = "Build the Daemon package"
-run = "bun run --cwd packages/protocol generate && cd packages/daemon && bun run build"
+run = "bun run --cwd packages/coforge-sdk generate && cd packages/daemon && bun run build"
 
 [tasks."check:computer"]
 description = "Run Computer package checks"
-run = "bun run --cwd packages/protocol generate && cd packages/computer && bun run check"
+run = "bun run --cwd packages/coforge-sdk generate && cd packages/computer && bun run check"
 
 [tasks."build:computer"]
 description = "Build the Computer package"
-run = "bun run --cwd packages/protocol generate && cd packages/computer && bun run build"
+run = "bun run --cwd packages/coforge-sdk generate && cd packages/computer && bun run build"
 
 [tasks."reload:computer"]
 description = "Rebuild local Computer/Daemon fixture, install to ~/.coforge, restart daemon"
@@ -50,15 +50,15 @@ run = "bash scripts/reload-local-computer.sh"
 
 [tasks."test:web"]
 description = "Run Web package tests"
-run = "bun run --cwd packages/protocol generate && cd apps/web && bun run test"
+run = "bun run --cwd packages/coforge-sdk generate && cd apps/web && bun run test"
 
 [tasks."test:thread"]
 description = "Run thread isolation against local PostgreSQL (THREAD_TEST_DATABASE_URL required)"
-run = "bun run --cwd packages/protocol generate && bun run --cwd apps/web db:generate && bun test ./apps/web/test/direct-thread.integration.ts"
+run = "bun run --cwd packages/coforge-sdk generate && bun run --cwd apps/web db:generate && bun test ./apps/web/test/direct-thread.integration.ts"
 
 [tasks."test:channel"]
 description = "Run public channels and Workspace members against local PostgreSQL and Redis (CHANNEL_TEST_DATABASE_URL and CHANNEL_TEST_REDIS_URL required)"
-run = "bun run --cwd packages/protocol generate && bun run --cwd apps/web db:generate && bun test ./apps/web/test/public-channel.integration.ts ./apps/web/test/workspace-members.integration.ts"
+run = "bun run --cwd packages/coforge-sdk generate && bun run --cwd apps/web db:generate && bun test ./apps/web/test/public-channel.integration.ts ./apps/web/test/workspace-members.integration.ts"
 
 [tasks."test:e2e:agent-direct-message"]
 description = "Run the managed Agent direct-message end-to-end slice"
@@ -72,11 +72,11 @@ amp orb services ensure >/dev/null || {
 
 [tasks."check:web"]
 description = "Run Web package checks"
-run = "bun run --cwd packages/protocol generate && cd apps/web && bun run check"
+run = "bun run --cwd packages/coforge-sdk generate && cd apps/web && bun run check"
 
 [tasks."build:web"]
 description = "Build the Web package"
-run = "bun run --cwd packages/protocol generate && cd apps/web && bun run build"
+run = "bun run --cwd packages/coforge-sdk generate && cd apps/web && bun run build"
 
 [tasks."verify:oss-cdn"]
 description = "Verify OSS/CDN acceptance evidence"

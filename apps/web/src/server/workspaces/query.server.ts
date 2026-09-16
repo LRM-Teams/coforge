@@ -1,10 +1,10 @@
-import { WORKSPACE_PROTOCOL_MAJOR, type Workspace } from "@coforge/protocol";
+import { WORKSPACE_PROTOCOL_MAJOR, type Workspace } from "@lrm/coforge-sdk/internal";
 import {
   decodeWorkspaceGetRequest,
   decodeWorkspaceListRequest,
   encodeWorkspaceGetResponse,
   encodeWorkspaceListResponse,
-} from "@coforge/protocol/codec";
+} from "@lrm/coforge-sdk/internal";
 
 export type AuthenticatedPrincipal = { readonly userId: string };
 export interface WorkspaceAccess {

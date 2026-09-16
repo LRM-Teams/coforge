@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createDaemonHost, LocalDaemonLauncher } from "@coforge/daemon";
+import { createDaemonHost, LocalDaemonLauncher } from "@lrm/coforge-daemon";
 
 export type ManagedRuntimeBinding = {
   bindingId: string;

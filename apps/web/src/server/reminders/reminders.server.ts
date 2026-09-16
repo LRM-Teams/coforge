@@ -11,7 +11,7 @@ import {
   type ReminderJob,
   type ReminderSummaryRecord,
   type ReminderSync,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 
 export const MAX_ACTIVE_REMINDERS = 50;
 export const MAX_REMINDER_LOG_EVENTS = 100;

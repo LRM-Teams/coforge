@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { decodeAgentMessageDelivery } from "@coforge/protocol";
+import { decodeAgentMessageDelivery } from "@lrm/coforge-sdk/internal";
 import {
   ReadDirectMessages,
   SendDirectMessage,

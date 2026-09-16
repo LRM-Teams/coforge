@@ -15,6 +15,61 @@ import {
   renderState,
 } from "./deployment";
 
+test("optional GitHub deployment credentials reach Compose without entering stdout", async () => {
+  const script = await readFile(new URL("./remote-deploy.sh", import.meta.url), "utf8");
+  const functions = script.slice(
+    script.indexOf("load_compose_secrets()"),
+    script.indexOf("# Fail closed on a mutable"),
+  );
+  const directory = await mkdtemp(join(tmpdir(), "coforge-github-deploy-"));
+  try {
+    for (const name of [
+      "authing_app_id",
+      "authing_app_secret",
+      "coforge_session_secret",
+      "coforge_agent_credential_encryption_key",
+      "coforge_web_push_public_key",
+      "coforge_web_push_private_key",
+    ])
+      await writeFile(join(directory, name), "fixture");
+    for (const configured of [false, true]) {
+      if (configured) {
+        await writeFile(join(directory, "coforge_github_client_secret"), "github-fixture");
+        await writeFile(join(directory, "coforge_github_credential_encryption_key"), "key-fixture");
+        await writeFile(join(directory, "coforge_github_app_slug"), "fixture-app");
+      }
+      const child = Bun.spawn(
+        [
+          "bash",
+          "-euc",
+          `${functions}
+        secrets_dir="$1"
+        COMPOSE_ARGS=()
+        docker() {
+          test "\${COFORGE_GITHUB_CLIENT_SECRET-unset}" = "$2"
+          test "\${COFORGE_GITHUB_CREDENTIAL_ENCRYPTION_KEY-unset}" = "$3"
+          test "\${COFORGE_GITHUB_APP_SLUG-unset}" = "$4"
+        }
+        load_compose_secrets
+        compose "$2" "$3" "$4"
+      `,
+          "test",
+          directory,
+          configured ? "github-fixture" : "",
+          configured ? "key-fixture" : "",
+          configured ? "fixture-app" : "",
+        ],
+        { stdout: "pipe", stderr: "pipe" },
+      );
+      expect(await child.exited).toBe(0);
+      expect(await new Response(child.stdout).text()).toBe("");
+      expect(await new Response(child.stderr).text()).toBe("");
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 const authingRuntimeSecretKeys = [
   "AUTHING_APP_ID",
   "AUTHING_APP_SECRET",
@@ -638,7 +693,7 @@ describe("GitHub validation workflow contract", () => {
       expect(workflow).toContain(`bun run --cwd packages/\${{ matrix.package }} ${command}`);
     }
     expect(workflow).toContain("if: matrix.package != 'protocol'");
-    expect(workflow).toContain("bun run --cwd packages/protocol generate");
+    expect(workflow).toContain("bun run --cwd packages/coforge-sdk generate");
   });
 });
 

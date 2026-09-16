@@ -3,11 +3,11 @@ import { readFileSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { encodeAgentActivity } from "@coforge/protocol";
+import { encodeAgentActivity } from "@lrm/coforge-sdk/internal";
 import {
   parseAgentDisplaySnapshot,
   type AgentDisplaySnapshot,
-} from "@coforge/protocol/agent-display";
+} from "@lrm/coforge-sdk/internal";
 import { Centrifuge } from "centrifuge";
 import { PrismaClient } from "../generated/client";
 import { DEV_BROWSER_USER } from "../src/server/auth/dev-skip-auth.server";

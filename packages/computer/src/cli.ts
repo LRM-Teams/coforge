@@ -28,13 +28,13 @@ import {
   HttpWorkspaceRpcTransport,
   resolveDaemonConnectionEndpoint,
 } from "./cloud-rpc-transport";
-import { ComputerRegistrationClient } from "@coforge/protocol";
+import { ComputerRegistrationClient } from "@lrm/coforge-sdk/internal";
 import {
   createDaemonHost,
   readOperatingSystem,
   resolveDaemonExecutablePath,
   runMachineSupervisor,
-} from "@coforge/daemon";
+} from "@lrm/coforge-daemon";
 import { createWorkspaceLookup } from "./workspace/lookup";
 import { isValidComputerWorkspaceSlug } from "./workspace/workspace-slug";
 import { registrationIdempotencyKey } from "./registration/idempotency-key";

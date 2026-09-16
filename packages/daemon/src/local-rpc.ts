@@ -26,7 +26,7 @@ import {
   type LocalInboxRequest,
   type DaemonCommandRequest,
   type ManagedRuntimeIdentity,
-} from "@coforge/protocol";
+} from "@lrm/coforge-sdk/internal";
 import type { DaemonConfig } from "./daemon-runtime/runtime";
 import type { DaemonCredentialStore } from "./credentials/credential-store";
 import type { DaemonConfigStore } from "./persistence/daemon-config";

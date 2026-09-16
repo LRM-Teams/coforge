@@ -1,4 +1,4 @@
-import type { AgentSessionReport, AgentSessionSnapshot } from "@coforge/protocol";
+import type { AgentSessionReport, AgentSessionSnapshot } from "@lrm/coforge-sdk/internal";
 import { requireCurrentAgentScope, type AgentControlStore } from "./agent-control.server";
 
 /** Persists current Session identity; never advances or completes a control operation. */

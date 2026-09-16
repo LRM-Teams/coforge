@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { WindowsUserDaemonHost } from "@coforge/daemon";
+import { WindowsUserDaemonHost } from "@lrm/coforge-daemon";
 
 test("Windows task dispatches the daemon through the unified executable at logon", async () => {
   const commands: string[][] = [];

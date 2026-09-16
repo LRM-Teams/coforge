@@ -29,6 +29,7 @@ import { SelectItem } from "@/components/base/select/select-item";
 import { Toggle } from "@/components/base/toggle/toggle";
 import { ButtonGroup, ButtonGroupItem } from "@/components/base/button-group/button-group";
 import { WorkspaceMembersPanel } from "@/features/workspaces/workspace-members-panel";
+import { GitHubSettings } from "@/features/integrations/github-settings";
 import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { cn } from "@/lib/utils";
 import { isAppError } from "@/lib/app-error";
@@ -36,11 +37,13 @@ import { m } from "@/paraglide/messages";
 
 type Locale = "en" | "zh-CN";
 type Theme = "system" | "light" | "dark";
-type SettingsSection = "account" | "members" | "preferences" | "notifications";
+type SettingsSection = "account" | "members" | "preferences" | "notifications" | "integrations";
 
 interface SettingsContentProps {
   /** Controlled section; falls back to internal state when omitted (tests, previews). */
   section?: SettingsSection;
+  githubCallbackError?: boolean;
+  githubWrongAccount?: boolean;
   onSectionChange?: (section: SettingsSection) => void;
   profile: {
     name: string;
@@ -102,7 +105,12 @@ export function SettingsPending() {
           {[
             {
               label: m.settings_personal_group(),
-              items: [m.settings_account(), m.settings_preferences(), m.settings_notifications()],
+              items: [
+                m.settings_account(),
+                m.settings_preferences(),
+                m.settings_notifications(),
+                m.settings_integrations(),
+              ],
             },
             { label: m.settings_workspace_group(), items: [m.settings_members()] },
           ].map((group) => (
@@ -155,7 +163,7 @@ export function SettingsPending() {
 export function SettingsContent(props: SettingsContentProps) {
   const [internalSection, setInternalSection] = useState<SettingsSection>("account");
   const section = props.section ?? internalSection;
-  const [showList, setShowList] = useState(true);
+  const [showList, setShowList] = useState(props.section !== "integrations");
   const sectionLabel =
     section === "account"
       ? m.settings_account()
@@ -163,7 +171,9 @@ export function SettingsContent(props: SettingsContentProps) {
         ? m.settings_members()
         : section === "preferences"
           ? m.settings_preferences()
-          : m.settings_notifications();
+          : section === "integrations"
+            ? m.settings_integrations()
+            : m.settings_notifications();
 
   function selectSection(next: SettingsSection) {
     setInternalSection(next);
@@ -200,6 +210,12 @@ export function SettingsContent(props: SettingsContentProps) {
               icon={BellRing}
               label={m.settings_notifications()}
               onClick={() => selectSection("notifications")}
+            />
+            <SettingsNavigationButton
+              active={section === "integrations"}
+              icon={Share01}
+              label={m.settings_integrations()}
+              onClick={() => selectSection("integrations")}
             />
           </SettingsNavigationGroup>
           <SettingsNavigationGroup label={m.settings_workspace_group()}>
@@ -240,7 +256,9 @@ export function SettingsContent(props: SettingsContentProps) {
                 ? m.settings_members()
                 : section === "preferences"
                   ? m.settings_preferences()
-                  : m.settings_notifications()
+                  : section === "integrations"
+                    ? m.settings_integrations()
+                    : m.settings_notifications()
           }
           className="flex min-h-0 min-w-0 flex-1 flex-col"
         >
@@ -257,6 +275,11 @@ export function SettingsContent(props: SettingsContentProps) {
               />
             ) : section === "preferences" ? (
               <Preferences {...props} />
+            ) : section === "integrations" ? (
+              <GitHubSettings
+                callbackError={props.githubCallbackError ?? false}
+                wrongAccount={props.githubWrongAccount ?? false}
+              />
             ) : (
               <NotificationSettings {...props} />
             )}

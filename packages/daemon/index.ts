@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { LocalInboxRequest } from "@coforge/protocol";
+import type { LocalInboxRequest } from "@lrm/coforge-sdk/internal";
 import { dispose, getLogger, withContext } from "@logtape/logtape";
 import { startDaemonLocalRpcServer } from "./src/local-rpc";
 import { startAgentProxy } from "./src/agent-proxy";
@@ -140,6 +140,9 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
             runtime?.inbox(...args) ?? Promise.reject(new Error("daemon runtime is not running")),
           agentTask: (...args) =>
             runtime?.agentTask(...args) ??
+            Promise.reject(new Error("daemon runtime is not running")),
+          workspaceInfo: (...args) =>
+            runtime?.workspaceInfo(...args) ??
             Promise.reject(new Error("daemon runtime is not running")),
           issueAgentContext: (agentId) => {
             if (!runtime) throw new Error("daemon runtime is not running");

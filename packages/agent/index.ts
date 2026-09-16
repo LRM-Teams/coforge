@@ -1,4 +1,4 @@
-import { RUNTIME_PROVIDER } from "@coforge/protocol";
+import { RUNTIME_PROVIDER } from "@lrm/coforge-sdk/internal";
 
 export const provider = RUNTIME_PROVIDER.COFORGE;
 export { RUNTIME_PROVIDER };

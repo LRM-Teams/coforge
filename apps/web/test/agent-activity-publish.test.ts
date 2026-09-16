@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { decodeAgentActivity, encodeAgentActivity } from "@coforge/protocol";
+import { decodeAgentActivity, encodeAgentActivity } from "@lrm/coforge-sdk/internal";
 
 import { handleAgentActivityPublication } from "../src/server/agents/agent-activity-publish.server";
 

@@ -90,7 +90,10 @@ export class LaunchdJob {
         // The Workspace and Coordinator may both finish cleanup. A failed
         // bootout is successful only when a fresh OS query proves removal;
         // the process-group observation below must still complete.
-        if ((await this.#platform.jobs()).has(this.config.label)) throw error;
+        // launchctl list reports PID "-" as 0 while a job is still loaded but
+        // has no running process. That is already stopped; wait for unload
+        // instead of treating the stale registration as a live failure.
+        if ((await this.#platform.jobs()).get(this.config.label)! > 0) throw error;
       }
     }
     const deadline = Date.now() + 10_000;

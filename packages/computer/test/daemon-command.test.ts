@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { DaemonCommandRunner } from "@coforge/daemon";
+import type { DaemonCommandRunner } from "@lrm/coforge-daemon";
 import { createCommand } from "../src/daemon-client";
 
 test("scoped stop and restart dispatch to supervisor without stopping the machine", async () => {
