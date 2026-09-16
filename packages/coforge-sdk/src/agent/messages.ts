@@ -1,3 +1,5 @@
+import type { MessageTaskMetadata } from "../internal/local-daemon";
+
 export type AgentMessageOperation = "read" | "search" | "send";
 
 export type AgentMessagesReadRequest = {
@@ -37,15 +39,6 @@ export type AgentMessagesReactionRequest = {
   emoji: string;
 };
 
-export type AgentMessagesResponse = {
-  requestId: string;
-  accepted: boolean;
-  messages: readonly AgentMessage[];
-  attentionCount?: number;
-  messageId?: string;
-  sideEffectDecision?: "forward" | "hold" | "anyway_denied" | "anyway_accepted";
-};
-
 export type AgentMessage = {
   id: string;
   sequence: number;
@@ -59,6 +52,57 @@ export type AgentMessage = {
     contentType: string;
     sizeBytes: number;
   };
+  task?: MessageTaskMetadata;
+};
+
+/** Response for the read route (GET /api/agent/v1/messages, no `query`); its own shape, not the shared message envelope. */
+export type AgentHistoryResponse = {
+  protocolMajor: 1;
+  requestId: string;
+  messages: AgentMessage[];
+  hasOlder: boolean;
+  hasNewer: boolean;
+  olderCursor?: string;
+  newerCursor?: string;
+};
+
+/** Response for the dedicated search route (GET /api/agent/v1/messages/search). */
+export type AgentSearchResponse = {
+  protocolMajor: 1;
+  requestId: string;
+  results: AgentMessage[];
+};
+
+/** Response for the send route (POST /api/agent/v1/messages). */
+export type AgentSendResponse = {
+  protocolMajor: 1;
+  requestId: string;
+  state: "sent" | "held" | "denied";
+  messageId?: string;
+  holdToken?: string;
+  /** True when a freshness hold was overridden with `continueAnyway`; the message still sent. */
+  bypass?: boolean;
+  anywayAllowed?: boolean;
+  /** Held-context messages the Agent should review before resending; empty when `state` is `"sent"`. */
+  context: AgentMessage[];
+  freshnessContextMode?: "inline" | "withheld";
+  withheldMessageCount?: number;
+};
+
+/** Response for the resolve route (GET /api/agent/v1/messages/:id/resolve). */
+export type AgentResolveResponse = {
+  protocolMajor: 1;
+  requestId: string;
+  message: AgentMessage;
+};
+
+/** Response for the reaction routes (POST/DELETE /api/agent/v1/messages/:id/reactions). */
+export type AgentReactionResponse = {
+  protocolMajor: 1;
+  requestId: string;
+  messageId: string;
+  emoji: string;
+  active: boolean;
 };
 
 /** Response for the events drain route (GET /api/agent/v1/events); its own shape, not the shared message envelope. */

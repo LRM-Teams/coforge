@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import type { CloudAgentMessageResponse } from "@lrm/coforge-sdk/internal";
+import type { AgentResolveResponse, AgentMessage } from "@lrm/coforge-sdk/agent";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
 import {
@@ -21,12 +21,10 @@ export async function handleAgentMessageResolveGet(
   const scope = { workspaceId: principal.workspaceId, agentId: principal.agentId };
   try {
     const message = await resolveAgentMessage(repository, scope, messageId);
-    const response: CloudAgentMessageResponse = {
+    const response: AgentResolveResponse = {
       protocolMajor: 1,
       requestId,
-      accepted: true,
-      attentionCount: 0,
-      messages: [message],
+      message: message as AgentMessage,
     };
     return Response.json(response);
   } catch (error) {

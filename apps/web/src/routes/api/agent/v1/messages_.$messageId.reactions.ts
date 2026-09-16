@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import type { CloudAgentMessageResponse } from "@lrm/coforge-sdk/internal";
+import type { AgentReactionResponse } from "@lrm/coforge-sdk/agent";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import { PrismaDirectConversationRepository } from "#/server/db/repositories/direct-conversation.repositories.server";
 import {
@@ -28,13 +28,12 @@ export async function handleAgentMessageReaction(
         : crypto.randomUUID();
     const emoji = body && typeof body.emoji === "string" ? body.emoji : "";
     const result = await reactToAgentMessage(repository, scope, messageId, emoji, active);
-    const response: CloudAgentMessageResponse = {
+    const response: AgentReactionResponse = {
       protocolMajor: 1,
       requestId,
-      accepted: true,
-      attentionCount: 0,
-      messages: [],
       messageId: result.messageId,
+      emoji,
+      active,
     };
     return Response.json(response);
   } catch (error) {

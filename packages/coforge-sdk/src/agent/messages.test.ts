@@ -3,7 +3,11 @@ import type {
   AgentChannelAttentionResponse,
   AgentEventsGetRequest,
   AgentEventsResponse,
-  AgentMessagesResponse,
+  AgentHistoryResponse,
+  AgentSearchResponse,
+  AgentSendResponse,
+  AgentResolveResponse,
+  AgentReactionResponse,
   AgentMessagesSendRequest,
   AgentThreadAttentionResponse,
 } from "./messages";
@@ -17,11 +21,10 @@ test("models a message send request without internal transport fields", () => {
   expect(request).toEqual({ target: "#general", body: "hello", sendDraft: false });
 });
 
-test("models the public message response and attachment shape", () => {
-  const response: AgentMessagesResponse = {
+test("models the read route's own response shape, including the attachment and Task metadata", () => {
+  const response: AgentHistoryResponse = {
+    protocolMajor: 1,
     requestId: "request-1",
-    accepted: true,
-    attentionCount: 0,
     messages: [
       {
         id: "message-1",
@@ -36,10 +39,86 @@ test("models the public message response and attachment shape", () => {
           contentType: "text/plain",
           sizeBytes: 5,
         },
+        task: {
+          number: 42,
+          status: "in_progress",
+          owner: { displayName: "Ada", handle: "@ada" },
+        },
+      },
+    ],
+    hasOlder: false,
+    hasNewer: false,
+  };
+  expect(response.messages[0]?.attachment?.contentType).toBe("text/plain");
+  expect(response.messages[0]?.task?.status).toBe("in_progress");
+});
+
+test("models the dedicated search route's own response shape", () => {
+  const response: AgentSearchResponse = {
+    protocolMajor: 1,
+    requestId: "request-search",
+    results: [],
+  };
+  expect(response.results).toEqual([]);
+});
+
+test("models the send route's state discriminant and held context", () => {
+  const held: AgentSendResponse = {
+    protocolMajor: 1,
+    requestId: "request-send-held",
+    state: "held",
+    holdToken: "hold-1",
+    context: [
+      {
+        id: "message-2",
+        sequence: 2,
+        sender: "@ada",
+        target: "#general",
+        body: "newer",
+        createdAt: "2026-09-15T00:00:01.000Z",
       },
     ],
   };
-  expect(response.messages[0]?.attachment?.contentType).toBe("text/plain");
+  const bypassed: AgentSendResponse = {
+    protocolMajor: 1,
+    requestId: "request-send-bypass",
+    state: "sent",
+    messageId: "message-3",
+    bypass: true,
+    anywayAllowed: true,
+    context: [],
+  };
+  expect(held.state).toBe("held");
+  expect(held.context).toHaveLength(1);
+  expect(bypassed.bypass).toBe(true);
+  expect(bypassed.context).toEqual([]);
+});
+
+test("models the resolve route's own response shape", () => {
+  const response: AgentResolveResponse = {
+    protocolMajor: 1,
+    requestId: "request-resolve",
+    message: {
+      id: "message-4",
+      sequence: 4,
+      sender: "@ada",
+      target: "#general",
+      body: "resolved",
+      createdAt: "2026-09-15T00:00:02.000Z",
+    },
+  };
+  expect(response.message.id).toBe("message-4");
+});
+
+test("models the reaction route's own response shape", () => {
+  const response: AgentReactionResponse = {
+    protocolMajor: 1,
+    requestId: "request-react",
+    messageId: "message-4",
+    emoji: "👍",
+    active: true,
+  };
+  expect(response.active).toBe(true);
 });
 
 test("models an events drain request and its own response shape with a hasMore continuation flag", () => {

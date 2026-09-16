@@ -4,6 +4,12 @@ import type {
   AgentEventsResponse,
   AgentChannelAttentionResponse,
   AgentThreadAttentionResponse,
+  AgentHistoryResponse,
+  AgentSearchResponse,
+  AgentSendResponse,
+  AgentResolveResponse,
+  AgentReactionResponse,
+  AgentMessage,
 } from "@lrm/coforge-sdk/agent";
 import { AgentMessageRequestError } from "./agent-message-request-error";
 import {
@@ -52,7 +58,6 @@ import {
   type AgentMessageDelivery,
   type AgentMessageDeliveryAck,
   type AgentMessageRequest,
-  type CloudAgentMessageResponse,
   type WorkspaceInfoRequest,
   type WorkspaceInfoResponse,
   REMINDER_FIRE_METHOD,
@@ -131,13 +136,13 @@ type AgentHttpInput<Request> = {
 };
 
 export interface AgentMessageHttpClient {
-  requestRead?(input: AgentHttpInput<AgentMessageRequest>): Promise<CloudAgentMessageResponse>;
-  requestSearch?(input: AgentHttpInput<AgentMessageRequest>): Promise<CloudAgentMessageResponse>;
-  requestSend?(input: AgentHttpInput<AgentMessageRequest>): Promise<CloudAgentMessageResponse>;
-  requestResolve?(input: AgentHttpInput<AgentMessageRequest>): Promise<CloudAgentMessageResponse>;
+  requestRead?(input: AgentHttpInput<AgentMessageRequest>): Promise<AgentHistoryResponse>;
+  requestSearch?(input: AgentHttpInput<AgentMessageRequest>): Promise<AgentSearchResponse>;
+  requestSend?(input: AgentHttpInput<AgentMessageRequest>): Promise<AgentSendResponse>;
+  requestResolve?(input: AgentHttpInput<AgentMessageRequest>): Promise<AgentResolveResponse>;
   requestReaction?(
     input: AgentHttpInput<AgentMessageRequest> & { method: "POST" | "DELETE" },
-  ): Promise<CloudAgentMessageResponse>;
+  ): Promise<AgentReactionResponse>;
   /** `check` drains the server-side pending events page; the server advances the read boundary. */
   requestEvents?(input: AgentHttpInput<AgentMessageRequest>): Promise<AgentEventsResponse>;
   requestChannelMute?(
@@ -155,11 +160,111 @@ export interface AgentMessageHttpClient {
 }
 
 /**
- * The internal shape `DaemonConnection.agentMessage` returns to `DaemonRuntime`. It stays a
- * `CloudAgentMessageResponse` for read/search/send/resolve/react/unreact (unchanged wire shape);
- * `check` additionally carries `hasMore`, adapted from the events route's own response type.
+ * The internal shape `DaemonConnection.agentMessage` returns to `DaemonRuntime`, carrying exactly
+ * what `DaemonRuntime` consumes across every Agent message operation. Each per-route HTTP response
+ * type (`AgentHistoryResponse`/`AgentSearchResponse`/`AgentSendResponse`/`AgentResolveResponse`/
+ * `AgentReactionResponse`/`AgentEventsResponse`/`AgentChannelAttentionResponse`/
+ * `AgentThreadAttentionResponse`) is adapted into this shape by `agentMessage`; it is no longer
+ * `CloudAgentMessageResponse & {...}` now that the shared envelope is gone.
  */
-export type AgentMessageTransportResponse = CloudAgentMessageResponse & { hasMore?: boolean };
+export type AgentMessageTransportResponse = {
+  protocolMajor: number;
+  requestId: string;
+  accepted: boolean;
+  attentionCount: number;
+  messageId?: string;
+  messages: AgentMessage[];
+  sideEffectDecision?: "forward" | "hold" | "anyway_accepted" | "anyway_denied";
+  holdToken?: string;
+  anywayAllowed?: boolean;
+  hasOlder?: boolean;
+  hasNewer?: boolean;
+  olderCursor?: string;
+  newerCursor?: string;
+  freshnessContextMode?: "inline" | "withheld";
+  withheldMessageCount?: number;
+  hasMore?: boolean;
+};
+
+/** Adapts the read route's response into the shape `DaemonRuntime` consumes. */
+function adaptAgentHistoryResponse(response: AgentHistoryResponse): AgentMessageTransportResponse {
+  return {
+    protocolMajor: response.protocolMajor,
+    requestId: response.requestId,
+    accepted: true,
+    attentionCount: 0,
+    messages: response.messages,
+    hasOlder: response.hasOlder,
+    hasNewer: response.hasNewer,
+    olderCursor: response.olderCursor,
+    newerCursor: response.newerCursor,
+  };
+}
+
+/** Adapts the dedicated search route's response into the shape `DaemonRuntime` consumes. */
+function adaptAgentSearchResponse(response: AgentSearchResponse): AgentMessageTransportResponse {
+  return {
+    protocolMajor: response.protocolMajor,
+    requestId: response.requestId,
+    accepted: true,
+    attentionCount: 0,
+    messages: response.results,
+  };
+}
+
+/**
+ * Adapts the send route's response into the shape `DaemonRuntime` consumes, mapping `state`/
+ * `bypass` back onto `accepted`/`sideEffectDecision` losslessly: `sent` (no bypass) → `forward`,
+ * `sent` with `bypass` → `anyway_accepted`, `held` → `hold`, `denied` → `anyway_denied`.
+ */
+function adaptAgentSendResponse(response: AgentSendResponse): AgentMessageTransportResponse {
+  const sideEffectDecision: AgentMessageTransportResponse["sideEffectDecision"] =
+    response.state === "sent"
+      ? response.bypass
+        ? "anyway_accepted"
+        : "forward"
+      : response.state === "held"
+        ? "hold"
+        : "anyway_denied";
+  return {
+    protocolMajor: response.protocolMajor,
+    requestId: response.requestId,
+    accepted: response.state === "sent",
+    attentionCount: response.context.length,
+    messageId: response.messageId,
+    messages: response.context,
+    sideEffectDecision,
+    holdToken: response.holdToken,
+    anywayAllowed: response.anywayAllowed,
+    freshnessContextMode: response.freshnessContextMode,
+    withheldMessageCount: response.withheldMessageCount,
+  };
+}
+
+/** Adapts the resolve route's response into the shape `DaemonRuntime` consumes. */
+function adaptAgentResolveResponse(response: AgentResolveResponse): AgentMessageTransportResponse {
+  return {
+    protocolMajor: response.protocolMajor,
+    requestId: response.requestId,
+    accepted: true,
+    attentionCount: 0,
+    messages: [response.message],
+  };
+}
+
+/** Adapts the reaction routes' response into the shape `DaemonRuntime` consumes. */
+function adaptAgentReactionResponse(
+  response: AgentReactionResponse,
+): AgentMessageTransportResponse {
+  return {
+    protocolMajor: response.protocolMajor,
+    requestId: response.requestId,
+    accepted: true,
+    attentionCount: 0,
+    messageId: response.messageId,
+    messages: [],
+  };
+}
 export interface AgentTaskHttpClient {
   execute(input: AgentHttpInput<TaskRequest>): Promise<TaskResponse>;
 }
@@ -329,7 +434,7 @@ export const createAgentMessageHttpClient = (
     });
     if (!response.ok)
       throw AgentMessageRequestError.fromRpc(response.status, await response.text());
-    return (await response.json()) as CloudAgentMessageResponse;
+    return (await response.json()) as AgentSendResponse;
   },
   requestEvents: ({ request, ...keys }) =>
     getAgentJson<AgentEventsResponse>(httpClient, {
@@ -363,7 +468,7 @@ export const createAgentMessageHttpClient = (
     const response = await httpClient(endpoint, { method: "GET", headers: agentHeaders(keys) });
     if (!response.ok)
       throw AgentMessageRequestError.fromRpc(response.status, await response.text());
-    return (await response.json()) as CloudAgentMessageResponse;
+    return (await response.json()) as AgentResolveResponse;
   },
   async requestReaction({ url, request, method, ...keys }) {
     const response = await httpClient(url, {
@@ -373,7 +478,7 @@ export const createAgentMessageHttpClient = (
     });
     if (!response.ok)
       throw AgentMessageRequestError.fromRpc(response.status, await response.text());
-    return (await response.json()) as CloudAgentMessageResponse;
+    return (await response.json()) as AgentReactionResponse;
   },
   async requestWorkspaceInfo({ request, ...keys }) {
     const data = await getAgentJson<Omit<WorkspaceInfoResponse, "protocolMajor" | "requestId">>(
@@ -804,7 +909,9 @@ export class DaemonConnection implements DaemonConnectionClient {
         "Agent message HTTP",
         agentApiRoutes.cloud.messages.resolve.path(request.messageId ?? ""),
       );
-      return requestResolve({ url, ...this.#agentKeys(agentApiKey), request });
+      return adaptAgentResolveResponse(
+        await requestResolve({ url, ...this.#agentKeys(agentApiKey), request }),
+      );
     }
     if (request.operation === "react" || request.operation === "unreact") {
       if (!requestReaction)
@@ -817,19 +924,41 @@ export class DaemonConnection implements DaemonConnectionClient {
         request.operation === "react"
           ? agentApiRoutes.cloud.messages.reactions.add.method
           : agentApiRoutes.cloud.messages.reactions.remove.method;
-      return requestReaction({ url, method, ...this.#agentKeys(agentApiKey), request });
+      return adaptAgentReactionResponse(
+        await requestReaction({ url, method, ...this.#agentKeys(agentApiKey), request }),
+      );
     }
-    const url = this.#serverEndpoint("Agent message HTTP", agentApiRoutes.cloud.messages.list.path);
-    const send =
-      request.operation === "read"
-        ? requestRead
-        : request.operation === "search"
-          ? requestSearch
-          : request.operation === "send"
-            ? requestSend
-            : undefined;
-    if (!send) throw new Error(`unsupported Agent message operation: ${request.operation}`);
-    return send({ url, ...this.#agentKeys(agentApiKey), request });
+    if (request.operation === "read") {
+      if (!requestRead) throw new Error("unsupported Agent message operation: read");
+      const url = this.#serverEndpoint(
+        "Agent message HTTP",
+        agentApiRoutes.cloud.messages.list.path,
+      );
+      return adaptAgentHistoryResponse(
+        await requestRead({ url, ...this.#agentKeys(agentApiKey), request }),
+      );
+    }
+    if (request.operation === "search") {
+      if (!requestSearch) throw new Error("unsupported Agent message operation: search");
+      const url = this.#serverEndpoint(
+        "Agent message HTTP",
+        agentApiRoutes.cloud.messages.search.path,
+      );
+      return adaptAgentSearchResponse(
+        await requestSearch({ url, ...this.#agentKeys(agentApiKey), request }),
+      );
+    }
+    if (request.operation === "send") {
+      if (!requestSend) throw new Error("unsupported Agent message operation: send");
+      const url = this.#serverEndpoint(
+        "Agent message HTTP",
+        agentApiRoutes.cloud.messages.send.path,
+      );
+      return adaptAgentSendResponse(
+        await requestSend({ url, ...this.#agentKeys(agentApiKey), request }),
+      );
+    }
+    throw new Error(`unsupported Agent message operation: ${request.operation}`);
   }
 
   async workspaceInfo(

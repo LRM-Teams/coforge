@@ -32,18 +32,14 @@ test("resolve returns one canonical message record", async () => {
   expect(await result.json()).toEqual({
     protocolMajor: 1,
     requestId: "r-1",
-    accepted: true,
-    attentionCount: 0,
-    messages: [
-      {
-        id: "abcd1234-0000-4000-8000-000000000001",
-        sequence: 1,
-        sender: "@ada",
-        target: "#general",
-        body: "hello",
-        createdAt: "2026-09-15T00:00:00.000Z",
-      },
-    ],
+    message: {
+      id: "abcd1234-0000-4000-8000-000000000001",
+      sequence: 1,
+      sender: "@ada",
+      target: "#general",
+      body: "hello",
+      createdAt: "2026-09-15T00:00:00.000Z",
+    },
   });
 });
 
@@ -104,7 +100,7 @@ test("resolve hides an unexpected repository failure behind a generic message", 
   expect(await result.text()).toBe("message resolve failed");
 });
 
-test("react adds a reaction and returns the accepted envelope with the messageId", async () => {
+test("react adds a reaction and returns the canonical response shape with the messageId", async () => {
   const calls: unknown[] = [];
   const result = await handleAgentMessageReaction(
     new Request("https://server.example/api/agent/v1/messages/abcd1234/reactions", {
@@ -128,10 +124,9 @@ test("react adds a reaction and returns the accepted envelope with the messageId
   expect(await result.json()).toEqual({
     protocolMajor: 1,
     requestId: "r-2",
-    accepted: true,
-    attentionCount: 0,
-    messages: [],
     messageId: "abcd1234-0000-4000-8000-000000000001",
+    emoji: "👍",
+    active: true,
   });
 });
 
@@ -156,6 +151,7 @@ test("react removes a reaction when active is false", async () => {
   );
   expect(calls).toEqual([["workspace-1", "agent-1", "abcd1234", "👍", false]]);
   expect(result.status).toBe(200);
+  expect(await result.json()).toMatchObject({ active: false });
 });
 
 test("react returns the exact emoji validation text as a plain-text 400 body", async () => {

@@ -3,7 +3,6 @@ import {
   CentrifugoRpcAuthenticationError,
   CentrifugoRpcHandler,
   createAgentDeliveryAckMethod,
-  createAgentMessageMethod,
   createAgentStatusMethod,
   createDaemonRuntimeCodeAgentsUpdateMethod,
   createDaemonRuntimeReadyMethod,
@@ -14,10 +13,8 @@ import {
 import { createCentrifugoRpcHandler } from "../src/server/centrifugo/rpc-composition.server";
 import { AgentMessageValidationError } from "../src/server/conversations/agent-message-validation-error.server";
 import {
-  decodeCloudAgentMessageResponse,
   encodeAgentMessageDeliveryAck,
   encodeAgentStatus,
-  encodeAgentMessageRequest,
   encodeDaemonRuntimeCodeAgentsUpdateRequest,
   encodeDaemonRuntimeReadyRequest,
   encodeDaemonRuntimeUsageScanResponse,
@@ -35,17 +32,6 @@ const authorizedJson = (value: unknown) =>
     method: "POST",
     headers: { "x-coforge-centrifugo-proxy-secret": "test-secret" },
     body: JSON.stringify(value),
-  });
-
-const agentMessagePayload = (agentId: string, operation: "read" | "send") =>
-  encodeAgentMessageRequest({
-    protocolMajor: 1,
-    requestId: "request-1",
-    workspaceId: "workspace-1",
-    agentId,
-    operation,
-    target: "@user",
-    body: operation === "send" ? "Hello" : undefined,
   });
 
 const principal = (agentId?: string) => ({
@@ -711,233 +697,6 @@ describe("CentrifugoRpcHandler", () => {
       message: "invalid usage scan result",
     });
     expect(records).toEqual([]);
-  });
-
-  test("rejects Agent message access by a Daemon principal without an Agent identity", async () => {
-    const method = createAgentMessageMethod({}, {}, "read", {
-      async canUseAgent() {
-        return true;
-      },
-    });
-
-    expect(
-      await method(agentMessagePayload("agent-a", "read"), {
-        principal: principal(),
-      }),
-    ).toEqual({ code: 403, message: "agent identity is not authorized" });
-  });
-
-  test("rejects an Agent A credential sending as Agent B", async () => {
-    const method = createAgentMessageMethod({}, {}, "send", {
-      async canUseAgent() {
-        return true;
-      },
-    });
-
-    expect(
-      await method(agentMessagePayload("agent-b", "send"), {
-        principal: principal("agent-a"),
-      }),
-    ).toEqual({ code: 403, message: "agent identity is not authorized" });
-  });
-
-  test("allows a matching Agent API key to send", async () => {
-    const advances: unknown[] = [];
-    const method = createAgentMessageMethod(
-      {
-        async advanceAgentReadThrough(...args: unknown[]) {
-          advances.push(args);
-          return 5;
-        },
-        async readPendingAgentContext(...args: unknown[]) {
-          advances.push(["pending", ...args]);
-          return [];
-        },
-        async userIdForUsername() {
-          return "target-user";
-        },
-        async getOrCreateUserAgent() {
-          return { id: "conversation-1" };
-        },
-        async sendAgentMessage() {
-          return { id: "message-1" };
-        },
-      },
-      {},
-      "send",
-      {
-        async canUseAgent() {
-          return true;
-        },
-      },
-      {
-        async execute(_scope, persist) {
-          return persist();
-        },
-      },
-      {
-        async issue() {
-          return "unused";
-        },
-        async get() {
-          return undefined;
-        },
-        async consume() {
-          return false;
-        },
-      },
-    );
-
-    const result = await method(
-      encodeAgentMessageRequest({
-        protocolMajor: 1,
-        requestId: "request-1",
-        workspaceId: "workspace-1",
-        agentId: "agent-a",
-        operation: "send",
-        target: "@user",
-        body: "Hello",
-        seenUpToSequence: 7,
-      }),
-      {
-        principal: principal("agent-a"),
-      },
-    );
-    expect(result).toBeInstanceOf(Uint8Array);
-    if (!(result instanceof Uint8Array)) throw new Error("expected an Agent message response");
-    expect(decodeCloudAgentMessageResponse(result)).toMatchObject({
-      requestId: "request-1",
-      accepted: true,
-      messageId: "message-1",
-    });
-    expect(advances).toEqual([
-      ["workspace-1", "agent-a", "@user", 7],
-      ["pending", "workspace-1", "agent-a", "@user", 5],
-    ]);
-  });
-
-  test("isolated retries keep unseen messages held until explicit anyway", async () => {
-    let sent = 0;
-    const boundaries: Array<number | undefined> = [];
-    const receipts = new Map<string, any>();
-    const method = createAgentMessageMethod(
-      {
-        async readPendingAgentContext(
-          _workspace: string,
-          _agent: string,
-          _target: string,
-          after?: number,
-        ) {
-          boundaries.push(after);
-          return (after ?? 0) < 8
-            ? [
-                {
-                  id: "withheld-message",
-                  sequence: 8,
-                  sender: "@secret-reviewer",
-                  target: "@user",
-                  body: "blind-review-secret",
-                  createdAt: new Date("2026-09-10T00:00:00Z"),
-                },
-              ]
-            : [];
-        },
-        async userIdForUsername() {
-          return "target-user";
-        },
-        async getOrCreateUserAgent() {
-          return { id: "conversation-1" };
-        },
-        async sendAgentMessage() {
-          sent++;
-          return { id: "sent-message" };
-        },
-      },
-      {},
-      "send",
-      {
-        async canUseAgent() {
-          return true;
-        },
-      },
-      {
-        async execute(_scope, persist) {
-          return persist();
-        },
-      },
-      {
-        async issue(hold) {
-          const token = `token-${receipts.size}`;
-          receipts.set(token, hold);
-          return token;
-        },
-        async get(token) {
-          return receipts.get(token);
-        },
-        async consume(token) {
-          return receipts.delete(token);
-        },
-      },
-    );
-    const send = async (holdToken?: string, continueAnyway?: boolean) => {
-      const bytes = await method(
-        encodeAgentMessageRequest({
-          protocolMajor: 1,
-          requestId: crypto.randomUUID(),
-          workspaceId: "workspace-1",
-          agentId: "agent-a",
-          operation: "send",
-          target: "@user",
-          body: "independent review",
-          freshnessContextMode: "withheld",
-          holdToken,
-          continueAnyway,
-        }),
-        { principal: principal("agent-a") },
-      );
-      if (!(bytes instanceof Uint8Array)) throw new Error("expected response");
-      return decodeCloudAgentMessageResponse(bytes);
-    };
-    const first = await send();
-    const second = await send(first.holdToken);
-    expect(second).toMatchObject({
-      accepted: false,
-      sideEffectDecision: "hold",
-      messages: [],
-      withheldMessageCount: 1,
-    });
-    expect(JSON.stringify(second)).not.toContain("blind-review-secret");
-    expect(JSON.stringify(second)).not.toContain("secret-reviewer");
-    expect(sent).toBe(0);
-    expect(boundaries).toEqual([undefined, undefined]);
-    expect(await send(second.holdToken, true)).toMatchObject({
-      accepted: true,
-      sideEffectDecision: "anyway_accepted",
-    });
-    expect(sent).toBe(1);
-  });
-
-  test("fails closed when a trusted seen sequence cannot be advanced", async () => {
-    const method = createAgentMessageMethod({}, {}, "send", {
-      async canUseAgent() {
-        return true;
-      },
-    });
-    await expect(
-      method(
-        encodeAgentMessageRequest({
-          protocolMajor: 1,
-          requestId: "request-1",
-          workspaceId: "workspace-1",
-          agentId: "agent-a",
-          operation: "send",
-          target: "@user",
-          body: "Hello",
-          seenUpToSequence: 7,
-        }),
-        { principal: principal("agent-a") },
-      ),
-    ).rejects.toThrow("advancement is unavailable");
   });
 
   test("composed protocol methods fail closed until persistence is wired", async () => {

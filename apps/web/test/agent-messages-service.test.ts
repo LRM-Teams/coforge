@@ -10,6 +10,7 @@ import {
   unfollowAgentThread,
   type AgentMessageRepository,
 } from "../src/server/agents/agent-messages.service";
+import type { AgentMessageHold } from "../src/server/conversations/agent-message-hold.server";
 
 function repository(overrides: Partial<AgentMessageRepository> = {}): AgentMessageRepository {
   return {
@@ -222,6 +223,143 @@ test("react rejects an emoji longer than sixteen characters", async () => {
       true,
     ),
   ).rejects.toThrow("reaction emoji must be one to sixteen characters without whitespace");
+});
+
+test("send policy advances the read-through boundary before reading pending context", async () => {
+  const calls: unknown[] = [];
+  const result = await executeAgentSendMessageWithPolicy(
+    {
+      repository: repository({
+        advanceAgentReadThrough: async (...args) => {
+          calls.push(args);
+          return 5;
+        },
+        readPendingAgentContext: async (...args) => {
+          calls.push(["pending", ...args]);
+          return [];
+        },
+      }),
+      sender: { executeFromAgent: async () => ({ id: "message-1" }) },
+      // An explicit hold store keeps this test off real Redis; the repository
+      // fixture makes `readPendingAgentContext` truthy, which otherwise makes
+      // the policy resolve the default (Redis-backed) hold store eagerly.
+      holdStore: {
+        issue: async () => {
+          throw new Error("unexpected hold issue");
+        },
+        get: async () => undefined,
+        consume: async () => false,
+      },
+    },
+    {
+      requestId: "request-1",
+      workspaceId: "workspace-1",
+      agentId: "agent-a",
+      target: "@user",
+      body: "Hello",
+      seenUpToSequence: 7,
+    },
+  );
+  expect(calls).toEqual([
+    ["workspace-1", "agent-a", "@user", 7],
+    ["pending", "workspace-1", "agent-a", "@user", 5],
+  ]);
+  expect(result).toMatchObject({
+    accepted: true,
+    messageId: "message-1",
+    sideEffectDecision: "forward",
+  });
+});
+
+test("send policy fails closed when a trusted seen sequence cannot be advanced", async () => {
+  await expect(
+    executeAgentSendMessageWithPolicy(
+      {
+        repository: repository(),
+        sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
+      },
+      {
+        requestId: "request-1",
+        workspaceId: "workspace-1",
+        agentId: "agent-a",
+        target: "@user",
+        body: "Hello",
+        seenUpToSequence: 7,
+      },
+    ),
+  ).rejects.toThrow("advancement is unavailable");
+});
+
+test("send policy re-holds new pending context on retry, then forwards once the Agent has caught up", async () => {
+  // executeAgentSendMessageWithPolicy presents held context inline (unlike the
+  // removed RPC-only "withheld" freshness mode): once a hold's presentedThrough
+  // covers everything currently pending, retrying with that same holdToken
+  // forwards the send without requiring an explicit continueAnyway.
+  let sent = 0;
+  const boundaries: Array<number | undefined> = [];
+  const receipts = new Map<string, AgentMessageHold>();
+  const holdStore = {
+    issue: async (hold: AgentMessageHold) => {
+      const token = `token-${receipts.size}`;
+      receipts.set(token, hold);
+      return token;
+    },
+    get: async (token: string) => receipts.get(token),
+    consume: async (token: string) => receipts.delete(token),
+  };
+  let latestSequence = 8;
+  const repo = repository({
+    readPendingAgentContext: async (_workspaceId, _agentId, _target, after) => {
+      boundaries.push(after);
+      return (after ?? 0) < latestSequence
+        ? [
+            {
+              id: `message-${latestSequence}`,
+              sequence: latestSequence,
+              sender: "@reviewer",
+              target: "@user",
+              body: `pending review ${latestSequence}`,
+              createdAt: new Date("2026-09-10T00:00:00Z"),
+            },
+          ]
+        : [];
+    },
+  });
+  const sender = {
+    executeFromAgent: async () => {
+      sent++;
+      return { id: "sent-message" };
+    },
+  };
+  const send = async (holdToken?: string) =>
+    executeAgentSendMessageWithPolicy(
+      { repository: repo, sender, holdStore },
+      {
+        requestId: crypto.randomUUID(),
+        workspaceId: "workspace-1",
+        agentId: "agent-a",
+        target: "@user",
+        body: "independent review",
+        holdToken,
+      },
+    );
+  const first = await send();
+  expect(first).toMatchObject({ accepted: false, sideEffectDecision: "hold" });
+  expect(first.messages.map((m) => m.body)).toEqual(["pending review 8"]);
+  expect(sent).toBe(0);
+
+  // A new reviewer message arrives after the first hold was issued.
+  latestSequence = 9;
+  const retried = await send(first.holdToken);
+  expect(retried).toMatchObject({ accepted: false, sideEffectDecision: "hold" });
+  expect(retried.messages.map((m) => m.body)).toEqual(["pending review 9"]);
+  expect(sent).toBe(0);
+
+  // No further messages: retrying the same hold now forwards the send.
+  const caughtUp = await send(retried.holdToken);
+  expect(caughtUp).toMatchObject({ accepted: true, sideEffectDecision: "forward" });
+  expect(sent).toBe(1);
+  expect(boundaries).toEqual([undefined, 8, 9]);
 });
 
 test("send policy rejects continueAnyway without a valid hold", async () => {

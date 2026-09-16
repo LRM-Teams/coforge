@@ -83,7 +83,11 @@ already used `AgentMessageRequestError.fromRpc(status, text)`.
    are unchanged. This is the first cut of a direction Frank asked for:
    per-resource response shapes (Raft-style) instead of one shared envelope
    for every Agent HTTP route; migrating the remaining routes is left to a
-   later CR so this change stays scoped.
+   later CR so this change stays scoped. **Superseded in part by
+   [ADR 0018](0018-per-route-agent-api-responses.md)**, which migrates
+   read/search/send/resolve/reactions to per-route types, splits search onto
+   its own route, and removes `CloudAgentMessageResponse` and the Centrifugo
+   RPC message path entirely.
 4. **`DaemonConnection` adapts, it does not re-litigate.**
    `AgentMessageHttpClient` gains `requestEvents`, `requestChannelMute`
    (its input carries `muted: boolean`; the URL alone already selects
