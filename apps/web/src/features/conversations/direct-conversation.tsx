@@ -2,6 +2,7 @@ import { Group, Panel, Separator, useDefaultLayout } from "react-resizable-panel
 import { useStateWithRef } from "@/hooks/use-state-with-ref";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { measureElement, observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
+import { ClientOnly } from "@tanstack/react-router";
 import {
   ArrowDown,
   ArrowLeft,
@@ -22,6 +23,7 @@ import { avatarInitial, avatarToneClassName } from "@/lib/avatar-tone";
 import { Button } from "@/components/base/buttons/button";
 import { ButtonUtility } from "@/components/base/buttons/button-utility";
 import { ConversationListButton, useConversationDetailVisible } from "./conversation-navigation";
+import { ConversationPending } from "./conversation-pending";
 import {
   Empty,
   EmptyHeader,
@@ -189,6 +191,15 @@ export function DirectConversation(props: ConversationProps) {
 }
 
 export function ThreadedConversation(props: ThreadedConversationProps) {
+  // Persisted panel sizes use localStorage; mount that UI only after hydration.
+  return (
+    <ClientOnly fallback={<ConversationPending />}>
+      <ThreadedConversationContent {...props} />
+    </ClientOnly>
+  );
+}
+
+function ThreadedConversationContent(props: ThreadedConversationProps) {
   const { conversation, onReadThread, header, threadHeaderAction, ...conversationProps } = props;
   const detailVisible = useConversationDetailVisible();
   const [selected, setSelected] = useState<string>();

@@ -254,7 +254,8 @@ instructions for the TanStack Start Web/backend modular monolith.
   destinations only, never channel or direct-message lists. Pages own their
   titles and actions. `features/conversations/conversation-navigation.tsx`
   owns Chat list/detail selection, retained list scroll and mounted conversation
-  drafts on desktop and mobile. `conversation-directory.tsx` renders the page's
+  drafts on desktop and mobile. At `lg` and above, list and detail stay side by
+  side; narrower viewports switch between them. `conversation-directory.tsx` renders the page's
   channel/DM list. Neither sidebar renders conversation lists or their creation actions.
 - `features/computers/computer-layout.tsx` owns the analogous Computer
   list/detail selection, return control, list scroll retention, and empty state.
