@@ -59,10 +59,20 @@ intentionally unreachable — no plaintext, not even redirects.
      http://100.100.100.200/latest/meta-data/ram/security-credentials/
    ```
    It must print `coforge-staging-web`. Never paste the credential JSON itself anywhere.
-6. Create the DNS record `staging.coforge.cn` → the ECS public address. TLS
+6. Copy the CDN console's URL 鉴权 主KEY for `files-staging.coforge.cn`
+   (docs/operations/aliyun-oss-cdn.md §5.3/§10) into the repository `staging`
+   Environment secret `COFORGE_FILE_DELIVERY_KEY`. The backend signs URLs with a
+   fixed 1800-second TTL (`FILE_DELIVERY_TTL_SECONDS` in `file-delivery.server.ts`);
+   the console's 鉴权URL有效时长 must stay at its default of 1800 seconds, or signed
+   URLs will be rejected too early or stay valid longer than intended.
+   To rotate: move the current key into the console's 备KEY slot first, update
+   the GitHub Environment secret to the new 主KEY, then clear 备KEY only after
+   waiting at least 1800 seconds so no URL signed under the old key is still
+   outstanding. Never paste the key into chat.
+7. Create the DNS record `staging.coforge.cn` → the ECS public address. TLS
    uses an ACME certificate over 443 (TLS-ALPN); there is no HTTP-01 path by
    design.
-7. Run the first bootstrap deployment by hand to provision PostgreSQL and
+8. Run the first bootstrap deployment by hand to provision PostgreSQL and
    Redis volumes and apply Prisma migrations:
    ```
    ssh deploy@staging-host 'bash -s' < scripts/deploy/remote-deploy.sh -- \
@@ -92,6 +102,7 @@ Secret 和 Variable 的区别不是「重不重要」，而是**能不能读回�
 | `COFORGE_AGENT_CREDENTIAL_ENCRYPTION_KEY` | 64 位十六进制 Agent 凭据加密主密钥            |
 | `COFORGE_WEB_PUSH_PRIVATE_KEY`            | 稳定的 VAPID P-256 private key；只挂载到 Web 的只读 secret file |
 | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`      | 阿里云北京 OTLP Traces 接入地址，**含 Token**，所以是 secret 而不是 variable |
+| `COFORGE_FILE_DELIVERY_KEY`               | `files-staging.coforge.cn` 的 CDN URL 鉴权主 KEY；不是 OSS 凭据 |
 
 | Variable（staging 环境）    | 用途                                |
 | --------------------------- | ----------------------------------- |

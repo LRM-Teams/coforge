@@ -76,6 +76,7 @@ export type DirectConversationView = {
       fileName: string;
       contentType: string;
       sizeBytes: number;
+      previewUrl?: string;
     };
   }>;
 };

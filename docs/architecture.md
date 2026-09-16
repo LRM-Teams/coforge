@@ -371,6 +371,8 @@ authorize_attachment_download(
 
 切换 adapter 只改变部署配置和 URL 签发方式；不改变 interface、object key、message/attachment 记录，不需要复制对象或发布客户端新版本。
 
+Private CDN adapter 已实现（`apps/web/src/server/files/file-delivery.server.ts`，Type A 签名，`COFORGE_FILE_DELIVERY_URL`/`COFORGE_FILE_DELIVERY_KEY`，固定 1800 秒 TTL）。浏览器消息 payload 直接携带内联图片的短时签名预览 URL（Discord 式，`attachmentView` 附加在页面读取、发送者本人的即时发送响应之上；realtime 仍只广播「有新消息」信号，浏览器据此重新读取才拿到带 previewUrl 的完整 payload），`<img src>` 因此不经过 backend；`/api/attachments/:id` 路由仍处理强制下载、非图片类型、以及未配置 delivery 或预览 URL 过期/加载失败后的回退跳转（302 到新签名 URL）。
+
 #### CDN 客户端鉴权、回源授权与缓存键
 
 Private CDN driver 必须把两条授权链分开：

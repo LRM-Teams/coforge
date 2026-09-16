@@ -1,6 +1,7 @@
-import { readFileSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
+
+import { readEnvSecret } from "./env-secret.server";
 
 /**
  * Private user-file storage behind chat attachments and profile avatars. PostgreSQL keeps only
@@ -133,16 +134,7 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
 }
 
 function optional(env: NodeJS.ProcessEnv, name: string): string | undefined {
-  const inlineValue = env[name]?.trim();
-  const fileName = `${name}_FILE`;
-  const filePath = env[fileName]?.trim();
-  if (inlineValue && filePath) {
-    throw new FileStorageConfigError(`${name} and ${fileName} cannot both be set`);
-  }
-  if (!filePath) return inlineValue || undefined;
-  try {
-    return readFileSync(filePath, "utf8").trim() || undefined;
-  } catch {
-    throw new FileStorageConfigError(`${fileName} could not be read`);
-  }
+  return readEnvSecret(env, name, (message) => {
+    throw new FileStorageConfigError(message);
+  });
 }

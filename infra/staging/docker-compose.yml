@@ -75,6 +75,12 @@ services:
       COFORGE_OSS_INTERNAL: "1"
       ALIBABA_CLOUD_ECS_METADATA: coforge-staging-web
       ALIBABA_CLOUD_IMDSV1_DISABLED: "true"
+      # Chat images load straight from the private CDN domain: message payloads carry a
+      # Type A signed URL and /api/attachments/:id redirects to a fresh one when it expires
+      # (docs/operations/aliyun-oss-cdn.md §5.3/§10). The signing key is the CDN URL-auth
+      # primary key, mounted as a secret; it is not an OSS credential.
+      COFORGE_FILE_DELIVERY_URL: https://files-staging.coforge.cn
+      COFORGE_FILE_DELIVERY_KEY_FILE: /run/secrets/coforge_file_delivery_key
     secrets:
       - source: authing_app_id
         uid: "1000"
@@ -109,6 +115,10 @@ services:
         gid: "1000"
         mode: 0400
       - source: otel_traces_endpoint
+        uid: "1000"
+        gid: "1000"
+        mode: 0400
+      - source: coforge_file_delivery_key
         uid: "1000"
         gid: "1000"
         mode: 0400
@@ -257,6 +267,8 @@ secrets:
     environment: COFORGE_WEB_PUSH_PRIVATE_KEY
   otel_traces_endpoint:
     file: ./secrets/otel_traces_endpoint
+  coforge_file_delivery_key:
+    file: ./secrets/coforge_file_delivery_key
   redis_password:
     file: ./secrets/redis_password
   postgres_password:
