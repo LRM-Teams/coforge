@@ -48,28 +48,30 @@ export const createProject = createServerFn({ method: "POST" })
         .trim()
         .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
         .max(100),
-      installationId: z.number().int().positive(),
-      repositoryId: z.number().int().positive(),
+      installationId: z.number().int().positive().safe().optional(),
+      repositoryId: z.number().int().positive().safe().optional(),
       fullName: z
         .string()
         .trim()
         .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
-        .max(300),
+        .max(300)
+        .optional(),
     }),
   )
   .handler(async ({ data, context }) => {
     const { db, workspaceId } = context;
-    const github = await configuredGitHub();
-    if (!github) throw new AppError("TEMPORARILY_UNAVAILABLE");
-    const repositories = await github.connection.repositories(
-      context.user.id,
-      data.installationId,
-      1,
-    );
-    const repository = repositories.repositories.find(
-      (item) => item.id === data.repositoryId && item.fullName === data.fullName,
-    );
-    if (!repository) throw new AppError("ACCESS_DENIED");
+    let repository: { id: number; fullName: string; installationId: number } | undefined;
+    if (data.installationId || data.repositoryId || data.fullName) {
+      if (!data.installationId || !data.repositoryId || !data.fullName)
+        throw new AppError("ACCESS_DENIED");
+      const github = await configuredGitHub();
+      if (!github) throw new AppError("TEMPORARILY_UNAVAILABLE");
+      repository = (await github.connection.accessibleRepositories(context.user.id)).find(
+        (item) => item.id === data.repositoryId && item.fullName === data.fullName,
+      );
+      if (!repository || repository.installationId !== data.installationId)
+        throw new AppError("ACCESS_DENIED");
+    }
     return db.project.create({
       data: {
         workspaceId,
@@ -78,7 +80,7 @@ export const createProject = createServerFn({ method: "POST" })
         githubInstallationId: data.installationId,
         githubRepositoryId: data.repositoryId,
         githubFullName: data.fullName,
-        githubHtmlUrl: `https://github.com/${repository.fullName}`,
+        githubHtmlUrl: repository ? `https://github.com/${repository.fullName}` : null,
         developmentConversation: {
           create: {
             workspaceId,

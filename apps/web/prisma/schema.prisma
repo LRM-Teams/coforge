@@ -46,10 +46,10 @@ model Project {
   workspaceId          String   @db.Uuid
   name                 String
   slug                 String
-  githubInstallationId Int
-  githubRepositoryId   Int
-  githubFullName       String
-  githubHtmlUrl        String
+  githubInstallationId Int?
+  githubRepositoryId   Int?
+  githubFullName       String?
+  githubHtmlUrl        String?
   workspace            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   developmentConversation Conversation? @relation("ProjectDevelopmentConversation")
   createdAt            DateTime @default(now())

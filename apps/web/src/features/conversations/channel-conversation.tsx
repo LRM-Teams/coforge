@@ -26,8 +26,8 @@ export type ChannelConversationView = Omit<DirectConversationView, "agent" | "me
     id: string;
     name: string;
     slug: string;
-    githubFullName: string;
-    githubHtmlUrl: string;
+    githubFullName: string | null;
+    githubHtmlUrl: string | null;
   };
   muted: boolean;
   followedThreadRootIds?: string[];
@@ -70,16 +70,18 @@ export function ChannelConversationHeader({
           <div className="hidden min-w-0 items-center gap-2 text-xs text-tertiary sm:flex">
             <span className="shrink-0">Project</span>
             <span className="truncate font-medium text-primary">{conversation.project.name}</span>
-            <a
-              href={conversation.project.githubHtmlUrl}
-              target="_blank"
-              rel="noreferrer"
-              aria-label={`View ${conversation.project.githubFullName} on GitHub`}
-              className="inline-flex shrink-0 items-center gap-1 text-brand-secondary hover:underline"
-            >
-              {conversation.project.githubFullName}
-              <Share aria-hidden="true" className="size-3.5" />
-            </a>
+            {conversation.project.githubHtmlUrl && conversation.project.githubFullName && (
+              <a
+                href={conversation.project.githubHtmlUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={`View ${conversation.project.githubFullName} on GitHub`}
+                className="inline-flex shrink-0 items-center gap-1 text-brand-secondary hover:underline"
+              >
+                {conversation.project.githubFullName}
+                <Share aria-hidden="true" className="size-3.5" />
+              </a>
+            )}
           </div>
         )}
         <span className="ml-auto hidden rounded-md border border-secondary px-2 py-0.5 text-xs font-medium text-tertiary sm:block">

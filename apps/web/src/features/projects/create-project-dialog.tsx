@@ -3,10 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
 import { Select } from "@/components/base/select/select";
-import {
-  listGitHubInstallations,
-  listGitHubRepositories,
-} from "@/features/integrations/github.functions";
+import { listAccessibleGitHubRepositories } from "@/features/integrations/github.functions";
 import { createProject } from "./projects.functions";
 
 export function CreateProjectDialog({
@@ -18,13 +15,11 @@ export function CreateProjectDialog({
   onOpenChange: (open: boolean) => void;
   onCreated: () => Promise<void>;
 }) {
-  const installations = useServerFn(listGitHubInstallations);
-  const repositories = useServerFn(listGitHubRepositories);
+  const repositories = useServerFn(listAccessibleGitHubRepositories);
   const create = useServerFn(createProject);
-  const [items, setItems] = useState<
-    Awaited<ReturnType<typeof listGitHubRepositories>>["repositories"]
-  >([]);
-  const [installationId, setInstallationId] = useState(0);
+  const [items, setItems] = useState<Awaited<ReturnType<typeof listAccessibleGitHubRepositories>>>(
+    [],
+  );
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [repositoryId, setRepositoryId] = useState(0);
@@ -32,26 +27,27 @@ export function CreateProjectDialog({
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (open)
-      installations({ data: { page: 1 } })
-        .then(async (result) => {
-          const first = result.installations[0]?.id;
-          if (first) {
-            setInstallationId(first);
-            setItems(
-              (await repositories({ data: { installationId: first, page: 1 } })).repositories,
-            );
-          }
-        })
+      repositories()
+        .then(setItems)
         .catch(() => setError("GitHub is disconnected or unavailable."));
-  }, [open, installations, repositories]);
+  }, [open, repositories]);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     const repo = items.find((item) => item.id === repositoryId);
-    if (!repo) return;
     setBusy(true);
     setError("");
     try {
-      await create({ data: { name, slug, installationId, repositoryId, fullName: repo.fullName } });
+      await create({
+        data: repo
+          ? {
+              name,
+              slug,
+              installationId: repo.installationId,
+              repositoryId: repo.id,
+              fullName: repo.fullName,
+            }
+          : { name, slug },
+      });
       await onCreated();
       onOpenChange(false);
     } catch {
@@ -66,7 +62,9 @@ export function CreateProjectDialog({
         <Dialog>
           <form onSubmit={submit} className="grid gap-4 p-6">
             <h2 className="text-lg font-semibold">Create project</h2>
-            <p className="text-sm text-tertiary">Connect a GitHub repository to this Workspace.</p>
+            <p className="text-sm text-tertiary">
+              Optionally connect a GitHub repository to this Workspace.
+            </p>
             <label className="grid gap-1">
               Name
               <input
@@ -90,11 +88,15 @@ export function CreateProjectDialog({
               GitHub repository
               <Select
                 label="GitHub repository"
-                placeholder={items.length ? "Select a repository" : "No accessible repositories"}
+                placeholder={
+                  items.length ? "No repository (start from scratch)" : "No accessible repositories"
+                }
                 selectedKey={repositoryId ? String(repositoryId) : null}
-                onSelectionChange={(key) => setRepositoryId(Number(key))}
-                isRequired
+                onSelectionChange={(key) =>
+                  setRepositoryId(key && key !== "none" ? Number(key) : 0)
+                }
               >
+                <Select.Item id="none" label="No repository (start from scratch)" />
                 {items.map((item) => (
                   <Select.Item key={item.id} id={String(item.id)} label={item.fullName} />
                 ))}
