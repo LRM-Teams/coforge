@@ -139,3 +139,35 @@ message UsageScanResponse {
   string message = 5;
   bytes snapshot_json = 6;
 }
+
+// Runner hold. Sent Coordinator -> Workspace daemon before an upgrade stops the
+// supervisor, so Agents stop admitting new turns and in-flight tool calls get a
+// bounded grace period instead of the ~2s SIGTERM/SIGKILL ladder. Additive:
+// protocol_major stays 1.
+message DaemonHoldRequest {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  string expected_server_url = 3;
+  // Diagnostic only; never used for control flow.
+  string reason = 4;
+}
+
+// One Agent whose last emitted Activity is still a busy detail kind.
+message HeldBusyAgent {
+  string workspace_id = 1;
+  string agent_id = 2;
+  string detail_kind = 3;
+  uint64 busy_since_ms = 4;
+}
+
+message DaemonHoldResponse {
+  uint32 protocol_major = 1;
+  string request_id = 2;
+  bool accepted = 3;
+  // True while the hold is in force; false once released.
+  bool held = 4;
+  repeated HeldBusyAgent busy_agents = 5;
+  // Workspaces that did not answer within the per-Workspace hold budget. A
+  // Coordinator reports them rather than blocking the upgrade on them.
+  repeated string unreachable_workspace_ids = 6;
+}

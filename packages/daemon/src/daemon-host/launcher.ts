@@ -11,9 +11,11 @@ import {
   readLocalRpcFrame,
   encodeLocalRpcRequest,
   decodeLocalRpcResponse,
+  encodeDaemonHoldRequest,
+  decodeDaemonHoldResponse,
   LOCAL_RPC_METHODS,
 } from "@lrm/coforge-sdk/internal";
-import type { DaemonHandshakeResponse } from "@lrm/coforge-sdk/internal";
+import type { DaemonHandshakeResponse, DaemonHoldResponse } from "@lrm/coforge-sdk/internal";
 import { DaemonConfigStore } from "../persistence/daemon-config";
 import { COFORGE_DAEMON_SERVER_URL } from "../connection/built-server";
 import { FileBindingStore } from "../supervisor/binding-store";
@@ -171,6 +173,47 @@ export class LocalDaemonLauncher implements DaemonLauncher, DaemonCommandRunner 
         throw new Error(`coforge-daemon did not accept ${operation}`);
       }
       return commandResponse.runtimes ?? [];
+    } finally {
+      connection?.close();
+    }
+  }
+
+  /**
+   * Engages (`"hold"`) or lifts (`"release"`) this daemon's runner hold and returns the busy set.
+   * Idempotent at both ends, so the upgrade's quiescence poll is just a repeated `hold`.
+   */
+  async hold(
+    operation: "hold" | "release" = "hold",
+    reason = "upgrade",
+    requestId: string = crypto.randomUUID(),
+  ): Promise<DaemonHoldResponse> {
+    const method = operation === "hold" ? LOCAL_RPC_METHODS.HOLD : LOCAL_RPC_METHODS.RELEASE;
+    let connection: LocalDaemonConnection | undefined;
+    try {
+      connection = await this.#connect(this.options.socketPath);
+      const envelope = decodeLocalRpcResponse(
+        await connection.request(
+          frameLocalRpc(
+            encodeLocalRpcRequest({
+              method,
+              payload: encodeDaemonHoldRequest({
+                protocolMajor: 1,
+                requestId,
+                expectedServerUrl: this.#serverUrl,
+                reason,
+              }),
+            }),
+          ),
+        ),
+      );
+      const response = decodeDaemonHoldResponse(envelope.payload);
+      if (
+        envelope.method !== method ||
+        response.protocolMajor !== 1 ||
+        response.requestId !== requestId
+      )
+        throw new Error(`coforge-daemon returned an invalid ${operation} response`);
+      return response;
     } finally {
       connection?.close();
     }

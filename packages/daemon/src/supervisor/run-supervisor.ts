@@ -1,8 +1,8 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
-import { startDaemonLocalRpcServer } from "../local-rpc";
+import type { HeldBusyAgent, ManagedRuntimeIdentity } from "@lrm/coforge-sdk/internal";
+import { startDaemonLocalRpcServer, type DaemonHoldReport } from "../local-rpc";
 import { FileDaemonCredentialStore } from "../credentials/credential-store";
 import { DaemonConfigStore } from "../persistence/daemon-config";
 import { LocalDaemonLauncher } from "../daemon-host/launcher";
@@ -31,6 +31,13 @@ import {
 /** How long, and how often, a Coordinator watches for a receipt from a job it launched. */
 const UPGRADE_RECEIPT_WATCH_MS = 10 * 60_000;
 const UPGRADE_RECEIPT_POLL_MS = 2_000;
+
+/**
+ * How long the Coordinator waits for one Workspace daemon to answer a runner hold. A Workspace
+ * that does not answer is reported unreachable and counted as idle: a wedged or dead Workspace
+ * daemon must never be able to block a Computer upgrade (ADR 0020).
+ */
+const RUNNER_HOLD_WORKSPACE_TIMEOUT_MS = 5_000;
 
 export async function runMachineSupervisor(
   args: string[],
@@ -292,6 +299,47 @@ async function runWithSupervisorLock(
       }
     })();
   };
+  /**
+   * Fans a runner hold (or release) out to every running Workspace daemon under this Coordinator
+   * and merges their answers. This is the only Coordinator->Workspace call in the codebase; it
+   * reuses the per-Workspace `childClient` sockets the Coordinator already owns.
+   */
+  const fanOutRunnerHold = async (
+    operation: "hold" | "release",
+    reason: string,
+  ): Promise<DaemonHoldReport> => {
+    const running = (await snapshot()).filter((runtime) => runtime.processId > 0);
+    const busyAgents: HeldBusyAgent[] = [];
+    const unreachableWorkspaceIds: string[] = [];
+    await Promise.all(
+      running.map(async ({ workspaceId }) => {
+        try {
+          const response = await Promise.race([
+            childClient(workspaceId).hold(operation, reason),
+            Bun.sleep(RUNNER_HOLD_WORKSPACE_TIMEOUT_MS).then(() => {
+              throw new Error(`Workspace ${workspaceId} did not answer the runner hold`);
+            }),
+          ]);
+          if (!response.accepted) {
+            unreachableWorkspaceIds.push(workspaceId);
+            return;
+          }
+          for (const agent of response.busyAgents)
+            busyAgents.push({ ...agent, workspaceId: agent.workspaceId || workspaceId });
+        } catch (error) {
+          unreachableWorkspaceIds.push(workspaceId);
+          upgradeLogger.warn("Workspace daemon did not answer the runner hold; treating as idle", {
+            event: "upgrade:runner_hold_unreachable",
+            workspace_id: workspaceId,
+            operation,
+            timeout_ms: RUNNER_HOLD_WORKSPACE_TIMEOUT_MS,
+            error_message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }),
+    );
+    return { held: operation === "hold", busyAgents, unreachableWorkspaceIds };
+  };
   let rpc: Awaited<ReturnType<typeof startDaemonLocalRpcServer>> | undefined;
   try {
     try {
@@ -319,6 +367,8 @@ async function runWithSupervisorLock(
       },
       runtime: {
         configure: (config) => supervisor.configure(config),
+        hold: (reason) => fanOutRunnerHold("hold", reason),
+        release: () => fanOutRunnerHold("release", "upgrade"),
         async command(method, request) {
           if (method === "daemon:pause") await supervisor.pause();
           else if (method === "daemon:resume") await supervisor.resume();

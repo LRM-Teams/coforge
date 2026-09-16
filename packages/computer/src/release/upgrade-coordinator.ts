@@ -112,6 +112,10 @@ async function switchRuntime(
     .map((binding) => binding.processId!);
   let paused = true;
   try {
+    // Quiesce before the stop, never after: `stop` is the ~2s SIGTERM/SIGKILL ladder this hold
+    // exists to keep away from a live tool call (ADR 0020). The rollback `stop` below is
+    // deliberately not held - that path is already a failure recovery and speed wins there.
+    await lifecycle.holdRunners();
     await lifecycle.stop(snapshot);
     await updater.activatePrepared(prepared);
     await lifecycle.start(snapshot, prepared.version);

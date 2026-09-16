@@ -127,6 +127,14 @@ protocol、SDK runner 或 ACP 的转换、错误和能力差异；这些细节�
 `message_id`/发送方幂等键抑制，不能要求 exactly-once Agent execution。Daemon 忙或离线
 期间，云端 Message 保留待恢复；恢复后按序交给 session。
 
+Computer 升级停止 Supervisor 前会先下发 runner hold（[ADR 0020](adr/0020-upgrade-runner-hold.md)）。
+被 hold 期间，新的 delivery 仍然进入既有的 per-Agent input queue，但不 drain、
+不 notify session，因此**不会发出 `agent:deliver:ack`**；服务端 `AgentMessageDelivery.receivedAt`
+保持为空，重启后的 ready handshake 会重新投递。这正是"accepted 不等于 Agent 执行完成"、
+"`AgentSession` 接受前不得 ACK"两条约束的自然结果，不需要额外的 ACK 抑制逻辑。
+hold 只存在于内存中，重启（含安装失败回滚后的恢复）后必然失效；`coforge-computer stop`
+是显式立即停止，不走 hold。
+
 当前不引入本地 durable spool、数据库 command mailbox、claim/lease 或完整 per-Agent
 delivery ledger。若未来故障证据证明需要 durable 接管记录，必须先单独确认字段、ACK
 边界、幂等约束和恢复 SLO，不能把 connection-local memory queue 宣称为 durable storage。

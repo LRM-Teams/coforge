@@ -41,6 +41,9 @@ async function harness(failCandidateProbe = false, failRestore = false) {
     async pauseLaunches() {
       calls.push("pause");
     },
+    async holdRunners() {
+      calls.push("hold");
+    },
     async stop(value) {
       expect(value).toBe(snapshot);
       calls.push("stop");
@@ -138,6 +141,7 @@ test("coordinator prepares while running then restores the exact running snapsho
     "prepare",
     "pause",
     "snapshot",
+    "hold",
     "stop",
     "activate:2.0.0",
     "start:2.0.0",
@@ -238,3 +242,27 @@ function split(options: UpgradeCoordinatorOptions) {
   };
   return { operation, paths: { ...paths, executablePath: process.execPath } };
 }
+
+test("the runner hold completes before the supervisor is stopped", async () => {
+  const { calls, options } = await harness();
+  let holdFinished = false;
+  let stoppedBeforeHold = false;
+  const lifecycle = options.lifecycle!;
+  options.lifecycle = {
+    ...lifecycle,
+    async holdRunners() {
+      await lifecycle.holdRunners();
+      // A real hold parks here for up to UPGRADE_RUNNER_HOLD_MS while Agents drain.
+      await Bun.sleep(20);
+      holdFinished = true;
+    },
+    async stop(value) {
+      if (!holdFinished) stoppedBeforeHold = true;
+      await lifecycle.stop(value);
+    },
+  };
+
+  await expect(coordinateUpgrade(options)).resolves.toMatchObject({ status: "succeeded" });
+  expect(stoppedBeforeHold).toBe(false);
+  expect(calls.indexOf("hold")).toBeLessThan(calls.indexOf("stop"));
+});

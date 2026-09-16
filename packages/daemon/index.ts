@@ -8,6 +8,7 @@ import { createCodeAgentProvider } from "./src/code-agent/registry";
 import { discoverCodeAgentInventory } from "./src/code-agent/runtime-inventory";
 import {
   DaemonRuntime,
+  type BusyAgentReport,
   type DaemonConfig,
   type RecoveredUpgradeResult,
 } from "./src/daemon-runtime/runtime";
@@ -234,7 +235,18 @@ export async function runDaemon(args: string[], computerVersion?: string): Promi
         },
         inbox: async (context: string, request: LocalInboxRequest) =>
           requireRuntime().inbox(context, request),
+        // Runner hold (ADR 0020). A Workspace with no configured runtime has nothing to drain and
+        // reports itself quiescent, so it never holds an upgrade up.
+        async hold(reason: string) {
+          return { held: true, busyAgents: stampWorkspace(runtime?.holdRunners(reason)) };
+        },
+        async release() {
+          return { held: false, busyAgents: stampWorkspace(runtime?.releaseRunners()) };
+        },
       };
+      function stampWorkspace(agents: BusyAgentReport[] = []) {
+        return agents.map((agent) => ({ ...agent, workspaceId: config?.workspaceId ?? "" }));
+      }
       if (supervisorSocket) await daemon.start();
       const localRpc = await startDaemonLocalRpcServer({
         socketPath,

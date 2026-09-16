@@ -445,6 +445,10 @@ export {
   decodeUsageScanRequest,
   encodeUsageScanResponse,
   decodeUsageScanResponse,
+  encodeDaemonHoldRequest,
+  decodeDaemonHoldRequest,
+  encodeDaemonHoldResponse,
+  decodeDaemonHoldResponse,
 } from "./local-daemon";
 export type { AgentMessageRecord, MessageTaskMetadata } from "./local-daemon";
 export type {
@@ -465,6 +469,9 @@ export type {
   AppInboxItem,
   UsageScanRequest,
   UsageScanResponse,
+  DaemonHoldRequest,
+  DaemonHoldResponse,
+  HeldBusyAgent,
 } from "./local-daemon";
 export {
   encodeDaemonRuntimeReadyRequest,
