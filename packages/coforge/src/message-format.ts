@@ -209,10 +209,11 @@ export function formatSearchResults(query: string, response: SearchResponse): st
 }
 
 type SendResponse = {
-  messageId: string;
+  messageId?: string;
 };
 
 export function formatSendSuccess(target: string, response: SendResponse): string {
+  if (!response.messageId) return `Message sent to ${target}.`;
   const hint = isThreadTarget(target)
     ? ""
     : ` (to reply in this message's thread, use target "${target}:${shortId(response.messageId)}")`;

@@ -26,6 +26,7 @@ test("single-file installation provides management and Agent CLI without a Daemo
     feed,
   );
   const requests: string[] = [];
+  const agentRequests: { path: string; body: unknown }[] = [];
   const server = Bun.serve({
     port: 0,
     async fetch(request) {
@@ -33,6 +34,7 @@ test("single-file installation provides management and Agent CLI without a Daemo
       requests.push(path);
       if (path.startsWith("/api/agent/v1/")) {
         const body = await request.json();
+        agentRequests.push({ path, body });
         return Response.json({ operation: body.operation, body: body.body, messages: [] });
       }
       return new Response(Bun.file(join(feed, path)));
@@ -103,7 +105,17 @@ test("single-file installation provides management and Agent CLI without a Daemo
     });
     const sent = await invoke(["message", "send", "--target", "@user"], "release-only hello");
     expect(sent.code).toBe(0);
-    expect(sent.stdout).toContain("release-only hello");
+    expect(agentRequests).toContainEqual(
+      expect.objectContaining({
+        path: "/api/agent/v1/messages",
+        body: expect.objectContaining({
+          operation: "send",
+          target: "@user",
+          body: "release-only hello",
+        }),
+      }),
+    );
+    expect(sent.stdout).toContain("Message sent to @user.");
     expect((await invoke(["setup"])).code).toBe(1);
     expect(
       await Bun.file(join(directory, "agent-home", ".coforge", "computer", "config.json")).exists(),
