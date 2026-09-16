@@ -79,6 +79,11 @@ const RECONNECT_READY_RETRY_MS = 1_000;
 const RECONNECT_READY_RETRY_MAX_MS = 60_000;
 const REMEMBERED_REQUEST_IDS = 256;
 const AGENT_RPC_TIMEOUT_MS = 10_000;
+// While an Agent stays busy (working/thinking) through a long silent turn, the
+// daemon re-sends the last busy Activity frame every 60s with isHeartbeat set
+// so the server's 90s display lease (WORKING_LEASE_MS) never lapses; the 30s
+// margin matches AGENT_STATUS_LEASE_MS's margin over AGENT_STATUS_REFRESH_MS.
+export const ACTIVITY_HEARTBEAT_MS = 60_000;
 const logger = getLogger(["coforge", "daemon", "connection"]);
 
 export interface DaemonConnectionTiming {

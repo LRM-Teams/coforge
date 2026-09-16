@@ -24,9 +24,10 @@ export type DaemonConfig = {
 /** @deprecated wire-facing callers should use DaemonConfig internally. */
 export type WorkspaceConfig = DaemonConfig;
 import type { DaemonCredentialStore } from "../credentials/credential-store";
-import type {
-  DaemonConnectionClient,
-  DaemonConnectionClientFactory,
+import {
+  ACTIVITY_HEARTBEAT_MS,
+  type DaemonConnectionClient,
+  type DaemonConnectionClientFactory,
 } from "../connection/daemon-connection";
 import {
   WORKSPACE_PROTOCOL_MAJOR,
@@ -108,6 +109,28 @@ type ActivityLaunch = { launchId: string; clientSeq: number; stopping: boolean }
 
 /** An activity envelope before the launch assigns its sequence metadata. */
 type ActivityDraft = Omit<AgentActivity, "launchId" | "clientSeq" | "observedAtMs">;
+
+/** Detail kinds the busy heartbeat keeps warm: the Agent is working or thinking. */
+const BUSY_ACTIVITY_DETAIL_KINDS = new Set<string>([
+  AGENT_ACTIVITY_DETAIL_KIND.MODEL_REQUEST_STARTED,
+  AGENT_ACTIVITY_DETAIL_KIND.MODEL_RESPONSE_STARTED,
+  AGENT_ACTIVITY_DETAIL_KIND.THINKING_STARTED,
+  AGENT_ACTIVITY_DETAIL_KIND.TOOL_STARTED,
+  AGENT_ACTIVITY_DETAIL_KIND.RUNNING_COMMAND,
+  AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS,
+]);
+
+/** Detail kinds that end a busy turn; the heartbeat stops as soon as one is observed. */
+const TERMINAL_ACTIVITY_DETAIL_KINDS = new Set<string>([
+  AGENT_ACTIVITY_DETAIL_KIND.IDLE,
+  AGENT_ACTIVITY_DETAIL_KIND.STOPPED,
+  AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_ERROR,
+  AGENT_ACTIVITY_DETAIL_KIND.FRESHNESS_HOLD,
+]);
+
+/** Providers can emit runtime_progress once per coalesced provider event; cap it
+ * here, centrally, so a chatty stream can never flood the transport or history. */
+const RUNTIME_PROGRESS_RATE_LIMIT_MS = 10_000;
 
 type SessionMode = "create" | "resume";
 
@@ -195,6 +218,12 @@ export class DaemonRuntime {
   readonly #pendingAgentApiKeyRevokes = new Set<string>();
   readonly #observedUsage = new Map<RuntimeProvider, UsageSnapshot>();
   readonly #agentProxy?: AgentProxy;
+  readonly #activityHeartbeatTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  readonly #lastBusyActivity = new Map<
+    string,
+    { launch: ActivityLaunch; activity: ActivityDraft }
+  >();
+  readonly #lastRuntimeProgressAt = new Map<string, number>();
 
   constructor(
     connection: DaemonConfig,
@@ -813,6 +842,7 @@ export class DaemonRuntime {
     this.#closeAgentInputQueue(agentId, error);
     const activityLaunch = this.#currentActivityLaunches.get(agentId);
     if (activityLaunch) activityLaunch.stopping = true;
+    this.#clearActivityHeartbeat(agentId);
     this.#revokeLocalLaunch(agentId);
     try {
       await this.#releaseAgentRuntime(agentId);
@@ -879,6 +909,7 @@ export class DaemonRuntime {
       stopping: false,
     };
     this.#currentActivityLaunches.set(agentId, launch);
+    this.#clearActivityHeartbeat(agentId);
     const current = () => this.#currentActivityLaunches.get(agentId) === launch && !launch.stopping;
     let agentApiKey: string | undefined;
     let stage: "credential" | "runtime" = "credential";
@@ -1009,8 +1040,10 @@ export class DaemonRuntime {
           this.#runtimeErrorActivity(agentId, this.#launchFailureMessage(agentId, stage, error)),
         );
       }
-      if (this.#currentActivityLaunches.get(agentId) === launch)
+      if (this.#currentActivityLaunches.get(agentId) === launch) {
+        this.#clearActivityHeartbeat(agentId);
         this.#currentActivityLaunches.delete(agentId);
+      }
       throw error;
     }
   }
@@ -1035,6 +1068,12 @@ export class DaemonRuntime {
     }
     if (event.type === "activity") {
       const { activity } = event;
+      if (activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS) {
+        const now = Date.now();
+        const last = this.#lastRuntimeProgressAt.get(agentId) ?? 0;
+        if (now - last < RUNTIME_PROGRESS_RATE_LIMIT_MS) return;
+        this.#lastRuntimeProgressAt.set(agentId, now);
+      }
       const carriesEntries =
         activity.detailKind !== AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_RECONNECTING &&
         activity.entries?.some((entry) => entry.kind !== "tool_start");
@@ -1208,6 +1247,7 @@ export class DaemonRuntime {
     this.#closeAgentInputQueue(agentId, new Error(`Agent runtime is stopping: ${agentId}`));
     const activityLaunch = this.#currentActivityLaunches.get(agentId);
     if (activityLaunch) activityLaunch.stopping = true;
+    this.#clearActivityHeartbeat(agentId);
     this.#revokeLocalLaunch(agentId);
     const stopping = this.#stopAgent(agentId)
       .catch((error) => {
@@ -1249,6 +1289,7 @@ export class DaemonRuntime {
     this.#sendAgentStatus(agentId, "inactive");
     if (publishStopped && activityLaunch)
       this.#emitAgentActivity(agentId, activityLaunch, this.#stoppedActivity(agentId));
+    this.#clearActivityHeartbeat(agentId);
     this.#currentActivityLaunches.delete(agentId);
   }
 
@@ -1316,19 +1357,54 @@ export class DaemonRuntime {
 
   #emitAgentActivity(agentId: string, launch: ActivityLaunch, activity: ActivityDraft): void {
     if (!this.#activityEnabled || this.#currentActivityLaunches.get(agentId) !== launch) return;
-    if (
-      launch.stopping &&
-      activity.detailKind !== AGENT_ACTIVITY_DETAIL_KIND.STOPPED &&
-      activity.level !== "error" &&
-      !activity.entries?.some((entry) => entry.kind !== "tool_start")
-    )
-      return;
+    if (launch.stopping) {
+      this.#clearActivityHeartbeat(agentId);
+      if (
+        activity.detailKind !== AGENT_ACTIVITY_DETAIL_KIND.STOPPED &&
+        activity.level !== "error" &&
+        !activity.entries?.some((entry) => entry.kind !== "tool_start")
+      )
+        return;
+    }
     this.#transport.sendAgentActivity?.({
       ...activity,
       launchId: launch.launchId,
       clientSeq: ++launch.clientSeq,
       observedAtMs: Date.now(),
     });
+    if (TERMINAL_ACTIVITY_DETAIL_KINDS.has(activity.detailKind)) {
+      this.#clearActivityHeartbeat(agentId);
+    } else if (BUSY_ACTIVITY_DETAIL_KINDS.has(activity.detailKind)) {
+      if (!activity.isHeartbeat) this.#lastBusyActivity.set(agentId, { launch, activity });
+      this.#scheduleActivityHeartbeat(agentId, launch);
+    }
+  }
+
+  /** Re-sends the last busy Activity frame every ACTIVITY_HEARTBEAT_MS so a long silent
+   * turn (a shell command or a quiet model call) never lets the display lease lapse. */
+  #scheduleActivityHeartbeat(agentId: string, launch: ActivityLaunch): void {
+    const existing = this.#activityHeartbeatTimers.get(agentId);
+    if (existing !== undefined) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      this.#activityHeartbeatTimers.delete(agentId);
+      const remembered = this.#lastBusyActivity.get(agentId);
+      if (!remembered || remembered.launch !== launch) return;
+      this.#emitAgentActivity(agentId, launch, {
+        ...remembered.activity,
+        isHeartbeat: true,
+        entries: [],
+      });
+    }, ACTIVITY_HEARTBEAT_MS);
+    this.#activityHeartbeatTimers.set(agentId, timer);
+  }
+
+  #clearActivityHeartbeat(agentId: string): void {
+    const timer = this.#activityHeartbeatTimers.get(agentId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this.#activityHeartbeatTimers.delete(agentId);
+    }
+    this.#lastBusyActivity.delete(agentId);
   }
 
   #sendAgentStatus(agentId: string, status: "active" | "inactive"): void {
@@ -1927,6 +2003,9 @@ export class DaemonRuntime {
     this.#stopping = true;
     this.#started = false;
     this.#activityEnabled = false;
+    for (const timer of this.#activityHeartbeatTimers.values()) clearTimeout(timer);
+    this.#activityHeartbeatTimers.clear();
+    this.#lastBusyActivity.clear();
     for (const agentId of this.#agentInputQueues.keys())
       this.#closeAgentInputQueue(agentId, new Error("daemon runtime is stopping"));
     this.#unsubscribeAll();
@@ -1994,6 +2073,7 @@ export class DaemonRuntime {
 function safeRuntimeActivityMessage(activity: string, level: string, message: string): string {
   if (level === "error") return message.slice(0, 512);
   if (level === "warning") return scrubActivityText(message);
+  if (activity === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS) return "";
   if (activity === AGENT_ACTIVITY_DETAIL_KIND.RUNNING_COMMAND)
     return [...scrubActivityText(message)].slice(0, 100).join("");
   if (

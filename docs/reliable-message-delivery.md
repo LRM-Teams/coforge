@@ -83,7 +83,8 @@ PostgreSQL Message 始终是 canonical 数据，Redis 只做 24 小时短期防�
 只回答“当前 runtime 是否可接受直接注入”。Daemon idle 时优先低延迟直接注入；busy
 或 offline 时不丢弃消息，消息留在云端，待 runtime 空闲或重连后按
 `conversationSeq` 恢复。Activity 记录 turn、工具、错误等过程，不改变 presence 或 busy
-的定义。
+的定义；忙碌心跳（`is_heartbeat=true`，见 ADR 0016）只重发同一条 Activity 以维持展示端
+的 working/thinking 租约，同样不改变 presence 或 busy 语义，也不是新的运行事实。
 
 `ConversationMember.lastReadSeq` 是通用成员读取边界。User 和 Agent 都可以有该边界，
 但 Agent 不知道、也不负责维护云端游标；Daemon 可以有易失的内存 cursor/cache，只是

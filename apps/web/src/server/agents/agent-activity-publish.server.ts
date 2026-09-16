@@ -90,7 +90,15 @@ export async function handleAgentActivityPublication(
         ? "offline"
         : activityKindForObservation(activity);
     const cloudActivity = { ...activity, activityKind: mappedKind };
-    const history = dependencies.observe({ ...cloudActivity, computerId }).catch(() => {});
+    // A busy heartbeat or a content-free runtime_progress frame only renews the
+    // display lease; it carries nothing worth keeping in history or the recent-
+    // activity popover.
+    const isFillerActivity =
+      activity.isHeartbeat === true ||
+      activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS;
+    const history = isFillerActivity
+      ? Promise.resolve()
+      : dependencies.observe({ ...cloudActivity, computerId }).catch(() => {});
     const reduce = (async () => {
       if (!dependencies.currentRuntimeFence || !dependencies.display) return;
       const fence = await dependencies.currentRuntimeFence(

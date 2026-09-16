@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
+import { encodeAgentActivity } from "@lrm/coforge-sdk/internal";
 import {
+  decodeActivityObservation,
   latestActivityError,
   mergeAgentActivity,
   type ActivityEntry,
@@ -17,6 +19,50 @@ function entry(clientSeq: number, id = `live-${clientSeq}`): ActivityEntry {
     entries: [],
   };
 }
+
+const baseWireActivity = {
+  protocolMajor: 1,
+  requestId: "request-1",
+  workspaceId: "workspace-1",
+  agentId: "agent-1",
+  detailKind: "tool_started",
+  level: "info" as const,
+  detail: "Tool",
+  observedAtMs: 1000,
+  launchId: "launch-1",
+  clientSeq: 1,
+};
+
+test("decodeActivityObservation drops a busy heartbeat frame", () => {
+  const decoded = decodeActivityObservation(
+    encodeAgentActivity({ ...baseWireActivity, isHeartbeat: true, entries: [] }),
+    { workspaceId: "workspace-1" },
+  );
+  expect(decoded).toBeUndefined();
+});
+
+test("decodeActivityObservation drops a content-free runtime_progress frame", () => {
+  const decoded = decodeActivityObservation(
+    encodeAgentActivity({ ...baseWireActivity, detailKind: "runtime_progress", detail: "" }),
+    { workspaceId: "workspace-1" },
+  );
+  expect(decoded).toBeUndefined();
+});
+
+test("decodeActivityObservation keeps an ordinary busy activity", () => {
+  const decoded = decodeActivityObservation(encodeAgentActivity(baseWireActivity), {
+    workspaceId: "workspace-1",
+  });
+  expect(decoded?.entry.detailKind).toBe("tool_started");
+});
+
+test("mergeAgentActivity drops runtime_progress entries even if not decoded away", () => {
+  const result = mergeAgentActivity(
+    [],
+    [entry(1), { ...entry(2), detailKind: "runtime_progress" }],
+  );
+  expect(result.map((value) => value.clientSeq)).toEqual([1]);
+});
 
 test("merges delayed history with live activity without duplicates or lost publications", () => {
   const live = mergeAgentActivity([entry(1)], [entry(3), entry(2)]);

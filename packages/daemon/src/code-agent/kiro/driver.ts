@@ -341,6 +341,14 @@ class KiroSession implements AgentSession {
           isError: update.status === "failed",
         });
     }
+    if (update.sessionUpdate === "compaction_update") {
+      // Background context compaction carries no rendered text; report it
+      // content-free so a long compaction pass still reads as busy.
+      this.#emit({
+        type: "activity",
+        activity: createAgentActivity(AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS, "info", ""),
+      });
+    }
     if (
       update.sessionUpdate === "session_info_update" &&
       meta?.kind === "error" &&
