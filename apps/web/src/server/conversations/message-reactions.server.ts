@@ -28,12 +28,12 @@ export type MessageReactionSummary = { emoji: string; count: number; reactors: s
 
 /**
  * Groups reactions by emoji in first-reaction order for the browser; a reactor is
- * `@username` or `@agentname`. Returns undefined when the message has no reactions.
+ * `@username` or `@agentname`. Returns undefined when the message has no reactions (including rows selected without the relation, as in unit-test fakes).
  */
 export function reactionSummaries(
-  rows: MessageReactionRow[],
+  rows: MessageReactionRow[] | undefined,
 ): MessageReactionSummary[] | undefined {
-  if (rows.length === 0) return undefined;
+  if (!rows?.length) return undefined;
   const byEmoji = new Map<string, string[]>();
   for (const row of rows) {
     const reactor = row.member.agentId
