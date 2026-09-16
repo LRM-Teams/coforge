@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useRouter, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -63,11 +63,7 @@ import { TemplateChildrenTable, type TemplateChild } from "./template-children-t
 import { normalizeLeaderFormatTabs } from "./template-outline-sections";
 import { HighlightPromptEditor } from "./highlight-prompt-editor";
 import { WEEKLY_SEND_TOAST_MS, WeeklySendConfirmDialog } from "./weekly-send-confirm-dialog";
-import {
-  formatSendWindowCountdown,
-  isWeeklySendArmed,
-  weeklySendWindow,
-} from "./weekly-send-window";
+import { sendWindowEnd, useWeeklySendArmed } from "./use-send-window";
 
 type ReportSubject = {
   type: "report";
@@ -501,41 +497,27 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
   const [promptDirty, setPromptDirty] = useState(false);
   const [promptDraft, setPromptDraft] = useState(() => report.highlightPrompt?.text ?? "");
   const [sideRefresh, setSideRefresh] = useState(0);
-  const [now, setNow] = useState(() => new Date());
   const sendSchedule = report.sendSchedule;
   const hasUnsavedEdits = dirty || promptDirty;
 
-  useEffect(() => {
-    if (!sendSchedule || sendSchedule.alreadySent) return;
-    const timer = window.setInterval(() => setNow(new Date()), 1000);
-    return () => window.clearInterval(timer);
-  }, [sendSchedule]);
-
-  const sendArmed = sendSchedule
-    ? isWeeklySendArmed({
-        applied: true,
-        alreadySent: sendSchedule.alreadySent,
-        sendWeekday: sendSchedule.sendWeekday,
-        sendTime: sendSchedule.sendTime,
-        scheduleEnabled: sendSchedule.scheduleEnabled,
-        autoSendCancelled: sendSchedule.autoSendCancelled || formatCancelled,
-        now,
-      })
-    : false;
-  const countdown =
-    sendArmed && sendSchedule
-      ? formatSendWindowCountdown(
-          Math.max(
-            0,
-            (weeklySendWindow({
-              now,
-              sendWeekday: sendSchedule.sendWeekday,
-              sendTime: sendSchedule.sendTime,
-              scheduleEnabled: sendSchedule.scheduleEnabled,
-            })?.end.getTime() ?? now.getTime()) - now.getTime(),
-          ),
-        )
-      : null;
+  const sendWindow = useMemo(
+    () =>
+      sendSchedule
+        ? {
+            alreadySent: sendSchedule.alreadySent,
+            sendWeekday: sendSchedule.sendWeekday,
+            sendTime: sendSchedule.sendTime,
+            scheduleEnabled: sendSchedule.scheduleEnabled,
+            autoSendCancelled: sendSchedule.autoSendCancelled || formatCancelled,
+          }
+        : null,
+    [sendSchedule, formatCancelled],
+  );
+  const sendArmed = useWeeklySendArmed(sendWindow);
+  const countdownUntil = useMemo(
+    () => (sendWindow ? sendWindowEnd(sendWindow, sendArmed) : null),
+    [sendWindow, sendArmed],
+  );
   const formatCopy: "preview" | "cancelled" | "ready" = formatCancelled
     ? "cancelled"
     : sendArmed
@@ -823,7 +805,7 @@ function TemplateReportDetail({ report }: { report: ReportSubject["report"] }) {
           subjectId={report.id}
           surface={isOverview ? "plain" : "format"}
           formatCopy={formatCopy}
-          countdown={countdown}
+          countdownUntil={countdownUntil}
           refreshToken={sideRefresh}
           onRequestSend={() => {
             if (hasUnsavedEdits) return;

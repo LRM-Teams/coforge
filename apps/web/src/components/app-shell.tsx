@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState, type FC } from "react";
+import { createContext, useCallback, useContext, useMemo, useState, type FC } from "react";
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { useParams, useRouter, useRouterState } from "@tanstack/react-router";
 import {
@@ -156,6 +156,13 @@ export function AppShell({
     (item) => pathname === item.bareHref || pathname.startsWith(`${item.bareHref}/`),
   )?.href;
   const isChatRoute = pathname === "/messages" || pathname.startsWith("/messages/");
+  const channelSidebarVisibility = useMemo(
+    () => ({
+      hidden: isChatRoute && channelSidebarHidden,
+      show: () => setChannelSidebarHidden(false),
+    }),
+    [isChatRoute, channelSidebarHidden],
+  );
   const onSidebarClickCapture = useSpaNavigation();
   const agentParams = useParams({ from: "/_app/messages/$agentId", shouldThrow: false });
   const channelParams = useParams({
@@ -222,12 +229,7 @@ export function AppShell({
           )}
         </div>
 
-        <ChannelSidebarVisibilityContext
-          value={{
-            hidden: isChatRoute && channelSidebarHidden,
-            show: () => setChannelSidebarHidden(false),
-          }}
-        >
+        <ChannelSidebarVisibilityContext value={channelSidebarVisibility}>
           <div className="flex min-w-0 flex-1 flex-col">{children}</div>
         </ChannelSidebarVisibilityContext>
         {onCreateChannel && (
