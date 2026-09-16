@@ -69,6 +69,12 @@ function channelMessageView(message: ChannelMessageRow) {
   };
 }
 
+/**
+ * Enroll every Workspace human and Agent in #general. Called from the write
+ * points that add members (invitation acceptance, Agent creation); Workspace
+ * creation enrolls the creator inline and the 20260915120000 migration
+ * backfilled older rows, so reads never enroll.
+ */
 export async function enrollGeneralChannel(db: Prisma.TransactionClient, workspaceId: string) {
   await db.conversation.createMany({
     data: { workspaceId, channelName: "general" },
@@ -248,7 +254,6 @@ export class PublicChannels {
 
   async list(workspaceId: string, userId: string) {
     await this.authorize(workspaceId, userId);
-    await this.db.$transaction((tx) => enrollGeneralChannel(tx, workspaceId));
     const channels = await this.db.conversation.findMany({
       where: { workspaceId, channelName: { not: null } },
       orderBy: { channelName: "asc" },
@@ -294,8 +299,6 @@ export class PublicChannels {
       where: { id: channelId, workspaceId, channelName: { not: null } },
     });
     if (!channel) throw new AppError("NOT_FOUND");
-    if (channel.channelName === "general")
-      await this.db.$transaction((tx) => enrollGeneralChannel(tx, workspaceId));
     return channel;
   }
 
