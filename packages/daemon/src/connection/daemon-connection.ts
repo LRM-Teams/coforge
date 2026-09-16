@@ -371,7 +371,9 @@ export const defaultAgentWeeklyReportHttpClient: AgentWeeklyReportHttpClient = {
       if (response.status === 400 || response.status === 403)
         throw new AgentWeeklyReportRequestError(
           message.trim() ||
-            (response.status === 403 ? "Weekly report access denied" : "invalid weekly-report request"),
+            (response.status === 403
+              ? "Weekly report access denied"
+              : "invalid weekly-report request"),
         );
       throw new Error(`server Agent weekly-report request failed (${response.status})`);
     }
@@ -780,7 +782,10 @@ export class DaemonConnection implements DaemonConnectionClient {
   ): Promise<WeeklyReportResponse> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     return this.agentWeeklyReportHttpClient.request({
-      url: this.#serverEndpoint("Agent weekly-report HTTP", agentApiRoutes.cloud.weeklyReports.path),
+      url: this.#serverEndpoint(
+        "Agent weekly-report HTTP",
+        agentApiRoutes.cloud.weeklyReports.path,
+      ),
       ...this.#agentKeys(agentApiKey),
       request,
     });

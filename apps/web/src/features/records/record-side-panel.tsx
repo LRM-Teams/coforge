@@ -185,10 +185,7 @@ export function RecordSidePanel({
     setDismissedSuggestionIds(next);
   }
 
-  async function confirmSuggestion(
-    messageId: string,
-    suggestion: WeeklyReportAssistantSuggestion,
-  ) {
+  async function confirmSuggestion(messageId: string, suggestion: WeeklyReportAssistantSuggestion) {
     if (busy) return;
     if (suggestion.type === "send-prompt") {
       dismissSuggestion(messageId);

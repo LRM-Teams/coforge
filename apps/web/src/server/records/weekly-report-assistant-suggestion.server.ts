@@ -35,13 +35,7 @@ export function buildWeeklyReportAssistantSuggestionBody(input: {
   displayText: string;
   suggestion: WeeklyReportAssistantSuggestion;
 }): string {
-  return [
-    input.displayText.trim(),
-    "",
-    OPEN,
-    JSON.stringify(input.suggestion),
-    CLOSE,
-  ].join("\n");
+  return [input.displayText.trim(), "", OPEN, JSON.stringify(input.suggestion), CLOSE].join("\n");
 }
 
 export function weeklyReportAssistantSuggestionDisplayBody(body: string): string {
@@ -144,7 +138,10 @@ function asHighlightContent(value: unknown): HighlightContent | null {
       const text = Reflect.get(item, "text");
       const sources = Reflect.get(item, "sources");
       if (typeof text !== "string" || !Array.isArray(sources)) return null;
-      normalizedItems.push({ text, sources: sources as HighlightContent["blocks"][0]["items"][0]["sources"] });
+      normalizedItems.push({
+        text,
+        sources: sources as HighlightContent["blocks"][0]["items"][0]["sources"],
+      });
     }
     blocks.push({ id, heading, paragraphs, items: normalizedItems });
   }

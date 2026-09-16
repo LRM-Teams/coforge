@@ -101,9 +101,7 @@ function manageAgents(db: Database) {
           },
         });
         const providers = new Set<typeof config.provider>();
-        if (
-          await runtimeVisibility.canSelect({ workspaceId, userId }, computerId, config.provider)
-        )
+        if (await runtimeVisibility.canSelect({ workspaceId, userId }, computerId, config.provider))
           providers.add(config.provider);
         if (
           config.provider === RUNTIME_PROVIDER.COFORGE &&

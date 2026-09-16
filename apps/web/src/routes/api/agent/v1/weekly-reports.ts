@@ -1,8 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  validateWeeklyReportRequest,
-  type WeeklyReportRequest,
-} from "@lrm/coforge-sdk/internal";
+import { validateWeeklyReportRequest, type WeeklyReportRequest } from "@lrm/coforge-sdk/internal";
 import { agentAuthMiddleware } from "#/server/agents/agent-http.middleware";
 import {
   PrismaAgentRepository,

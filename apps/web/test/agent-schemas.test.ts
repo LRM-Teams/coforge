@@ -164,14 +164,14 @@ describe("createAgentInputSchema", () => {
     form.set("reasoning", "");
     form.set("computerId", computerId);
     form.set("apiKey", "sk-assistant-runtime-key");
-    expect(
-      updateAgentInputSchema.parse(updateAgentInputFromForm(form, { agentId })),
-    ).toMatchObject({
-      agentId,
-      provider: "coforge",
-      modelProvider: "openai",
-      apiKey: "sk-assistant-runtime-key",
-      computerId,
-    });
+    expect(updateAgentInputSchema.parse(updateAgentInputFromForm(form, { agentId }))).toMatchObject(
+      {
+        agentId,
+        provider: "coforge",
+        modelProvider: "openai",
+        apiKey: "sk-assistant-runtime-key",
+        computerId,
+      },
+    );
   });
 });
