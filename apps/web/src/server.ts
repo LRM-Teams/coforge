@@ -1,6 +1,10 @@
 import handler from "@tanstack/react-start/server-entry";
 
 import { paraglideMiddleware } from "./paraglide/server";
+import { assertStartupConfig } from "./server/startup-config.server";
+
+// Fail the boot, not the first request, on invalid deployment configuration.
+assertStartupConfig();
 
 export function isNonLocalizedRequest(request: Request): boolean {
   const pathname = new URL(request.url).pathname;
