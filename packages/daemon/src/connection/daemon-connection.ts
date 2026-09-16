@@ -430,6 +430,7 @@ export const createAgentMessageHttpClient = (
         holdToken: request.holdToken,
         continueAnyway: request.continueAnyway,
         seenUpToSequence: request.seenUpToSequence,
+        freshnessContextMode: request.freshnessContextMode,
       }),
     });
     if (!response.ok)

@@ -267,6 +267,101 @@ test("thread send and unread ranges stay separate from the main conversation", a
     expect(
       collisionRecovery.unreadSummary[`@${username}:aaaaaaaa-0000-4000-8000-000000000002`],
     ).toBe(1);
+
+    // Reviewer isolation (`freshnessContextMode: "withheld"`): a hold never
+    // returns message bodies, senders, or metadata, only the state and a
+    // count of everything still pending; a re-hold does not narrow to
+    // "since last presented" because nothing was presented, and a valid
+    // stage-2 token still lets `continueAnyway` send.
+    const withheldRoot = await repo.sendMessage(
+      opened.conversationId,
+      opened.senderMemberId,
+      user.id,
+      "withheld root",
+    );
+    await repo.sendMessage(
+      opened.conversationId,
+      opened.senderMemberId,
+      user.id,
+      "withheld reply 1",
+      undefined,
+      withheldRoot.id,
+    );
+    await repo.sendMessage(
+      opened.conversationId,
+      opened.senderMemberId,
+      user.id,
+      "withheld reply 2",
+      undefined,
+      withheldRoot.id,
+    );
+    await repo.sendMessage(
+      opened.conversationId,
+      opened.senderMemberId,
+      user.id,
+      "withheld reply 3",
+      undefined,
+      withheldRoot.id,
+    );
+    await repo.sendMessage(
+      opened.conversationId,
+      opened.senderMemberId,
+      user.id,
+      "withheld reply 4",
+      undefined,
+      withheldRoot.id,
+    );
+    const withheldTarget = `@${username}:${withheldRoot.id}`;
+
+    // Inline mode still presents only the bounded 3-row window; the fourth
+    // pending reply is invisible to it, unlike withheld's true count below.
+    const inlineHold = await sendTo(withheldTarget);
+    expect(inlineHold.sideEffectDecision).toBe("hold");
+    expect(inlineHold.messages.map((m) => m.body)).toEqual([
+      "withheld reply 2",
+      "withheld reply 3",
+      "withheld reply 4",
+    ]);
+
+    const withheldBody = "independent review, reviewer isolated";
+    const sendWithheld = async (holdToken?: string, continueAnyway?: boolean) =>
+      executeAgentSendMessageWithPolicy(
+        { repository: repo, sender, holdStore },
+        {
+          requestId: crypto.randomUUID(),
+          workspaceId: workspace.id,
+          agentId: agent.id,
+          target: withheldTarget,
+          body: withheldBody,
+          holdToken,
+          continueAnyway,
+          freshnessContextMode: "withheld",
+        },
+      );
+    const withheldHold = await sendWithheld();
+    expect(withheldHold).toMatchObject({
+      accepted: false,
+      sideEffectDecision: "hold",
+      messages: [],
+      freshnessContextMode: "withheld",
+      withheldMessageCount: 4,
+      anywayAllowed: false,
+    });
+    const withheldRehold = await sendWithheld(withheldHold.holdToken);
+    expect(withheldRehold).toMatchObject({
+      accepted: false,
+      sideEffectDecision: "hold",
+      messages: [],
+      freshnessContextMode: "withheld",
+      withheldMessageCount: 4,
+      anywayAllowed: true,
+    });
+    const withheldSent = await sendWithheld(withheldRehold.holdToken, true);
+    expect(withheldSent).toMatchObject({
+      accepted: true,
+      sideEffectDecision: "anyway_accepted",
+      freshnessContextMode: "withheld",
+    });
   } finally {
     await db.agentMessageDelivery.deleteMany({
       where: { workspaceId: workspace.id },

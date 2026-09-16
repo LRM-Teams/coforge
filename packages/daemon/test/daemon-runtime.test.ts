@@ -1665,6 +1665,69 @@ describe("DaemonRuntime", () => {
     await rm(stateDirectory, { recursive: true, force: true });
   });
 
+  test("a withheld send forwards the mode, redacts bodies locally, and prefers the server's count", async () => {
+    const requests: AgentMessageRequest[] = [];
+    const harness = await messageHarness(async (request) => {
+      requests.push(request);
+      return {
+        protocolMajor: 1,
+        requestId: request.requestId,
+        accepted: false,
+        attentionCount: 3,
+        // An older server that has not adopted the mode may still echo message bodies; the
+        // daemon must redact them locally regardless, and fall back to attentionCount only
+        // when the server omits withheldMessageCount.
+        messages: [messageRecord(9, "@ada", "@ada")],
+        sideEffectDecision: "hold" as const,
+        freshnessContextMode: "withheld" as const,
+        ...(request.requestId === "send-server-count" ? { withheldMessageCount: 5 } : {}),
+      };
+    });
+    try {
+      const noServerCount = await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "send-no-server-count",
+          context: harness.context,
+          operation: "send",
+          target: "@ada",
+          body: "reply",
+          freshnessContextMode: "withheld",
+        },
+        harness.apiKey,
+      );
+      expect(noServerCount).toMatchObject({
+        messages: [],
+        freshnessContextMode: "withheld",
+        withheldMessageCount: 3,
+      });
+
+      const withServerCount = await harness.runtime.agentMessage(
+        harness.context,
+        {
+          requestId: "send-server-count",
+          context: harness.context,
+          operation: "send",
+          target: "@ada",
+          body: "reply",
+          freshnessContextMode: "withheld",
+        },
+        harness.apiKey,
+      );
+      expect(withServerCount).toMatchObject({
+        messages: [],
+        freshnessContextMode: "withheld",
+        withheldMessageCount: 5,
+      });
+
+      expect(requests).toHaveLength(2);
+      for (const request of requests)
+        expect(request).toMatchObject({ operation: "send", freshnessContextMode: "withheld" });
+    } finally {
+      await harness.runtime.stop();
+    }
+  });
+
   test("keeps an Agent active without a process, wakes it for a message, and deactivates it", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");

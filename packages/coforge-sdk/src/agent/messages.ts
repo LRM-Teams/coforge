@@ -24,6 +24,7 @@ export type AgentMessagesSendRequest = {
   body: string;
   sendDraft?: boolean;
   continueAnyway?: boolean;
+  freshnessContextMode?: "inline" | "withheld";
 };
 
 export type AgentMessagesResolveRequest = {

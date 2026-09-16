@@ -1023,6 +1023,43 @@ test("Agent thread unfollow HTTP POST request carries the request id", async () 
   expect(result.followed).toBe(false);
 });
 
+test("requestSend HTTP POST body carries freshnessContextMode when set and omits the key otherwise", async () => {
+  const capturedBodies: Record<string, unknown>[] = [];
+  const client = createAgentMessageHttpClient(async (_url, init) => {
+    capturedBodies.push(JSON.parse(init?.body as string));
+    return Response.json({
+      protocolMajor: 1,
+      requestId: "request-send-1",
+      state: "sent",
+      messageId: "message-1",
+      context: [],
+    });
+  });
+  const baseRequest = {
+    protocolMajor: 1,
+    requestId: "request-send-1",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    operation: "send" as const,
+    target: "@ada",
+    body: "hi",
+  };
+  await client.requestSend!({
+    url: "https://server.example/api/agent/v1/messages",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: { ...baseRequest, freshnessContextMode: "withheld" },
+  });
+  await client.requestSend!({
+    url: "https://server.example/api/agent/v1/messages",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: baseRequest,
+  });
+  expect(capturedBodies[0]).toMatchObject({ freshnessContextMode: "withheld" });
+  expect(capturedBodies[1]).not.toHaveProperty("freshnessContextMode");
+});
+
 test.each(["react", "unreact"] as const)(
   "Agent %s HTTP request carries the emoji in its JSON body",
   async (operation) => {

@@ -17,6 +17,13 @@ export type AgentMessageRepository = {
     target: string,
     through?: number,
   ): Promise<readonly AgentMessageRecord[]>;
+  /** Same pending-context scope as `readPendingAgentContext`, but a count rather than a 3-row window. */
+  countPendingAgentContext?(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+    through?: number,
+  ): Promise<number>;
   advanceAgentReadThrough?(
     workspaceId: string,
     agentId: string,
@@ -83,6 +90,7 @@ export type AgentSendMessageInput = {
   holdToken?: string;
   continueAnyway?: boolean;
   seenUpToSequence?: number;
+  freshnessContextMode?: "inline" | "withheld";
 };
 
 export type AgentSendMessageResult = {
@@ -92,6 +100,8 @@ export type AgentSendMessageResult = {
   sideEffectDecision: "forward" | "hold" | "anyway_denied" | "anyway_accepted";
   holdToken?: string;
   anywayAllowed?: boolean;
+  freshnessContextMode?: "inline" | "withheld";
+  withheldMessageCount?: number;
 };
 
 export async function executeAgentSendMessage(
@@ -124,6 +134,12 @@ export async function executeAgentSendMessageWithPolicy(
         target: string,
         through?: number,
       ): Promise<readonly AgentMessageRecord[]>;
+      countPendingAgentContext?(
+        workspaceId: string,
+        agentId: string,
+        target: string,
+        through?: number,
+      ): Promise<number>;
       advanceAgentReadThrough?(
         workspaceId: string,
         agentId: string,
@@ -136,6 +152,7 @@ export async function executeAgentSendMessageWithPolicy(
   },
   input: AgentSendMessageInput,
 ): Promise<AgentSendMessageResult & { messages: readonly AgentMessageRecord[] }> {
+  const mode = input.freshnessContextMode ?? "inline";
   let seen = 0;
   if (input.seenUpToSequence !== undefined) {
     if (!dependencies.repository.advanceAgentReadThrough)
@@ -168,12 +185,18 @@ export async function executeAgentSendMessageWithPolicy(
       attentionCount: 0,
       sideEffectDecision: "anyway_denied",
       messages: [],
+      freshnessContextMode: mode,
     };
+  // Withheld mode never presented context to the Agent, so a re-hold must not
+  // narrow to "since last presented" — it has to keep covering everything
+  // still pending above the Agent's seen boundary.
+  const pendingBoundary =
+    Math.max(mode === "withheld" ? 0 : (validPrior?.presentedThrough ?? 0), seen) || undefined;
   const pending = await dependencies.repository.readPendingAgentContext?.(
     input.workspaceId,
     input.agentId,
     input.target,
-    Math.max(validPrior?.presentedThrough ?? 0, seen) || undefined,
+    pendingBoundary,
   );
   const heldMessages = pending?.slice(-3) ?? [];
   if (heldMessages.length && !input.continueAnyway) {
@@ -189,13 +212,32 @@ export async function executeAgentSendMessageWithPolicy(
     };
     const token = await holds.issue(hold);
     if (validPrior && input.holdToken) await holds.consume(input.holdToken, validPrior);
+    // The 3-row `readPendingAgentContext` window is for inline display only;
+    // withheld mode reports the true pending count when the repository can
+    // provide it, falling back to the bounded window's length otherwise.
+    const withheldMessageCount =
+      mode === "withheld"
+        ? ((await dependencies.repository.countPendingAgentContext?.(
+            input.workspaceId,
+            input.agentId,
+            input.target,
+            pendingBoundary,
+          )) ??
+          pending?.length ??
+          0)
+        : undefined;
     return {
       accepted: false,
       attentionCount: heldMessages.length,
       sideEffectDecision: "hold",
       holdToken: token,
       anywayAllowed: hold.stage === 2,
-      messages: heldMessages,
+      // Withheld mode never returns message bodies, senders, or metadata —
+      // only the state and a count of everything still pending.
+      messages: mode === "withheld" ? [] : heldMessages,
+      ...(mode === "withheld"
+        ? { freshnessContextMode: "withheld" as const, withheldMessageCount }
+        : {}),
     };
   }
   if (
@@ -210,9 +252,10 @@ export async function executeAgentSendMessageWithPolicy(
       attentionCount: 0,
       sideEffectDecision: "anyway_denied",
       messages: [],
+      freshnessContextMode: mode,
     };
   const sent = await executeAgentSendMessage(dependencies.sender, input);
-  return { ...sent, messages: [] };
+  return { ...sent, messages: [], freshnessContextMode: mode };
 }
 
 export async function readAgentMessages(
