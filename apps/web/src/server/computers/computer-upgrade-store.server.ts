@@ -1,4 +1,5 @@
 import { RedisClient } from "bun";
+import { sanitizeUpgradeErrorText } from "@lrm/coforge-sdk/internal";
 
 export type ComputerUpgradeStatus =
   | { requestId: string; status: "accepted"; expectedVersion: string; expiresAt: string }
@@ -11,10 +12,24 @@ export type ComputerUpgradeStatus =
       workerInstanceId: string;
       completedAt: string;
     }
-  | { requestId: string; status: "failed"; reason: "timeout" | "publication" | "evidence" }
+  | {
+      requestId: string;
+      status: "failed";
+      /** "reported" is the Computer's own terminal receipt; the others are server inferences. */
+      reason: "timeout" | "publication" | "evidence" | "reported";
+      error?: string;
+    }
   | { requestId: string; status: "unknown"; reason: "corrupt" };
 
 type Scope = { workspaceId: string; computerId: string };
+/** One Computer upgrade operation's terminal receipt, as the Daemon reported it. */
+export type ReportedComputerUpgradeResult = {
+  requestId: string;
+  status: "succeeded" | "failed";
+  version?: string;
+  error?: string;
+  completedAtMs: number;
+};
 type Identity = {
   workerInstanceId: string;
   computerVersion: string;
@@ -97,6 +112,44 @@ export class RedisComputerUpgradeStore {
       requestId,
       status: "failed",
       reason: "publication",
+    });
+  }
+  /**
+   * Accepts the Daemon's terminal report for one operation. A reported failure is authoritative:
+   * only the Computer can observe it, and without it a local failure is indistinguishable from a
+   * Computer that has not reconnected yet. A reported success is never sufficient on its own -
+   * the Computer must still come back with an identity that proves the new version is running -
+   * so it only completes a request whose identity evidence already agrees.
+   */
+  async reported(scope: Scope, result: ReportedComputerUpgradeResult): Promise<void> {
+    const raw = await this.redis.get(this.requestKey(scope, requestId(result)));
+    const current = raw ? this.parse(raw) : undefined;
+    // A settled request is never reopened by a late or contradictory report.
+    if (!raw || current?.status !== "accepted") return;
+    if (result.status === "failed") {
+      await this.replaceAccepted(scope, result.requestId, {
+        requestId: result.requestId,
+        status: "failed",
+        reason: "reported",
+        ...(result.error ? { error: sanitizeUpgradeErrorText(result.error) } : {}),
+      });
+      return;
+    }
+    if (result.version && result.version !== current.expectedVersion) return;
+    const identity = await this.identity(scope);
+    if (
+      !identity ||
+      current.previousWorkerInstanceId === identity.workerInstanceId ||
+      current.expectedVersion !== identity.computerVersion ||
+      identity.computerVersion !== identity.daemonVersion
+    )
+      return;
+    await this.commitReady(scope, result.requestId, raw, identity, {
+      requestId: result.requestId,
+      status: "completed",
+      expectedVersion: current.expectedVersion,
+      ...identity,
+      completedAt: new Date(this.now()).toISOString(),
     });
   }
   async status(scope: Scope, requestId: string): Promise<ComputerUpgradeStatus | undefined> {
@@ -216,9 +269,11 @@ export class RedisComputerUpgradeStore {
           ? value
           : undefined;
       if (value.status === "failed")
-        return value.reason === "timeout" ||
+        return (value.reason === "timeout" ||
           value.reason === "publication" ||
-          value.reason === "evidence"
+          value.reason === "evidence" ||
+          value.reason === "reported") &&
+          (value.error === undefined || typeof value.error === "string")
           ? value
           : undefined;
       return value.status === "unknown" && value.reason === "corrupt" ? value : undefined;
@@ -253,6 +308,11 @@ export class RedisComputerUpgradeStore {
   private requestKey(scope: Scope, requestId: string) {
     return `${this.scope(scope)}:request:${encodeURIComponent(requestId)}`;
   }
+}
+
+function requestId(result: ReportedComputerUpgradeResult): string {
+  if (!result.requestId) throw new Error("Computer upgrade result has no request");
+  return result.requestId;
 }
 
 let singleton: RedisComputerUpgradeStore | undefined;

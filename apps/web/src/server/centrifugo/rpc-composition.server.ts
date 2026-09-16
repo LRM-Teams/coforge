@@ -23,6 +23,7 @@ import {
   createWorkspaceListMethod,
   createDaemonRuntimeReadyMethod,
   createDaemonRuntimeUsageScanResultMethod,
+  createComputerUpgradeResultMethod,
   createDaemonConnectionStatusMethod,
   createAgentStatusMethod,
   createReminderFireMethod,
@@ -32,6 +33,7 @@ import {
   DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD,
   DAEMON_RUNTIME_READY_METHOD,
   DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD,
+  COMPUTER_UPGRADE_RESULT_METHOD,
   DAEMON_CONNECTION_STATUS_METHOD,
   AGENT_STATUS_METHOD,
 } from "@lrm/coforge-sdk/internal";
@@ -243,6 +245,8 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
           new PrismaComputerRuntimeRepository(db),
         ),
         [DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD]: createDaemonRuntimeUsageScanResultMethod(),
+        [COMPUTER_UPGRADE_RESULT_METHOD]:
+          createComputerUpgradeResultMethod(getComputerUpgradeStore()),
         [AGENT_SKILLS_LIST_RESULT_METHOD]: createAgentSkillsListResultMethod(),
         [AGENT_CONTROL_RESULT_METHOD]: createAgentControlResultMethod(control),
         [AGENT_START_METHOD]: createAgentStartMethod(
@@ -293,6 +297,7 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
       [DAEMON_CONNECTION_STATUS_METHOD]: createDaemonConnectionStatusMethod(),
       [DAEMON_RUNTIME_CODE_AGENTS_UPDATE_METHOD]: unavailableMethod,
       [DAEMON_RUNTIME_USAGE_SCAN_RESULT_METHOD]: createDaemonRuntimeUsageScanResultMethod(),
+      [COMPUTER_UPGRADE_RESULT_METHOD]: unavailableMethod,
       [AGENT_SKILLS_LIST_RESULT_METHOD]: unavailableMethod,
       [AGENT_CONTROL_RESULT_METHOD]: unavailableMethod,
       [AGENT_SESSION_METHOD]: unavailableMethod,

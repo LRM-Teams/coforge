@@ -60,6 +60,7 @@ export function ComputerLayout({
   onAdd,
   latestComputerVersion,
   onComputerUpdate,
+  upgradingComputerId,
   children,
 }: {
   computers: ComputerListItem[];
@@ -67,6 +68,8 @@ export function ComputerLayout({
   onAdd: () => void;
   latestComputerVersion?: string | null;
   onComputerUpdate: (computer: ComputerListItem) => void;
+  /** The Computer whose upgrade operation is still in flight, if any. */
+  upgradingComputerId?: string;
   children: ReactNode;
 }) {
   const [showMobileList, setShowMobileList] = useState(!selectedComputerId);
@@ -161,9 +164,14 @@ export function ComputerLayout({
                       size="sm"
                       color="secondary"
                       className="mr-3 shrink-0"
+                      isLoading={upgradingComputerId === computer.id}
+                      showTextWhileLoading
+                      isDisabled={upgradingComputerId !== undefined}
                       onPress={() => onComputerUpdate(computer)}
                     >
-                      {m.computer_update_available()}
+                      {upgradingComputerId === computer.id
+                        ? m.computer_upgrade_in_progress()
+                        : m.computer_update_available()}
                     </Button>
                   )}
                 </div>

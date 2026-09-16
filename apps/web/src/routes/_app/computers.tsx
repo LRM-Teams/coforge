@@ -3,6 +3,8 @@ import { Outlet, createFileRoute, getRouteApi, useParams } from "@tanstack/react
 import { Dialog, Modal, ModalOverlay } from "@/components/application/modals/modal";
 import { Button } from "@/components/base/buttons/button";
 import { useAppToast } from "@/components/ui/toast";
+import { m } from "@/paraglide/messages";
+import { describeComputerUpgradeFailure } from "@/features/computers/upgrade-failure";
 
 import { AddComputerDialog } from "@/features/computers/add-computer-dialog";
 import { ComputerLayout } from "@/features/computers/computer-layout";
@@ -51,6 +53,7 @@ function ComputersPage() {
   });
   const [addComputerOpen, setAddComputerOpen] = useState(false);
   const [upgradeComputerId, setUpgradeComputerId] = useState<string>();
+  const [upgradingComputerId, setUpgradingComputerId] = useState<string>();
   const requestUpgrade = useServerFn(upgradeComputer);
   const readUpgradeStatus = useServerFn(readComputerUpgradeStatus);
   const toast = useAppToast();
@@ -62,6 +65,7 @@ function ComputersPage() {
         selectedComputerId={params?.computerId}
         onAdd={() => setAddComputerOpen(true)}
         latestComputerVersion={latestComputerVersion}
+        upgradingComputerId={upgradingComputerId}
         onComputerUpdate={(computer) => {
           if (!computer.ownedByCurrentUser) return;
           setUpgradeComputerId(computer.id);
@@ -100,31 +104,38 @@ function ComputersPage() {
                   const computerId = upgradeComputerId;
                   if (!computerId) return;
                   const requestId = crypto.randomUUID();
+                  setUpgradeComputerId(undefined);
+                  // While the operation runs, the control itself is the only progress this page
+                  // shows; stages, request IDs, and timings stay in the logs and result files.
+                  setUpgradingComputerId(computerId);
                   try {
                     const accepted = await requestUpgrade({ data: { computerId, requestId } });
-                    setUpgradeComputerId(undefined);
                     if (accepted.status !== "accepted") return;
                     for (let poll = 0; poll < 31; poll += 1) {
                       await new Promise((resolve) => window.setTimeout(resolve, 2_000));
                       const status = await readUpgradeStatus({ data: { computerId, requestId } });
-                      if (
-                        status.status === "completed" &&
-                        status.computerVersion &&
-                        status.daemonVersion &&
-                        status.workerInstanceId
-                      ) {
+                      if (status.status === "completed" && status.computerVersion) {
                         toast.success(
-                          `Computer ${status.computerVersion} / Daemon ${status.daemonVersion} ready (${status.workerInstanceId})`,
+                          m.computer_upgrade_succeeded({ version: status.computerVersion }),
                         );
                         return;
                       }
                       if (status.status === "completed")
-                        throw new Error("upgrade evidence incomplete");
-                      if (status.status === "failed") throw new Error(status.reason);
+                        throw new Error(describeComputerUpgradeFailure({ reason: "evidence" }));
+                      if (status.status === "failed")
+                        throw new Error(describeComputerUpgradeFailure(status));
                     }
-                    throw new Error("upgrade completion is unknown");
+                    throw new Error(describeComputerUpgradeFailure({ reason: "timeout" }));
                   } catch (error) {
                     console.error("Computer upgrade was not verified", error);
+                    toast.error(
+                      error instanceof Error
+                        ? error.message
+                        : describeComputerUpgradeFailure({ reason: "timeout" }),
+                    );
+                  } finally {
+                    // The control returns to its ordinary state, which is also the retry.
+                    setUpgradingComputerId(undefined);
                   }
                 }}
               >
