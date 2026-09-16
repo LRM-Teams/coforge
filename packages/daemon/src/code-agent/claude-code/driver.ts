@@ -451,7 +451,20 @@ class ClaudeCodeAgentSession implements AgentSession {
       this.#firstInput = undefined;
     }
     if (record.type === "system" && record.parent_tool_use_id == null) {
-      if (record.subtype === "status" && record.status === "compacting") this.#compacting = true;
+      if (record.subtype === "status" && record.status === "compacting") {
+        this.#compacting = true;
+        // A background status event carries no rendered text; it only keeps the
+        // busy signal warm while the daemon rate-limits this to once per 10s.
+        this.#emit({
+          type: "activity",
+          activity: createAgentActivity(
+            AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS,
+            "info",
+            "",
+            eventTime(record),
+          ),
+        });
+      }
       if (record.subtype === "compact_boundary") {
         this.#compacting = false;
         this.#flushNotices();
@@ -508,11 +521,13 @@ class ClaudeCodeAgentSession implements AgentSession {
         typeof record.parent_tool_use_id === "string"
           ? { parentToolUseId: record.parent_tool_use_id }
           : undefined;
+      let renderedText = false;
       if (
         event?.type === "content_block_delta" &&
         delta?.type === "text_delta" &&
         typeof delta.text === "string"
       ) {
+        renderedText = true;
         this.#emit({
           type: "text-delta",
           text: delta.text,
@@ -523,12 +538,27 @@ class ClaudeCodeAgentSession implements AgentSession {
         event?.type === "content_block_delta" &&
         delta?.type === "thinking_delta" &&
         typeof delta.thinking === "string"
-      )
+      ) {
+        renderedText = true;
         this.#emit({
           type: "thinking-delta",
           text: delta.thinking,
           ...(subagent ? { subagent } : {}),
         });
+      }
+      // A partial stream event with no renderable text (message/content block
+      // start-stop, an input_json_delta, ...) still shows the turn is live.
+      if (!renderedText && typeof event?.type === "string" && record.parent_tool_use_id == null) {
+        this.#emit({
+          type: "activity",
+          activity: createAgentActivity(
+            AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS,
+            "info",
+            "",
+            eventTime(record),
+          ),
+        });
+      }
       return;
     }
     if (record.type === "assistant") {

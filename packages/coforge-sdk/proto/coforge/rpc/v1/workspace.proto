@@ -179,6 +179,9 @@ message AgentActivity {
   string runtime_error_fingerprint = 15;
   repeated ActivityTrajectoryEntry entries = 16;
   optional string activity_kind = 17;
+  // True when this frame re-sends the last busy activity to renew the
+  // display lease during a long silent turn; carries no new content.
+  bool is_heartbeat = 18;
 }
 
 // Display-only trajectory. The oneof makes kind/payload mismatches impossible.

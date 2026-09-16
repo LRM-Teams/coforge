@@ -22,6 +22,12 @@ function encodedActivity() {
   return btoa(binary);
 }
 
+function encodedBase64(value: Parameters<typeof encodeAgentActivity>[0]) {
+  let binary = "";
+  for (const byte of encodeAgentActivity(value)) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 const request = (overrides: Record<string, unknown> = {}, secret = "test-secret") =>
   new Request("http://backend/api/internal/centrifugo-agent-activity", {
     method: "POST",
@@ -115,6 +121,70 @@ describe("Agent activity publication", () => {
       },
     });
     expect(reduced).toBe(false);
+  });
+
+  test("does not persist a busy heartbeat to history but still renews the display", async () => {
+    const history: unknown[] = [];
+    let reduced: unknown;
+    const response = await handleAgentActivityPublication(
+      request({ b64data: encodedBase64({ ...activity, isHeartbeat: true, entries: [] }) }),
+      {
+        proxySecret: "test-secret",
+        agentBelongsToWorkspace: async () => true,
+        agentBelongsToComputer: async () => true,
+        computerBelongsToWorkspace: async () => true,
+        observe: async (value) => {
+          history.push(value);
+        },
+        currentRuntimeFence: async () => ({ daemonInstanceId: "daemon-1", launchId: "launch-1" }),
+        display: {
+          observeActivity: async (value) => {
+            reduced = value;
+            return {
+              protocolMajor: 1,
+              workspaceId: "workspace-1",
+              computerId: "computer-1",
+              agentId: "agent-1",
+              revision: 1,
+              activityKind: "working",
+              detailKind: activity.detailKind,
+              detail: "",
+              entries: [],
+              expiresAt: Date.now() + 90_000,
+            };
+          },
+        },
+        publishJson: async () => {},
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(history).toHaveLength(0);
+    expect(reduced).toMatchObject({ isHeartbeat: true });
+  });
+
+  test("does not persist a content-free runtime_progress frame to history", async () => {
+    const history: unknown[] = [];
+    const response = await handleAgentActivityPublication(
+      request({
+        b64data: encodedBase64({
+          ...activity,
+          detailKind: "runtime_progress",
+          detail: "",
+          entries: [],
+        }),
+      }),
+      {
+        proxySecret: "test-secret",
+        agentBelongsToWorkspace: async () => true,
+        agentBelongsToComputer: async () => true,
+        computerBelongsToWorkspace: async () => true,
+        observe: async (value) => {
+          history.push(value);
+        },
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(history).toHaveLength(0);
   });
 
   test("rejects an untrusted proxy or mismatched connection scope", async () => {

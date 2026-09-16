@@ -34,3 +34,22 @@ test("rejects incomplete or invalid launch ordering identity", () => {
   ])
     expect(() => encodeAgentActivity(invalid)).toThrow("invalid agent activity");
 });
+
+test("round trips a busy heartbeat re-send of the same activity frame", () => {
+  const heartbeat: AgentActivity = {
+    ...activity,
+    detailKind: "runtime_progress",
+    clientSeq: 2,
+    isHeartbeat: true,
+    entries: [],
+  };
+  delete (heartbeat as { runtimeError?: unknown }).runtimeError;
+  const decoded = decodeAgentActivity(encodeAgentActivity(heartbeat));
+  expect(decoded.isHeartbeat).toBe(true);
+  expect(decoded.detailKind).toBe("runtime_progress");
+});
+
+test("omits isHeartbeat on decode when the frame was not a heartbeat", () => {
+  const decoded = decodeAgentActivity(encodeAgentActivity(activity));
+  expect(decoded.isHeartbeat).toBeUndefined();
+});

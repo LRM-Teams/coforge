@@ -87,7 +87,17 @@ Daemon、服务端存储和前端展示使用同一契约，每条 activity 固�
 
 `starting`、`stopped`、`idle` 是 timeline 记录，不是新的 Agent 业务状态；当前状态仍只
 由 `agent:status` 的 `active` / `inactive` 表示。只有真正发生过程或观察结果时才记录
-对应 activity，不能用定时 heartbeat 不断重复制造相同 activity。
+对应 activity，不能用定时 heartbeat 不断重复制造相同 activity——但见下方的忙碌心跳例外
+（ADR 0016）：为了不让安静运行超过 60 秒的 turn（一条 shell 命令或一次安静的模型调用）
+在展示层被误判为 online，Daemon 在 Agent 处于 `working`/`thinking` 时，每 60 秒
+（`ACTIVITY_HEARTBEAT_MS`）重发最近一条忙碌 Activity，显式标记 `is_heartbeat=true`、
+`client_seq` 递增、`entries` 为空。服务端把这类心跳（以及下方的 `runtime_progress`）
+仅用于把展示租约 `WORKING_LEASE_MS` 续期到 90 秒，并保持 `working`/`thinking`；不写入
+`agent_activities` 历史，也不计入前端“最近活动”列表；只有可见状态真的变化时才推进
+`agent:display` 的 revision。`runtime_progress` 是新增的 discriminator，用于 provider
+产生的、没有可渲染文本的 stream/system 事件（例如 Claude Code 的压缩状态通知、Codex 的
+原始 reasoning 增量、Kiro 的压缩进度通知）；Daemon 按 Agent 把它限流到最多每 10 秒一条，
+同样不产生新的 Agent 业务状态。
 
 ```text
 event: agent:activity

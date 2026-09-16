@@ -105,22 +105,75 @@ describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
     );
   });
 
-  test("expires work at 60 seconds independently of the 90 second process lease", async () => {
+  test("expires work at 90 seconds independently of the 90 second process lease", async () => {
     await redis.send("FLUSHDB", []);
     const subject = display();
     await subject.observeStatus(status(1));
     const working = await subject.observeActivity(activity(1, "working"), fence);
-    expect(working?.expiresAt).toBe(now + 60_000);
+    expect(working?.expiresAt).toBe(now + 90_000);
     now += 60_000;
+    // Renew the process lease on its own schedule; the work lease keeps counting
+    // down from its own single observation, independently of that renewal.
+    await subject.observeStatus(status(2));
+    now += 30_000;
     const idle = await subject.snapshot(scope);
     expect(idle.activityKind).toBe("online");
-    expect(idle.expiresAt).toBe(1_090_000);
     expect(idle.revision).toBeGreaterThan(working!.revision);
-    now += 30_000;
+    now += 90_000;
     const offline = await subject.snapshot(scope);
     expect(offline.activityKind).toBe("offline");
     expect(offline.expiresAt).toBeNull();
     expect(offline.revision).toBeGreaterThan(idle.revision);
+  });
+
+  test("a busy heartbeat renews the work lease without bumping the revision", async () => {
+    await redis.send("FLUSHDB", []);
+    now = 3_000_000;
+    const subject = display();
+    await subject.observeStatus(status(1));
+    await subject.observeActivity(activity(1, "tool_started"), fence);
+    now += 30_000;
+    // The daemon's own status heartbeat keeps the process lease ahead of the work
+    // lease so the extended work expiry below isn't clamped by an older process lease.
+    // It bumps the revision on its own; the busy heartbeat below must not bump it again.
+    const renewed = await subject.observeStatus(status(2));
+    const heartbeat = await subject.observeActivity(
+      activity(2, "tool_started", { isHeartbeat: true, entries: [] }),
+      fence,
+    );
+    expect(heartbeat?.activityKind).toBe("working");
+    expect(heartbeat?.expiresAt).toBe(now + 90_000);
+    expect(heartbeat?.revision).toBe(renewed!.revision);
+  });
+
+  test("a busy heartbeat after the lease lapsed still restores working", async () => {
+    await redis.send("FLUSHDB", []);
+    now = 3_200_000;
+    const subject = display();
+    await subject.observeStatus(status(1));
+    await subject.observeActivity(activity(1, "tool_started"), fence);
+    now += 90_000;
+    // Keep the process alive independently of the lapsed work lease.
+    await subject.observeStatus(status(2));
+    const lapsed = await subject.snapshot(scope);
+    expect(lapsed.activityKind).toBe("online");
+    const heartbeat = await subject.observeActivity(
+      activity(2, "tool_started", { isHeartbeat: true, entries: [] }),
+      fence,
+    );
+    expect(heartbeat?.activityKind).toBe("working");
+    expect(heartbeat?.expiresAt).toBe(now + 90_000);
+    expect(heartbeat!.revision).toBeGreaterThan(lapsed.revision);
+  });
+
+  test("runtime_progress renews the lease and reads as working, like other busy detail kinds", async () => {
+    await redis.send("FLUSHDB", []);
+    now = 3_400_000;
+    const subject = display();
+    await subject.observeStatus(status(1));
+    const progress = await subject.observeActivity(activity(1, "runtime_progress"), fence);
+    expect(progress?.activityKind).toBe("working");
+    expect(progress?.expiresAt).toBe(now + 90_000);
   });
 
   test("does not revive expired work when the same activity is replayed", async () => {
@@ -130,6 +183,8 @@ describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
     await subject.observeStatus(status(1));
     await subject.observeActivity(activity(1, "working"), fence);
     now += 60_000;
+    await subject.observeStatus(status(2)); // keep the process lease ahead of the work lease
+    now += 30_000;
     expect((await subject.snapshot(scope)).activityKind).toBe("online");
     expect(await subject.observeActivity(activity(1, "working"), fence)).toBeUndefined();
     expect((await subject.snapshot(scope)).activityKind).toBe("online");
@@ -177,8 +232,10 @@ describe.skipIf(!redisServer)("RedisAgentDisplay", () => {
     await subject.observeStatus(status(1));
     await subject.observeActivity(activity(1, "working"), fence);
     now += 60_000;
+    await subject.observeStatus(status(2)); // renew the process lease ahead of the work lease
+    now += 30_000;
     expect((await subject.snapshot(scope)).activityKind).toBe("online");
-    expect((await subject.observeStatus(status(2)))?.activityKind).toBe("online");
+    expect((await subject.observeStatus(status(3)))?.activityKind).toBe("online");
   });
 
   test("keeps revisions above browser high-water after Redis state and counter loss", async () => {

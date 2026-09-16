@@ -371,9 +371,22 @@ class CodexAgentSession implements AgentSession {
       this.#emit({ type: "text-delta", text: params.delta });
       return;
     }
-    // Readable summaries only. Deliberately ignore item/reasoning/textDelta (raw reasoning).
+    // Readable summaries only. Deliberately ignore the raw reasoning text itself,
+    // but a busy Agent stays visibly busy: report it content-free as progress.
     if (record.method === "item/reasoning/summaryTextDelta" && typeof params?.delta === "string") {
       this.#emit({ type: "thinking-delta", text: params.delta });
+      return;
+    }
+    if (record.method === "item/reasoning/textDelta" && typeof params?.delta === "string") {
+      this.#emit({
+        type: "activity",
+        activity: createAgentActivity(
+          AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS,
+          "info",
+          "",
+          eventTime(record),
+        ),
+      });
       return;
     }
     if (record.method === "item/started") {

@@ -44,7 +44,11 @@ export function decodeActivityObservation(
       !Number.isSafeInteger(event.clientSeq) ||
       event.clientSeq < 1 ||
       !Number.isSafeInteger(event.observedAtMs) ||
-      event.observedAtMs < 1
+      event.observedAtMs < 1 ||
+      // A busy heartbeat only renews the display lease; a runtime_progress frame
+      // carries no rendered content. Neither belongs in the recent-activity list.
+      event.isHeartbeat === true ||
+      event.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS
     )
       return undefined;
     return {
@@ -69,6 +73,9 @@ export function decodeActivityObservation(
 export function mergeAgentActivity(current: ActivityEntry[], incoming: ActivityEntry[]) {
   const entries = new Map<string, ActivityEntry>();
   for (const entry of [...current, ...incoming]) {
+    // Defense in depth: a content-free runtime_progress frame should already
+    // have been dropped by decodeActivityObservation before reaching here.
+    if (entry.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS) continue;
     const key = `${entry.launchId}:${entry.clientSeq}`;
     // Live observations have no database ID; never downgrade a persisted copy.
     if (entries.get(key)?.id && !entry.id) continue;

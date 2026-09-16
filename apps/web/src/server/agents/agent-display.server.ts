@@ -1,13 +1,17 @@
 import { RedisClient } from "bun";
 import type { AgentActivity, AgentStatus } from "@lrm/coforge-sdk/internal";
 import {
+  AGENT_ACTIVITY_DETAIL_KIND,
   parseAgentDisplaySnapshot,
   type AgentActivityKind,
   type AgentDisplaySnapshot,
 } from "@lrm/coforge-sdk/internal";
 import { AGENT_STATUS_LEASE_MS } from "./agent-status.server";
 
-const WORKING_LEASE_MS = 60_000;
+// 90s: 1.5x the daemon's 60s busy heartbeat (ACTIVITY_HEARTBEAT_MS), the same
+// margin AGENT_STATUS_LEASE_MS keeps over AGENT_STATUS_REFRESH_MS. A silent
+// turn stays visibly working/thinking as long as the heartbeat keeps landing.
+const WORKING_LEASE_MS = 90_000;
 
 const workingKinds = new Set([
   "model_request_started",
@@ -162,6 +166,7 @@ if state.process then
       now >= state.process.leaseUntil then return reject() end
 end
 local previous = state.activity
+local was_visible = state.activityVisible
 if state.retiredLaunchId == ARGV[7] then return reject() end
 if previous then
   if previous.launchId == ARGV[7] then
@@ -173,6 +178,12 @@ if previous then
     state.retiredLaunchId = previous.launchId
   end
 end
+-- A busy heartbeat or a content-free runtime_progress frame (ARGV[15] == "1")
+-- only renews the lease below; it bumps the revision counter (and so the
+-- realtime push) only when it actually changes what is shown.
+local is_filler = ARGV[15] == "1"
+local visible_changed = not was_visible or not previous or
+  previous.kind ~= ARGV[5] or previous.detailKind ~= ARGV[6] or previous.detail ~= ARGV[12]
 state.activity = {
   launchId = ARGV[7], daemonInstanceId = ARGV[8], sequence = tonumber(ARGV[10]),
   observedAt = tonumber(ARGV[11]), receivedAt = now, kind = ARGV[5],
@@ -181,7 +192,7 @@ state.activity = {
     now + tonumber(ARGV[14]) or cjson.null
 }
 state.activityVisible = true
-revision(state)
+if not is_filler or visible_changed then revision(state) end
 save(state)
 return snapshot(state, ARGV[2], ARGV[3], ARGV[4], now)
 `;
@@ -237,6 +248,9 @@ export class RedisAgentDisplay implements AgentDisplay {
   ) {
     const kind = activityKindForObservation(activity);
     if (!kind) return undefined;
+    const isFiller =
+      activity.isHeartbeat === true ||
+      activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS;
     return this.execute(OBSERVE_ACTIVITY, activity, [
       kind,
       activity.detailKind,
@@ -248,6 +262,7 @@ export class RedisAgentDisplay implements AgentDisplay {
       activity.detail,
       JSON.stringify(activity.entries ?? []),
       WORKING_LEASE_MS,
+      isFiller ? "1" : "0",
     ]);
   }
 

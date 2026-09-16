@@ -67,6 +67,9 @@ export const AGENT_ACTIVITY_DETAIL_KIND = {
   TOOL_STARTED: "tool_started",
   RUNTIME_RECONNECTING: "runtime_reconnecting",
   RUNTIME_ERROR: "runtime_error",
+  // Content-free provider stream/system event (no rendered text): keeps the
+  // busy lease warm without adding a trajectory entry.
+  RUNTIME_PROGRESS: "runtime_progress",
   OTHER: "other",
 } as const;
 export type AgentActivityDetailKind =
@@ -313,6 +316,8 @@ export type AgentActivity = {
   clientSeq: number;
   activityKind?: import("./agent-display").AgentActivityKind;
   entries?: import("./activity-entries").ActivityTrajectoryEntry[];
+  /** True when this frame re-sends the last busy activity to renew the display lease. */
+  isHeartbeat?: boolean;
   runtimeError?: {
     errorClass: string;
     errorReason: string;
