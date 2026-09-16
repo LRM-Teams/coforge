@@ -575,7 +575,9 @@ describe("staging user file persistence", () => {
       "COFORGE_FILE_DELIVERY_KEY_FILE: /run/secrets/coforge_file_delivery_key",
     );
     expect(webBlock).toContain("source: coforge_file_delivery_key");
-    expect(compose).toContain("coforge_file_delivery_key:\n    file: ./secrets/coforge_file_delivery_key");
+    expect(compose).toContain(
+      "coforge_file_delivery_key:\n    file: ./secrets/coforge_file_delivery_key",
+    );
 
     const workflow = await Bun.file(
       new URL("../../.github/workflows/deploy-staging.yml", import.meta.url),
