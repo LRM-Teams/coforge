@@ -17,6 +17,13 @@ import {
   createAgentApiClient,
   createMessageTransportAgentApiTransport,
 } from "@lrm/coforge-sdk/agent";
+import {
+  formatHeldSend,
+  formatMessageLine,
+  formatReadWindow,
+  formatSearchResults,
+  formatSendSuccess,
+} from "./src/message-format";
 
 export { createAgentApiClient } from "@lrm/coforge-sdk/agent";
 
@@ -422,9 +429,18 @@ export async function run(args: readonly string[], transport: MessageTransport):
       if (isHeldSend(result)) {
         if (invocation.freshnessContextMode === "withheld")
           throw reviewerIsolationHoldError(result);
-        throw heldSendError(invocation.target);
+        throw new Error(
+          formatHeldSend(
+            invocation.target,
+            result as {
+              attentionCount?: number;
+              anywayAllowed?: boolean;
+              messages?: AgentMessageRecord[];
+            },
+          ),
+        );
       }
-      return formatMessageRead(result);
+      return formatSendSuccess(invocation.target, result as { messageId: string });
     } catch (error) {
       if (
         invocation.freshnessContextMode === "withheld" &&
@@ -437,7 +453,8 @@ export async function run(args: readonly string[], transport: MessageTransport):
   if (command === "search") {
     if (!transport.search) throw new Error("Message search transport is unavailable");
     const { command: _command, ...options } = invocation;
-    return formatMessageRead(await transport.search(options));
+    const response = (await transport.search(options)) as { messages: AgentMessageRecord[] };
+    return formatSearchResults(options.query ?? "", response);
   }
   if (command === "resolve") {
     if (!transport.resolve) throw new Error("Message resolve transport is unavailable");
@@ -449,9 +466,13 @@ export async function run(args: readonly string[], transport: MessageTransport):
     return formatReaction(invocation.messageId, invocation.emoji, invocation.remove === true);
   }
   if (command === "check") return formatMessageCheck(await transport.check());
-  return formatMessageRead(
-    await transport.read(invocation.target, invocation.command === "read" ? invocation : undefined),
-  );
+  const readOptions = invocation.command === "read" ? invocation : undefined;
+  const readResponse = (await transport.read(invocation.target, readOptions)) as {
+    messages: AgentMessageRecord[];
+    hasOlder?: boolean;
+    hasNewer?: boolean;
+  };
+  return formatReadWindow(invocation.target, readResponse, { around: readOptions?.around });
 }
 
 function formatWorkspaceInfo(result: WorkspaceInfoResult, options: WorkspaceInfoOptions): string {
@@ -503,7 +524,7 @@ function formatMessageCheck(result: { messages: AgentMessageRecord[]; hasMore?: 
 }
 
 function formatMessage(message: AgentMessageRecord): string {
-  return `[target=${message.target} msg=${message.id.slice(0, 8)} time=${message.createdAt}] ${message.sender}: ${message.body}`;
+  return formatMessageLine(message);
 }
 
 function formatMessageResolve(result: unknown): string {
@@ -518,32 +539,10 @@ function formatReaction(messageId: string, emoji: string, remove: boolean): stri
   return `Reaction ${emoji} ${remove ? "removed from" : "added to"} message ${shortId}.`;
 }
 
-function formatMessageRead(result: unknown): string {
-  if (!result || typeof result !== "object") return JSON.stringify(result);
-  const response = result as { messages?: AgentMessageRecord[]; [key: string]: unknown };
-  const { seenUpToSequence: _seenUpToSequence, ...withoutInternalCursor } = response;
-  return JSON.stringify({
-    ...withoutInternalCursor,
-    ...(withoutInternalCursor.messages
-      ? {
-          messages: withoutInternalCursor.messages.map(
-            ({ sequence: _sequence, ...message }) => message,
-          ),
-        }
-      : {}),
-  });
-}
-
 function isHeldSend(result: unknown): result is { accepted: false; sideEffectDecision: "hold" } {
   if (!result || typeof result !== "object") return false;
   const response = result as { accepted?: unknown; sideEffectDecision?: unknown };
   return response.accepted === false && response.sideEffectDecision === "hold";
-}
-
-function heldSendError(target: string): Error {
-  return new Error(
-    `Message was saved as a draft. Next commands: coforge message send --target "${target}" to replace/update it; coforge message send --target "${target}" --send-draft to send it unchanged; coforge message send --target "${target}" --send-draft --anyway as the escape hatch.`,
-  );
 }
 
 class ReviewerIsolationHoldError extends Error {}

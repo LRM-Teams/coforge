@@ -57,6 +57,26 @@ test("channels allow selective replies and self mute without hiding history", ()
   expect(instructions).toContain("Do not disclose private conversation contents");
 });
 
+test("read, search, and send-held describe the CLI's printed output formats", () => {
+  expect(instructions).toContain(
+    'A read prints a window header with "Older exist"/"Newer exist" cursor commands you can paste to page further',
+  );
+  expect(instructions).toContain(
+    "numbered message lines that each carry a `replyTarget` to reuse when replying in that thread",
+  );
+  expect(instructions).toContain('a closing "End of window" line');
+  expect(instructions).toContain(
+    'Search results come as `<result ref="msg:...">` blocks whose `<preview>` marks the matched text',
+  );
+  expect(instructions).toContain(
+    "rewrites quoted `@name`/`#chan`/`task #n` references to `user:name`/`channel:name`/`task:n`",
+  );
+  expect(instructions).toContain("so they are never mistaken for real targets");
+  expect(instructions).toContain(
+    "the hold output lists the newer messages as preview lines before the draft instructions",
+  );
+});
+
 test("resolve and react are scoped to proving/reading an id and deliberate acknowledgement", () => {
   expect(instructions).toContain("coforge message resolve <message-id>");
   expect(instructions).toContain(

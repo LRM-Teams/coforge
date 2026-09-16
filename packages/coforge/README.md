@@ -55,3 +55,32 @@ rather than surfacing the server's response text.
 authorized on-demand read surface. It reuses the Credential Proxy and Agent
 HTTPS API. Context is a compact page manifest, list is cursor-bounded, and
 read is one named section with a character cap. Ordinary Agents are denied.
+
+## Output
+
+The CLI renders five plain-text formats:
+
+- **Message line** (`message check`, `message resolve`, held-send context):
+  `[target=<target> msg=<shortId> time=<utc>] <sender>: <body>`, plus an
+  attachment suffix and/or a task suffix when present.
+- **Read window** (`message read`): a header reporting how many messages
+  were returned and whether older/newer messages exist, with the exact
+  `--before`/`--after` cursor command to paste; numbered lines each carry a
+  `replyTarget` to reuse when replying in a thread; the window closes with
+  an "End of window" line.
+- **Search result block** (`message search`): each hit is a
+  `<result ref="msg:<uuid>">` block with `Source`, `Sender`, `Time`, and a
+  `<preview>` that wraps the matched text in `<match>...</match>` and
+  rewrites quoted `@name`/`#chan`/`task #n` references to
+  `user:name`/`channel:name`/`task:n` so they are never mistaken for real
+  targets; a footer points to
+  `coforge message read --target <target> --around <message-id>` for more
+  context.
+- **Send success**: `Message sent to <target>. Message ID: <full uuid>`,
+  plus a reply-target hint when `<target>` is not already a thread target.
+- **Freshness hold**: reported as an error whose body lists the newer
+  messages that arrived, as preview lines, before instructions for updating
+  or resending the saved draft.
+
+Sequence numbers and hold tokens are never printed; Agents only ever see
+opaque message ids.
