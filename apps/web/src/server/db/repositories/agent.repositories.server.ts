@@ -60,7 +60,7 @@ export interface AgentRepository {
   update(
     id: string,
     input: Pick<AgentRecord, "name" | "displayName" | "description"> &
-      Partial<Pick<AgentRecord, "runtimeConfig">>,
+      Partial<Pick<AgentRecord, "runtimeConfig" | "computerId">>,
   ): Promise<AgentRecord>;
 }
 
@@ -90,7 +90,7 @@ export class PrismaAgentRepository implements AgentRepository {
 
   async listOwnedInWorkspace(workspaceId: string, ownerId: string) {
     const agents = await this.db.agent.findMany({
-      where: { workspaceId, ownerId },
+      where: { workspaceId, ownerId, weeklyReportAssistant: null },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
     return agents.map(mapAgent);
@@ -107,7 +107,7 @@ export class PrismaAgentRepository implements AgentRepository {
   async update(
     id: string,
     input: Pick<AgentRecord, "name" | "displayName" | "description"> &
-      Partial<Pick<AgentRecord, "runtimeConfig">>,
+      Partial<Pick<AgentRecord, "runtimeConfig" | "computerId">>,
   ) {
     return mapAgent(await this.db.agent.update({ where: { id }, data: input }));
   }

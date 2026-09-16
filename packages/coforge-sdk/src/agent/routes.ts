@@ -6,12 +6,14 @@ export const agentApiRoutes = {
     inbox: { method: "POST", path: "/api/agent/v1/inbox" },
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
+    weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
   },
   local: {
     messages: { method: "POST", path: "/api/agent/v1/messages" },
     inbox: { method: "POST", path: "/api/agent/v1/inbox" },
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
+    weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     attachments: {
       method: "GET",
       path: (attachmentId: string) =>
@@ -55,6 +57,7 @@ export const agentApiRoutes = {
     },
     reminders: { method: "POST", path: "/api/agent/v1/reminders" },
     tasks: { method: "POST", path: "/api/agent/v1/tasks" },
+    weeklyReports: { method: "POST", path: "/api/agent/v1/weekly-reports" },
     attachments: {
       method: "GET",
       collectionPath: "/api/agent/v1/attachments",

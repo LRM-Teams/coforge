@@ -4,6 +4,7 @@ import {
   type AgentStopIntent,
   type RuntimeProvider,
 } from "@lrm/coforge-sdk/internal";
+import { AppError } from "../../lib/app-error";
 import type { AgentRecord, AgentRepository } from "../db/repositories/agent.repositories.server";
 import { publicAgentRuntimeConfig } from "./agent-runtime-config.server";
 import type { AgentRuntimeCredentials } from "./agent-runtime-credentials.server";
@@ -77,7 +78,7 @@ export class ManageAgents {
       hasApiKey: Boolean(apiKeyInput),
     };
     if (selection.provider === RUNTIME_PROVIDER.COFORGE && !apiKeyInput)
-      throw new Error("API key is required for CoForge");
+      throw new AppError("INVALID_INPUT", { errorId: "agent-api-key-required" });
     if (
       !(await this.availability.canRun(
         principal.workspaceId,
@@ -86,7 +87,7 @@ export class ManageAgents {
         selection,
       ))
     )
-      throw new Error("runtime selection is not available on the selected Computer");
+      throw new AppError("INVALID_INPUT", { errorId: "agent-runtime-unavailable" });
     const agentId = crypto.randomUUID();
     const encryptedApiKey = apiKeyInput
       ? await this.#encrypt(agentId, selection.modelProvider, apiKeyInput)
@@ -126,17 +127,18 @@ export class ManageAgents {
 
   async update(
     principal: AgentPrincipal,
-    input: Omit<AgentCreateInput, "computerId"> & { agentId: string },
+    input: Omit<AgentCreateInput, "computerId"> & { agentId: string; computerId?: string },
   ) {
     return this.runtimeLock.run(input.agentId, async () => {
       const current = await this.agents.getById(input.agentId);
       if (
         !current ||
         current.workspaceId !== principal.workspaceId ||
-        current.ownerId !== principal.userId ||
-        !current.computerId
+        current.ownerId !== principal.userId
       )
         throw new Error("Agent is not authorized");
+      const computerId = input.computerId ?? current.computerId;
+      if (!computerId) throw new AppError("INVALID_INPUT", { errorId: "agent-computer-required" });
       const name = input.name.trim().toLowerCase();
       if (!name) throw new Error("name is required");
       if (!providers.has(input.provider)) throw new Error("provider is not supported");
@@ -160,7 +162,7 @@ export class ManageAgents {
         : undefined;
       const apiKey = encryptedApiKey ?? preservedApiKey;
       if (selection.provider === RUNTIME_PROVIDER.COFORGE && !apiKey)
-        throw new Error("API key is required for CoForge");
+        throw new AppError("INVALID_INPUT", { errorId: "agent-api-key-required" });
       const runtimeConfig: AgentRecord["runtimeConfig"] = {
         runtime: selection.provider,
         provider:
@@ -180,17 +182,16 @@ export class ManageAgents {
       };
       const runtimeChanged =
         JSON.stringify(current.runtimeConfig) !== JSON.stringify(runtimeConfig);
+      const computerChanged = computerId !== current.computerId;
       if (
-        runtimeChanged &&
-        !(await this.availability.canRun(
-          principal.workspaceId,
-          principal.userId,
-          current.computerId,
-          { ...selection, hasApiKey: Boolean(apiKey) },
-        ))
+        (runtimeChanged || computerChanged) &&
+        !(await this.availability.canRun(principal.workspaceId, principal.userId, computerId, {
+          ...selection,
+          hasApiKey: Boolean(apiKey),
+        }))
       )
-        throw new Error("runtime selection is not available on the selected Computer");
-      if (runtimeChanged)
+        throw new AppError("INVALID_INPUT", { errorId: "agent-runtime-unavailable" });
+      if (runtimeChanged && current.computerId)
         await this.runtimeControl.stop(
           {
             protocolMajor: 1,
@@ -203,14 +204,16 @@ export class ManageAgents {
         );
       const metadata = {
         name,
-        displayName: name,
+        // Keep an intentional display label (e.g. 周报助手) when the Agent name is unchanged.
+        displayName: name === current.name ? current.displayName : name,
         description: input.description.trim(),
       };
       const agent = await this.agents.update(
         current.id,
-        runtimeChanged ? { ...metadata, runtimeConfig } : metadata,
+        runtimeChanged || computerChanged ? { ...metadata, computerId, runtimeConfig } : metadata,
       );
-      if (!runtimeChanged) return { agent: publicAgent(agent), restart: "not-required" as const };
+      if (!runtimeChanged && !computerChanged)
+        return { agent: publicAgent(agent), restart: "not-required" as const };
       try {
         await this.runtimeControl.start(
           agentStartIntent(agent, current.computerId),

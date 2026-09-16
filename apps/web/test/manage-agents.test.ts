@@ -76,6 +76,45 @@ function fixture(options?: {
 }
 
 describe("ManageAgents", () => {
+  test("configures an unbound Agent with a Computer and starts its runtime", async () => {
+    const { agentManagement, records, starts } = fixture();
+    records.push({
+      id: "assistant-agent",
+      workspaceId: "workspace-1",
+      ownerId: "user-1",
+      name: "weekly-report-assistant-user-1",
+      displayName: "周报助手",
+      runtimeConfig: {
+        runtime: RUNTIME_PROVIDER.COFORGE,
+        provider: { kind: "default" },
+        model: "",
+        modelProvider: "",
+        reasoning: "",
+      },
+      createdAt: new Date(),
+    });
+
+    const result = await agentManagement.update(
+      { userId: "user-1", workspaceId: "workspace-1" },
+      {
+        agentId: "assistant-agent",
+        name: "weekly-report-assistant-user-1",
+        description: "",
+        provider: RUNTIME_PROVIDER.PI,
+        computerId: "computer-1",
+        modelProvider: "anthropic",
+      },
+    );
+
+    expect(records[0]).toMatchObject({
+      computerId: "computer-1",
+      displayName: "周报助手",
+      name: "weekly-report-assistant-user-1",
+    });
+    expect(result.restart).toBe("published");
+    expect(starts).toHaveLength(1);
+  });
+
   test("profile runtime edits preserve encrypted environment while list and starts omit it", async () => {
     const { agentManagement, records, starts } = fixture();
     const principal = { userId: "user-1", workspaceId: "workspace-1" };
@@ -231,7 +270,11 @@ describe("ManageAgents", () => {
           modelProvider: "openai",
         },
       ),
-    ).rejects.toThrow("API key is required");
+    ).rejects.toMatchObject({
+      name: "AppError",
+      code: "INVALID_INPUT",
+      errorId: "agent-api-key-required",
+    });
     const pi = await agentManagement.create(
       { userId: "user-1", workspaceId: "workspace-1" },
       {
@@ -308,7 +351,11 @@ describe("ManageAgents", () => {
           computerId: "computer-1",
         },
       ),
-    ).rejects.toThrow("runtime selection is not available on the selected Computer");
+    ).rejects.toMatchObject({
+      name: "AppError",
+      code: "INVALID_INPUT",
+      errorId: "agent-runtime-unavailable",
+    });
     expect(records).toEqual([]);
   });
 
@@ -431,7 +478,11 @@ describe("ManageAgents", () => {
           modelProvider: "anthropic",
         },
       ),
-    ).rejects.toThrow("API key is required");
+    ).rejects.toMatchObject({
+      name: "AppError",
+      code: "INVALID_INPUT",
+      errorId: "agent-api-key-required",
+    });
     await agentManagement.update(
       { userId: "user-1", workspaceId: "workspace-1" },
       {

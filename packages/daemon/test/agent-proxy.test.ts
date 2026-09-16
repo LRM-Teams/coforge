@@ -460,3 +460,38 @@ test("proxy rejects resolve and react requests with bad ids or emoji", async () 
   }
   expect(calls).toBe(0);
 });
+
+test("proxy forwards weekly-report reads after validating the local command", async () => {
+  const calls: unknown[] = [];
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => {
+        throw new Error("message must not run");
+      },
+      agentWeeklyReport: async (_context, command) => {
+        calls.push(command);
+        return {
+          protocolMajor: 1,
+          requestId: "request",
+          operation: "list",
+          result: { reports: [], nextCursor: null },
+        };
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(proxy.url.replace("/agent/message", "/agent/weekly-report"), {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ operation: "list", limit: 2 }),
+  });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({
+    protocolMajor: 1,
+    requestId: "request",
+    operation: "list",
+    result: { reports: [], nextCursor: null },
+  });
+  expect(calls).toEqual([{ operation: "list", limit: 2 }]);
+});

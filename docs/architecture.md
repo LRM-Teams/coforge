@@ -176,7 +176,9 @@ result/error envelope。复用 Protobuf payload、授权及注册幂等语义，
 Daemon 到 Web/backend 的 Agent message read/search/send 使用独立的 HTTPS RPC
 边界，并携带 Daemon API key；该边界的 URL 是 daemon connection
 config 的 `serverHttpUrl`（启动时可由 `COFORGE_SERVER_HTTP_URL` 注入）。未配置
-时请求 fail closed，绝不回退到 WSS。Server→Daemon 的 delivery、ready、ACK
+时请求 fail closed，绝不回退到 WSS。周报助手的按需读取同样走该 HTTPS 边界上的
+`agent:weekly-report`（`context` / `list` / `read`），鉴权主体是助手所属 User 的
+既有 Records 可见性，而不是 Agent 身份本身。Server→Daemon 的 delivery、ready、ACK
 和 heartbeat/control 仍使用 daemon 唯一的 outbound WSS/RPC 连接。Daemon API key
 认证出的 `(workspace_id, computer_id)` 是服务端定向投递身份；Connect Proxy 在认证连接时把它绑定到
 `daemon:<workspace_id>:<computer_id>` control stream，Daemon 不再为同一 channel 发起第二次客户端订阅。
@@ -293,8 +295,15 @@ PostgreSQL 的首要领域对象是：
 - `message`
 - Workspace Records（周报）：`weekly_report_cycles`、`weekly_reports`、
   `weekly_report_highlights`、`weekly_report_favorites`、`weekly_report_templates`、
-  `record_notes`、`record_comments`（见 ADR 0009 / ADR 0011；schema 变更需 Frank
-  批准）
+  `weekly_report_assistants`、`record_notes`、`record_comments`（见 ADR 0009 / ADR 0011；schema
+  变更需 Frank 批准）。`weekly_report_assistants` 将一个 User 在一个 Workspace
+  内的固定周报助手 Agent 归属持久化为 `(workspaceId, userId)` 唯一关系；助手仍复用
+  Agent 的 Computer/Runtime 生命周期，但不是 Workspace 共享 Agent，也不进入 Members
+  的独立管理流程。周报助手启动时，launch credential 可附带
+  `assignedSkillPacks: ["weekly-report"]`；Daemon 在 native Skills discovery 前将这些
+  CoForge 分配的 Skills 写入该 Agent workspace 的 provider 原生 project scope，且不覆盖
+  已有同名 skill。页级助手请求复用现有 User–Agent DM（不新增浏览器 WebSocket）；请求正文
+  携带 compact context envelope，不含完整报告正文。
 
 `run` 表示一次 Agent 执行，`event` 表示执行中的流式片段、工具或状态记录；二者不是 delivery 的核心，不应在骨架阶段过早锁死。最终表名、字段、索引与 migration 内容由 backend 设计评审确定，数据访问标准为 Prisma。
 

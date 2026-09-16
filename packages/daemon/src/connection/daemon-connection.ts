@@ -62,16 +62,20 @@ import {
   type ReminderSync,
   type TaskRequest,
   type TaskResponse,
+  type WeeklyReportRequest,
+  type WeeklyReportResponse,
 } from "@lrm/coforge-sdk/internal";
 import { isAgentApiKey } from "../credentials/agent-api-key";
 import type { AgentRuntimeProviderConfig } from "../code-agent/contract";
 import { diagnosticErrorCode } from "../platform/diagnostic-error-code";
+import { AgentWeeklyReportRequestError } from "./agent-weekly-report-request-error";
 import { getLogger } from "@logtape/logtape";
 
 export type AgentLaunchConfig = {
   agentApiKey: string;
   providerConfig?: AgentRuntimeProviderConfig;
   envVars?: Record<string, string>;
+  assignedSkillPacks?: string[];
 };
 
 const AGENT_STATUS_REFRESH_MS = 30_000;
@@ -136,6 +140,9 @@ export interface AgentMessageHttpClient {
 export interface AgentTaskHttpClient {
   execute(input: AgentHttpInput<TaskRequest>): Promise<TaskResponse>;
 }
+export interface AgentWeeklyReportHttpClient {
+  request(input: AgentHttpInput<WeeklyReportRequest>): Promise<WeeklyReportResponse>;
+}
 
 type HttpFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
@@ -175,6 +182,10 @@ export interface DaemonConnectionClient {
     agentApiKey?: string,
   ): Promise<CloudAgentMessageResponse>;
   agentTask?(request: TaskRequest, agentApiKey?: string): Promise<TaskResponse>;
+  agentWeeklyReport?(
+    request: WeeklyReportRequest,
+    agentApiKey?: string,
+  ): Promise<WeeklyReportResponse>;
   agentAttachment?(attachmentId: string, agentApiKey?: string): Promise<Response>;
   requestAgentApiKey?(input: { agentId: string; workspaceId: string }): Promise<string>;
   requestAgentLaunchConfig?(input: {
@@ -347,6 +358,30 @@ export const createAgentMessageHttpClient = (
 
 export const defaultAgentMessageHttpClient = createAgentMessageHttpClient();
 
+export const defaultAgentWeeklyReportHttpClient: AgentWeeklyReportHttpClient = {
+  async request({ url, request, ...keys }) {
+    const response = await fetch(url, {
+      method: "POST",
+      signal: AbortSignal.timeout(AGENT_RPC_TIMEOUT_MS),
+      headers: agentHeaders(keys, true),
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      const message = await response.text();
+      if (response.status === 400 || response.status === 403)
+        throw new AgentWeeklyReportRequestError(
+          message.trim() ||
+            (response.status === 403 ? "Weekly report access denied" : "invalid weekly-report request"),
+        );
+      throw new Error(`server Agent weekly-report request failed (${response.status})`);
+    }
+    const result = (await response.json()) as WeeklyReportResponse;
+    if (result.requestId !== request.requestId)
+      throw new Error("weekly-report response request ID does not match request");
+    return result;
+  },
+};
+
 export const defaultAgentTaskHttpClient: AgentTaskHttpClient = {
   async execute({ url, request, ...keys }) {
     const response = await fetch(url, {
@@ -421,6 +456,7 @@ export class DaemonConnection implements DaemonConnectionClient {
     private readonly agentMessageHttpClient: AgentMessageHttpClient = defaultAgentMessageHttpClient,
     private readonly timing: DaemonConnectionTiming = defaultDaemonConnectionTiming,
     private readonly agentTaskHttpClient: AgentTaskHttpClient = defaultAgentTaskHttpClient,
+    private readonly agentWeeklyReportHttpClient: AgentWeeklyReportHttpClient = defaultAgentWeeklyReportHttpClient,
   ) {
     if (!endpoint) throw new Error("cloud endpoint not configured");
   }
@@ -738,6 +774,18 @@ export class DaemonConnection implements DaemonConnectionClient {
     });
   }
 
+  async agentWeeklyReport(
+    request: WeeklyReportRequest,
+    agentApiKey?: string,
+  ): Promise<WeeklyReportResponse> {
+    if (!this.#connected) throw new Error("daemon connection is not connected");
+    return this.agentWeeklyReportHttpClient.request({
+      url: this.#serverEndpoint("Agent weekly-report HTTP", agentApiRoutes.cloud.weeklyReports.path),
+      ...this.#agentKeys(agentApiKey),
+      request,
+    });
+  }
+
   async agentAttachment(attachmentId: string, agentApiKey?: string): Promise<Response> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
     return fetch(
@@ -775,12 +823,21 @@ export class DaemonConnection implements DaemonConnectionClient {
   }): Promise<AgentLaunchConfig> {
     const value = (await (
       await this.#agentApiKeyRequest("Agent launch config", "POST", input)
-    ).json()) as { apiKey?: unknown; providerConfig?: unknown; envVars?: unknown };
+    ).json()) as {
+      apiKey?: unknown;
+      providerConfig?: unknown;
+      envVars?: unknown;
+      assignedSkillPacks?: unknown;
+    };
     const providerConfig = parseAgentRuntimeProviderConfig(value.providerConfig);
+    const assignedSkillPacks = Array.isArray(value.assignedSkillPacks)
+      ? value.assignedSkillPacks.filter((entry): entry is string => typeof entry === "string")
+      : [];
     return {
       agentApiKey: parseAgentApiKey(value.apiKey),
       ...(providerConfig ? { providerConfig } : {}),
       envVars: parseAgentEnvironment(value.envVars),
+      ...(assignedSkillPacks.length > 0 ? { assignedSkillPacks } : {}),
     };
   }
 

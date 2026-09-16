@@ -33,6 +33,7 @@ src/
 │   ├── claude-code/
 │   ├── pi/
 │   ├── tool-activity.ts            # recognized tool aliases → existing semantic activities; safe input summaries
+│   ├── assigned-skills.ts          # CoForge-owned skill pack install before native discovery
 │   └── runtime-inventory.ts        # combines Provider runtime/catalog capabilities
 ├── persistence/                    # durable spool and local daemon state
 └── platform/                       # OS primitives, including process-tree, socket, and native process locks
@@ -65,6 +66,11 @@ configuration and recovery; the entrypoint assembles these policies, not their r
   only. Amend is not a local preflight action in the reference CDN 1.0.31 client.
   `code-agent/agent-instructions.ts`
   states the claim-before-work and conversational acceptance workflow.
+
+- Weekly-report assistant reads use the same Credential Proxy and Agent HTTPS
+  connection (`agent:weekly-report`). Daemon forwards `coforge weekly-report`
+  context/list/read without interpreting report bodies or widening authorization.
+  Web/backend re-checks the assistant owner User's existing Records visibility.
 
 - `daemon-runtime/agent-message-attention-index.ts` owns full-target thread
   attention, model-visible positions, and the accepted-Message observation hook.

@@ -173,6 +173,13 @@ configuration. The Agent owner may set, replace, or remove it; it is not a
 User-wide provider credential and is never shared implicitly with another Agent.
 _Avoid_: User API key, Computer credential, Agent API key
 
+**WeeklyReportAssistant**:
+The User-owned Agent identity used for weekly-report AI within one Workspace.
+Each User has at most one WeeklyReportAssistant per Workspace; assistants are
+not shared between Users and are not independently managed from Members. Its
+Computer and Agent runtime remain the existing configurable Agent resources.
+_Avoid_: Workspace-wide report Agent, shared report bot, Agent runtime
+
 **Code Agent installation**:
 An external provider executable, currently Codex or Claude Code, discovered from the Daemon's effective executable search path on one Computer. That path includes the service environment and the user's standard local executable directory. Its reported provider and version form a replaceable observation, not a credential or Agent runtime. Built-in Pi is not part of this inventory.
 _Avoid_: Agent runtime, Computer registration, built-in Agent

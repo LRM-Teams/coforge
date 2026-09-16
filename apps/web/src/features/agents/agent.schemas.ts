@@ -29,7 +29,8 @@ const agentInputShape = {
     .string()
     .trim()
     .min(1)
-    .max(48)
+    // 64 covers `weekly-report-assistant-<uuid>` (60), the stable weekly-report assistant Agent name.
+    .max(64)
     .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   description: z.string().trim().max(500).default(""),
   provider: z.enum(["coforge", "pi", "codex", "claude-code", "kiro"]),
@@ -66,7 +67,7 @@ export const createAgentInputSchema = z
 export type CreateAgentInput = z.infer<typeof createAgentInputSchema>;
 
 export const updateAgentInputSchema = z
-  .object({ ...agentInputShape, agentId: z.uuid() })
+  .object({ ...agentInputShape, agentId: z.uuid(), computerId: z.string().min(1).optional() })
   .superRefine(validateRuntimeKey);
 export type UpdateAgentInput = z.infer<typeof updateAgentInputSchema>;
 

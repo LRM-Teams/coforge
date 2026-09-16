@@ -94,6 +94,7 @@ export const Route = createFileRoute("/api/agent-api-keys")({
             workspaceId: true,
             ownerId: true,
             runtimeConfig: true,
+            weeklyReportAssistant: { select: { id: true } },
           },
         });
         if (principal.workspaceId !== input.workspaceId || !agent)
@@ -140,7 +141,12 @@ export const Route = createFileRoute("/api/agent-api-keys")({
           repository: new PrismaAgentApiKeyRepository(db),
         });
         return Response.json(
-          { apiKey, providerConfig, envVars },
+          {
+            apiKey,
+            providerConfig,
+            envVars,
+            ...(agent.weeklyReportAssistant ? { assignedSkillPacks: ["weekly-report"] } : {}),
+          },
           { headers: { "cache-control": "no-store" } },
         );
       },

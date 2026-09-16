@@ -15,6 +15,7 @@ import {
   type CodeAgentProviderFactory,
   type AgentRuntime,
 } from "../agent-runtime/agent-process-manager";
+import { parseAssignedSkillPacks } from "../code-agent/assigned-skills";
 export type DaemonConfig = {
   workspaceId: string;
   computerId: string;
@@ -54,6 +55,9 @@ import {
   type ReminderSync,
   type TaskCommand,
   type TaskResult,
+  type WeeklyReportCommand,
+  type WeeklyReportResponse,
+  WEEKLY_REPORT_PROTOCOL_MAJOR,
 } from "@lrm/coforge-sdk/internal";
 import { agentWorkspaceDirectory } from "../agent-runtime/agent-workspace-path";
 import { AgentControl } from "../agent-runtime/agent-control";
@@ -988,6 +992,7 @@ export class DaemonRuntime {
             }
           : undefined,
         reference.sessionMode,
+        parseAssignedSkillPacks(launchConfig.assignedSkillPacks),
       );
       if (this.#stoppingAgents.has(agentId)) {
         await this.#agentProcessManager.stop(agentId);
@@ -1813,6 +1818,28 @@ export class DaemonRuntime {
       heldMessages: [],
       newMessageCount: attention.pendingCount,
     };
+  }
+
+  async agentWeeklyReport(
+    context: string,
+    command: WeeklyReportCommand,
+    agentApiKey?: string,
+  ): Promise<WeeklyReportResponse> {
+    if (this.#stopping || !this.#started) throw new Error("daemon runtime is not running");
+    const agentId = [...this.#agentContexts.entries()].find(([, value]) => value === context)?.[0];
+    if (!agentId) throw new Error("invalid agent local context");
+    if (!this.#transport.agentWeeklyReport) throw new Error("daemon connection is not connected");
+    if (!isAgentApiKey(agentApiKey)) throw new Error("Agent API key is missing");
+    return this.#transport.agentWeeklyReport(
+      {
+        ...command,
+        protocolMajor: WEEKLY_REPORT_PROTOCOL_MAJOR,
+        requestId: crypto.randomUUID(),
+        workspaceId: this.#connection.workspaceId,
+        agentId,
+      },
+      agentApiKey,
+    );
   }
 
   async #canonicalAgentMessageTarget(

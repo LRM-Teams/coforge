@@ -1179,6 +1179,175 @@ export class RecordCatalog {
     return { ok: true as const };
   }
 
+  async loadAssistantContextManifest(input: {
+    workspaceId: string;
+    userId: string;
+    subjectType: "report" | "highlight" | "cycle";
+    subjectId: string;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+
+    if (input.subjectType === "report") {
+      const subject = await this.getSubject({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        id: input.subjectId,
+      });
+      if (subject.type !== "report") throw new AppError("NOT_FOUND");
+      return {
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+        cycle: subject.report.cycle,
+        status: subject.report.status,
+        structure: Object.keys(subject.report.content.tabs ?? {}),
+        availableData: [
+          "current_report",
+          "template",
+          "submission_status",
+          "visible_member_reports",
+          "highlights",
+          "favorites",
+        ],
+        contextVersion: subject.report.updatedAt,
+      } as const;
+    }
+
+    if (input.subjectType === "highlight") {
+      const subject = await this.getSubject({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        id: input.subjectId,
+      });
+      if (subject.type !== "highlight") throw new AppError("NOT_FOUND");
+      const sourceReportIds = subject.highlight.content.blocks.flatMap((block) =>
+        block.items.flatMap((item) =>
+          typeof item === "string" ? [] : item.sources.map((source) => source.reportId),
+        ),
+      );
+      return {
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+        cycle: subject.highlight.cycle,
+        structure: subject.highlight.content.blocks.map((block) => block.heading),
+        availableData: ["highlight", "source_reports", "visible_member_reports"],
+        sourceReportIds: [...new Set(sourceReportIds)],
+        contextVersion: subject.highlight.completedAt ?? subject.highlight.cycle.title,
+      } as const;
+    }
+
+    const cycle = await this.db.weeklyReportCycle.findFirst({
+      where: { id: input.subjectId, workspaceId: input.workspaceId },
+      select: {
+        id: true,
+        year: true,
+        week: true,
+        title: true,
+        createdAt: true,
+        _count: { select: { reports: true } },
+      },
+    });
+    if (!cycle) throw new AppError("NOT_FOUND");
+    return {
+      subjectType: input.subjectType,
+      subjectId: input.subjectId,
+      cycle: { id: cycle.id, year: cycle.year, week: cycle.week, title: cycle.title },
+      structure: [],
+      availableData: ["cycle", "visible_member_reports", "highlights", "submission_status"],
+      reportCount: cycle._count.reports,
+      contextVersion: cycle.createdAt.toISOString(),
+    } as const;
+  }
+
+  async listAssistantVisibleReports(input: {
+    workspaceId: string;
+    userId: string;
+    cycleId?: string;
+    cursor?: string;
+    limit?: number;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const limit = Math.max(1, Math.min(input.limit ?? 25, 50));
+    const rows = await this.db.weeklyReport.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        ...(input.cycleId ? { cycleId: input.cycleId } : {}),
+        kind: "member",
+        status: { in: ["submitted", "shared"] },
+        OR: [{ authorId: input.userId }, { sourceTemplate: { authorId: input.userId } }],
+      },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      ...(input.cursor ? { skip: 1, cursor: { id: input.cursor } } : {}),
+      take: limit + 1,
+      select: {
+        id: true,
+        cycleId: true,
+        authorId: true,
+        title: true,
+        status: true,
+        submittedAt: true,
+        updatedAt: true,
+        author: { select: { username: true, displayName: true } },
+        cycle: { select: { year: true, week: true, title: true } },
+      },
+    });
+    const hasMore = rows.length > limit;
+    const visible = rows.slice(0, limit);
+    return {
+      reports: visible.map((row) => ({
+        id: row.id,
+        cycleId: row.cycleId,
+        title: row.title,
+        status: row.status,
+        submittedAt: row.submittedAt?.toISOString() ?? null,
+        updatedAt: row.updatedAt.toISOString(),
+        author: {
+          username: row.author.username,
+          displayName: row.author.displayName ?? row.author.username,
+        },
+        cycle: row.cycle,
+        source: {
+          kind: "weekly_report",
+          reportId: row.id,
+          userId: row.authorId,
+        },
+      })),
+      nextCursor: hasMore ? (visible.at(-1)?.id ?? null) : null,
+    } as const;
+  }
+
+  async readAssistantReportSection(input: {
+    workspaceId: string;
+    userId: string;
+    reportId: string;
+    section: string;
+    maxCharacters?: number;
+  }) {
+    const subject = await this.getSubject({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      id: input.reportId,
+    });
+    if (subject.type !== "report") throw new AppError("NOT_FOUND");
+    const section = input.section.trim();
+    const tab = subject.report.content.tabs?.[section];
+    if (!tab) throw new AppError("NOT_FOUND");
+    const maxCharacters = Math.max(1, Math.min(input.maxCharacters ?? 12_000, 12_000));
+    const markdown = tab.markdown.slice(0, maxCharacters);
+    return {
+      reportId: input.reportId,
+      section,
+      markdown,
+      truncated: markdown.length < tab.markdown.length,
+      source: {
+        kind: "weekly_report",
+        reportId: input.reportId,
+        userId: subject.report.author.userId,
+        displayName: subject.report.author.displayName,
+        cycle: subject.report.cycle,
+      },
+    } as const;
+  }
+
   async getSubject(input: { workspaceId: string; userId: string; id: string }) {
     await requireMembership(this.db, input.workspaceId, input.userId);
     const report = await this.db.weeklyReport.findFirst({
@@ -1681,6 +1850,110 @@ export class RecordCatalog {
       id: updated.id,
       completedAt: updated.completedAt?.toISOString() ?? null,
       updatedAt: updated.updatedAt.toISOString(),
+    };
+  }
+
+  /**
+   * Confirmed assistant body-edit write. Does not ask-to-send; the user still controls send.
+   */
+  async applyConfirmedReportBody(input: {
+    workspaceId: string;
+    userId: string;
+    reportId: string;
+    content: ReportContent;
+  }) {
+    return this.saveReportContent({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      reportId: input.reportId,
+      content: input.content,
+      askToSend: false,
+    });
+  }
+
+  /**
+   * Confirmed assistant highlight write. Upserts the cycle highlight when highlightId is omitted.
+   */
+  async applyConfirmedHighlight(input: {
+    workspaceId: string;
+    userId: string;
+    cycleId: string;
+    highlightId?: string;
+    content: HighlightContent;
+    markCompleted?: boolean;
+  }) {
+    await requireMembership(this.db, input.workspaceId, input.userId);
+    const content = normalizeHighlightContent(input.content);
+    const cycle = await this.db.weeklyReportCycle.findFirst({
+      where: { id: input.cycleId, workspaceId: input.workspaceId },
+      select: { id: true, year: true, week: true },
+    });
+    if (!cycle) throw new AppError("NOT_FOUND");
+
+    if (input.highlightId) {
+      const existing = await this.db.weeklyReportHighlight.findFirst({
+        where: {
+          id: input.highlightId,
+          workspaceId: input.workspaceId,
+          cycleId: input.cycleId,
+        },
+        select: { id: true },
+      });
+      if (!existing) throw new AppError("NOT_FOUND");
+      const updated = await this.saveHighlightContent({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        highlightId: input.highlightId,
+        content,
+        markCompleted: input.markCompleted,
+      });
+      return {
+        highlightId: updated.id,
+        title: highlightTitle(cycle.year, cycle.week),
+        completedAt: updated.completedAt,
+        updatedAt: updated.updatedAt,
+      };
+    }
+
+    const title = highlightTitle(cycle.year, cycle.week);
+    const existing = await this.db.weeklyReportHighlight.findUnique({
+      where: { cycleId: input.cycleId },
+      select: { id: true },
+    });
+    const now = new Date();
+    if (existing) {
+      const updated = await this.db.weeklyReportHighlight.update({
+        where: { id: existing.id },
+        data: {
+          title,
+          content: content as unknown as Prisma.InputJsonValue,
+          ...(input.markCompleted ? { completedAt: now } : {}),
+        },
+        select: { id: true, completedAt: true, updatedAt: true },
+      });
+      return {
+        highlightId: updated.id,
+        title,
+        completedAt: updated.completedAt?.toISOString() ?? null,
+        updatedAt: updated.updatedAt.toISOString(),
+      };
+    }
+
+    const created = await this.db.weeklyReportHighlight.create({
+      data: {
+        workspaceId: input.workspaceId,
+        cycleId: input.cycleId,
+        title,
+        content: content as unknown as Prisma.InputJsonValue,
+        ...(input.markCompleted ? { completedAt: now } : {}),
+      },
+      select: { id: true, completedAt: true, updatedAt: true },
+    });
+    return {
+      highlightId: created.id,
+      title,
+      completedAt: created.completedAt?.toISOString() ?? null,
+      updatedAt: created.updatedAt.toISOString(),
     };
   }
 

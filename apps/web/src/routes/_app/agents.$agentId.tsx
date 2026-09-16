@@ -30,13 +30,17 @@ function detailTab(value: unknown): "profile" | "activity" | "reminders" {
 }
 
 export const Route = createFileRoute("/_app/agents/$agentId")({
-  validateSearch: (search) => ({ tab: detailTab(search.tab) }),
+  validateSearch: (search) => ({
+    tab: detailTab(search.tab),
+    edit: search.edit === true,
+  }),
   loader: async ({ params }) => {
-    const [detail, preferences] = await Promise.all([
+    const [detail, preferences, computers] = await Promise.all([
       getAgentDetail({ data: params.agentId }),
       getUserPreferences(),
+      listComputers(),
     ]);
-    return { detail, timeZone: preferences.timeZone };
+    return { detail, timeZone: preferences.timeZone, computers };
   },
   pendingMs: 300,
   pendingMinMs: 0,
@@ -50,7 +54,8 @@ function AgentDetailPendingPage() {
 }
 
 function AgentDetailPage() {
-  const { detail, timeZone } = Route.useLoaderData();
+  const { detail, timeZone, computers } = Route.useLoaderData();
+  const { edit } = Route.useSearch();
   const router = useRouter();
   const saveCredential = useServerFn(saveAgentRuntimeCredential);
   const deleteCredential = useServerFn(deleteAgentRuntimeCredential);
@@ -131,6 +136,7 @@ function AgentDetailPage() {
       display={liveAgent?.display ?? detail.display}
       timeZone={timeZone}
       tab={Route.useSearch().tab}
+      initialEditOpen={edit}
       environment={environment}
       onLoadSkills={loadAgentSkills}
       onExecuteControl={onExecuteControl}
@@ -139,6 +145,11 @@ function AgentDetailPage() {
       onSaveRuntimeCredential={onSaveRuntimeCredential}
       onDeleteRuntimeCredential={onDeleteRuntimeCredential}
       onUpdate={onUpdate}
+      availableComputers={computers.map((computer) => ({
+        id: computer.id,
+        displayName: computer.displayName,
+        online: computer.online,
+      }))}
     />
   );
 }

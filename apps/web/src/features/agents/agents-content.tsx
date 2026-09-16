@@ -442,7 +442,7 @@ function MemberCard({
             <Link
               to="/agents/$agentId"
               params={{ agentId: member.id }}
-              search={{ tab: "profile" }}
+              search={{ tab: "profile", edit: false }}
               className="inline-flex min-h-11 items-center rounded-sm outline-focus-ring outline-offset-4 hover:underline focus-visible:outline-2 sm:min-h-0"
             >
               {member.displayName}

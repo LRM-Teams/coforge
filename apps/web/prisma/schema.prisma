@@ -18,6 +18,7 @@ model Workspace {
   computerRuntimes    ComputerRuntime[]
   modelCatalogs       ComputerModelCatalog[]
   agents              Agent[]
+  weeklyReportAssistants WeeklyReportAssistant[]
   agentApiKeys        AgentApiKey[]
   daemonApiKeys       DaemonApiKey[]
   conversations       Conversation[]
@@ -78,6 +79,7 @@ model User {
   sentInvitations             WorkspaceInvitation[]           @relation("WorkspaceInvitationInviter")
   receivedInvitations         WorkspaceInvitation[]           @relation("WorkspaceInvitationInvitee")
   agents                      Agent[]
+  weeklyReportAssistants      WeeklyReportAssistant[]
   agentApiKeys                AgentApiKey[]
   daemonApiKeys               DaemonApiKey[]
   computers                   Computer[]
@@ -176,6 +178,7 @@ model Agent {
   activity                  AgentActivity[]
   reminders                 Reminder[]
   reminderOperationReceipts ReminderOperationReceipt[]
+  weeklyReportAssistant      WeeklyReportAssistant?
 
   @@unique([workspaceId, name])
   @@unique([id, workspaceId])
@@ -183,6 +186,25 @@ model Agent {
   @@index([workspaceId, createdAt])
   @@index([computerId])
   @@map("agents")
+}
+
+/// One User's fixed Agent identity for weekly-report AI in one Workspace.
+model WeeklyReportAssistant {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  userId      String   @db.Uuid
+  agentId     String   @unique @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent       Agent     @relation(fields: [agentId, workspaceId], references: [id, workspaceId], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@unique([agentId, workspaceId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@map("weekly_report_assistants")
 }
 
 /// A provider-native Session belongs to the Agent and the Computer/runtime that created it.

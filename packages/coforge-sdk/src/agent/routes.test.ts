@@ -11,6 +11,7 @@ test("keeps the versioned workspace route stable", () => {
 test("uses versioned Agent API routes for the Proxy and cloud", () => {
   expect(agentApiRoutes.proxy.messages.path).toBe("/api/agent/v1/messages");
   expect(agentApiRoutes.proxy.tasks.path).toBe("/api/agent/v1/tasks");
+  expect(agentApiRoutes.proxy.weeklyReports.path).toBe("/api/agent/v1/weekly-reports");
   expect(agentApiRoutes.proxy.reminders.path).toBe("/api/agent/v1/reminders");
   expect(agentApiRoutes.proxy.inbox.path).toBe("/api/agent/v1/inbox");
   expect(agentApiRoutes.proxy.messages.path).toBe(agentApiRoutes.cloud.messages.list.path);
