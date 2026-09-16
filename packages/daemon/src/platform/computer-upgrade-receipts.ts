@@ -21,6 +21,22 @@ export type ComputerUpgradeReceiptOptions = {
   readReceipt?: (requestId: string) => Promise<ComputerUpgradeReceipt | undefined>;
 };
 
+/** What a pending operation is settled with when its job never left a receipt. */
+export const UPGRADE_EXPIRED_WITHOUT_RECEIPT = "expired without a receipt";
+
+export type SweepComputerUpgradeReceiptsOptions = ComputerUpgradeReceiptOptions & {
+  now?: () => number;
+  /** How long a pending operation may go without a receipt. Omit it to never expire one. */
+  pendingTtlMs?: number;
+};
+
+/** A pending operation, and when this machine opened it. */
+export type PendingComputerUpgrade = {
+  workspaceId: string;
+  requestId: string;
+  requestedAt: number;
+};
+
 export function computerUpgradeResultPath(requestId: string, homeDirectory = homedir()): string {
   return join(
     homeDirectory,
@@ -67,20 +83,43 @@ export async function readComputerUpgradeReceipt(
  * again while it waits on a job it started.
  */
 export async function sweepComputerUpgradeReceipts(
-  pending: readonly { workspaceId: string; requestId: string }[],
+  pending: readonly PendingComputerUpgrade[],
   complete: (
     workspaceId: string,
     requestId: string,
     receipt: ComputerUpgradeReceipt,
   ) => Promise<unknown>,
-  options: ComputerUpgradeReceiptOptions = {},
+  options: SweepComputerUpgradeReceiptsOptions = {},
 ): Promise<number> {
+  const now = options.now ?? Date.now;
   let resolved = 0;
   for (const operation of pending) {
-    const receipt = await readComputerUpgradeReceipt(operation.requestId, options);
+    const receipt =
+      (await readComputerUpgradeReceipt(operation.requestId, options)) ??
+      expiredReceipt(operation, now(), options.pendingTtlMs);
     if (!receipt) continue;
     await complete(operation.workspaceId, operation.requestId, receipt);
     resolved += 1;
   }
   return resolved;
+}
+
+/**
+ * A job that never ran, or whose receipt was lost, would otherwise hold the single pending slot
+ * for good and refuse every later upgrade. Past its deadline the operation is settled as failed -
+ * which is the honest answer: this machine cannot say it succeeded.
+ */
+function expiredReceipt(
+  operation: PendingComputerUpgrade,
+  now: number,
+  pendingTtlMs?: number,
+): ComputerUpgradeReceipt | undefined {
+  if (pendingTtlMs === undefined) return undefined;
+  if (now - operation.requestedAt <= pendingTtlMs) return undefined;
+  return {
+    requestId: operation.requestId,
+    status: "failed",
+    error: UPGRADE_EXPIRED_WITHOUT_RECEIPT,
+    at: now,
+  };
 }

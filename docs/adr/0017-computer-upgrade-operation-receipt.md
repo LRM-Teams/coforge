@@ -78,6 +78,18 @@ naming the operation that holds the slot. Exclusion is an operation-level
 decision made before anything is launched; the sqlite installation lock remains
 only as the last defence against a process outside this path.
 
+That slot is bounded. Each operation records `requestedAt`, and a pending
+operation still without a receipt after `UPGRADE_OPERATION_PENDING_TTL_MS`
+(30 minutes — the server gives a request up after ten, so the margin is
+deliberate) is settled by the same sweep as `failed` with
+`terminal.error = "expired without a receipt"`. Migrated legacy entries take the
+migration time as their `requestedAt`, so a machine carrying a request whose job
+never ran clears it at the next Coordinator start instead of refusing every
+later upgrade. An operation with no `requestedAt` cannot be aged out, so the
+validator fails closed on one. The expiry is reported to the server like any
+other failure, which is the honest answer: this machine cannot claim the upgrade
+succeeded.
+
 **Receipts settle operations.** `sweepComputerUpgradeReceipts`
 (`packages/daemon/src/platform/computer-upgrade-receipts.ts`) moves a pending
 operation to `succeeded`/`failed` from its result file. The Coordinator runs it

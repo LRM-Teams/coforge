@@ -92,10 +92,12 @@ test("binding registry fails closed on malformed upgrade requests", async () => 
     }
     const valid = [{ ...binding, upgradeRequests: [{ requestId: "r", expectedVersion: "1.0.0" }] }];
     await new FileBindingStore(root).save(valid);
-    expect(await new FileBindingStore(root).load()).toEqual([
+    expect(await new FileBindingStore(root, undefined, () => 7).load()).toEqual([
       {
         ...binding,
-        upgradeOperations: [{ requestId: "r", expectedVersion: "1.0.0", state: "pending" }],
+        upgradeOperations: [
+          { requestId: "r", expectedVersion: "1.0.0", state: "pending", requestedAt: 7 },
+        ],
       },
     ]);
   } finally {
@@ -108,18 +110,29 @@ test("binding registry validates upgrade operation records and their terminal re
   const binding = { workspaceId: "a", computerId: "c", workspaceRoot: "/a", enabled: true };
   try {
     for (const upgradeOperations of [
-      [{ requestId: "r", expectedVersion: "1.0.0" }],
-      [{ requestId: "r", expectedVersion: "1.0.0", state: "running" }],
-      [{ requestId: "r", expectedVersion: "", state: "pending" }],
+      [{ requestId: "r", expectedVersion: "1.0.0", requestedAt: 1 }],
+      [{ requestId: "r", expectedVersion: "1.0.0", state: "running", requestedAt: 1 }],
+      [{ requestId: "r", expectedVersion: "", state: "pending", requestedAt: 1 }],
+      // An operation with no age of its own cannot be aged out, so it fails closed.
+      [{ requestId: "r", expectedVersion: "1.0.0", state: "pending" }],
+      [{ requestId: "r", expectedVersion: "1.0.0", state: "pending", requestedAt: -1 }],
       [
-        { requestId: "r", expectedVersion: "1.0.0", state: "pending" },
-        { requestId: "r", expectedVersion: "1.0.0", state: "pending" },
+        { requestId: "r", expectedVersion: "1.0.0", state: "pending", requestedAt: 1 },
+        { requestId: "r", expectedVersion: "1.0.0", state: "pending", requestedAt: 1 },
       ],
-      [{ requestId: "r", expectedVersion: "1.0.0", state: "succeeded", terminal: { at: "now" } }],
-      [{ requestId: "r", expectedVersion: "1.0.0", state: "failed" }],
       [
-        { requestId: "r", expectedVersion: "1.0.0", state: "pending" },
-        { requestId: "s", expectedVersion: "1.0.0", state: "pending" },
+        {
+          requestId: "r",
+          expectedVersion: "1.0.0",
+          state: "succeeded",
+          requestedAt: 1,
+          terminal: { at: "now" },
+        },
+      ],
+      [{ requestId: "r", expectedVersion: "1.0.0", state: "failed", requestedAt: 1 }],
+      [
+        { requestId: "r", expectedVersion: "1.0.0", state: "pending", requestedAt: 1 },
+        { requestId: "s", expectedVersion: "1.0.0", state: "pending", requestedAt: 1 },
       ],
     ]) {
       await Bun.write(
@@ -134,14 +147,20 @@ test("binding registry validates upgrade operation records and their terminal re
       {
         ...binding,
         upgradeOperations: [
-          { requestId: "r", expectedVersion: "1.0.0", state: "acknowledged" as const },
+          {
+            requestId: "r",
+            expectedVersion: "1.0.0",
+            state: "acknowledged" as const,
+            requestedAt: 1,
+          },
           {
             requestId: "s",
             expectedVersion: "1.1.0",
             state: "failed" as const,
-            terminal: { error: "candidate failed", at: 1 },
+            requestedAt: 2,
+            terminal: { error: "candidate failed", at: 3 },
           },
-          { requestId: "t", expectedVersion: "1.2.0", state: "pending" as const },
+          { requestId: "t", expectedVersion: "1.2.0", state: "pending" as const, requestedAt: 4 },
         ],
       },
     ];
@@ -170,11 +189,12 @@ test("legacy upgrade requests reopen as pending operations", async () => {
         },
       ]),
     );
-    const [migrated] = await new FileBindingStore(root).load();
+    // A legacy entry carries no age, so the migration itself starts its expiry clock.
+    const [migrated] = await new FileBindingStore(root, undefined, () => 4_200).load();
     expect(migrated?.upgradeRequests).toBeUndefined();
     expect(migrated?.upgradeOperations).toEqual([
-      { requestId: "old", expectedVersion: "0.1.0-dev.28", state: "pending" },
-      { requestId: "older", expectedVersion: "0.1.0-dev.27", state: "pending" },
+      { requestId: "old", expectedVersion: "0.1.0-dev.28", state: "pending", requestedAt: 4_200 },
+      { requestId: "older", expectedVersion: "0.1.0-dev.27", state: "pending", requestedAt: 4_200 },
     ]);
   } finally {
     await rm(root, { recursive: true, force: true });

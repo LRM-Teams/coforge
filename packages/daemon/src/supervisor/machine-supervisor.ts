@@ -20,10 +20,19 @@ export type UpgradeOperation = {
   requestId: string;
   expectedVersion: string;
   state: UpgradeOperationState;
+  /** When this machine opened the operation, so a stranded one can be aged out. */
+  requestedAt: number;
   terminal?: UpgradeOperationTerminal;
 };
 /** How many operation records one binding keeps, newest last, including the audit tail. */
 export const UPGRADE_OPERATION_HISTORY = 128;
+/**
+ * How long a pending operation may go without a receipt before it is settled as failed. A job
+ * that never ran, or whose receipt was lost, must not hold the single pending slot forever. The
+ * margin is deliberate: the server's own request TTL is ten minutes, so anything this old has
+ * already been given up on upstream.
+ */
+export const UPGRADE_OPERATION_PENDING_TTL_MS = 30 * 60_000;
 
 export type ManagedBinding = DaemonConfig & {
   enabled: boolean;
@@ -64,6 +73,7 @@ export class MachineSupervisor {
   constructor(
     private readonly store: BindingStore,
     private readonly processes: WorkspaceProcesses,
+    private readonly now: () => number = Date.now,
   ) {}
 
   recover() {
@@ -183,7 +193,7 @@ export class MachineSupervisor {
         ...binding,
         upgradeOperations: [
           ...operations,
-          { requestId, expectedVersion, state: "pending" as const },
+          { requestId, expectedVersion, state: "pending" as const, requestedAt: this.now() },
         ].slice(-UPGRADE_OPERATION_HISTORY),
       });
       return true;

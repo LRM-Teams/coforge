@@ -5,6 +5,11 @@ import { cn } from "@/lib/utils";
  * places that need the same motion without a button around it. The official Button keeps its own
  * copy: `components/base` is unmodified upstream source, so this adapts callers rather than it.
  *
+ * Not the official `application/loading-indicator`: that one is a page-level block - a 32-64px
+ * spinner in a centered flex column with an optional visible caption, and no `className` - so it
+ * cannot render the 12px badge on a Computer tile or sit inline in a `text-sm` meta line. Replace
+ * this with the official component if it ever grows a size and class surface.
+ *
  * Decorative by default; give a `label` wherever the spinner is the only thing announcing that
  * work is in flight.
  */

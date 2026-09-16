@@ -6,12 +6,17 @@ import {
   type ManagedBinding,
 } from "./machine-supervisor";
 
+function integer(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
 /** Coordinator-owned registry. File and directory sync bracket atomic replacement. */
 export class FileBindingStore implements BindingStore {
   readonly #path: string;
   constructor(
     private readonly directory: string,
     private readonly expectedServerUrl?: string,
+    private readonly now: () => number = Date.now,
   ) {
     this.#path = join(directory, "bindings.json");
   }
@@ -25,7 +30,7 @@ export class FileBindingStore implements BindingStore {
     }
     validateBindings(value);
     this.#assertEnvironment(value);
-    return value.map(migrateLegacyUpgradeRequests);
+    return value.map((binding) => migrateLegacyUpgradeRequests(binding, this.now()));
   }
   async save(bindings: ManagedBinding[]): Promise<void> {
     validateBindings(bindings);
@@ -156,6 +161,7 @@ function validateUpgradeOperations(value: unknown): void {
       !record(operation) ||
       !text(operation.requestId) ||
       !text(operation.expectedVersion) ||
+      !integer(operation.requestedAt) ||
       !UPGRADE_OPERATION_STATES.includes(String(operation.state)) ||
       seen.has(operation.requestId)
     )
@@ -168,7 +174,7 @@ function validateUpgradeOperations(value: unknown): void {
     } else if (operation.state !== "acknowledged" || terminal !== undefined) {
       if (
         !record(terminal) ||
-        !Number.isSafeInteger(terminal.at) ||
+        !integer(terminal.at) ||
         (terminal.version !== undefined && !text(terminal.version)) ||
         (terminal.error !== undefined && !text(terminal.error))
       )
@@ -183,7 +189,7 @@ function validateUpgradeOperations(value: unknown): void {
  * never cleared, so a machine can carry requests for versions it finished long ago; they become
  * ordinary pending operations that the receipt sweep resolves or that expire with the record cap.
  */
-function migrateLegacyUpgradeRequests(binding: ManagedBinding): ManagedBinding {
+function migrateLegacyUpgradeRequests(binding: ManagedBinding, migratedAt: number): ManagedBinding {
   if (!binding.upgradeRequests?.length) return binding;
   const { upgradeRequests, ...rest } = binding;
   const existing = new Set((binding.upgradeOperations ?? []).map((entry) => entry.requestId));
@@ -193,7 +199,8 @@ function migrateLegacyUpgradeRequests(binding: ManagedBinding): ManagedBinding {
       ...(binding.upgradeOperations ?? []),
       ...upgradeRequests
         .filter((request) => !existing.has(request.requestId))
-        .map((request) => ({ ...request, state: "pending" as const })),
+        // Legacy entries carry no age of their own, so the migration itself starts their clock.
+        .map((request) => ({ ...request, state: "pending" as const, requestedAt: migratedAt })),
     ].slice(-UPGRADE_OPERATION_HISTORY),
   };
 }
