@@ -248,3 +248,23 @@ test("attachment download streams as before when delivery is not configured", as
   expect(response.headers.get("content-disposition")).toBe('inline; filename="shot.png"');
   expect(await response.text()).toBe("bytes");
 });
+
+test("attachment download streams the image when delivery fails to load", async () => {
+  const response = await handleAttachmentDownload(
+    new Request("https://coforge.test/api/attachments/a1"),
+    { attachmentId: "a1" },
+    {
+      authenticate: () => ({ id: "user-1" }),
+      database: () => ({}) as never,
+      read: async () => ({
+        attachment: authorizedPng.attachment,
+        open: async () => ({ body: new Blob(["bytes"]), contentType: null, sizeBytes: 5 }),
+      }),
+      delivery: () => {
+        throw new Error("COFORGE_FILE_DELIVERY_KEY_FILE could not be read");
+      },
+    },
+  );
+  expect(response.status).toBe(200);
+  expect(await response.text()).toBe("bytes");
+});

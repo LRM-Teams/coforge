@@ -70,3 +70,12 @@ test("never exposes objectKey on the returned view", () => {
   });
   expect(withDelivery).not.toHaveProperty("objectKey");
 });
+
+test("omits the preview URL and keeps the row usable when signing throws", () => {
+  const view = attachmentView(row, {
+    signedUrl: () => {
+      throw new Error("secret file unreadable");
+    },
+  });
+  expect(view).toEqual({ id: "a1", fileName: "shot.png", contentType: "image/png", sizeBytes: 5 });
+});

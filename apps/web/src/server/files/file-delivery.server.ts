@@ -18,8 +18,8 @@ import { readEnvSecret } from "./env-secret.server";
  * - `COFORGE_FILE_DELIVERY_KEY` / `COFORGE_FILE_DELIVERY_KEY_FILE` — the CDN's Type A URL-auth
  *   primary key (the Alibaba Cloud CDN console's 鉴权URL设置), read with the same inline-or-
  *   Docker-secret-file convention as `file-storage.server.ts`. This is not an OSS credential. If
- *   the URL is set but the key is missing, this throws at first use instead of silently falling
- *   back to the proxy path.
+ *   the URL is set but the key is missing, the first use logs `file_delivery_unavailable` with the
+ *   error type, `/health` reports it, and delivery degrades to the proxy path so chat keeps working.
  *
  * The signed URL's TTL is not configurable: it is the fixed {@link FILE_DELIVERY_TTL_SECONDS},
  * which must equal the Alibaba Cloud CDN console's 鉴权URL有效时长 for the delivery domain (see
@@ -75,11 +75,38 @@ function normalizeBaseUrl(rawUrl: string): string {
   return `${url.protocol}//${url.host}`;
 }
 
-let current: FileDelivery | null | undefined;
+export type FileDeliveryStatus =
+  | { state: "configured" }
+  | { state: "disabled" }
+  | { state: "error"; errorType: string };
 
-/** The process-wide delivery selected by the environment, memoised like `getFileStorage`. */
+let current: { delivery: FileDelivery | null; status: FileDeliveryStatus } | undefined;
+
+/**
+ * The process-wide delivery selected by the environment, memoised like `getFileStorage`.
+ * A configuration error is memoised too, logged once, and rethrown so callers can decide
+ * whether to degrade; `fileDeliveryStatus()` reports it without the caller having to catch.
+ */
 export function getFileDelivery(): FileDelivery | null {
-  if (current === undefined) current = createFileDelivery(readFileDeliveryConfig(process.env));
+  return resolveFileDelivery().delivery;
+}
+
+/** Whether signed CDN delivery is configured, disabled, or failing to load (no secret values). */
+export function fileDeliveryStatus(): FileDeliveryStatus {
+  return resolveFileDelivery().status;
+}
+
+function resolveFileDelivery() {
+  if (current) return current;
+  try {
+    const delivery = createFileDelivery(readFileDeliveryConfig(process.env));
+    current = { delivery, status: { state: delivery ? "configured" : "disabled" } };
+  } catch (error) {
+    const errorType = error instanceof Error ? error.name : typeof error;
+    // Message text may name a file path; the type alone says whether the secret is the problem.
+    console.error(JSON.stringify({ event: "file_delivery_unavailable", errorType }));
+    current = { delivery: null, status: { state: "error", errorType } };
+  }
   return current;
 }
 

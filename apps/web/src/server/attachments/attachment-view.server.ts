@@ -20,12 +20,35 @@ export type AttachmentView = {
  * exists on the input only so this function can sign a delivery URL with it; it is never part of
  * the returned view and must never reach the client, logs, or analytics.
  */
+/** A signing failure must never take a message read down: the client falls back to the
+ * authenticated route, which streams the bytes. Logged once per process without the key. */
+function signPreviewUrl(delivery: FileDelivery, objectKey: string): string | undefined {
+  try {
+    return delivery.signedUrl(objectKey).url;
+  } catch (error) {
+    if (!signingFailureLogged) {
+      signingFailureLogged = true;
+      console.error(
+        JSON.stringify({
+          event: "file_delivery_signing_failed",
+          errorType: error instanceof Error ? error.name : typeof error,
+        }),
+      );
+    }
+    return undefined;
+  }
+}
+
+let signingFailureLogged = false;
+
 export function attachmentView(
   row: { id: string; fileName: string; contentType: string; sizeBytes: number; objectKey: string },
   delivery: FileDelivery | null = getFileDelivery(),
 ): AttachmentView {
   const previewUrl =
-    delivery && isInlineImage(row.contentType) ? delivery.signedUrl(row.objectKey).url : undefined;
+    delivery && isInlineImage(row.contentType)
+      ? signPreviewUrl(delivery, row.objectKey)
+      : undefined;
   return {
     id: row.id,
     fileName: row.fileName,
