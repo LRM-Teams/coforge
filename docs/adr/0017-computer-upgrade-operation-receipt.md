@@ -116,12 +116,18 @@ credential-shaped runs with `<redacted>`, collapses whitespace and truncates to
 300 characters. The Daemon applies it on encode, the server on decode and again
 before storing.
 
-**The upgrade control is the only progress the page shows.** While an operation
-is in flight the Computer's update button uses the Untitled UI button's own
-loading state with an "Upgrading…" label; on a terminal state the page shows one
-line — the new version, or a short failure reason — and the control returns to
-its ordinary state, which is also the retry. Request IDs, stage lists and timing
-stay in the logs and the result files.
+**The page shows availability, one loading state, and one terminal line.** The
+Computer list carries no upgrade control: an available release shows as a small
+brand badge on the Computer's tile, which becomes a spinner while that
+Computer's operation is in flight and disappears once the new version is
+reported. The upgrade itself is started from the detail panel, where the meta
+line carries a brand "New version …" pill and the actions cluster a primary
+"Upgrade to …" button. While the operation runs, the pill becomes a spinner with
+"Upgrading…", both actions are disabled, and the button carries the Untitled UI
+button's own loading state. Success shows the new version plus a brief inline
+confirmation; failure shows one line with the reported reason and turns the
+button into "Retry upgrade". No stage list, no request IDs, no timings in the
+UI — those stay in the logs and the result files.
 
 ## Runner hold before an upgrade
 

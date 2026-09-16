@@ -49,6 +49,31 @@ export type ComputerListItem = ComputerIdentity &
 const BackToComputersContext = createContext<(() => void) | undefined>(undefined);
 
 /**
+ * Which Computer, if any, has an upgrade operation in flight. The control that starts one lives
+ * on the detail panel, behind the router outlet, while the badge that reflects it lives in the
+ * list; this is the seam between the two.
+ */
+const UpgradingComputerContext = createContext<{
+  upgradingComputerId?: string;
+  setUpgradingComputerId: (computerId?: string) => void;
+}>({ setUpgradingComputerId: () => {} });
+
+export function UpgradingComputerProvider({
+  value,
+  children,
+}: {
+  value: { upgradingComputerId?: string; setUpgradingComputerId: (computerId?: string) => void };
+  children: ReactNode;
+}) {
+  return <UpgradingComputerContext value={value}>{children}</UpgradingComputerContext>;
+}
+
+/** The upgrade operation in flight, for the panel that starts one and the list that shows it. */
+export function useUpgradingComputer() {
+  return useContext(UpgradingComputerContext);
+}
+
+/**
  * Two panels on the app's ground: the Computer list and the selected
  * Computer's detail. Below `md` they take turns, since only one fits. With no
  * Computers there is nothing to list or detail, so one panel carries the way
@@ -59,19 +84,15 @@ export function ComputerLayout({
   selectedComputerId,
   onAdd,
   latestComputerVersion,
-  onComputerUpdate,
-  upgradingComputerId,
   children,
 }: {
   computers: ComputerListItem[];
   selectedComputerId?: string;
   onAdd: () => void;
   latestComputerVersion?: string | null;
-  onComputerUpdate: (computer: ComputerListItem) => void;
-  /** The Computer whose upgrade operation is still in flight, if any. */
-  upgradingComputerId?: string;
   children: ReactNode;
 }) {
+  const { upgradingComputerId } = useUpgradingComputer();
   const [showMobileList, setShowMobileList] = useState(!selectedComputerId);
   const listHidden = Boolean(selectedComputerId) && !showMobileList;
 
@@ -118,7 +139,16 @@ export function ComputerLayout({
                         : "hover:bg-primary_hover",
                     )}
                   >
-                    <ComputerTile computer={computer} online={computer.online} />
+                    <ComputerTile
+                      computer={computer}
+                      online={computer.online}
+                      updateAvailableVersion={
+                        isComputerUpdateAvailable(computer.computerVersion, latestComputerVersion)
+                          ? latestComputerVersion
+                          : undefined
+                      }
+                      upgrading={upgradingComputerId === computer.id}
+                    />
                     <span className="flex min-w-0 flex-1 flex-col gap-1">
                       <span className="truncate text-sm font-semibold">
                         {computerLabel(computer)}
@@ -158,22 +188,6 @@ export function ComputerLayout({
                       </Tooltip>
                     )}
                   </Link>
-                  {isComputerUpdateAvailable(computer.computerVersion, latestComputerVersion) && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      color="secondary"
-                      className="mr-3 shrink-0"
-                      isLoading={upgradingComputerId === computer.id}
-                      showTextWhileLoading
-                      isDisabled={upgradingComputerId !== undefined}
-                      onPress={() => onComputerUpdate(computer)}
-                    >
-                      {upgradingComputerId === computer.id
-                        ? m.computer_upgrade_in_progress()
-                        : m.computer_update_available()}
-                    </Button>
-                  )}
                 </div>
               </li>
             );

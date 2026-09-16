@@ -112,10 +112,13 @@
   "computer_added_by_name": "Added by {name}",
   "computer_update_available": "Update available",
   "computer_upgrade_in_progress": "Upgrading…",
-  "computer_upgrade_succeeded": "Computer upgraded to {version}.",
   "computer_upgrade_failed_reported": "The Computer reported that the upgrade failed",
   "computer_upgrade_failed_timeout": "The Computer did not report the new version in time",
   "computer_upgrade_failed_publication": "The upgrade request could not be delivered to the Computer",
   "computer_upgrade_failed_evidence": "The Computer came back without evidence of the new version",
-  "computer_upgrade_failed_unknown": "The upgrade did not complete"
+  "computer_upgrade_failed_unknown": "The upgrade did not complete",
+  "computer_new_version": "New version {version}",
+  "computer_upgrade_action": "Upgrade to {version}",
+  "computer_upgrade_succeeded_inline": "Upgraded",
+  "computer_upgrade_retry": "Retry upgrade"
 }
