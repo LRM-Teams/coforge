@@ -1,4 +1,4 @@
-import type { ReactNode, Ref } from "react";
+import { useState, type ReactNode, type Ref } from "react";
 import { FileIcon as FileTypeIcon } from "@untitledui/file-icons";
 import { Download01, XClose } from "@untitledui/icons";
 
@@ -23,7 +23,15 @@ export type MessageView = {
   senderAvatarUrl?: string | null;
   body: string;
   createdAt: Date | string;
-  attachment?: { id: string; fileName: string; contentType: string; sizeBytes: number };
+  attachment?: {
+    id: string;
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+    /** Short-lived signed CDN URL for an inline image; see `attachmentView` on the server.
+     * Preferred over `attachmentUrl` when present so `<img>` never round-trips the backend. */
+    previewUrl?: string;
+  };
   reactions?: { emoji: string; count: number; reactors: string[] }[];
 };
 
@@ -141,7 +149,9 @@ export function fileIconType(fileName: string, contentType: string) {
   return "empty";
 }
 
-/** Where an attachment is served from; the one place to change when delivery moves to OSS. */
+/** The authenticated backend fallback: forced downloads, and inline images once their signed
+ * CDN preview URL has expired or fails to load (the route then redirects to a fresh one, or
+ * streams the bytes when CDN delivery is not configured). */
 export function attachmentUrl(attachment: { id: string }) {
   return `/api/attachments/${attachment.id}`;
 }
@@ -153,6 +163,11 @@ export function AttachmentCard({
   attachment: NonNullable<MessageView["attachment"]>;
 }) {
   const href = attachmentUrl(attachment);
+  // Prefer the signed CDN preview URL so the image never round-trips the backend; fall back to
+  // the authenticated proxy once (it expires after a fixed TTL, or may not be configured).
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const previewSrc = !previewFailed && attachment.previewUrl ? attachment.previewUrl : href;
+  const handlePreviewError = () => setPreviewFailed(true);
   const download = (
     <ButtonUtility
       icon={Download01}
@@ -175,7 +190,8 @@ export function AttachmentCard({
             className="block h-auto overflow-hidden rounded-lg p-0 ring-1 ring-secondary ring-inset hover:bg-transparent"
           >
             <img
-              src={href}
+              src={previewSrc}
+              onError={handlePreviewError}
               alt={attachment.fileName}
               loading="lazy"
               className="block max-h-80 max-w-full object-contain"
@@ -187,7 +203,8 @@ export function AttachmentCard({
                 {({ close }) => (
                   <div className="relative">
                     <img
-                      src={href}
+                      src={previewSrc}
+                      onError={handlePreviewError}
                       alt={attachment.fileName}
                       className="block max-h-[calc(var(--visual-viewport-height)-var(--modal-pt)-var(--modal-pb))] max-w-full rounded-lg object-contain"
                     />

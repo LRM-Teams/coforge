@@ -9,12 +9,16 @@ import {
   reactionSummaries,
 } from "../../conversations/message-reactions.server";
 import { workspaceUserAvatarUrl } from "./user-profile.repositories.server";
+import { attachmentView } from "../../attachments/attachment-view.server";
 
 export type AttachmentMetadata = {
   id: string;
   fileName: string;
   contentType: string;
   sizeBytes: number;
+  /** Present only on the browser-facing shape; see `attachmentView`. Never set on the
+   * Agent-facing shape (Agents keep the authenticated `/api/agent` proxy route). */
+  previewUrl?: string;
 };
 
 export type DirectConversationPage = {
@@ -74,7 +78,7 @@ const MESSAGE_ANCHOR =
   /^(?:[0-9a-f]{8}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 
 const ATTACHMENT_SELECT = {
-  select: { id: true, fileName: true, contentType: true, sizeBytes: true },
+  select: { id: true, fileName: true, contentType: true, sizeBytes: true, objectKey: true },
 } satisfies Prisma.MessageSelect["attachment"];
 
 /** Message projection sent to the browser client. */
@@ -202,7 +206,7 @@ function toBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
       : null,
     body: message.body,
     createdAt: message.createdAt,
-    attachment: message.attachment ?? undefined,
+    attachment: message.attachment ? attachmentView(message.attachment) : undefined,
     reactions: reactionSummaries(message.reactions),
   };
 }
@@ -1005,7 +1009,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       target: `@${agents[0].agent?.name ?? "unknown"}`,
       latestSender: `@${sender.user?.username}`,
       deliveryTarget: deliveryTarget(`@${sender.user?.username}`, root?.id),
-      attachment: message.attachment ?? undefined,
+      attachment: message.attachment ? attachmentView(message.attachment) : undefined,
     };
   }
 
@@ -1561,7 +1565,15 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       target: conversation.channelName
         ? deliveryTarget(`#${conversation.channelName}`, root?.id)
         : "",
-      attachment: result.attachment ?? undefined,
+      // Agent-facing shape: metadata only; the object key never leaves the backend.
+      attachment: result.attachment
+        ? {
+            id: result.attachment.id,
+            fileName: result.attachment.fileName,
+            contentType: result.attachment.contentType,
+            sizeBytes: result.attachment.sizeBytes,
+          }
+        : undefined,
     };
   }
 }

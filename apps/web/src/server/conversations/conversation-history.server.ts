@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
+import { attachmentView } from "../attachments/attachment-view.server";
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
 import { MESSAGE_REACTIONS_SELECT, reactionSummaries } from "./message-reactions.server";
 
@@ -11,7 +12,7 @@ const browserMessageFields = {
   body: true,
   createdAt: true,
   attachment: {
-    select: { id: true, fileName: true, contentType: true, sizeBytes: true },
+    select: { id: true, fileName: true, contentType: true, sizeBytes: true, objectKey: true },
   },
   sender: {
     select: {
@@ -60,7 +61,7 @@ function mapBrowserMessage(message: BrowserMessageRow, workspaceId: string) {
       : null,
     body: message.body,
     createdAt: message.createdAt,
-    attachment: message.attachment ?? undefined,
+    attachment: message.attachment ? attachmentView(message.attachment) : undefined,
     reactions: reactionSummaries(message.reactions),
   };
 }

@@ -562,6 +562,31 @@ describe("staging user file persistence", () => {
     expect(webBlock).not.toContain("ACCESS_KEY");
   });
 
+  test("chat images are delivered from the private CDN domain, with the signing key mounted as a secret", async () => {
+    const compose = await Bun.file(
+      new URL("../../infra/staging/docker-compose.yml", import.meta.url),
+    ).text();
+    const webStart = compose.indexOf("\n  web:\n");
+    const migrateStart = compose.indexOf("\n  migrate:\n");
+    const webBlock = compose.slice(webStart, migrateStart);
+
+    expect(webBlock).toContain("COFORGE_FILE_DELIVERY_URL: https://files-staging.coforge.cn");
+    expect(webBlock).toContain(
+      "COFORGE_FILE_DELIVERY_KEY_FILE: /run/secrets/coforge_file_delivery_key",
+    );
+    expect(webBlock).toContain("source: coforge_file_delivery_key");
+    expect(compose).toContain(
+      "coforge_file_delivery_key:\n    file: ./secrets/coforge_file_delivery_key",
+    );
+
+    const workflow = await Bun.file(
+      new URL("../../.github/workflows/deploy-staging.yml", import.meta.url),
+    ).text();
+    expect(workflow).toContain("secrets.COFORGE_FILE_DELIVERY_KEY");
+    expect(workflow).toContain("coforge_file_delivery_key");
+    expect(workflow).not.toMatch(/echo "\$COFORGE_FILE_DELIVERY_KEY"/);
+  });
+
   test("staging serves install.sh pointing at the staging feed, not the production one", async () => {
     const compose = await Bun.file(
       new URL("../../infra/staging/docker-compose.yml", import.meta.url),

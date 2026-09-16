@@ -23,6 +23,7 @@ import {
 import type { ConversationRealtime } from "./conversation-realtime.server";
 import { AgentMessageValidationError } from "./agent-message-validation-error.server";
 import { workspaceUserAvatarUrl } from "../db/repositories/user-profile.repositories.server";
+import { attachmentView } from "../attachments/attachment-view.server";
 
 /** Nested creation keeps default enrollment inside the Workspace creation transaction. */
 export function generalChannelForCreator(userId: string) {
@@ -47,7 +48,9 @@ const CHANNEL_MESSAGE_SELECT = {
       user: { select: { id: true, username: true, avatarObjectKey: true } },
     },
   },
-  attachment: { select: { id: true, fileName: true, contentType: true, sizeBytes: true } },
+  attachment: {
+    select: { id: true, fileName: true, contentType: true, sizeBytes: true, objectKey: true },
+  },
   reactions: MESSAGE_REACTIONS_SELECT,
 } satisfies Prisma.MessageSelect;
 
@@ -63,7 +66,13 @@ type ChannelMessageRow = {
     agent: { name: string } | null;
     user: { id: string; username: string; avatarObjectKey: string | null } | null;
   } | null;
-  attachment: { id: string; fileName: string; contentType: string; sizeBytes: number } | null;
+  attachment: {
+    id: string;
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+    objectKey: string;
+  } | null;
   reactions: MessageReactionRow[];
 };
 
@@ -91,14 +100,7 @@ function channelMessageView(message: ChannelMessageRow, workspaceId: string) {
       : null,
     body: message.body,
     createdAt: message.createdAt,
-    attachment: message.attachment
-      ? {
-          id: message.attachment.id,
-          fileName: message.attachment.fileName,
-          contentType: message.attachment.contentType,
-          sizeBytes: message.attachment.sizeBytes,
-        }
-      : undefined,
+    attachment: message.attachment ? attachmentView(message.attachment) : undefined,
     reactions: reactionSummaries(message.reactions),
   };
 }

@@ -5,6 +5,7 @@ import {
   type WorkspaceUserContext,
 } from "../../server/auth/function-auth";
 import { PublicChannels } from "../../server/conversations/public-channels.server";
+import { attachmentView } from "../../server/attachments/attachment-view.server";
 import { CentrifugoConversationRealtime } from "../../server/conversations/conversation-realtime.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 import { bestEffortMessageNotifier } from "../../server/notifications/web-push-composition.server";
@@ -155,7 +156,7 @@ export const sendPublicChannelMessage = createServerFn({ method: "POST" })
       ),
       body: message.body,
       createdAt: message.createdAt,
-      attachment: message.attachment ?? undefined,
+      attachment: message.attachment ? attachmentView(message.attachment) : undefined,
       reactions: undefined,
     };
   });

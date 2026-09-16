@@ -299,5 +299,12 @@ Agent 参照，不要按前面的步骤重复创建。
 `<version>/<target>/coforge-computer.sha256` 落在 365 天那条规则下，这是对的：sidecar
 和它描述的二进制一样按版本不可变。
 
+backend 现在为 `files-staging.coforge.cn` 签发 Type A 签名 URL
+（`apps/web/src/server/files/file-delivery.server.ts`）：`COFORGE_FILE_DELIVERY_URL`、
+`COFORGE_FILE_DELIVERY_KEY`/`COFORGE_FILE_DELIVERY_KEY_FILE` 两个环境变量携带该配置，
+签名 key 与 console 的 URL 鉴权主 KEY 一致，不是 OSS 凭据。有效时长是代码里固定的
+`FILE_DELIVERY_TTL_SECONDS = 1800`，不是环境变量；console 的鉴权URL有效时长必须维持
+默认值 1800 秒。
+
 CDN real-time log delivery 与 OSS access logging 两项 staging 均**未启用**，属于已知
 缺口：出事时没有取证能力。
