@@ -12,6 +12,7 @@ import type { AgentRuntimeConfig } from "./agent-runtime-config.server";
 import { runtimeStartFields } from "./manage-agents.server";
 import type { AgentRuntimeLock } from "./agent-runtime-lock.server";
 import type { AgentSessions } from "./agent-sessions.server";
+import { LocalAgentControlSignal, type AgentControlSignal } from "./agent-control-signal.server";
 
 /** Application button intent; never sent as a daemon command. */
 export type AgentControlAction = "start" | "stop" | "restart" | "reset-session" | "full-reset";
@@ -155,8 +156,9 @@ export class AgentControl {
     private readonly store: AgentControlStore,
     private readonly api: Pick<CentrifugoServerApi, "publish">,
     private readonly runtimeLock: AgentRuntimeLock,
-    private readonly timing = { timeoutMs: 7_000, wait: () => Bun.sleep(100) },
+    private readonly timing: { timeoutMs: number; fallbackMs?: number } = { timeoutMs: 7_000 },
     private readonly sessions?: AgentSessions,
+    private readonly signal: AgentControlSignal = new LocalAgentControlSignal(),
   ) {}
 
   /** Ready recovery republishes the current fence; it never waits for buffered daemon ACKs. */
@@ -354,6 +356,8 @@ export class AgentControl {
   private async drive(agentId: string, requestId: string): Promise<AgentControlView> {
     const deadline = Date.now() + this.timing.timeoutMs;
     let publishedPhase = "";
+    // A signal means the ACK handler already advanced and published the next command.
+    let signaled = false;
     for (;;) {
       const agent = await this.store.get(agentId);
       const state = agent?.state;
@@ -363,6 +367,10 @@ export class AgentControl {
       if (state.phase === "stopped" || state.phase === "workspace-reset") {
         await this.advance(agentId, requestId);
         continue;
+      }
+      if (signaled) {
+        signaled = false;
+        publishedPhase = state.phase;
       }
       if (publishedPhase !== state.phase) {
         // Publish failure is ambiguous: keep the durable pending state and retry the SAME request.
@@ -375,7 +383,11 @@ export class AgentControl {
         continue;
       }
       if (Date.now() >= deadline) return view(state);
-      await this.timing.wait();
+      // Daemon ACKs wake the waiter; the fallback re-read bounds a lost signal.
+      signaled = await this.signal.wait(
+        agentId,
+        Math.min(this.timing.fallbackMs ?? 1_000, deadline - Date.now()),
+      );
     }
   }
 
@@ -445,7 +457,14 @@ export class AgentControl {
       ...(result.errorCode ? { errorCode: result.errorCode } : {}),
     };
     if (!(await this.store.replace(agent, next))) throw new Error("Control result lost its fence");
-    if (next.phase === "stopped" || next.phase === "workspace-reset")
-      await this.advance(agent.id, next.requestId).catch(() => {});
+    if (next.phase === "stopped" || next.phase === "workspace-reset") {
+      // Publish failure stays silent so the waiter's fallback re-read republishes the phase.
+      const advanced = await this.advance(agent.id, next.requestId).then(
+        () => true,
+        () => false,
+      );
+      if (!advanced) return;
+    }
+    await this.signal.notify(agent.id).catch(() => {});
   }
 }

@@ -3,6 +3,7 @@ import { getRequest, setResponseHeader } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { requireBrowserUser } from "../../server/auth/require-user.server";
 import { AgentControl } from "../../server/agents/agent-control.server";
+import { getAgentControlSignal } from "../../server/agents/agent-control-signal.server";
 import { PrismaAgentControlStore } from "../../server/db/repositories/agent-control.repositories.server";
 import { createAgentSessions } from "../../server/db/repositories/agent-session.repositories.server";
 import { getAgentRuntimeLock } from "../../server/agents/agent-runtime-lock.server";
@@ -29,6 +30,7 @@ function dependencies() {
       getAgentRuntimeLock(),
       undefined,
       createAgentSessions(db),
+      getAgentControlSignal(),
     ),
   };
 }

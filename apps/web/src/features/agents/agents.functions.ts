@@ -16,6 +16,7 @@ import {
 import { ManageAgents } from "../../server/agents/manage-agents.server";
 import { PublishAgentRuntimeControl } from "../../server/agents/agent-runtime-control.server";
 import { AgentControl } from "../../server/agents/agent-control.server";
+import { getAgentControlSignal } from "../../server/agents/agent-control-signal.server";
 import { PrismaAgentControlStore } from "../../server/db/repositories/agent-control.repositories.server";
 import { createCentrifugoServerApi } from "../../server/centrifugo/server-api.server";
 import { requireBrowserUser } from "../../server/auth/require-user.server";
@@ -70,6 +71,7 @@ function runtimeControl(db: Database, agents: PrismaAgentRepository) {
       getAgentRuntimeLock(),
       undefined,
       sessions,
+      getAgentControlSignal(),
     ),
   );
 }
