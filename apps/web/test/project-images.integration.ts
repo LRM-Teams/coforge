@@ -110,6 +110,22 @@ test("project images authorize members, validate uploads, replace bytes and clea
     await settings.delete(workspace.id, user.id, project.id, "Renamed");
     expect(objects.size).toBe(0);
     await expect(images.read(user.id, project.id)).rejects.toThrow("NOT_FOUND");
+
+    const cleanupProject = await db.project.create({
+      data: { workspaceId: workspace.id, slug: "cleanup", name: "Cleanup" },
+    });
+    await images.store(workspace.id, user.id, cleanupProject.id, png(5));
+    storage.remove = async () => {
+      throw new Error("Storage unavailable");
+    };
+    const replacement = await images.store(workspace.id, user.id, cleanupProject.id, png(6));
+    expect(replacement.iconUrl).toStartWith(`/api/projects/${cleanupProject.id}/icon?v=`);
+    expect(
+      await new Response((await images.read(user.id, cleanupProject.id)).body).bytes(),
+    ).toEqual(new Uint8Array(await png(6).arrayBuffer()));
+    await settings.delete(workspace.id, user.id, cleanupProject.id, "Cleanup");
+    expect(await db.project.findUnique({ where: { id: cleanupProject.id } })).toBeNull();
+    await expect(images.read(user.id, cleanupProject.id)).rejects.toThrow("NOT_FOUND");
   } finally {
     await db.workspace.delete({ where: { id: workspace.id } });
     await db.user.delete({ where: { id: user.id } });

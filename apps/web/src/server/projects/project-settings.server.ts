@@ -2,6 +2,7 @@ import type { PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import type { GitHubConnection } from "../integrations/github-connection.server";
 import { getFileStorage, type FileStorage } from "../files/file-storage.server";
+import { toPublicServerError } from "../errors/public-error.server";
 
 export class ProjectSettings {
   constructor(
@@ -74,6 +75,13 @@ export class ProjectSettings {
       where: { ...where, iconObjectKey: project.iconObjectKey },
     });
     if (!result.count) throw new AppError("INVALID_INPUT");
-    if (project.iconObjectKey) await (await this.storage()).remove(project.iconObjectKey);
+    // Deletion has committed; report storage cleanup separately from the user operation.
+    if (project.iconObjectKey) {
+      try {
+        await (await this.storage()).remove(project.iconObjectKey);
+      } catch (error) {
+        toPublicServerError(error);
+      }
+    }
   }
 }

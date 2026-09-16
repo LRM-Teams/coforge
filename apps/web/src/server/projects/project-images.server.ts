@@ -2,6 +2,7 @@ import type { PrismaClient } from "../../../generated/client";
 import { AppError } from "../../lib/app-error";
 import { getFileStorage, type FileStorage } from "../files/file-storage.server";
 import { validateImage } from "../files/image-upload.server";
+import { toPublicServerError } from "../errors/public-error.server";
 
 export function projectIconUrl(projectId: string, objectKey: string | null) {
   return objectKey
@@ -33,7 +34,14 @@ export class ProjectImages {
       await files.remove(objectKey);
       throw error;
     }
-    if (previous.iconObjectKey) await files.remove(previous.iconObjectKey);
+    // The new image is already committed; cleanup failure must not undo its result.
+    if (previous.iconObjectKey) {
+      try {
+        await files.remove(previous.iconObjectKey);
+      } catch (error) {
+        toPublicServerError(error);
+      }
+    }
     return { iconUrl: projectIconUrl(projectId, objectKey) };
   }
 
