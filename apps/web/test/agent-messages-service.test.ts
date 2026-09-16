@@ -362,6 +362,187 @@ test("send policy re-holds new pending context on retry, then forwards once the 
   expect(boundaries).toEqual([undefined, 8, 9]);
 });
 
+test("send policy in withheld mode hides bodies, counts all pending, and ignores presentedThrough on re-hold", async () => {
+  // Reviewer isolation (`freshnessContextMode: "withheld"`): a hold must never
+  // leak message bodies, senders, or metadata, and its count must cover every
+  // pending row above the Agent's seen boundary — not just the last three
+  // shown inline, and not narrowed by a prior hold's presentedThrough, since
+  // nothing was actually presented.
+  const boundaries: Array<number | undefined> = [];
+  const receipts = new Map<string, AgentMessageHold>();
+  const holdStore = {
+    issue: async (hold: AgentMessageHold) => {
+      const token = `token-${receipts.size}`;
+      receipts.set(token, hold);
+      return token;
+    },
+    get: async (token: string) => receipts.get(token),
+    consume: async (token: string) => receipts.delete(token),
+  };
+  const pendingRows = Array.from({ length: 5 }, (_, index) => ({
+    id: `message-${index + 1}`,
+    sequence: index + 1,
+    sender: "@reviewer",
+    target: "@user",
+    body: `pending review ${index + 1}`,
+    createdAt: new Date("2026-09-10T00:00:00Z"),
+  }));
+  let sent = 0;
+  const repo = repository({
+    readPendingAgentContext: async (_workspaceId, _agentId, _target, after) => {
+      boundaries.push(after);
+      return pendingRows;
+    },
+  });
+  const sender = {
+    executeFromAgent: async () => {
+      sent++;
+      return { id: "sent-message" };
+    },
+  };
+  const send = async (holdToken?: string, continueAnyway?: boolean) =>
+    executeAgentSendMessageWithPolicy(
+      { repository: repo, sender, holdStore },
+      {
+        requestId: crypto.randomUUID(),
+        workspaceId: "workspace-1",
+        agentId: "agent-a",
+        target: "@user",
+        body: "reviewer isolation send",
+        holdToken,
+        continueAnyway,
+        freshnessContextMode: "withheld",
+      },
+    );
+
+  const first = await send();
+  expect(first).toMatchObject({
+    accepted: false,
+    sideEffectDecision: "hold",
+    messages: [],
+    freshnessContextMode: "withheld",
+    withheldMessageCount: 5,
+    anywayAllowed: false,
+  });
+
+  const second = await send(first.holdToken);
+  expect(second).toMatchObject({
+    accepted: false,
+    sideEffectDecision: "hold",
+    messages: [],
+    freshnessContextMode: "withheld",
+    withheldMessageCount: 5,
+    anywayAllowed: true,
+  });
+  expect(boundaries).toEqual([undefined, undefined]);
+  expect(sent).toBe(0);
+
+  const sentResult = await send(second.holdToken, true);
+  expect(sentResult).toMatchObject({
+    accepted: true,
+    sideEffectDecision: "anyway_accepted",
+    freshnessContextMode: "withheld",
+  });
+  expect(sent).toBe(1);
+});
+
+test("send policy in withheld mode prefers the repository's true pending count over the bounded window", async () => {
+  // The repository's readPendingAgentContext window is bounded (production
+  // caps it at 3 rows for inline display); when the repository also exposes
+  // countPendingAgentContext, withheld mode must report that true count
+  // instead of the bounded window's length.
+  const boundaries: Array<number | undefined> = [];
+  const countCalls: Array<number | undefined> = [];
+  const repo = repository({
+    readPendingAgentContext: async (_workspaceId, _agentId, _target, after) => {
+      boundaries.push(after);
+      return [
+        {
+          id: "message-5",
+          sequence: 5,
+          sender: "@reviewer",
+          target: "@user",
+          body: "pending review 5",
+          createdAt: new Date("2026-09-10T00:00:00Z"),
+        },
+        {
+          id: "message-6",
+          sequence: 6,
+          sender: "@reviewer",
+          target: "@user",
+          body: "pending review 6",
+          createdAt: new Date("2026-09-10T00:00:00Z"),
+        },
+        {
+          id: "message-7",
+          sequence: 7,
+          sender: "@reviewer",
+          target: "@user",
+          body: "pending review 7",
+          createdAt: new Date("2026-09-10T00:00:00Z"),
+        },
+      ];
+    },
+    countPendingAgentContext: async (_workspaceId, _agentId, _target, after) => {
+      countCalls.push(after);
+      return 7;
+    },
+  });
+  const result = await executeAgentSendMessageWithPolicy(
+    {
+      repository: repo,
+      sender: { executeFromAgent: async () => ({ id: "unreachable" }) },
+      holdStore: {
+        issue: async () => "token-0",
+        get: async () => undefined,
+        consume: async () => false,
+      },
+    },
+    {
+      requestId: "request-1",
+      workspaceId: "workspace-1",
+      agentId: "agent-a",
+      target: "@user",
+      body: "independent review",
+      freshnessContextMode: "withheld",
+    },
+  );
+  expect(result).toMatchObject({
+    accepted: false,
+    sideEffectDecision: "hold",
+    messages: [],
+    freshnessContextMode: "withheld",
+    withheldMessageCount: 7,
+  });
+  expect(boundaries).toEqual([undefined]);
+  expect(countCalls).toEqual([undefined]);
+});
+
+test("send policy in inline mode is unchanged by the withheld addition", async () => {
+  const result = await executeAgentSendMessageWithPolicy(
+    {
+      repository: repository(),
+      sender: {
+        executeFromAgent: async () => ({ id: "message-1" }),
+      },
+    },
+    {
+      requestId: "request-1",
+      workspaceId: "workspace-1",
+      agentId: "agent-1",
+      target: "#general",
+      body: "hello",
+      freshnessContextMode: "inline",
+    },
+  );
+  expect(result).toMatchObject({
+    accepted: true,
+    messageId: "message-1",
+    sideEffectDecision: "forward",
+    freshnessContextMode: "inline",
+  });
+});
+
 test("send policy rejects continueAnyway without a valid hold", async () => {
   const result = await executeAgentSendMessageWithPolicy(
     {

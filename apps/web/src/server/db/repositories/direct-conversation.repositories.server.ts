@@ -403,6 +403,13 @@ export type DirectConversationRepository = {
     target: string,
     afterSequence?: number,
   ): ReturnType<NonNullable<DirectConversationRepository["readMessages"]>>;
+  /** Same pending-context scope as `readPendingAgentContext`, but a count rather than a bounded row window. */
+  countPendingAgentContext?(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+    afterSequence?: number,
+  ): Promise<number>;
   readAgentRecoveryContext?(workspaceId: string, agentId: string): Promise<AgentRecoveryContext>;
   drainAgentEvents?(
     workspaceId: string,
@@ -1399,7 +1406,12 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return bounded;
   }
 
-  async readPendingAgentContext(
+  /**
+   * Resolves the pending-agent-context scope (conversation/thread, unread boundary and `where`
+   * clause) shared by `readPendingAgentContext` and `countPendingAgentContext`, so a bounded
+   * read and its unbounded count cannot drift apart.
+   */
+  private async pendingAgentContextScope(
     workspaceId: string,
     agentId: string,
     target: string,
@@ -1424,13 +1436,31 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
           })
         : undefined;
     const boundary = afterSequence ?? latestAgentMessage?.sequence ?? 0;
-    const rows = await this.db.message.findMany({
+    return {
+      canonicalTarget,
       where: {
         conversationId,
         threadRootId,
         sequence: { gt: boundary },
         ...unreadForAgentWhere(agentId, isChannel),
-      },
+      } satisfies Prisma.MessageWhereInput,
+    };
+  }
+
+  async readPendingAgentContext(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+    afterSequence?: number,
+  ) {
+    const { canonicalTarget, where } = await this.pendingAgentContextScope(
+      workspaceId,
+      agentId,
+      target,
+      afterSequence,
+    );
+    const rows = await this.db.message.findMany({
+      where,
       orderBy: { sequence: "desc" },
       take: 3,
       include: { sender: MESSAGE_SENDER_SELECT, attachment: true },
@@ -1444,6 +1474,22 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
       target: canonicalTarget,
       attachment: m.attachment ?? undefined,
     }));
+  }
+
+  /** Count of the same pending-agent-context scope `readPendingAgentContext` reads, unbounded by its 3-row window. */
+  async countPendingAgentContext(
+    workspaceId: string,
+    agentId: string,
+    target: string,
+    afterSequence?: number,
+  ) {
+    const { where } = await this.pendingAgentContextScope(
+      workspaceId,
+      agentId,
+      target,
+      afterSequence,
+    );
+    return this.db.message.count({ where });
   }
 
   async sendAgentMessage(

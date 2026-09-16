@@ -993,8 +993,8 @@ check 才能继续排空。恢复沿用 canonical Message/read 边界，不建�
 mute 不压制已 follow Thread。CoForge 额外要求短 target 经父频道 authenticated `around`
 canonicalization、Web/backend 始终输出完整 UUID、主频道/各 Thread 分别维护 read/recovery/
 freshness 边界、notice 与 channel recovery 不含正文，并保持单 Agent shared runtime session。
-CoForge 当前缺少 Raft 的显式 Agent channel join/leave、private channel、channel member/admin、
-DM Thread follow/unfollow 与 task/reviewer-isolation 能力；standing instructions
+CoForge 当前缺少 Raft 的显式 Agent channel join/leave、private channel、channel member/admin
+与 DM Thread follow/unfollow 能力；standing instructions
 不得声称或复制这些能力。Raft 官方默认频道名为
 [#all](https://docs.raft.build/features/messaging/channels/)，不是 #general；官方
 [Thread 文档](https://docs.raft.build/features/messaging/threads/)定义上述 follow/unfollow 行为；
@@ -1097,6 +1097,7 @@ DaemonRuntime 使用既有 attention/model-visible seam，在 claim/status updat
 处理未读上下文；与 1.0.31 相同，amend 不加入 Daemon 本地 preflight。Reviewer isolation
 用于 message send、claim、update、amend：held 只返回状态和计数，不暴露正文、sender、
 消息元数据或 model-seen cursor，不执行被 held 的写入；错误输出也隐藏上游详情。
+message send 的 HTTP 路由现同样在服务端遵循该 mode，不再仅由 daemon 事后裁剪。
 资源 receipt 复用现有 Reminder 所有权和到期链路，不建立另一种计时器或 jobs queue。
 持久化与协议变更限于支持上述可观察能力；不声称复制不可见的 Raft 服务端事务实现。
 既有验证 seam 为 TaskBoard（真实 PostgreSQL）、Agent RPC/CLI、DaemonRuntime 与浏览器。

@@ -90,9 +90,51 @@ function mapSendResult(requestId: string, result: AgentSendMessageResult & { mes
     holdToken: result.holdToken,
     bypass: result.sideEffectDecision === "anyway_accepted" ? true : undefined,
     anywayAllowed: result.anywayAllowed,
-    context,
+    // Belt and braces: never surface message bodies for a withheld hold, even
+    // if the service's own `messages` field were ever non-empty.
+    context: result.freshnessContextMode === "withheld" ? [] : context,
+    freshnessContextMode: result.freshnessContextMode,
+    withheldMessageCount: result.withheldMessageCount,
   };
   return response;
+}
+
+export type AgentMessagesPostPrincipal = { workspaceId: string; agentId: string };
+
+/** Send-route body handling; extracted from the route so it can be tested with fakes. */
+export async function handleAgentMessagesPost(
+  request: Request,
+  principal: AgentMessagesPostPrincipal,
+  dependencies: Parameters<typeof executeAgentSendMessageWithPolicy>[0],
+): Promise<Response> {
+  const body = await request.json().catch(() => undefined);
+  if (
+    !body ||
+    typeof body !== "object" ||
+    typeof body.target !== "string" ||
+    typeof body.body !== "string"
+  )
+    return Response.json({ error: "target and body are required" }, { status: 400 });
+  const freshnessContextMode = body.freshnessContextMode;
+  if (
+    freshnessContextMode !== undefined &&
+    freshnessContextMode !== "inline" &&
+    freshnessContextMode !== "withheld"
+  )
+    return Response.json({ error: "invalid freshnessContextMode" }, { status: 400 });
+  const requestId = typeof body.requestId === "string" ? body.requestId : crypto.randomUUID();
+  const result = await executeAgentSendMessageWithPolicy(dependencies, {
+    requestId,
+    workspaceId: principal.workspaceId,
+    agentId: principal.agentId,
+    target: body.target,
+    body: body.body,
+    holdToken: typeof body.holdToken === "string" ? body.holdToken : undefined,
+    continueAnyway: body.continueAnyway === true,
+    seenUpToSequence: typeof body.seenUpToSequence === "number" ? body.seenUpToSequence : undefined,
+    freshnessContextMode,
+  });
+  return Response.json(mapSendResult(requestId, result));
 }
 
 export const Route = createFileRoute("/api/agent/v1/messages")({
@@ -101,42 +143,19 @@ export const Route = createFileRoute("/api/agent/v1/messages")({
     handlers: {
       GET: ({ request, context: { principal, db } }) =>
         handleAgentMessagesGet(request, principal, new PrismaDirectConversationRepository(db)),
-      POST: async ({ request, context: { principal, db } }) => {
-        const body = await request.json().catch(() => undefined);
-        if (
-          !body ||
-          typeof body !== "object" ||
-          typeof body.target !== "string" ||
-          typeof body.body !== "string"
-        )
-          return Response.json({ error: "target and body are required" }, { status: 400 });
-        const requestId = typeof body.requestId === "string" ? body.requestId : crypto.randomUUID();
+      POST: ({ request, context: { principal, db } }) => {
         const repository = new PrismaDirectConversationRepository(db);
         const centrifugo = createCentrifugoServerApi();
-        const result = await executeAgentSendMessageWithPolicy(
-          {
+        return handleAgentMessagesPost(request, principal, {
+          repository,
+          sender: new SendDirectMessage(
             repository,
-            sender: new SendDirectMessage(
-              repository,
-              getMessageRequestIdempotency(),
-              centrifugo,
-              new CentrifugoConversationRealtime(centrifugo),
-              bestEffortMessageNotifier(db),
-            ),
-          },
-          {
-            requestId,
-            workspaceId: principal.workspaceId,
-            agentId: principal.agentId,
-            target: body.target,
-            body: body.body,
-            holdToken: typeof body.holdToken === "string" ? body.holdToken : undefined,
-            continueAnyway: body.continueAnyway === true,
-            seenUpToSequence:
-              typeof body.seenUpToSequence === "number" ? body.seenUpToSequence : undefined,
-          },
-        );
-        return Response.json(mapSendResult(requestId, result));
+            getMessageRequestIdempotency(),
+            centrifugo,
+            new CentrifugoConversationRealtime(centrifugo),
+            bestEffortMessageNotifier(db),
+          ),
+        });
       },
     },
   },
