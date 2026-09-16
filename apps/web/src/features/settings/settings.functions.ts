@@ -2,15 +2,14 @@ import { createServerFn } from "@tanstack/react-start";
 import { saveUserTimeZoneInputSchema } from "./settings.schemas";
 
 import { authMiddleware } from "../../server/auth/function-auth";
-import { getDatabaseClient } from "../../server/db/client.server";
+import { requireDatabaseClient } from "../../server/db/client.server";
 import {
   PrismaUserPreferencesRepository,
   UserPreferences,
 } from "../../server/db/repositories/user-preferences.repositories.server";
 
 function preferences() {
-  const db = getDatabaseClient();
-  if (!db) throw new Error("User preferences persistence is unavailable");
+  const db = requireDatabaseClient();
   return new UserPreferences(new PrismaUserPreferencesRepository(db));
 }
 

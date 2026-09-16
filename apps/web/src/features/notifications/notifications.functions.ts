@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "../../server/auth/function-auth";
-import { getDatabaseClient } from "../../server/db/client.server";
+import { requireDatabaseClient } from "../../server/db/client.server";
 import {
   PrismaUserPreferencesRepository,
   UserPreferences,
@@ -17,8 +17,7 @@ import {
 } from "./notifications.schemas";
 
 function notificationContext(user: { id: string }) {
-  const db = getDatabaseClient();
-  if (!db) throw new AppError("TEMPORARILY_UNAVAILABLE");
+  const db = requireDatabaseClient();
   return {
     user,
     db,
