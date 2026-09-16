@@ -15,7 +15,6 @@ import { Route as HealthRouteImport } from './routes/health'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DotwellKnownOauthAuthorizationServerRouteImport } from './routes/[.]well-known.oauth-authorization-server'
 import { Route as AppComputersRouteImport } from './routes/_app/computers'
-import { Route as AppMembersRouteImport } from './routes/_app/members'
 import { Route as AppMessagesRouteImport } from './routes/_app/messages'
 import { Route as AppRecordsRouteImport } from './routes/_app/records'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
@@ -95,11 +94,6 @@ const DotwellKnownOauthAuthorizationServerRoute =
 const AppComputersRoute = AppComputersRouteImport.update({
   id: '/computers',
   path: '/computers',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppMembersRoute = AppMembersRouteImport.update({
-  id: '/members',
-  path: '/members',
   getParentRoute: () => AppRoute,
 } as any)
 const AppMessagesRoute = AppMessagesRouteImport.update({
@@ -371,7 +365,6 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
   '/computers': typeof AppComputersRouteWithChildren
-  '/members': typeof AppMembersRoute
   '/messages': typeof AppMessagesRouteWithChildren
   '/records': typeof AppRecordsRouteWithChildren
   '/settings': typeof AppSettingsRoute
@@ -428,7 +421,6 @@ export interface FileRoutesByTo {
   '/health': typeof HealthRoute
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
-  '/members': typeof AppMembersRoute
   '/settings': typeof AppSettingsRoute
   '/tasks': typeof AppTasksRoute
   '/api/agent-api-keys': typeof ApiAgentApiKeysRoute
@@ -486,7 +478,6 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
   '/_app/computers': typeof AppComputersRouteWithChildren
-  '/_app/members': typeof AppMembersRoute
   '/_app/messages': typeof AppMessagesRouteWithChildren
   '/_app/records': typeof AppRecordsRouteWithChildren
   '/_app/settings': typeof AppSettingsRoute
@@ -546,7 +537,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/.well-known/oauth-authorization-server'
     | '/computers'
-    | '/members'
     | '/messages'
     | '/records'
     | '/settings'
@@ -603,7 +593,6 @@ export interface FileRouteTypes {
     | '/health'
     | '/login'
     | '/.well-known/oauth-authorization-server'
-    | '/members'
     | '/settings'
     | '/tasks'
     | '/api/agent-api-keys'
@@ -660,7 +649,6 @@ export interface FileRouteTypes {
     | '/login'
     | '/.well-known/oauth-authorization-server'
     | '/_app/computers'
-    | '/_app/members'
     | '/_app/messages'
     | '/_app/records'
     | '/_app/settings'
@@ -795,13 +783,6 @@ declare module '@tanstack/react-router' {
       path: '/computers'
       fullPath: '/computers'
       preLoaderRoute: typeof AppComputersRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/members': {
-      id: '/_app/members'
-      path: '/members'
-      fullPath: '/members'
-      preLoaderRoute: typeof AppMembersRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/messages': {
@@ -1207,7 +1188,6 @@ const AppRecordsRouteWithChildren = AppRecordsRoute._addFileChildren(
 
 interface AppRouteChildren {
   AppComputersRoute: typeof AppComputersRouteWithChildren
-  AppMembersRoute: typeof AppMembersRoute
   AppMessagesRoute: typeof AppMessagesRouteWithChildren
   AppRecordsRoute: typeof AppRecordsRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRoute
@@ -1219,7 +1199,6 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppComputersRoute: AppComputersRouteWithChildren,
-  AppMembersRoute: AppMembersRoute,
   AppMessagesRoute: AppMessagesRouteWithChildren,
   AppRecordsRoute: AppRecordsRouteWithChildren,
   AppSettingsRoute: AppSettingsRoute,
