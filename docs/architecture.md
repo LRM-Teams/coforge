@@ -888,7 +888,11 @@ Thread 范围可有间隔，不能用 sequence 差计算待读条数。read、�
 其他 Thread 的未读。附件继续使用已授权 conversation 内 committed Message 绑定。
 
 Daemon 的易失 Inbox 按完整 target 聚合，notice 仅携带目标、数量与 sender；
-check 返回该目标新消息。恢复批次同样按目标的独立阅读位置取消息，不改变已有
+check 向服务端 `GET /api/agent/v1/events` 请求跨全部 target 的待处理分页，服务端在
+同一请求内按返回的消息推进对应的阅读边界（ack-on-drain），并以 `hasMore` 告知
+Agent 是否需要再次 check；Daemon 仅循环取页直到收到空页或 `hasMore: false`，随后
+按批次回收的 target 同步自身易失 notice 索引，不再自行按目标回放历史 read。
+恢复批次同样按目标的独立阅读位置取消息，不改变已有
 runtime 生命周期和单条 WSS。Web 使用会话实时信号与 canonical HTTP reconciliation；顶层消息提供回复数量和未读入口，
 桌面右侧讨论面板、移动端完整讨论视图及返回保留主聊天滚动位置；各目标草稿独立。
 
@@ -946,7 +950,10 @@ mute 变更与消息创建使用同一 conversation 行锁串行化，仅影响�
 消息事务按当时的成员偏好和 mention 写入 AgentMessageDelivery，重试沿用既有 delivery 身份，
 不按新的 mute 状态重算接收者。unmute 不补发静音期间的普通消息；此前合法产生的通知
 保留恢复资格。Agent check 与恢复只选择具有该 Agent delivery 的消息；显式 read 仍可读取
-已加入频道的历史。恢复沿用 canonical Message/read 边界，不建立新 inbox 或完整执行账本。
+已加入频道的历史。check 的服务端分页（`/api/agent/v1/events`）与恢复共享同一条"未读"
+判定规则（同一 `Prisma.sql` 片段），按 `(conversation, thread root, sequence)` 跨全部
+target 排序返回，并在返回分页的同时推进对应阅读边界；`hasMore` 为真时 Agent 需再次
+check 才能继续排空。恢复沿用 canonical Message/read 边界，不建立新 inbox 或完整执行账本。
 频道 live notice 与启动恢复不把正文或历史注入模型，Agent 自主 check/read；不将普通频道
 消息解释为必须回复。共享 session 的保密提示属于行为约束，并不提供严格的跨受众上下文隔离。
 

@@ -1,5 +1,10 @@
 import { Centrifuge } from "centrifuge/build/protobuf";
 import { agentApiRoutes } from "@lrm/coforge-sdk/agent";
+import type {
+  AgentEventsResponse,
+  AgentChannelAttentionResponse,
+  AgentThreadAttentionResponse,
+} from "@lrm/coforge-sdk/agent";
 import { AgentMessageRequestError } from "./agent-message-request-error";
 import {
   decodeAgentWorkspaceResetRequest,
@@ -126,6 +131,14 @@ export interface AgentMessageHttpClient {
   requestReaction?(
     input: AgentHttpInput<AgentMessageRequest> & { method: "POST" | "DELETE" },
   ): Promise<CloudAgentMessageResponse>;
+  /** `check` drains the server-side pending events page; the server advances the read boundary. */
+  requestEvents?(input: AgentHttpInput<AgentMessageRequest>): Promise<AgentEventsResponse>;
+  requestChannelMute?(
+    input: AgentHttpInput<AgentMessageRequest & { muted: boolean }>,
+  ): Promise<AgentChannelAttentionResponse>;
+  requestThreadUnfollow?(
+    input: AgentHttpInput<AgentMessageRequest>,
+  ): Promise<AgentThreadAttentionResponse>;
   requestReminder?(
     input: AgentHttpInput<AgentReminderOperationRequest>,
   ): Promise<AgentReminderOperationResponse>;
@@ -133,6 +146,13 @@ export interface AgentMessageHttpClient {
     input: AgentHttpInput<WorkspaceInfoRequest>,
   ): Promise<WorkspaceInfoResponse>;
 }
+
+/**
+ * The internal shape `DaemonConnection.agentMessage` returns to `DaemonRuntime`. It stays a
+ * `CloudAgentMessageResponse` for read/search/send/resolve/react/unreact (unchanged wire shape);
+ * `check` additionally carries `hasMore`, adapted from the events route's own response type.
+ */
+export type AgentMessageTransportResponse = CloudAgentMessageResponse & { hasMore?: boolean };
 export interface AgentTaskHttpClient {
   execute(input: AgentHttpInput<TaskRequest>): Promise<TaskResponse>;
 }
@@ -173,7 +193,7 @@ export interface DaemonConnectionClient {
   agentMessage?(
     request: AgentMessageRequest,
     agentApiKey?: string,
-  ): Promise<CloudAgentMessageResponse>;
+  ): Promise<AgentMessageTransportResponse>;
   agentTask?(request: TaskRequest, agentApiKey?: string): Promise<TaskResponse>;
   agentAttachment?(attachmentId: string, agentApiKey?: string): Promise<Response>;
   requestAgentApiKey?(input: { agentId: string; workspaceId: string }): Promise<string>;
@@ -243,7 +263,7 @@ async function getAgentJson<Result>(
   for (const [key, value] of Object.entries(input.query))
     if (value !== undefined) endpoint.searchParams.set(key, String(value));
   const response = await fetcher(endpoint, { method: "GET", headers: agentHeaders(input) });
-  if (!response.ok) throw new Error(`server ${input.what} request failed (${response.status})`);
+  if (!response.ok) throw AgentMessageRequestError.fromRpc(response.status, await response.text());
   return (await response.json()) as Result;
 }
 
@@ -292,8 +312,35 @@ export const createAgentMessageHttpClient = (
         seenUpToSequence: request.seenUpToSequence,
       }),
     });
-    if (!response.ok) throw new Error(`server agent send request failed (${response.status})`);
+    if (!response.ok)
+      throw AgentMessageRequestError.fromRpc(response.status, await response.text());
     return (await response.json()) as CloudAgentMessageResponse;
+  },
+  requestEvents: ({ request, ...keys }) =>
+    getAgentJson<AgentEventsResponse>(httpClient, {
+      ...keys,
+      what: "agent events",
+      query: { requestId: request.requestId, limit: request.limit },
+    }),
+  async requestChannelMute({ url, request, ...keys }) {
+    const response = await httpClient(url, {
+      method: "POST",
+      headers: agentHeaders(keys, true),
+      body: JSON.stringify({ requestId: request.requestId }),
+    });
+    if (!response.ok)
+      throw AgentMessageRequestError.fromRpc(response.status, await response.text());
+    return (await response.json()) as AgentChannelAttentionResponse;
+  },
+  async requestThreadUnfollow({ url, request, ...keys }) {
+    const response = await httpClient(url, {
+      method: "POST",
+      headers: agentHeaders(keys, true),
+      body: JSON.stringify({ requestId: request.requestId }),
+    });
+    if (!response.ok)
+      throw AgentMessageRequestError.fromRpc(response.status, await response.text());
+    return (await response.json()) as AgentThreadAttentionResponse;
   },
   async requestResolve({ url, request, ...keys }) {
     const endpoint = new URL(url);
@@ -643,10 +690,71 @@ export class DaemonConnection implements DaemonConnectionClient {
   async agentMessage(
     request: AgentMessageRequest,
     agentApiKey?: string,
-  ): Promise<CloudAgentMessageResponse> {
+  ): Promise<AgentMessageTransportResponse> {
     if (!this.#connected) throw new Error("daemon connection is not connected");
-    const { requestRead, requestSearch, requestSend, requestResolve, requestReaction } =
-      this.agentMessageHttpClient;
+    const {
+      requestRead,
+      requestSearch,
+      requestSend,
+      requestResolve,
+      requestReaction,
+      requestEvents,
+      requestChannelMute,
+      requestThreadUnfollow,
+    } = this.agentMessageHttpClient;
+    if (request.operation === "check") {
+      if (!requestEvents) throw new Error("unsupported Agent message operation: check");
+      const url = this.#serverEndpoint("Agent message HTTP", agentApiRoutes.cloud.events.path);
+      const events = await requestEvents({ url, ...this.#agentKeys(agentApiKey), request });
+      return {
+        protocolMajor: events.protocolMajor,
+        requestId: events.requestId,
+        accepted: true,
+        attentionCount: events.events.length,
+        messages: events.events,
+        messageId: "",
+        hasMore: events.hasMore,
+      };
+    }
+    if (request.operation === "mute" || request.operation === "unmute") {
+      if (!requestChannelMute)
+        throw new Error(`unsupported Agent message operation: ${request.operation}`);
+      const muted = request.operation === "mute";
+      const path = muted
+        ? agentApiRoutes.cloud.channels.mute.path(request.target)
+        : agentApiRoutes.cloud.channels.unmute.path(request.target);
+      const url = this.#serverEndpoint("Agent message HTTP", path);
+      const result = await requestChannelMute({
+        url,
+        ...this.#agentKeys(agentApiKey),
+        request: { ...request, muted },
+      });
+      return {
+        protocolMajor: result.protocolMajor,
+        requestId: result.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messages: [],
+        messageId: "",
+      };
+    }
+    if (request.operation === "thread-unfollow") {
+      if (!requestThreadUnfollow)
+        throw new Error("unsupported Agent message operation: thread-unfollow");
+      const url = this.#serverEndpoint(
+        "Agent message HTTP",
+        agentApiRoutes.cloud.threads.unfollow.path(request.target),
+      );
+      const result = await requestThreadUnfollow({ url, ...this.#agentKeys(agentApiKey), request });
+      return {
+        protocolMajor: result.protocolMajor,
+        requestId: result.requestId,
+        accepted: true,
+        attentionCount: 0,
+        messages: [],
+        messageId: "",
+      };
+    }
     if (request.operation === "resolve") {
       if (!requestResolve) throw new Error("unsupported Agent message operation: resolve");
       const url = this.#serverEndpoint(

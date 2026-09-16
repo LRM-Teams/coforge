@@ -17,6 +17,19 @@ import {
   isChannelMessageTarget,
 } from "./index";
 
+test("round-trips the targetless events-drain check operation over the cloud envelope", () => {
+  const request = {
+    protocolMajor: 1,
+    requestId: "request-check",
+    workspaceId: "workspace-a",
+    agentId: "agent-a",
+    operation: "check" as const,
+    target: "",
+    limit: 50,
+  };
+  expect(decodeAgentMessageRequest(encodeAgentMessageRequest(request))).toMatchObject(request);
+});
+
 test.each(["mute", "unmute"] as const)(
   "round-trips Agent channel %s over existing versioned envelopes",
   (operation) => {
@@ -276,6 +289,33 @@ test("round-trips Agent Inbox freshness request and held response", () => {
     seenUpToSequence: 7,
   };
   expect(decodeAgentMessageResponse(encodeAgentMessageResponse(response))).toEqual(response);
+});
+
+test("round-trips the daemon-local events drain hasMore flag for the CLI", () => {
+  const local = {
+    requestId: "request-events",
+    accepted: true,
+    attentionCount: 2,
+    summaries: [],
+    messages: [],
+    messageId: "",
+    hasMore: true,
+  };
+  expect(decodeAgentMessageResponse(encodeAgentMessageResponse(local))).toEqual(local);
+});
+
+test("withholds the daemon-local events drain hasMore flag under reviewer isolation", () => {
+  const local = {
+    requestId: "request-events",
+    accepted: true,
+    attentionCount: 2,
+    summaries: [],
+    messages: [],
+    messageId: "",
+    hasMore: true,
+    freshnessContextMode: "withheld" as const,
+  };
+  expect(decodeAgentMessageResponse(encodeAgentMessageResponse(local)).hasMore).toBeUndefined();
 });
 
 test("round-trips attachment metadata in Agent message history", () => {

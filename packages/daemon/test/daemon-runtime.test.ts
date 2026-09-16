@@ -758,8 +758,9 @@ test("channel check and notification settings use the bound Agent without replac
       requestId: request.requestId,
       accepted: true,
       attentionCount: 0,
+      hasMore: false,
       messages:
-        request.operation === "read"
+        request.operation === "check"
           ? [messageRecord(1, "@alice", "#general"), messageRecord(3, "@bob", "#general")]
           : [],
     };
@@ -950,14 +951,121 @@ describe("DaemonRuntime", () => {
     await harness.runtime.stop().catch(() => undefined);
   });
 
+  test("message check drains the events endpoint in one session, honoring the requested limit", async () => {
+    const credentials = new InMemoryDaemonCredentialStore();
+    await credentials.save(connection.workspaceId, connection.computerId, "token-a");
+    let launches = 0;
+    const checkRequests: Array<{ limit?: number }> = [];
+    const runtime = new DaemonRuntime(
+      connection,
+      () => ({
+        provider: "pi",
+        createAgentSession: async () => {
+          launches++;
+          return { ...sessionSpy(), async notify() {} };
+        },
+      }),
+      credentials,
+      {
+        create: () => ({
+          async start() {},
+          async ready() {},
+          async stop() {},
+          async requestAgentApiKey() {
+            return `sk_agent_${"a".repeat(43)}`;
+          },
+          async revokeAgentApiKey() {},
+          async sendAgentDeliveryAck() {},
+          async agentMessage(request) {
+            if (request.operation === "check") {
+              checkRequests.push(request);
+              const round = checkRequests.length;
+              return {
+                protocolMajor: 1,
+                requestId: request.requestId,
+                accepted: true,
+                attentionCount: round === 1 ? 2 : 0,
+                hasMore: round === 1,
+                messages:
+                  round === 1
+                    ? [
+                        {
+                          id: "message-5",
+                          sequence: 5,
+                          sender: "@ada",
+                          target: "@ada",
+                          body: "old message",
+                          createdAt: "2026-09-03T00:00:00Z",
+                        },
+                      ]
+                    : round === 2
+                      ? [
+                          {
+                            id: "message-7",
+                            sequence: 7,
+                            sender: "@ada",
+                            target: "@ada",
+                            body: "new message",
+                            createdAt: "2026-09-03T00:01:00Z",
+                          },
+                        ]
+                      : [],
+              };
+            }
+            return {
+              protocolMajor: 1,
+              requestId: request.requestId,
+              accepted: true,
+              attentionCount: 0,
+              messages: [],
+            };
+          },
+        }),
+      },
+    );
+    await runtime.start(connection);
+    await runtime.startAgent("agent-a", config);
+    const context = runtime.issueAgentContext("agent-a");
+    await runtime.handleAgentMessage({
+      protocolMajor: 1,
+      requestId: "delivery-request",
+      messageId: "message-7",
+      deliveryId: "delivery-7",
+      sequence: 7,
+      workspaceId: connection.workspaceId,
+      conversationId: "conversation-a",
+      agentId: "agent-a",
+      body: "new message",
+      method: "agent:deliver",
+      target: "@ada",
+    });
+
+    const first = await runtime.agentMessage(
+      context,
+      { requestId: "check-1", context, operation: "check", limit: 1 },
+      `sk_agent_${"a".repeat(43)}`,
+    );
+    const second = await runtime.agentMessage(
+      context,
+      { requestId: "check-2", context, operation: "check", limit: 1 },
+      `sk_agent_${"a".repeat(43)}`,
+    );
+
+    expect(first.messages.map(({ id }) => id)).toEqual(["message-5", "message-7"]);
+    expect(first.hasMore).toBe(false);
+    expect(second.messages).toEqual([]);
+    expect(second.hasMore).toBe(false);
+    expect(checkRequests.map((r) => r.limit)).toEqual([1, 1, 1]);
+    expect(launches).toBe(1);
+    await runtime.stop();
+  });
+
   test.each(["@ada", "@ada:12345678"])(
-    "message check drains exact target %s in one session",
+    "resolves a short thread target for a history read that follows a message check in one session",
     async (target) => {
       const rootId = "12345678-1234-4234-8234-123456789abc";
-      const canonicalTarget = target.includes(":") ? `@ada:${rootId}` : target;
       const credentials = new InMemoryDaemonCredentialStore();
       await credentials.save(connection.workspaceId, connection.computerId, "token-a");
-      let reads = 0;
       let launches = 0;
       const requests: Array<{ before?: string; around?: string; limit?: number }> = [];
       const runtime = new DaemonRuntime(
@@ -981,6 +1089,15 @@ describe("DaemonRuntime", () => {
             async revokeAgentApiKey() {},
             async sendAgentDeliveryAck() {},
             async agentMessage(request) {
+              if (request.operation === "check")
+                return {
+                  protocolMajor: 1,
+                  requestId: request.requestId,
+                  accepted: true,
+                  attentionCount: 0,
+                  hasMore: false,
+                  messages: [],
+                };
               if (
                 target.includes(":") &&
                 request.target === "@ada" &&
@@ -1002,31 +1119,13 @@ describe("DaemonRuntime", () => {
                     },
                   ],
                 };
-              reads++;
               requests.push(request);
               return {
                 protocolMajor: 1,
                 requestId: request.requestId,
                 accepted: true,
-                attentionCount: 1,
-                messages: [
-                  {
-                    id: "message-5",
-                    sequence: 5,
-                    sender: "@ada",
-                    target: canonicalTarget,
-                    body: "old message",
-                    createdAt: "2026-09-03T00:00:00Z",
-                  },
-                  {
-                    id: "message-7",
-                    sequence: 7,
-                    sender: "@ada",
-                    target: canonicalTarget,
-                    body: "new message",
-                    createdAt: "2026-09-03T00:01:00Z",
-                  },
-                ],
+                attentionCount: 0,
+                messages: [],
               };
             },
           }),
@@ -1035,34 +1134,11 @@ describe("DaemonRuntime", () => {
       await runtime.start(connection);
       await runtime.startAgent("agent-a", config);
       const context = runtime.issueAgentContext("agent-a");
-      await runtime.handleAgentMessage({
-        protocolMajor: 1,
-        requestId: "delivery-request",
-        messageId: "message-7",
-        deliveryId: "delivery-7",
-        sequence: 7,
-        workspaceId: connection.workspaceId,
-        conversationId: "conversation-a",
-        agentId: "agent-a",
-        body: "new message",
-        method: "agent:deliver",
-        target: canonicalTarget,
-      });
-
-      const first = await runtime.agentMessage(
+      await runtime.agentMessage(
         context,
         { requestId: "check-1", context, operation: "check" },
         `sk_agent_${"a".repeat(43)}`,
       );
-      const second = await runtime.agentMessage(
-        context,
-        { requestId: "check-2", context, operation: "check" },
-        `sk_agent_${"a".repeat(43)}`,
-      );
-
-      expect(first.messages.map(({ id }) => id)).toEqual(["message-5", "message-7"]);
-      expect(second.messages).toEqual([]);
-      expect(reads).toBe(1);
       await runtime.agentMessage(
         context,
         { requestId: "history", context, operation: "read", target, around: "12345678", limit: 1 },
@@ -1314,10 +1390,10 @@ describe("DaemonRuntime", () => {
     }
   });
 
-  test("message check returns every user message in the canonical page despite later attention", async () => {
+  test("message check drains multiple event pages, stops when hasMore is false, and clears attention only for returned targets", async () => {
     const credentials = new InMemoryDaemonCredentialStore();
     await credentials.save(connection.workspaceId, connection.computerId, "token-a");
-    const ranges: Array<number | undefined> = [];
+    const limits: Array<number | undefined> = [];
     const runtime = new DaemonRuntime(
       connection,
       () => ({
@@ -1336,22 +1412,24 @@ describe("DaemonRuntime", () => {
           async revokeAgentApiKey() {},
           async sendAgentDeliveryAck() {},
           async agentMessage(request) {
-            ranges.push(request.fromSequence);
-            const sequences = request.fromSequence === undefined ? [1, 2] : [3];
+            limits.push(request.limit);
+            const round = limits.length;
+            if (round === 1)
+              return {
+                protocolMajor: 1,
+                requestId: request.requestId,
+                accepted: true,
+                attentionCount: 2,
+                hasMore: true,
+                messages: [messageRecord(1, "@ada", "@ada"), messageRecord(2, "@bea", "@bea")],
+              };
             return {
               protocolMajor: 1,
               requestId: request.requestId,
               accepted: true,
-              attentionCount: 1,
-              hasNewer: sequences.at(-1)! < 3,
-              messages: sequences.map((sequence) => ({
-                id: `message-${sequence}`,
-                sequence,
-                sender: sequence === 2 ? "@agent-a" : "@ada",
-                target: "@ada",
-                body: `body-${sequence}`,
-                createdAt: "2026-09-03T00:00:00Z",
-              })),
+              attentionCount: 0,
+              hasMore: false,
+              messages: [],
             };
           },
         }),
@@ -1361,26 +1439,49 @@ describe("DaemonRuntime", () => {
     await runtime.startAgent("agent-a", config);
     await runtime.handleAgentMessage({
       protocolMajor: 1,
-      requestId: "delivery-3",
-      messageId: "message-3",
-      deliveryId: "delivery-3",
-      sequence: 3,
+      requestId: "delivery-1",
+      messageId: "message-1",
+      deliveryId: "delivery-1",
+      sequence: 1,
       workspaceId: connection.workspaceId,
       conversationId: "conversation-a",
       agentId: "agent-a",
-      body: "body-3",
+      body: "body-1",
       method: "agent:deliver",
       target: "@ada",
+    });
+    await runtime.handleAgentMessage({
+      protocolMajor: 1,
+      requestId: "delivery-untouched",
+      messageId: "message-untouched",
+      deliveryId: "delivery-untouched",
+      sequence: 9,
+      workspaceId: connection.workspaceId,
+      conversationId: "conversation-b",
+      agentId: "agent-a",
+      body: "body-9",
+      method: "agent:deliver",
+      target: "@carl",
     });
     const context = runtime.issueAgentContext("agent-a");
     const result = await runtime.agentMessage(
       context,
-      { requestId: "check-range", context, operation: "check", limit: 2 },
+      { requestId: "check-drain", context, operation: "check", limit: 2 },
       `sk_agent_${"a".repeat(43)}`,
     );
 
-    expect(ranges).toEqual([undefined, 3]);
-    expect(result.messages.map(({ sequence }) => sequence)).toEqual([1, 3]);
+    expect(limits).toEqual([2, 2]);
+    expect(result.messages.map(({ id }) => id)).toEqual(["message-1", "message-2"]);
+    expect(result.hasMore).toBe(false);
+
+    // @ada's attention (sequence 1) is fully drained; @carl's attention was never returned and
+    // stays intact; @bea had no prior attention entry, so recording it seen is a harmless no-op.
+    const second = await runtime.agentMessage(
+      context,
+      { requestId: "check-after", context, operation: "check" },
+      `sk_agent_${"a".repeat(43)}`,
+    );
+    expect(second.summaries.map((s) => s.target)).toEqual(["@carl"]);
     await runtime.stop();
   });
 

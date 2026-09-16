@@ -8,6 +8,13 @@ test("keeps the versioned workspace route stable", () => {
   });
 });
 
+test("exposes the cloud events drain route", () => {
+  expect(agentApiRoutes.cloud.events).toEqual({
+    method: "GET",
+    path: "/api/agent/v1/events",
+  });
+});
+
 test("uses versioned Agent API routes for the Proxy and cloud", () => {
   expect(agentApiRoutes.proxy.messages.path).toBe("/api/agent/v1/messages");
   expect(agentApiRoutes.proxy.tasks.path).toBe("/api/agent/v1/tasks");

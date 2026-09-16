@@ -218,6 +218,34 @@ function unreadForAgentWhere(agentId: string, isChannel: boolean) {
   } satisfies Prisma.MessageWhereInput;
 }
 
+/**
+ * Messages the Agent owes attention to: above its per-target read boundary, sent by a user, or
+ * system-authored with a delivery row for this Agent; channels only count with a delivery row.
+ * Shared by `readAgentRecoveryContext` and `drainAgentEvents` so the rule cannot drift between them.
+ */
+function unreadAgentMessagesFragment(workspaceId: string, agentId: string) {
+  return Prisma.sql`
+    SELECT m."id", m."sequence", m."body", m."conversationId", m."threadRootId",
+      m."senderMemberId", COALESCE(r."sequence", 0) AS "rootSequence",
+      d."deliveryId", su."username" AS "senderUsername", c."channelName",
+      (SELECT uu."username" FROM "conversation_members" um
+        JOIN "users" uu ON uu."id" = um."userId"
+        WHERE um."conversationId" = c."id" ORDER BY uu."username" LIMIT 1) AS "userUsername"
+    FROM "messages" m
+    JOIN "conversation_members" am ON am."conversationId" = m."conversationId"
+      AND am."workspaceId" = ${workspaceId}::uuid AND am."agentId" = ${agentId}::uuid
+    JOIN "conversations" c ON c."id" = m."conversationId"
+    LEFT JOIN "messages" r ON r."id" = m."threadRootId"
+    LEFT JOIN "thread_reads" tr ON tr."memberId" = am."id" AND tr."rootMessageId" = m."threadRootId"
+    LEFT JOIN "conversation_members" sm ON sm."id" = m."senderMemberId"
+    LEFT JOIN "users" su ON su."id" = sm."userId"
+    LEFT JOIN "agent_message_deliveries" d ON d."messageId" = m."id" AND d."agentId" = ${agentId}::uuid
+    WHERE m."sequence" > CASE WHEN m."threadRootId" IS NULL
+        THEN am."agentReadThroughSequence" ELSE COALESCE(tr."readThroughSequence", 0) END
+      AND (sm."userId" IS NOT NULL OR (m."senderMemberId" IS NULL AND d."deliveryId" IS NOT NULL))
+      AND (c."channelName" IS NULL OR d."deliveryId" IS NOT NULL)`;
+}
+
 /** Next sequence for a conversation; holds the conversation row lock until the transaction ends. */
 async function allocateSequence(tx: Prisma.TransactionClient, conversationId: string) {
   await lockConversation(tx, conversationId);
@@ -376,6 +404,23 @@ export type DirectConversationRepository = {
     afterSequence?: number,
   ): ReturnType<NonNullable<DirectConversationRepository["readMessages"]>>;
   readAgentRecoveryContext?(workspaceId: string, agentId: string): Promise<AgentRecoveryContext>;
+  drainAgentEvents?(
+    workspaceId: string,
+    agentId: string,
+    limit?: number,
+  ): Promise<{
+    messages: {
+      id: string;
+      sequence: number;
+      sender: string;
+      body: string;
+      createdAt: Date;
+      target: string;
+      attachment?: AttachmentMetadata;
+      task?: MessageTaskMetadata;
+    }[];
+    hasMore: boolean;
+  }>;
   readPendingAgentDeliveries?(
     workspaceId: string,
     agentId: string,
@@ -708,6 +753,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
   }
 
   private async advanceThreadRead(
+    client: Prisma.TransactionClient | PrismaClient,
     memberId: string,
     conversationId: string,
     workspaceId: string,
@@ -715,7 +761,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     sequence: number,
   ) {
     // PostgreSQL's atomic upsert preserves monotonic positions across backend replicas.
-    await this.db.$executeRaw`INSERT INTO "thread_reads"
+    await client.$executeRaw`INSERT INTO "thread_reads"
       ("memberId", "conversationId", "workspaceId", "rootMessageId", "readThroughSequence")
       VALUES (${memberId}::uuid, ${conversationId}::uuid, ${workspaceId}::uuid, ${rootMessageId}::uuid, ${sequence})
       ON CONFLICT ("memberId", "rootMessageId") DO UPDATE SET "readThroughSequence" =
@@ -856,7 +902,14 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         conversationId_userId: { conversationId: conversation.id, userId },
       },
     });
-    await this.advanceThreadRead(member.id, conversation.id, workspaceId, root.id, latest.sequence);
+    await this.advanceThreadRead(
+      this.db,
+      member.id,
+      conversation.id,
+      workspaceId,
+      root.id,
+      latest.sequence,
+    );
   }
 
   async sendMessage(
@@ -1134,6 +1187,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     const agentReadThroughSequence = isBoundaryRead ? (messages.at(-1)?.sequence ?? 0) : 0;
     if (agentReadThroughSequence && threadRootId) {
       await this.advanceThreadRead(
+        this.db,
         agentMember.id,
         conversationId,
         workspaceId,
@@ -1166,25 +1220,7 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     // first message of each target so unreadSummary stays complete without a second pass.
     const rows = await this.db.$queryRaw<AgentRecoveryRow[]>`
       WITH unread AS (
-        SELECT m."id", m."sequence", m."body", m."conversationId", m."threadRootId",
-          m."senderMemberId", COALESCE(r."sequence", 0) AS "rootSequence",
-          d."deliveryId", su."username" AS "senderUsername", c."channelName",
-          (SELECT uu."username" FROM "conversation_members" um
-            JOIN "users" uu ON uu."id" = um."userId"
-            WHERE um."conversationId" = c."id" ORDER BY uu."username" LIMIT 1) AS "userUsername"
-        FROM "messages" m
-        JOIN "conversation_members" am ON am."conversationId" = m."conversationId"
-          AND am."workspaceId" = ${workspaceId}::uuid AND am."agentId" = ${agentId}::uuid
-        JOIN "conversations" c ON c."id" = m."conversationId"
-        LEFT JOIN "messages" r ON r."id" = m."threadRootId"
-        LEFT JOIN "thread_reads" tr ON tr."memberId" = am."id" AND tr."rootMessageId" = m."threadRootId"
-        LEFT JOIN "conversation_members" sm ON sm."id" = m."senderMemberId"
-        LEFT JOIN "users" su ON su."id" = sm."userId"
-        LEFT JOIN "agent_message_deliveries" d ON d."messageId" = m."id" AND d."agentId" = ${agentId}::uuid
-        WHERE m."sequence" > CASE WHEN m."threadRootId" IS NULL
-            THEN am."agentReadThroughSequence" ELSE COALESCE(tr."readThroughSequence", 0) END
-          AND (sm."userId" IS NOT NULL OR (m."senderMemberId" IS NULL AND d."deliveryId" IS NOT NULL))
-          AND (c."channelName" IS NULL OR d."deliveryId" IS NOT NULL)
+        ${unreadAgentMessagesFragment(workspaceId, agentId)}
       ), ranked AS (
         SELECT u.*,
           (COUNT(*) OVER (PARTITION BY "conversationId", "threadRootId"))::int AS "unreadCount",
@@ -1225,6 +1261,101 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
     return { resumeMessages, unreadSummary };
   }
 
+  /**
+   * Drains up to `limit` messages the Agent still owes attention to, in global
+   * `(conversation, thread root, sequence)` order, and advances its read boundary for exactly the
+   * targets returned (ack-on-drain). Boundaries only move forward.
+   */
+  async drainAgentEvents(
+    workspaceId: string,
+    agentId: string,
+    limit = 50,
+  ): Promise<{ messages: ReturnType<typeof toAgentMessage>[]; hasMore: boolean }> {
+    const bounded = Math.min(Math.max(limit, 1), 100);
+    return this.db.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<
+        Array<Pick<AgentRecoveryRow, "id" | "conversationId" | "threadRootId" | "sequence">>
+      >`
+        WITH unread AS (
+          ${unreadAgentMessagesFragment(workspaceId, agentId)}
+        )
+        SELECT "id", "conversationId", "threadRootId", "sequence"
+        FROM unread
+        ORDER BY "conversationId", "rootSequence", "sequence"
+        LIMIT ${bounded + 1}`;
+      const hasMore = rows.length > bounded;
+      const page = rows.slice(0, bounded);
+      if (page.length === 0) return { messages: [], hasMore: false };
+      const messageRows = await tx.message.findMany({
+        where: { id: { in: page.map((row) => row.id) } },
+        include: {
+          ...AGENT_MESSAGE_INCLUDE,
+          conversation: {
+            include: {
+              members: {
+                where: { userId: { not: null } },
+                select: { user: { select: { username: true } } },
+                take: 1,
+              },
+            },
+          },
+        },
+      });
+      const rowById = new Map(messageRows.map((row) => [row.id, row]));
+      const messages = page.map((row) => {
+        const message = rowById.get(row.id);
+        if (!message) throw new Error(`drained Agent message is missing: ${row.id}`);
+        return toAgentMessage(
+          message,
+          deliveryTarget(conversationTarget(message.conversation), message.threadRootId),
+        );
+      });
+      const targetGroups = new Map<
+        string,
+        { conversationId: string; threadRootId: string | null; maxSequence: number }
+      >();
+      for (const row of page) {
+        const key = `${row.conversationId}:${row.threadRootId ?? ""}`;
+        const existing = targetGroups.get(key);
+        if (!existing || row.sequence > existing.maxSequence)
+          targetGroups.set(key, {
+            conversationId: row.conversationId,
+            threadRootId: row.threadRootId,
+            maxSequence: row.sequence,
+          });
+      }
+      const members = await tx.conversationMember.findMany({
+        where: { agentId, conversationId: { in: [...new Set(page.map((r) => r.conversationId))] } },
+        select: { id: true, conversationId: true },
+      });
+      const memberIdByConversation = new Map(members.map((m) => [m.conversationId, m.id]));
+      for (const group of targetGroups.values()) {
+        if (group.threadRootId) {
+          const memberId = memberIdByConversation.get(group.conversationId);
+          if (!memberId) throw new Error("Agent is not a conversation member");
+          await this.advanceThreadRead(
+            tx,
+            memberId,
+            group.conversationId,
+            workspaceId,
+            group.threadRootId,
+            group.maxSequence,
+          );
+        } else {
+          await tx.conversationMember.updateMany({
+            where: {
+              conversationId: group.conversationId,
+              agentId,
+              agentReadThroughSequence: { lt: group.maxSequence },
+            },
+            data: { agentReadThroughSequence: group.maxSequence },
+          });
+        }
+      }
+      return { messages, hasMore };
+    });
+  }
+
   async advanceAgentReadThrough(
     workspaceId: string,
     agentId: string,
@@ -1247,7 +1378,14 @@ export class PrismaDirectConversationRepository implements DirectConversationRep
         where: { conversationId_agentId: { conversationId, agentId } },
         select: { id: true },
       });
-      await this.advanceThreadRead(member.id, conversationId, workspaceId, threadRootId, bounded);
+      await this.advanceThreadRead(
+        this.db,
+        member.id,
+        conversationId,
+        workspaceId,
+        threadRootId,
+        bounded,
+      );
     } else if (bounded)
       await this.db.conversationMember.updateMany({
         where: {

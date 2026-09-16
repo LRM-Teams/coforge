@@ -12,6 +12,10 @@ import type {
   AgentMessagesResolveRequest,
   AgentMessagesReactionRequest,
   AgentMessagesResponse,
+  AgentEventsGetRequest,
+  AgentEventsResponse,
+  AgentChannelAttentionResponse,
+  AgentThreadAttentionResponse,
 } from "./messages";
 
 export type AgentAttachmentDownload = {
@@ -84,11 +88,12 @@ export type AgentApiClient = {
     addReaction(request: AgentMessagesReactionRequest): Promise<AgentMessagesResponse>;
     removeReaction(request: AgentMessagesReactionRequest): Promise<AgentMessagesResponse>;
   };
+  events: { get(request: AgentEventsGetRequest): Promise<AgentEventsResponse> };
   channels: {
-    mute(channelId: string): Promise<unknown>;
-    unmute(channelId: string): Promise<unknown>;
+    mute(channelId: string): Promise<AgentChannelAttentionResponse>;
+    unmute(channelId: string): Promise<AgentChannelAttentionResponse>;
   };
-  threads: { unfollow(threadId: string): Promise<unknown> };
+  threads: { unfollow(threadId: string): Promise<AgentThreadAttentionResponse> };
   attachments: { download(attachmentId: string): Promise<AgentAttachmentDownload> };
 };
 
@@ -128,11 +133,12 @@ export type RawAgentApiClient = {
       request: AgentMessagesReactionRequest,
     ): Promise<AgentApiResult<AgentMessagesResponse>>;
   };
+  events: { get(request: AgentEventsGetRequest): Promise<AgentApiResult<AgentEventsResponse>> };
   channels: {
-    mute(channelId: string): Promise<AgentApiResult<unknown>>;
-    unmute(channelId: string): Promise<AgentApiResult<unknown>>;
+    mute(channelId: string): Promise<AgentApiResult<AgentChannelAttentionResponse>>;
+    unmute(channelId: string): Promise<AgentApiResult<AgentChannelAttentionResponse>>;
   };
-  threads: { unfollow(threadId: string): Promise<AgentApiResult<unknown>> };
+  threads: { unfollow(threadId: string): Promise<AgentApiResult<AgentThreadAttentionResponse>> };
   attachments: { download(attachmentId: string): Promise<AgentApiResult<AgentAttachmentDownload>> };
 };
 
@@ -145,14 +151,22 @@ export function createAgentApiRawClient(transport: AgentApiTransport): RawAgentA
     tasks: taskResources(transport),
     reminders: reminderResources(transport),
     messages: messageResources(transport),
+    events: eventsResources(transport),
     channels: {
-      mute: (channelId) => transport.request(agentApiRoutes.cloud.channels.mute.path(channelId)),
+      mute: (channelId) =>
+        transport.request(agentApiRoutes.cloud.channels.mute.path(channelId)) as Promise<
+          AgentApiResult<AgentChannelAttentionResponse>
+        >,
       unmute: (channelId) =>
-        transport.request(agentApiRoutes.cloud.channels.unmute.path(channelId)),
+        transport.request(agentApiRoutes.cloud.channels.unmute.path(channelId)) as Promise<
+          AgentApiResult<AgentChannelAttentionResponse>
+        >,
     },
     threads: {
       unfollow: (threadId) =>
-        transport.request(agentApiRoutes.cloud.threads.unfollow.path(threadId)),
+        transport.request(agentApiRoutes.cloud.threads.unfollow.path(threadId)) as Promise<
+          AgentApiResult<AgentThreadAttentionResponse>
+        >,
     },
     attachments: {
       download: (attachmentId) =>
@@ -196,6 +210,9 @@ export function createAgentApiClient(transport: AgentApiTransport): AgentApiClie
       resolve: async (request) => unwrap(await rawClient.messages.resolve(request)),
       addReaction: async (request) => unwrap(await rawClient.messages.addReaction(request)),
       removeReaction: async (request) => unwrap(await rawClient.messages.removeReaction(request)),
+    },
+    events: {
+      get: async (request) => unwrap(await rawClient.events.get(request)),
     },
     channels: {
       mute: async (channelId) => unwrap(await rawClient.channels.mute(channelId)),
@@ -275,6 +292,15 @@ function messageResources(transport: AgentApiTransport): RawAgentApiClient["mess
       transport.request(agentApiRoutes.cloud.messages.reactions.path(messageId), {
         emoji,
       }) as Promise<AgentApiResult<AgentMessagesResponse>>,
+  };
+}
+
+function eventsResources(transport: AgentApiTransport): RawAgentApiClient["events"] {
+  return {
+    get: (request) =>
+      transport.request(agentApiRoutes.cloud.events, request) as Promise<
+        AgentApiResult<AgentEventsResponse>
+      >,
   };
 }
 

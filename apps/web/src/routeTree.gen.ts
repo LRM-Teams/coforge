@@ -54,6 +54,7 @@ import { Route as ApiInternalWeeklyReportScheduleRouteImport } from './routes/ap
 import { Route as ApiMeAvatarRouteImport } from './routes/api/me/avatar'
 import { Route as ApiWorkspacesSlugRouteImport } from './routes/api/workspaces.$slug'
 import { Route as AppMessagesChannelsChannelIdRouteImport } from './routes/_app/messages.channels.$channelId'
+import { Route as ApiAgentV1EventsRouteImport } from './routes/api/agent/v1/events'
 import { Route as ApiAgentV1MessagesRouteImport } from './routes/api/agent/v1/messages'
 import { Route as ApiAgentV1RemindersRouteImport } from './routes/api/agent/v1/reminders'
 import { Route as ApiAgentV1TasksRouteImport } from './routes/api/agent/v1/tasks'
@@ -63,8 +64,11 @@ import { Route as ApiE2eWorkspacesSlugRouteImport } from './routes/api/e2e/works
 import { Route as ApiIntegrationsGithubCallbackRouteImport } from './routes/api/integrations/github/callback'
 import { Route as ApiAgentV1AttachmentsAttachmentIdRouteImport } from './routes/api/agent/v1/attachments/$attachmentId'
 import { Route as ApiAgentV1AttachmentsCapabilitiesRouteImport } from './routes/api/agent/v1/attachments/capabilities'
+import { Route as ApiAgentV1ChannelsChannelMuteRouteImport } from './routes/api/agent/v1/channels_.$channel.mute'
+import { Route as ApiAgentV1ChannelsChannelUnmuteRouteImport } from './routes/api/agent/v1/channels_.$channel.unmute'
 import { Route as ApiAgentV1MessagesMessageIdReactionsRouteImport } from './routes/api/agent/v1/messages_.$messageId.reactions'
 import { Route as ApiAgentV1MessagesMessageIdResolveRouteImport } from './routes/api/agent/v1/messages_.$messageId.resolve'
+import { Route as ApiAgentV1ThreadsThreadUnfollowRouteImport } from './routes/api/agent/v1/threads_.$thread.unfollow'
 import { Route as ApiWorkspacesWorkspaceIdUsersUserIdAvatarRouteImport } from './routes/api/workspaces/$workspaceId/users/$userId/avatar'
 
 const IndexRoute = IndexRouteImport.update({
@@ -297,6 +301,11 @@ const AppMessagesChannelsChannelIdRoute =
     path: '/channels/$channelId',
     getParentRoute: () => AppMessagesRoute,
   } as any)
+const ApiAgentV1EventsRoute = ApiAgentV1EventsRouteImport.update({
+  id: '/api/agent/v1/events',
+  path: '/api/agent/v1/events',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAgentV1MessagesRoute = ApiAgentV1MessagesRouteImport.update({
   id: '/api/agent/v1/messages',
   path: '/api/agent/v1/messages',
@@ -346,6 +355,18 @@ const ApiAgentV1AttachmentsCapabilitiesRoute =
     path: '/api/agent/v1/attachments/capabilities',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiAgentV1ChannelsChannelMuteRoute =
+  ApiAgentV1ChannelsChannelMuteRouteImport.update({
+    id: '/api/agent/v1/channels_/$channel/mute',
+    path: '/api/agent/v1/channels/$channel/mute',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentV1ChannelsChannelUnmuteRoute =
+  ApiAgentV1ChannelsChannelUnmuteRouteImport.update({
+    id: '/api/agent/v1/channels_/$channel/unmute',
+    path: '/api/agent/v1/channels/$channel/unmute',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAgentV1MessagesMessageIdReactionsRoute =
   ApiAgentV1MessagesMessageIdReactionsRouteImport.update({
     id: '/api/agent/v1/messages_/$messageId/reactions',
@@ -356,6 +377,12 @@ const ApiAgentV1MessagesMessageIdResolveRoute =
   ApiAgentV1MessagesMessageIdResolveRouteImport.update({
     id: '/api/agent/v1/messages_/$messageId/resolve',
     path: '/api/agent/v1/messages/$messageId/resolve',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentV1ThreadsThreadUnfollowRoute =
+  ApiAgentV1ThreadsThreadUnfollowRouteImport.update({
+    id: '/api/agent/v1/threads_/$thread/unfollow',
+    path: '/api/agent/v1/threads/$thread/unfollow',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute =
@@ -410,6 +437,7 @@ export interface FileRoutesByFullPath {
   '/messages/': typeof AppMessagesIndexRoute
   '/records/': typeof AppRecordsIndexRoute
   '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
+  '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
   '/api/agent/v1/tasks': typeof ApiAgentV1TasksRoute
@@ -419,8 +447,11 @@ export interface FileRoutesByFullPath {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
+  '/api/agent/v1/channels/$channel/mute': typeof ApiAgentV1ChannelsChannelMuteRoute
+  '/api/agent/v1/channels/$channel/unmute': typeof ApiAgentV1ChannelsChannelUnmuteRoute
   '/api/agent/v1/messages/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
   '/api/agent/v1/messages/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
+  '/api/agent/v1/threads/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRoutesByTo {
@@ -465,6 +496,7 @@ export interface FileRoutesByTo {
   '/messages': typeof AppMessagesIndexRoute
   '/records': typeof AppRecordsIndexRoute
   '/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
+  '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
   '/api/agent/v1/tasks': typeof ApiAgentV1TasksRoute
@@ -474,8 +506,11 @@ export interface FileRoutesByTo {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
+  '/api/agent/v1/channels/$channel/mute': typeof ApiAgentV1ChannelsChannelMuteRoute
+  '/api/agent/v1/channels/$channel/unmute': typeof ApiAgentV1ChannelsChannelUnmuteRoute
   '/api/agent/v1/messages/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
   '/api/agent/v1/messages/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
+  '/api/agent/v1/threads/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRoutesById {
@@ -525,6 +560,7 @@ export interface FileRoutesById {
   '/_app/messages/': typeof AppMessagesIndexRoute
   '/_app/records/': typeof AppRecordsIndexRoute
   '/_app/messages/channels/$channelId': typeof AppMessagesChannelsChannelIdRoute
+  '/api/agent/v1/events': typeof ApiAgentV1EventsRoute
   '/api/agent/v1/messages': typeof ApiAgentV1MessagesRoute
   '/api/agent/v1/reminders': typeof ApiAgentV1RemindersRoute
   '/api/agent/v1/tasks': typeof ApiAgentV1TasksRoute
@@ -534,8 +570,11 @@ export interface FileRoutesById {
   '/api/integrations/github/callback': typeof ApiIntegrationsGithubCallbackRoute
   '/api/agent/v1/attachments/$attachmentId': typeof ApiAgentV1AttachmentsAttachmentIdRoute
   '/api/agent/v1/attachments/capabilities': typeof ApiAgentV1AttachmentsCapabilitiesRoute
+  '/api/agent/v1/channels_/$channel/mute': typeof ApiAgentV1ChannelsChannelMuteRoute
+  '/api/agent/v1/channels_/$channel/unmute': typeof ApiAgentV1ChannelsChannelUnmuteRoute
   '/api/agent/v1/messages_/$messageId/reactions': typeof ApiAgentV1MessagesMessageIdReactionsRoute
   '/api/agent/v1/messages_/$messageId/resolve': typeof ApiAgentV1MessagesMessageIdResolveRoute
+  '/api/agent/v1/threads_/$thread/unfollow': typeof ApiAgentV1ThreadsThreadUnfollowRoute
   '/api/workspaces/$workspaceId/users/$userId/avatar': typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 export interface FileRouteTypes {
@@ -585,6 +624,7 @@ export interface FileRouteTypes {
     | '/messages/'
     | '/records/'
     | '/messages/channels/$channelId'
+    | '/api/agent/v1/events'
     | '/api/agent/v1/messages'
     | '/api/agent/v1/reminders'
     | '/api/agent/v1/tasks'
@@ -594,8 +634,11 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
+    | '/api/agent/v1/channels/$channel/mute'
+    | '/api/agent/v1/channels/$channel/unmute'
     | '/api/agent/v1/messages/$messageId/reactions'
     | '/api/agent/v1/messages/$messageId/resolve'
+    | '/api/agent/v1/threads/$thread/unfollow'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -640,6 +683,7 @@ export interface FileRouteTypes {
     | '/messages'
     | '/records'
     | '/messages/channels/$channelId'
+    | '/api/agent/v1/events'
     | '/api/agent/v1/messages'
     | '/api/agent/v1/reminders'
     | '/api/agent/v1/tasks'
@@ -649,8 +693,11 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
+    | '/api/agent/v1/channels/$channel/mute'
+    | '/api/agent/v1/channels/$channel/unmute'
     | '/api/agent/v1/messages/$messageId/reactions'
     | '/api/agent/v1/messages/$messageId/resolve'
+    | '/api/agent/v1/threads/$thread/unfollow'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
   id:
     | '__root__'
@@ -699,6 +746,7 @@ export interface FileRouteTypes {
     | '/_app/messages/'
     | '/_app/records/'
     | '/_app/messages/channels/$channelId'
+    | '/api/agent/v1/events'
     | '/api/agent/v1/messages'
     | '/api/agent/v1/reminders'
     | '/api/agent/v1/tasks'
@@ -708,8 +756,11 @@ export interface FileRouteTypes {
     | '/api/integrations/github/callback'
     | '/api/agent/v1/attachments/$attachmentId'
     | '/api/agent/v1/attachments/capabilities'
+    | '/api/agent/v1/channels_/$channel/mute'
+    | '/api/agent/v1/channels_/$channel/unmute'
     | '/api/agent/v1/messages_/$messageId/reactions'
     | '/api/agent/v1/messages_/$messageId/resolve'
+    | '/api/agent/v1/threads_/$thread/unfollow'
     | '/api/workspaces/$workspaceId/users/$userId/avatar'
   fileRoutesById: FileRoutesById
 }
@@ -739,6 +790,7 @@ export interface RootRouteChildren {
   ApiInternalCentrifugoConnectRoute: typeof ApiInternalCentrifugoConnectRoute
   ApiInternalWeeklyReportScheduleRoute: typeof ApiInternalWeeklyReportScheduleRoute
   ApiWorkspacesSlugRoute: typeof ApiWorkspacesSlugRoute
+  ApiAgentV1EventsRoute: typeof ApiAgentV1EventsRoute
   ApiAgentV1MessagesRoute: typeof ApiAgentV1MessagesRoute
   ApiAgentV1RemindersRoute: typeof ApiAgentV1RemindersRoute
   ApiAgentV1TasksRoute: typeof ApiAgentV1TasksRoute
@@ -748,8 +800,11 @@ export interface RootRouteChildren {
   ApiIntegrationsGithubCallbackRoute: typeof ApiIntegrationsGithubCallbackRoute
   ApiAgentV1AttachmentsAttachmentIdRoute: typeof ApiAgentV1AttachmentsAttachmentIdRoute
   ApiAgentV1AttachmentsCapabilitiesRoute: typeof ApiAgentV1AttachmentsCapabilitiesRoute
+  ApiAgentV1ChannelsChannelMuteRoute: typeof ApiAgentV1ChannelsChannelMuteRoute
+  ApiAgentV1ChannelsChannelUnmuteRoute: typeof ApiAgentV1ChannelsChannelUnmuteRoute
   ApiAgentV1MessagesMessageIdReactionsRoute: typeof ApiAgentV1MessagesMessageIdReactionsRoute
   ApiAgentV1MessagesMessageIdResolveRoute: typeof ApiAgentV1MessagesMessageIdResolveRoute
+  ApiAgentV1ThreadsThreadUnfollowRoute: typeof ApiAgentV1ThreadsThreadUnfollowRoute
   ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute: typeof ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute
 }
 
@@ -1070,6 +1125,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppMessagesChannelsChannelIdRouteImport
       parentRoute: typeof AppMessagesRoute
     }
+    '/api/agent/v1/events': {
+      id: '/api/agent/v1/events'
+      path: '/api/agent/v1/events'
+      fullPath: '/api/agent/v1/events'
+      preLoaderRoute: typeof ApiAgentV1EventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/v1/messages': {
       id: '/api/agent/v1/messages'
       path: '/api/agent/v1/messages'
@@ -1133,6 +1195,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentV1AttachmentsCapabilitiesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/agent/v1/channels_/$channel/mute': {
+      id: '/api/agent/v1/channels_/$channel/mute'
+      path: '/api/agent/v1/channels/$channel/mute'
+      fullPath: '/api/agent/v1/channels/$channel/mute'
+      preLoaderRoute: typeof ApiAgentV1ChannelsChannelMuteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/v1/channels_/$channel/unmute': {
+      id: '/api/agent/v1/channels_/$channel/unmute'
+      path: '/api/agent/v1/channels/$channel/unmute'
+      fullPath: '/api/agent/v1/channels/$channel/unmute'
+      preLoaderRoute: typeof ApiAgentV1ChannelsChannelUnmuteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/agent/v1/messages_/$messageId/reactions': {
       id: '/api/agent/v1/messages_/$messageId/reactions'
       path: '/api/agent/v1/messages/$messageId/reactions'
@@ -1145,6 +1221,13 @@ declare module '@tanstack/react-router' {
       path: '/api/agent/v1/messages/$messageId/resolve'
       fullPath: '/api/agent/v1/messages/$messageId/resolve'
       preLoaderRoute: typeof ApiAgentV1MessagesMessageIdResolveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/v1/threads_/$thread/unfollow': {
+      id: '/api/agent/v1/threads_/$thread/unfollow'
+      path: '/api/agent/v1/threads/$thread/unfollow'
+      fullPath: '/api/agent/v1/threads/$thread/unfollow'
+      preLoaderRoute: typeof ApiAgentV1ThreadsThreadUnfollowRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/workspaces/$workspaceId/users/$userId/avatar': {
@@ -1281,6 +1364,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiInternalCentrifugoConnectRoute: ApiInternalCentrifugoConnectRoute,
   ApiInternalWeeklyReportScheduleRoute: ApiInternalWeeklyReportScheduleRoute,
   ApiWorkspacesSlugRoute: ApiWorkspacesSlugRoute,
+  ApiAgentV1EventsRoute: ApiAgentV1EventsRoute,
   ApiAgentV1MessagesRoute: ApiAgentV1MessagesRoute,
   ApiAgentV1RemindersRoute: ApiAgentV1RemindersRoute,
   ApiAgentV1TasksRoute: ApiAgentV1TasksRoute,
@@ -1293,10 +1377,13 @@ const rootRouteChildren: RootRouteChildren = {
     ApiAgentV1AttachmentsAttachmentIdRoute,
   ApiAgentV1AttachmentsCapabilitiesRoute:
     ApiAgentV1AttachmentsCapabilitiesRoute,
+  ApiAgentV1ChannelsChannelMuteRoute: ApiAgentV1ChannelsChannelMuteRoute,
+  ApiAgentV1ChannelsChannelUnmuteRoute: ApiAgentV1ChannelsChannelUnmuteRoute,
   ApiAgentV1MessagesMessageIdReactionsRoute:
     ApiAgentV1MessagesMessageIdReactionsRoute,
   ApiAgentV1MessagesMessageIdResolveRoute:
     ApiAgentV1MessagesMessageIdResolveRoute,
+  ApiAgentV1ThreadsThreadUnfollowRoute: ApiAgentV1ThreadsThreadUnfollowRoute,
   ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute:
     ApiWorkspacesWorkspaceIdUsersUserIdAvatarRoute,
 }

@@ -927,6 +927,105 @@ test("Agent resolve HTTP GET request carries the request id", async () => {
   expect(result.messages).toHaveLength(1);
 });
 
+test("Agent events HTTP GET request carries the request id and limit", async () => {
+  let capturedUrl: URL | undefined;
+  const client = createAgentMessageHttpClient(async (input) => {
+    capturedUrl = input as URL;
+    return Response.json({
+      protocolMajor: 1,
+      requestId: "request-events-1",
+      events: [],
+      hasMore: true,
+    });
+  });
+  const result = await client.requestEvents!({
+    url: "https://server.example/api/agent/v1/events",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-events-1",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "check",
+      target: "",
+      limit: 25,
+    },
+  });
+  expect(capturedUrl?.searchParams.get("requestId")).toBe("request-events-1");
+  expect(capturedUrl?.searchParams.get("limit")).toBe("25");
+  expect(result.hasMore).toBe(true);
+});
+
+test.each(["mute", "unmute"] as const)(
+  "Agent channel %s HTTP POST request carries the request id",
+  async (operation) => {
+    let capturedInit: RequestInit | undefined;
+    let capturedUrl: string | URL | Request | undefined;
+    const client = createAgentMessageHttpClient(async (url, init) => {
+      capturedUrl = url;
+      capturedInit = init;
+      return Response.json({
+        protocolMajor: 1,
+        requestId: "request-mute-1",
+        target: "#general",
+        muted: operation === "mute",
+      });
+    });
+    const path =
+      operation === "mute"
+        ? "https://server.example/api/agent/v1/channels/%23general/mute"
+        : "https://server.example/api/agent/v1/channels/%23general/unmute";
+    const result = await client.requestChannelMute!({
+      url: path,
+      agentApiKey: `sk_agent_${"a".repeat(43)}`,
+      daemonApiKey: "daemon-token",
+      request: {
+        protocolMajor: 1,
+        requestId: "request-mute-1",
+        workspaceId: "workspace-a",
+        agentId: "agent-a",
+        operation,
+        target: "#general",
+        muted: operation === "mute",
+      },
+    });
+    expect(capturedUrl).toBe(path);
+    expect(capturedInit?.method).toBe("POST");
+    expect(JSON.parse(capturedInit?.body as string)).toEqual({ requestId: "request-mute-1" });
+    expect(result.muted).toBe(operation === "mute");
+  },
+);
+
+test("Agent thread unfollow HTTP POST request carries the request id", async () => {
+  let capturedInit: RequestInit | undefined;
+  const client = createAgentMessageHttpClient(async (_url, init) => {
+    capturedInit = init;
+    return Response.json({
+      protocolMajor: 1,
+      requestId: "request-unfollow-1",
+      target: "#general:12345678-0000-4000-8000-000000000001",
+      followed: false,
+    });
+  });
+  const result = await client.requestThreadUnfollow!({
+    url: "https://server.example/api/agent/v1/threads/thread-1/unfollow",
+    agentApiKey: `sk_agent_${"a".repeat(43)}`,
+    daemonApiKey: "daemon-token",
+    request: {
+      protocolMajor: 1,
+      requestId: "request-unfollow-1",
+      workspaceId: "workspace-a",
+      agentId: "agent-a",
+      operation: "thread-unfollow",
+      target: "#general:12345678-0000-4000-8000-000000000001",
+    },
+  });
+  expect(capturedInit?.method).toBe("POST");
+  expect(JSON.parse(capturedInit?.body as string)).toEqual({ requestId: "request-unfollow-1" });
+  expect(result.followed).toBe(false);
+});
+
 test.each(["react", "unreact"] as const)(
   "Agent %s HTTP request carries the emoji in its JSON body",
   async (operation) => {
@@ -970,6 +1069,91 @@ test.each(["react", "unreact"] as const)(
     expect(result.messageId).toBe("abcd1234");
   },
 );
+
+test("requestRead surfaces a safe validation failure as AgentMessageRequestError", async () => {
+  const readClient = createAgentMessageHttpClient(
+    async () => new Response("message anchor not found in this conversation", { status: 400 }),
+  );
+  await expect(
+    readClient.requestRead!({
+      url: "https://server.example/api/agent/v1/messages",
+      agentApiKey: `sk_agent_${"a".repeat(43)}`,
+      daemonApiKey: "daemon-token",
+      request: {
+        protocolMajor: 1,
+        requestId: "request-read-2",
+        workspaceId: "workspace-a",
+        agentId: "agent-a",
+        operation: "read",
+        target: "@ada",
+      },
+    }),
+  ).rejects.toEqual(
+    AgentMessageRequestError.fromRpc(400, "message anchor not found in this conversation"),
+  );
+});
+
+test("requestEvents, requestChannelMute, and requestThreadUnfollow surface non-2xx bodies as AgentMessageRequestError", async () => {
+  const eventsClient = createAgentMessageHttpClient(
+    async () => new Response("database password leaked", { status: 500 }),
+  );
+  await expect(
+    eventsClient.requestEvents!({
+      url: "https://server.example/api/agent/v1/events",
+      agentApiKey: `sk_agent_${"a".repeat(43)}`,
+      daemonApiKey: "daemon-token",
+      request: {
+        protocolMajor: 1,
+        requestId: "request-events-2",
+        workspaceId: "workspace-a",
+        agentId: "agent-a",
+        operation: "check",
+        target: "",
+      },
+    }),
+  ).rejects.toThrow("server agent request failed (500)");
+
+  const muteClient = createAgentMessageHttpClient(
+    async () => new Response("mute requires a channel target", { status: 400 }),
+  );
+  await expect(
+    muteClient.requestChannelMute!({
+      url: "https://server.example/api/agent/v1/channels/%40ada/mute",
+      agentApiKey: `sk_agent_${"a".repeat(43)}`,
+      daemonApiKey: "daemon-token",
+      request: {
+        protocolMajor: 1,
+        requestId: "request-mute-2",
+        workspaceId: "workspace-a",
+        agentId: "agent-a",
+        operation: "mute",
+        target: "@ada",
+        muted: true,
+      },
+    }),
+  ).rejects.toEqual(AgentMessageRequestError.fromRpc(400, "mute requires a channel target"));
+
+  const unfollowClient = createAgentMessageHttpClient(
+    async () => new Response("unfollow requires a channel thread target", { status: 400 }),
+  );
+  await expect(
+    unfollowClient.requestThreadUnfollow!({
+      url: "https://server.example/api/agent/v1/threads/%23general/unfollow",
+      agentApiKey: `sk_agent_${"a".repeat(43)}`,
+      daemonApiKey: "daemon-token",
+      request: {
+        protocolMajor: 1,
+        requestId: "request-unfollow-2",
+        workspaceId: "workspace-a",
+        agentId: "agent-a",
+        operation: "thread-unfollow",
+        target: "#general",
+      },
+    }),
+  ).rejects.toEqual(
+    AgentMessageRequestError.fromRpc(400, "unfollow requires a channel thread target"),
+  );
+});
 
 test("resolve and reaction HTTP clients surface safe validation failures as AgentMessageRequestError", async () => {
   const resolveClient = createAgentMessageHttpClient(
@@ -1087,6 +1271,115 @@ test("dispatches resolve and reaction operations to their dedicated HTTP client 
       method: "DELETE",
     }),
   ]);
+});
+
+test("dispatches check, mute, unmute, and thread-unfollow operations to their dedicated HTTP client methods", async () => {
+  const fake = fakeClient();
+  const eventsCalls: unknown[] = [];
+  const muteCalls: unknown[] = [];
+  const unfollowCalls: unknown[] = [];
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client, {
+    requestEvents: async (input) => {
+      eventsCalls.push(input);
+      return {
+        protocolMajor: 1,
+        requestId: "request-check",
+        events: [
+          {
+            id: "message-1",
+            sequence: 1,
+            sender: "@ada",
+            target: "@ada",
+            body: "hello",
+            createdAt: "2026-09-16T00:00:00.000Z",
+          },
+        ],
+        hasMore: true,
+      };
+    },
+    requestChannelMute: async (input) => {
+      muteCalls.push(input);
+      return {
+        protocolMajor: 1,
+        requestId: "request-mute",
+        target: "#general",
+        muted: input.request.muted,
+      };
+    },
+    requestThreadUnfollow: async (input) => {
+      unfollowCalls.push(input);
+      return {
+        protocolMajor: 1,
+        requestId: "request-unfollow",
+        target: "#general:12345678-0000-4000-8000-000000000001",
+        followed: false,
+      };
+    },
+  });
+  await transport.start("daemon-token", {
+    ...config,
+    serverHttpUrl: "https://server.example/api/internal/centrifugo",
+  });
+  const checked = await transport.agentMessage({
+    protocolMajor: 1,
+    requestId: "request-check",
+    workspaceId: config.workspaceId,
+    agentId: "agent-1",
+    operation: "check",
+    target: "",
+    limit: 10,
+  });
+  expect(eventsCalls).toEqual([
+    expect.objectContaining({
+      url: `https://server.example${agentApiRoutes.cloud.events.path}`,
+    }),
+  ]);
+  expect(checked.messages).toHaveLength(1);
+  expect(checked.hasMore).toBe(true);
+  expect(checked.attentionCount).toBe(1);
+
+  await transport.agentMessage({
+    protocolMajor: 1,
+    requestId: "request-mute",
+    workspaceId: config.workspaceId,
+    agentId: "agent-1",
+    operation: "mute",
+    target: "#general",
+  });
+  await transport.agentMessage({
+    protocolMajor: 1,
+    requestId: "request-unmute",
+    workspaceId: config.workspaceId,
+    agentId: "agent-1",
+    operation: "unmute",
+    target: "#general",
+  });
+  expect(muteCalls).toEqual([
+    expect.objectContaining({
+      url: `https://server.example${agentApiRoutes.cloud.channels.mute.path("#general")}`,
+      request: expect.objectContaining({ muted: true }),
+    }),
+    expect.objectContaining({
+      url: `https://server.example${agentApiRoutes.cloud.channels.unmute.path("#general")}`,
+      request: expect.objectContaining({ muted: false }),
+    }),
+  ]);
+
+  const unfollowed = await transport.agentMessage({
+    protocolMajor: 1,
+    requestId: "request-unfollow",
+    workspaceId: config.workspaceId,
+    agentId: "agent-1",
+    operation: "thread-unfollow",
+    target: "#general:12345678-0000-4000-8000-000000000001",
+  });
+  expect(unfollowCalls).toEqual([
+    expect.objectContaining({
+      url: `https://server.example${agentApiRoutes.cloud.threads.unfollow.path("#general:12345678-0000-4000-8000-000000000001")}`,
+    }),
+  ]);
+  expect(unfollowed.accepted).toBe(true);
+  expect(unfollowed.messages).toEqual([]);
 });
 
 test("requests and revokes Agent API keys through the server API route", async () => {

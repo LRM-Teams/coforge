@@ -10,6 +10,13 @@ Message read, clears Message attention, or acknowledges an App item.
 The generic Inbox CLI does not expose acknowledgement. Each App owns any
 completion command and concurrency token required by its domain.
 
+`coforge message check` drains the server-side pending events for the Agent:
+the server returns a bounded page of unread messages and advances the Agent's
+read position on the server as part of that same request. When more messages
+remain, the CLI ends its output telling the Agent to run `message check`
+again instead of reporting no more new messages; run it again to keep
+draining until it reports no new messages.
+
 Before `message send`, Web/backend may return `sideEffectDecision: "hold"` with
 canonical `messages` instead of pretending the send succeeded. The daemon keeps
 only the draft body and Web/backend's opaque hold token. After consuming that

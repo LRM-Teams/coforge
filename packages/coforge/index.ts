@@ -80,7 +80,7 @@ export type WorkspaceInfoInvocation = { command: "workspace.info" } & WorkspaceI
 export type WorkspaceInfoResult = WorkspaceInfoResponse & { computers?: unknown[] };
 
 export type MessageTransport = {
-  check(): Promise<{ messages: AgentMessageRecord[] }>;
+  check(): Promise<{ messages: AgentMessageRecord[]; hasMore?: boolean }>;
   read(
     target: string,
     options?: { before?: string; after?: string; around?: string; limit?: number },
@@ -480,9 +480,12 @@ function formatWorkspaceInfo(result: WorkspaceInfoResult, options: WorkspaceInfo
   return JSON.stringify(result);
 }
 
-function formatMessageCheck(result: { messages: AgentMessageRecord[] }): string {
+function formatMessageCheck(result: { messages: AgentMessageRecord[]; hasMore?: boolean }): string {
   if (result.messages.length === 0) return "No new messages.";
-  return `${result.messages.map(formatMessage).join("\n")}\n\nNo more new messages.`;
+  const footer = result.hasMore
+    ? "More messages are pending. Run `coforge message check` again."
+    : "No more new messages.";
+  return `${result.messages.map(formatMessage).join("\n")}\n\n${footer}`;
 }
 
 function formatMessage(message: AgentMessageRecord): string {

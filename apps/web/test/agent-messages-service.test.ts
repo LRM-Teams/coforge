@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  drainAgentEvents,
   muteAgentChannel,
   readAgentMessages,
   executeAgentSendMessageWithPolicy,
@@ -37,6 +38,41 @@ test("thread unfollow rejects a channel without a thread", async () => {
   await expect(
     unfollowAgentThread(repository(), { workspaceId: "w", agentId: "a" }, "#general"),
   ).rejects.toThrow("channel thread target");
+});
+
+test("drain maps Date values and forwards the limit and hasMore flag", async () => {
+  const calls: unknown[] = [];
+  const result = await drainAgentEvents(
+    repository({
+      drainAgentEvents: async (...args) => {
+        calls.push(args);
+        return {
+          messages: [
+            {
+              id: "message-1",
+              sequence: 1,
+              sender: "@ada",
+              target: "@ada",
+              body: "hello",
+              createdAt: new Date("2026-09-15T00:00:00.000Z"),
+            },
+          ],
+          hasMore: true,
+        };
+      },
+    }),
+    { workspaceId: "workspace-1", agentId: "agent-1" },
+    10,
+  );
+  expect(calls).toEqual([["workspace-1", "agent-1", 10]]);
+  expect(result.hasMore).toBe(true);
+  expect(result.messages[0]?.createdAt).toBe("2026-09-15T00:00:00.000Z");
+});
+
+test("drain rejects when the repository does not support the events seam", async () => {
+  await expect(drainAgentEvents(repository(), { workspaceId: "w", agentId: "a" })).rejects.toThrow(
+    "Agent event drain is unavailable",
+  );
 });
 
 test("search maps Date values at the application boundary", async () => {

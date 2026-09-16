@@ -667,6 +667,7 @@ export function encodeAgentMessageRequest(value: AgentMessageRequest): Uint8Arra
   );
 }
 const AGENT_MESSAGE_OPERATIONS = [
+  "check",
   "read",
   "search",
   "send",
@@ -678,7 +679,7 @@ const AGENT_MESSAGE_OPERATIONS = [
   "unreact",
 ];
 /** Operations addressed by a message id or a query rather than a conversation target. */
-const TARGETLESS_AGENT_MESSAGE_OPERATIONS = ["search", "resolve", "react", "unreact"];
+const TARGETLESS_AGENT_MESSAGE_OPERATIONS = ["check", "search", "resolve", "react", "unreact"];
 export function decodeAgentMessageRequest(bytes: Uint8Array): AgentMessageRequest {
   const v = fromBinary(AgentMessageRequestSchema, bytes);
   if (

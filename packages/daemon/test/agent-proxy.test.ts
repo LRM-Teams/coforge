@@ -170,6 +170,24 @@ test("Agent API key remains usable after an idle day without refresh", async () 
   expect((await request()).status).toBe(401);
 });
 
+test("rejects a message check operation that carries a target", async () => {
+  const proxy = startAgentProxy({
+    runtime: {
+      agentMessage: async () => {
+        throw new Error("check must not reach the runtime with a target");
+      },
+    },
+  });
+  proxies.push(proxy);
+  const token = proxy.issue("agent-a", `sk_agent_${"a".repeat(43)}`);
+  const response = await fetch(proxy.url, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ requestId: "request-1", operation: "check", target: "@ada" }),
+  });
+  expect(response.status).toBe(400);
+});
+
 test("proxy forwards validated range options with token-bound identity", async () => {
   const calls: Array<Record<string, unknown>> = [];
   const proxy = startAgentProxy({

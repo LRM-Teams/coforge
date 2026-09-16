@@ -28,6 +28,10 @@ export type AgentMessagesResolveRequest = {
   messageId: string;
 };
 
+export type AgentEventsGetRequest = {
+  limit?: number;
+};
+
 export type AgentMessagesReactionRequest = {
   messageId: string;
   emoji: string;
@@ -55,4 +59,28 @@ export type AgentMessage = {
     contentType: string;
     sizeBytes: number;
   };
+};
+
+/** Response for the events drain route (GET /api/agent/v1/events); its own shape, not the shared message envelope. */
+export type AgentEventsResponse = {
+  protocolMajor: 1;
+  requestId: string;
+  events: AgentMessage[];
+  hasMore: boolean;
+};
+
+/** Response for the channel mute/unmute routes. */
+export type AgentChannelAttentionResponse = {
+  protocolMajor: 1;
+  requestId: string;
+  target: string;
+  muted: boolean;
+};
+
+/** Response for the thread unfollow route. */
+export type AgentThreadAttentionResponse = {
+  protocolMajor: 1;
+  requestId: string;
+  target: string;
+  followed: false;
 };
