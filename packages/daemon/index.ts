@@ -27,6 +27,16 @@ export { launchdJobs } from "./src/platform/launchd-job";
 export { FileBindingStore } from "./src/supervisor/binding-store";
 export { workspaceLaunchdIdentity } from "./src/supervisor/launchd-workspace-instance";
 export { runMachineSupervisor } from "./src/supervisor/run-supervisor";
+export {
+  holdRunnersUntilQuiescent,
+  RUNNER_HOLD_MS,
+  RUNNER_HOLD_POLL_MS,
+} from "./src/supervisor/runner-hold";
+export type {
+  RunnerHoldOptions,
+  RunnerHoldOutcome,
+  RunnerHoldSnapshot,
+} from "./src/supervisor/runner-hold";
 export { runLaunchdAgent } from "./src/platform/launchd-process";
 
 export type { AgentRuntimeConfig, AgentSession, AgentSessionOptions } from "@coforge/agent";

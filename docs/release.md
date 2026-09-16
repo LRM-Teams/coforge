@@ -779,7 +779,7 @@ pending on the server and is republished after the restart - nothing is lost.
 
 The coordinator then polls the hold - it is idempotent, so a poll is a repeat
 call - until every Agent's last Activity is a terminal detail kind or
-`UPGRADE_RUNNER_HOLD_MS` (30 s) elapses, then stops regardless, logging one
+`RUNNER_HOLD_MS` (30 s) elapses, then stops regardless, logging one
 `upgrade:runner_hold_deadline` event per Agent still busy at the deadline. A
 Workspace daemon that does not answer within 5 s counts as idle: an unreachable
 daemon must never block an upgrade. The hold is in-memory only, so a restarted
@@ -788,9 +788,17 @@ held.
 
 `upgrade` and `rollback` get the hold because both go through
 `UpgradeLifecycle`. `coforge-computer stop` deliberately does not: an explicit
-stop is immediate. `coforge-computer restart` does not either, because it goes
-through the `daemon:restart` local RPC rather than the upgrade coordinator. See
-[ADR 0020](adr/0020-upgrade-runner-hold.md).
+stop is immediate. See [ADR 0020](adr/0020-upgrade-runner-hold.md).
+
+`coforge-computer restart` also waits up to 30 s for busy Agents, and a remote
+restart from the web is the same `daemon:restart` local RPC, so it waits too. It
+does not go through `UpgradeLifecycle`; the Coordinator holds the one Workspace
+it is about to stop, immediately before stopping it, and an unscoped restart
+holds each enabled Workspace in turn as it reaches it. As with the upgrade, the
+wait is bounded and every failure proceeds: a Workspace that cannot be held, does
+not answer, or stays busy past the deadline is restarted anyway, logging
+`restart:runner_hold_quiescent` or `restart:runner_hold_expired`. See
+[ADR 0021](adr/0021-restart-runner-hold.md).
 
 ## Rollback
 

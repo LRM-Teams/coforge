@@ -104,10 +104,10 @@ reported in `unreachable_workspace_ids` and counted as idle. A wedged Workspace
 daemon must not be able to block a Computer upgrade.
 
 **The upgrade waits, bounded, then proceeds.**
-`holdRunnersUntilQuiescent` (`packages/computer/src/release/runner-hold.ts`)
-polls the hold — which is idempotent, so a poll is simply a repeat call — every
-`UPGRADE_RUNNER_HOLD_POLL_MS` (250 ms) until the busy set is empty or
-`UPGRADE_RUNNER_HOLD_MS` (30 s) elapses. At the deadline it logs one structured
+`holdRunnersUntilQuiescent` (now `packages/daemon/src/supervisor/runner-hold.ts`;
+see ADR 0021) polls the hold — which is idempotent, so a poll is simply a repeat call — every
+`RUNNER_HOLD_POLL_MS` (250 ms) until the busy set is empty or
+`RUNNER_HOLD_MS` (30 s) elapses. At the deadline it logs one structured
 `upgrade:runner_hold_deadline` event per still-busy Agent with its Workspace id,
 Agent id, detail kind and elapsed ms, and returns. Every failure mode resolves
 towards proceeding: a hold that cannot be asked at all, or that starts failing
@@ -144,6 +144,8 @@ local RPC handled by `MachineSupervisor.command(...)`. Giving `restart` the same
 hold is a reasonable follow-up, but it is a different seam (the Coordinator's own
 lifecycle command path, not the upgrade coordinator) and is left out here to keep
 this record to one concern.
+That follow-up was taken up in [ADR 0021](0021-restart-runner-hold.md), which
+places the same bounded hold in `MachineSupervisor.#advanceRestart`.
 
 ### CLI-originated sends are not gated
 
