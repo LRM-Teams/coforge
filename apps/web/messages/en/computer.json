@@ -119,7 +119,7 @@
   "computer_upgrade_failed_unknown": "The upgrade did not complete",
   "computer_new_version": "New version {version}",
   "computer_upgrade_action": "Upgrade to {version}",
-  "computer_upgrade_succeeded_inline": "Upgraded",
+  "computer_upgrade_succeeded_toast": "Upgraded to {version}",
   "computer_upgrade_retry": "Retry upgrade",
   "computer_upgrade_offline": "This Computer is offline; it cannot be upgraded right now",
   "computer_upgrade_feed_unavailable": "The release feed is unavailable",

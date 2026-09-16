@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   describeComputerUpgradeFailure,
+  describeComputerUpgradeSuccess,
   describeUpgradeRequestError,
 } from "../src/features/computers/upgrade-failure";
 import { AppError } from "../src/lib/app-error";
@@ -70,4 +71,21 @@ test("a plain error from a status poll passes through unchanged, since it is alr
 
   expect(copy.headline).toBe(describeComputerUpgradeFailure({ reason: "timeout" }));
   expect(copy.errorId).toBeUndefined();
+});
+
+test("a completed upgrade reads as one toast line naming the new version, never a bare code", () => {
+  const line = describeComputerUpgradeSuccess("1.2.3");
+
+  expect(line).toContain("1.2.3");
+  expect(line.split("\n")).toHaveLength(1);
+  expect(line).not.toContain("_");
+});
+
+test("the success line is never the same string as any failure line, so one event is never shown twice", () => {
+  const success = describeComputerUpgradeSuccess("1.2.3");
+  const failures = (["timeout", "publication", "evidence", "reported"] as const).map((reason) =>
+    describeComputerUpgradeFailure({ reason }),
+  );
+
+  expect(failures).not.toContain(success);
 });

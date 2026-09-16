@@ -25,6 +25,16 @@ export function describeComputerUpgradeFailure(failure: ComputerUpgradeFailure):
   return failure.error ? `${headline}: ${failure.error}` : `${headline}.`;
 }
 
+/**
+ * The one-line toast confirmation for a completed upgrade. Per docs/ui-guidelines.md §13, the
+ * version itself belongs to the meta line (the caller re-fetches once the status is completed);
+ * this is only the courtesy that the action the user took just succeeded, never a second,
+ * inline echo of the same event.
+ */
+export function describeComputerUpgradeSuccess(version: string): string {
+  return m.computer_upgrade_succeeded_toast({ version });
+}
+
 /** One line and an optional reference id, never the raw `COFORGE_APP_ERROR:` wire encoding. */
 export type UpgradeRequestErrorCopy = { headline: string; errorId?: string };
 

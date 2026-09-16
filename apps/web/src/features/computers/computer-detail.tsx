@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  AlertCircle,
-  ArrowUp,
-  Check,
-  Edit01 as Pencil,
-  RefreshCw01 as RotateCw,
-} from "@untitledui/icons";
+import { AlertCircle, ArrowUp, Edit01 as Pencil, RefreshCw01 as RotateCw } from "@untitledui/icons";
 import type { RuntimeProvider } from "@lrm/coforge-sdk/internal";
 
 import { Avatar } from "@/components/base/avatar/avatar";
@@ -24,7 +18,11 @@ import {
   operatingSystemLabel,
   type ComputerIdentity,
 } from "./computer-identity";
-import { describeComputerUpgradeFailure, describeUpgradeRequestError } from "./upgrade-failure";
+import {
+  describeComputerUpgradeFailure,
+  describeComputerUpgradeSuccess,
+  describeUpgradeRequestError,
+} from "./upgrade-failure";
 import { ComputerTile } from "./computer-tile";
 import { RuntimeIdentity, RuntimeUsage, type UsageView } from "./runtime-usage";
 import type { ComputerRestartStatus, ComputerUpgradeStatus } from "./computer.schemas";
@@ -32,8 +30,6 @@ import { Input } from "@/components/base/input/input";
 
 export const RESTART_POLL_INTERVAL_MS = 2_000;
 export const RESTART_MAX_POLLS = 31;
-/** How long the inline "upgraded" confirmation stays before the meta line speaks for itself. */
-export const UPGRADE_CONFIRMATION_MS = 6_000;
 
 export type ComputerDetailView = ComputerIdentity & {
   id: string;
@@ -107,25 +103,13 @@ export function ComputerDetail({
   >("idle");
   const { upgradingComputerId, setUpgradingComputerId } = useUpgradingComputer();
   const [upgrade, setUpgrade] = useState<
-    | { state: "idle" }
-    | { state: "running" }
-    | { state: "succeeded"; version: string }
-    | { state: "failed"; reason: string; errorId?: string }
+    { state: "idle" } | { state: "running" } | { state: "failed"; reason: string; errorId?: string }
   >({ state: "idle" });
   const upgrading = upgrade.state === "running" || upgradingComputerId === computer.id;
   const upgradeAvailable =
     onUpgrade &&
     computer.ownedByCurrentUser &&
     isComputerUpdateAvailable(computer.computerVersion, latestComputerVersion);
-  // The confirmation is a courtesy; the meta line's version is the durable answer.
-  useEffect(() => {
-    if (upgrade.state !== "succeeded") return;
-    const timer = window.setTimeout(
-      () => mountedRef.current && setUpgrade({ state: "idle" }),
-      UPGRADE_CONFIRMATION_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [upgrade]);
   const runUpgrade = async () => {
     if (!onUpgrade) return;
     const requestId = crypto.randomUUID();
@@ -143,7 +127,12 @@ export function ComputerDetail({
         await new Promise((resolve) => window.setTimeout(resolve, restartPollIntervalMs));
         const status = await onReadUpgradeStatus(requestId);
         if (status.status === "completed" && status.computerVersion) {
-          settle(() => setUpgrade({ state: "succeeded", version: status.computerVersion }));
+          // The version itself moves to the meta line (the caller invalidates the loader); the
+          // toast is only the one-line confirmation that the action just taken succeeded.
+          settle(() => {
+            toast.success(describeComputerUpgradeSuccess(status.computerVersion));
+            setUpgrade({ state: "idle" });
+          });
           return;
         }
         if (status.status === "completed")
@@ -277,11 +266,6 @@ export function ComputerDetail({
                 <LoadingIndicator className="size-3.5" label={m.computer_upgrade_in_progress()} />
                 <span>{m.computer_upgrade_in_progress()}</span>
               </span>
-            ) : upgrade.state === "succeeded" ? (
-              <span className="inline-flex items-center gap-1 text-success-primary">
-                <Check className="size-3.5" />
-                <span>{m.computer_upgrade_succeeded_inline()}</span>
-              </span>
             ) : upgrade.state === "failed" ? (
               <span className="inline-flex min-w-0 flex-col gap-0.5 text-error-primary">
                 <span className="inline-flex min-w-0 items-center gap-1">
@@ -330,7 +314,7 @@ export function ComputerDetail({
         </div>
         {onRestart && (
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            {upgradeAvailable && upgrade.state !== "succeeded" && latestComputerVersion && (
+            {upgradeAvailable && latestComputerVersion && (
               <Button
                 type="button"
                 size="md"
