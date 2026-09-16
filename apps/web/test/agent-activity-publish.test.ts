@@ -162,6 +162,53 @@ describe("Agent activity publication", () => {
     expect(reduced).toMatchObject({ isHeartbeat: true });
   });
 
+  test("does not persist a probe reply to history but still reduces it into the display", async () => {
+    const history: unknown[] = [];
+    let reduced: unknown;
+    const response = await handleAgentActivityPublication(
+      request({
+        b64data: encodedBase64({
+          ...activity,
+          detailKind: "idle",
+          detail: "",
+          probeId: "probe-1",
+          entries: [],
+        }),
+      }),
+      {
+        proxySecret: "test-secret",
+        agentBelongsToWorkspace: async () => true,
+        agentBelongsToComputer: async () => true,
+        computerBelongsToWorkspace: async () => true,
+        observe: async (value) => {
+          history.push(value);
+        },
+        currentRuntimeFence: async () => ({ daemonInstanceId: "daemon-1", launchId: "launch-1" }),
+        display: {
+          observeActivity: async (value) => {
+            reduced = value;
+            return {
+              protocolMajor: 1,
+              workspaceId: "workspace-1",
+              computerId: "computer-1",
+              agentId: "agent-1",
+              revision: 1,
+              activityKind: "online",
+              detailKind: "idle",
+              detail: "",
+              entries: [],
+              expiresAt: Date.now() + 90_000,
+            };
+          },
+        },
+        publishJson: async () => {},
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(history).toHaveLength(0);
+    expect(reduced).toMatchObject({ probeId: "probe-1" });
+  });
+
   test("does not persist a content-free runtime_progress frame to history", async () => {
     const history: unknown[] = [];
     const response = await handleAgentActivityPublication(

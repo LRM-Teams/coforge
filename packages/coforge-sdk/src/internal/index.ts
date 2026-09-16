@@ -18,6 +18,8 @@ export const AGENT_START_METHOD = "agent:start" as const;
 export const AGENT_START_MESSAGE_TYPE = "coforge.rpc.v1.AgentStartIntent" as const;
 export const AGENT_STOP_METHOD = "agent:stop" as const;
 export const AGENT_STOP_MESSAGE_TYPE = "coforge.rpc.v1.AgentStopIntent" as const;
+export const AGENT_ACTIVITY_PROBE_METHOD = "agent:activity_probe" as const;
+export const AGENT_ACTIVITY_PROBE_MESSAGE_TYPE = "coforge.rpc.v1.AgentActivityProbe" as const;
 export const USAGE_SCAN_MESSAGE_TYPE = "coforge.rpc.v1.DaemonRuntimeUsageScanRequest" as const;
 export const USAGE_SCAN_RESPONSE_MESSAGE_TYPE =
   "coforge.rpc.v1.DaemonRuntimeUsageScanResponse" as const;
@@ -279,6 +281,15 @@ export type AgentStopIntent = {
   controlEpoch?: number;
   messageType?: typeof AGENT_STOP_MESSAGE_TYPE;
 };
+/** Versioned server-to-daemon liveness probe; the daemon answers with an AgentActivity. */
+export type AgentActivityProbe = {
+  protocolMajor: number;
+  requestId: string;
+  workspaceId: string;
+  computerId: string;
+  agentId: string;
+  probeId: string;
+};
 export type AgentRecoveryMessage = {
   messageId: string;
   deliveryId: string;
@@ -330,6 +341,8 @@ export type AgentActivity = {
   entries?: import("./activity-entries").ActivityTrajectoryEntry[];
   /** True when this frame re-sends the last busy activity to renew the display lease. */
   isHeartbeat?: boolean;
+  /** Set only on the daemon's reply to an AgentActivityProbe; echoes its probeId. */
+  probeId?: string;
   runtimeError?: {
     errorClass: string;
     errorReason: string;
@@ -497,6 +510,8 @@ export {
   decodeAgentStartIntent,
   encodeAgentStopIntent,
   decodeAgentStopIntent,
+  encodeAgentActivityProbe,
+  decodeAgentActivityProbe,
   encodeAgentMessageDelivery,
   decodeAgentMessageDelivery,
   encodeAgentMessageDeliveryAck,

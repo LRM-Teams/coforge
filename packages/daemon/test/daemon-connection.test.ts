@@ -16,6 +16,7 @@ import {
   encodeAgentMessageDelivery,
   encodeAgentStartIntent,
   encodeAgentStopIntent,
+  encodeAgentActivityProbe,
   encodeComputerRestartIntent,
   decodeComputerUpgradeResult,
   COMPUTER_UPGRADE_RESULT_METHOD,
@@ -647,6 +648,50 @@ test("receives only publications directed to its Computer", async () => {
   fake.publish(`daemon:${config.workspaceId}:${config.computerId}`, data);
 
   expect(started).toEqual(["agent-1"]);
+});
+
+test("routes an agent:activity_probe publication to the probe slot", async () => {
+  const fake = fakeClient();
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  const probed: string[] = [];
+  transport.onAgentActivityProbe((probe) => probed.push(probe.probeId));
+  await transport.start("secret", config);
+
+  fake.publish(
+    `daemon:${config.workspaceId}:${config.computerId}`,
+    encodeAgentActivityProbe({
+      protocolMajor: 1,
+      requestId: "probe-request-1",
+      workspaceId: config.workspaceId,
+      computerId: config.computerId,
+      agentId: "agent-1",
+      probeId: "probe-1",
+    }),
+  );
+
+  expect(probed).toEqual(["probe-1"]);
+});
+
+test("rejects an agent:activity_probe publication for a foreign Workspace", async () => {
+  const fake = fakeClient();
+  const transport = new DaemonConnection("wss://cloud.example", () => fake.client);
+  const probed: string[] = [];
+  transport.onAgentActivityProbe((probe) => probed.push(probe.probeId));
+  await transport.start("secret", config);
+
+  fake.publish(
+    `daemon:other-workspace:${config.computerId}`,
+    encodeAgentActivityProbe({
+      protocolMajor: 1,
+      requestId: "probe-request-2",
+      workspaceId: "other-workspace",
+      computerId: config.computerId,
+      agentId: "agent-1",
+      probeId: "probe-2",
+    }),
+  );
+
+  expect(probed).toEqual([]);
 });
 
 test("consumes the Connect Proxy-bound control stream without a client subscription", async () => {

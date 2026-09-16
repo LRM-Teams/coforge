@@ -35,6 +35,11 @@ type UnknownAgentStatusView = Omit<AgentStatusView, "value"> & {
 
 export const agentStatusChannel = (workspaceId: string) => `agent:status:${workspaceId}`;
 
+// Must match ACTIVITY_PROBE_TIMEOUT_MS in
+// `server/agents/agent-activity-sweep.server.ts`. Duplicated here rather than
+// imported because browser code cannot import a `.server.ts` module.
+export const ACTIVITY_PROBE_TIMEOUT_MS = 5_000;
+
 export function encodeAgentStatusEvent(event: AgentStatusEvent): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(event));
 }
@@ -184,6 +189,32 @@ export function expireAgentStatuses<T extends StatusTrackedAgent>(agents: T[], n
   );
 }
 
+/**
+ * The delay before `useAgentStatuses` next re-fetches the display snapshot,
+ * given the current agents' display expiry deadlines. A `working`/`thinking`
+ * display does not schedule its refresh at its own `expiresAt`: that
+ * deadline is pushed out by `ACTIVITY_PROBE_TIMEOUT_MS + 1_000`, so the
+ * refresh is purely a safety net behind the server sweep's own
+ * `agent:display` push once its own probe times out (see ADR 0020). Every
+ * other display kind keeps refreshing right at its own `expiresAt`. Returns
+ * `undefined` when there is nothing to schedule.
+ */
+export function nextDisplayRefreshDelayMs<T extends StatusTrackedAgent>(
+  agents: readonly T[],
+  now: number,
+): number | undefined {
+  const deadline = Math.min(
+    ...agents.flatMap((agent) => {
+      const display = agent.display;
+      if (!display || typeof display.expiresAt !== "number") return [];
+      const isBusy = display.activityKind === "working" || display.activityKind === "thinking";
+      return [isBusy ? display.expiresAt + ACTIVITY_PROBE_TIMEOUT_MS + 1_000 : display.expiresAt];
+    }),
+  );
+  if (!Number.isFinite(deadline)) return undefined;
+  return deadline <= now ? 1_000 : deadline - now + 10;
+}
+
 export function useAgentStatuses<T extends StatusTrackedAgent>({
   agents,
   workspaceId,
@@ -234,12 +265,8 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
   }, [visibleAgents]);
 
   useEffect(() => {
-    const expiresAt = Math.min(
-      ...visibleAgents.flatMap((agent) =>
-        typeof agent.display?.expiresAt === "number" ? [agent.display.expiresAt] : [],
-      ),
-    );
-    if (!Number.isFinite(expiresAt)) return;
+    const initialDelay = nextDisplayRefreshDelayMs(visibleAgents, Date.now());
+    if (initialDelay === undefined) return;
     const refreshWorkspaceId = workspaceId;
     let disposed = false;
     let timer: number;
@@ -258,7 +285,7 @@ export function useAgentStatuses<T extends StatusTrackedAgent>({
             requestRefresh(1_000);
         });
     };
-    requestRefresh(expiresAt <= Date.now() ? 1_000 : expiresAt - Date.now() + 10);
+    requestRefresh(initialDelay);
     return () => {
       disposed = true;
       window.clearTimeout(timer);

@@ -186,6 +186,89 @@ test("no heartbeat is scheduled once Activity is disabled", async () => {
   expect(activities).toHaveLength(countAfterStop);
 });
 
+test("busy Agent replies to an activity probe with the remembered activity and re-arms the heartbeat", async () => {
+  const { runtime, activities, emit } = await harness();
+  jest.useFakeTimers();
+  try {
+    activities.length = 0;
+    emit({ detailKind: "tool_started", level: "info", detail: "Read" });
+    expect(activities).toHaveLength(1);
+
+    jest.advanceTimersByTime(30_000);
+    await runtime.handleAgentActivityProbe({
+      protocolMajor: 1,
+      requestId: "probe-request-1",
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "agent-a",
+      probeId: "probe-1",
+    });
+
+    expect(activities).toHaveLength(2);
+    expect(activities[1]).toMatchObject({
+      detailKind: "tool_started",
+      probeId: "probe-1",
+      isHeartbeat: false,
+    });
+    expect(activities[1]!.entries ?? []).toHaveLength(0);
+
+    // The original 60s heartbeat (armed at t=0) would have fired at t=60_000; the probe reply at
+    // t=30_000 re-arms it, so nothing more is due until t=90_000.
+    jest.advanceTimersByTime(59_999);
+    expect(activities).toHaveLength(2);
+
+    jest.advanceTimersByTime(1);
+    expect(activities).toHaveLength(3);
+    expect(activities[2]).toMatchObject({ detailKind: "tool_started", isHeartbeat: true });
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("idle launched Agent replies to an activity probe with idle", async () => {
+  const { runtime, activities, emit } = await harness();
+  jest.useFakeTimers();
+  try {
+    activities.length = 0;
+    emit({ detailKind: "idle", level: "info", detail: "" });
+    expect(activities).toHaveLength(1);
+
+    await runtime.handleAgentActivityProbe({
+      protocolMajor: 1,
+      requestId: "probe-request-2",
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "agent-a",
+      probeId: "probe-2",
+    });
+
+    expect(activities).toHaveLength(2);
+    expect(activities[1]).toMatchObject({ detailKind: "idle", probeId: "probe-2" });
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("an activity probe for an unknown Agent sends nothing", async () => {
+  const { runtime, activities } = await harness();
+  jest.useFakeTimers();
+  try {
+    activities.length = 0;
+    await runtime.handleAgentActivityProbe({
+      protocolMajor: 1,
+      requestId: "probe-request-3",
+      workspaceId: connection.workspaceId,
+      computerId: connection.computerId,
+      agentId: "agent-unknown",
+      probeId: "probe-3",
+    });
+
+    expect(activities).toHaveLength(0);
+  } finally {
+    await runtime.stop();
+  }
+});
+
 test("rate-limits runtime_progress to at most one every 10s per Agent", async () => {
   const { runtime, activities, emit } = await harness();
   jest.useFakeTimers();

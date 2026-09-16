@@ -31,6 +31,7 @@ import {
   AgentSessionReportSchema,
   AgentStartIntentSchema,
   AgentStopIntentSchema,
+  AgentActivityProbeSchema,
   AgentMessageDeliverySchema,
   AgentActivitySchema,
   AgentStatusSchema,
@@ -40,6 +41,7 @@ import type {
   AgentSessionReport,
   AgentStartIntent,
   AgentStopIntent,
+  AgentActivityProbe,
   AgentRuntimeProviderConfig,
   AgentMessageDelivery,
   AgentActivity,
@@ -50,6 +52,7 @@ import type {
 import {
   AGENT_START_MESSAGE_TYPE,
   AGENT_STOP_MESSAGE_TYPE,
+  AGENT_ACTIVITY_PROBE_MESSAGE_TYPE,
   USAGE_SCAN_MESSAGE_TYPE,
   USAGE_SCAN_RESPONSE_MESSAGE_TYPE,
 } from "./index";
@@ -596,6 +599,37 @@ export function decodeAgentStopIntent(bytes: Uint8Array): AgentStopIntent {
   };
 }
 
+export function encodeAgentActivityProbe(value: AgentActivityProbe): Uint8Array {
+  return toBinary(
+    AgentActivityProbeSchema,
+    create(AgentActivityProbeSchema, {
+      ...value,
+      messageType: AGENT_ACTIVITY_PROBE_MESSAGE_TYPE,
+    }),
+  );
+}
+
+export function decodeAgentActivityProbe(bytes: Uint8Array): AgentActivityProbe {
+  const value = fromBinary(AgentActivityProbeSchema, bytes);
+  if (
+    value.messageType !== AGENT_ACTIVITY_PROBE_MESSAGE_TYPE ||
+    !value.requestId ||
+    !value.workspaceId ||
+    !value.computerId ||
+    !value.agentId ||
+    !value.probeId
+  )
+    throw new Error("invalid agent activity probe");
+  return {
+    protocolMajor: value.protocolMajor,
+    requestId: value.requestId,
+    workspaceId: value.workspaceId,
+    computerId: value.computerId,
+    agentId: value.agentId,
+    probeId: value.probeId,
+  };
+}
+
 function parseAgentRuntimeProviderConfig(
   kind: string,
   providerId: string | undefined,
@@ -686,6 +720,7 @@ export function encodeAgentActivity(value: AgentActivity): Uint8Array {
       clientSeq: BigInt(value.clientSeq),
       observedAtMs: BigInt(value.observedAtMs),
       isHeartbeat: value.isHeartbeat ?? false,
+      probeId: value.probeId ?? "",
       runtimeErrorClass: value.runtimeError?.errorClass ?? "",
       runtimeErrorReason: value.runtimeError?.errorReason ?? "",
       runtimeErrorFingerprint: value.runtimeError?.fingerprint ?? "",
@@ -769,6 +804,7 @@ export function decodeAgentActivity(bytes: Uint8Array): AgentActivity {
     launchId: v.launchId,
     ...(v.activityKind ? { activityKind: v.activityKind as AgentActivity["activityKind"] } : {}),
     ...(v.isHeartbeat ? { isHeartbeat: true } : {}),
+    ...(v.probeId ? { probeId: v.probeId } : {}),
     ...(entries.length ? { entries } : {}),
     ...(v.messageId ? { messageId: v.messageId } : {}),
     ...(v.conversationId ? { conversationId: v.conversationId } : {}),

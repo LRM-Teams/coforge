@@ -1,0 +1,161 @@
+import { RedisClient } from "bun";
+import { encodeAgentActivityProbe } from "@lrm/coforge-sdk/internal";
+
+import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
+import { createCentrifugoServerApi, daemonControlChannel } from "../centrifugo/server-api.server";
+import type { CentrifugoServerApi } from "../centrifugo/server-api.server";
+import { getAgentDisplay, type AgentDisplay, type Scope } from "./agent-display.server";
+
+/** How often `AgentActivitySweep.tick()` looks for stale busy leases. See ADR 0020. */
+export const ACTIVITY_SWEEP_INTERVAL_MS = 5_000;
+/** How long a liveness probe waits for the daemon's reply before the sweep synthesises `online`. */
+export const ACTIVITY_PROBE_TIMEOUT_MS = 5_000;
+/** Bounds one tick's Redis and Centrifugo-publish cost regardless of fleet size. */
+const SWEEP_BATCH_LIMIT = 200;
+/** Shorter than the 5s interval on purpose, so a slow tick cannot overlap the next one. */
+const SWEEP_LOCK_TTL_MS = 4_500;
+const SWEEP_LOCK_KEY = "coforge:agent-display:activity-sweep:lock";
+
+export interface AgentActivitySweepLock {
+  /** Returns true when this instance acquired the lock for the current tick. */
+  acquire(instanceId: string): Promise<boolean>;
+}
+
+type LockRedisPort = {
+  set(key: string, value: string, ...options: Array<string | number>): Promise<unknown>;
+};
+
+export class RedisAgentActivitySweepLock implements AgentActivitySweepLock {
+  constructor(private readonly redis: LockRedisPort) {}
+
+  async acquire(instanceId: string): Promise<boolean> {
+    const result = await this.redis.set(SWEEP_LOCK_KEY, instanceId, "NX", "PX", SWEEP_LOCK_TTL_MS);
+    return result === "OK";
+  }
+}
+
+/**
+ * Server-side liveness sweep (ADR 0020, CR-B of PR #251). Every tick, one web
+ * instance (decided by `lock`) walks the `activity-leases` index for busy
+ * displays whose lease has lapsed, asks the daemon directly via
+ * `AgentActivityProbe`, and — once a probe times out without a reply —
+ * synthesises `online` and pushes the corrected display so already-connected
+ * browsers flip without waiting for their own next refresh.
+ *
+ * Construction never starts the loop; call `start()` explicitly. This keeps
+ * the sweep inert at module import and in unit tests unless a test opts in.
+ */
+export class AgentActivitySweep {
+  private timer: ReturnType<typeof setInterval> | undefined;
+  private ticking = false;
+
+  constructor(
+    private readonly display: Pick<AgentDisplay, "staleLeases" | "sweepStale">,
+    private readonly api: Pick<CentrifugoServerApi, "publish" | "publishJson">,
+    private readonly lock: AgentActivitySweepLock,
+    private readonly clock: () => number = Date.now,
+    private readonly instanceId: string = crypto.randomUUID(),
+  ) {}
+
+  start(): void {
+    if (this.timer) return;
+    this.timer = setInterval(() => void this.tick(), ACTIVITY_SWEEP_INTERVAL_MS);
+  }
+
+  stop(): void {
+    if (!this.timer) return;
+    clearInterval(this.timer);
+    this.timer = undefined;
+  }
+
+  /**
+   * Never rejects: this runs off a `setInterval` with no caller to observe a
+   * rejection, so every failure is caught and logged instead. Skips outright
+   * if a previous call is still in flight (a slow tick should not overlap
+   * the next one in this same process; the Redis lock separately keeps two
+   * different processes from ticking at once).
+   */
+  async tick(): Promise<void> {
+    if (this.ticking) return;
+    this.ticking = true;
+    try {
+      if (!(await this.lock.acquire(this.instanceId))) return;
+      const now = this.clock();
+      const stale = await this.display.staleLeases(now, SWEEP_BATCH_LIMIT);
+      const results = await Promise.allSettled(stale.map((scope) => this.sweepOne(scope)));
+      results.forEach((result, index) => {
+        if (result.status !== "rejected") return;
+        const scope = stale[index]!;
+        console.error(
+          JSON.stringify({
+            event: "agent_activity_sweep.scope_failed",
+            workspace_id: scope.workspaceId,
+            computer_id: scope.computerId,
+            agent_id: scope.agentId,
+            error_type: result.reason instanceof Error ? result.reason.name : typeof result.reason,
+          }),
+        );
+      });
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "agent_activity_sweep.tick_failed",
+          error_type: error instanceof Error ? error.name : typeof error,
+        }),
+      );
+    } finally {
+      this.ticking = false;
+    }
+  }
+
+  private async sweepOne(scope: Scope): Promise<void> {
+    const probeId = crypto.randomUUID();
+    const result = await this.display.sweepStale(scope, {
+      probeId,
+      timeoutMs: ACTIVITY_PROBE_TIMEOUT_MS,
+    });
+    if (result.outcome === "probe") {
+      await this.api.publish(
+        daemonControlChannel(scope.workspaceId, scope.computerId),
+        encodeAgentActivityProbe({
+          protocolMajor: 1,
+          requestId: crypto.randomUUID(),
+          workspaceId: scope.workspaceId,
+          computerId: scope.computerId,
+          agentId: scope.agentId,
+          probeId,
+        }),
+      );
+      return;
+    }
+    if (result.outcome === "expired")
+      await this.api.publishJson(agentStatusChannel(scope.workspaceId), {
+        type: "agent:display",
+        ...result.snapshot,
+      });
+  }
+}
+
+let singleton: AgentActivitySweep | undefined;
+
+function getAgentActivitySweep(): AgentActivitySweep {
+  const redisUrl = process.env.REDIS_URL;
+  if (!redisUrl) throw new Error("REDIS_URL is required for the Agent activity sweep");
+  singleton ??= new AgentActivitySweep(
+    getAgentDisplay(),
+    createCentrifugoServerApi(),
+    new RedisAgentActivitySweepLock(new RedisClient(redisUrl)),
+  );
+  return singleton;
+}
+
+/**
+ * Idempotent per process. Only the real-traffic compositions call this — the
+ * activity publication handler and the Centrifugo RPC composition — never a
+ * unit test unless the test calls it explicitly.
+ */
+export function ensureAgentActivitySweep(): AgentActivitySweep {
+  const sweep = getAgentActivitySweep();
+  sweep.start();
+  return sweep;
+}

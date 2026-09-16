@@ -74,6 +74,7 @@ import { getReminderCapabilityLease } from "../reminders/reminder-capability.ser
 import { daemonControlChannel } from "./server-api.server";
 import { encodeReminderSync } from "@lrm/coforge-sdk/internal";
 import { getAgentDisplay } from "../agents/agent-display.server";
+import { ensureAgentActivitySweep } from "../agents/agent-activity-sweep.server";
 
 const unavailable: CentrifugoRpcError = {
   code: 503,
@@ -167,6 +168,8 @@ export function createCentrifugoRpcHandler(db: PrismaClient | null = getDatabase
     const agentRepository = new PrismaAgentRepository(db);
     const agentAuthorization = new RepositoryAgentAuthorization(agentRepository);
     const centrifugo = createCentrifugoServerApi();
+    // Real traffic: idempotent per process, inert until this composition runs.
+    ensureAgentActivitySweep();
     const sessions = createAgentSessions(db);
     const controlStore = new PrismaAgentControlStore(db);
     const control = new AgentControl(

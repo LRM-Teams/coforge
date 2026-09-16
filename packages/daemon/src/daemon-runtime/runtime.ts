@@ -40,6 +40,7 @@ import {
   type WorkspaceInfoResponse,
   type AgentStartIntent,
   type AgentStopIntent,
+  type AgentActivityProbe,
   type AgentWorkspaceResetRequest,
   type AgentMessageDelivery,
   type InboxResponse,
@@ -550,6 +551,15 @@ export class DaemonRuntime {
         ),
       );
       this.#subscribe(
+        this.#transport.onAgentActivityProbe?.(
+          receive(pendingControl, (probe: AgentActivityProbe) =>
+            this.handleAgentActivityProbe(probe).catch((error) =>
+              this.#logAgentActivityProbeFailure(probe, error),
+            ),
+          ),
+        ),
+      );
+      this.#subscribe(
         this.#transport.onAgentWorkspaceReset?.(
           receive(
             pendingControl,
@@ -724,6 +734,19 @@ export class DaemonRuntime {
       computer_id: intent.computerId,
       agent_id: intent.agentId,
       provider: intent.provider,
+      error_code: diagnosticErrorCode(error),
+      outcome: "failed",
+    });
+  }
+
+  #logAgentActivityProbeFailure(probe: AgentActivityProbe, error: unknown): void {
+    logger.error("Agent activity probe failed", {
+      event: "agent_activity_probe:failed",
+      request_id: probe.requestId,
+      workspace_id: probe.workspaceId,
+      computer_id: probe.computerId,
+      agent_id: probe.agentId,
+      probe_id: probe.probeId,
       error_code: diagnosticErrorCode(error),
       outcome: "failed",
     });
@@ -1290,6 +1313,43 @@ export class DaemonRuntime {
     }
     if (this.#agentControl.managed(intent.agentId)) throw new Error("Agent requires a fenced Stop");
     await this.stopAgent(intent.agentId);
+  }
+
+  /**
+   * Answers a server-side liveness probe with the Agent's real current activity: the remembered
+   * last busy activity when one is live for the current launch, otherwise idle when the Agent is
+   * launched but not busy. An Agent that is not running at all gets no reply; the process presence
+   * lease already tells the server the process is gone. Never mutates any other runtime state.
+   */
+  async handleAgentActivityProbe(probe: AgentActivityProbe): Promise<void> {
+    this.#assertOwnIntent(probe);
+    const launch = this.#currentActivityLaunches.get(probe.agentId);
+    if (!launch) {
+      logger.info("Activity probe received for an Agent that is not running", {
+        event: "agent_activity_probe:not_running",
+        request_id: probe.requestId,
+        workspace_id: probe.workspaceId,
+        computer_id: probe.computerId,
+        agent_id: probe.agentId,
+        probe_id: probe.probeId,
+        outcome: "skipped",
+      });
+      return;
+    }
+    const remembered = this.#lastBusyActivity.get(probe.agentId);
+    if (remembered && remembered.launch === launch) {
+      this.#emitAgentActivity(probe.agentId, launch, {
+        ...remembered.activity,
+        probeId: probe.probeId,
+        entries: [],
+        isHeartbeat: false,
+      });
+      return;
+    }
+    this.#emitAgentActivity(probe.agentId, launch, {
+      ...this.#activity(probe.agentId, AGENT_ACTIVITY_DETAIL_KIND.IDLE, "info", ""),
+      probeId: probe.probeId,
+    });
   }
 
   async handleAgentMessage(message: AgentMessageDelivery): Promise<void> {

@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
 
 const {
+  ACTIVITY_PROBE_TIMEOUT_MS,
   applyAgentDisplaySnapshot,
   applyAgentStatusEvent,
   decodeAgentStatusEvent,
   expireAgentStatuses,
   mergeAgentStatusSnapshot,
+  nextDisplayRefreshDelayMs,
 } = await import("../src/features/agents/agent-status-realtime");
 import type {
   AgentStatusEvent,
@@ -187,6 +189,36 @@ test("process publications and list snapshots preserve a newer live display", ()
   );
   const staleList = live.map((agent) => ({ ...agent, display: display({ revision: 2 }) }));
   expect(mergeAgentStatusSnapshot(live, staleList)[0]?.display?.revision).toBe(3);
+});
+
+test("nextDisplayRefreshDelayMs pushes a busy display's refresh past the probe timeout", () => {
+  const now = 1_000_000;
+  const workingAgent = {
+    ...agents[0]!,
+    display: display({ activityKind: "working", expiresAt: now + 40_000 }),
+  };
+  expect(nextDisplayRefreshDelayMs([workingAgent], now)).toBe(
+    workingAgent.display.expiresAt! + ACTIVITY_PROBE_TIMEOUT_MS + 1_000 - now + 10,
+  );
+});
+
+test("nextDisplayRefreshDelayMs keeps today's timing for non-busy displays", () => {
+  const now = 1_000_000;
+  for (const activityKind of ["online", "error", "offline"] as const) {
+    const agent = { ...agents[0]!, display: display({ activityKind, expiresAt: 1_050_000 }) };
+    expect(nextDisplayRefreshDelayMs([agent], now)).toBe(1_050_000 - now + 10);
+  }
+});
+
+test("nextDisplayRefreshDelayMs floors an already-elapsed deadline and ignores agents without a display", () => {
+  const now = 1_000_000;
+  const elapsed = {
+    ...agents[0]!,
+    display: display({ activityKind: "online", expiresAt: 900_000 }),
+  };
+  expect(nextDisplayRefreshDelayMs([elapsed], now)).toBe(1_000);
+  expect(nextDisplayRefreshDelayMs([agents[0]!], now)).toBeUndefined();
+  expect(nextDisplayRefreshDelayMs([], now)).toBeUndefined();
 });
 
 test("an expired display high-water cannot be revived by an equal or lower revision", () => {

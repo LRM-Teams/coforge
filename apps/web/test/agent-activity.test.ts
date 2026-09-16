@@ -41,6 +41,14 @@ test("decodeActivityObservation drops a busy heartbeat frame", () => {
   expect(decoded).toBeUndefined();
 });
 
+test("decodeActivityObservation drops a reply to the server's own liveness probe", () => {
+  const decoded = decodeActivityObservation(
+    encodeAgentActivity({ ...baseWireActivity, probeId: "probe-1", entries: [] }),
+    { workspaceId: "workspace-1" },
+  );
+  expect(decoded).toBeUndefined();
+});
+
 test("decodeActivityObservation drops a content-free runtime_progress frame", () => {
   const decoded = decodeActivityObservation(
     encodeAgentActivity({ ...baseWireActivity, detailKind: "runtime_progress", detail: "" }),

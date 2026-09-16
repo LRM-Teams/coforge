@@ -12,6 +12,7 @@ import {
   getAgentDisplay,
   type AgentDisplay,
 } from "./agent-display.server";
+import { ensureAgentActivitySweep } from "./agent-activity-sweep.server";
 import { createCentrifugoServerApi } from "../centrifugo/server-api.server";
 import { agentStatusChannel } from "../../features/agents/agent-status-realtime";
 import { agentActivityChannel } from "../../features/agents/agent-activity";
@@ -90,12 +91,14 @@ export async function handleAgentActivityPublication(
         ? "offline"
         : activityKindForObservation(activity);
     const cloudActivity = { ...activity, activityKind: mappedKind };
-    // A busy heartbeat or a content-free runtime_progress frame only renews the
-    // display lease; it carries nothing worth keeping in history or the recent-
-    // activity popover.
+    // A busy heartbeat, a content-free runtime_progress frame, or a reply to
+    // the server's own liveness probe only renews the display lease; none of
+    // them carry anything worth keeping in history or the recent-activity
+    // popover.
     const isFillerActivity =
       activity.isHeartbeat === true ||
-      activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS;
+      activity.detailKind === AGENT_ACTIVITY_DETAIL_KIND.RUNTIME_PROGRESS ||
+      Boolean(activity.probeId);
     const history = isFillerActivity
       ? Promise.resolve()
       : dependencies.observe({ ...cloudActivity, computerId }).catch(() => {});
@@ -140,6 +143,8 @@ export function createAgentActivityPublicationHandler() {
     try {
       display = getAgentDisplay();
       centrifugo = createCentrifugoServerApi();
+      // Real traffic: idempotent per process, inert until this composition runs.
+      ensureAgentActivitySweep();
     } catch {
       // History acceptance remains independent when the optional display path is unavailable.
     }
