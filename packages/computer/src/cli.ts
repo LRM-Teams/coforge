@@ -9,13 +9,17 @@ import { ComputerLogin } from "./login";
 import { CliError, loginError, safeErrorDetail, setupError } from "./errors";
 import { FileCredentialStore } from "./credential-store";
 import {
-  resolveComputerBinaryDirectory,
   resolveComputerInstallDirectory,
   resolveComputerStateDirectory,
   resolveDaemonSocketPath,
 } from "./paths";
 import { ComputerUpdater, UpdateError } from "./updater";
-import { launchUpgradeCoordinator } from "./release/upgrade-coordinator";
+import { resolveUpgradeCoordinatorPaths, runUpgradeOperation } from "./release/upgrade-runner";
+import {
+  createLocalUpgradeOperation,
+  type UpgradeOperation,
+  type UpgradeOperationKind,
+} from "./release/upgrade-operation";
 import { runInstallationSource } from "./release/installation-source";
 import { COFORGE_RELEASE_FEED_URL, COFORGE_SERVER_URL } from "./release-channel";
 import { FileComputerConfig, loadBuildProfile } from "./local-config";
@@ -512,24 +516,12 @@ function createLogsCommand(
   };
 }
 
-export function createUpdateCommand(
-  io: {
-    stdout: (line: string) => void;
-    stderr: (line: string) => void;
-  },
-  options: { quietProgress?: boolean } = {},
-): UpdateCommand {
-  const installRoot = resolveComputerInstallDirectory({
-    platform: process.platform,
-    homeDirectory: process.env.HOME ?? process.env.USERPROFILE ?? "",
-    environment: process.env,
-  });
-  const binaryDirectory = resolveComputerBinaryDirectory({
-    platform: process.platform,
-    homeDirectory: process.env.HOME ?? process.env.USERPROFILE ?? "",
-    environment: process.env,
-  });
-  const target = currentComputerPlatform().releaseTarget;
+/** A thin CLI adapter: it builds one operation per command and renders the durable result. */
+export function createUpdateCommand(io: {
+  stdout: (line: string) => void;
+  stderr: (line: string) => void;
+}): UpdateCommand {
+  const { installRoot, binaryDirectory, target } = resolveUpgradeCoordinatorPaths();
   const updater = new ComputerUpdater({
     baseUrl: COFORGE_RELEASE_FEED_URL,
     target,
@@ -537,33 +529,15 @@ export function createUpdateCommand(
     binaryDirectory,
     onStage: (stage) => io.stdout(`==> ${stage}`),
   });
-  const supervisorStatePath = resolveComputerStateDirectory({
-    platform: process.platform,
-    homeDirectory: homedir(),
-    environment: Bun.env,
-  });
   const coordinate = (
-    operation: "upgrade" | "rollback",
+    operation: UpgradeOperationKind,
     selection: string,
     localDirectory?: string,
-    quietHeader = false,
+    quiet = false,
   ) =>
-    launchUpgradeCoordinator({
-      operation,
-      selection,
-      localDirectory,
-      quietHeader,
-      installRoot,
-      binaryDirectory,
-      target,
-      baseUrl: COFORGE_RELEASE_FEED_URL,
-      supervisorStatePath,
-      supervisorSocketPath: resolveDaemonSocketPath({
-        platform: process.platform,
-        stateDirectory: supervisorStatePath,
-      }),
-      quietProgress: options.quietProgress,
-    });
+    runUpgradeOperation(
+      createLocalUpgradeOperation(operation, selection, { localDirectory, quiet }),
+    );
   return {
     resolveVersion: (selection) =>
       runInstallationSource({ baseUrl: COFORGE_RELEASE_FEED_URL, target, selection }),
@@ -598,27 +572,23 @@ export function createUpdateCommand(
   };
 }
 
-export async function runRemoteUpgrade(): Promise<void> {
-  const requestId = Bun.env.COFORGE_UPGRADE_REQUEST_ID;
+/** Runs one server-triggered operation. The Daemon observes it only through its durable
+ * receipt, so this entry point produces no terminal output and never throws past the receipt. */
+export async function runRemoteUpgrade(operation: UpgradeOperation): Promise<void> {
   try {
-    await createUpdateCommand(
-      { stdout: () => {}, stderr: () => {} },
-      { quietProgress: true },
-    ).upgrade(Bun.env.COFORGE_UPGRADE_VERSION ?? "latest");
+    await runUpgradeOperation(operation);
   } finally {
     // The job has no KeepAlive, so leaving it in place cannot make it respawn; this only clears
     // the now-idle `launchctl list` entry and its plist once the result file above is durable, so
     // a retried upgrade never collides with a stale label. Best-effort: `launchctl bootout`
     // targeting your own still-running job is unreliable on some macOS versions, and the
     // Coordinator's startup sweep is the backstop if this does not complete.
-    if (requestId) {
-      const stateDirectory = resolveComputerStateDirectory({
-        platform: process.platform,
-        homeDirectory: homedir(),
-        environment: Bun.env,
-      });
-      await cleanupComputerUpgradeJob(requestId, { stateDirectory }).catch(() => {});
-    }
+    const stateDirectory = resolveComputerStateDirectory({
+      platform: process.platform,
+      homeDirectory: homedir(),
+      environment: Bun.env,
+    });
+    await cleanupComputerUpgradeJob(operation.requestId, { stateDirectory }).catch(() => {});
   }
 }
 

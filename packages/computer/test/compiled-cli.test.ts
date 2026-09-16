@@ -158,7 +158,7 @@ test("detached upgrade shows one download and restores a healthy version after a
     const caller = join(directory, "upgrade-caller.ts");
     await Bun.write(
       caller,
-      `import { launchUpgradeCoordinator } from ${JSON.stringify(new URL("../src/release/upgrade-coordinator.ts", import.meta.url).pathname)}; try { const result = await launchUpgradeCoordinator(JSON.parse(Bun.argv[2])); console.log(result.status); } catch (error) { console.error(error.message); process.exitCode = 1; }`,
+      `import { launchUpgradeCoordinator } from ${JSON.stringify(new URL("../src/release/upgrade-coordinator.ts", import.meta.url).pathname)}; try { const { operation, ...paths } = JSON.parse(Bun.argv[2]); const result = await launchUpgradeCoordinator(operation, paths); console.log(result.status); } catch (error) { console.error(error.message); process.exitCode = 1; }`,
     );
     for (const version of ["9.0.0-test", "10.0.0"]) {
       const child = Bun.spawn(
@@ -166,11 +166,16 @@ test("detached upgrade shows one download and restores a healthy version after a
           process.execPath,
           caller,
           JSON.stringify({
+            operation: {
+              requestId: crypto.randomUUID(),
+              operation: "upgrade",
+              selection: version,
+              origin: "cli",
+              quiet: false,
+            },
             installRoot,
             baseUrl: server.url.href,
             target: "linux-x64",
-            selection: version,
-            operation: "upgrade",
             executablePath: executable,
             supervisorSocketPath: join(directory, "absent-supervisor.sock"),
             supervisorStatePath: join(directory, "empty-supervisor"),

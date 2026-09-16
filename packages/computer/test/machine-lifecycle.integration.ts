@@ -328,7 +328,7 @@ test.skipIf(!systemdUserAvailable)(
     if (!Bun.env.COFORGE_NATIVE_TEST_CALLER)
       await writeFile(
         callerPath,
-        `import { launchUpgradeCoordinator } from ${JSON.stringify(new URL("../src/release/upgrade-coordinator.ts", import.meta.url).pathname)}; await launchUpgradeCoordinator(JSON.parse(Bun.argv[2]));`,
+        `import { launchUpgradeCoordinator } from ${JSON.stringify(new URL("../src/release/upgrade-coordinator.ts", import.meta.url).pathname)}; const { operation, ...paths } = JSON.parse(Bun.argv[2]); await launchUpgradeCoordinator(operation, paths);`,
       );
     const invoke = (selection: string, operation = "upgrade") =>
       Bun.spawn(
@@ -336,11 +336,16 @@ test.skipIf(!systemdUserAvailable)(
           process.execPath,
           callerPath,
           JSON.stringify({
+            operation: {
+              requestId: crypto.randomUUID(),
+              operation,
+              selection,
+              origin: "cli",
+              quiet: false,
+            },
             installRoot,
             target: "linux-x64",
             baseUrl: feed.url.toString(),
-            selection,
-            operation,
             supervisorSocketPath: socketPath,
             supervisorStatePath: stateDirectory,
             executablePath: installed,
