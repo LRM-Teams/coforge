@@ -58,6 +58,9 @@ export interface ReminderClock {
   cancel(timer: unknown): void;
 }
 
+/** Consumed receipts stay this long past their retry deadline as a re-fire fence, then go. */
+const RECEIPT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
 const defaultClock: ReminderClock = {
   now: Date.now,
   schedule(callback, delayMs) {
@@ -149,7 +152,7 @@ export class ReminderScheduler {
       if (!receipt || receipt.serverResult !== "accepted" || !receipt.serverFired) return false;
       receipt.consumed = true;
       receipt.terminal = true;
-      await this.store.write(agentId, receipts);
+      await this.store.write(agentId, this.#retained(receipts));
       this.#receipts.set(this.#receiptKey(agentId, reminderId, version), receipt);
       this.#cancelReceipt(agentId, reminderId, version);
       return true;
@@ -464,8 +467,14 @@ export class ReminderScheduler {
     }
     if (index < 0) receipts.push(merged);
     else receipts[index] = merged;
-    await this.store.write(receipt.agentId, receipts);
+    await this.store.write(receipt.agentId, this.#retained(receipts));
     return merged;
+  }
+
+  /** Drops consumed receipts whose re-fire fence has expired so the file stays bounded. */
+  #retained(receipts: readonly ReminderReceipt[]): ReminderReceipt[] {
+    const cutoff = this.clock.now() - RECEIPT_RETENTION_MS;
+    return receipts.filter((item) => !(item.consumed && item.terminal && item.deadline < cutoff));
   }
 
   async #deleteReceipt(receipt: ReminderReceipt): Promise<boolean> {

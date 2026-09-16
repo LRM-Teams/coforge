@@ -519,3 +519,46 @@ test("a premature delay beyond one budget rearms a fresh authoritative occurrenc
     15 * 60_000,
   );
 });
+
+test("a receipt write drops consumed receipts whose re-fire fence expired", async () => {
+  const store = new MemoryStore();
+  const clock = new Clock();
+  const consumed = (reminderId: string, deadline: number): ReminderReceipt => ({
+    workspaceId: "workspace-a",
+    computerId: "computer-a",
+    agentId: "agent-a",
+    reminderId,
+    version: 1,
+    job: { ...job, reminderId, version: 1 },
+    requestId: crypto.randomUUID(),
+    firedAtClient: new Date(deadline).toISOString(),
+    attempt: 2,
+    deadline,
+    nextAt: deadline,
+    serverResult: "accepted",
+    serverFired: true,
+    wakeAccepted: true,
+    consumed: true,
+    terminal: true,
+  });
+  const day = 24 * 60 * 60 * 1000;
+  store.receipts = [
+    consumed("123e4567-e89b-42d3-a456-426614174101", clock.time - 8 * day),
+    consumed("123e4567-e89b-42d3-a456-426614174102", clock.time - 1 * day),
+  ];
+  const scheduler = new ReminderScheduler(
+    { workspaceId: "workspace-a", computerId: "computer-a" },
+    store,
+    async (request) => ({ ...request, result: "accepted", fired: true, catchup: false }),
+    async () => true,
+    clock,
+  );
+  await scheduler.apply(snapshot([job]));
+  await clock.advance(1000);
+  await scheduler.awaitIdle();
+
+  expect(store.receipts.map((r) => r.reminderId)).toEqual([
+    "123e4567-e89b-42d3-a456-426614174102",
+    job.reminderId,
+  ]);
+});
